@@ -1,0 +1,191 @@
+"use client";
+
+import React, { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Modal } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast-notification";
+
+interface AddAthleteFormProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (data: any) => void;
+  categories: { id: string; name: string }[];
+}
+
+export function AddAthleteForm({
+  isOpen,
+  onClose,
+  onSubmit,
+  categories = [],
+}: AddAthleteFormProps) {
+  const { showToast } = useToast();
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    birthYear: "",
+    categoryId: "",
+    medicalCertExpiry: "",
+    accessCode: Math.random().toString(36).substring(2, 7).toUpperCase(),
+  });
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Validate form
+    if (
+      !formData.firstName ||
+      !formData.lastName ||
+      !formData.birthYear ||
+      !formData.medicalCertExpiry
+    ) {
+      showToast("error", "Compila tutti i campi obbligatori");
+      return;
+    }
+
+    // Submit form
+    onSubmit({
+      ...formData,
+      name: `${formData.firstName} ${formData.lastName}`,
+      age: new Date().getFullYear() - parseInt(formData.birthYear),
+      status: "active",
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.firstName}${formData.lastName}`,
+      accessCode: formData.accessCode,
+    });
+
+    // Reset form
+    setFormData({
+      firstName: "",
+      lastName: "",
+      birthYear: "",
+      categoryId: "",
+      medicalCertExpiry: "",
+      accessCode: Math.random().toString(36).substring(2, 7).toUpperCase(),
+    });
+
+    // Close modal
+    onClose();
+
+    // Show success toast
+    showToast("success", "Atleta aggiunto con successo");
+  };
+
+  return (
+    <Modal
+      title="Aggiungi Nuovo Atleta"
+      description="Inserisci i dettagli del nuovo atleta"
+      isOpen={isOpen}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Annulla
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            Salva
+          </Button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="firstName">Nome</Label>
+            <Input
+              id="firstName"
+              name="firstName"
+              value={formData.firstName}
+              onChange={handleChange}
+              placeholder="Es. Mario"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="lastName">Cognome</Label>
+            <Input
+              id="lastName"
+              name="lastName"
+              value={formData.lastName}
+              onChange={handleChange}
+              placeholder="Es. Rossi"
+              required
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="birthYear">Anno di Nascita</Label>
+          <Input
+            id="birthYear"
+            name="birthYear"
+            type="number"
+            min="1900"
+            max={new Date().getFullYear()}
+            value={formData.birthYear}
+            onChange={handleChange}
+            placeholder="Es. 2010"
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="categoryId">Categoria (Opzionale)</Label>
+          <select
+            id="categoryId"
+            name="categoryId"
+            value={formData.categoryId}
+            onChange={handleChange}
+            className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+          >
+            <option value="">Nessuna categoria (opzionale)</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="medicalCertExpiry">Scadenza Certificato Medico</Label>
+          <Input
+            id="medicalCertExpiry"
+            name="medicalCertExpiry"
+            type="date"
+            value={formData.medicalCertExpiry}
+            onChange={handleChange}
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="accessCode">Codice Accesso Genitore</Label>
+          <Input
+            id="accessCode"
+            name="accessCode"
+            value={formData.accessCode}
+            onChange={handleChange}
+            required
+            readOnly
+            className="bg-gray-50"
+          />
+          <p className="text-xs text-muted-foreground">
+            Codice univoco per l'accesso del genitore
+          </p>
+        </div>
+      </form>
+    </Modal>
+  );
+}

@@ -1,0 +1,435 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                    String             @id @default(uuid()) @db.Uuid
+  email                 String             @unique
+  password_hash         String
+  first_name            String?
+  last_name             String?
+  phone                 String?
+  email_verified_at     DateTime?
+  phone_verified_at     DateTime?
+  phone_verification_required Boolean      @default(false)
+  role                  String             @default("user")
+  is_club_creator       Boolean            @default(false)
+  organization_name     String?
+  token_verification_id String?            @unique
+  user_metadata         Json?
+  created_at            DateTime           @default(now())
+  updated_at            DateTime           @updatedAt
+  sessions              Session[]
+  created_clubs         Club[]             @relation("ClubCreator")
+  club_access           OrganizationUser[]
+  athlete_profiles      Athlete[]
+  notifications         Notification[]
+  external_accounts     ExternalAccount[]
+  verification_challenges AuthVerificationChallenge[]
+
+  @@map("users")
+}
+
+model ExternalAccount {
+  id                  String   @id @default(uuid()) @db.Uuid
+  user_id             String   @db.Uuid
+  provider            String
+  provider_account_id String
+  email               String?
+  display_name        String?
+  avatar_url          String?
+  data                Json?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  user                User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_account_id])
+  @@index([user_id])
+  @@map("external_accounts")
+}
+
+model AuthVerificationChallenge {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  channel    String
+  purpose    String
+  target     String
+  code_hash  String
+  expires_at DateTime
+  consumed_at DateTime?
+  attempts   Int      @default(0)
+  data       Json?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, channel, purpose])
+  @@index([target, channel])
+  @@map("auth_verification_challenges")
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  token      String   @unique
+  user_id    String   @db.Uuid
+  expires_at DateTime
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("sessions")
+}
+
+model Club {
+  id                    String             @id @default(uuid()) @db.Uuid
+  slug                  String             @unique
+  name                  String
+  creator_id            String             @db.Uuid
+  logo_url              String?
+  address               String?
+  city                  String?
+  postal_code           String?
+  region                String?
+  province              String?
+  country               String?            @default("Italia")
+  contact_email         String?
+  contact_phone         String?
+  business_name         String?
+  vat_number            String?
+  fiscal_code           String?
+  pec                   String?
+  sdi_code              String?
+  tax_regime            String?
+  bank_name             String?
+  iban                  String?
+  legal_address         String?
+  legal_city            String?
+  legal_postal_code     String?
+  legal_region          String?
+  legal_province        String?
+  legal_country         String?
+  representative_name   String?
+  representative_surname String?
+  representative_fiscal_code String?
+  payment_pin           String?
+  settings              Json?
+  categories            Json?
+  trainings             Json?
+  structures            Json?
+  members               Json?
+  trainers              Json?
+  staff_members         Json?
+  sponsors              Json?
+  sponsor_payments      Json?
+  bank_accounts         Json?
+  transactions          Json?
+  expected_income       Json?
+  expected_expenses     Json?
+  transfers             Json?
+  document_templates    Json?
+  matches               Json?
+  weekly_schedule       Json?
+  appointments          Json?
+  payment_plans         Json?
+  discounts             Json?
+  opening_hours         Json?
+  procure               Json?
+  secretariat_notes     Json?
+  clothing_kits         Json?
+  clothing_inventory    Json?
+  clothing_products     Json?
+  kit_assignments       Json?
+  jersey_groups         Json?
+  jersey_assignments    Json?
+  dashboard_data        Json?
+  created_at            DateTime           @default(now())
+  updated_at            DateTime           @updatedAt
+  creator               User               @relation("ClubCreator", fields: [creator_id], references: [id], onDelete: Cascade)
+  dashboards            Dashboard[]
+  organization_users    OrganizationUser[]
+  athletes              Athlete[]
+  medical_certificates  MedicalCertificate[]
+  payment_methods       PaymentMethod[]
+  payments              AthletePayment[]
+  invoices              Invoice[]
+  receipts              Receipt[]
+  trainer_payments      TrainerPayment[]
+  notifications         Notification[]
+  resource_items        ClubResourceItem[]
+  training_attendance   TrainingAttendance[]
+
+  @@map("clubs")
+}
+
+model Dashboard {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  creator_id      String?  @db.Uuid
+  slug            String   @unique
+  settings        Json?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("dashboards")
+}
+
+model OrganizationUser {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  user_id         String   @db.Uuid
+  role            String
+  is_primary      Boolean  @default(false)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, user_id])
+  @@index([user_id])
+  @@map("organization_users")
+}
+
+model Athlete {
+  id              String               @id @default(uuid()) @db.Uuid
+  organization_id String               @db.Uuid
+  user_id         String?              @db.Uuid
+  first_name      String
+  last_name       String
+  birth_date      DateTime?
+  status          String               @default("active")
+  category_id     String?
+  category_name   String?
+  access_code     String?
+  avatar_url      String?
+  jersey_number   String?
+  data            Json?
+  created_at      DateTime             @default(now())
+  updated_at      DateTime             @updatedAt
+  organization    Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  user            User?                @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  payments        AthletePayment[]
+  invoices        Invoice[]
+  receipts        Receipt[]
+  medical_certificates MedicalCertificate[]
+
+  @@index([organization_id])
+  @@index([user_id])
+  @@map("athletes")
+}
+
+model MedicalCertificate {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  athlete_id      String   @db.Uuid
+  type            String
+  issue_date      DateTime?
+  expiry_date     DateTime?
+  file_url        String?
+  status          String   @default("valid")
+  notes           String?
+  data            Json?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete  @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([athlete_id])
+  @@map("medical_certificates")
+}
+
+model PaymentMethod {
+  id                        String   @id @default(uuid()) @db.Uuid
+  organization_id           String   @db.Uuid
+  name                      String
+  type                      String
+  is_enabled                Boolean  @default(true)
+  processing_fee_percentage Float    @default(0)
+  processing_fee_fixed      Float    @default(0)
+  display_order             Int      @default(0)
+  config                    Json?
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+  organization              Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("payment_methods")
+}
+
+model AthletePayment {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  athlete_id      String?   @db.Uuid
+  description     String
+  amount          Float
+  due_date        DateTime?
+  paid_at         DateTime?
+  status          String    @default("pending")
+  method          String?
+  reference       String?
+  notes           String?
+  data            Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete?  @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  invoice         Invoice?
+  receipt         Receipt?
+
+  @@index([organization_id])
+  @@index([athlete_id])
+  @@map("payments")
+}
+
+model Invoice {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  athlete_id      String?   @db.Uuid
+  payment_id      String?   @unique @db.Uuid
+  invoice_number  String    @unique
+  issue_date      DateTime
+  amount          Float
+  description     String
+  payment_method  String?
+  status          String    @default("issued")
+  is_electronic   Boolean   @default(false)
+  recipient_code  String?
+  vat_number      String?
+  fiscal_code     String?
+  address         String?
+  city            String?
+  postal_code     String?
+  province        String?
+  country         String?
+  notes           String?
+  data            Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete?  @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment         AthletePayment? @relation(fields: [payment_id], references: [id], onDelete: SetNull)
+  receipts        Receipt[]
+
+  @@index([organization_id])
+  @@index([athlete_id])
+  @@map("invoices")
+}
+
+model Receipt {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  athlete_id      String?   @db.Uuid
+  payment_id      String?   @unique @db.Uuid
+  invoice_id      String?   @db.Uuid
+  receipt_number  String?   @unique
+  issue_date      DateTime
+  amount          Float
+  description     String
+  status          String    @default("issued")
+  method          String?
+  file_url        String?
+  data            Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete?  @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment         AthletePayment? @relation(fields: [payment_id], references: [id], onDelete: SetNull)
+  invoice         Invoice?  @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([athlete_id])
+  @@map("receipts")
+}
+
+model TrainerPayment {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  trainer_id      String?
+  trainer_name    String?
+  month           String
+  amount          Float
+  date            DateTime?
+  status          String    @default("pending")
+  receipt_id      String?
+  data            Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("trainer_payments")
+}
+
+model Notification {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String?   @db.Uuid
+  user_id         String?   @db.Uuid
+  title           String
+  message         String
+  type            String
+  read            Boolean   @default(false)
+  data            Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club?     @relation(fields: [organization_id], references: [id], onDelete: SetNull)
+  user            User?     @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([user_id])
+  @@map("notifications")
+}
+
+model ClubResourceItem {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  resource_type   String
+  name            String?
+  status          String?
+  date            DateTime?
+  payload         Json
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, resource_type])
+  @@map("club_resource_items")
+}
+
+model TrainingAttendance {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  training_id     String
+  athlete_id      String
+  status          String
+  notes           String?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, training_id])
+  @@map("training_attendance")
+}
+
+model Asset {
+  id         String   @id @default(uuid()) @db.Uuid
+  bucket     String
+  path       String
+  public_url String
+  file_name  String?
+  mime_type  String?
+  data_base64 String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([bucket, path])
+  @@map("assets")
+}

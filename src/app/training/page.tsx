@@ -1,0 +1,1642 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import Sidebar from "@/components/dashboard/Sidebar";
+import Header from "@/components/dashboard/Header";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import {
+  Plus,
+  Clock,
+  MapPin,
+  Users,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+} from "lucide-react";
+import { WeeklyTrainingSchedule } from "@/components/dashboard/WeeklyTrainingSchedulePanel";
+import { AddTrainingForm } from "@/components/forms/AddTrainingForm";
+import { EditTrainingForm } from "@/components/forms/EditTrainingForm";
+import { useToast } from "@/components/ui/toast-notification";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { supabase } from "@/lib/supabase";
+import { PinInput } from "@/components/ui/pin-input";
+import {
+  getClubData,
+  getClubTrainers,
+  getClubStructures,
+  addClubData,
+  updateClubData,
+  updateClubDataItem,
+  deleteClubDataItem,
+  getAthletesByCategories,
+  saveTrainingAttendance,
+  getClubAthletes,
+  getClubPaymentPin,
+} from "@/lib/simplified-db";
+import {
+  buildTrainingLocationOptions,
+  findTrainingLocationOption,
+  getFallbackTrainingLocationOptions,
+} from "@/lib/training-location-options";
+import {
+  canRecordTrainingAttendance,
+  findTrainingCollisions,
+  getTrainingPhase,
+} from "@/lib/training-utils";
+import {
+  getMedicalCertificateAvailability,
+  getMedicalCertificateAvailabilityLabel,
+} from "@/lib/medical-certificates";
+
+interface TrainingSession {
+  id: string;
+  title: string;
+  date: Date;
+  time: string;
+  endTime?: string | null;
+  category: string;
+  trainer: string;
+  location: string;
+  locationId?: string | null;
+  structureId?: string | null;
+  attendees: number;
+  categoryColor: string;
+  status: "upcoming" | "completed" | "cancelled" | "annullato" | "concluded";
+  attendance?: any[];
+  expectedAttendees?: number;
+}
+
+export default function TrainingPage() {
+  const [date, setDate] = React.useState<Date | undefined>(undefined);
+  const [trainers, setTrainers] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [trainings, setTrainings] = React.useState<TrainingSession[]>([]);
+  const [showAddTrainingModal, setShowAddTrainingModal] = useState(false);
+  const [showEditTrainingModal, setShowEditTrainingModal] = useState(false);
+  const [editingTraining, setEditingTraining] =
+    useState<TrainingSession | null>(null);
+  const [showPinInput, setShowPinInput] = useState(false);
+  const [trainingToDelete, setTrainingToDelete] =
+    useState<TrainingSession | null>(null);
+  const [calendarDate, setCalendarDate] = React.useState<Date | undefined>(
+    undefined,
+  );
+  const { showToast } = useToast();
+  const { user, activeClub } = useAuth();
+
+  // Initialize dates on client side to avoid hydration mismatch
+  React.useEffect(() => {
+    if (!date) setDate(new Date());
+    if (!calendarDate) setCalendarDate(new Date());
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get("action");
+    if (!action) {
+      return;
+    }
+
+    if (action === "new") {
+      setShowAddTrainingModal(true);
+    }
+
+    params.delete("action");
+    const nextQuery = params.toString();
+    const nextUrl = nextQuery
+      ? `${window.location.pathname}?${nextQuery}`
+      : window.location.pathname;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }, []);
+
+  // Load data from database
+  useEffect(() => {
+    const loadData = async () => {
+      if (!activeClub?.id) return;
+
+      try {
+        const [
+          clubCategories,
+          clubTrainers,
+          clubStructures,
+          allAthletes,
+          clubTrainings,
+        ] = await Promise.all([
+          getClubData(activeClub.id, "categories"),
+          getClubTrainers(activeClub.id),
+          getClubStructures(activeClub.id),
+          getClubAthletes(activeClub.id),
+          getClubData(activeClub.id, "trainings"),
+        ]);
+
+        setCategories(Array.isArray(clubCategories) ? clubCategories : []);
+        setTrainers(Array.isArray(clubTrainers) ? clubTrainers : []);
+
+        const builtLocations = buildTrainingLocationOptions(clubStructures);
+        const normalizedLocations =
+          builtLocations.length > 0
+            ? builtLocations
+            : getFallbackTrainingLocationOptions();
+        setLocations(normalizedLocations);
+
+        const formattedTrainings = (clubTrainings || []).map(
+          (training: any) => {
+            // Calculate expected attendees based on categories
+            let expectedAttendees = 0;
+            if (training.categories && Array.isArray(training.categories)) {
+              expectedAttendees = allAthletes.filter((athlete: any) =>
+                training.categories.includes(athlete.data?.category),
+              ).length;
+            } else if (training.category) {
+              // Handle legacy format where category is a string
+              const categoryNames = training.category.split(", ");
+              const matchingCategoryIds = clubCategories
+                .filter((cat: any) => categoryNames.includes(cat.name))
+                .map((cat: any) => cat.id);
+              expectedAttendees = allAthletes.filter((athlete: any) =>
+                matchingCategoryIds.includes(athlete.data?.category),
+              ).length;
+            }
+
+            const matchedLocation = findTrainingLocationOption(
+              normalizedLocations,
+              {
+                structureId: training.structureId,
+                fieldId: training.locationId,
+                locationId: training.locationId,
+                location: training.location,
+              },
+            );
+
+            return {
+              id: training.id,
+              title: training.title,
+              date: new Date(training.date),
+              time: training.time,
+              endTime: training.endTime || null,
+              category: training.category,
+              trainer: training.trainer,
+              location: matchedLocation?.name || training.location || "Campo",
+              locationId: matchedLocation?.fieldId || training.locationId || null,
+              structureId:
+                matchedLocation?.structureId || training.structureId || null,
+              attendees: training.attendees || 0,
+              categoryColor: training.categoryColor || "bg-blue-500 text-white",
+              status: training.status || "upcoming",
+              attendance: Array.isArray(training.attendance)
+                ? training.attendance
+                : [],
+              expectedAttendees: expectedAttendees,
+            };
+          },
+        );
+        setTrainings(formattedTrainings);
+      } catch (error) {
+        console.error("Error loading training data:", error);
+        showToast("error", "Errore nel caricamento dei dati");
+      }
+    };
+
+    loadData();
+  }, [activeClub?.id, showToast]);
+
+  const handleAddTraining = async (trainingData: any) => {
+    if (!activeClub?.id) {
+      showToast("error", "Nessun club attivo selezionato");
+      return;
+    }
+
+    try {
+      // Map category and trainer IDs to names for display
+      const selectedCategories = categories.filter((cat) =>
+        trainingData.categories?.includes(cat.id),
+      );
+      const selectedTrainers = trainers.filter((trainer) =>
+        trainingData.trainers?.includes(trainer.id),
+      );
+      const selectedLocation = findTrainingLocationOption(locations, {
+        structureId: trainingData.structureId,
+        fieldId: trainingData.locationId,
+        locationId: trainingData.locationId,
+        location: trainingData.location,
+      });
+
+      const collisionCandidate = {
+        date: trainingData.date,
+        time: trainingData.time,
+        endTime: trainingData.endTime || null,
+        locationId: selectedLocation?.fieldId || trainingData.locationId || null,
+      };
+      const collisions = findTrainingCollisions(trainings, collisionCandidate);
+
+      if (
+        collisions.length > 0 &&
+        !window.confirm(
+          `Attenzione: nel campo selezionato esistono già ${collisions.length} allenamenti nello stesso orario. Vuoi inserirlo comunque?`,
+        )
+      ) {
+        return;
+      }
+
+      const newTraining = {
+        id: `training-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        title: trainingData.title,
+        date: trainingData.date,
+        time: trainingData.time,
+        endTime: trainingData.endTime || null,
+        categories: trainingData.categories || [],
+        category:
+          selectedCategories.length > 0
+            ? selectedCategories.map((cat) => cat.name).join(", ")
+            : "Categoria",
+        categoryId: trainingData.categories?.[0] || null,
+        trainerIds: trainingData.trainers || [],
+        trainer:
+          selectedTrainers.length > 0
+            ? selectedTrainers.map((trainer) => trainer.name).join(", ")
+            : "Allenatore",
+        structureId: selectedLocation?.structureId || trainingData.structureId || null,
+        locationId: selectedLocation?.fieldId || trainingData.locationId || null,
+        location: selectedLocation?.name || trainingData.location,
+        attendees: 0,
+        categoryColor: "bg-blue-500 text-white",
+        status: "upcoming",
+        generated: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      console.log("Saving new training to database:", newTraining);
+
+      // Save to database
+      const savedTraining = await addClubData(
+        activeClub.id,
+        "trainings",
+        newTraining,
+      );
+      console.log("Training saved successfully:", savedTraining);
+
+      // Calculate expected attendees
+      const allAthletes = await getClubAthletes(activeClub.id);
+      let expectedAttendees = 0;
+      if (trainingData.categories && trainingData.categories.length > 0) {
+        expectedAttendees = allAthletes.filter((athlete: any) =>
+          trainingData.categories.includes(athlete.data?.category),
+        ).length;
+      }
+
+      // Update local state
+      const formattedTraining: TrainingSession = {
+        id: newTraining.id,
+        title: newTraining.title,
+        date: new Date(newTraining.date),
+        time: newTraining.time,
+        endTime: newTraining.endTime,
+        category: newTraining.category,
+        trainer: newTraining.trainer,
+        location: newTraining.location,
+        locationId: newTraining.locationId,
+        structureId: newTraining.structureId,
+        attendees: 0,
+        categoryColor: "bg-blue-500 text-white",
+        status: "upcoming",
+        attendance: [],
+        expectedAttendees: expectedAttendees,
+      };
+
+      setTrainings([...trainings, formattedTraining]);
+      setShowAddTrainingModal(false);
+      showToast(
+        "success",
+        `Allenamento ${formattedTraining.title} aggiunto e salvato con successo`,
+      );
+    } catch (error) {
+      console.error("Error adding training:", error);
+      showToast("error", "Errore durante l'aggiunta dell'allenamento");
+    }
+  };
+
+  // Filter trainings for the selected date (including all statuses)
+  const filteredTrainings = trainings.filter((training) => {
+    if (!date) return false;
+
+    const trainingDate = new Date(training.date);
+    return (
+      trainingDate.getDate() === date.getDate() &&
+      trainingDate.getMonth() === date.getMonth() &&
+      trainingDate.getFullYear() === date.getFullYear()
+    );
+  });
+
+  const getDerivedStatus = (training: TrainingSession) =>
+    getTrainingPhase({
+      date: training.date,
+      time: training.time,
+      endTime: training.endTime,
+      status: training.status,
+    });
+
+  const getStatusBadge = (
+    status:
+      | TrainingSession["status"]
+      | "in_progress",
+  ) => {
+    switch (status) {
+      case "upcoming":
+        return (
+          <Badge className="bg-blue-100 text-blue-800">In Programma</Badge>
+        );
+      case "in_progress":
+        return <Badge className="bg-amber-100 text-amber-800">In corso</Badge>;
+      case "completed":
+        return (
+          <Badge className="bg-green-100 text-green-800">Completato</Badge>
+        );
+      case "concluded":
+        return <Badge className="bg-green-100 text-green-800">Concluso</Badge>;
+      case "cancelled":
+      case "annullato":
+        return <Badge className="bg-red-100 text-red-800">Annullato</Badge>;
+      default:
+        return null;
+    }
+  };
+
+  // Navigation functions for day switching
+  const goToPreviousDay = () => {
+    if (date) {
+      const previousDay = new Date(date);
+      previousDay.setDate(date.getDate() - 1);
+      setDate(previousDay);
+    }
+  };
+
+  const goToNextDay = () => {
+    if (date) {
+      const nextDay = new Date(date);
+      nextDay.setDate(date.getDate() + 1);
+      setDate(nextDay);
+    }
+  };
+
+  const goToToday = () => {
+    setDate(new Date());
+  };
+
+  // Get trainings for calendar view
+  const getTrainingsForDate = (targetDate: Date) => {
+    return trainings.filter((training) => {
+      const trainingDate = new Date(training.date);
+      return (
+        trainingDate.getDate() === targetDate.getDate() &&
+        trainingDate.getMonth() === targetDate.getMonth() &&
+        trainingDate.getFullYear() === targetDate.getFullYear()
+      );
+    });
+  };
+
+  // Check if a date has trainings
+  const hasTrainings = (targetDate: Date) => {
+    return getTrainingsForDate(targetDate).length > 0;
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <Sidebar />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Header title="Allenamenti" />
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <div className="mx-auto max-w-9xl space-y-6">
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Allenamenti
+              </h1>
+              <p className="text-gray-600 mt-2">
+                Pianifica e gestisci il calendario degli allenamenti.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <h2 className="text-xl font-semibold">Calendario Allenamenti</h2>
+              <Button
+                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+                onClick={() => setShowAddTrainingModal(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Nuovo Allenamento
+              </Button>
+            </div>
+
+            <Tabs defaultValue="daily" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="daily">Vista Giornaliera</TabsTrigger>
+                <TabsTrigger value="calendar">Calendario Storico</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="daily" className="space-y-6">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <div className="flex items-center gap-4">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={goToPreviousDay}
+                        className="h-8 w-8"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+
+                      <div className="text-center">
+                        <CardTitle className="text-lg">
+                          {date?.toLocaleDateString("it-IT", {
+                            weekday: "long",
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                          })}
+                        </CardTitle>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={goToToday}
+                          className="text-xs text-blue-600 hover:text-blue-800 mt-1"
+                        >
+                          Vai a oggi
+                        </Button>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={goToNextDay}
+                        className="h-8 w-8"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Quick day navigation */}
+                      <div className="hidden md:flex gap-1">
+                        {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map(
+                          (dayAbbr, dayIndex) => {
+                            const today = new Date();
+                            const startOfWeek = new Date(today);
+                            startOfWeek.setDate(
+                              today.getDate() -
+                                today.getDay() +
+                                (today.getDay() === 0 ? -6 : 1),
+                            );
+                            const currentDay = new Date(startOfWeek);
+                            currentDay.setDate(
+                              startOfWeek.getDate() + dayIndex,
+                            );
+
+                            const isSelected =
+                              date &&
+                              currentDay.getDate() === date.getDate() &&
+                              currentDay.getMonth() === date.getMonth() &&
+                              currentDay.getFullYear() === date.getFullYear();
+
+                            const dayHasTrainings = hasTrainings(currentDay);
+
+                            return (
+                              <Button
+                                key={dayAbbr}
+                                variant={isSelected ? "default" : "ghost"}
+                                size="sm"
+                                onClick={() => setDate(currentDay)}
+                                className={`relative h-8 w-12 text-xs ${
+                                  isSelected
+                                    ? "bg-blue-600 hover:bg-blue-700"
+                                    : ""
+                                }`}
+                              >
+                                {dayAbbr}
+                                {dayHasTrainings && (
+                                  <div className="absolute -top-1 -right-1 h-2 w-2 bg-green-500 rounded-full" />
+                                )}
+                              </Button>
+                            );
+                          },
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {filteredTrainings.length > 0 ? (
+                      <div className="space-y-4">
+                        {filteredTrainings.map((training) => {
+                          const derivedStatus = getDerivedStatus(training);
+                          const hasAttendance =
+                            Array.isArray(training.attendance) &&
+                            training.attendance.length > 0;
+                          const canTakeAttendance =
+                            canRecordTrainingAttendance(training);
+
+                          return (
+                          <div
+                            key={training.id}
+                            className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-medium">{training.title}</h4>
+                              <Badge
+                                className={cn(
+                                  "text-xs",
+                                  training.categoryColor,
+                                )}
+                              >
+                                {training.category}
+                              </Badge>
+                            </div>
+                            <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-3.5 w-3.5" />
+                                <span>
+                                  {training.time}
+                                  {training.endTime
+                                    ? ` - ${training.endTime}`
+                                    : ""}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <MapPin className="h-3.5 w-3.5" />
+                                <span>{training.location}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Users className="h-3.5 w-3.5" />
+                                <span>
+                                  {training.trainer} ·{" "}
+                                  {training.expectedAttendees || 0} atleti
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center mt-4">
+                              <div className="flex items-center gap-2">
+                                {getStatusBadge(derivedStatus)}
+                                {/* Attendance Status Icon */}
+                                {hasAttendance ? (
+                                  <div className="flex items-center gap-1 text-green-600">
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      width="16"
+                                      height="16"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                                    </svg>
+                                    <span className="text-xs">
+                                      Presenze salvate
+                                    </span>
+                                  </div>
+                                ) : canTakeAttendance ? (
+                                  <div className="flex items-center gap-1 text-red-600">
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      width="16"
+                                      height="16"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <circle cx="12" cy="12" r="10"></circle>
+                                      <line
+                                        x1="15"
+                                        y1="9"
+                                        x2="9"
+                                        y2="15"
+                                      ></line>
+                                      <line
+                                        x1="9"
+                                        y1="9"
+                                        x2="15"
+                                        y2="15"
+                                      ></line>
+                                    </svg>
+                                    <span className="text-xs">
+                                      Presenze mancanti
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="flex gap-2">
+                                <>
+                                  {derivedStatus !== "annullato" &&
+                                    canTakeAttendance && (
+                                    <Button
+                                      size="sm"
+                                      className="bg-blue-600 hover:bg-blue-700 mr-2"
+                                      onClick={async () => {
+                                        try {
+                                          // Get all athletes from the simplified_athletes table
+                                          const allAthletes =
+                                            await getClubAthletes(
+                                              activeClub.id,
+                                            );
+
+                                          // Get categories for this training
+                                          const trainingCategories =
+                                            categories.filter((cat) =>
+                                              training.category.includes(
+                                                cat.name,
+                                              ),
+                                            );
+                                          const categoryIds =
+                                            trainingCategories.map(
+                                              (cat) => cat.id,
+                                            );
+
+                                          console.log(
+                                            "Training category string:",
+                                            training.category,
+                                          );
+                                          console.log(
+                                            "Available categories:",
+                                            categories,
+                                          );
+                                          console.log(
+                                            "Matched training categories:",
+                                            trainingCategories,
+                                          );
+                                          console.log(
+                                            "Category IDs to filter by:",
+                                            categoryIds,
+                                          );
+                                          console.log(
+                                            "All athletes from database:",
+                                            allAthletes,
+                                          );
+
+                                          // Filter athletes by categories if categories exist, otherwise use all athletes
+                                          const realAthletes =
+                                            categoryIds.length > 0
+                                              ? allAthletes.filter(
+                                                  (athlete) => {
+                                                    const athleteCategory =
+                                                      athlete.data?.category;
+                                                    console.log(
+                                                      `Athlete ${athlete.first_name} ${athlete.last_name} has category:`,
+                                                      athleteCategory,
+                                                    );
+                                                    const matches =
+                                                      categoryIds.includes(
+                                                        athleteCategory,
+                                                      );
+                                                    console.log(
+                                                      `Category match for ${athlete.first_name}:`,
+                                                      matches,
+                                                    );
+                                                    return matches;
+                                                  },
+                                                )
+                                              : allAthletes;
+
+                                          console.log(
+                                            "Filtered athletes for attendance:",
+                                            realAthletes,
+                                          );
+
+                                          // If no athletes found with category filtering, show all active athletes as fallback
+                                          const finalAthletes =
+                                            realAthletes.length > 0
+                                              ? realAthletes
+                                              : allAthletes.filter(
+                                                  (athlete) =>
+                                                    !athlete.data?.status ||
+                                                    athlete.data.status ===
+                                                      "active",
+                                                );
+
+                                          console.log(
+                                            "Final athletes list:",
+                                            finalAthletes,
+                                          );
+
+                                          // Format athletes for the attendance sheet
+                                          const formattedAthletes =
+                                            finalAthletes.map((athlete) => ({
+                                              id: athlete.id,
+                                              name: `${athlete.first_name} ${athlete.last_name}`,
+                                              avatar:
+                                                athlete.data?.avatar ||
+                                                `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(athlete.first_name + athlete.last_name)}`,
+                                              medicalCertExpiry:
+                                                athlete.data?.medicalCertExpiry ||
+                                                athlete.medical_cert_expiry ||
+                                                athlete.medicalCertExpiry ||
+                                                null,
+                                            }));
+
+                                          console.log(
+                                            "Training categories:",
+                                            trainingCategories,
+                                          );
+                                          console.log(
+                                            "Category IDs:",
+                                            categoryIds,
+                                          );
+                                          console.log(
+                                            "All athletes:",
+                                            allAthletes,
+                                          );
+                                          console.log(
+                                            "Filtered athletes:",
+                                            realAthletes,
+                                          );
+                                          console.log(
+                                            "Formatted athletes:",
+                                            formattedAthletes,
+                                          );
+
+                                          // Create attendance sheet modal
+                                          const attendanceContainer =
+                                            document.createElement("div");
+                                          attendanceContainer.className =
+                                            "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4";
+                                          attendanceContainer.id =
+                                            "attendance-sheet-container";
+                                          document.body.appendChild(
+                                            attendanceContainer,
+                                          );
+
+                                          // Handle save attendance
+                                          const handleSave = async (
+                                            attendanceData: any[],
+                                          ) => {
+                                            try {
+                                              await saveTrainingAttendance(
+                                                activeClub.id,
+                                                training.id,
+                                                attendanceData,
+                                              );
+
+                                              // Update local state
+                                              const updatedTrainings =
+                                                trainings.map((t) =>
+                                                  t.id === training.id
+                                                    ? {
+                                                        ...t,
+                                                        attendance:
+                                                          attendanceData,
+                                                        attendees:
+                                                          attendanceData.filter(
+                                                            (entry) =>
+                                                              entry.present,
+                                                          ).length,
+                                                      }
+                                                    : t,
+                                                );
+                                              setTrainings(updatedTrainings);
+
+                                              document
+                                                .getElementById(
+                                                  "attendance-sheet-container",
+                                                )
+                                                ?.remove();
+                                              showToast(
+                                                "success",
+                                                "Presenze salvate con successo",
+                                              );
+                                            } catch (error) {
+                                              console.error(
+                                                "Error saving attendance:",
+                                                error,
+                                              );
+                                              showToast(
+                                                "error",
+                                                "Errore nel salvataggio delle presenze",
+                                              );
+                                            }
+                                          };
+
+                                          const handleClose = () => {
+                                            document
+                                              .getElementById(
+                                                "attendance-sheet-container",
+                                              )
+                                              ?.remove();
+                                          };
+
+                                          // Create attendance sheet HTML with real data
+                                          const existingAttendance = Array.isArray(
+                                            training.attendance,
+                                          )
+                                            ? training.attendance
+                                            : [];
+                                          const existingAttendanceMap =
+                                            new Map(
+                                              existingAttendance.map(
+                                                (entry: any) => [
+                                                  entry.athleteId,
+                                                  entry,
+                                                ],
+                                              ),
+                                            );
+                                          const presentCount = existingAttendance.filter(
+                                            (entry: any) => entry.present,
+                                          ).length;
+                                          attendanceContainer.innerHTML = `
+                                          <div class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-4xl max-h-[88vh] overflow-y-auto shadow-2xl">
+                                            <div class="flex justify-between items-center mb-4">
+                                              <div>
+                                                <h3 class="text-xl font-medium">${training.title}</h3>
+                                                <p class="text-sm text-gray-500 mt-1">${new Date(training.date).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })} • ${training.time} • ${training.category} • ${training.location}</p>
+                                              </div>
+                                              <button id="close-attendance" class="p-1 rounded-full hover:bg-gray-100">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                              </button>
+                                            </div>
+                                            
+                                            <div class="space-y-4">
+                                              <div class="flex justify-between items-center">
+                                                <p class="text-sm">Presenti: <strong id="present-count">${presentCount}</strong> / ${formattedAthletes.length}</p>
+                                                <button id="mark-all-present" class="px-3 py-1.5 text-sm border border-green-600 text-green-600 rounded-md hover:bg-green-50 flex items-center gap-1">
+                                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                                  Segna tutti presenti
+                                                </button>
+                                              </div>
+                                              
+                                              ${
+                                                formattedAthletes.length > 0
+                                                  ? `
+                                                <div class="border rounded-md">
+                                                  <div class="grid grid-cols-12 gap-4 p-3 font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 text-sm">
+                                                    <div class="col-span-5">Atleta</div>
+                                                    <div class="col-span-2 text-center">Presenza</div>
+                                                    <div class="col-span-5">Note</div>
+                                                  </div>
+                                                  
+                                                  <div class="max-h-[300px] overflow-y-auto">
+                                                    ${formattedAthletes
+                                                      .map(
+                                                        (athlete, idx) => {
+                                                          const medicalAvailability = getMedicalCertificateAvailability(
+                                                            athlete.medicalCertExpiry,
+                                                          );
+                                                          const medicalLabel =
+                                                            getMedicalCertificateAvailabilityLabel(
+                                                              medicalAvailability,
+                                                            );
+
+                                                          return `
+                                                      <div class="grid grid-cols-12 gap-4 p-3 items-center ${idx !== formattedAthletes.length - 1 ? "border-b" : ""}">
+                                                        <div class="col-span-5">
+                                                          <div class="flex items-center gap-2 font-medium">
+                                                            <span>${athlete.name}</span>
+                                                            ${
+                                                              medicalAvailability !== "valid"
+                                                                ? `<span class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-amber-600" title="${medicalLabel.replace(/"/g, "&quot;")}">!</span>`
+                                                                : ""
+                                                            }
+                                                          </div>
+                                                          ${
+                                                            medicalAvailability !== "valid"
+                                                              ? `<p class="mt-1 text-xs font-medium text-amber-600">${medicalLabel}</p>`
+                                                              : ""
+                                                          }
+                                                        </div>
+                                                        <div class="col-span-2 flex justify-center">
+                                                          <input type="checkbox" data-athlete-id="${athlete.id}" class="h-5 w-5 text-blue-600 rounded attendance-checkbox" ${existingAttendanceMap.get(athlete.id)?.present ? "checked" : ""}>
+                                                        </div>
+                                                        <div class="col-span-5">
+                                                          <input type="text" data-athlete-id="${athlete.id}" placeholder="Note (opzionale)" class="w-full px-3 py-1.5 border rounded-md text-sm attendance-notes" value="${String(existingAttendanceMap.get(athlete.id)?.notes || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;")}">
+                                                        </div>
+                                                      </div>
+                                                    `;
+                                                        },
+                                                      )
+                                                      .join("")}
+                                                  </div>
+                                                </div>
+                                              `
+                                                  : `
+                                                <div class="text-center py-8 text-gray-500">
+                                                  <p>Nessun atleta trovato per le categorie di questo allenamento.</p>
+                                                  <p class="text-sm mt-2">Categorie allenamento: ${training.category}</p>
+                                                  <p class="text-sm mt-1">Atleti totali nel club: ${allAthletes.length}</p>
+                                                  <p class="text-sm mt-1">Categorie disponibili: ${categories.map((c) => c.name).join(", ")}</p>
+                                                  <button class="mt-3 px-3 py-1 bg-blue-600 text-white rounded text-sm" onclick="console.log('Debug info:', {training: '${training.category}', categories: ${JSON.stringify(categories)}, athletes: ${JSON.stringify(allAthletes.map((a) => ({ name: a.first_name + " " + a.last_name, category: a.data?.category })))}})">Mostra info debug</button>
+                                                </div>
+                                              `
+                                              }
+                                              
+                                              <div class="flex justify-end mt-4">
+                                                <button id="cancel-attendance" class="px-4 py-2 border rounded-md mr-2">Annulla</button>
+                                                <button id="save-attendance" class="px-4 py-2 bg-blue-600 text-white rounded-md flex items-center gap-1" ${formattedAthletes.length === 0 ? "disabled" : ""}>
+                                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                                  Salva Presenze
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        `;
+
+                                          // Add event listeners
+                                          document
+                                            .getElementById("close-attendance")
+                                            ?.addEventListener(
+                                              "click",
+                                              handleClose,
+                                            );
+                                          document
+                                            .getElementById("cancel-attendance")
+                                            ?.addEventListener(
+                                              "click",
+                                              handleClose,
+                                            );
+
+                                          // Update present count when checkboxes change
+                                          const updatePresentCount = () => {
+                                            const checkedBoxes =
+                                              document.querySelectorAll(
+                                                ".attendance-checkbox:checked",
+                                              );
+                                            const presentCountEl =
+                                              document.getElementById(
+                                                "present-count",
+                                              );
+                                            if (presentCountEl) {
+                                              presentCountEl.textContent =
+                                                checkedBoxes.length.toString();
+                                            }
+                                          };
+
+                                          document
+                                            .querySelectorAll(
+                                              ".attendance-checkbox",
+                                            )
+                                            .forEach((checkbox) => {
+                                              checkbox.addEventListener(
+                                                "change",
+                                                updatePresentCount,
+                                              );
+                                            });
+
+                                          document
+                                            .getElementById("mark-all-present")
+                                            ?.addEventListener("click", () => {
+                                              const checkboxes =
+                                                document.querySelectorAll(
+                                                  ".attendance-checkbox",
+                                                );
+                                              checkboxes.forEach((checkbox) => {
+                                                (
+                                                  checkbox as HTMLInputElement
+                                                ).checked = true;
+                                              });
+                                              updatePresentCount();
+                                            });
+
+                                          document
+                                            .getElementById("save-attendance")
+                                            ?.addEventListener("click", () => {
+                                              const attendanceData =
+                                                formattedAthletes.map(
+                                                  (athlete) => {
+                                                    const checkbox =
+                                                      document.querySelector(
+                                                        `input[data-athlete-id="${athlete.id}"].attendance-checkbox`,
+                                                      ) as HTMLInputElement;
+                                                    const notesInput =
+                                                      document.querySelector(
+                                                        `input[data-athlete-id="${athlete.id}"].attendance-notes`,
+                                                      ) as HTMLInputElement;
+                                                    return {
+                                                      athleteId: athlete.id,
+                                                      present:
+                                                        checkbox?.checked ||
+                                                        false,
+                                                      notes:
+                                                        notesInput?.value || "",
+                                                    };
+                                                  },
+                                                );
+                                              handleSave(attendanceData);
+                                            });
+                                        } catch (error) {
+                                          console.error(
+                                            "Error loading athletes:",
+                                            error,
+                                          );
+                                          showToast(
+                                            "error",
+                                            "Errore nel caricamento degli atleti",
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                      Presenze
+                                    </Button>
+                                  )}
+                                  {derivedStatus !== "concluded" &&
+                                    derivedStatus !== "annullato" && (
+                                      <Button
+                                        size="sm"
+                                        className="bg-amber-600 hover:bg-amber-700 mr-2"
+                                        onClick={() => {
+                                          setEditingTraining(training);
+                                          setShowEditTrainingModal(true);
+                                        }}
+                                      >
+                                        <svg
+                                          xmlns="http://www.w3.org/2000/svg"
+                                          width="14"
+                                          height="14"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          className="mr-1"
+                                        >
+                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5 5v-11a2 2 0 0 0-2-2z"></path>
+                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                        </svg>
+                                        Modifica
+                                      </Button>
+                                    )}
+                                  {derivedStatus !== "annullato" &&
+                                    derivedStatus !== "concluded" && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-orange-600 border-orange-600 hover:bg-orange-50 mr-2"
+                                      onClick={async () => {
+                                        if (
+                                          !window.confirm(
+                                            "Vuoi davvero annullare questo allenamento?",
+                                          )
+                                        ) {
+                                          return;
+                                        }
+
+                                        try {
+                                          await updateClubDataItem(
+                                            activeClub.id,
+                                            "trainings",
+                                            training.id,
+                                            { status: "annullato" },
+                                          );
+
+                                          const updatedTrainings = trainings.map((t) =>
+                                            t.id === training.id
+                                              ? {
+                                                  ...t,
+                                                  status: "annullato" as const,
+                                                }
+                                              : t,
+                                          );
+                                          setTrainings(updatedTrainings);
+                                          showToast(
+                                            "success",
+                                            "Allenamento annullato",
+                                          );
+                                        } catch (error) {
+                                          console.error(
+                                            "Error cancelling training:",
+                                            error,
+                                          );
+                                          showToast(
+                                            "error",
+                                            "Errore durante l'annullamento",
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      Annulla
+                                    </Button>
+                                  )}
+                                  {derivedStatus === "annullato" && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-emerald-600 border-emerald-600 hover:bg-emerald-50 mr-2"
+                                      onClick={async () => {
+                                        if (
+                                          !window.confirm(
+                                            "Vuoi ripristinare questo allenamento annullato?",
+                                          )
+                                        ) {
+                                          return;
+                                        }
+
+                                        try {
+                                          await updateClubDataItem(
+                                            activeClub.id,
+                                            "trainings",
+                                            training.id,
+                                            { status: "upcoming" },
+                                          );
+
+                                          const updatedTrainings = trainings.map((t) =>
+                                            t.id === training.id
+                                              ? {
+                                                  ...t,
+                                                  status: "upcoming" as const,
+                                                }
+                                              : t,
+                                          );
+                                          setTrainings(updatedTrainings);
+                                          showToast(
+                                            "success",
+                                            "Allenamento ripristinato",
+                                          );
+                                        } catch (error) {
+                                          console.error(
+                                            "Error restoring training:",
+                                            error,
+                                          );
+                                          showToast(
+                                            "error",
+                                            "Errore durante il ripristino",
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      Ripristina
+                                    </Button>
+                                  )}
+                                    <div className="relative">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="p-1 h-8 w-8"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const rect =
+                                            e.currentTarget.getBoundingClientRect();
+                                          const dropdown =
+                                            document.createElement("div");
+                                          dropdown.className =
+                                            "fixed bg-white dark:bg-gray-800 border rounded-md shadow-lg z-50 p-1";
+                                          dropdown.style.left = `${rect.left}px`;
+                                          dropdown.style.top = `${rect.bottom + 5}px`;
+                                          dropdown.innerHTML = `
+                                          <button class="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded flex items-center gap-2" id="delete-training-${training.id}">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                              <polyline points="3 6 5 6 21 6"></polyline>
+                                              <path d="m19 6-1 14c0 1-1 2-2 2H8c-1 0-2-1-2-2L5 6"></path>
+                                              <path d="m10 11 0 6"></path>
+                                              <path d="m14 11 0 6"></path>
+                                              <path d="M5 6l1-2c0-1 1-2 2-2h8c1 0 2 1 2 2l1 2"></path>
+                                            </svg>
+                                            Elimina
+                                          </button>
+                                        `;
+                                          document.body.appendChild(dropdown);
+
+                                          const deleteBtn =
+                                            document.getElementById(
+                                              `delete-training-${training.id}`,
+                                            );
+                                          deleteBtn?.addEventListener(
+                                            "click",
+                                            () => {
+                                              dropdown.remove();
+                                              setTrainingToDelete(training);
+                                              setShowPinInput(true);
+                                            },
+                                          );
+
+                                          // Close dropdown when clicking outside
+                                          const closeDropdown = (
+                                            e: MouseEvent,
+                                          ) => {
+                                            if (
+                                              !dropdown.contains(
+                                                e.target as Node,
+                                              )
+                                            ) {
+                                              dropdown.remove();
+                                              document.removeEventListener(
+                                                "click",
+                                                closeDropdown,
+                                              );
+                                            }
+                                          };
+                                          setTimeout(() => {
+                                            document.addEventListener(
+                                              "click",
+                                              closeDropdown,
+                                            );
+                                          }, 100);
+                                        }}
+                                      >
+                                        <svg
+                                          xmlns="http://www.w3.org/2000/svg"
+                                          width="16"
+                                          height="16"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        >
+                                          <circle
+                                            cx="12"
+                                            cy="12"
+                                            r="1"
+                                          ></circle>
+                                          <circle cx="12" cy="5" r="1"></circle>
+                                          <circle
+                                            cx="12"
+                                            cy="19"
+                                            r="1"
+                                          ></circle>
+                                        </svg>
+                                      </Button>
+                                    </div>
+                                </>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-64 text-center text-gray-500 p-6">
+                        <p>Nessun allenamento programmato per questa data</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Weekly Training Schedule */}
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle>Programma Settimanale</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <WeeklyTrainingSchedule
+                      categories={categories}
+                      trainers={trainers}
+                      locations={locations}
+                      initialSchedule={[]}
+                      autoSave={true}
+                      onSave={() => {}}
+                      allowDragDrop={true}
+                      onTrainingsGenerated={async () => {
+                        try {
+                          const clubTrainings = await getClubData(
+                            activeClub.id,
+                            "trainings",
+                          );
+                          const formattedTrainings = (clubTrainings || []).map(
+                            (training: any) => ({
+                              id: training.id,
+                              title: training.title,
+                              date: new Date(training.date),
+                              time: training.time,
+                              endTime: training.endTime || null,
+                              category: training.category,
+                              trainer: training.trainer,
+                              location: training.location,
+                              locationId: training.locationId || null,
+                              structureId: training.structureId || null,
+                              attendees: training.attendees || 0,
+                              categoryColor:
+                                training.categoryColor ||
+                                "bg-blue-500 text-white",
+                              status: training.status || "upcoming",
+                              attendance: Array.isArray(training.attendance)
+                                ? training.attendance
+                                : [],
+                              expectedAttendees: training.expectedAttendees,
+                            }),
+                          );
+                          setTrainings(formattedTrainings);
+                        } catch (error) {
+                          console.error("Error reloading trainings:", error);
+                        }
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="calendar" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarDays className="h-5 w-5" />
+                      Calendario Storico Allenamenti
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Calendar */}
+                      <div>
+                        <Calendar
+                          mode="single"
+                          selected={calendarDate}
+                          onSelect={setCalendarDate}
+                          className="rounded-md border"
+                          modifiers={{
+                            hasTraining: (date) => hasTrainings(date),
+                          }}
+                          modifiersStyles={{
+                            hasTraining: {
+                              backgroundColor: "#dbeafe",
+                              color: "#1e40af",
+                              fontWeight: "bold",
+                            },
+                          }}
+                        />
+                        <div className="mt-4 text-sm text-gray-600">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-3 h-3 bg-blue-100 border border-blue-300 rounded" />
+                            <span>Giorni con allenamenti</span>
+                          </div>
+                          <p>
+                            Clicca su una data per vedere i dettagli degli
+                            allenamenti.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Selected Date Details */}
+                      <div>
+                        {calendarDate && (
+                          <div>
+                            <h3 className="font-medium mb-4">
+                              Allenamenti del{" "}
+                              {calendarDate.toLocaleDateString("it-IT", {
+                                weekday: "long",
+                                day: "numeric",
+                                month: "long",
+                                year: "numeric",
+                              })}
+                            </h3>
+
+                            {getTrainingsForDate(calendarDate).length > 0 ? (
+                              <div className="space-y-3">
+                                {getTrainingsForDate(calendarDate).map(
+                                  (training) => (
+                                    <div
+                                      key={training.id}
+                                      className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-800"
+                                    >
+                                      <div className="flex justify-between items-start mb-2">
+                                        <h4 className="font-medium text-sm">
+                                          {training.title}
+                                        </h4>
+                                        {getStatusBadge(
+                                          getDerivedStatus(training),
+                                        )}
+                                      </div>
+                                      <div className="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+                                        <div className="flex items-center gap-2">
+                                          <Clock className="h-3 w-3" />
+                                          <span>
+                                            {training.time}
+                                            {training.endTime
+                                              ? ` - ${training.endTime}`
+                                              : ""}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <MapPin className="h-3 w-3" />
+                                          <span>{training.location}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Users className="h-3 w-3" />
+                                          <span>
+                                            {training.trainer} •{" "}
+                                            {training.expectedAttendees || 0}{" "}
+                                            atleti
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="mt-2">
+                                        <Badge
+                                          className={cn(
+                                            "text-xs",
+                                            training.categoryColor,
+                                          )}
+                                        >
+                                          {training.category}
+                                        </Badge>
+                                      </div>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-center py-8 text-gray-500">
+                                <CalendarDays className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                                <p>
+                                  Nessun allenamento programmato per questa data
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </main>
+      </div>
+
+      <AddTrainingForm
+        isOpen={showAddTrainingModal}
+        onClose={() => setShowAddTrainingModal(false)}
+        onSubmit={handleAddTraining}
+        categories={categories}
+        trainers={trainers}
+        locations={locations}
+        selectedDate={date}
+      />
+
+      {/* Edit Training Form */}
+      {editingTraining && (
+        <EditTrainingForm
+          isOpen={showEditTrainingModal}
+          onClose={() => {
+            setShowEditTrainingModal(false);
+            setEditingTraining(null);
+          }}
+          onSubmit={async (updatedTraining, originalTraining) => {
+            if (!activeClub?.id) {
+              showToast("error", "Nessun club attivo selezionato");
+              return;
+            }
+
+            try {
+              const resolvedLocationId =
+                locations.find(
+                  (location) => location.name === updatedTraining.location,
+                )?.id || null;
+              const collisions = findTrainingCollisions(
+                trainings,
+                {
+                  id: updatedTraining.id,
+                  date: updatedTraining.date,
+                  time: updatedTraining.time,
+                  endTime: updatedTraining.endTime || null,
+                  locationId: resolvedLocationId,
+                },
+                { ignoreId: updatedTraining.id },
+              );
+
+              if (
+                collisions.length > 0 &&
+                !window.confirm(
+                  `Attenzione: nel campo selezionato esistono già ${collisions.length} allenamenti nella stessa fascia oraria. Vuoi salvare comunque le modifiche?`,
+                )
+              ) {
+                return;
+              }
+
+              // Prepare the update data
+              const updateData = {
+                title: updatedTraining.title,
+                date: updatedTraining.date,
+                time: updatedTraining.time,
+                endTime: updatedTraining.endTime || null,
+                location: updatedTraining.location,
+                trainer:
+                  trainers.find((tr) => tr.id === updatedTraining.trainerId)
+                    ?.name || originalTraining.trainer,
+                trainerIds: updatedTraining.trainerId
+                  ? [updatedTraining.trainerId]
+                  : [],
+                locationId: resolvedLocationId,
+                updated_at: new Date().toISOString(),
+              };
+
+              console.log(
+                "Updating training in database:",
+                updatedTraining.id,
+                updateData,
+              );
+
+              // Save to database
+              await updateClubDataItem(
+                activeClub.id,
+                "trainings",
+                updatedTraining.id,
+                updateData,
+              );
+
+              console.log("Training updated successfully in database");
+
+              // Update the training in the local state
+              const updatedTrainings = trainings.map((t) =>
+                t.id === updatedTraining.id
+                  ? {
+                      ...t,
+                      title: updatedTraining.title,
+                      date: new Date(updatedTraining.date),
+                      time: updatedTraining.time,
+                      endTime: updatedTraining.endTime || null,
+                      location: updatedTraining.location,
+                      locationId: resolvedLocationId,
+                      trainer: updateData.trainer,
+                    }
+                  : t,
+              );
+              setTrainings(updatedTrainings);
+              showToast(
+                "success",
+                `Allenamento ${updatedTraining.title} modificato e salvato con successo`,
+              );
+            } catch (error) {
+              console.error("Error updating training:", error);
+              showToast("error", "Errore durante la modifica dell'allenamento");
+            }
+          }}
+          training={{
+            id: editingTraining.id,
+            title: editingTraining.title,
+            date: editingTraining.date.toISOString().split("T")[0],
+            time: editingTraining.time,
+            endTime: editingTraining.endTime || "",
+            location: editingTraining.location,
+            trainerId:
+              trainers.find(
+                (trainer) =>
+                  editingTraining.trainer
+                    ?.split(",")
+                    .map((name) => name.trim())
+                    .includes(trainer.name),
+              )?.id || "",
+            category: editingTraining.category,
+          }}
+          trainers={trainers}
+          locations={locations.map((loc) => loc.name)}
+        />
+      )}
+
+      {/* PIN Input Modal for Training Deletion */}
+      <PinInput
+        isOpen={showPinInput}
+        onClose={() => {
+          setShowPinInput(false);
+          setTrainingToDelete(null);
+        }}
+        onSubmit={async (pin: string) => {
+          if (!trainingToDelete || !activeClub?.id) return;
+
+          try {
+            // Get the club's payment PIN from database
+            const clubPin = await getClubPaymentPin(activeClub.id);
+
+            if (pin !== clubPin) {
+              showToast("error", "PIN non corretto");
+              return;
+            }
+
+            // Delete training from database
+            await deleteClubDataItem(
+              activeClub.id,
+              "trainings",
+              trainingToDelete.id,
+            );
+
+            // Update local state
+            const updatedTrainings = trainings.filter(
+              (t) => t.id !== trainingToDelete.id,
+            );
+            setTrainings(updatedTrainings);
+
+            setShowPinInput(false);
+            setTrainingToDelete(null);
+            showToast("success", "Allenamento eliminato con successo");
+          } catch (error) {
+            console.error("Error deleting training:", error);
+            showToast("error", "Errore durante l'eliminazione");
+          }
+        }}
+        title="Conferma eliminazione"
+        description="Inserisci il PIN del club per eliminare definitivamente questo allenamento."
+      />
+    </div>
+  );
+}
