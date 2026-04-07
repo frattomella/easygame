@@ -27,7 +27,11 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { PinInput } from "@/components/ui/pin-input";
 import {
+  athleteMatchesAnyCategory,
+} from "@/lib/category-utils";
+import {
   getClubData,
+  getClubCategories,
   getClubTrainers,
   getClubStructures,
   addClubData,
@@ -71,6 +75,51 @@ interface TrainingSession {
   attendance?: any[];
   expectedAttendees?: number;
 }
+
+const normalizeTrainingCategoryReference = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const trainingMatchesCategory = (
+  training: any,
+  category: { id?: string | null; name?: string | null },
+) => {
+  const nestedTrainingCategories = Array.isArray(training?.categories)
+    ? training.categories.flatMap((value: any) =>
+        value && typeof value === "object"
+          ? [
+              value.id,
+              value.name,
+              value.categoryId,
+              value.category_id,
+              value.categoryName,
+              value.category_name,
+            ]
+          : [value],
+      )
+    : [];
+  const trainingReferences = [
+    ...nestedTrainingCategories,
+    training?.categoryId,
+    training?.category_id,
+    training?.category?.id,
+    training?.category?.name,
+    training?.category,
+    training?.categoryName,
+    training?.category_name,
+  ]
+    .map(normalizeTrainingCategoryReference)
+    .filter(Boolean);
+
+  const categoryReferences = [category?.id, category?.name]
+    .map(normalizeTrainingCategoryReference)
+    .filter(Boolean);
+
+  return categoryReferences.some((reference) =>
+    trainingReferences.includes(reference),
+  );
+};
 
 export default function TrainingPage() {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
@@ -133,14 +182,21 @@ export default function TrainingPage() {
           allAthletes,
           clubTrainings,
         ] = await Promise.all([
-          getClubData(activeClub.id, "categories"),
+          getClubCategories(activeClub.id),
           getClubTrainers(activeClub.id),
           getClubStructures(activeClub.id),
           getClubAthletes(activeClub.id),
           getClubData(activeClub.id, "trainings"),
         ]);
 
-        setCategories(Array.isArray(clubCategories) ? clubCategories : []);
+        const normalizedCategories = Array.isArray(clubCategories)
+          ? clubCategories
+          : [];
+        const normalizedTrainings = Array.isArray(clubTrainings)
+          ? clubTrainings
+          : [];
+
+        setCategories(normalizedCategories);
         setTrainers(Array.isArray(clubTrainers) ? clubTrainers : []);
 
         const builtLocations = buildTrainingLocationOptions(clubStructures);
@@ -150,24 +206,15 @@ export default function TrainingPage() {
             : getFallbackTrainingLocationOptions();
         setLocations(normalizedLocations);
 
-        const formattedTrainings = (clubTrainings || []).map(
+        const formattedTrainings = normalizedTrainings.map(
           (training: any) => {
             // Calculate expected attendees based on categories
-            let expectedAttendees = 0;
-            if (training.categories && Array.isArray(training.categories)) {
-              expectedAttendees = allAthletes.filter((athlete: any) =>
-                training.categories.includes(athlete.data?.category),
-              ).length;
-            } else if (training.category) {
-              // Handle legacy format where category is a string
-              const categoryNames = training.category.split(", ");
-              const matchingCategoryIds = clubCategories
-                .filter((cat: any) => categoryNames.includes(cat.name))
-                .map((cat: any) => cat.id);
-              expectedAttendees = allAthletes.filter((athlete: any) =>
-                matchingCategoryIds.includes(athlete.data?.category),
-              ).length;
-            }
+            const matchedCategories = normalizedCategories.filter((category: any) =>
+              trainingMatchesCategory(training, category),
+            );
+            const expectedAttendees = allAthletes.filter((athlete: any) =>
+              athleteMatchesAnyCategory(athlete, matchedCategories),
+            ).length;
 
             const matchedLocation = findTrainingLocationOption(
               normalizedLocations,
@@ -219,8 +266,11 @@ export default function TrainingPage() {
 
     try {
       // Map category and trainer IDs to names for display
-      const selectedCategories = categories.filter((cat) =>
-        trainingData.categories?.includes(cat.id),
+      const selectedCategories = categories.filter((category) =>
+        trainingMatchesCategory(
+          { categories: trainingData.categories || [] },
+          category,
+        ),
       );
       const selectedTrainers = trainers.filter((trainer) =>
         trainingData.trainers?.includes(trainer.id),
@@ -289,12 +339,9 @@ export default function TrainingPage() {
 
       // Calculate expected attendees
       const allAthletes = await getClubAthletes(activeClub.id);
-      let expectedAttendees = 0;
-      if (trainingData.categories && trainingData.categories.length > 0) {
-        expectedAttendees = allAthletes.filter((athlete: any) =>
-          trainingData.categories.includes(athlete.data?.category),
-        ).length;
-      }
+      const expectedAttendees = allAthletes.filter((athlete: any) =>
+        athleteMatchesAnyCategory(athlete, selectedCategories),
+      ).length;
 
       // Update local state
       const formattedTraining: TrainingSession = {

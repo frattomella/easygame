@@ -18,6 +18,10 @@ import {
   updateClubData,
 } from "@/lib/simplified-db";
 import {
+  resolveCategoryId,
+  resolveCategoryLabel,
+} from "@/lib/category-utils";
+import {
   findTrainingLocationOption,
   getFallbackTrainingLocationOptions,
   getStructureFieldOptions,
@@ -225,7 +229,13 @@ export function WeeklyTrainingSchedule({
         startTime: String(item?.startTime || "18:00").slice(0, 5),
         endTime: String(item?.endTime || "19:30").slice(0, 5),
         categoryId:
-          String(item?.categoryId || item?.category || categories[0]?.id || ""),
+          resolveCategoryId(
+            item?.categoryId ||
+              item?.category?.id ||
+              item?.category?.name ||
+              item?.category,
+            categories,
+          ) || String(categories[0]?.id || ""),
         trainerIds: Array.isArray(item?.trainerIds)
           ? item.trainerIds.filter(Boolean).map(String)
           : Array.isArray(item?.trainers)
@@ -504,7 +514,7 @@ export function WeeklyTrainingSchedule({
   };
 
   const getCategoryName = (categoryId: string) =>
-    categories.find((category) => category.id === categoryId)?.name || "Categoria";
+    resolveCategoryLabel(categoryId, categories);
 
   const getTrainerNames = (trainerIds: string[]) =>
     trainerIds
@@ -715,6 +725,7 @@ export function WeeklyTrainingSchedule({
               <Label>Categoria</Label>
               <select
                 value={newTraining.categoryId}
+                disabled={categories.length === 0}
                 onChange={(event) =>
                   setNewTraining((current) => ({
                     ...current,
@@ -728,13 +739,22 @@ export function WeeklyTrainingSchedule({
                 }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                <option value="">Seleziona categoria</option>
+                <option value="" disabled>
+                  {categories.length > 0
+                    ? "Seleziona categoria"
+                    : "Nessuna categoria disponibile"}
+                </option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.name}
                   </option>
                 ))}
               </select>
+              {categories.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Nessuna categoria registrata per questo club.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -817,34 +837,40 @@ export function WeeklyTrainingSchedule({
             <div className="space-y-2 md:col-span-2">
               <Label>Allenatori</Label>
               <div className="grid gap-2 rounded-xl border p-3 sm:grid-cols-2">
-                {trainers.map((trainer) => (
-                  <label key={trainer.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={newTraining.trainerIds.includes(trainer.id)}
-                      onChange={(event) => {
-                        const trainerIds = new Set(newTraining.trainerIds);
-                        if (event.target.checked) {
-                          trainerIds.add(trainer.id);
-                        } else {
-                          trainerIds.delete(trainer.id);
-                        }
-                        setNewTraining((current) => ({
-                          ...current,
-                          trainerIds: Array.from(trainerIds),
-                        }));
-                      }}
-                    />
-                    <span>{trainer.name}</span>
-                    {getAutoTrainerIdsForCategory(newTraining.categoryId).includes(
-                      trainer.id,
-                    ) && (
-                      <span className="ml-auto text-[11px] font-medium text-blue-600">
-                        Associato
-                      </span>
-                    )}
-                  </label>
-                ))}
+                {trainers.length > 0 ? (
+                  trainers.map((trainer) => (
+                    <label key={trainer.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={newTraining.trainerIds.includes(trainer.id)}
+                        onChange={(event) => {
+                          const trainerIds = new Set(newTraining.trainerIds);
+                          if (event.target.checked) {
+                            trainerIds.add(trainer.id);
+                          } else {
+                            trainerIds.delete(trainer.id);
+                          }
+                          setNewTraining((current) => ({
+                            ...current,
+                            trainerIds: Array.from(trainerIds),
+                          }));
+                        }}
+                      />
+                      <span>{trainer.name}</span>
+                      {getAutoTrainerIdsForCategory(newTraining.categoryId).includes(
+                        trainer.id,
+                      ) && (
+                        <span className="ml-auto text-[11px] font-medium text-blue-600">
+                          Associato
+                        </span>
+                      )}
+                    </label>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Nessun allenatore disponibile.
+                  </p>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
                 Gli allenatori associati alla categoria selezionata vengono
@@ -905,13 +931,14 @@ export function WeeklyTrainingSchedule({
               </div>
 
               <div className="space-y-2">
-                <Label>Categoria</Label>
-                <select
-                  value={editingTraining.categoryId}
-                  onChange={(event) =>
-                    setEditingTraining((current) =>
-                      current
-                        ? {
+              <Label>Categoria</Label>
+              <select
+                value={editingTraining.categoryId}
+                disabled={categories.length === 0}
+                onChange={(event) =>
+                  setEditingTraining((current) =>
+                    current
+                      ? {
                             ...current,
                             categoryId: event.target.value,
                             trainerIds: syncTrainerIdsForCategory(
@@ -922,17 +949,26 @@ export function WeeklyTrainingSchedule({
                           }
                         : current,
                     )
-                  }
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Seleziona categoria</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                }
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="" disabled>
+                  {categories.length > 0
+                    ? "Seleziona categoria"
+                    : "Nessuna categoria disponibile"}
+                </option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+              {categories.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Nessuna categoria registrata per questo club.
+                </p>
+              )}
+            </div>
 
               <div className="space-y-2">
                 <Label>Orario inizio</Label>
@@ -1030,38 +1066,44 @@ export function WeeklyTrainingSchedule({
               <div className="space-y-2 md:col-span-2">
                 <Label>Allenatori</Label>
                 <div className="grid gap-2 rounded-xl border p-3 sm:grid-cols-2">
-                  {trainers.map((trainer) => (
-                    <label key={trainer.id} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={editingTraining.trainerIds.includes(trainer.id)}
-                        onChange={(event) => {
-                          const trainerIds = new Set(editingTraining.trainerIds);
-                          if (event.target.checked) {
-                            trainerIds.add(trainer.id);
-                          } else {
-                            trainerIds.delete(trainer.id);
-                          }
-                          setEditingTraining((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  trainerIds: Array.from(trainerIds),
-                                }
-                              : current,
-                          );
-                        }}
-                      />
-                      <span>{trainer.name}</span>
-                      {getAutoTrainerIdsForCategory(editingTraining.categoryId).includes(
-                        trainer.id,
-                      ) && (
-                        <span className="ml-auto text-[11px] font-medium text-blue-600">
-                          Associato
-                        </span>
-                      )}
-                    </label>
-                  ))}
+                  {trainers.length > 0 ? (
+                    trainers.map((trainer) => (
+                      <label key={trainer.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={editingTraining.trainerIds.includes(trainer.id)}
+                          onChange={(event) => {
+                            const trainerIds = new Set(editingTraining.trainerIds);
+                            if (event.target.checked) {
+                              trainerIds.add(trainer.id);
+                            } else {
+                              trainerIds.delete(trainer.id);
+                            }
+                            setEditingTraining((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    trainerIds: Array.from(trainerIds),
+                                  }
+                                : current,
+                            );
+                          }}
+                        />
+                        <span>{trainer.name}</span>
+                        {getAutoTrainerIdsForCategory(editingTraining.categoryId).includes(
+                          trainer.id,
+                        ) && (
+                          <span className="ml-auto text-[11px] font-medium text-blue-600">
+                            Associato
+                          </span>
+                        )}
+                      </label>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Nessun allenatore disponibile.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

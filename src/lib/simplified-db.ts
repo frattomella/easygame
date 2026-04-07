@@ -1,8 +1,11 @@
 import { supabase } from "./supabase";
+import { normalizeTrainerList } from "./trainer-utils";
 import {
-  getTrainerDisplayName,
-  normalizeTrainerCategories,
-} from "./trainer-utils";
+  athleteMatchesAnyCategory,
+  buildClubCategoryOptions,
+  resolveCategoryId,
+  resolveCategoryLabel,
+} from "./category-utils";
 import {
   buildTrainingLocationOptions,
   findTrainingLocationOption,
@@ -1772,6 +1775,76 @@ export async function getClubData(clubId: string, dataType: string) {
   }
 }
 
+const getClubResourcePayloads = async (clubId: string, resourceType: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("club_resource_items")
+      .select("id, name, status, date, created_at, updated_at, payload")
+      .eq("organization_id", clubId)
+      .eq("resource_type", resourceType)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.warn(
+        `Error fetching resource items for ${resourceType}:`,
+        error.message || error,
+      );
+      return [];
+    }
+
+    return Array.isArray(data)
+      ? data.flatMap((item: any) => {
+          const payload = item?.payload;
+
+          if (Array.isArray(payload)) {
+            return payload;
+          }
+
+          if (payload && typeof payload === "object") {
+            return [
+              {
+                ...payload,
+                id: payload.id || item.id,
+                name: payload.name || item.name || null,
+                status: payload.status || item.status || null,
+                date: payload.date || item.date || null,
+                created_at: payload.created_at || item.created_at || null,
+                updated_at: payload.updated_at || item.updated_at || null,
+              },
+            ];
+          }
+
+          return [];
+        })
+      : [];
+  } catch (error: any) {
+    console.warn(
+      `Error fetching resource items for ${resourceType}:`,
+      error?.message || error,
+    );
+    return [];
+  }
+};
+
+export async function getClubCategories(clubId: string) {
+  try {
+    const [clubCategories, resourceCategories, athletes] = await Promise.all([
+      getClubData(clubId, "categories"),
+      getClubResourcePayloads(clubId, "categories"),
+      getClubAthletes(clubId),
+    ]);
+
+    return buildClubCategoryOptions({
+      clubCategories,
+      resourceCategories,
+      athletes,
+    });
+  } catch (error) {
+    console.error("Error fetching club categories:", error);
+    return [];
+  }
+}
+
 /**
  * Aggiorna dati del club (generico per qualsiasi tipo di dato)
  */
@@ -2257,12 +2330,34 @@ export async function generateTrainingsFromWeeklySchedule(
         for (const scheduleItem of daySchedule) {
           const trainingDate = currentDate.toISOString().split("T")[0];
           const trainingId = `training-${trainingDate}-${scheduleItem.id}`;
-          const category = categoryList.find(
-            (item: any) => item.id === scheduleItem.categoryId,
+          const rawScheduleCategory = String(
+            scheduleItem.categoryId ||
+              scheduleItem.category?.id ||
+              scheduleItem.category?.name ||
+              scheduleItem.category ||
+              "",
+          ).trim();
+          const resolvedCategoryId =
+            resolveCategoryId(rawScheduleCategory, categoryList) || "";
+          const resolvedCategoryLabel = resolveCategoryLabel(
+            rawScheduleCategory,
+            categoryList,
           );
-          const categoryIds = scheduleItem.categoryId
-            ? [scheduleItem.categoryId]
-            : [];
+          const category = categoryList.find(
+            (item: any) =>
+              String(item?.id || "").trim() === resolvedCategoryId ||
+              String(item?.name || "").trim() === resolvedCategoryLabel,
+          );
+          const categoryId = resolvedCategoryId || rawScheduleCategory;
+          const categoryOptions =
+            category || categoryId || resolvedCategoryLabel
+              ? [
+                  category || {
+                    id: categoryId || resolvedCategoryLabel,
+                    name: resolvedCategoryLabel || categoryId || "Categoria",
+                  },
+                ]
+              : [];
           const trainerNames = Array.isArray(scheduleItem.trainerIds)
             ? scheduleItem.trainerIds
                 .map(
@@ -2281,7 +2376,7 @@ export async function generateTrainingsFromWeeklySchedule(
             trainingDate,
             scheduleItem.startTime,
             location?.fieldId || scheduleItem.locationId || "",
-            scheduleItem.categoryId || "",
+            categoryId || "",
           ].join("|");
 
           // Check if training already exists
@@ -2296,9 +2391,9 @@ export async function generateTrainingsFromWeeklySchedule(
               date: trainingDate,
               time: scheduleItem.startTime,
               endTime: scheduleItem.endTime,
-              categoryId: scheduleItem.categoryId,
-              categories: categoryIds,
-              category: category?.name || "Categoria",
+              categoryId: categoryId || null,
+              categories: categoryId ? [categoryId] : [],
+              category: resolvedCategoryLabel || category?.name || "Categoria",
               trainerIds: Array.isArray(scheduleItem.trainerIds)
                 ? scheduleItem.trainerIds
                 : [],
@@ -2312,9 +2407,7 @@ export async function generateTrainingsFromWeeklySchedule(
               location: location?.name || "Campo",
               attendees: 0,
               expectedAttendees: athleteList.filter((athlete: any) =>
-                categoryIds.includes(
-                  athlete?.data?.category || athlete?.category_id,
-                ),
+                athleteMatchesAnyCategory(athlete, categoryOptions),
               ).length,
               categoryColor: "bg-blue-500 text-white",
               status: "upcoming",
@@ -2661,38 +2754,28 @@ export async function deleteStaffMember(clubId: string, staffMemberId: string) {
  */
 export async function getClubTrainers(clubId: string) {
   try {
-    console.log("Fetching trainers for club:", clubId);
+    const [clubCategories, trainersData, resourceTrainers, staffMembers] =
+      await Promise.all([
+        getClubCategories(clubId),
+        getClubData(clubId, "trainers"),
+        getClubResourcePayloads(clubId, "trainers"),
+        getClubData(clubId, "staff_members"),
+      ]);
 
-    // Use the generic getClubData function to get trainers array
-    const trainersData = await getClubData(clubId, "trainers");
-    const clubCategories = await getClubData(clubId, "categories");
+    const legacyTrainerStaff = Array.isArray(staffMembers)
+      ? staffMembers.filter((staff: any) =>
+          ["trainer", "allenatore"].includes(
+            String(staff?.role || staff?.type || "")
+              .trim()
+              .toLowerCase(),
+          ),
+        )
+      : [];
 
-    console.log("Found trainers data:", trainersData);
-    const processedTrainers: any[] = [];
-
-    for (const trainer of trainersData || []) {
-      const trainerCategories = normalizeTrainerCategories(
-        trainer.categories,
-        clubCategories || [],
-      );
-      const trainerName = getTrainerDisplayName(trainer);
-
-      processedTrainers.push({
-        id: trainer.id,
-        name: trainerName,
-        email: trainer.email,
-        phone: trainer.phone || "",
-        categories: trainerCategories,
-        salary: trainer.salary?.toString() || "0",
-        avatar:
-          trainer.avatar ||
-          `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(trainerName.replace(/\s+/g, ""))}`,
-        status: trainer.status || "active",
-      });
-    }
-
-    console.log("Processed trainers:", processedTrainers);
-    return processedTrainers;
+    return normalizeTrainerList(
+      [trainersData, resourceTrainers, legacyTrainerStaff],
+      clubCategories,
+    );
   } catch (error) {
     console.error("Error fetching club trainers:", error);
     // Return empty array instead of throwing to prevent UI crashes

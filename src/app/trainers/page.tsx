@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
 import {
   Plus,
   Users,
@@ -43,10 +43,7 @@ import Header from "@/components/dashboard/Header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
-import {
-  getTrainerDisplayName,
-  normalizeTrainerCategories,
-} from "@/lib/trainer-utils";
+import { getClubTrainers } from "@/lib/simplified-db";
 import Image from "next/image";
 import userDefaultImage from "@/../public/images/user.png";
 
@@ -116,30 +113,8 @@ export default function TrainersPage() {
 
       setLoading(true);
       try {
-        const { data: clubData, error: clubError } = await supabase
-          .from("clubs")
-          .select("trainers, categories")
-          .eq("id", clubId)
-          .single();
-
-        if (clubError) throw clubError;
-
-        const clubCategories = Array.isArray(clubData?.categories)
-          ? clubData.categories
-          : [];
-        const trainersData = Array.isArray(clubData?.trainers)
-          ? clubData.trainers.map((trainer: any) => ({
-              ...trainer,
-              name: getTrainerDisplayName(trainer),
-              categories: normalizeTrainerCategories(
-                trainer.categories,
-                clubCategories,
-              ),
-              status: trainer.status || "active",
-            }))
-          : [];
-
-        setTrainers(trainersData);
+        const trainersData = await getClubTrainers(clubId);
+        setTrainers(Array.isArray(trainersData) ? trainersData : []);
       } catch (error) {
         console.error("Error fetching data:", error);
         showToast("error", "Errore nel caricamento degli allenatori");
@@ -157,22 +132,33 @@ export default function TrainersPage() {
 
     try {
       // Update logic here
-      setTrainers(trainers.filter((t) => t.id !== trainerId));
+      setTrainers((current) => current.filter((trainer) => trainer.id !== trainerId));
     } catch (error) {
       console.error("Error deleting trainer:", error);
     }
   };
 
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredTrainers = trainers.filter((trainer) => {
+    const trainerCategories = Array.isArray(trainer?.categories)
+      ? trainer.categories
+      : [];
     const matchesSearch =
-      trainer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (trainer.email || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (trainer.phone || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trainer.categories
+      !normalizedSearchQuery ||
+      String(trainer?.name || "")
+        .toLowerCase()
+        .includes(normalizedSearchQuery) ||
+      String(trainer?.email || "")
+        .toLowerCase()
+        .includes(normalizedSearchQuery) ||
+      String(trainer?.phone || "")
+        .toLowerCase()
+        .includes(normalizedSearchQuery) ||
+      trainerCategories
         .map((category) => category.name)
         .join(" ")
         .toLowerCase()
-        .includes(searchQuery.toLowerCase());
+        .includes(normalizedSearchQuery);
 
     const matchesStatus =
       statusFilter === "all" || (trainer.status || "active") === statusFilter;
@@ -491,7 +477,8 @@ export default function TrainersPage() {
                             )}
                             {visibleColumns.categories && (
                               <td className="py-3 px-4">
-                                {trainer.categories.length > 0 ? (
+                                {Array.isArray(trainer.categories) &&
+                                trainer.categories.length > 0 ? (
                                   <div className="flex flex-wrap gap-1.5">
                                     {trainer.categories.map((cat, index) => (
                                       <Badge
