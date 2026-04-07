@@ -1,3 +1,7 @@
+import type { NormalizedCategoryOption } from "./category-utils";
+import type { NormalizedTrainerViewModel } from "./trainer-utils";
+import { getTrainerDisplayName } from "./trainer-utils";
+
 export type ScheduleConflictItem = {
   id?: string;
   day?: string;
@@ -19,6 +23,241 @@ export type TrainingConflictItem = {
 };
 
 const DEFAULT_TRAINING_DURATION_MINUTES = 90;
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const INVALID_TRAINING_TEXT_VALUES = new Set(["", "undefined", "null"]);
+const GENERIC_TRAINER_LABELS = new Set([
+  "allenatore",
+  "allenatore non specificato",
+  "coach",
+  "coach non specificato",
+  "trainer",
+  "trainer non specificato",
+]);
+
+const isRecord = (value: unknown): value is Record<string, any> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const normalizeTrainingText = (value: unknown) => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (INVALID_TRAINING_TEXT_VALUES.has(trimmed.toLowerCase())) {
+      return null;
+    }
+
+    return trimmed;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return null;
+};
+
+const normalizeLookupValue = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const firstNonEmptyString = (...values: unknown[]) => {
+  for (const value of values) {
+    const normalized = normalizeTrainingText(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return "";
+};
+
+const uniqueValues = (values: Array<string | null | undefined>) => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const value of values) {
+    const candidate = normalizeTrainingText(value);
+    if (!candidate) {
+      continue;
+    }
+
+    const key = normalizeLookupValue(candidate);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push(candidate);
+  }
+
+  return normalized;
+};
+
+const getTrainingSourceRecord = (training: unknown) => {
+  if (!isRecord(training)) {
+    return {} as Record<string, unknown>;
+  }
+
+  return isRecord(training.data) ? training.data : {};
+};
+
+const extractTimeParts = (value: unknown) => {
+  const normalized = normalizeTrainingText(value);
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized.match(/\d{1,2}:\d{2}/g) || [];
+};
+
+const collectCategoryReferenceValues = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return uniqueValues(value.flatMap((entry) => collectCategoryReferenceValues(entry)));
+  }
+
+  if (isRecord(value)) {
+    return uniqueValues([
+      value.id,
+      value.name,
+      value.label,
+      value.title,
+      value.categoryId,
+      value.category_id,
+      value.categoryName,
+      value.category_name,
+      ...collectCategoryReferenceValues(value.category),
+      ...collectCategoryReferenceValues(value.categories),
+    ]);
+  }
+
+  const normalized = normalizeTrainingText(value);
+  if (!normalized) {
+    return [];
+  }
+
+  return uniqueValues(
+    normalized.split(",").map((entry) => entry.trim()),
+  );
+};
+
+const collectCategoryColors = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return uniqueValues(value.flatMap((entry) => collectCategoryColors(entry)));
+  }
+
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  return uniqueValues([
+    value.color,
+    value.categoryColor,
+    value.category_color,
+    ...collectCategoryColors(value.category),
+    ...collectCategoryColors(value.categories),
+  ]);
+};
+
+const findCategoryMatch = (
+  reference: unknown,
+  categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">>,
+) => {
+  const normalizedReference = normalizeLookupValue(reference);
+  if (!normalizedReference) {
+    return null;
+  }
+
+  return (
+    categories.find((category) => {
+      const normalizedId = normalizeLookupValue(category?.id);
+      const normalizedName = normalizeLookupValue(category?.name);
+
+      return (
+        normalizedReference === normalizedId ||
+        normalizedReference === normalizedName
+      );
+    }) || null
+  );
+};
+
+const collectTrainerObjectLabels = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return uniqueValues(value.flatMap((entry) => collectTrainerObjectLabels(entry)));
+  }
+
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const displayName = normalizeTrainingText(getTrainerDisplayName(value));
+  const key = normalizeLookupValue(displayName);
+
+  if (!displayName || !key || GENERIC_TRAINER_LABELS.has(key)) {
+    return [];
+  }
+
+  return [displayName];
+};
+
+const collectTrainerReferences = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return uniqueValues(value.flatMap((entry) => collectTrainerReferences(entry)));
+  }
+
+  if (isRecord(value)) {
+    return uniqueValues([
+      value.id,
+      value.name,
+      value.email,
+      value.user_id,
+      value.linkedUserId,
+      value.linked_user_id,
+      value.trainerId,
+      value.trainer_id,
+      value.coachId,
+      value.coach_id,
+      ...collectTrainerReferences(value.trainer),
+      ...collectTrainerReferences(value.trainers),
+      ...collectTrainerReferences(value.coach),
+    ]);
+  }
+
+  const normalized = normalizeTrainingText(value);
+  if (!normalized) {
+    return [];
+  }
+
+  return uniqueValues(
+    normalized.split(",").map((entry) => entry.trim()),
+  );
+};
+
+const findTrainerMatch = (
+  reference: unknown,
+  trainers: Array<Pick<NormalizedTrainerViewModel, "id" | "name" | "email">>,
+) => {
+  const normalizedReference = normalizeLookupValue(reference);
+  if (!normalizedReference) {
+    return null;
+  }
+
+  return (
+    trainers.find((trainer) => {
+      const normalizedId = normalizeLookupValue(trainer?.id);
+      const normalizedName = normalizeLookupValue(trainer?.name);
+      const normalizedEmail = normalizeLookupValue(trainer?.email);
+
+      return (
+        normalizedReference === normalizedId ||
+        normalizedReference === normalizedName ||
+        normalizedReference === normalizedEmail
+      );
+    }) || null
+  );
+};
 
 export const timeToMinutes = (value?: string | null) => {
   const normalized = String(value || "").trim();
@@ -125,7 +364,33 @@ const normalizeDateValue = (value?: string | Date | null) => {
   }
 
   if (value instanceof Date) {
-    return new Date(value);
+    const next = new Date(value);
+    return Number.isNaN(next.getTime()) ? null : next;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const dateOnlyMatch = trimmed.match(DATE_ONLY_PATTERN);
+    if (dateOnlyMatch) {
+      const next = new Date(
+        Number(dateOnlyMatch[1]),
+        Number(dateOnlyMatch[2]) - 1,
+        Number(dateOnlyMatch[3]),
+      );
+      next.setHours(0, 0, 0, 0);
+      return Number.isNaN(next.getTime()) ? null : next;
+    }
+
+    const normalized = new Date(trimmed);
+    if (Number.isNaN(normalized.getTime())) {
+      return null;
+    }
+
+    return normalized;
   }
 
   const normalized = new Date(value);
@@ -134,6 +399,303 @@ const normalizeDateValue = (value?: string | Date | null) => {
   }
 
   return normalized;
+};
+
+export const getTrainingDate = (training: unknown) => {
+  if (!isRecord(training)) {
+    return null;
+  }
+
+  const source = getTrainingSourceRecord(training);
+
+  for (const candidate of [
+    training.date,
+    training.start_date,
+    training.startDate,
+    training.scheduled_at,
+    training.scheduledAt,
+    source.date,
+    source.start_date,
+    source.startDate,
+    source.scheduled_at,
+    source.scheduledAt,
+  ]) {
+    const parsed = normalizeDateValue(candidate as string | Date | null | undefined);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+export const isSameLocalDay = (left: Date, right: Date) =>
+  left.getFullYear() === right.getFullYear() &&
+  left.getMonth() === right.getMonth() &&
+  left.getDate() === right.getDate();
+
+export const getTrainingStartTime = (training: unknown) => {
+  if (!isRecord(training)) {
+    return null;
+  }
+
+  const source = getTrainingSourceRecord(training);
+
+  return (
+    firstNonEmptyString(
+      training.start_time,
+      training.startTime,
+      extractTimeParts(training.time)[0],
+      training.time,
+      source.start_time,
+      source.startTime,
+      extractTimeParts(source.time)[0],
+      source.time,
+    ) || null
+  );
+};
+
+export const getTrainingEndTime = (training: unknown) => {
+  if (!isRecord(training)) {
+    return null;
+  }
+
+  const source = getTrainingSourceRecord(training);
+
+  return (
+    firstNonEmptyString(
+      training.end_time,
+      training.endTime,
+      extractTimeParts(training.time)[1],
+      source.end_time,
+      source.endTime,
+      extractTimeParts(source.time)[1],
+    ) || null
+  );
+};
+
+export const getTrainingTimeLabel = (training: unknown) => {
+  const startTime = getTrainingStartTime(training);
+  const endTime = getTrainingEndTime(training);
+
+  if (startTime && endTime) {
+    return `${startTime} - ${endTime}`;
+  }
+
+  if (startTime) {
+    return startTime;
+  }
+
+  return "Orario da definire";
+};
+
+export const isTrainingOnDate = (training: unknown, targetDate: Date) => {
+  const trainingDate = getTrainingDate(training);
+  return Boolean(trainingDate && isSameLocalDay(trainingDate, targetDate));
+};
+
+export const compareTrainingsByStart = (left: unknown, right: unknown) => {
+  const leftDate = getTrainingDate(left);
+  const rightDate = getTrainingDate(right);
+  const leftTimestamp = leftDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const rightTimestamp = rightDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+
+  if (leftTimestamp !== rightTimestamp) {
+    return leftTimestamp - rightTimestamp;
+  }
+
+  const leftMinutes = timeToMinutes(getTrainingStartTime(left)) ?? Number.MAX_SAFE_INTEGER;
+  const rightMinutes =
+    timeToMinutes(getTrainingStartTime(right)) ?? Number.MAX_SAFE_INTEGER;
+
+  if (leftMinutes !== rightMinutes) {
+    return leftMinutes - rightMinutes;
+  }
+
+  const leftTitle = isRecord(left) ? firstNonEmptyString(left.title, left.id) : "";
+  const rightTitle = isRecord(right) ? firstNonEmptyString(right.title, right.id) : "";
+
+  return leftTitle.localeCompare(rightTitle, "it", {
+    sensitivity: "base",
+  });
+};
+
+export const getTrainingCategoryLabel = (
+  training: unknown,
+  categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">> = [],
+) => {
+  if (!isRecord(training)) {
+    return "Categoria assegnata";
+  }
+
+  const source = getTrainingSourceRecord(training);
+  const explicitLabel = firstNonEmptyString(
+    training.category_name,
+    training.categoryName,
+    training.category?.name,
+    source.category_name,
+    source.categoryName,
+    source.category?.name,
+  );
+
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+
+  const references = uniqueValues([
+    training.categoryId,
+    training.category_id,
+    training.category?.id,
+    ...collectCategoryReferenceValues(training.categories),
+    ...collectCategoryReferenceValues(training.category),
+    source.categoryId,
+    source.category_id,
+    source.category?.id,
+    ...collectCategoryReferenceValues(source.categories),
+    ...collectCategoryReferenceValues(source.category),
+  ]);
+
+  for (const reference of references) {
+    const match = findCategoryMatch(reference, categories);
+    if (match?.name) {
+      return String(match.name);
+    }
+  }
+
+  const fallbackLabel = firstNonEmptyString(
+    training.category,
+    source.category,
+    references[0],
+  );
+
+  return fallbackLabel || "Categoria assegnata";
+};
+
+export const getTrainingCategoryColor = (
+  training: unknown,
+  categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">> = [],
+) => {
+  if (!isRecord(training)) {
+    return "bg-gray-100 text-gray-800";
+  }
+
+  const source = getTrainingSourceRecord(training);
+  const explicitColor =
+    uniqueValues([
+      training.categoryColor,
+      training.category_color,
+      source.categoryColor,
+      source.category_color,
+      ...collectCategoryColors(training.category),
+      ...collectCategoryColors(training.categories),
+      ...collectCategoryColors(source.category),
+      ...collectCategoryColors(source.categories),
+    ])[0] || null;
+
+  if (explicitColor) {
+    return explicitColor;
+  }
+
+  const references = uniqueValues([
+    training.categoryId,
+    training.category_id,
+    training.category?.id,
+    ...collectCategoryReferenceValues(training.categories),
+    ...collectCategoryReferenceValues(training.category),
+    source.categoryId,
+    source.category_id,
+    source.category?.id,
+    ...collectCategoryReferenceValues(source.categories),
+    ...collectCategoryReferenceValues(source.category),
+  ]);
+
+  for (const reference of references) {
+    const match = findCategoryMatch(reference, categories);
+    const color = normalizeTrainingText(match?.color);
+    if (color) {
+      return color;
+    }
+  }
+
+  return "bg-gray-100 text-gray-800";
+};
+
+export const getTrainingTrainerLabel = (
+  training: unknown,
+  trainers: Array<Pick<NormalizedTrainerViewModel, "id" | "name" | "email">> = [],
+) => {
+  if (!isRecord(training)) {
+    return "Allenatore non specificato";
+  }
+
+  const source = getTrainingSourceRecord(training);
+  const explicitLabels = uniqueValues([
+    training.trainer_name,
+    training.trainerName,
+    training.coach_name,
+    training.coachName,
+    source.trainer_name,
+    source.trainerName,
+    source.coach_name,
+    source.coachName,
+    ...collectTrainerObjectLabels(training.trainers),
+    ...collectTrainerObjectLabels(training.trainer),
+    ...collectTrainerObjectLabels(training.coach),
+    ...collectTrainerObjectLabels(source.trainers),
+    ...collectTrainerObjectLabels(source.trainer),
+    ...collectTrainerObjectLabels(source.coach),
+  ]).filter(
+    (label) => !GENERIC_TRAINER_LABELS.has(normalizeLookupValue(label)),
+  );
+
+  if (explicitLabels.length > 0) {
+    return explicitLabels.join(", ");
+  }
+
+  const references = uniqueValues([
+    ...collectTrainerReferences(training.trainerIds),
+    ...collectTrainerReferences(training.trainer_ids),
+    ...collectTrainerReferences(training.trainerId),
+    ...collectTrainerReferences(training.trainer_id),
+    ...collectTrainerReferences(training.coachId),
+    ...collectTrainerReferences(training.coach_id),
+    ...collectTrainerReferences(training.trainers),
+    ...collectTrainerReferences(training.trainer),
+    ...collectTrainerReferences(training.coach),
+    ...collectTrainerReferences(source.trainerIds),
+    ...collectTrainerReferences(source.trainer_ids),
+    ...collectTrainerReferences(source.trainerId),
+    ...collectTrainerReferences(source.trainer_id),
+    ...collectTrainerReferences(source.coachId),
+    ...collectTrainerReferences(source.coach_id),
+    ...collectTrainerReferences(source.trainers),
+    ...collectTrainerReferences(source.trainer),
+    ...collectTrainerReferences(source.coach),
+  ]);
+
+  const mappedLabels = uniqueValues(
+    references.map((reference) => findTrainerMatch(reference, trainers)?.name),
+  );
+
+  if (mappedLabels.length > 0) {
+    return mappedLabels.join(", ");
+  }
+
+  const fallbackLabel = firstNonEmptyString(
+    training.trainer,
+    training.coach,
+    source.trainer,
+    source.coach,
+  );
+
+  if (
+    fallbackLabel &&
+    !GENERIC_TRAINER_LABELS.has(normalizeLookupValue(fallbackLabel))
+  ) {
+    return fallbackLabel;
+  }
+
+  return "Allenatore non specificato";
 };
 
 export const buildTrainingStart = (

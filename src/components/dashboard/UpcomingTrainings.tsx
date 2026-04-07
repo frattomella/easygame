@@ -1,12 +1,25 @@
 "use client";
 
 import React, { useState, useEffect, memo, useMemo, useCallback } from "react";
-import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { supabase, cachedQuery } from "@/lib/supabase";
 import { debounce, memoize } from "@/lib/performance";
+import {
+  getClubCategories,
+  getClubTrainers,
+  getClubTrainings,
+} from "@/lib/simplified-db";
+import {
+  compareTrainingsByStart,
+  getTrainingCategoryColor,
+  getTrainingCategoryLabel,
+  getTrainingDate,
+  getTrainingTimeLabel,
+  getTrainingTrainerLabel,
+  isTrainingOnDate,
+} from "@/lib/training-utils";
 import {
   CalendarIcon,
   CheckCircle,
@@ -62,107 +75,50 @@ const normalizeTrainingText = (value: unknown): string | null => {
   return null;
 };
 
-const extractTrainingLabels = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => extractTrainingLabels(entry));
-  }
-
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-
-    return [
-      normalizeTrainingText(record.name),
-      normalizeTrainingText(record.label),
-      normalizeTrainingText(record.title),
-      normalizeTrainingText(record.category_name),
-      normalizeTrainingText(record.categoryName),
-      normalizeTrainingText(record.category),
-    ].filter((entry): entry is string => Boolean(entry));
-  }
-
-  const normalized = normalizeTrainingText(value);
-  return normalized ? [normalized] : [];
-};
-
-const resolveTrainingCategory = (training: any) => {
+const normalizeTrainingSession = (
+  training: any,
+  options?: { categories?: any[]; trainers?: any[] },
+): TrainingSession => {
   const source =
     training?.data && typeof training.data === "object" ? training.data : {};
 
-  const labels = [
-    ...extractTrainingLabels(training?.categories),
-    ...extractTrainingLabels(training?.category_name),
-    ...extractTrainingLabels(training?.categoryName),
-    ...extractTrainingLabels(training?.category),
-    ...extractTrainingLabels(source?.categories),
-    ...extractTrainingLabels(source?.category_name),
-    ...extractTrainingLabels(source?.categoryName),
-    ...extractTrainingLabels(source?.category),
-  ];
-
-  return labels[0] || "Categoria assegnata";
+  return {
+    id: String(
+      training?.id || globalThis.crypto?.randomUUID?.() || Math.random(),
+    ),
+    title:
+      normalizeTrainingText(training?.title) ||
+      normalizeTrainingText(source?.title) ||
+      "Allenamento",
+    date: getTrainingDate(training) || new Date(),
+    time:
+      normalizeTrainingText(training?.time) ||
+      normalizeTrainingText(training?.start_time) ||
+      normalizeTrainingText(training?.startTime) ||
+      getTrainingTimeLabel(training),
+    category: getTrainingCategoryLabel(training, options?.categories || []),
+    trainer: getTrainingTrainerLabel(training, options?.trainers || []),
+    location:
+      normalizeTrainingText(training?.location) ||
+      normalizeTrainingText(source?.location) ||
+      "Luogo non specificato",
+    attendees:
+      typeof training?.attendees === "number" ? training.attendees : 0,
+    categoryColor: getTrainingCategoryColor(
+      training,
+      options?.categories || [],
+    ),
+    expectedAttendees:
+      typeof training?.expectedAttendees === "number"
+        ? training.expectedAttendees
+        : typeof training?.expected_attendees === "number"
+          ? training.expected_attendees
+          : 0,
+    status: training?.status || "upcoming",
+    attendanceStatus:
+      training?.attendanceStatus || training?.attendance_status || "none",
+  };
 };
-
-const resolveTrainingCategoryColor = (training: any) =>
-  normalizeTrainingText(training?.categories?.color) ||
-  normalizeTrainingText(training?.categoryColor) ||
-  "bg-gray-100 text-gray-800";
-
-const resolveTrainingTime = (training: any) => {
-  const source =
-    training?.data && typeof training.data === "object" ? training.data : {};
-
-  const startTime =
-    normalizeTrainingText(training?.start_time) ||
-    normalizeTrainingText(training?.startTime) ||
-    normalizeTrainingText(training?.time) ||
-    normalizeTrainingText(source?.start_time) ||
-    normalizeTrainingText(source?.startTime) ||
-    normalizeTrainingText(source?.time);
-  const endTime =
-    normalizeTrainingText(training?.end_time) ||
-    normalizeTrainingText(training?.endTime) ||
-    normalizeTrainingText(source?.end_time) ||
-    normalizeTrainingText(source?.endTime);
-
-  if (startTime && endTime) {
-    return `${startTime} - ${endTime}`;
-  }
-
-  if (startTime) {
-    return startTime;
-  }
-
-  return "Orario da definire";
-};
-
-const normalizeTrainingSession = (training: any): TrainingSession => ({
-  id: String(
-    training?.id || globalThis.crypto?.randomUUID?.() || Math.random(),
-  ),
-  title: normalizeTrainingText(training?.title) || "Allenamento",
-  date: training?.date ? new Date(training.date) : new Date(),
-  time:
-    normalizeTrainingText(training?.time) || resolveTrainingTime(training),
-  category:
-    normalizeTrainingText(training?.category) || resolveTrainingCategory(training),
-  trainer:
-    normalizeTrainingText(training?.trainer) || "Allenatore non specificato",
-  location:
-    normalizeTrainingText(training?.location) || "Luogo non specificato",
-  attendees:
-    typeof training?.attendees === "number" ? training.attendees : 0,
-  categoryColor:
-    normalizeTrainingText(training?.categoryColor) ||
-    resolveTrainingCategoryColor(training),
-  expectedAttendees:
-    typeof training?.expectedAttendees === "number"
-      ? training.expectedAttendees
-      : typeof training?.expected_attendees === "number"
-        ? training.expected_attendees
-        : 0,
-  status: training?.status || "upcoming",
-  attendanceStatus: training?.attendanceStatus || training?.attendance_status || "none",
-});
 
 const UpcomingTrainings = memo(
   ({
@@ -187,80 +143,36 @@ const UpcomingTrainings = memo(
           try {
             // Use cached query for better performance
             const result = await cachedQuery(`trainings-${orgId}`, async () => {
-              // Get the current user's session
-              const {
-                data: { session },
-              } = await supabase.auth.getSession();
+              const [trainingsData, categoriesData, trainersData] =
+                await Promise.all([
+                  getClubTrainings(orgId),
+                  getClubCategories(orgId),
+                  getClubTrainers(orgId),
+                ]);
 
-              if (!session?.user) {
-                return { data: null };
-              }
-
-              // Get the user's organization
-              const { data: orgUser } = await supabase
-                .from("organization_users")
-                .select("organization_id")
-                .eq("user_id", session.user.id)
-                .eq("is_primary", true)
-                .single();
-
-              if (!orgUser) {
-                return { data: null };
-              }
-
-              // Fetch trainings for this organization
-              return await supabase
-                .from("trainings")
-                .select(
-                  `
-            id,
-            title,
-            date,
-            start_time,
-            end_time,
-            time,
-            startTime,
-            endTime,
-            location,
-            status,
-            category,
-            category_name,
-            category_id,
-            categoryId,
-            categoryName,
-            data,
-            categories(name, color),
-            trainers(id, first_name, last_name),
-            expected_attendees,
-            attendance_status
-          `,
-                )
-                .eq("organization_id", orgUser.organization_id)
-                .order("date", { ascending: true });
+              return {
+                trainingsData,
+                categoriesData,
+                trainersData,
+              };
             });
 
-            if (result?.data) {
-              // Transform the data to match our component's expected format
-              const formattedTrainings: TrainingSession[] = result.data.map(
-                (training: any) => ({
-                  id: training.id,
-                  title: training.title,
-                  date: new Date(training.date),
-                  time: resolveTrainingTime(training),
-                  category: resolveTrainingCategory(training),
-                  trainer: training.trainers
-                    ? `${training.trainers.first_name} ${training.trainers.last_name}`
-                    : "Allenatore non specificato",
-                  location: training.location || "Luogo non specificato",
-                  attendees: 0, // This would be calculated from attendance records
-                  categoryColor: resolveTrainingCategoryColor(training),
-                  expectedAttendees: training.expected_attendees || 0,
-                  status: training.status || "upcoming",
-                  attendanceStatus: training.attendance_status || "none",
-                }),
-              );
-
-              return formattedTrainings;
+            if (result?.trainingsData) {
+              return (Array.isArray(result.trainingsData)
+                ? result.trainingsData
+                : []
+              )
+                .map((training: any) =>
+                  normalizeTrainingSession(training, {
+                    categories: Array.isArray(result.categoriesData)
+                      ? result.categoriesData
+                      : [],
+                    trainers: Array.isArray(result.trainersData)
+                      ? result.trainersData
+                      : [],
+                  }),
+                )
+                .sort(compareTrainingsByStart);
             }
 
             return [];
@@ -308,19 +220,12 @@ const UpcomingTrainings = memo(
     }, [debouncedLoadTrainings]);
 
     // Memoize filtered and sorted trainings
-    const nextWeekTrainings = useMemo(() => {
+    const todayTrainings = useMemo(() => {
       const today = new Date();
-      const filtered = loadedTrainings.filter((training) => {
-        const trainingDate = new Date(training.date);
-        const diffTime = trainingDate.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays >= 0 && diffDays <= 7; // Show trainings for next 7 days
-      });
 
-      // Sort by date
-      return filtered.sort((a, b) => {
-        return new Date(a.date).getTime() - new Date(b.date).getTime();
-      });
+      return loadedTrainings
+        .filter((training) => isTrainingOnDate(training, today))
+        .sort(compareTrainingsByStart);
     }, [loadedTrainings]);
 
     if (loading) {
@@ -367,9 +272,9 @@ const UpcomingTrainings = memo(
         </CardHeader>
         <CardContent className="pt-4">
           <div className="overflow-auto" style={{ maxHeight: maxHeight }}>
-            {nextWeekTrainings.length > 0 ? (
+            {todayTrainings.length > 0 ? (
               <div className="space-y-4">
-                {nextWeekTrainings.map((training) => (
+                {todayTrainings.map((training) => (
                   <TrainingCard key={training.id} training={training} />
                 ))}
               </div>
@@ -389,8 +294,8 @@ UpcomingTrainings.displayName = "UpcomingTrainings";
 const EmptyTrainingsState = memo(() => (
   <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 p-6">
     <CalendarIcon className="h-12 w-12 mb-2 opacity-50" />
-    <p>Nessun allenamento programmato per i prossimi giorni</p>
-    <p className="text-sm">Aggiungi una nuova sessione di allenamento</p>
+    <p>Nessun allenamento programmato per oggi</p>
+    <p className="text-sm">Gli allenamenti di altri giorni non compaiono qui</p>
   </div>
 ));
 

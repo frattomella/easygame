@@ -24,21 +24,18 @@ import { AddTrainingForm } from "@/components/forms/AddTrainingForm";
 import { EditTrainingForm } from "@/components/forms/EditTrainingForm";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { supabase } from "@/lib/supabase";
 import { PinInput } from "@/components/ui/pin-input";
 import {
   athleteMatchesAnyCategory,
 } from "@/lib/category-utils";
 import {
-  getClubData,
   getClubCategories,
+  getClubTrainings,
   getClubTrainers,
   getClubStructures,
   addClubData,
-  updateClubData,
   updateClubDataItem,
   deleteClubDataItem,
-  getAthletesByCategories,
   saveTrainingAttendance,
   getClubAthletes,
   getClubPaymentPin,
@@ -50,8 +47,17 @@ import {
 } from "@/lib/training-location-options";
 import {
   canRecordTrainingAttendance,
+  compareTrainingsByStart,
   findTrainingCollisions,
+  getTrainingCategoryColor,
+  getTrainingCategoryLabel,
+  getTrainingDate,
+  getTrainingEndTime,
   getTrainingPhase,
+  getTrainingStartTime,
+  getTrainingTimeLabel,
+  getTrainingTrainerLabel,
+  isTrainingOnDate,
 } from "@/lib/training-utils";
 import {
   getMedicalCertificateAvailability,
@@ -121,6 +127,72 @@ const trainingMatchesCategory = (
   );
 };
 
+const formatTrainingSession = ({
+  training,
+  categories,
+  trainers,
+  athletes,
+  locations,
+}: {
+  training: any;
+  categories: any[];
+  trainers: any[];
+  athletes: any[];
+  locations: any[];
+}): TrainingSession | null => {
+  const trainingDate = getTrainingDate(training);
+  if (!trainingDate) {
+    return null;
+  }
+
+  const matchedCategories = categories.filter((category: any) =>
+    trainingMatchesCategory(training, category),
+  );
+  const expectedAttendees =
+    typeof training?.expectedAttendees === "number"
+      ? training.expectedAttendees
+      : typeof training?.expected_attendees === "number"
+        ? training.expected_attendees
+        : athletes.filter((athlete: any) =>
+            athleteMatchesAnyCategory(athlete, matchedCategories),
+          ).length;
+
+  const matchedLocation = findTrainingLocationOption(locations, {
+    structureId: training.structureId,
+    fieldId: training.locationId || training.fieldId,
+    locationId: training.locationId || training.fieldId,
+    location: training.location,
+  });
+  const source =
+    training?.data && typeof training.data === "object" ? training.data : {};
+
+  return {
+    id: String(
+      training?.id || globalThis.crypto?.randomUUID?.() || Math.random(),
+    ),
+    title: String(training?.title || source?.title || "Allenamento"),
+    date: trainingDate,
+    time: getTrainingStartTime(training) || getTrainingTimeLabel(training),
+    endTime: getTrainingEndTime(training),
+    category: getTrainingCategoryLabel(training, categories),
+    trainer: getTrainingTrainerLabel(training, trainers),
+    location:
+      matchedLocation?.name ||
+      training?.location ||
+      source?.location ||
+      "Campo",
+    locationId:
+      matchedLocation?.fieldId || training?.locationId || training?.fieldId || null,
+    structureId: matchedLocation?.structureId || training?.structureId || null,
+    attendees:
+      typeof training?.attendees === "number" ? training.attendees : 0,
+    categoryColor: getTrainingCategoryColor(training, categories),
+    status: training?.status || "upcoming",
+    attendance: Array.isArray(training?.attendance) ? training.attendance : [],
+    expectedAttendees,
+  };
+};
+
 export default function TrainingPage() {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [trainers, setTrainers] = useState([]);
@@ -138,7 +210,7 @@ export default function TrainingPage() {
     undefined,
   );
   const { showToast } = useToast();
-  const { user, activeClub } = useAuth();
+  const { activeClub } = useAuth();
 
   // Initialize dates on client side to avoid hydration mismatch
   React.useEffect(() => {
@@ -169,94 +241,68 @@ export default function TrainingPage() {
     window.history.replaceState(window.history.state, "", nextUrl);
   }, []);
 
+  const loadData = React.useCallback(async () => {
+    if (!activeClub?.id) {
+      return;
+    }
+
+    try {
+      const [
+        clubCategories,
+        clubTrainers,
+        clubStructures,
+        allAthletes,
+        clubTrainings,
+      ] = await Promise.all([
+        getClubCategories(activeClub.id),
+        getClubTrainers(activeClub.id),
+        getClubStructures(activeClub.id),
+        getClubAthletes(activeClub.id),
+        getClubTrainings(activeClub.id),
+      ]);
+
+      const normalizedCategories = Array.isArray(clubCategories)
+        ? clubCategories
+        : [];
+      const normalizedTrainers = Array.isArray(clubTrainers) ? clubTrainers : [];
+      const normalizedTrainings = Array.isArray(clubTrainings)
+        ? clubTrainings
+        : [];
+
+      setCategories(normalizedCategories);
+      setTrainers(normalizedTrainers);
+
+      const builtLocations = buildTrainingLocationOptions(clubStructures);
+      const normalizedLocations =
+        builtLocations.length > 0
+          ? builtLocations
+          : getFallbackTrainingLocationOptions();
+      setLocations(normalizedLocations);
+
+      const formattedTrainings = normalizedTrainings
+        .map((training: any) =>
+          formatTrainingSession({
+            training,
+            categories: normalizedCategories,
+            trainers: normalizedTrainers,
+            athletes: Array.isArray(allAthletes) ? allAthletes : [],
+            locations: normalizedLocations,
+          }),
+        )
+        .filter(Boolean)
+        .sort(compareTrainingsByStart) as TrainingSession[];
+
+      setTrainings(formattedTrainings);
+    } catch (error) {
+      console.error("Error loading training data:", error);
+      showToast("error", "Errore nel caricamento dei dati");
+    }
+  }, [activeClub?.id, showToast]);
+
   // Load data from database
   useEffect(() => {
-    const loadData = async () => {
-      if (!activeClub?.id) return;
-
-      try {
-        const [
-          clubCategories,
-          clubTrainers,
-          clubStructures,
-          allAthletes,
-          clubTrainings,
-        ] = await Promise.all([
-          getClubCategories(activeClub.id),
-          getClubTrainers(activeClub.id),
-          getClubStructures(activeClub.id),
-          getClubAthletes(activeClub.id),
-          getClubData(activeClub.id, "trainings"),
-        ]);
-
-        const normalizedCategories = Array.isArray(clubCategories)
-          ? clubCategories
-          : [];
-        const normalizedTrainings = Array.isArray(clubTrainings)
-          ? clubTrainings
-          : [];
-
-        setCategories(normalizedCategories);
-        setTrainers(Array.isArray(clubTrainers) ? clubTrainers : []);
-
-        const builtLocations = buildTrainingLocationOptions(clubStructures);
-        const normalizedLocations =
-          builtLocations.length > 0
-            ? builtLocations
-            : getFallbackTrainingLocationOptions();
-        setLocations(normalizedLocations);
-
-        const formattedTrainings = normalizedTrainings.map(
-          (training: any) => {
-            // Calculate expected attendees based on categories
-            const matchedCategories = normalizedCategories.filter((category: any) =>
-              trainingMatchesCategory(training, category),
-            );
-            const expectedAttendees = allAthletes.filter((athlete: any) =>
-              athleteMatchesAnyCategory(athlete, matchedCategories),
-            ).length;
-
-            const matchedLocation = findTrainingLocationOption(
-              normalizedLocations,
-              {
-                structureId: training.structureId,
-                fieldId: training.locationId,
-                locationId: training.locationId,
-                location: training.location,
-              },
-            );
-
-            return {
-              id: training.id,
-              title: training.title,
-              date: new Date(training.date),
-              time: training.time,
-              endTime: training.endTime || null,
-              category: training.category,
-              trainer: training.trainer,
-              location: matchedLocation?.name || training.location || "Campo",
-              locationId: matchedLocation?.fieldId || training.locationId || null,
-              structureId:
-                matchedLocation?.structureId || training.structureId || null,
-              attendees: training.attendees || 0,
-              categoryColor: training.categoryColor || "bg-blue-500 text-white",
-              status: training.status || "upcoming",
-              attendance: Array.isArray(training.attendance)
-                ? training.attendance
-                : [],
-              expectedAttendees: expectedAttendees,
-            };
-          },
-        );
-        setTrainings(formattedTrainings);
-      } catch (error) {
-        console.error("Error loading training data:", error);
-        showToast("error", "Errore nel caricamento dei dati");
-      }
-    };
-
     loadData();
-  }, [activeClub?.id, showToast]);
+  }, [loadData]);
 
   const handleAddTraining = async (trainingData: any) => {
     if (!activeClub?.id) {
@@ -347,7 +393,7 @@ export default function TrainingPage() {
       const formattedTraining: TrainingSession = {
         id: newTraining.id,
         title: newTraining.title,
-        date: new Date(newTraining.date),
+        date: getTrainingDate(newTraining) || new Date(),
         time: newTraining.time,
         endTime: newTraining.endTime,
         category: newTraining.category,
@@ -362,7 +408,9 @@ export default function TrainingPage() {
         expectedAttendees: expectedAttendees,
       };
 
-      setTrainings([...trainings, formattedTraining]);
+      setTrainings((current) =>
+        [...current, formattedTraining].sort(compareTrainingsByStart),
+      );
       setShowAddTrainingModal(false);
       showToast(
         "success",
@@ -375,16 +423,9 @@ export default function TrainingPage() {
   };
 
   // Filter trainings for the selected date (including all statuses)
-  const filteredTrainings = trainings.filter((training) => {
-    if (!date) return false;
-
-    const trainingDate = new Date(training.date);
-    return (
-      trainingDate.getDate() === date.getDate() &&
-      trainingDate.getMonth() === date.getMonth() &&
-      trainingDate.getFullYear() === date.getFullYear()
-    );
-  });
+  const filteredTrainings = trainings
+    .filter((training) => Boolean(date && isTrainingOnDate(training, date)))
+    .sort(compareTrainingsByStart);
 
   const getDerivedStatus = (training: TrainingSession) =>
     getTrainingPhase({
@@ -443,14 +484,9 @@ export default function TrainingPage() {
 
   // Get trainings for calendar view
   const getTrainingsForDate = (targetDate: Date) => {
-    return trainings.filter((training) => {
-      const trainingDate = new Date(training.date);
-      return (
-        trainingDate.getDate() === targetDate.getDate() &&
-        trainingDate.getMonth() === targetDate.getMonth() &&
-        trainingDate.getFullYear() === targetDate.getFullYear()
-      );
-    });
+    return trainings
+      .filter((training) => isTrainingOnDate(training, targetDate))
+      .sort(compareTrainingsByStart);
   };
 
   // Check if a date has trainings
@@ -1345,40 +1381,7 @@ export default function TrainingPage() {
                       autoSave={true}
                       onSave={() => {}}
                       allowDragDrop={true}
-                      onTrainingsGenerated={async () => {
-                        try {
-                          const clubTrainings = await getClubData(
-                            activeClub.id,
-                            "trainings",
-                          );
-                          const formattedTrainings = (clubTrainings || []).map(
-                            (training: any) => ({
-                              id: training.id,
-                              title: training.title,
-                              date: new Date(training.date),
-                              time: training.time,
-                              endTime: training.endTime || null,
-                              category: training.category,
-                              trainer: training.trainer,
-                              location: training.location,
-                              locationId: training.locationId || null,
-                              structureId: training.structureId || null,
-                              attendees: training.attendees || 0,
-                              categoryColor:
-                                training.categoryColor ||
-                                "bg-blue-500 text-white",
-                              status: training.status || "upcoming",
-                              attendance: Array.isArray(training.attendance)
-                                ? training.attendance
-                                : [],
-                              expectedAttendees: training.expectedAttendees,
-                            }),
-                          );
-                          setTrainings(formattedTrainings);
-                        } catch (error) {
-                          console.error("Error reloading trainings:", error);
-                        }
-                      }}
+                      onTrainingsGenerated={loadData}
                     />
                   </CardContent>
                 </Card>

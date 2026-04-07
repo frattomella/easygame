@@ -12,6 +12,7 @@ import {
   getFallbackTrainingLocationOptions,
 } from "./training-location-options";
 import {
+  compareTrainingsByStart,
   isUpcomingGeneratedTraining,
 } from "./training-utils";
 import {
@@ -1841,6 +1842,124 @@ export async function getClubCategories(clubId: string) {
     });
   } catch (error) {
     console.error("Error fetching club categories:", error);
+    return [];
+  }
+}
+
+const isTrainingRecord = (value: unknown): value is Record<string, any> =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  [
+    "id",
+    "title",
+    "date",
+    "start_date",
+    "startDate",
+    "scheduled_at",
+    "scheduledAt",
+    "time",
+    "start_time",
+    "startTime",
+    "category",
+    "categoryId",
+    "category_id",
+    "trainer",
+    "trainerId",
+    "trainer_id",
+    "location",
+  ].some((key) => (value as Record<string, unknown>)[key] !== undefined);
+
+const toTrainingEntries = (source: unknown): Record<string, any>[] => {
+  if (Array.isArray(source)) {
+    return source.flatMap((entry) => toTrainingEntries(entry));
+  }
+
+  if (!source || typeof source !== "object") {
+    return [];
+  }
+
+  if (isTrainingRecord(source)) {
+    return [source];
+  }
+
+  const record = source as Record<string, unknown>;
+  const nestedCandidates = [
+    record.payload,
+    record.trainings,
+    record.training,
+    record.items,
+  ].filter((value) => value !== undefined);
+
+  if (nestedCandidates.length > 0) {
+    return nestedCandidates.flatMap((entry) => toTrainingEntries(entry));
+  }
+
+  return [];
+};
+
+const buildTrainingIdentityKey = (training: Record<string, any>) => {
+  const id = String(training?.id || "").trim();
+  if (id) {
+    return `id:${id}`;
+  }
+
+  return [
+    training?.date ||
+      training?.start_date ||
+      training?.startDate ||
+      training?.scheduled_at ||
+      training?.scheduledAt ||
+      "",
+    training?.time || training?.start_time || training?.startTime || "",
+    training?.locationId || training?.fieldId || training?.location || "",
+    training?.categoryId || training?.category_id || training?.category || "",
+    training?.title || "",
+  ]
+    .map((value) => String(value || "").trim())
+    .join("|");
+};
+
+export async function getClubTrainings(clubId: string) {
+  try {
+    const [clubTrainings, resourceTrainings, relationalResponse] =
+      await Promise.all([
+        getClubData(clubId, "trainings"),
+        getClubResourcePayloads(clubId, "trainings"),
+        supabase
+          .from("trainings")
+          .select("*")
+          .eq("organization_id", clubId)
+          .order("date", { ascending: true }),
+      ]);
+
+    if (relationalResponse.error) {
+      console.warn(
+        "Error fetching relational trainings:",
+        relationalResponse.error.message || relationalResponse.error,
+      );
+    }
+
+    const merged: Record<string, any>[] = [];
+    const seen = new Set<string>();
+
+    [clubTrainings, resourceTrainings, relationalResponse.data || []].forEach(
+      (source) => {
+        toTrainingEntries(source).forEach((training) => {
+          const identity = buildTrainingIdentityKey(training);
+          if (!identity || seen.has(identity)) {
+            return;
+          }
+
+          seen.add(identity);
+          merged.push(training);
+        });
+      },
+    );
+
+    return merged.sort(compareTrainingsByStart);
+  } catch (error) {
+    console.error("Error fetching club trainings:", error);
     return [];
   }
 }
