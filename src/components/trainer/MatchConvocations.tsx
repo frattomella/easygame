@@ -65,6 +65,27 @@ interface MatchConvocationsProps {
   }[];
 }
 
+const resolveSelectedAthleteIds = (
+  savedConvocations: string[] = [],
+  savedConvocationEntries: MatchConvocationsProps["savedConvocationEntries"] = [],
+) => {
+  const explicitIds = Array.isArray(savedConvocations)
+    ? savedConvocations.filter(Boolean)
+    : [];
+
+  if (explicitIds.length > 0) {
+    return [...new Set(explicitIds)];
+  }
+
+  const derivedIds = Array.isArray(savedConvocationEntries)
+    ? savedConvocationEntries
+        .map((entry) => String(entry?.athleteId || "").trim())
+        .filter(Boolean)
+    : [];
+
+  return [...new Set(derivedIds)];
+};
+
 export function MatchConvocations({
   isOpen,
   onClose,
@@ -85,7 +106,7 @@ export function MatchConvocations({
   const [searchQuery, setSearchQuery] = useState("");
   const [athleteRows, setAthleteRows] = useState<Athlete[]>(athletes);
   const [convocatedAthletes, setConvocatedAthletes] = useState<string[]>(
-    savedConvocations.length > 0 ? savedConvocations : [],
+    resolveSelectedAthleteIds(savedConvocations, savedConvocationEntries),
   );
   const [convocationEntries, setConvocationEntries] = useState<
     {
@@ -105,7 +126,7 @@ export function MatchConvocations({
     const savedEntries = Array.isArray(savedConvocationEntries)
       ? savedConvocationEntries
       : [];
-    const savedIds = Array.isArray(savedConvocations) ? savedConvocations : [];
+    const savedIds = resolveSelectedAthleteIds(savedConvocations, savedEntries);
     const missingSavedAthletes = clubAthletes.filter(
       (athlete) =>
         savedIds.includes(athlete.id) &&
@@ -114,7 +135,7 @@ export function MatchConvocations({
 
     const nextAthleteRows = [...athletes, ...missingSavedAthletes];
     setAthleteRows(nextAthleteRows);
-    setConvocatedAthletes(Array.isArray(savedConvocations) ? savedConvocations : []);
+    setConvocatedAthletes(savedIds);
     setConvocationEntries(
       savedEntries.length > 0
         ? savedEntries

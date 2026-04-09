@@ -687,12 +687,12 @@ export default function TrainingPage() {
   };
 
   return (
-    <div className="flex min-h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] overflow-hidden bg-gray-50 dark:bg-gray-900">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Allenamenti" />
-        <main className="flex-1 overflow-y-auto p-4 pb-24 md:p-6">
-          <div className="mx-auto w-full max-w-7xl space-y-5 md:space-y-6">
+        <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 md:p-6">
+          <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col space-y-5 md:space-y-6">
             <div>
               <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold text-transparent md:text-4xl">
                 Allenamenti
@@ -712,14 +712,14 @@ export default function TrainingPage() {
               </Button>
             </div>
 
-            <Tabs defaultValue="daily" className="w-full">
+            <Tabs defaultValue="daily" className="flex w-full min-w-0 flex-col">
               <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2">
                 <TabsTrigger value="daily">Vista Giornaliera</TabsTrigger>
                 <TabsTrigger value="calendar">Calendario Storico</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="daily" className="space-y-6 pt-1">
-                <Card>
+              <TabsContent value="daily" className="min-w-0 space-y-6 pt-1">
+                <Card className="overflow-hidden">
                   <CardHeader className="flex flex-col gap-4 pb-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start sm:gap-4">
                       <Button
@@ -808,7 +808,7 @@ export default function TrainingPage() {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="min-w-0">
                     {filteredTrainings.length > 0 ? (
                       <div className="space-y-4">
                         {filteredTrainings.map((training) => {
@@ -822,10 +822,10 @@ export default function TrainingPage() {
                           return (
                             <div
                               key={training.id}
-                              className="rounded-xl border p-4 transition-colors hover:bg-gray-50 dark:hover:bg-gray-900"
+                              className="min-w-0 rounded-xl border p-4 transition-colors hover:bg-gray-50 dark:hover:bg-gray-900"
                             >
                               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <h4 className="pr-2 text-base font-medium">
+                                <h4 className="min-w-0 pr-2 text-base font-medium break-words">
                                   {training.title}
                                 </h4>
                               <Badge
@@ -837,23 +837,23 @@ export default function TrainingPage() {
                                 {training.category}
                               </Badge>
                               </div>
-                              <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                                <div className="flex items-center gap-2">
-                                <Clock className="h-3.5 w-3.5" />
-                                <span>
+                              <div className="min-w-0 space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                                <div className="flex min-w-0 items-center gap-2">
+                                <Clock className="h-3.5 w-3.5 shrink-0" />
+                                <span className="min-w-0 break-words">
                                   {training.time}
                                   {training.endTime
                                     ? ` - ${training.endTime}`
                                     : ""}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <MapPin className="h-3.5 w-3.5" />
-                                <span>{training.location}</span>
+                              <div className="flex min-w-0 items-center gap-2">
+                                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                <span className="min-w-0 break-words">{training.location}</span>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <Users className="h-3.5 w-3.5" />
-                                <span>
+                              <div className="flex min-w-0 items-center gap-2">
+                                <Users className="h-3.5 w-3.5 shrink-0" />
+                                <span className="min-w-0 break-words">
                                   {training.trainer} ·{" "}
                                   {training.expectedAttendees || 0} atleti
                                 </span>
@@ -1564,11 +1564,11 @@ export default function TrainingPage() {
                 </Card>
 
                 {/* Weekly Training Schedule */}
-                <Card className="mb-6">
+                <Card className="mb-6 overflow-hidden">
                   <CardHeader>
                     <CardTitle>Programma Settimanale</CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="min-w-0 overflow-x-hidden">
                     <WeeklyTrainingSchedule
                       categories={categories}
                       trainers={trainers}
@@ -1583,18 +1583,18 @@ export default function TrainingPage() {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="calendar" className="space-y-6">
-                <Card>
+              <TabsContent value="calendar" className="min-w-0 space-y-6">
+                <Card className="overflow-hidden">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <CalendarDays className="h-5 w-5" />
                       Calendario Storico Allenamenti
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                  <CardContent className="min-w-0">
+                    <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
                       {/* Calendar */}
-                      <div>
+                      <div className="min-w-0">
                         <Calendar
                           mode="single"
                           selected={calendarDate}
@@ -1624,7 +1624,7 @@ export default function TrainingPage() {
                       </div>
 
                       {/* Selected Date Details */}
-                      <div>
+                      <div className="min-w-0">
                         {calendarDate && (
                           <div>
                             <h3 className="font-medium mb-4">
@@ -1711,7 +1711,7 @@ export default function TrainingPage() {
       </div>
 
       {attendanceModalState ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/55 p-4">
           <AttendanceSheet
             trainingId={attendanceModalState.training.id}
             trainingTitle={attendanceModalState.training.title}

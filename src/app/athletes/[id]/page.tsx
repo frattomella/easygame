@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { CustomKitComponentsBuilder } from "@/components/forms/CustomKitComponentsBuilder";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -86,6 +87,16 @@ import {
   normalizeAthleteCategoryMemberships,
 } from "@/lib/athlete-category-memberships";
 import { buildAthleteParticipationAnalytics } from "@/lib/athlete-participation-utils";
+import {
+  EMPTY_ATHLETE_ANALYTICS,
+  normalizeAthleteAnalytics,
+  normalizeAthleteProfileCollections,
+  normalizeCollection,
+  normalizeNullableTextValue,
+  normalizeRecord,
+  normalizeTextValue,
+  normalizeStringList,
+} from "@/lib/athlete-profile-utils";
 
 const DEFAULT_CLOTHING_SIZES = {
   profile: "",
@@ -231,13 +242,7 @@ export default function AthleteProfilePage() {
       contextLabel: string;
       notes?: string;
     }>;
-  }>({
-    presenceCount: 0,
-    convocationCount: 0,
-    playedMatchesCount: 0,
-    extraCategoryCount: 0,
-    events: [],
-  });
+  }>(EMPTY_ATHLETE_ANALYTICS);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [guardians, setGuardians] = useState<any[]>([]);
@@ -492,14 +497,22 @@ export default function AthleteProfilePage() {
         }
 
         // Transform the simplified_athletes record to the expected format
+        const athletePayload = normalizeRecord(athleteRecord.data);
         const athleteData = {
           id: athleteRecord.id,
           firstName: athleteRecord.first_name,
           lastName: athleteRecord.last_name,
           birthDate: athleteRecord.birth_date,
-          ...(athleteRecord.data || {}),
+          ...athletePayload,
         };
-        const normalizedMedicalCertificates = (certificateRecords || [])
+        const normalizedCategoryOptions = normalizeCollection<any>(categoryOptions);
+        const normalizedTrainingRecords = normalizeCollection<any>(trainingRecords);
+        const normalizedMatchRecords = normalizeCollection<any>(matchRecords);
+        const normalizedCollections =
+          normalizeAthleteProfileCollections(athleteData);
+        const normalizedMedicalCertificates = normalizeCollection<any>(
+          certificateRecords,
+        )
           .map((certificate: any) => ({
             id: certificate.id,
             type: certificate.type || certificate.notes || "Certificato Medico",
@@ -523,9 +536,9 @@ export default function AthleteProfilePage() {
           "";
         const resolvedClothingSizes = {
           ...DEFAULT_CLOTHING_SIZES,
-          ...(athleteData.clothingSizes || {}),
+          ...normalizedCollections.clothingSizes,
           profile:
-            athleteData.clothingSizes?.profile ||
+            normalizedCollections.clothingSizes.profile ||
             deriveClothingProfile(
               athleteData.gender || "",
               athleteData.birthDate || athleteRecord.birth_date || "",
@@ -533,77 +546,79 @@ export default function AthleteProfilePage() {
         };
         const normalizedMemberships = normalizeAthleteCategoryMemberships(
           athleteRecord,
-          Array.isArray(categoryOptions) ? categoryOptions : [],
+          normalizedCategoryOptions,
         );
         const primaryMembership = getPrimaryAthleteCategoryMembership(
           normalizedMemberships,
-          Array.isArray(categoryOptions) ? categoryOptions : [],
+          normalizedCategoryOptions,
         );
         const normalizedCategoryLabels =
           normalizedMemberships.length > 0
             ? normalizedMemberships.map((membership) => membership.categoryName)
-            : athleteData.categories || [];
-        const participationAnalytics = buildAthleteParticipationAnalytics({
+            : normalizeStringList(athleteData.categories);
+        const participationAnalytics = normalizeAthleteAnalytics(
+          buildAthleteParticipationAnalytics({
           athleteId: athleteRecord.id,
           athlete: athleteRecord,
-          trainings: Array.isArray(trainingRecords) ? trainingRecords : [],
-          matches: Array.isArray(matchRecords) ? matchRecords : [],
-        });
+          trainings: normalizedTrainingRecords,
+          matches: normalizedMatchRecords,
+        }),
+        );
 
         setAthlete({
           id: athleteData.id,
-          name: athleteData.firstName || "Nome non disponibile",
-          surname: athleteData.lastName || "",
+          name: normalizeTextValue(athleteData.firstName, "Nome non disponibile"),
+          surname: normalizeTextValue(athleteData.lastName),
           jerseyNumber:
             athleteData.jerseyNumber === null ||
             athleteData.jerseyNumber === undefined ||
             athleteData.jerseyNumber === ""
               ? null
               : Number(athleteData.jerseyNumber),
-          fiscalCode: athleteData.fiscalCode || "",
-          birthDate: athleteData.birthDate || "",
-          nationality: athleteData.nationality || "Italiana",
-          birthPlace: athleteData.birthPlace || "",
-          gender: athleteData.gender || "",
+          fiscalCode: normalizeTextValue(athleteData.fiscalCode),
+          birthDate: normalizeTextValue(athleteData.birthDate),
+          nationality: normalizeTextValue(athleteData.nationality, "Italiana"),
+          birthPlace: normalizeTextValue(athleteData.birthPlace),
+          gender: normalizeTextValue(athleteData.gender),
           categories: normalizedCategoryLabels,
           categoryMemberships: normalizedMemberships,
           primaryCategoryLabel: primaryMembership?.categoryName || null,
-          notes: athleteData.notes || "",
-          registrations: athleteData.registrations || [],
-          phone: athleteData.phone || "",
-          email: athleteData.email || "",
-          address: athleteData.address || "",
-          streetNumber: athleteData.streetNumber || "",
-          city: athleteData.city || "",
-          postalCode: athleteData.postalCode || "",
-          country: athleteData.country || "Italia",
-          region: athleteData.region || "",
-          province: athleteData.province || "",
+          notes: normalizeTextValue(athleteData.notes),
+          registrations: normalizedCollections.registrations,
+          phone: normalizeTextValue(athleteData.phone),
+          email: normalizeTextValue(athleteData.email),
+          address: normalizeTextValue(athleteData.address),
+          streetNumber: normalizeTextValue(athleteData.streetNumber),
+          city: normalizeTextValue(athleteData.city),
+          postalCode: normalizeTextValue(athleteData.postalCode),
+          country: normalizeTextValue(athleteData.country, "Italia"),
+          region: normalizeTextValue(athleteData.region),
+          province: normalizeTextValue(athleteData.province),
           blsd: athleteData.blsd || false,
           firstAid: athleteData.firstAid || false,
           fireSafety: athleteData.fireSafety || false,
-          bloodType: athleteData.bloodType || "",
-          allergies: athleteData.allergies || "",
-          chronicDiseases: athleteData.chronicDiseases || "",
-          medications: athleteData.medications || "",
-          emergencyContact: athleteData.emergencyContact || "",
-          emergencyPhone: athleteData.emergencyPhone || "",
+          bloodType: normalizeTextValue(athleteData.bloodType),
+          allergies: normalizeTextValue(athleteData.allergies),
+          chronicDiseases: normalizeTextValue(athleteData.chronicDiseases),
+          medications: normalizeTextValue(athleteData.medications),
+          emergencyContact: normalizeTextValue(athleteData.emergencyContact),
+          emergencyPhone: normalizeTextValue(athleteData.emergencyPhone),
           medicalCertExpiry: latestMedicalCertExpiry,
           enrollmentStatus: athleteData.enrollmentStatus || false,
-          enrollmentNotes: athleteData.enrollmentNotes || "",
-          selectedPlan: athleteData.selectedPlan || "",
-          discount: athleteData.discount || "",
-          documentType: athleteData.documentType || "",
-          documentNumber: athleteData.documentNumber || "",
-          documentExpiry: athleteData.documentExpiry || "",
-          documentIssue: athleteData.documentIssue || "",
-          residencePermitExpiry: athleteData.residencePermitExpiry || "",
-          avatar: athleteData.avatar || null,
+          enrollmentNotes: normalizeTextValue(athleteData.enrollmentNotes),
+          selectedPlan: normalizeTextValue(athleteData.selectedPlan),
+          discount: normalizeTextValue(athleteData.discount),
+          documentType: normalizeTextValue(athleteData.documentType),
+          documentNumber: normalizeTextValue(athleteData.documentNumber),
+          documentExpiry: normalizeTextValue(athleteData.documentExpiry),
+          documentIssue: normalizeTextValue(athleteData.documentIssue),
+          residencePermitExpiry: normalizeTextValue(athleteData.residencePermitExpiry),
+          avatar: normalizeNullableTextValue(athleteData.avatar),
           clothingSizes: resolvedClothingSizes,
-          identityDocuments: athleteData.identityDocuments || [],
-          enrollmentDocuments: athleteData.enrollmentDocuments || [],
+          identityDocuments: normalizedCollections.identityDocuments,
+          enrollmentDocuments: normalizedCollections.enrollmentDocuments,
         });
-        setClubCategoryOptions(Array.isArray(categoryOptions) ? categoryOptions : []);
+        setClubCategoryOptions(normalizedCategoryOptions);
         setAthleteAnalytics(participationAnalytics);
 
         // Draft per dialog numero maglia
@@ -615,15 +630,15 @@ export default function AthleteProfilePage() {
             : String(athleteData.jerseyNumber),
         );
 
-        setGuardians(athleteData.guardians || []);
-        setRegistrations(athleteData.registrations || []);
-        setMedicalVisits(athleteData.medicalVisits || []);
+        setGuardians(normalizedCollections.guardians);
+        setRegistrations(normalizedCollections.registrations);
+        setMedicalVisits(normalizedCollections.medicalVisits);
         setMedicalCertificates(normalizedMedicalCertificates);
-        setIdentityDocuments(athleteData.identityDocuments || []);
-        setEnrollmentDocuments(athleteData.enrollmentDocuments || []);
-        setDocuments(athleteData.documents || []);
-        setPayments(athleteData.payments || []);
-        setCertificateFiles(athleteData.certificateFiles || {});
+        setIdentityDocuments(normalizedCollections.identityDocuments);
+        setEnrollmentDocuments(normalizedCollections.enrollmentDocuments);
+        setDocuments(normalizedCollections.documents);
+        setPayments(normalizedCollections.payments);
+        setCertificateFiles(normalizedCollections.certificateFiles);
         setClothingSizes(resolvedClothingSizes);
         setClubFederations(normalizeClubFederations(clubRecord));
 

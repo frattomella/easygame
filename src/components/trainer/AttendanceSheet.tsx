@@ -127,12 +127,18 @@ export function AttendanceSheet({
       return;
     }
 
-    setAthleteRows((currentRows) => [...currentRows, athlete]);
+    setAthleteRows((currentRows) => [
+      ...currentRows,
+      {
+        ...athlete,
+        present: true,
+      },
+    ]);
     setAttendance((currentAttendance) => [
       ...currentAttendance,
       {
         athleteId: athlete.id,
-        present: false,
+        present: true,
         notes: "",
         isExtraCategory:
           athlete.participationContext === "extra" || Boolean(athlete.isExtraCategory),
