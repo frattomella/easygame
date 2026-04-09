@@ -32,6 +32,11 @@ export type AthleteParticipationEvent = {
   notes?: string;
 };
 
+type CategoryOptionLike = {
+  id?: string | null;
+  name?: string | null;
+};
+
 const isRecord = (value: unknown): value is Record<string, any> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -46,6 +51,30 @@ const firstNonEmptyString = (...values: unknown[]) => {
   return "";
 };
 
+const normalizeCategoryReference = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const buildCategoryLookup = (categories: CategoryOptionLike[] = []) => {
+  const lookup = new Map<string, string>();
+
+  categories.forEach((category) => {
+    const id = firstNonEmptyString(category?.id);
+    const name = firstNonEmptyString(category?.name);
+
+    if (id) {
+      lookup.set(normalizeCategoryReference(id), name || id);
+    }
+
+    if (name) {
+      lookup.set(normalizeCategoryReference(name), name);
+    }
+  });
+
+  return lookup;
+};
+
 const getEventDate = (value: any) =>
   firstNonEmptyString(
     value?.date,
@@ -54,14 +83,6 @@ const getEventDate = (value: any) =>
     value?.scheduled_at,
     value?.scheduledAt,
   ) || null;
-
-const getEventCategoryLabel = (value: any) =>
-  firstNonEmptyString(
-    value?.category_name,
-    value?.categoryName,
-    value?.category?.name,
-    value?.category,
-  ) || "Categoria";
 
 const getEventCategories = (value: any) => {
   const nested = Array.isArray(value?.categories) ? value.categories : [];
@@ -75,6 +96,71 @@ const getEventCategories = (value: any) => {
   ].filter((entry) => entry !== undefined && entry !== null && entry !== "");
 
   return categories;
+};
+
+const resolveCategoryLabel = (
+  value: any,
+  categories: CategoryOptionLike[] = [],
+) => {
+  const explicitLabel = firstNonEmptyString(
+    value?.category_name,
+    value?.categoryName,
+    value?.category?.name,
+  );
+
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+
+  const lookup = buildCategoryLookup(categories);
+  const eventCategories = getEventCategories(value);
+
+  for (const entry of eventCategories) {
+    if (isRecord(entry)) {
+      const references = [
+        entry.category_name,
+        entry.categoryName,
+        entry.name,
+        entry.label,
+        entry.title,
+        entry.category_id,
+        entry.categoryId,
+        entry.id,
+        entry.value,
+      ]
+        .map(normalizeCategoryReference)
+        .filter(Boolean);
+
+      for (const reference of references) {
+        const matched = lookup.get(reference);
+        if (matched) {
+          return matched;
+        }
+      }
+
+      const fallbackLabel = firstNonEmptyString(
+        entry.category_name,
+        entry.categoryName,
+        entry.name,
+        entry.label,
+        entry.title,
+      );
+
+      if (fallbackLabel) {
+        return fallbackLabel;
+      }
+    } else {
+      const matched = lookup.get(normalizeCategoryReference(entry));
+      if (matched) {
+        return matched;
+      }
+    }
+  }
+
+  return (
+    firstNonEmptyString(value?.category, value?.category_id, value?.categoryId) ||
+    "Categoria"
+  );
 };
 
 export const normalizeTrainingAttendanceEntries = (
@@ -204,11 +290,13 @@ export const buildAthleteParticipationAnalytics = ({
   athlete,
   trainings = [],
   matches = [],
+  categories = [],
 }: {
   athleteId: string;
   athlete?: unknown;
   trainings?: any[];
   matches?: any[];
+  categories?: CategoryOptionLike[];
 }) => {
   const events: AthleteParticipationEvent[] = [];
   let presenceCount = 0;
@@ -245,7 +333,7 @@ export const buildAthleteParticipationAnalytics = ({
       type: "training",
       title: String(training?.title || "Allenamento"),
       date: getEventDate(training),
-      categoryLabel: getEventCategoryLabel(training),
+      categoryLabel: resolveCategoryLabel(training, categories),
       statusLabel: attendanceEntry.present ? "Presente" : "Assente",
       context,
       contextLabel: getParticipationCategoryBadgeLabel(context),
@@ -277,12 +365,19 @@ export const buildAthleteParticipationAnalytics = ({
       extraCategoryCount += 1;
     }
 
+    const matchTitle = firstNonEmptyString(match?.title);
+    const matchOpponent = firstNonEmptyString(match?.opponent);
+    const resolvedMatchTitle =
+      matchTitle && matchOpponent
+        ? `${matchTitle} • ${matchOpponent}`
+        : matchTitle || matchOpponent || "Partita";
+
     events.push({
       id: `match-${match.id}-${athleteId}`,
       type: "match",
-      title: String(match?.title || match?.opponent || "Partita"),
+      title: resolvedMatchTitle,
       date: getEventDate(match),
-      categoryLabel: getEventCategoryLabel(match),
+      categoryLabel: resolveCategoryLabel(match, categories),
       statusLabel: "Convocato",
       context,
       contextLabel: getParticipationCategoryBadgeLabel(context),

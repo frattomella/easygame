@@ -18,6 +18,14 @@ export type AthleteAnalyticsSummary = {
   events: AthleteAnalyticsEvent[];
 };
 
+export type AthleteAnalyticsView =
+  | "all"
+  | "trainings"
+  | "matches"
+  | "presences"
+  | "absences"
+  | "convocations";
+
 export const EMPTY_ATHLETE_ANALYTICS: AthleteAnalyticsSummary = {
   presenceCount: 0,
   convocationCount: 0,
@@ -167,4 +175,60 @@ export const normalizeAthleteAnalytics = (
     extraCategoryCount: toNonNegativeNumber(record.extraCategoryCount),
     events,
   };
+};
+
+export const groupAthleteAnalyticsByType = (
+  events: AthleteAnalyticsEvent[] = [],
+) => ({
+  all: events,
+  trainings: events.filter((event) => event.type === "training"),
+  matches: events.filter((event) => event.type === "match"),
+  presences: events.filter((event) => event.statusLabel === "Presente"),
+  absences: events.filter((event) => event.statusLabel === "Assente"),
+  convocations: events.filter((event) => event.statusLabel === "Convocato"),
+});
+
+export const filterAthleteAnalytics = ({
+  events = [],
+  view = "all",
+  search = "",
+  category = "all",
+  context = "all",
+}: {
+  events?: AthleteAnalyticsEvent[];
+  view?: AthleteAnalyticsView;
+  search?: string;
+  category?: string;
+  context?: "all" | "primary" | "secondary" | "extra";
+}) => {
+  const groupedEvents = groupAthleteAnalyticsByType(events);
+  const baseEvents = groupedEvents[view] || groupedEvents.all;
+  const normalizedSearch = normalizeTextValue(search).toLowerCase();
+
+  return baseEvents.filter((event) => {
+    if (category !== "all" && event.categoryLabel !== category) {
+      return false;
+    }
+
+    if (context !== "all" && event.context !== context) {
+      return false;
+    }
+
+    if (!normalizedSearch) {
+      return true;
+    }
+
+    const searchableText = [
+      event.title,
+      event.categoryLabel,
+      event.statusLabel,
+      event.contextLabel,
+      event.notes,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return searchableText.includes(normalizedSearch);
+  });
 };

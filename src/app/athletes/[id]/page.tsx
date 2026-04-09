@@ -88,7 +88,10 @@ import {
 } from "@/lib/athlete-category-memberships";
 import { buildAthleteParticipationAnalytics } from "@/lib/athlete-participation-utils";
 import {
+  type AthleteAnalyticsView,
   EMPTY_ATHLETE_ANALYTICS,
+  filterAthleteAnalytics,
+  groupAthleteAnalyticsByType,
   normalizeAthleteAnalytics,
   normalizeAthleteProfileCollections,
   normalizeCollection,
@@ -243,6 +246,12 @@ export default function AthleteProfilePage() {
       notes?: string;
     }>;
   }>(EMPTY_ATHLETE_ANALYTICS);
+  const [analyticsView, setAnalyticsView] = useState<AthleteAnalyticsView>("all");
+  const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState("");
+  const [analyticsCategoryFilter, setAnalyticsCategoryFilter] = useState("all");
+  const [analyticsContextFilter, setAnalyticsContextFilter] = useState<
+    "all" | "primary" | "secondary" | "extra"
+  >("all");
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [guardians, setGuardians] = useState<any[]>([]);
@@ -562,6 +571,7 @@ export default function AthleteProfilePage() {
           athlete: athleteRecord,
           trainings: normalizedTrainingRecords,
           matches: normalizedMatchRecords,
+          categories: normalizedCategoryOptions,
         }),
         );
 
@@ -769,6 +779,46 @@ export default function AthleteProfilePage() {
     athlete,
     clubCategoryOptions,
   );
+  const analyticsGroups = React.useMemo(
+    () => groupAthleteAnalyticsByType(athleteAnalytics.events),
+    [athleteAnalytics.events],
+  );
+  const analyticsCategoryOptions = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          athleteAnalytics.events
+            .map((event) => String(event.categoryLabel || "").trim())
+            .filter(Boolean),
+        ),
+      ).sort((left, right) =>
+        left.localeCompare(right, "it", { sensitivity: "base" }),
+      ),
+    [athleteAnalytics.events],
+  );
+  const filteredAnalyticsEvents = React.useMemo(
+    () =>
+      filterAthleteAnalytics({
+        events: athleteAnalytics.events,
+        view: analyticsView,
+        search: analyticsSearchQuery,
+        category: analyticsCategoryFilter,
+        context: analyticsContextFilter,
+      }),
+    [
+      athleteAnalytics.events,
+      analyticsCategoryFilter,
+      analyticsContextFilter,
+      analyticsSearchQuery,
+      analyticsView,
+    ],
+  );
+  React.useEffect(() => {
+    setAnalyticsView("all");
+    setAnalyticsSearchQuery("");
+    setAnalyticsCategoryFilter("all");
+    setAnalyticsContextFilter("all");
+  }, [athleteId]);
   const editCategoryMemberships = normalizeAthleteCategoryMemberships(
     editFormData,
     clubCategoryOptions,
@@ -3984,7 +4034,7 @@ export default function AthleteProfilePage() {
                         </p>
                       </div>
                     </div>
-                    <div className="mt-6 space-y-3">
+                    <div className="mt-6 space-y-4">
                       <div>
                         <h3 className="text-sm font-semibold text-slate-900">
                           Cronologia presenze e convocazioni
@@ -3996,7 +4046,90 @@ export default function AthleteProfilePage() {
 
                       {athleteAnalytics.events.length > 0 ? (
                         <div className="space-y-3">
-                          {athleteAnalytics.events.map((event) => (
+                          <Tabs
+                            value={analyticsView}
+                            onValueChange={(value) =>
+                              setAnalyticsView(value as AthleteAnalyticsView)
+                            }
+                            className="min-w-0"
+                          >
+                            <div className="-mx-1 overflow-x-auto px-1 pb-1">
+                              <TabsList className="inline-flex h-auto min-w-max flex-nowrap gap-1 rounded-xl bg-slate-100 p-1">
+                                <TabsTrigger value="all" className="shrink-0 whitespace-nowrap">
+                                  Tutto ({analyticsGroups.all.length})
+                                </TabsTrigger>
+                                <TabsTrigger value="trainings" className="shrink-0 whitespace-nowrap">
+                                  Allenamenti ({analyticsGroups.trainings.length})
+                                </TabsTrigger>
+                                <TabsTrigger value="matches" className="shrink-0 whitespace-nowrap">
+                                  Partite ({analyticsGroups.matches.length})
+                                </TabsTrigger>
+                                <TabsTrigger value="presences" className="shrink-0 whitespace-nowrap">
+                                  Presenze ({analyticsGroups.presences.length})
+                                </TabsTrigger>
+                                <TabsTrigger value="absences" className="shrink-0 whitespace-nowrap">
+                                  Assenze ({analyticsGroups.absences.length})
+                                </TabsTrigger>
+                                <TabsTrigger value="convocations" className="shrink-0 whitespace-nowrap">
+                                  Convocazioni ({analyticsGroups.convocations.length})
+                                </TabsTrigger>
+                              </TabsList>
+                            </div>
+                          </Tabs>
+
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
+                            <Input
+                              value={analyticsSearchQuery}
+                              onChange={(event) =>
+                                setAnalyticsSearchQuery(event.target.value)
+                              }
+                              placeholder="Cerca evento, avversario, categoria o nota..."
+                            />
+                            <Select
+                              value={analyticsCategoryFilter}
+                              onValueChange={setAnalyticsCategoryFilter}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Tutte le categorie" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">Tutte le categorie</SelectItem>
+                                {analyticsCategoryOptions.map((categoryLabel) => (
+                                  <SelectItem
+                                    key={`analytics-category-${categoryLabel}`}
+                                    value={categoryLabel}
+                                  >
+                                    {categoryLabel}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={analyticsContextFilter}
+                              onValueChange={(value) =>
+                                setAnalyticsContextFilter(
+                                  value as "all" | "primary" | "secondary" | "extra",
+                                )
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Tutti i contesti" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">Tutti i contesti</SelectItem>
+                                <SelectItem value="primary">Categoria primaria</SelectItem>
+                                <SelectItem value="secondary">Categoria secondaria</SelectItem>
+                                <SelectItem value="extra">Extra categoria</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <p className="text-xs text-muted-foreground">
+                            {filteredAnalyticsEvents.length} eventi trovati.
+                          </p>
+
+                          {filteredAnalyticsEvents.length > 0 ? (
+                          filteredAnalyticsEvents.map((event) => (
                             <div
                               key={event.id}
                               className="rounded-xl border border-slate-200 bg-white p-4"
@@ -4043,7 +4176,12 @@ export default function AthleteProfilePage() {
                                 </div>
                               </div>
                             </div>
-                          ))}
+                          ))
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-muted-foreground">
+                              Nessun evento corrisponde ai filtri selezionati.
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-muted-foreground">

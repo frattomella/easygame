@@ -293,6 +293,29 @@ export default function TrainingPage() {
     if (!calendarDate) setCalendarDate(new Date());
   }, []);
 
+  React.useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousHtmlHeight = document.documentElement.style.height;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousBodyHeight = document.body.style.height;
+
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.height = "100%";
+    document.body.style.overflow = "hidden";
+    document.body.style.height = "100%";
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.documentElement.style.height = previousHtmlHeight;
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.height = previousBodyHeight;
+    };
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -653,6 +676,30 @@ export default function TrainingPage() {
     }
   };
 
+  const getTrainingAttendanceStatus = (training: TrainingSession) => {
+    const hasAttendance =
+      Array.isArray(training.attendance) && training.attendance.length > 0;
+    const canTakeAttendance = canRecordTrainingAttendance(training);
+
+    if (hasAttendance) {
+      return {
+        tone: "saved" as const,
+        label: "Presenze salvate",
+        className: "text-green-600",
+      };
+    }
+
+    if (canTakeAttendance) {
+      return {
+        tone: "missing" as const,
+        label: "Presenze mancanti",
+        className: "text-red-600",
+      };
+    }
+
+    return null;
+  };
+
   // Navigation functions for day switching
   const goToPreviousDay = () => {
     if (date) {
@@ -687,10 +734,14 @@ export default function TrainingPage() {
   };
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-gray-50 dark:bg-gray-900">
-      <Sidebar />
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
+      <div className="shrink-0">
+        <Sidebar />
+      </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <Header title="Allenamenti" />
+        <div className="shrink-0">
+          <Header title="Allenamenti" />
+        </div>
         <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 md:p-6">
           <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col space-y-5 md:space-y-6">
             <div>
@@ -813,11 +864,10 @@ export default function TrainingPage() {
                       <div className="space-y-4">
                         {filteredTrainings.map((training) => {
                           const derivedStatus = getDerivedStatus(training);
-                          const hasAttendance =
-                            Array.isArray(training.attendance) &&
-                            training.attendance.length > 0;
+                          const attendanceStatus =
+                            getTrainingAttendanceStatus(training);
                           const canTakeAttendance =
-                            canRecordTrainingAttendance(training);
+                            attendanceStatus?.tone === "missing";
 
                           return (
                             <div
@@ -863,55 +913,52 @@ export default function TrainingPage() {
                                 <div className="flex flex-wrap items-center gap-2">
                                 {getStatusBadge(derivedStatus)}
                                 {/* Attendance Status Icon */}
-                                {hasAttendance ? (
-                                  <div className="flex items-center gap-1 text-green-600">
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="16"
-                                      height="16"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                                    </svg>
+                                {attendanceStatus ? (
+                                  <div className={`flex items-center gap-1 ${attendanceStatus.className}`}>
+                                    {attendanceStatus.tone === "saved" ? (
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                                      </svg>
+                                    ) : (
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <line
+                                          x1="15"
+                                          y1="9"
+                                          x2="9"
+                                          y2="15"
+                                        ></line>
+                                        <line
+                                          x1="9"
+                                          y1="9"
+                                          x2="15"
+                                          y2="15"
+                                        ></line>
+                                      </svg>
+                                    )}
                                     <span className="text-xs">
-                                      Presenze salvate
-                                    </span>
-                                  </div>
-                                ) : canTakeAttendance ? (
-                                  <div className="flex items-center gap-1 text-red-600">
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="16"
-                                      height="16"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <circle cx="12" cy="12" r="10"></circle>
-                                      <line
-                                        x1="15"
-                                        y1="9"
-                                        x2="9"
-                                        y2="15"
-                                      ></line>
-                                      <line
-                                        x1="9"
-                                        y1="9"
-                                        x2="15"
-                                        y2="15"
-                                      ></line>
-                                    </svg>
-                                    <span className="text-xs">
-                                      Presenze mancanti
+                                      {attendanceStatus.label}
                                     </span>
                                   </div>
                                 ) : null}
@@ -1640,10 +1687,14 @@ export default function TrainingPage() {
                             {getTrainingsForDate(calendarDate).length > 0 ? (
                               <div className="space-y-3">
                                 {getTrainingsForDate(calendarDate).map(
-                                  (training) => (
+                                  (training) => {
+                                    const attendanceStatus =
+                                      getTrainingAttendanceStatus(training);
+
+                                    return (
                                     <div
                                       key={training.id}
-                                      className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-800"
+                                      className="rounded-lg border bg-gray-50 p-3 dark:bg-gray-800"
                                     >
                                       <div className="flex justify-between items-start mb-2">
                                         <h4 className="font-medium text-sm">
@@ -1676,7 +1727,7 @@ export default function TrainingPage() {
                                           </span>
                                         </div>
                                       </div>
-                                      <div className="mt-2">
+                                      <div className="mt-2 flex flex-wrap items-center gap-2">
                                         <Badge
                                           className={cn(
                                             "text-xs",
@@ -1685,9 +1736,22 @@ export default function TrainingPage() {
                                         >
                                           {training.category}
                                         </Badge>
+                                        {attendanceStatus ? (
+                                          <Badge
+                                            variant="outline"
+                                            className={
+                                              attendanceStatus.tone === "saved"
+                                                ? "border-green-200 bg-green-50 text-green-700"
+                                                : "border-red-200 bg-red-50 text-red-700"
+                                            }
+                                          >
+                                            {attendanceStatus.label}
+                                          </Badge>
+                                        ) : null}
                                       </div>
                                     </div>
-                                  ),
+                                    );
+                                  },
                                 )}
                               </div>
                             ) : (
