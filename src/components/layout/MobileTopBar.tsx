@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -114,15 +114,64 @@ const navSections = [
   },
 ];
 
-export const MobileTopBar: React.FC = () => {
+interface MobileTopBarProps {
+  showQuickActions?: boolean;
+  title?: string;
+}
+
+export const MobileTopBar: React.FC<MobileTopBarProps> = ({
+  showQuickActions = true,
+  title,
+}) => {
   const { user } = useAuth();
   const router = useRouter();
   const [quickOpen, setQuickOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [clubId, setClubId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlClubId = urlParams.get("clubId");
+
+    if (urlClubId) {
+      setClubId(urlClubId);
+      return;
+    }
+
+    const activeClub = localStorage.getItem("activeClub");
+    if (!activeClub) {
+      return;
+    }
+
+    try {
+      const parsedClub = JSON.parse(activeClub);
+      if (parsedClub?.id) {
+        setClubId(parsedClub.id);
+      }
+    } catch (error) {
+      console.error("Error parsing active club:", error);
+    }
+  }, []);
+
+  const buildUrl = useMemo(
+    () => (href: string) => {
+      if (!clubId) {
+        return href;
+      }
+
+      const separator = href.includes("?") ? "&" : "?";
+      return `${href}${separator}clubId=${clubId}`;
+    },
+    [clubId],
+  );
 
   const handleQuickAction = (href: string) => {
     setQuickOpen(false);
-    router.push(href);
+    router.push(buildUrl(href));
   };
 
   const handleProfileClick = () => {
@@ -133,7 +182,7 @@ export const MobileTopBar: React.FC = () => {
 
   return (
     <>
-      <header className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-md lg:hidden">
+      <header className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-600 to-blue-800 px-4 py-3 text-white shadow-md lg:hidden">
         <div className="flex items-center gap-2">
           <div className="relative h-8 w-8 rounded-lg overflow-hidden bg-white/10">
             <Image
@@ -143,19 +192,28 @@ export const MobileTopBar: React.FC = () => {
               className="object-contain p-1"
             />
           </div>
-          <span className="font-semibold text-sm">EasyGame</span>
+          <div className="min-w-0">
+            <span className="block truncate text-sm font-semibold">EasyGame</span>
+            {title ? (
+              <span className="block truncate text-[11px] text-blue-100">
+                {title}
+              </span>
+            ) : null}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {/* Quick actions */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/10"
-            onClick={() => setQuickOpen(true)}
-          >
-            <Zap className="h-5 w-5" />
-          </Button>
+          {showQuickActions ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/10"
+              onClick={() => setQuickOpen(true)}
+            >
+              <Zap className="h-5 w-5" />
+            </Button>
+          ) : null}
 
           {/* Profile */}
           <Button
@@ -181,14 +239,14 @@ export const MobileTopBar: React.FC = () => {
 
       {/* Quick actions sheet */}
       <Sheet open={quickOpen} onOpenChange={setQuickOpen}>
-        <SheetContent side="right" className="w-80">
-          <SheetHeader>
+        <SheetContent side="right" className="w-80 max-w-[92vw] p-0">
+          <SheetHeader className="shrink-0 border-b px-5 py-4 pr-12">
             <SheetTitle className="flex items-center gap-2">
               <Zap className="h-5 w-5 text-blue-500" />
               Azioni Rapide
             </SheetTitle>
           </SheetHeader>
-          <div className="mt-6 space-y-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4 pb-6">
             {quickActions.map((action) => (
               <button
                 key={action.id}
@@ -204,59 +262,60 @@ export const MobileTopBar: React.FC = () => {
 
       {/* Navigation sheet */}
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-        <SheetContent side="left" className="w-72">
-          <SheetHeader>
+        <SheetContent side="left" className="w-72 max-w-[86vw] p-0">
+          <SheetHeader className="shrink-0 border-b px-5 py-4 pr-12">
             <SheetTitle>Menu</SheetTitle>
           </SheetHeader>
-
-          {/* EasyGame HUB featured link */}
-          <div className="mt-4 mb-3">
-            <Link
-              href="/hub"
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-3 rounded-lg px-3 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 transition-all shadow-md"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                <Home className="h-4 w-4 text-white" />
-              </span>
-              <div className="flex flex-col">
-                <span className="font-bold text-white text-sm">
-                  EasyGame HUB
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-6">
+            {/* EasyGame HUB featured link */}
+            <div className="mb-4">
+              <Link
+                href={buildUrl("/hub")}
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-3 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-3 shadow-md transition-all hover:from-purple-600 hover:to-pink-600"
+              >
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
+                  <Home className="h-4 w-4 text-white" />
                 </span>
-                <span className="text-[11px] text-white/80">
-                  Marketplace e servizi per il tuo club
-                </span>
-              </div>
-            </Link>
-          </div>
-
-          <nav className="mt-2 space-y-4">
-            {navSections.map((section) => (
-              <div key={section.id}>
-                <p className="px-2 text-[11px] font-semibold tracking-wide text-gray-500 dark:text-gray-400 uppercase">
-                  {section.label}
-                </p>
-                <div className="mt-1 space-y-1">
-                  {section.items.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setMenuOpen(false)}
-                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                      >
-                        <Icon className="h-4 w-4" />
-                        <span className="font-medium text-sm">
-                          {item.label}
-                        </span>
-                      </Link>
-                    );
-                  })}
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold text-white">
+                    EasyGame HUB
+                  </span>
+                  <span className="text-[11px] text-white/80">
+                    Marketplace e servizi per il tuo club
+                  </span>
                 </div>
-              </div>
-            ))}
-          </nav>
+              </Link>
+            </div>
+
+            <nav className="space-y-4">
+              {navSections.map((section) => (
+                <div key={section.id}>
+                  <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    {section.label}
+                  </p>
+                  <div className="mt-1 space-y-1">
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <Link
+                          key={item.href}
+                          href={buildUrl(item.href)}
+                          onClick={() => setMenuOpen(false)}
+                          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                        >
+                          <Icon className="h-4 w-4" />
+                          <span className="font-medium text-sm">
+                            {item.label}
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </nav>
+          </div>
         </SheetContent>
       </Sheet>
     </>

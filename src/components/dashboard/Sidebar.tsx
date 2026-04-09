@@ -115,7 +115,7 @@ const Sidebar = memo(() => {
     // Check if there's a saved preference in localStorage or if it's a mobile device
     if (typeof window !== "undefined") {
       const savedState = localStorage.getItem("sidebar-collapsed");
-      const isMobile = window.innerWidth < 768;
+      const isMobile = window.innerWidth < 1024;
 
       if (savedState === "true" || isMobile) {
         setCollapsed(true);
@@ -123,7 +123,7 @@ const Sidebar = memo(() => {
 
       // Add resize listener to collapse sidebar on mobile
       const handleResize = () => {
-        if (window.innerWidth < 768 && !collapsed) {
+        if (window.innerWidth < 1024 && !collapsed) {
           setCollapsed(true);
           localStorage.setItem("sidebar-collapsed", "true");
         }
@@ -140,7 +140,7 @@ const Sidebar = memo(() => {
 
   return (
     <aside
-      className={`flex h-screen ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300 overflow-hidden relative`}
+      className={`hidden lg:flex h-[100dvh] shrink-0 ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300 overflow-hidden relative`}
     >
       <div className="mb-6 flex items-center flex-col py-4 px-4">
         <div className="flex items-center gap-4">

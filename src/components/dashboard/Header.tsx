@@ -34,6 +34,7 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
+import { MobileTopBar } from "@/components/layout/MobileTopBar";
 
 // Import default club logo
 import clubLogoDefault from "@/../public/images/club_logo.png";
@@ -330,7 +331,15 @@ const Header = memo(
     }, [router]);
 
     return (
-      <header className="sticky top-0 z-10 flex h-20 w-full items-center justify-between border-b border-border bg-background px-4 md:px-6 py-4">
+      <>
+        <div className="lg:hidden">
+          <MobileTopBar
+            showQuickActions={showQuickActions}
+            title={title}
+          />
+        </div>
+
+        <header className="sticky top-0 z-10 hidden h-20 w-full items-center justify-between border-b border-border bg-background px-4 py-4 md:px-6 lg:flex">
         <div className="flex min-w-0 items-center gap-3 mr-auto">
           <TooltipProvider>
             <Tooltip>
@@ -495,7 +504,8 @@ const Header = memo(
             </Tooltip>
           </TooltipProvider>
         </div>
-      </header>
+        </header>
+      </>
     );
   },
 );

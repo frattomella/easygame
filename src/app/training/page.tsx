@@ -495,21 +495,21 @@ export default function TrainingPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex min-h-[100dvh] bg-gray-50 dark:bg-gray-900">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Allenamenti" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
+        <main className="flex-1 overflow-y-auto p-4 pb-24 md:p-6">
+          <div className="mx-auto w-full max-w-7xl space-y-5 md:space-y-6">
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold text-transparent md:text-4xl">
                 Allenamenti
               </h1>
-              <p className="text-gray-600 mt-2">
+              <p className="mt-2 text-sm text-gray-600 md:text-base">
                 Pianifica e gestisci il calendario degli allenamenti.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
               <h2 className="text-xl font-semibold">Calendario Allenamenti</h2>
               <Button
                 className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
@@ -521,15 +521,15 @@ export default function TrainingPage() {
             </div>
 
             <Tabs defaultValue="daily" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2">
                 <TabsTrigger value="daily">Vista Giornaliera</TabsTrigger>
                 <TabsTrigger value="calendar">Calendario Storico</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="daily" className="space-y-6">
+              <TabsContent value="daily" className="space-y-6 pt-1">
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <div className="flex items-center gap-4">
+                  <CardHeader className="flex flex-col gap-4 pb-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start sm:gap-4">
                       <Button
                         variant="outline"
                         size="icon"
@@ -539,8 +539,8 @@ export default function TrainingPage() {
                         <ChevronLeft className="h-4 w-4" />
                       </Button>
 
-                      <div className="text-center">
-                        <CardTitle className="text-lg">
+                      <div className="min-w-0 flex-1 text-center sm:flex-none">
+                        <CardTitle className="text-base capitalize sm:text-lg">
                           {date?.toLocaleDateString("it-IT", {
                             weekday: "long",
                             day: "numeric",
@@ -552,7 +552,7 @@ export default function TrainingPage() {
                           variant="ghost"
                           size="sm"
                           onClick={goToToday}
-                          className="text-xs text-blue-600 hover:text-blue-800 mt-1"
+                          className="mt-1 text-xs text-blue-600 hover:text-blue-800"
                         >
                           Vai a oggi
                         </Button>
@@ -568,7 +568,7 @@ export default function TrainingPage() {
                       </Button>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 sm:self-end">
                       {/* Quick day navigation */}
                       <div className="hidden md:flex gap-1">
                         {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map(
@@ -628,23 +628,25 @@ export default function TrainingPage() {
                             canRecordTrainingAttendance(training);
 
                           return (
-                          <div
-                            key={training.id}
-                            className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
-                          >
-                            <div className="flex justify-between items-start mb-2">
-                              <h4 className="font-medium">{training.title}</h4>
+                            <div
+                              key={training.id}
+                              className="rounded-xl border p-4 transition-colors hover:bg-gray-50 dark:hover:bg-gray-900"
+                            >
+                              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <h4 className="pr-2 text-base font-medium">
+                                  {training.title}
+                                </h4>
                               <Badge
                                 className={cn(
-                                  "text-xs",
+                                  "w-fit text-xs",
                                   training.categoryColor,
                                 )}
                               >
                                 {training.category}
                               </Badge>
-                            </div>
-                            <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                              <div className="flex items-center gap-2">
+                              </div>
+                              <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                                <div className="flex items-center gap-2">
                                 <Clock className="h-3.5 w-3.5" />
                                 <span>
                                   {training.time}
@@ -664,9 +666,9 @@ export default function TrainingPage() {
                                   {training.expectedAttendees || 0} atleti
                                 </span>
                               </div>
-                            </div>
-                            <div className="flex justify-between items-center mt-4">
-                              <div className="flex items-center gap-2">
+                              </div>
+                              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-2">
                                 {getStatusBadge(derivedStatus)}
                                 {/* Attendance Status Icon */}
                                 {hasAttendance ? (
@@ -721,8 +723,8 @@ export default function TrainingPage() {
                                     </span>
                                   </div>
                                 ) : null}
-                              </div>
-                              <div className="flex gap-2">
+                                </div>
+                                <div className="flex flex-wrap gap-2 sm:justify-end">
                                 <>
                                   {derivedStatus !== "annullato" &&
                                     canTakeAttendance && (
@@ -1353,10 +1355,10 @@ export default function TrainingPage() {
                                       </Button>
                                     </div>
                                 </>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
+                          );
                         })}
                       </div>
                     ) : (
@@ -1396,7 +1398,7 @@ export default function TrainingPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                       {/* Calendar */}
                       <div>
                         <Calendar
