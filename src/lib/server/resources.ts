@@ -88,6 +88,12 @@ const MODEL_RESOURCES: Record<string, ResourceConfig> = {
     description: "Atleti",
     mobile_ready: true,
   },
+  athlete_category_memberships: {
+    kind: "model",
+    delegate: "athleteCategoryMembership",
+    description: "Appartenenze atleta-categoria",
+    mobile_ready: true,
+  },
   simplified_athletes: {
     kind: "model",
     delegate: "athlete",
@@ -193,6 +199,7 @@ const ORGANIZATION_SCOPED_MODEL_RESOURCES = new Set([
   "dashboards",
   "organization_users",
   "athletes",
+  "athlete_category_memberships",
   "simplified_athletes",
   "medical_certificates",
   "simplified_certificates",
@@ -360,6 +367,7 @@ export const API_REGISTRY = [
 
 const MODEL_DATE_FIELDS: Record<string, string[]> = {
   athletes: ["birth_date", "created_at", "updated_at"],
+  athlete_category_memberships: ["created_at", "updated_at"],
   simplified_athletes: ["birth_date", "created_at", "updated_at"],
   medical_certificates: [
     "issue_date",

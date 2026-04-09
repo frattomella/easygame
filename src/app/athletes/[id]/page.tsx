@@ -81,6 +81,11 @@ import {
   parseScannedDocument,
   type DocumentScanResult,
 } from "@/lib/document-scan";
+import {
+  getPrimaryAthleteCategoryMembership,
+  normalizeAthleteCategoryMemberships,
+} from "@/lib/athlete-category-memberships";
+import { buildAthleteParticipationAnalytics } from "@/lib/athlete-participation-utils";
 
 const DEFAULT_CLOTHING_SIZES = {
   profile: "",
@@ -209,6 +214,30 @@ export default function AthleteProfilePage() {
   const clubId = searchParams?.get("clubId");
   const [isLoading, setIsLoading] = useState(true);
   const [athlete, setAthlete] = useState<any>(null);
+  const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
+  const [athleteAnalytics, setAthleteAnalytics] = useState<{
+    presenceCount: number;
+    convocationCount: number;
+    playedMatchesCount: number;
+    extraCategoryCount: number;
+    events: Array<{
+      id: string;
+      type: "training" | "match";
+      title: string;
+      date: string | null;
+      categoryLabel: string;
+      statusLabel: string;
+      context: "primary" | "secondary" | "extra";
+      contextLabel: string;
+      notes?: string;
+    }>;
+  }>({
+    presenceCount: 0,
+    convocationCount: 0,
+    playedMatchesCount: 0,
+    extraCategoryCount: 0,
+    events: [],
+  });
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [guardians, setGuardians] = useState<any[]>([]);
@@ -421,13 +450,30 @@ export default function AthleteProfilePage() {
       setIsLoading(true);
       try {
         // Use shared database helpers so athlete sheet and medical page stay aligned.
-        const { getAthlete, getAthleteCertificates, getClub } = await import(
-          "@/lib/simplified-db"
-        );
-        const [athleteRecord, certificateRecords, clubRecord] = await Promise.all([
+        const {
+          getAthlete,
+          getAthleteCertificates,
+          getClub,
+          getClubCategories,
+          getClubTrainings,
+          getClubData,
+        } = await import("@/lib/simplified-db");
+        const [
+          athleteRecord,
+          certificateRecords,
+          clubRecord,
+          categoryOptions,
+          trainingRecords,
+          matchRecords,
+        ] = await Promise.all([
           getAthlete(athleteId),
           getAthleteCertificates(athleteId).catch(() => []),
           clubId ? getClub(clubId).catch(() => null) : Promise.resolve(null),
+          clubId ? getClubCategories(clubId).catch(() => []) : Promise.resolve([]),
+          clubId ? getClubTrainings(clubId).catch(() => []) : Promise.resolve([]),
+          clubId
+            ? getClubData(clubId, "matches").catch(() => [])
+            : Promise.resolve([]),
         ]);
 
         if (!athleteRecord) {
@@ -485,6 +531,24 @@ export default function AthleteProfilePage() {
               athleteData.birthDate || athleteRecord.birth_date || "",
             ),
         };
+        const normalizedMemberships = normalizeAthleteCategoryMemberships(
+          athleteRecord,
+          Array.isArray(categoryOptions) ? categoryOptions : [],
+        );
+        const primaryMembership = getPrimaryAthleteCategoryMembership(
+          normalizedMemberships,
+          Array.isArray(categoryOptions) ? categoryOptions : [],
+        );
+        const normalizedCategoryLabels =
+          normalizedMemberships.length > 0
+            ? normalizedMemberships.map((membership) => membership.categoryName)
+            : athleteData.categories || [];
+        const participationAnalytics = buildAthleteParticipationAnalytics({
+          athleteId: athleteRecord.id,
+          athlete: athleteRecord,
+          trainings: Array.isArray(trainingRecords) ? trainingRecords : [],
+          matches: Array.isArray(matchRecords) ? matchRecords : [],
+        });
 
         setAthlete({
           id: athleteData.id,
@@ -501,7 +565,9 @@ export default function AthleteProfilePage() {
           nationality: athleteData.nationality || "Italiana",
           birthPlace: athleteData.birthPlace || "",
           gender: athleteData.gender || "",
-          categories: athleteData.categories || [],
+          categories: normalizedCategoryLabels,
+          categoryMemberships: normalizedMemberships,
+          primaryCategoryLabel: primaryMembership?.categoryName || null,
           notes: athleteData.notes || "",
           registrations: athleteData.registrations || [],
           phone: athleteData.phone || "",
@@ -537,6 +603,8 @@ export default function AthleteProfilePage() {
           identityDocuments: athleteData.identityDocuments || [],
           enrollmentDocuments: athleteData.enrollmentDocuments || [],
         });
+        setClubCategoryOptions(Array.isArray(categoryOptions) ? categoryOptions : []);
+        setAthleteAnalytics(participationAnalytics);
 
         // Draft per dialog numero maglia
         setJerseyNumberDraft(
@@ -623,7 +691,7 @@ export default function AthleteProfilePage() {
     try {
       const { updateClubAthlete } = await import("@/lib/simplified-db");
 
-      await updateClubAthlete(clubId, athleteId, {
+      const updatedAthlete = await updateClubAthlete(clubId, athleteId, {
         ...editFormData,
         guardians,
         registrations,
@@ -639,6 +707,20 @@ export default function AthleteProfilePage() {
       setAthlete((currentAthlete: any) => ({
         ...currentAthlete,
         ...editFormData,
+        categories:
+          updatedAthlete?.categories ||
+          editFormData.categories ||
+          currentAthlete?.categories ||
+          [],
+        categoryMemberships:
+          updatedAthlete?.categoryMemberships ||
+          editFormData.categoryMemberships ||
+          currentAthlete?.categoryMemberships ||
+          [],
+        primaryCategoryLabel:
+          updatedAthlete?.category_name ||
+          currentAthlete?.primaryCategoryLabel ||
+          null,
         guardians,
         registrations,
         medicalVisits,
@@ -666,6 +748,99 @@ export default function AthleteProfilePage() {
     setEditingSection(null);
     setShowEditModal(false);
     setEditFormData({});
+  };
+
+  const athleteCategoryMemberships = normalizeAthleteCategoryMemberships(
+    athlete,
+    clubCategoryOptions,
+  );
+  const editCategoryMemberships = normalizeAthleteCategoryMemberships(
+    editFormData,
+    clubCategoryOptions,
+  );
+  const primaryEditCategoryId =
+    getPrimaryAthleteCategoryMembership(editCategoryMemberships, clubCategoryOptions)
+      ?.categoryId || "";
+
+  const handlePrimaryCategoryChange = (categoryId: string) => {
+    const category = clubCategoryOptions.find((item) => item.id === categoryId);
+    if (!category) {
+      return;
+    }
+
+    const existingSecondaryMemberships = editCategoryMemberships
+      .filter((membership) => !membership.isPrimary && membership.categoryId !== categoryId)
+      .map((membership) => ({
+        category_id: membership.categoryId,
+        category_name: membership.categoryName,
+        is_primary: false,
+      }));
+
+    setEditFormData({
+      ...editFormData,
+      categoryMemberships: [
+        {
+          category_id: category.id,
+          category_name: category.name,
+          is_primary: true,
+        },
+        ...existingSecondaryMemberships,
+      ],
+      categories: [
+        category.name,
+        ...existingSecondaryMemberships.map(
+          (membership) => membership.category_name,
+        ),
+      ],
+    });
+  };
+
+  const handleToggleSecondaryCategory = (
+    categoryId: string,
+    enabled: boolean,
+  ) => {
+    const category = clubCategoryOptions.find((item) => item.id === categoryId);
+    if (!category) {
+      return;
+    }
+
+    const primaryMembership =
+      getPrimaryAthleteCategoryMembership(editCategoryMemberships, clubCategoryOptions) ||
+      null;
+    const secondaryMemberships = editCategoryMemberships
+      .filter((membership) => !membership.isPrimary && membership.categoryId !== categoryId)
+      .map((membership) => ({
+        category_id: membership.categoryId,
+        category_name: membership.categoryName,
+        is_primary: false,
+      }));
+
+    if (enabled) {
+      secondaryMemberships.push({
+        category_id: category.id,
+        category_name: category.name,
+        is_primary: false,
+      });
+    }
+
+    const nextMemberships = [
+      ...(primaryMembership
+        ? [
+            {
+              category_id: primaryMembership.categoryId,
+              category_name: primaryMembership.categoryName,
+              is_primary: true,
+            },
+          ]
+        : []),
+      ...secondaryMemberships,
+    ];
+
+    setEditFormData({
+      ...editFormData,
+      categoryMemberships: nextMemberships,
+      categories: nextMemberships.map((membership) => membership.category_name),
+    });
   };
 
   const handleDeleteAthlete = async () => {
@@ -1643,12 +1818,19 @@ export default function AthleteProfilePage() {
                     {athlete.name} {athlete.surname}
                   </h1>
                   <div className="flex flex-wrap items-center gap-2 mt-1">
-                    {athlete.categories &&
-                      athlete.categories.map((cat: string, idx: number) => (
-                        <Badge key={idx} className="bg-blue-500 text-white">
-                          {cat}
-                        </Badge>
-                      ))}
+                    {athleteCategoryMemberships.map((membership) => (
+                      <Badge
+                        key={`athlete-header-category-${membership.categoryId}`}
+                        className={
+                          membership.isPrimary
+                            ? "bg-blue-500 text-white"
+                            : "border border-sky-200 bg-sky-50 text-sky-700"
+                        }
+                      >
+                        {membership.categoryName}
+                        {membership.isPrimary ? " • Primaria" : " • Secondaria"}
+                      </Badge>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1782,15 +1964,21 @@ export default function AthleteProfilePage() {
                           Categorie di Appartenenza
                         </h3>
                         <div className="flex flex-wrap gap-2 mt-1">
-                          {athlete.categories &&
-                          athlete.categories.length > 0 ? (
-                            athlete.categories.map(
-                              (cat: string, idx: number) => (
-                                <Badge key={idx} variant="outline">
-                                  {cat}
-                                </Badge>
-                              ),
-                            )
+                          {athleteCategoryMemberships.length > 0 ? (
+                            athleteCategoryMemberships.map((membership) => (
+                              <Badge
+                                key={`athlete-general-category-${membership.categoryId}`}
+                                variant="outline"
+                                className={
+                                  membership.isPrimary
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    : "border-sky-200 bg-sky-50 text-sky-700"
+                                }
+                              >
+                                {membership.categoryName}
+                                {membership.isPrimary ? " • Primaria" : " • Secondaria"}
+                              </Badge>
+                            ))
                           ) : (
                             <p className="text-sm text-muted-foreground">-</p>
                           )}
@@ -3745,13 +3933,13 @@ export default function AthleteProfilePage() {
                     <CardTitle>Report e Statistiche</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                       <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                         <h3 className="text-sm font-medium text-muted-foreground">
                           Presenze
                         </h3>
                         <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-                          0
+                          {athleteAnalytics.presenceCount}
                         </p>
                       </div>
                       <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
@@ -3759,7 +3947,7 @@ export default function AthleteProfilePage() {
                           Convocazioni
                         </h3>
                         <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-                          0
+                          {athleteAnalytics.convocationCount}
                         </p>
                       </div>
                       <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
@@ -3767,15 +3955,84 @@ export default function AthleteProfilePage() {
                           Partite Giocate
                         </h3>
                         <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">
-                          0
+                          {athleteAnalytics.playedMatchesCount}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                        <h3 className="text-sm font-medium text-muted-foreground">
+                          Eventi Fuori Categoria
+                        </h3>
+                        <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">
+                          {athleteAnalytics.extraCategoryCount}
                         </p>
                       </div>
                     </div>
-                    <div className="mt-6 text-center text-muted-foreground">
-                      <p>
-                        I grafici e le analitiche dettagliate saranno
-                        disponibili a breve
-                      </p>
+                    <div className="mt-6 space-y-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          Cronologia presenze e convocazioni
+                        </h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Include anche gli eventi in cui l’atleta è stato inserito fuori dalla categoria primaria.
+                        </p>
+                      </div>
+
+                      {athleteAnalytics.events.length > 0 ? (
+                        <div className="space-y-3">
+                          {athleteAnalytics.events.map((event) => (
+                            <div
+                              key={event.id}
+                              className="rounded-xl border border-slate-200 bg-white p-4"
+                            >
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="font-medium text-slate-900">
+                                      {event.title}
+                                    </p>
+                                    <Badge
+                                      variant="outline"
+                                      className={
+                                        event.context === "extra"
+                                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                                          : event.context === "secondary"
+                                            ? "border-sky-200 bg-sky-50 text-sky-800"
+                                            : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      }
+                                    >
+                                      {event.contextLabel}
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-1 text-sm text-muted-foreground">
+                                    {event.type === "training" ? "Allenamento" : "Partita"} • {event.categoryLabel}
+                                  </p>
+                                  {event.notes ? (
+                                    <p className="mt-2 text-sm text-slate-600">
+                                      Note: {event.notes}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <div className="text-sm text-slate-500 sm:text-right">
+                                  <p>{event.statusLabel}</p>
+                                  <p>
+                                    {event.date
+                                      ? new Date(event.date).toLocaleDateString("it-IT", {
+                                          year: "numeric",
+                                          month: "short",
+                                          day: "numeric",
+                                        })
+                                      : "Data non disponibile"}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-muted-foreground">
+                          Nessuna presenza o convocazione registrata per questo atleta.
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -3895,6 +4152,63 @@ export default function AthleteProfilePage() {
                         <SelectItem value="F">Femmina</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div>
+                    <Label>Categoria primaria</Label>
+                    <select
+                      value={primaryEditCategoryId}
+                      onChange={(event) =>
+                        handlePrimaryCategoryChange(event.target.value)
+                      }
+                      className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">Seleziona categoria primaria</option>
+                      {clubCategoryOptions.map((category) => (
+                        <option key={`athlete-primary-category-${category.id}`} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Categorie secondarie</Label>
+                    {clubCategoryOptions.length > 0 ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {clubCategoryOptions.map((category) => {
+                          const isPrimary = primaryEditCategoryId === category.id;
+                          const isSelected = editCategoryMemberships.some(
+                            (membership) =>
+                              membership.categoryId === category.id &&
+                              !membership.isPrimary,
+                          );
+
+                          return (
+                            <label
+                              key={`athlete-secondary-category-${category.id}`}
+                              className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${isPrimary ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400" : "cursor-pointer border-slate-200 bg-white"}`}
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                disabled={isPrimary}
+                                onCheckedChange={(checked) =>
+                                  handleToggleSecondaryCategory(
+                                    category.id,
+                                    Boolean(checked),
+                                  )
+                                }
+                              />
+                              <span>{category.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Nessuna categoria disponibile per il club.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div>

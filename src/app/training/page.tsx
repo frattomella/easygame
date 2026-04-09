@@ -22,9 +22,15 @@ import {
 import { WeeklyTrainingSchedule } from "@/components/dashboard/WeeklyTrainingSchedulePanel";
 import { AddTrainingForm } from "@/components/forms/AddTrainingForm";
 import { EditTrainingForm } from "@/components/forms/EditTrainingForm";
+import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { PinInput } from "@/components/ui/pin-input";
+import {
+  getParticipationCategoryBadgeLabel,
+  getParticipationCategoryContext,
+  getPrimaryAthleteCategoryMembership,
+} from "@/lib/athlete-category-memberships";
 import {
   athleteMatchesAnyCategory,
 } from "@/lib/category-utils";
@@ -63,6 +69,9 @@ import {
   getMedicalCertificateAvailability,
   getMedicalCertificateAvailabilityLabel,
 } from "@/lib/medical-certificates";
+import {
+  normalizeTrainingAttendanceEntries,
+} from "@/lib/athlete-participation-utils";
 
 interface TrainingSession {
   id: string;
@@ -81,6 +90,26 @@ interface TrainingSession {
   attendance?: any[];
   expectedAttendees?: number;
 }
+
+type AttendanceSheetAthlete = {
+  id: string;
+  name: string;
+  avatar?: string;
+  present?: boolean;
+  notes?: string;
+  medicalCertExpiry?: string | null;
+  participationContext?: "primary" | "secondary" | "extra";
+  participationBadgeLabel?: string | null;
+  isExtraCategory?: boolean;
+  isManualExtra?: boolean;
+  primaryCategoryName?: string | null;
+};
+
+type AttendanceModalState = {
+  training: TrainingSession;
+  athletes: AttendanceSheetAthlete[];
+  clubAthletes: AttendanceSheetAthlete[];
+};
 
 const normalizeTrainingCategoryReference = (value: unknown) =>
   String(value || "")
@@ -193,12 +222,56 @@ const formatTrainingSession = ({
   };
 };
 
+const buildTrainingAttendanceAthlete = ({
+  athlete,
+  eventCategories,
+  existingEntry,
+}: {
+  athlete: any;
+  eventCategories: any[];
+  existingEntry?: ReturnType<typeof normalizeTrainingAttendanceEntries>[number];
+}): AttendanceSheetAthlete => {
+  const context = getParticipationCategoryContext({
+    athlete,
+    eventCategories,
+    entry: existingEntry || null,
+  });
+  const primaryCategory = getPrimaryAthleteCategoryMembership(athlete);
+
+  return {
+    id: athlete.id,
+    name: `${athlete.first_name || ""} ${athlete.last_name || ""}`.trim() || "Atleta",
+    avatar:
+      athlete.avatar_url ||
+      athlete.data?.avatar ||
+      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(`${athlete.first_name || "atleta"}-${athlete.last_name || ""}`)}`,
+    present: existingEntry?.present || false,
+    notes: existingEntry?.notes || "",
+    medicalCertExpiry:
+      athlete.data?.medicalCertExpiry ||
+      athlete.medical_cert_expiry ||
+      athlete.medicalCertExpiry ||
+      null,
+    participationContext: context,
+    participationBadgeLabel:
+      context === "primary" ? null : getParticipationCategoryBadgeLabel(context),
+    isExtraCategory:
+      context === "extra" ||
+      Boolean(existingEntry?.isExtraCategory),
+    isManualExtra:
+      context === "extra" ||
+      Boolean(existingEntry?.isManualExtra),
+    primaryCategoryName: primaryCategory?.categoryName || null,
+  };
+};
+
 export default function TrainingPage() {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [trainers, setTrainers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
   const [trainings, setTrainings] = React.useState<TrainingSession[]>([]);
+  const [clubAthletes, setClubAthletes] = useState<any[]>([]);
   const [showAddTrainingModal, setShowAddTrainingModal] = useState(false);
   const [showEditTrainingModal, setShowEditTrainingModal] = useState(false);
   const [editingTraining, setEditingTraining] =
@@ -206,6 +279,8 @@ export default function TrainingPage() {
   const [showPinInput, setShowPinInput] = useState(false);
   const [trainingToDelete, setTrainingToDelete] =
     useState<TrainingSession | null>(null);
+  const [attendanceModalState, setAttendanceModalState] =
+    useState<AttendanceModalState | null>(null);
   const [calendarDate, setCalendarDate] = React.useState<Date | undefined>(
     undefined,
   );
@@ -268,9 +343,11 @@ export default function TrainingPage() {
       const normalizedTrainings = Array.isArray(clubTrainings)
         ? clubTrainings
         : [];
+      const normalizedAthletes = Array.isArray(allAthletes) ? allAthletes : [];
 
       setCategories(normalizedCategories);
       setTrainers(normalizedTrainers);
+      setClubAthletes(normalizedAthletes);
 
       const builtLocations = buildTrainingLocationOptions(clubStructures);
       const normalizedLocations =
@@ -285,7 +362,7 @@ export default function TrainingPage() {
             training,
             categories: normalizedCategories,
             trainers: normalizedTrainers,
-            athletes: Array.isArray(allAthletes) ? allAthletes : [],
+            athletes: normalizedAthletes,
             locations: normalizedLocations,
           }),
         )
@@ -421,6 +498,121 @@ export default function TrainingPage() {
       showToast("error", "Errore durante l'aggiunta dell'allenamento");
     }
   };
+
+  const openAttendanceSheet = React.useCallback(
+    (training: TrainingSession) => {
+      const eventCategories = categories.filter((category) =>
+        trainingMatchesCategory(training, category),
+      );
+      const existingEntries = normalizeTrainingAttendanceEntries(
+        training.attendance,
+      );
+      const existingEntriesByAthleteId = new Map(
+        existingEntries.map((entry) => [entry.athleteId, entry]),
+      );
+      const activeAthletes = clubAthletes.filter(
+        (athlete: any) =>
+          !athlete.data?.status || athlete.data.status === "active",
+      );
+      const categoryAthletes =
+        eventCategories.length > 0
+          ? activeAthletes.filter((athlete: any) =>
+              athleteMatchesAnyCategory(athlete, eventCategories),
+            )
+          : activeAthletes;
+      const savedOutsideCategoryAthletes = clubAthletes.filter(
+        (athlete: any) =>
+          existingEntriesByAthleteId.has(athlete.id) &&
+          !categoryAthletes.some(
+            (candidate: any) => candidate.id === athlete.id,
+          ),
+      );
+      const visibleAthletes = [...categoryAthletes, ...savedOutsideCategoryAthletes]
+        .reduce<any[]>((collection, athlete) => {
+          if (collection.some((candidate) => candidate.id === athlete.id)) {
+            return collection;
+          }
+
+          collection.push(athlete);
+          return collection;
+        }, [])
+        .sort((left: any, right: any) =>
+          `${left.first_name || ""} ${left.last_name || ""}`
+            .trim()
+            .localeCompare(
+              `${right.first_name || ""} ${right.last_name || ""}`.trim(),
+              "it",
+              { sensitivity: "base" },
+            ),
+        );
+
+      setAttendanceModalState({
+        training,
+        athletes: visibleAthletes.map((athlete) =>
+          buildTrainingAttendanceAthlete({
+            athlete,
+            eventCategories,
+            existingEntry: existingEntriesByAthleteId.get(athlete.id),
+          }),
+        ),
+        clubAthletes: activeAthletes
+          .map((athlete: any) =>
+            buildTrainingAttendanceAthlete({
+              athlete,
+              eventCategories,
+              existingEntry: existingEntriesByAthleteId.get(athlete.id),
+            }),
+          )
+          .sort((left, right) =>
+            left.name.localeCompare(right.name, "it", {
+              sensitivity: "base",
+            }),
+          ),
+      });
+    },
+    [categories, clubAthletes],
+  );
+
+  const handleSaveAttendanceSheet = React.useCallback(
+    async (data: {
+      trainingId: string;
+      attendance: {
+        athleteId: string;
+        present: boolean;
+        notes: string;
+        isExtraCategory?: boolean;
+        isManualExtra?: boolean;
+        categoryMembershipType?: string | null;
+      }[];
+    }) => {
+      if (!activeClub?.id) {
+        showToast("error", "Nessun club attivo selezionato");
+        return;
+      }
+
+      try {
+        await saveTrainingAttendance(activeClub.id, data.trainingId, data.attendance);
+        setTrainings((currentTrainings) =>
+          currentTrainings.map((training) =>
+            training.id === data.trainingId
+              ? {
+                  ...training,
+                  attendance: data.attendance,
+                  attendees: data.attendance.filter((entry) => entry.present)
+                    .length,
+                }
+              : training,
+          ),
+        );
+        setAttendanceModalState(null);
+        showToast("success", "Presenze salvate con successo");
+      } catch (error) {
+        console.error("Error saving attendance:", error);
+        showToast("error", "Errore nel salvataggio delle presenze");
+      }
+    },
+    [activeClub?.id, showToast],
+  );
 
   // Filter trainings for the selected date (including all statuses)
   const filteredTrainings = trainings
@@ -732,6 +924,8 @@ export default function TrainingPage() {
                                       size="sm"
                                       className="bg-blue-600 hover:bg-blue-700 mr-2"
                                       onClick={async () => {
+                                        openAttendanceSheet(training);
+                                        return;
                                         try {
                                           // Get all athletes from the simplified_athletes table
                                           const allAthletes =
@@ -1515,6 +1709,23 @@ export default function TrainingPage() {
           </div>
         </main>
       </div>
+
+      {attendanceModalState ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <AttendanceSheet
+            trainingId={attendanceModalState.training.id}
+            trainingTitle={attendanceModalState.training.title}
+            trainingDate={attendanceModalState.training.date.toISOString()}
+            trainingTime={attendanceModalState.training.time}
+            categoryName={attendanceModalState.training.category}
+            location={attendanceModalState.training.location}
+            athletes={attendanceModalState.athletes}
+            clubAthletes={attendanceModalState.clubAthletes}
+            onSave={handleSaveAttendanceSheet}
+            onClose={() => setAttendanceModalState(null)}
+          />
+        </div>
+      ) : null}
 
       <AddTrainingForm
         isOpen={showAddTrainingModal}

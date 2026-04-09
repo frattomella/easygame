@@ -62,6 +62,10 @@ import {
   UNCATEGORIZED_CATEGORY_ID,
 } from "@/lib/category-utils";
 import {
+  getPrimaryAthleteCategoryMembership,
+  normalizeAthleteCategoryMemberships,
+} from "@/lib/athlete-category-memberships";
+import {
   getClubAthletes,
   addClubAthlete,
   updateClubAthlete,
@@ -79,6 +83,9 @@ interface Athlete {
   name: string;
   categoryId: string | null;
   categoryLabel: string;
+  membershipType: "primary" | "secondary";
+  primaryCategoryLabel?: string;
+  allCategoryLabels: string[];
   age: number;
   status: "active" | "inactive" | "suspended";
   medicalCertExpiry: string;
@@ -237,31 +244,55 @@ export default function AthletesPage() {
       const normalizedCategories = buildCategoryList(categoriesData || []);
       setCategories(normalizedCategories);
 
-      const transformedAthletes = athletesData.map((athlete: any) => {
-        const categoryId = resolveCategoryId(
-          athlete.category_id || athlete.data?.category || athlete.category_name,
+      const transformedAthletes = athletesData.flatMap((athlete: any) => {
+        const memberships = normalizeAthleteCategoryMemberships(
+          athlete,
           normalizedCategories,
         );
-        const categoryLabel = categoryId
-          ? resolveCategoryLabel(categoryId, normalizedCategories)
-          : "Senza categoria";
+        const primaryMembership = getPrimaryAthleteCategoryMembership(
+          memberships,
+          normalizedCategories,
+        );
+        const rowMemberships =
+          memberships.length > 0
+            ? memberships
+            : [
+                {
+                  categoryId: null,
+                  categoryName: "Senza categoria",
+                  isPrimary: true,
+                },
+              ];
 
-        return {
-          id: athlete.id,
-          name: `${athlete.first_name} ${athlete.last_name}`.trim(),
-          categoryId,
-          categoryLabel,
-          age: athlete.birth_date
-            ? new Date().getFullYear() -
-              new Date(athlete.birth_date).getFullYear()
-            : 0,
-          status: athlete.status || athlete.data?.status || "active",
-          medicalCertExpiry: athlete.data?.medicalCertExpiry || "",
-          birthDate: athlete.birth_date || "",
-          avatar: athlete.avatar_url || athlete.data?.avatar || null,
-          accessCode: athlete.access_code || athlete.data?.accessCode,
-          jerseyNumber: athlete.jersey_number || athlete.data?.jerseyNumber,
-        } as Athlete;
+        return rowMemberships.map((membership) => {
+          const categoryId = membership.categoryId
+            ? resolveCategoryId(membership.categoryId, normalizedCategories)
+            : null;
+          const categoryLabel = membership.categoryName
+            ? resolveCategoryLabel(membership.categoryName, normalizedCategories)
+            : "Senza categoria";
+
+          return {
+            id: athlete.id,
+            name: `${athlete.first_name} ${athlete.last_name}`.trim(),
+            categoryId,
+            categoryLabel,
+            membershipType: membership.isPrimary ? "primary" : "secondary",
+            primaryCategoryLabel:
+              primaryMembership?.categoryName || categoryLabel || "Senza categoria",
+            allCategoryLabels: rowMemberships.map((item) => item.categoryName),
+            age: athlete.birth_date
+              ? new Date().getFullYear() -
+                new Date(athlete.birth_date).getFullYear()
+              : 0,
+            status: athlete.status || athlete.data?.status || "active",
+            medicalCertExpiry: athlete.data?.medicalCertExpiry || "",
+            birthDate: athlete.birth_date || "",
+            avatar: athlete.avatar_url || athlete.data?.avatar || null,
+            accessCode: athlete.access_code || athlete.data?.accessCode,
+            jerseyNumber: athlete.jersey_number || athlete.data?.jerseyNumber,
+          } as Athlete;
+        });
       });
 
       setAthletes(transformedAthletes);
@@ -363,6 +394,9 @@ export default function AthletesPage() {
         name: `${athleteData.firstName} ${athleteData.lastName}`.trim(),
         categoryId: linkedCategory?.id || null,
         categoryLabel: linkedCategory?.name || "Senza categoria",
+        membershipType: "primary",
+        primaryCategoryLabel: linkedCategory?.name || "Senza categoria",
+        allCategoryLabels: linkedCategory?.name ? [linkedCategory.name] : [],
         age: Number.isFinite(birthYear)
           ? new Date().getFullYear() - birthYear
           : 0,
@@ -702,7 +736,10 @@ export default function AthletesPage() {
   const filteredAthletes = athletes.filter((athlete) => {
     const matchesSearch =
       athlete.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      athlete.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase());
+      athlete.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      athlete.allCategoryLabels.some((label) =>
+        label.toLowerCase().includes(searchQuery.toLowerCase()),
+      );
 
     const matchesStatus =
       statusFilter === "all" || athlete.status === statusFilter;
@@ -978,12 +1015,31 @@ export default function AthletesPage() {
                     }
                     className="hover:text-blue-600 hover:underline cursor-pointer text-left"
                   >
-                    {athlete.name}
+                    <span>{athlete.name}</span>
+                    {athlete.membershipType === "secondary" ? (
+                      <span className="mt-1 block text-xs text-sky-600">
+                        Categoria primaria: {athlete.primaryCategoryLabel || "Non definita"}
+                      </span>
+                    ) : null}
                   </button>
+                  {athlete.membershipType === "secondary" ? (
+                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
+                      Secondaria
+                    </span>
+                  ) : null}
                 </div>
               </td>
               {visibleColumns.category && (
-                <td className="py-3 px-4">{athlete.categoryLabel}</td>
+                <td className="py-3 px-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>{athlete.categoryLabel}</span>
+                    {athlete.membershipType === "primary" ? (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        Primaria
+                      </span>
+                    ) : null}
+                  </div>
+                </td>
               )}
               {visibleColumns.age && (
                 <td className="py-3 px-4">{athlete.age} anni</td>

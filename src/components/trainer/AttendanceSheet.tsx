@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast-notification";
 import { CheckCircle, Save, X, AlertTriangle } from "lucide-react";
 import {
@@ -26,6 +27,22 @@ interface AttendanceSheetProps {
     present?: boolean;
     notes?: string;
     medicalCertExpiry?: string;
+    participationContext?: "primary" | "secondary" | "extra";
+    participationBadgeLabel?: string | null;
+    isExtraCategory?: boolean;
+    isManualExtra?: boolean;
+    primaryCategoryName?: string | null;
+  }[];
+  clubAthletes?: {
+    id: string;
+    name: string;
+    avatar?: string;
+    medicalCertExpiry?: string;
+    participationContext?: "primary" | "secondary" | "extra";
+    participationBadgeLabel?: string | null;
+    isExtraCategory?: boolean;
+    isManualExtra?: boolean;
+    primaryCategoryName?: string | null;
   }[];
   onSave: (attendanceData: {
     trainingId: string;
@@ -33,10 +50,15 @@ interface AttendanceSheetProps {
       athleteId: string;
       present: boolean;
       notes: string;
+      isExtraCategory?: boolean;
+      isManualExtra?: boolean;
+      categoryMembershipType?: string | null;
     }[];
   }) => void;
   onClose: () => void;
 }
+
+type AttendanceSheetAthlete = AttendanceSheetProps["athletes"][number];
 
 export function AttendanceSheet({
   trainingId,
@@ -46,17 +68,37 @@ export function AttendanceSheet({
   categoryName,
   location,
   athletes = [],
+  clubAthletes = [],
   onSave,
   onClose,
 }: AttendanceSheetProps) {
   const { showToast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [athleteRows, setAthleteRows] = useState(athletes);
   const [attendance, setAttendance] = useState(
     athletes.map((athlete) => ({
       athleteId: athlete.id,
       present: athlete.present || false,
       notes: athlete.notes || "",
+      isExtraCategory: Boolean(athlete.isExtraCategory),
+      isManualExtra: Boolean(athlete.isManualExtra),
+      categoryMembershipType: athlete.participationContext || "primary",
     })),
   );
+
+  React.useEffect(() => {
+    setAthleteRows(athletes);
+    setAttendance(
+      athletes.map((athlete) => ({
+        athleteId: athlete.id,
+        present: athlete.present || false,
+        notes: athlete.notes || "",
+        isExtraCategory: Boolean(athlete.isExtraCategory),
+        isManualExtra: Boolean(athlete.isManualExtra),
+        categoryMembershipType: athlete.participationContext || "primary",
+      })),
+    );
+  }, [athletes]);
 
   const handleTogglePresence = (athleteId: string) => {
     setAttendance(
@@ -78,6 +120,28 @@ export function AttendanceSheet({
 
   const handleMarkAllPresent = () => {
     setAttendance(attendance.map((item) => ({ ...item, present: true })));
+  };
+
+  const handleAddExtraAthlete = (athlete: AttendanceSheetAthlete) => {
+    if (!athlete || athleteRows.some((row) => row.id === athlete.id)) {
+      return;
+    }
+
+    setAthleteRows((currentRows) => [...currentRows, athlete]);
+    setAttendance((currentAttendance) => [
+      ...currentAttendance,
+      {
+        athleteId: athlete.id,
+        present: false,
+        notes: "",
+        isExtraCategory:
+          athlete.participationContext === "extra" || Boolean(athlete.isExtraCategory),
+        isManualExtra:
+          athlete.participationContext === "extra" || Boolean(athlete.isManualExtra),
+        categoryMembershipType: athlete.participationContext || "primary",
+      },
+    ]);
+    setSearchQuery("");
   };
 
   const handleSave = () => {
@@ -102,6 +166,28 @@ export function AttendanceSheet({
     return attendance.filter((item) => item.present).length;
   };
 
+  const suggestedAthletes = clubAthletes
+    .filter(
+      (athlete) =>
+        !athleteRows.some((row) => row.id === athlete.id) &&
+        athlete.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
+    )
+    .slice(0, 6);
+
+  const getParticipationBadgeClassName = (
+    context?: "primary" | "secondary" | "extra",
+  ) => {
+    if (context === "extra") {
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    }
+
+    if (context === "secondary") {
+      return "border-sky-200 bg-sky-50 text-sky-800";
+    }
+
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  };
+
   return (
     <Card className="w-full max-w-3xl mx-auto">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -120,7 +206,7 @@ export function AttendanceSheet({
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-sm">
-              Presenti: <strong>{getPresentCount()}</strong> / {athletes.length}
+              Presenti: <strong>{getPresentCount()}</strong> / {athleteRows.length}
             </p>
             <Button
               variant="outline"
@@ -133,6 +219,57 @@ export function AttendanceSheet({
             </Button>
           </div>
 
+          <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/70 p-3">
+            <div>
+              <p className="text-sm font-medium text-slate-900">
+                Aggiungi atleta extra
+              </p>
+              <p className="text-xs text-slate-500">
+                Cerca tra tutti gli atleti del club ed evita duplicati nella lista presenze.
+              </p>
+            </div>
+            <Input
+              placeholder="Cerca atleta del club..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+            {searchQuery.trim() ? (
+              suggestedAthletes.length > 0 ? (
+                <div className="space-y-2">
+                  {suggestedAthletes.map((athlete) => (
+                    <button
+                      key={`attendance-extra-${athlete.id}`}
+                      type="button"
+                      onClick={() => handleAddExtraAthlete(athlete)}
+                      className="flex w-full items-center justify-between rounded-md border bg-white px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50"
+                    >
+                      <div>
+                        <p className="text-sm font-medium">{athlete.name}</p>
+                        {athlete.primaryCategoryName ? (
+                          <p className="text-xs text-muted-foreground">
+                            Categoria primaria: {athlete.primaryCategoryName}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={getParticipationBadgeClassName(
+                          athlete.participationContext,
+                        )}
+                      >
+                        {athlete.participationBadgeLabel || "Aggiungi"}
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Nessun atleta disponibile con questo filtro.
+                </p>
+              )
+            ) : null}
+          </div>
+
           <div className="border rounded-md overflow-hidden">
             <div className="grid grid-cols-12 gap-2 p-2 font-medium bg-muted text-muted-foreground text-sm">
               <div className="col-span-5">Atleta</div>
@@ -141,7 +278,7 @@ export function AttendanceSheet({
             </div>
 
             <div className="max-h-[300px] overflow-y-auto">
-              {athletes.map((athlete, index) => {
+              {athleteRows.map((athlete, index) => {
                 const attendanceRecord = attendance.find(
                   (a) => a.athleteId === athlete.id,
                 );
@@ -149,11 +286,21 @@ export function AttendanceSheet({
                 return (
                   <div
                     key={athlete.id}
-                    className={`grid grid-cols-12 gap-2 p-2 items-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${index !== athletes.length - 1 ? "border-b" : ""}`}
+                    className={`grid grid-cols-12 gap-2 p-2 items-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${index !== athleteRows.length - 1 ? "border-b" : ""}`}
                   >
                     <div className="col-span-5">
                       <div className="flex items-center gap-2 font-medium">
                         <span>{athlete.name}</span>
+                        {athlete.participationBadgeLabel ? (
+                          <Badge
+                            variant="outline"
+                            className={getParticipationBadgeClassName(
+                              athlete.participationContext,
+                            )}
+                          >
+                            {athlete.participationBadgeLabel}
+                          </Badge>
+                        ) : null}
                         {getMedicalCertificateAvailability(
                           athlete.medicalCertExpiry,
                         ) !== "valid" ? (
@@ -169,6 +316,12 @@ export function AttendanceSheet({
                               athlete.medicalCertExpiry,
                             ),
                           )}
+                        </p>
+                      ) : null}
+                      {athlete.primaryCategoryName &&
+                      athlete.participationContext !== "primary" ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Categoria primaria: {athlete.primaryCategoryName}
                         </p>
                       ) : null}
                     </div>

@@ -1,6 +1,11 @@
 import { supabase } from "./supabase";
 import { normalizeTrainerList } from "./trainer-utils";
 import {
+  getAthleteCategoryLabels,
+  getPrimaryAthleteCategoryMembership,
+  normalizeAthleteCategoryMemberships,
+} from "./athlete-category-memberships";
+import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
   resolveCategoryId,
@@ -52,6 +57,240 @@ const CLUB_DIRECT_UPDATE_FIELDS = [
   "jersey_assignments",
   "dashboard_data",
 ] as const;
+
+const ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE = "athlete_category_memberships";
+const UUID_PATTERN =
+  /^(?:urn:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isRecord = (value: unknown): value is Record<string, any> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const isMissingAthleteMembershipResource = (error: any) => {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("unsupported resource") ||
+    message.includes("athlete_category_memberships") ||
+    message.includes("athletecategorymembership") ||
+    message.includes("does not exist")
+  );
+};
+
+const serializeAthleteMemberships = (
+  memberships: ReturnType<typeof normalizeAthleteCategoryMemberships>,
+  {
+    clubId,
+    athleteId,
+  }: {
+    clubId?: string | null;
+    athleteId?: string | null;
+  } = {},
+) =>
+  memberships.map((membership) => ({
+    id: membership.id,
+    organization_id: membership.organizationId || clubId || null,
+    athlete_id: membership.athleteId || athleteId || null,
+    category_id: membership.categoryId,
+    category_name: membership.categoryName,
+    is_primary: membership.isPrimary,
+  }));
+
+const hydrateAthleteWithMemberships = (
+  athlete: any,
+  memberships: any[] = [],
+) => {
+  if (!athlete || typeof athlete !== "object") {
+    return athlete;
+  }
+
+  const data = isRecord(athlete.data) ? athlete.data : {};
+  const normalizedMemberships = normalizeAthleteCategoryMemberships({
+    ...athlete,
+    data,
+    category_memberships: memberships,
+    categoryMemberships: memberships,
+  });
+  const primaryMembership = getPrimaryAthleteCategoryMembership(
+    normalizedMemberships,
+  );
+  const serializedMemberships = serializeAthleteMemberships(normalizedMemberships, {
+    clubId: athlete.organization_id || athlete.club_id || null,
+    athleteId: athlete.id || null,
+  });
+  const categoryLabels = getAthleteCategoryLabels(normalizedMemberships);
+
+  return {
+    ...athlete,
+    club_id: athlete.club_id || athlete.organization_id || null,
+    category_id:
+      primaryMembership?.categoryId ||
+      athlete.category_id ||
+      data.category ||
+      null,
+    category_name:
+      primaryMembership?.categoryName ||
+      athlete.category_name ||
+      data.categoryName ||
+      data.category ||
+      null,
+    category_memberships: serializedMemberships,
+    categoryMemberships: serializedMemberships,
+    categories: categoryLabels,
+    data: {
+      ...data,
+      category: primaryMembership?.categoryId || data.category || athlete.category_id || null,
+      categoryName:
+        primaryMembership?.categoryName ||
+        data.categoryName ||
+        athlete.category_name ||
+        data.category ||
+        null,
+      categoryMemberships: serializedMemberships,
+      categories: categoryLabels,
+    },
+  };
+};
+
+const loadClubAthleteMemberships = async (
+  clubId: string,
+  athleteIds?: string[],
+) => {
+  if (!clubId) {
+    return [];
+  }
+
+  try {
+    let query = supabase
+      .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
+      .select("*")
+      .eq("organization_id", clubId);
+
+    if (Array.isArray(athleteIds) && athleteIds.length > 0) {
+      query = query.in("athlete_id", athleteIds);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      if (!isMissingAthleteMembershipResource(error)) {
+        console.warn("Error loading athlete memberships:", error);
+      }
+      return [];
+    }
+
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    if (!isMissingAthleteMembershipResource(error)) {
+      console.warn("Error loading athlete memberships:", error);
+    }
+    return [];
+  }
+};
+
+const replaceAthleteMemberships = async (
+  clubId: string,
+  athleteId: string,
+  memberships: ReturnType<typeof normalizeAthleteCategoryMemberships>,
+) => {
+  const serializedMemberships = serializeAthleteMemberships(memberships, {
+    clubId,
+    athleteId,
+  });
+
+  try {
+    const { error: deleteError } = await supabase
+      .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
+      .delete()
+      .eq("organization_id", clubId)
+      .eq("athlete_id", athleteId);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    for (const membership of serializedMemberships) {
+      const payload = {
+        ...membership,
+        organization_id: clubId,
+        athlete_id: athleteId,
+      } as Record<string, any>;
+
+      if (!UUID_PATTERN.test(String(payload.id || "").trim())) {
+        delete payload.id;
+      }
+
+      const { error } = await supabase
+        .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
+        .insert(payload);
+
+      if (error) {
+        throw error;
+      }
+    }
+  } catch (error) {
+    if (!isMissingAthleteMembershipResource(error)) {
+      console.warn("Error syncing athlete memberships:", error);
+    }
+  }
+
+  return serializedMemberships;
+};
+
+const resolveRequestedAthleteMemberships = (
+  currentAthlete: any,
+  updates: any,
+) => {
+  const explicitMemberships =
+    updates?.categoryMemberships ??
+    updates?.category_memberships ??
+    updates?.memberships;
+
+  if (Array.isArray(explicitMemberships)) {
+    return normalizeAthleteCategoryMemberships(explicitMemberships);
+  }
+
+  const hasSingleCategoryUpdate = [
+    updates?.category,
+    updates?.category_id,
+    updates?.categoryName,
+    updates?.category_name,
+  ].some((value) => value !== undefined);
+
+  if (hasSingleCategoryUpdate) {
+    const currentMemberships = normalizeAthleteCategoryMemberships(currentAthlete);
+    const nextPrimary = normalizeAthleteCategoryMemberships([
+      {
+        category_id: updates?.category ?? updates?.category_id,
+        category_name:
+          updates?.categoryName ??
+          updates?.category_name ??
+          updates?.category ??
+          updates?.category_id,
+        is_primary: true,
+      },
+    ]);
+
+    const nextPrimaryKey = String(
+      nextPrimary[0]?.categoryId || nextPrimary[0]?.categoryName || "",
+    ).trim();
+    const secondaryMemberships = currentMemberships
+      .filter(
+        (membership) =>
+          membership.categoryId !== nextPrimaryKey &&
+          membership.categoryName !== nextPrimaryKey,
+      )
+      .map((membership) => ({
+        category_id: membership.categoryId,
+        category_name: membership.categoryName,
+        is_primary: false,
+      }));
+
+    return normalizeAthleteCategoryMemberships([
+      ...nextPrimary,
+      ...secondaryMemberships,
+    ]);
+  }
+
+  return normalizeAthleteCategoryMemberships(currentAthlete);
+};
 
 /**
  * Salva il programma settimanale degli allenamenti nel database
@@ -228,10 +467,10 @@ export async function getUserClubs(userId: string) {
  */
 export async function getClubAthletes(clubId: string) {
   try {
-    const { data, error } = await supabase
-      .from("simplified_athletes")
-      .select("*")
-      .eq("club_id", clubId);
+    const [{ data, error }, membershipRecords] = await Promise.all([
+      supabase.from("simplified_athletes").select("*").eq("club_id", clubId),
+      loadClubAthleteMemberships(clubId),
+    ]);
 
     if (error) {
       // Handle network errors gracefully
@@ -248,7 +487,26 @@ export async function getClubAthletes(clubId: string) {
       return [];
     }
 
-    return data || [];
+    const membershipsByAthleteId = new Map<string, any[]>();
+    membershipRecords.forEach((membership: any) => {
+      const athleteId = String(membership?.athlete_id || "").trim();
+      if (!athleteId) {
+        return;
+      }
+
+      if (!membershipsByAthleteId.has(athleteId)) {
+        membershipsByAthleteId.set(athleteId, []);
+      }
+
+      membershipsByAthleteId.get(athleteId)?.push(membership);
+    });
+
+    return (data || []).map((athlete: any) =>
+      hydrateAthleteWithMemberships(
+        athlete,
+        membershipsByAthleteId.get(String(athlete?.id || "").trim()) || [],
+      ),
+    );
   } catch (error: any) {
     // Handle network errors gracefully
     if (
@@ -269,8 +527,16 @@ export async function getClubAthletes(clubId: string) {
  * Aggiunge un nuovo atleta al club
  */
 export async function addClubAthlete(clubId: string, athleteData: any) {
-  const categoryId = athleteData.category || null;
-  const categoryName = athleteData.categoryName || null;
+  const normalizedMemberships = resolveRequestedAthleteMemberships(
+    athleteData,
+    athleteData,
+  );
+  const primaryMembership = getPrimaryAthleteCategoryMembership(
+    normalizedMemberships,
+  );
+  const categoryId = primaryMembership?.categoryId || athleteData.category || null;
+  const categoryName =
+    primaryMembership?.categoryName || athleteData.categoryName || null;
   const status = athleteData.status || "active";
   const accessCode = athleteData.accessCode || null;
   const avatar = athleteData.avatar || null;
@@ -295,8 +561,13 @@ export async function addClubAthlete(clubId: string, athleteData: any) {
       access_code: accessCode,
       avatar_url: avatar,
       data: {
+        ...(isRecord(athleteData.data) ? athleteData.data : {}),
         category: categoryId,
         categoryName,
+        categoryMemberships: serializeAthleteMemberships(normalizedMemberships, {
+          clubId,
+        }),
+        categories: getAthleteCategoryLabels(normalizedMemberships),
         birthDate,
         medicalCertExpiry,
         accessCode,
@@ -313,7 +584,13 @@ export async function addClubAthlete(clubId: string, athleteData: any) {
     throw error;
   }
 
-  return data;
+  const savedMemberships = await replaceAthleteMemberships(
+    clubId,
+    data.id,
+    normalizedMemberships,
+  );
+
+  return hydrateAthleteWithMemberships(data, savedMemberships);
 }
 
 /**
@@ -340,7 +617,11 @@ export async function getAthlete(athleteId: string) {
       return null;
     }
 
-    return data;
+    const membershipRecords = await loadClubAthleteMemberships(
+      data.organization_id || data.club_id,
+      [athleteId],
+    );
+    return hydrateAthleteWithMemberships(data, membershipRecords);
   } catch (error: any) {
     // Handle network errors gracefully
     if (
@@ -382,10 +663,14 @@ export async function updateClubAthlete(
     }
 
     // Merge updates with existing data
-    const updatedData = {
-      ...currentAthlete.data,
-      ...updates,
-    };
+    const currentData = isRecord(currentAthlete.data) ? currentAthlete.data : {};
+    const normalizedMemberships = resolveRequestedAthleteMemberships(
+      currentAthlete,
+      updates,
+    );
+    const primaryMembership = getPrimaryAthleteCategoryMembership(
+      normalizedMemberships,
+    );
 
     const rawBirthDate = updates.birthDate || updates.birth_date;
     const nextBirthDate =
@@ -396,8 +681,13 @@ export async function updateClubAthlete(
         : currentAthlete.birth_date || null;
 
     const nextCategoryId =
-      updates.category ?? updates.category_id ?? currentAthlete.category_id ?? null;
+      primaryMembership?.categoryId ??
+      updates.category ??
+      updates.category_id ??
+      currentAthlete.category_id ??
+      null;
     const nextCategoryName =
+      primaryMembership?.categoryName ??
       updates.categoryName ??
       updates.category_name ??
       currentAthlete.category_name ??
@@ -407,6 +697,16 @@ export async function updateClubAthlete(
       updates.accessCode ?? updates.access_code ?? currentAthlete.access_code ?? null;
     const nextAvatar =
       updates.avatar ?? updates.avatar_url ?? currentAthlete.avatar_url ?? null;
+    const nextFirstName =
+      updates.firstName ??
+      updates.first_name ??
+      updates.name ??
+      currentAthlete.first_name;
+    const nextLastName =
+      updates.lastName ??
+      updates.last_name ??
+      updates.surname ??
+      currentAthlete.last_name;
     const nextJerseyNumber =
       updates.jerseyNumber ??
       updates.jersey_number ??
@@ -418,11 +718,32 @@ export async function updateClubAthlete(
       nextJerseyNumber === ""
         ? null
         : String(nextJerseyNumber);
+    const updatedData = {
+      ...currentData,
+      ...updates,
+      category: nextCategoryId,
+      categoryName: nextCategoryName,
+      categoryMemberships: serializeAthleteMemberships(normalizedMemberships, {
+        clubId,
+        athleteId,
+      }),
+      categories: getAthleteCategoryLabels(normalizedMemberships),
+      birthDate: nextBirthDate,
+      medicalCertExpiry:
+        updates.medicalCertExpiry ??
+        currentData.medicalCertExpiry ??
+        null,
+      accessCode: nextAccessCode,
+      avatar: nextAvatar,
+      status: nextStatus,
+    };
 
     // Update the athlete
     const { data, error } = await supabase
       .from("simplified_athletes")
       .update({
+        first_name: nextFirstName,
+        last_name: nextLastName,
         status: nextStatus,
         category_id: nextCategoryId,
         category_name: nextCategoryName,
@@ -443,7 +764,13 @@ export async function updateClubAthlete(
       throw error;
     }
 
-    return data;
+    const savedMemberships = await replaceAthleteMemberships(
+      clubId,
+      athleteId,
+      normalizedMemberships,
+    );
+
+    return hydrateAthleteWithMemberships(data, savedMemberships);
   } catch (error) {
     console.error("Error updating club athlete:", error);
     throw error;
@@ -2251,21 +2578,10 @@ export async function getAthletesByCategories(
   categoryIds: string[],
 ) {
   try {
-    const { data: athletes, error } = await supabase
-      .from("simplified_athletes")
-      .select("*")
-      .eq("club_id", clubId);
-
-    if (error) {
-      console.error("Error fetching athletes:", error);
-      throw error;
-    }
-
-    // Filter athletes by categories
-    const filteredAthletes = (athletes || []).filter((athlete: any) => {
-      const athleteCategory = athlete.data?.category;
-      return categoryIds.includes(athleteCategory);
-    });
+    const athletes = await getClubAthletes(clubId);
+    const filteredAthletes = (athletes || []).filter((athlete: any) =>
+      athleteMatchesAnyCategory(athlete, categoryIds),
+    );
 
     return filteredAthletes.map((athlete: any) => ({
       id: athlete.id,
@@ -2291,6 +2607,9 @@ export async function saveTrainingAttendance(
     athleteId: string;
     present: boolean;
     notes: string;
+    isExtraCategory?: boolean;
+    isManualExtra?: boolean;
+    categoryMembershipType?: string | null;
   }[],
 ) {
   try {

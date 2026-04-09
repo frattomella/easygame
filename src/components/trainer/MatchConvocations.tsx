@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,11 @@ interface Athlete {
   matchesAbsent?: number;
   isConvocated?: boolean;
   medicalCertExpiry?: string;
+  participationContext?: "primary" | "secondary" | "extra";
+  participationBadgeLabel?: string | null;
+  isExtraCategory?: boolean;
+  isManualExtra?: boolean;
+  primaryCategoryName?: string | null;
 }
 
 interface MatchConvocationsProps {
@@ -39,11 +45,24 @@ interface MatchConvocationsProps {
   opponent: string;
   location: string;
   athletes: Athlete[];
+  clubAthletes?: Athlete[];
   onSave: (data: {
     matchId: string;
     convocatedAthletes: string[];
+    convocationEntries: {
+      athleteId: string;
+      isExtraCategory?: boolean;
+      isManualExtra?: boolean;
+      categoryMembershipType?: string | null;
+    }[];
   }) => void | Promise<void>;
   savedConvocations?: string[];
+  savedConvocationEntries?: {
+    athleteId: string;
+    isExtraCategory?: boolean;
+    isManualExtra?: boolean;
+    categoryMembershipType?: string | null;
+  }[];
 }
 
 export function MatchConvocations({
@@ -57,13 +76,25 @@ export function MatchConvocations({
   opponent,
   location,
   athletes,
+  clubAthletes = [],
   onSave,
   savedConvocations = [],
+  savedConvocationEntries = [],
 }: MatchConvocationsProps) {
   const { showToast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [athleteRows, setAthleteRows] = useState<Athlete[]>(athletes);
   const [convocatedAthletes, setConvocatedAthletes] = useState<string[]>(
     savedConvocations.length > 0 ? savedConvocations : [],
   );
+  const [convocationEntries, setConvocationEntries] = useState<
+    {
+      athleteId: string;
+      isExtraCategory?: boolean;
+      isManualExtra?: boolean;
+      categoryMembershipType?: string | null;
+    }[]
+  >(savedConvocationEntries);
   const [isEditing, setIsEditing] = useState(savedConvocations.length === 0);
 
   useEffect(() => {
@@ -71,9 +102,38 @@ export function MatchConvocations({
       return;
     }
 
+    const savedEntries = Array.isArray(savedConvocationEntries)
+      ? savedConvocationEntries
+      : [];
+    const savedIds = Array.isArray(savedConvocations) ? savedConvocations : [];
+    const missingSavedAthletes = clubAthletes.filter(
+      (athlete) =>
+        savedIds.includes(athlete.id) &&
+        !athletes.some((currentAthlete) => currentAthlete.id === athlete.id),
+    );
+
+    const nextAthleteRows = [...athletes, ...missingSavedAthletes];
+    setAthleteRows(nextAthleteRows);
     setConvocatedAthletes(Array.isArray(savedConvocations) ? savedConvocations : []);
+    setConvocationEntries(
+      savedEntries.length > 0
+        ? savedEntries
+        : savedIds.map((athleteId) => {
+            const athlete = nextAthleteRows.find((row) => row.id === athleteId);
+            return {
+              athleteId,
+              isExtraCategory:
+                athlete?.participationContext === "extra" ||
+                Boolean(athlete?.isExtraCategory),
+              isManualExtra:
+                athlete?.participationContext === "extra" ||
+                Boolean(athlete?.isManualExtra),
+              categoryMembershipType: athlete?.participationContext || "primary",
+            };
+          }),
+    );
     setIsEditing(!(Array.isArray(savedConvocations) && savedConvocations.length > 0));
-  }, [isOpen, matchId, savedConvocations]);
+  }, [isOpen, matchId, savedConvocations, savedConvocationEntries, athletes, clubAthletes]);
 
   const handleToggleAthlete = (athleteId: string) => {
     if (!isEditing) return;
@@ -85,17 +145,88 @@ export function MatchConvocations({
     } else {
       setConvocatedAthletes([...convocatedAthletes, athleteId]);
     }
+
+    const athlete = athleteRows.find((row) => row.id === athleteId);
+    if (!athlete) {
+      return;
+    }
+
+    setConvocationEntries((currentEntries) => {
+      if (currentEntries.some((entry) => entry.athleteId === athleteId)) {
+        return currentEntries;
+      }
+
+      return [
+        ...currentEntries,
+        {
+          athleteId,
+          isExtraCategory:
+            athlete.participationContext === "extra" || Boolean(athlete.isExtraCategory),
+          isManualExtra:
+            athlete.participationContext === "extra" || Boolean(athlete.isManualExtra),
+          categoryMembershipType: athlete.participationContext || "primary",
+        },
+      ];
+    });
+  };
+
+  const handleAddExtraAthlete = (athlete: Athlete) => {
+    if (!athlete || athleteRows.some((row) => row.id === athlete.id)) {
+      return;
+    }
+
+    setAthleteRows((currentRows) => [...currentRows, athlete]);
+    setConvocationEntries((currentEntries) => [
+      ...currentEntries,
+      {
+        athleteId: athlete.id,
+        isExtraCategory:
+          athlete.participationContext === "extra" || Boolean(athlete.isExtraCategory),
+        isManualExtra:
+          athlete.participationContext === "extra" || Boolean(athlete.isManualExtra),
+        categoryMembershipType: athlete.participationContext || "primary",
+      },
+    ]);
+    setConvocatedAthletes((currentAthletes) =>
+      currentAthletes.includes(athlete.id)
+        ? currentAthletes
+        : [...currentAthletes, athlete.id],
+    );
+    setSearchQuery("");
   };
 
   const handleSaveConvocations = async () => {
+    const normalizedConvocationEntries = convocatedAthletes.map((athleteId) => {
+      const existingEntry = convocationEntries.find(
+        (entry) => entry.athleteId === athleteId,
+      );
+
+      if (existingEntry) {
+        return existingEntry;
+      }
+
+      const athlete = athleteRows.find((row) => row.id === athleteId);
+      return {
+        athleteId,
+        isExtraCategory:
+          athlete?.participationContext === "extra" ||
+          Boolean(athlete?.isExtraCategory),
+        isManualExtra:
+          athlete?.participationContext === "extra" ||
+          Boolean(athlete?.isManualExtra),
+        categoryMembershipType: athlete?.participationContext || "primary",
+      };
+    });
+
     await onSave({
       matchId,
       convocatedAthletes,
+      convocationEntries: normalizedConvocationEntries,
     });
     setIsEditing(false);
     showToast("success", "Convocazioni salvate con successo");
 
-    const flaggedAthletes = athletes
+    const flaggedAthletes = athleteRows
       .filter((athlete) => convocatedAthletes.includes(athlete.id))
       .map((athlete) => ({
         name: athlete.name,
@@ -133,6 +264,28 @@ export function MatchConvocations({
     });
   };
 
+  const suggestedAthletes = clubAthletes
+    .filter(
+      (athlete) =>
+        !athleteRows.some((row) => row.id === athlete.id) &&
+        athlete.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
+    )
+    .slice(0, 6);
+
+  const getParticipationBadgeClassName = (
+    context?: "primary" | "secondary" | "extra",
+  ) => {
+    if (context === "extra") {
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    }
+
+    if (context === "secondary") {
+      return "border-sky-200 bg-sky-50 text-sky-800";
+    }
+
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -168,7 +321,7 @@ export function MatchConvocations({
 
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold">
-            Atleti {categoryName} ({convocatedAthletes.length} convocati)
+            Atleti convocati ({convocatedAthletes.length} convocati)
           </h3>
           <div className="flex gap-2">
             {!isEditing ? (
@@ -208,8 +361,60 @@ export function MatchConvocations({
           </div>
         </div>
 
+        <div className="mb-4 space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/70 p-3">
+          <div>
+            <p className="text-sm font-medium text-slate-900">
+              Aggiungi atleta extra
+            </p>
+            <p className="text-xs text-slate-500">
+              Cerca tra tutti gli atleti del club e aggiungi solo chi non è già in lista.
+            </p>
+          </div>
+          <Input
+            placeholder="Cerca atleta del club..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            disabled={!isEditing}
+          />
+          {isEditing && searchQuery.trim() ? (
+            suggestedAthletes.length > 0 ? (
+              <div className="space-y-2">
+                {suggestedAthletes.map((athlete) => (
+                  <button
+                    key={`convocation-extra-${athlete.id}`}
+                    type="button"
+                    onClick={() => handleAddExtraAthlete(athlete)}
+                    className="flex w-full items-center justify-between rounded-md border bg-white px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{athlete.name}</p>
+                      {athlete.primaryCategoryName ? (
+                        <p className="text-xs text-muted-foreground">
+                          Categoria primaria: {athlete.primaryCategoryName}
+                        </p>
+                      ) : null}
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={getParticipationBadgeClassName(
+                        athlete.participationContext,
+                      )}
+                    >
+                      {athlete.participationBadgeLabel || "Aggiungi"}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Nessun atleta disponibile con questo filtro.
+              </p>
+            )
+          ) : null}
+        </div>
+
         <div className="space-y-2">
-          {athletes.map((athlete) => (
+          {athleteRows.map((athlete) => (
             <div
               key={athlete.id}
               className={`p-4 border rounded-lg flex items-center gap-4 cursor-pointer transition-colors ${convocatedAthletes.includes(athlete.id) ? "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800" : "hover:bg-gray-50 dark:hover:bg-gray-800"} ${!isEditing ? "cursor-default" : ""}`}
@@ -224,6 +429,16 @@ export function MatchConvocations({
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <p className="font-medium text-base">{athlete.name}</p>
+                  {athlete.participationBadgeLabel ? (
+                    <Badge
+                      variant="outline"
+                      className={getParticipationBadgeClassName(
+                        athlete.participationContext,
+                      )}
+                    >
+                      {athlete.participationBadgeLabel}
+                    </Badge>
+                  ) : null}
                   {getMedicalCertificateAvailability(athlete.medicalCertExpiry) !==
                   "valid" ? (
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -245,6 +460,12 @@ export function MatchConvocations({
                         athlete.medicalCertExpiry,
                       ),
                     )}
+                  </p>
+                ) : null}
+                {athlete.primaryCategoryName &&
+                athlete.participationContext !== "primary" ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Categoria primaria: {athlete.primaryCategoryName}
                   </p>
                 ) : null}
               </div>

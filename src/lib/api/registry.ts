@@ -13,6 +13,7 @@ const resourceNames = [
   "dashboards",
   "organization_users",
   "athletes",
+  "athlete_category_memberships",
   "simplified_athletes",
   "medical_certificates",
   "simplified_certificates",

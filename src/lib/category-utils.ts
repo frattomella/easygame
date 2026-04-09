@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  getAthleteCategoryReferences as getNormalizedAthleteCategoryReferences,
+  getPrimaryAthleteCategoryMembership,
+  normalizeAthleteCategoryMemberships,
+} from "./athlete-category-memberships";
+
 type CategoryLike = {
   id?: string;
   name?: string;
@@ -174,6 +180,15 @@ const mergeCategoryOption = (
 const deriveCategoryFromAthlete = (
   athlete: unknown,
 ): NormalizedCategoryOption | null => {
+  const primaryMembership = getPrimaryAthleteCategoryMembership(athlete);
+  if (primaryMembership) {
+    return {
+      id: primaryMembership.categoryId,
+      name: primaryMembership.categoryName,
+      color: null,
+    };
+  }
+
   if (!isRecord(athlete)) {
     return null;
   }
@@ -226,6 +241,11 @@ const getCategoryReferences = (
     .filter(Boolean);
 
 const getAthleteCategoryReferences = (athlete: unknown) => {
+  const membershipReferences = getNormalizedAthleteCategoryReferences(athlete);
+  if (membershipReferences.length > 0) {
+    return membershipReferences;
+  }
+
   if (!isRecord(athlete)) {
     return [];
   }
@@ -264,9 +284,17 @@ export const buildClubCategoryOptions = ({
   });
 
   if (Array.isArray(athletes)) {
-    athletes.forEach((athlete) =>
-      mergeCategoryOption(merged, deriveCategoryFromAthlete(athlete)),
-    );
+    athletes.forEach((athlete) => {
+      normalizeAthleteCategoryMemberships(athlete).forEach((membership) =>
+        mergeCategoryOption(merged, {
+          id: membership.categoryId,
+          name: membership.categoryName,
+          color: null,
+        }),
+      );
+
+      mergeCategoryOption(merged, deriveCategoryFromAthlete(athlete));
+    });
   }
 
   return sortCategoryOptions(merged);

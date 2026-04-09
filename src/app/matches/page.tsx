@@ -59,11 +59,18 @@ import {
   getClubStructures,
   getClubTrainers,
 } from "@/lib/simplified-db";
+import { athleteMatchesAnyCategory } from "@/lib/category-utils";
+import {
+  getParticipationCategoryBadgeLabel,
+  getParticipationCategoryContext,
+  getPrimaryAthleteCategoryMembership,
+} from "@/lib/athlete-category-memberships";
 import {
   buildTrainingLocationOptions,
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import { formatMatchLocationLabel } from "@/lib/match-location";
+import { normalizeMatchConvocationEntries } from "@/lib/athlete-participation-utils";
 
 interface Match {
   id: string;
@@ -82,6 +89,46 @@ interface Match {
   convocatedAthletes?: string[];
   [key: string]: any;
 }
+
+const buildMatchAthleteOption = ({
+  athlete,
+  match,
+}: {
+  athlete: any;
+  match: Match;
+}) => {
+  const existingEntry = normalizeMatchConvocationEntries(match).find(
+    (entry) => entry.athleteId === athlete.id,
+  );
+  const context = getParticipationCategoryContext({
+    athlete,
+    eventCategories: [match.categoryId, match.category],
+    entry: existingEntry || null,
+  });
+  const primaryCategory = getPrimaryAthleteCategoryMembership(athlete);
+
+  return {
+    id: athlete.id,
+    name: `${athlete.first_name || ""} ${athlete.last_name || ""}`.trim() || "Atleta",
+    avatar:
+      athlete.avatar_url ||
+      athlete.data?.avatar ||
+      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(`${athlete.first_name || "atleta"}-${athlete.last_name || ""}`)}`,
+    matchesPlayed: 0,
+    matchesAbsent: 0,
+    medicalCertExpiry:
+      athlete.data?.medicalCertExpiry ||
+      athlete.medical_cert_expiry ||
+      athlete.medicalCertExpiry ||
+      null,
+    participationContext: context,
+    participationBadgeLabel:
+      context === "primary" ? null : getParticipationCategoryBadgeLabel(context),
+    isExtraCategory: context === "extra" || Boolean(existingEntry?.isExtraCategory),
+    isManualExtra: context === "extra" || Boolean(existingEntry?.isManualExtra),
+    primaryCategoryName: primaryCategory?.categoryName || null,
+  };
+};
 
 export default function MatchesPage() {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
@@ -416,6 +463,7 @@ export default function MatchesPage() {
             status: "upcoming",
             convocationsStatus: "none",
             convocatedAthletes: [],
+            convocationEntries: [],
           };
 
           const savedMatch = await addClubData(
@@ -580,6 +628,12 @@ export default function MatchesPage() {
   const handleSaveConvocations = async (data: {
     matchId: string;
     convocatedAthletes: string[];
+    convocationEntries: {
+      athleteId: string;
+      isExtraCategory?: boolean;
+      isManualExtra?: boolean;
+      categoryMembershipType?: string | null;
+    }[];
   }) => {
     if (!activeClub?.id) {
       showToast("error", "Club non trovato");
@@ -594,6 +648,7 @@ export default function MatchesPage() {
           ? {
               ...match,
               convocatedAthletes: data.convocatedAthletes,
+              convocationEntries: data.convocationEntries,
               convocationsStatus: "completed",
               updated_at: new Date().toISOString(),
             }
@@ -607,6 +662,7 @@ export default function MatchesPage() {
           ? {
               ...match,
               convocatedAthletes: data.convocatedAthletes,
+              convocationEntries: data.convocationEntries,
               convocationsStatus: "completed" as const,
             }
           : match,
@@ -1411,17 +1467,11 @@ export default function MatchesPage() {
                           console.log("Processing category:", category);
                           let categoryAthletes = athletes.filter(
                             (athlete: any) => {
-                              console.log(
-                                "Checking athlete:",
-                                athlete,
-                                "Category match:",
-                                athlete.data?.category,
-                                "===",
+                              return athleteMatchesAnyCategory(athlete, [
+                                category,
+                                category.id,
                                 category.name,
-                                "(comparing with category name instead of ID)",
-                              );
-                              // Compare with category name instead of ID
-                              return athlete.data?.category === category.name;
+                              ]);
                             },
                           );
 
@@ -1634,36 +1684,49 @@ export default function MatchesPage() {
           opponent={selectedMatch.opponent}
           location={formatMatchLocationLabel(selectedMatch)}
           athletes={(() => {
-            console.log("All athletes:", athletes);
-            console.log("Selected match category:", selectedMatch.category);
-            const filteredAthletes = athletes.filter((athlete: any) => {
-              console.log(
-                "Athlete category:",
-                athlete.data?.category,
-                "Match category:",
+            const baseAthletes = athletes.filter((athlete: any) =>
+              athleteMatchesAnyCategory(athlete, [
+                selectedMatch.categoryId,
                 selectedMatch.category,
+              ]),
+            );
+            const savedConvocationEntries =
+              normalizeMatchConvocationEntries(selectedMatch);
+            const savedExtraAthletes = athletes.filter(
+              (athlete: any) =>
+                savedConvocationEntries.some(
+                  (entry) => entry.athleteId === athlete.id,
+                ) &&
+                !baseAthletes.some(
+                  (currentAthlete: any) => currentAthlete.id === athlete.id,
+                ),
+            );
+
+            return [...baseAthletes, ...savedExtraAthletes]
+              .reduce<any[]>((collection, athlete) => {
+                if (collection.some((candidate) => candidate.id === athlete.id)) {
+                  return collection;
+                }
+
+                collection.push(athlete);
+                return collection;
+              }, [])
+              .map((athlete: any) =>
+                buildMatchAthleteOption({
+                  athlete,
+                  match: selectedMatch,
+                }),
               );
-              // Compare with category name instead of ID
-              return athlete.data?.category === selectedMatch.category;
-            });
-            console.log("Filtered athletes:", filteredAthletes);
-            return filteredAthletes.map((athlete: any) => ({
-              id: athlete.id,
-              name: `${athlete.first_name} ${athlete.last_name}`,
-              avatar:
-                athlete.data?.avatar ||
-                `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(`${athlete.first_name}-${athlete.last_name}`)}`,
-              matchesPlayed: 0,
-              matchesAbsent: 0,
-              medicalCertExpiry:
-                athlete.data?.medicalCertExpiry ||
-                athlete.medical_cert_expiry ||
-                athlete.medicalCertExpiry ||
-                null,
-            }));
           })()}
+          clubAthletes={athletes.map((athlete: any) =>
+            buildMatchAthleteOption({
+              athlete,
+              match: selectedMatch,
+            }),
+          )}
           onSave={handleSaveConvocations}
           savedConvocations={selectedMatch.convocatedAthletes || []}
+          savedConvocationEntries={selectedMatch.convocationEntries || []}
         />
       )}
 

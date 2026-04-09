@@ -164,6 +164,7 @@ model Club {
   notifications         Notification[]
   resource_items        ClubResourceItem[]
   training_attendance   TrainingAttendance[]
+  athlete_category_memberships AthleteCategoryMembership[]
 
   @@map("clubs")
 }
@@ -220,6 +221,7 @@ model Athlete {
   invoices        Invoice[]
   receipts        Receipt[]
   medical_certificates MedicalCertificate[]
+  category_memberships AthleteCategoryMembership[]
 
   @@index([organization_id])
   @@index([user_id])
@@ -417,6 +419,25 @@ model TrainingAttendance {
 
   @@index([organization_id, training_id])
   @@map("training_attendance")
+}
+
+model AthleteCategoryMembership {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  athlete_id      String   @db.Uuid
+  category_id     String
+  category_name   String?
+  is_primary      Boolean  @default(false)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete  @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, athlete_id, category_id])
+  @@index([organization_id])
+  @@index([athlete_id])
+  @@index([organization_id, athlete_id, is_primary])
+  @@map("athlete_category_memberships")
 }
 
 model Asset {
