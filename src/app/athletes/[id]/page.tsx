@@ -1878,38 +1878,40 @@ export default function AthleteProfilePage() {
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="generale">
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-                <TabsTrigger value="generale">
+            <Tabs defaultValue="generale" className="min-w-0">
+              <div className="-mx-4 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
+              <TabsList className="inline-flex h-auto min-w-max flex-nowrap items-stretch gap-1 rounded-xl bg-muted/80 p-1">
+                <TabsTrigger value="generale" className="shrink-0 gap-2 whitespace-nowrap">
                   <User className="h-4 w-4 mr-2" />
                   <span className="hidden sm:inline">Generale</span>
                 </TabsTrigger>
-                <TabsTrigger value="contatti">
+                <TabsTrigger value="contatti" className="shrink-0 gap-2 whitespace-nowrap">
                   <Phone className="h-4 w-4 mr-2" />
                   <span className="hidden sm:inline">Contatti</span>
                 </TabsTrigger>
-                <TabsTrigger value="sanitari">
+                <TabsTrigger value="sanitari" className="shrink-0 gap-2 whitespace-nowrap">
                   <Heart className="h-4 w-4 mr-2" />
                   <span className="hidden sm:inline">Dati Sanitari</span>
                 </TabsTrigger>
-                <TabsTrigger value="pagamenti">
+                <TabsTrigger value="pagamenti" className="shrink-0 gap-2 whitespace-nowrap">
                   <DollarSign className="h-4 w-4 mr-2" />
                   <span className="hidden sm:inline">Iscrizione</span>
                 </TabsTrigger>
-                <TabsTrigger value="abbigliamento">
+                <TabsTrigger value="abbigliamento" className="shrink-0 gap-2 whitespace-nowrap">
                   <Shirt className="h-4 w-4 mr-2" />
                   <span className="hidden sm:inline">Abbigliamento</span>
                 </TabsTrigger>
 
-                <TabsTrigger value="documenti">
+                <TabsTrigger value="documenti" className="shrink-0 gap-2 whitespace-nowrap">
                   <FileText className="h-4 w-4 mr-2" />
                   Documenti
                 </TabsTrigger>
-                <TabsTrigger value="analitiche">
+                <TabsTrigger value="analitiche" className="shrink-0 gap-2 whitespace-nowrap">
                   <BarChart3 className="h-4 w-4 mr-2" />
                   Analitiche
                 </TabsTrigger>
               </TabsList>
+              </div>
 
               {/* GENERALE TAB */}
               <TabsContent value="generale" className="mt-4 space-y-6">

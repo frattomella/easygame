@@ -309,7 +309,7 @@ export function MatchConvocations({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl">Convocazioni</DialogTitle>
         </DialogHeader>
@@ -340,13 +340,13 @@ export function MatchConvocations({
           </div>
         </div>
 
-        <div className="flex justify-between items-center mb-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-lg font-semibold">
             Atleti convocati ({convocatedAthletes.length} convocati)
           </h3>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {!isEditing ? (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   onClick={() => setIsEditing(true)}
@@ -438,17 +438,18 @@ export function MatchConvocations({
           {athleteRows.map((athlete) => (
             <div
               key={athlete.id}
-              className={`p-4 border rounded-lg flex items-center gap-4 cursor-pointer transition-colors ${convocatedAthletes.includes(athlete.id) ? "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800" : "hover:bg-gray-50 dark:hover:bg-gray-800"} ${!isEditing ? "cursor-default" : ""}`}
+              className={`rounded-lg border p-4 transition-colors ${convocatedAthletes.includes(athlete.id) ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800"} ${!isEditing ? "cursor-default" : "cursor-pointer"}`}
               onClick={() => handleToggleAthlete(athlete.id)}
             >
-              <Checkbox
-                checked={convocatedAthletes.includes(athlete.id)}
-                onCheckedChange={() => handleToggleAthlete(athlete.id)}
-                disabled={!isEditing}
-                className="h-5 w-5"
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <Checkbox
+                  checked={convocatedAthletes.includes(athlete.id)}
+                  onCheckedChange={() => handleToggleAthlete(athlete.id)}
+                  disabled={!isEditing}
+                  className="h-5 w-5 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium text-base">{athlete.name}</p>
                   {athlete.participationBadgeLabel ? (
                     <Badge
@@ -465,7 +466,7 @@ export function MatchConvocations({
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
                   ) : null}
                 </div>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   {athlete.matchesPlayed !== undefined && (
                     <span>Gare giocate: {athlete.matchesPlayed}</span>
                   )}
@@ -490,7 +491,7 @@ export function MatchConvocations({
                   </p>
                 ) : null}
               </div>
-              <div>
+              <div className="sm:self-center">
                 {convocatedAthletes.includes(athlete.id) ? (
                   <Badge className="bg-blue-500 text-white">
                     <CheckCircle className="h-3 w-3 mr-1" />
@@ -504,6 +505,7 @@ export function MatchConvocations({
                     Non convocato
                   </Badge>
                 )}
+              </div>
               </div>
             </div>
           ))}

@@ -24,7 +24,17 @@ const GlobalLoadingContext = createContext<GlobalLoadingContextValue | null>(
 );
 
 const DEFAULT_MESSAGE = "Operazione in corso, attendi un momento...";
-const FETCH_DELAY_MS = 450;
+const FETCH_DELAY_MS = 30_000;
+const HEAVY_OPERATION_DELAY_MS = 10_000;
+const HEAVY_OPERATION_HINTS = [
+  "/import",
+  "/export",
+  "/bulk",
+  "/upload",
+  "/delete-many",
+  "/generate",
+  "/automation",
+];
 
 export function GlobalLoadingProvider({
   children,
@@ -46,24 +56,40 @@ export function GlobalLoadingProvider({
 
     const originalFetch = window.fetch.bind(window);
 
-    const shouldTrack = (input: RequestInfo | URL) => {
+    const getTrackingDelay = (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       const rawUrl =
         typeof input === "string"
           ? input
           : input instanceof URL
             ? input.href
             : input.url;
-
-      return (
-        rawUrl.includes("/api/") ||
-        rawUrl.includes("/auth/") ||
-        rawUrl.includes("localhost:3001") ||
-        rawUrl.includes("easygame-staging.vercel.app")
+      const method =
+        String(
+          init?.method ||
+            (typeof input === "object" && "method" in input ? input.method : "") ||
+            "GET",
+        )
+          .trim()
+          .toUpperCase() || "GET";
+      const isHeavyOperation = HEAVY_OPERATION_HINTS.some((hint) =>
+        rawUrl.toLowerCase().includes(hint),
       );
+      const isMutation = !["GET", "HEAD", "OPTIONS"].includes(method);
+
+      if (!isMutation && !isHeavyOperation) {
+        return null;
+      }
+
+      return isHeavyOperation ? HEAVY_OPERATION_DELAY_MS : FETCH_DELAY_MS;
     };
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (!shouldTrack(input)) {
+      const trackingDelay = getTrackingDelay(input, init);
+
+      if (!trackingDelay) {
         return originalFetch(input, init);
       }
 
@@ -71,7 +97,7 @@ export function GlobalLoadingProvider({
       const timeout = setTimeout(() => {
         setFetchCount((current) => current + 1);
         timeoutMapRef.current.delete(requestId);
-      }, FETCH_DELAY_MS);
+      }, trackingDelay);
 
       timeoutMapRef.current.set(requestId, timeout);
 

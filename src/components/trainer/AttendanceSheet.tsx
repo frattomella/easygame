@@ -195,22 +195,22 @@ export function AttendanceSheet({
   };
 
   return (
-    <Card className="w-full max-w-3xl mx-auto">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <div>
+    <Card className="mx-auto w-full max-w-3xl">
+      <CardHeader className="flex flex-col gap-3 pb-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <CardTitle>{trainingTitle}</CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-1 text-sm text-muted-foreground">
             {formatDate(trainingDate)} • {trainingTime} • {categoryName} •{" "}
             {location}
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
+        <Button variant="ghost" size="icon" onClick={onClose} className="self-end sm:self-auto">
           <X className="h-4 w-4" />
         </Button>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm">
               Presenti: <strong>{getPresentCount()}</strong> / {athleteRows.length}
             </p>
@@ -276,8 +276,8 @@ export function AttendanceSheet({
             ) : null}
           </div>
 
-          <div className="border rounded-md overflow-hidden">
-            <div className="grid grid-cols-12 gap-2 p-2 font-medium bg-muted text-muted-foreground text-sm">
+          <div className="overflow-hidden rounded-md border">
+            <div className="hidden grid-cols-12 gap-4 bg-muted p-3 text-sm font-medium text-muted-foreground sm:grid">
               <div className="col-span-5">Atleta</div>
               <div className="col-span-2 text-center">Presenza</div>
               <div className="col-span-5">Note</div>
@@ -292,9 +292,9 @@ export function AttendanceSheet({
                 return (
                   <div
                     key={athlete.id}
-                    className={`grid grid-cols-12 gap-2 p-2 items-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${index !== athleteRows.length - 1 ? "border-b" : ""}`}
+                    className={`grid grid-cols-1 gap-3 p-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800 sm:grid-cols-12 sm:items-center sm:gap-4 ${index !== athleteRows.length - 1 ? "border-b" : ""}`}
                   >
-                    <div className="col-span-5">
+                    <div className="sm:col-span-5">
                       <div className="flex items-center gap-2 font-medium">
                         <span>{athlete.name}</span>
                         {athlete.participationBadgeLabel ? (
@@ -331,7 +331,11 @@ export function AttendanceSheet({
                         </p>
                       ) : null}
                     </div>
-                    <div className="col-span-2 flex justify-center">
+                    <div className="sm:col-span-2">
+                      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:hidden">
+                        Presenza
+                      </div>
+                      <div className="flex justify-start sm:justify-center">
                       <div className="flex h-4 w-4 items-center justify-center rounded-sm border border-primary">
                         <Checkbox
                           id={`attendance-${athlete.id}`}
@@ -343,7 +347,11 @@ export function AttendanceSheet({
                         />
                       </div>
                     </div>
-                    <div className="col-span-5">
+                    </div>
+                    <div className="sm:col-span-5">
+                      <div className="mb-1 pl-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:hidden">
+                        Note
+                      </div>
                       <Input
                         placeholder="Note (opzionale)"
                         value={attendanceRecord?.notes || ""}
@@ -358,8 +366,8 @@ export function AttendanceSheet({
             </div>
           </div>
 
-          <div className="flex justify-end mt-4">
-            <Button variant="outline" onClick={onClose} className="mr-2">
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={onClose}>
               Annulla
             </Button>
             <Button
