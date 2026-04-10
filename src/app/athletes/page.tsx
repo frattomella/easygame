@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,8 +28,6 @@ import {
   EyeOff,
   Upload,
 } from "lucide-react";
-import { AthleteQuickCreateDialog } from "@/components/forms/AthleteQuickCreateDialog";
-import { AthleteImportDialog } from "@/components/forms/AthleteImportDialog";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   Dialog,
@@ -77,6 +76,22 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+
+const AthleteQuickCreateDialog = dynamic(
+  () =>
+    import("@/components/forms/AthleteQuickCreateDialog").then(
+      (module) => module.AthleteQuickCreateDialog,
+    ),
+  { ssr: false },
+);
+
+const AthleteImportDialog = dynamic(
+  () =>
+    import("@/components/forms/AthleteImportDialog").then(
+      (module) => module.AthleteImportDialog,
+    ),
+  { ssr: false },
+);
 
 interface Athlete {
   id: string;
@@ -1598,19 +1613,23 @@ export default function AthletesPage() {
         </main>
       </div>
 
-      <AthleteQuickCreateDialog
-        isOpen={showAddAthleteModal}
-        onClose={() => setShowAddAthleteModal(false)}
-        onSubmit={handleAddAthlete}
-        categories={categories}
-      />
+      {showAddAthleteModal ? (
+        <AthleteQuickCreateDialog
+          isOpen={showAddAthleteModal}
+          onClose={() => setShowAddAthleteModal(false)}
+          onSubmit={handleAddAthlete}
+          categories={categories}
+        />
+      ) : null}
 
-      <AthleteImportDialog
-        open={showImportAthletesModal}
-        onOpenChange={setShowImportAthletesModal}
-        categories={categories}
-        onImport={handleImportAthletes}
-      />
+      {showImportAthletesModal ? (
+        <AthleteImportDialog
+          open={showImportAthletesModal}
+          onOpenChange={setShowImportAthletesModal}
+          categories={categories}
+          onImport={handleImportAthletes}
+        />
+      ) : null}
 
       <Dialog
         open={showCustomizeColumnsModal}

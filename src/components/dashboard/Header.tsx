@@ -1,6 +1,7 @@
 "use client";
 
 import React, { memo, useCallback, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   Calendar,
@@ -24,7 +25,6 @@ import {
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import Image from "next/image";
-import { ChatButton } from "../ui/chat";
 import { useAuth } from "../providers/AuthProvider";
 import { NotificationsDropdown } from "../ui/notifications-dropdown";
 import {
@@ -38,6 +38,11 @@ import { MobileTopBar } from "@/components/layout/MobileTopBar";
 
 // Import default club logo
 import clubLogoDefault from "@/../public/images/club_logo.png";
+
+const ChatButton = dynamic(
+  () => import("../ui/chat").then((module) => module.ChatButton),
+  { ssr: false },
+);
 
 interface HeaderProps {
   title?: string;
@@ -372,7 +377,6 @@ const Header = memo(
                 alt={`${orgName || "EasyGame"} Logo`}
                 fill
                 className="object-contain rounded"
-                priority
                 unoptimized={!!clubLogo}
               />
             </div>

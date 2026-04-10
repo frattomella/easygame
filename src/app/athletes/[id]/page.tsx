@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
-import { CustomKitComponentsBuilder } from "@/components/forms/CustomKitComponentsBuilder";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -100,6 +100,19 @@ import {
   normalizeTextValue,
   normalizeStringList,
 } from "@/lib/athlete-profile-utils";
+
+const CustomKitComponentsBuilder = dynamic(
+  () =>
+    import("@/components/forms/CustomKitComponentsBuilder").then(
+      (module) => module.CustomKitComponentsBuilder,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-48 animate-pulse rounded-xl border bg-slate-100" />
+    ),
+  },
+);
 
 const DEFAULT_CLOTHING_SIZES = {
   profile: "",

@@ -26,14 +26,20 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
   },
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, dev }) => {
     if (!isServer) {
-      // Suppress hydration errors in development
       config.resolve.alias = {
         ...config.resolve.alias,
-        'react-dom$': 'react-dom/profiling',
-        'scheduler/tracing': 'scheduler/tracing-profiling',
+        ...(dev
+          ? {
+              'react-dom$': 'react-dom/profiling',
+              'scheduler/tracing': 'scheduler/tracing-profiling',
+            }
+          : {
+              'tempo-devtools': false,
+            }),
       };
     }
     return config;

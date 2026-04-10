@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -19,10 +19,6 @@ import {
   ChevronRight,
   CalendarDays,
 } from "lucide-react";
-import { WeeklyTrainingSchedule } from "@/components/dashboard/WeeklyTrainingSchedulePanel";
-import { AddTrainingForm } from "@/components/forms/AddTrainingForm";
-import { EditTrainingForm } from "@/components/forms/EditTrainingForm";
-import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { PinInput } from "@/components/ui/pin-input";
@@ -72,6 +68,58 @@ import {
 import {
   normalizeTrainingAttendanceEntries,
 } from "@/lib/athlete-participation-utils";
+
+const TrainingCalendar = dynamic(
+  () => import("@/components/ui/calendar").then((module) => module.Calendar),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[320px] animate-pulse rounded-md border bg-slate-100" />
+    ),
+  },
+);
+
+const WeeklyTrainingSchedule = dynamic(
+  () =>
+    import("@/components/dashboard/WeeklyTrainingSchedulePanel").then(
+      (module) => module.WeeklyTrainingSchedule,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-56 animate-pulse rounded-xl border bg-slate-100" />
+    ),
+  },
+);
+
+const AddTrainingForm = dynamic(
+  () =>
+    import("@/components/forms/AddTrainingForm").then(
+      (module) => module.AddTrainingForm,
+    ),
+  { ssr: false },
+);
+
+const EditTrainingForm = dynamic(
+  () =>
+    import("@/components/forms/EditTrainingForm").then(
+      (module) => module.EditTrainingForm,
+    ),
+  { ssr: false },
+);
+
+const AttendanceSheet = dynamic(
+  () =>
+    import("@/components/trainer/AttendanceSheet").then(
+      (module) => module.AttendanceSheet,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full max-w-3xl animate-pulse rounded-xl border bg-white p-6 shadow-xl" />
+    ),
+  },
+);
 
 interface TrainingSession {
   id: string;
@@ -267,6 +315,9 @@ const buildTrainingAttendanceAthlete = ({
 
 export default function TrainingPage() {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
+  const [activeTab, setActiveTab] = React.useState<"daily" | "calendar">(
+    "daily",
+  );
   const [trainers, setTrainers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -284,6 +335,8 @@ export default function TrainingPage() {
   const [calendarDate, setCalendarDate] = React.useState<Date | undefined>(
     undefined,
   );
+  const [shouldRenderSchedule, setShouldRenderSchedule] = useState(false);
+  const scheduleSectionRef = React.useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const { activeClub } = useAuth();
 
@@ -292,6 +345,32 @@ export default function TrainingPage() {
     if (!date) setDate(new Date());
     if (!calendarDate) setCalendarDate(new Date());
   }, []);
+
+  React.useEffect(() => {
+    if (shouldRenderSchedule || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+
+    const target = scheduleSectionRef.current;
+    if (!target) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldRenderSchedule(true);
+        }
+      },
+      { rootMargin: "240px 0px" },
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [shouldRenderSchedule]);
 
   React.useEffect(() => {
     if (typeof document === "undefined") {
@@ -763,7 +842,13 @@ export default function TrainingPage() {
               </Button>
             </div>
 
-            <Tabs defaultValue="daily" className="flex w-full min-w-0 flex-col">
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) =>
+                setActiveTab(value === "calendar" ? "calendar" : "daily")
+              }
+              className="flex w-full min-w-0 flex-col"
+            >
               <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2">
                 <TabsTrigger value="daily">Vista Giornaliera</TabsTrigger>
                 <TabsTrigger value="calendar">Calendario Storico</TabsTrigger>
@@ -1611,21 +1696,25 @@ export default function TrainingPage() {
                 </Card>
 
                 {/* Weekly Training Schedule */}
-                <Card className="mb-6 overflow-hidden">
+                <Card className="mb-6 overflow-hidden" ref={scheduleSectionRef}>
                   <CardHeader>
                     <CardTitle>Programma Settimanale</CardTitle>
                   </CardHeader>
                   <CardContent className="min-w-0 overflow-x-hidden">
-                    <WeeklyTrainingSchedule
-                      categories={categories}
-                      trainers={trainers}
-                      locations={locations}
-                      initialSchedule={[]}
-                      autoSave={true}
-                      onSave={() => {}}
-                      allowDragDrop={true}
-                      onTrainingsGenerated={loadData}
-                    />
+                    {shouldRenderSchedule ? (
+                      <WeeklyTrainingSchedule
+                        categories={categories}
+                        trainers={trainers}
+                        locations={locations}
+                        initialSchedule={[]}
+                        autoSave={true}
+                        onSave={() => {}}
+                        allowDragDrop={true}
+                        onTrainingsGenerated={loadData}
+                      />
+                    ) : (
+                      <div className="h-56 animate-pulse rounded-xl border bg-slate-100" />
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1642,22 +1731,24 @@ export default function TrainingPage() {
                     <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
                       {/* Calendar */}
                       <div className="min-w-0">
-                        <Calendar
-                          mode="single"
-                          selected={calendarDate}
-                          onSelect={setCalendarDate}
-                          className="rounded-md border"
-                          modifiers={{
-                            hasTraining: (date) => hasTrainings(date),
-                          }}
-                          modifiersStyles={{
-                            hasTraining: {
-                              backgroundColor: "#dbeafe",
-                              color: "#1e40af",
-                              fontWeight: "bold",
-                            },
-                          }}
-                        />
+                        {activeTab === "calendar" ? (
+                          <TrainingCalendar
+                            mode="single"
+                            selected={calendarDate}
+                            onSelect={setCalendarDate}
+                            className="rounded-md border"
+                            modifiers={{
+                              hasTraining: (date) => hasTrainings(date),
+                            }}
+                            modifiersStyles={{
+                              hasTraining: {
+                                backgroundColor: "#dbeafe",
+                                color: "#1e40af",
+                                fontWeight: "bold",
+                              },
+                            }}
+                          />
+                        ) : null}
                         <div className="mt-4 text-sm text-gray-600">
                           <div className="flex items-center gap-2 mb-2">
                             <div className="w-3 h-3 bg-blue-100 border border-blue-300 rounded" />
@@ -1791,15 +1882,17 @@ export default function TrainingPage() {
         </div>
       ) : null}
 
-      <AddTrainingForm
-        isOpen={showAddTrainingModal}
-        onClose={() => setShowAddTrainingModal(false)}
-        onSubmit={handleAddTraining}
-        categories={categories}
-        trainers={trainers}
-        locations={locations}
-        selectedDate={date}
-      />
+      {showAddTrainingModal ? (
+        <AddTrainingForm
+          isOpen={showAddTrainingModal}
+          onClose={() => setShowAddTrainingModal(false)}
+          onSubmit={handleAddTraining}
+          categories={categories}
+          trainers={trainers}
+          locations={locations}
+          selectedDate={date}
+        />
+      ) : null}
 
       {/* Edit Training Form */}
       {editingTraining && (

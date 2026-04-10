@@ -59,6 +59,8 @@ const CLUB_DIRECT_UPDATE_FIELDS = [
 ] as const;
 
 const ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE = "athlete_category_memberships";
+const ATHLETE_CATEGORY_SOURCE_SELECT =
+  "id, club_id, organization_id, category_id, category_name, data";
 const UUID_PATTERN =
   /^(?:urn:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -522,6 +524,73 @@ export async function getClubAthletes(clubId: string) {
     return [];
   }
 }
+
+const getClubAthleteCategorySources = async (clubId: string) => {
+  try {
+    const [{ data, error }, membershipRecords] = await Promise.all([
+      supabase
+        .from("simplified_athletes")
+        .select(ATHLETE_CATEGORY_SOURCE_SELECT)
+        .eq("club_id", clubId),
+      loadClubAthleteMemberships(clubId),
+    ]);
+
+    if (error) {
+      if (
+        error.message?.includes("Failed to fetch") ||
+        error.message?.includes("TypeError")
+      ) {
+        console.warn(
+          "Network error fetching athlete category sources, returning empty array",
+        );
+        return [];
+      }
+
+      console.warn(
+        "Error fetching athlete category sources:",
+        error.message || error,
+      );
+      return [];
+    }
+
+    const membershipsByAthleteId = new Map<string, any[]>();
+    membershipRecords.forEach((membership: any) => {
+      const athleteId = String(membership?.athlete_id || "").trim();
+      if (!athleteId) {
+        return;
+      }
+
+      if (!membershipsByAthleteId.has(athleteId)) {
+        membershipsByAthleteId.set(athleteId, []);
+      }
+
+      membershipsByAthleteId.get(athleteId)?.push(membership);
+    });
+
+    return (data || []).map((athlete: any) =>
+      hydrateAthleteWithMemberships(
+        athlete,
+        membershipsByAthleteId.get(String(athlete?.id || "").trim()) || [],
+      ),
+    );
+  } catch (error: any) {
+    if (
+      error?.message?.includes("Failed to fetch") ||
+      error?.message?.includes("TypeError")
+    ) {
+      console.warn(
+        "Network error fetching athlete category sources, returning empty array",
+      );
+      return [];
+    }
+
+    console.warn(
+      "Error fetching athlete category sources:",
+      error?.message || error,
+    );
+    return [];
+  }
+};
 
 /**
  * Aggiunge un nuovo atleta al club
@@ -2159,7 +2228,7 @@ export async function getClubCategories(clubId: string) {
     const [clubCategories, resourceCategories, athletes] = await Promise.all([
       getClubData(clubId, "categories"),
       getClubResourcePayloads(clubId, "categories"),
-      getClubAthletes(clubId),
+      getClubAthleteCategorySources(clubId),
     ]);
 
     return buildClubCategoryOptions({

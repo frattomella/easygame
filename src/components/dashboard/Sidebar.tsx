@@ -55,7 +55,6 @@ import {
   Scale,
   Sparkles,
 } from "lucide-react";
-import { ChatButton } from "@/components/ui/chat";
 import Image from "next/image";
 
 const Sidebar = memo(() => {
@@ -151,6 +150,7 @@ const Sidebar = memo(() => {
               width={40}
               height={40}
               className="object-contain"
+              unoptimized
             />
           </div>
           {!collapsed && (
