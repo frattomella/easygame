@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/components/providers/AuthProvider";
 import {
-  getClubData,
+  getClubWeeklySchedule,
   updateClubData,
 } from "@/lib/simplified-db";
 import {
@@ -137,6 +137,7 @@ export function WeeklyTrainingSchedule({
   const [editingTraining, setEditingTraining] =
     React.useState<WeeklyTrainingItem | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const lastPersistedScheduleRef = React.useRef("[]");
   const defaultCategoryId = categories[0]?.id || "";
   const [newTraining, setNewTraining] = React.useState<WeeklyTrainingItem>({
     id: "",
@@ -222,12 +223,39 @@ export function WeeklyTrainingSchedule({
         locationId: item?.locationId,
         location: item?.location,
       });
+      const hasKnownStructure = groupedLocations.some(
+        (structure) =>
+          structure.structureId === String(item?.structureId || "").trim(),
+      );
+      const resolvedStructureId =
+        matchedLocation?.structureId ||
+        (hasKnownStructure
+          ? String(item?.structureId || "").trim()
+          : groupedLocations[0]?.structureId || "");
+      const structureFields = getStructureFieldOptions(
+        effectiveLocations,
+        resolvedStructureId,
+      );
+      const rawLocationId = String(
+        item?.locationId || item?.location_id || "",
+      ).trim();
+      const hasKnownField = structureFields.some(
+        (field) => field.id === rawLocationId,
+      );
+      const resolvedLocationId =
+        matchedLocation?.fieldId ||
+        (hasKnownField ? rawLocationId : structureFields[0]?.id || "");
 
       return {
         id: String(item?.id || createScheduleId()),
         day: normalizeDay(item?.day),
-        startTime: String(item?.startTime || "18:00").slice(0, 5),
-        endTime: String(item?.endTime || "19:30").slice(0, 5),
+        startTime: String(
+          item?.startTime || item?.start_time || item?.time || "18:00",
+        ).slice(0, 5),
+        endTime: String(item?.endTime || item?.end_time || "19:30").slice(
+          0,
+          5,
+        ),
         categoryId:
           resolveCategoryId(
             item?.categoryId ||
@@ -241,47 +269,67 @@ export function WeeklyTrainingSchedule({
           : Array.isArray(item?.trainers)
             ? item.trainers.filter(Boolean).map(String)
             : [],
-        structureId:
-          matchedLocation?.structureId ||
-          String(item?.structureId || groupedLocations[0]?.structureId || ""),
-        locationId:
-          matchedLocation?.fieldId ||
-          String(
-            item?.locationId ||
-              groupedLocations[0]?.fields?.[0]?.fieldId ||
-              "",
-          ),
+        structureId: resolvedStructureId,
+        locationId: resolvedLocationId,
       };
     },
     [categories, effectiveLocations, groupedLocations],
   );
 
+  const buildScheduleSnapshot = React.useCallback(
+    (items: WeeklyTrainingItem[]) =>
+      JSON.stringify(
+        (Array.isArray(items) ? items : []).map((item) => ({
+          id: item.id,
+          day: item.day,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          categoryId: item.categoryId,
+          trainerIds: [...(item.trainerIds || [])].sort(),
+          structureId: item.structureId,
+          locationId: item.locationId,
+        })),
+      ),
+    [],
+  );
+
   React.useEffect(() => {
     if (!activeClub?.id) {
       setSchedule([]);
+      lastPersistedScheduleRef.current = "[]";
       setLoaded(true);
       return;
     }
 
     const loadSchedule = async () => {
       try {
-        const savedSchedule = await getClubData(activeClub.id, "weekly_schedule");
-        const baseSchedule =
-          Array.isArray(savedSchedule) && savedSchedule.length > 0
-            ? savedSchedule
-            : initialSchedule;
+        const savedSchedule =
+          Array.isArray(initialSchedule) && initialSchedule.length > 0
+            ? initialSchedule
+            : await getClubWeeklySchedule(activeClub.id);
+        const normalizedSchedule = savedSchedule.map(normalizeScheduleItem);
 
-        setSchedule(baseSchedule.map(normalizeScheduleItem));
+        setSchedule(normalizedSchedule);
+        lastPersistedScheduleRef.current =
+          buildScheduleSnapshot(normalizedSchedule);
       } catch (error) {
         console.error("Error loading weekly schedule:", error);
-        setSchedule(initialSchedule.map(normalizeScheduleItem));
+        const normalizedFallback = initialSchedule.map(normalizeScheduleItem);
+        setSchedule(normalizedFallback);
+        lastPersistedScheduleRef.current =
+          buildScheduleSnapshot(normalizedFallback);
       } finally {
         setLoaded(true);
       }
     };
 
     loadSchedule();
-  }, [activeClub?.id, initialSchedule, normalizeScheduleItem]);
+  }, [
+    activeClub?.id,
+    buildScheduleSnapshot,
+    initialSchedule,
+    normalizeScheduleItem,
+  ]);
 
   React.useEffect(() => {
     if (showAddDialog) {
@@ -298,6 +346,8 @@ export function WeeklyTrainingSchedule({
       setSaving(true);
       try {
         await updateClubData(activeClub.id, "weekly_schedule", nextSchedule);
+        lastPersistedScheduleRef.current =
+          buildScheduleSnapshot(nextSchedule);
         await onSave(nextSchedule);
         if (notify) {
           showToast("success", "Programma settimanale salvato con successo");
@@ -309,11 +359,15 @@ export function WeeklyTrainingSchedule({
         setSaving(false);
       }
     },
-    [activeClub?.id, onSave, showToast],
+    [activeClub?.id, buildScheduleSnapshot, onSave, showToast],
   );
 
   React.useEffect(() => {
     if (!autoSave || !loaded) {
+      return;
+    }
+
+    if (buildScheduleSnapshot(schedule) === lastPersistedScheduleRef.current) {
       return;
     }
 
@@ -322,7 +376,7 @@ export function WeeklyTrainingSchedule({
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [autoSave, loaded, persistSchedule, schedule]);
+  }, [autoSave, buildScheduleSnapshot, loaded, persistSchedule, schedule]);
 
   const hydrateStructureAndField = React.useCallback(
     (item: WeeklyTrainingItem) => {

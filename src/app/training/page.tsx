@@ -34,6 +34,7 @@ import {
   getClubCategories,
   getClubTrainings,
   getClubTrainers,
+  getClubWeeklySchedule,
   getClubStructures,
   addClubData,
   updateClubDataItem,
@@ -322,6 +323,7 @@ export default function TrainingPage() {
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
   const [trainings, setTrainings] = React.useState<TrainingSession[]>([]);
+  const [weeklySchedule, setWeeklySchedule] = React.useState<any[]>([]);
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
   const [showAddTrainingModal, setShowAddTrainingModal] = useState(false);
   const [showEditTrainingModal, setShowEditTrainingModal] = useState(false);
@@ -347,7 +349,12 @@ export default function TrainingPage() {
   }, []);
 
   React.useEffect(() => {
-    if (shouldRenderSchedule || typeof IntersectionObserver === "undefined") {
+    if (shouldRenderSchedule) {
+      return;
+    }
+
+    if (typeof IntersectionObserver === "undefined") {
+      setShouldRenderSchedule(true);
       return;
     }
 
@@ -430,12 +437,14 @@ export default function TrainingPage() {
         clubStructures,
         allAthletes,
         clubTrainings,
+        clubWeeklySchedule,
       ] = await Promise.all([
         getClubCategories(activeClub.id),
         getClubTrainers(activeClub.id),
         getClubStructures(activeClub.id),
         getClubAthletes(activeClub.id),
         getClubTrainings(activeClub.id),
+        getClubWeeklySchedule(activeClub.id),
       ]);
 
       const normalizedCategories = Array.isArray(clubCategories)
@@ -445,11 +454,15 @@ export default function TrainingPage() {
       const normalizedTrainings = Array.isArray(clubTrainings)
         ? clubTrainings
         : [];
+      const normalizedWeeklySchedule = Array.isArray(clubWeeklySchedule)
+        ? clubWeeklySchedule
+        : [];
       const normalizedAthletes = Array.isArray(allAthletes) ? allAthletes : [];
 
       setCategories(normalizedCategories);
       setTrainers(normalizedTrainers);
       setClubAthletes(normalizedAthletes);
+      setWeeklySchedule(normalizedWeeklySchedule);
 
       const builtLocations = buildTrainingLocationOptions(clubStructures);
       const normalizedLocations =
@@ -951,8 +964,9 @@ export default function TrainingPage() {
                           const derivedStatus = getDerivedStatus(training);
                           const attendanceStatus =
                             getTrainingAttendanceStatus(training);
-                          const canTakeAttendance =
-                            attendanceStatus?.tone === "missing";
+                          const canManageAttendance =
+                            derivedStatus !== "annullato" &&
+                            canRecordTrainingAttendance(training);
 
                           return (
                             <div
@@ -1050,8 +1064,7 @@ export default function TrainingPage() {
                                 </div>
                                 <div className="flex flex-wrap gap-2 sm:justify-end">
                                 <>
-                                  {derivedStatus !== "annullato" &&
-                                    canTakeAttendance && (
+                                  {canManageAttendance && (
                                     <Button
                                       size="sm"
                                       className="bg-blue-600 hover:bg-blue-700 mr-2"
@@ -1457,7 +1470,9 @@ export default function TrainingPage() {
                                       }}
                                     >
                                       <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                                      Presenze
+                                      {attendanceStatus?.tone === "saved"
+                                        ? "Modifica Presenze"
+                                        : "Presenze"}
                                     </Button>
                                   )}
                                   {derivedStatus !== "concluded" &&
@@ -1695,28 +1710,6 @@ export default function TrainingPage() {
                   </CardContent>
                 </Card>
 
-                {/* Weekly Training Schedule */}
-                <Card className="mb-6 overflow-hidden" ref={scheduleSectionRef}>
-                  <CardHeader>
-                    <CardTitle>Programma Settimanale</CardTitle>
-                  </CardHeader>
-                  <CardContent className="min-w-0 overflow-x-hidden">
-                    {shouldRenderSchedule ? (
-                      <WeeklyTrainingSchedule
-                        categories={categories}
-                        trainers={trainers}
-                        locations={locations}
-                        initialSchedule={[]}
-                        autoSave={true}
-                        onSave={() => {}}
-                        allowDragDrop={true}
-                        onTrainingsGenerated={loadData}
-                      />
-                    ) : (
-                      <div className="h-56 animate-pulse rounded-xl border bg-slate-100" />
-                    )}
-                  </CardContent>
-                </Card>
               </TabsContent>
 
               <TabsContent value="calendar" className="min-w-0 space-y-6">
@@ -1781,6 +1774,10 @@ export default function TrainingPage() {
                                   (training) => {
                                     const attendanceStatus =
                                       getTrainingAttendanceStatus(training);
+                                    const canManageAttendance =
+                                      getDerivedStatus(training) !==
+                                        "annullato" &&
+                                      canRecordTrainingAttendance(training);
 
                                     return (
                                     <div
@@ -1839,6 +1836,20 @@ export default function TrainingPage() {
                                             {attendanceStatus.label}
                                           </Badge>
                                         ) : null}
+                                        {canManageAttendance ? (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8"
+                                            onClick={() =>
+                                              openAttendanceSheet(training)
+                                            }
+                                          >
+                                            {attendanceStatus?.tone === "saved"
+                                              ? "Modifica Presenze"
+                                              : "Presenze"}
+                                          </Button>
+                                        ) : null}
                                       </div>
                                     </div>
                                     );
@@ -1861,6 +1872,32 @@ export default function TrainingPage() {
                 </Card>
               </TabsContent>
             </Tabs>
+
+            <Card className="overflow-hidden" ref={scheduleSectionRef}>
+              <CardHeader>
+                <CardTitle>Programma Settimanale</CardTitle>
+              </CardHeader>
+              <CardContent className="min-w-0 overflow-x-hidden">
+                {shouldRenderSchedule ? (
+                  <WeeklyTrainingSchedule
+                    categories={categories}
+                    trainers={trainers}
+                    locations={locations}
+                    initialSchedule={weeklySchedule}
+                    autoSave={true}
+                    onSave={async (nextSchedule) => {
+                      setWeeklySchedule(
+                        Array.isArray(nextSchedule) ? nextSchedule : [],
+                      );
+                    }}
+                    allowDragDrop={true}
+                    onTrainingsGenerated={loadData}
+                  />
+                ) : (
+                  <div className="h-56 animate-pulse rounded-xl border bg-slate-100" />
+                )}
+              </CardContent>
+            </Card>
           </div>
         </main>
       </div>

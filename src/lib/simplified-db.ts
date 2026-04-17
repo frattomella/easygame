@@ -2266,6 +2266,31 @@ const isTrainingRecord = (value: unknown): value is Record<string, any> =>
     "location",
   ].some((key) => (value as Record<string, unknown>)[key] !== undefined);
 
+const isWeeklyScheduleRecord = (value: unknown): value is Record<string, any> =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  [
+    "id",
+    "day",
+    "startTime",
+    "start_time",
+    "time",
+    "endTime",
+    "end_time",
+    "categoryId",
+    "category_id",
+    "category",
+    "trainerIds",
+    "trainer_ids",
+    "trainers",
+    "locationId",
+    "location_id",
+    "location",
+    "structureId",
+    "structure_id",
+  ].some((key) => (value as Record<string, unknown>)[key] !== undefined);
+
 const toTrainingEntries = (source: unknown): Record<string, any>[] => {
   if (Array.isArray(source)) {
     return source.flatMap((entry) => toTrainingEntries(entry));
@@ -2294,6 +2319,36 @@ const toTrainingEntries = (source: unknown): Record<string, any>[] => {
   return [];
 };
 
+const toWeeklyScheduleEntries = (source: unknown): Record<string, any>[] => {
+  if (Array.isArray(source)) {
+    return source.flatMap((entry) => toWeeklyScheduleEntries(entry));
+  }
+
+  if (!source || typeof source !== "object") {
+    return [];
+  }
+
+  if (isWeeklyScheduleRecord(source)) {
+    return [source];
+  }
+
+  const record = source as Record<string, unknown>;
+  const nestedCandidates = [
+    record.payload,
+    record.weekly_schedule,
+    record.schedule,
+    record.trainings,
+    record.training,
+    record.items,
+  ].filter((value) => value !== undefined);
+
+  if (nestedCandidates.length > 0) {
+    return nestedCandidates.flatMap((entry) => toWeeklyScheduleEntries(entry));
+  }
+
+  return [];
+};
+
 const buildTrainingIdentityKey = (training: Record<string, any>) => {
   const id = String(training?.id || "").trim();
   if (id) {
@@ -2316,11 +2371,90 @@ const buildTrainingIdentityKey = (training: Record<string, any>) => {
     .join("|");
 };
 
+const buildWeeklyScheduleIdentityKey = (item: Record<string, any>) => {
+  const id = String(item?.id || "").trim();
+  if (id) {
+    return `id:${id}`;
+  }
+
+  return [
+    item?.day || "",
+    item?.startTime || item?.start_time || item?.time || "",
+    item?.endTime || item?.end_time || "",
+    item?.categoryId || item?.category_id || item?.category || "",
+    item?.structureId || item?.structure_id || "",
+    item?.locationId || item?.location_id || item?.location || "",
+  ]
+    .map((value) => String(value || "").trim())
+    .join("|");
+};
+
+const getClubDirectCollectionWithLegacySeasonFallback = async (
+  clubId: string,
+  dataType: "trainings" | "weekly_schedule",
+) => {
+  const { data, error } = await supabase
+    .from("clubs")
+    .select(`${dataType}, settings`)
+    .eq("id", clubId)
+    .single();
+
+  if (error) {
+    console.warn(
+      `Error fetching raw club ${dataType}:`,
+      error.message || error,
+    );
+    return [];
+  }
+
+  const rawCollection = Array.isArray(data?.[dataType]) ? data[dataType] : [];
+  if (!rawCollection.length) {
+    return [];
+  }
+
+  if (!isSeasonScopedDataType(dataType)) {
+    return rawCollection;
+  }
+
+  const settings =
+    typeof data?.settings === "object" && data.settings ? data.settings : {};
+  const { activeSeasonId } = normalizeClubSeasons(settings);
+  const seasonAware = filterCollectionBySeason(
+    dataType,
+    rawCollection,
+    activeSeasonId,
+  );
+  const legacySeasonless = rawCollection.filter((record: any) => {
+    const seasonId =
+      typeof record?.seasonId === "string" ? record.seasonId.trim() : "";
+    return !seasonId;
+  });
+
+  const merged: any[] = [];
+  const seen = new Set<string>();
+
+  [...seasonAware, ...legacySeasonless].forEach((record: any, index: number) => {
+    const identity =
+      String(record?.id || "").trim() ||
+      JSON.stringify(record) ||
+      `${dataType}-${index}`;
+
+    if (seen.has(identity)) {
+      return;
+    }
+
+    seen.add(identity);
+    merged.push(record);
+  });
+
+  return merged;
+};
+
 export async function getClubTrainings(clubId: string) {
   try {
     const [clubTrainings, resourceTrainings, relationalResponse] =
       await Promise.all([
-        getClubData(clubId, "trainings"),
+        getClubDirectCollectionWithLegacySeasonFallback(clubId, "trainings"),
         getClubResourcePayloads(clubId, "trainings"),
         supabase
           .from("trainings")
@@ -2356,6 +2490,43 @@ export async function getClubTrainings(clubId: string) {
     return merged.sort(compareTrainingsByStart);
   } catch (error) {
     console.error("Error fetching club trainings:", error);
+    return [];
+  }
+}
+
+export async function getClubWeeklySchedule(clubId: string) {
+  try {
+    const [clubWeeklySchedule, resourceWeeklySchedule, legacyTrainings, resourceTrainings] =
+      await Promise.all([
+        getClubDirectCollectionWithLegacySeasonFallback(clubId, "weekly_schedule"),
+        getClubResourcePayloads(clubId, "weekly_schedule"),
+        getClubDirectCollectionWithLegacySeasonFallback(clubId, "trainings"),
+        getClubResourcePayloads(clubId, "trainings"),
+      ]);
+
+    const merged: Record<string, any>[] = [];
+    const seen = new Set<string>();
+
+    [
+      clubWeeklySchedule,
+      resourceWeeklySchedule,
+      legacyTrainings,
+      resourceTrainings,
+    ].forEach((source) => {
+      toWeeklyScheduleEntries(source).forEach((item) => {
+        const identity = buildWeeklyScheduleIdentityKey(item);
+        if (!identity || seen.has(identity)) {
+          return;
+        }
+
+        seen.add(identity);
+        merged.push(item);
+      });
+    });
+
+    return merged;
+  } catch (error) {
+    console.error("Error fetching weekly training schedule:", error);
     return [];
   }
 }
