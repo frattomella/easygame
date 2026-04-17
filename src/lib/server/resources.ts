@@ -946,7 +946,11 @@ const normalizeClubResourceInput = (resource: string, input: Record<string, any>
   });
 };
 
-const findClubResourceRecord = async (resource: string, identifier: string) => {
+const findClubResourceRecord = async (
+  resource: string,
+  identifier: string,
+  scope?: ResourceAccessScope,
+) => {
   const trimmedIdentifier = String(identifier || "").trim();
   if (!trimmedIdentifier) {
     return null;
@@ -955,10 +959,17 @@ const findClubResourceRecord = async (resource: string, identifier: string) => {
   const directId = isUuid(trimmedIdentifier)
     ? normalizeUuid(trimmedIdentifier)
     : undefined;
+  const organizationFilter =
+    scope?.activeOrganizationId
+      ? { organization_id: scope.activeOrganizationId }
+      : scope?.allowedOrganizationIds?.length
+        ? { organization_id: { in: scope.allowedOrganizationIds } }
+        : {};
 
   return prisma.clubResourceItem.findFirst({
     where: {
       resource_type: resource,
+      ...organizationFilter,
       OR: [
         ...(directId ? [{ id: directId }] : []),
         {
@@ -1085,7 +1096,7 @@ export const getResourceById = async (
   let record: Record<string, any> | null = null;
 
   if (config.kind === "club_resource") {
-    record = await findClubResourceRecord(resource, id);
+    record = await findClubResourceRecord(resource, id, scope);
   } else {
     record = await delegate.findUnique({
       where: { id },
@@ -1164,7 +1175,7 @@ export const createResource = async (
     const logicalId = String(input?.id || "").trim();
 
     if (mode === "upsert" && logicalId) {
-      const existing = await findClubResourceRecord(resource, logicalId);
+      const existing = await findClubResourceRecord(resource, logicalId, scope);
 
       if (existing) {
         assertRecordAccess(resource, existing, scope);
@@ -1297,7 +1308,7 @@ export const updateResource = async (
   const config = RESOURCE_CONFIG[resource];
 
   if (config.kind === "club_resource") {
-    const existing = await findClubResourceRecord(resource, id);
+    const existing = await findClubResourceRecord(resource, id, scope);
     if (!existing) {
       throw new Error("Risorsa del club non trovata");
     }
@@ -1401,7 +1412,7 @@ export const deleteResource = async (
   const config = RESOURCE_CONFIG[resource];
 
   if (config.kind === "club_resource") {
-    const existing = await findClubResourceRecord(resource, id);
+    const existing = await findClubResourceRecord(resource, id, scope);
     if (!existing) {
       throw new Error("Risorsa del club non trovata");
     }

@@ -60,26 +60,29 @@ const CertificationAlerts = ({
 
       try {
         setLoading(true);
+        let effectiveOrganizationId = organizationId;
 
-        // Get the current user's session
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        if (!effectiveOrganizationId) {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
 
-        if (!session?.user) {
-          setLoading(false);
-          return;
+          if (!session?.user) {
+            setLoading(false);
+            return;
+          }
+
+          const { data: orgUser } = await supabase
+            .from("organization_users")
+            .select("organization_id")
+            .eq("user_id", session.user.id)
+            .eq("is_primary", true)
+            .single();
+
+          effectiveOrganizationId = orgUser?.organization_id || null;
         }
 
-        // Get the user's organization
-        const { data: orgUser } = await supabase
-          .from("organization_users")
-          .select("organization_id")
-          .eq("user_id", session.user.id)
-          .eq("is_primary", true)
-          .single();
-
-        if (!orgUser) {
+        if (!effectiveOrganizationId) {
           setLoading(false);
           return;
         }
@@ -95,7 +98,7 @@ const CertificationAlerts = ({
         const { data: allAthletes } = await supabase
           .from("athletes")
           .select("id, first_name, last_name")
-          .eq("organization_id", orgUser.organization_id);
+          .eq("organization_id", effectiveOrganizationId);
 
         // Fetch medical certificates that are expired or expiring
         const { data: certificates } = await supabase
@@ -109,7 +112,7 @@ const CertificationAlerts = ({
             athletes!inner(id, first_name, last_name, organization_id)
           `,
           )
-          .eq("athletes.organization_id", orgUser.organization_id)
+          .eq("athletes.organization_id", effectiveOrganizationId)
           .lte("expiry_date", thirtyDaysFromNow.toISOString().split("T")[0]);
 
         const formattedAlerts: CertificationAlert[] = [];
@@ -180,7 +183,7 @@ const CertificationAlerts = ({
     };
 
     fetchCertificateAlerts();
-  }, [alerts, showEmptyState]);
+  }, [alerts, organizationId, showEmptyState]);
 
   const getStatusIcon = (status: CertificationAlert["status"]) => {
     switch (status) {
