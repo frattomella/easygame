@@ -31,6 +31,8 @@ import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
 import {
   findScheduleConflicts,
   isValidTimeRange,
+  resolveCategoryLabelForTraining,
+  resolveTrainingWeekday,
 } from "@/lib/training-utils";
 import { TrainingScheduleAutomationPanel } from "@/components/trainer/TrainingScheduleAutomationPanel";
 import {
@@ -50,9 +52,11 @@ export interface WeeklyTrainingItem {
   startTime: string;
   endTime: string;
   categoryId: string;
+  categoryName?: string | null;
   trainerIds: string[];
   structureId: string;
   locationId: string;
+  location?: string | null;
 }
 
 interface WeeklyTrainingSchedulePanelProps {
@@ -145,11 +149,13 @@ export function WeeklyTrainingSchedule({
     startTime: "18:00",
     endTime: "19:30",
     categoryId: defaultCategoryId,
+    categoryName: categories[0]?.name || null,
     trainerIds: defaultCategoryId
       ? getAssociatedTrainerIds(trainers, [defaultCategoryId], categories)
       : [],
     structureId: "",
     locationId: "",
+    location: null,
   });
 
   const effectiveLocations = React.useMemo(() => {
@@ -206,17 +212,20 @@ export function WeeklyTrainingSchedule({
       startTime: "18:00",
       endTime: "19:30",
       categoryId: categories[0]?.id || "",
+      categoryName: categories[0]?.name || null,
       trainerIds:
         categories[0]?.id
           ? getAutoTrainerIdsForCategory(categories[0].id)
           : [],
       structureId: firstStructure?.structureId || "",
       locationId: firstField?.fieldId || "",
+      location: firstField?.name || null,
     });
   }, [categories, getAutoTrainerIdsForCategory, groupedLocations]);
 
   const normalizeScheduleItem = React.useCallback(
     (item: any): WeeklyTrainingItem => {
+      const resolvedDay = normalizeDay(resolveTrainingWeekday(item) || item?.day);
       const matchedLocation = findTrainingLocationOption(effectiveLocations, {
         structureId: item?.structureId,
         fieldId: item?.locationId,
@@ -245,10 +254,27 @@ export function WeeklyTrainingSchedule({
       const resolvedLocationId =
         matchedLocation?.fieldId ||
         (hasKnownField ? rawLocationId : structureFields[0]?.id || "");
+      const resolvedCategoryId =
+        resolveCategoryId(
+          item?.categoryId ||
+            item?.category_id ||
+            item?.category?.id ||
+            item?.category?.name ||
+            item?.categoryName ||
+            item?.category_name ||
+            item?.category,
+          categories,
+        ) || String(item?.categoryId || item?.category_id || "").trim();
+      const resolvedCategoryName =
+        (resolvedCategoryId
+          ? categories.find((category) => category.id === resolvedCategoryId)?.name
+          : null) ||
+        resolveCategoryLabelForTraining(item, categories) ||
+        null;
 
       return {
         id: String(item?.id || createScheduleId()),
-        day: normalizeDay(item?.day),
+        day: resolvedDay,
         startTime: String(
           item?.startTime || item?.start_time || item?.time || "18:00",
         ).slice(0, 5),
@@ -256,14 +282,11 @@ export function WeeklyTrainingSchedule({
           0,
           5,
         ),
-        categoryId:
-          resolveCategoryId(
-            item?.categoryId ||
-              item?.category?.id ||
-              item?.category?.name ||
-              item?.category,
-            categories,
-          ) || String(categories[0]?.id || ""),
+        categoryId: resolvedCategoryId || String(categories[0]?.id || ""),
+        categoryName:
+          resolvedCategoryName ||
+          categories.find((category) => category.id === resolvedCategoryId)?.name ||
+          null,
         trainerIds: Array.isArray(item?.trainerIds)
           ? item.trainerIds.filter(Boolean).map(String)
           : Array.isArray(item?.trainers)
@@ -271,6 +294,8 @@ export function WeeklyTrainingSchedule({
             : [],
         structureId: resolvedStructureId,
         locationId: resolvedLocationId,
+        location:
+          matchedLocation?.name || String(item?.location || item?.fieldName || "").trim() || null,
       };
     },
     [categories, effectiveLocations, groupedLocations],
@@ -285,9 +310,11 @@ export function WeeklyTrainingSchedule({
           startTime: item.startTime,
           endTime: item.endTime,
           categoryId: item.categoryId,
+          categoryName: item.categoryName || null,
           trainerIds: [...(item.trainerIds || [])].sort(),
           structureId: item.structureId,
           locationId: item.locationId,
+          location: item.location || null,
         })),
       ),
     [],
@@ -393,6 +420,11 @@ export function WeeklyTrainingSchedule({
         ) {
           next.locationId = availableFields[0]?.id || "";
         }
+
+        next.location =
+          availableFields.find((field) => field.id === next.locationId)?.name ||
+          next.location ||
+          null;
       }
 
       return next;
@@ -413,7 +445,7 @@ export function WeeklyTrainingSchedule({
       const conflictsLabel = conflicts
         .map(
           (conflict) =>
-            `${getCategoryName(conflict.categoryId)} (${conflict.startTime}-${conflict.endTime})`,
+            `${getCategoryName(conflict)} (${conflict.startTime}-${conflict.endTime})`,
         )
         .join(", ");
 
@@ -567,8 +599,17 @@ export function WeeklyTrainingSchedule({
     );
   };
 
-  const getCategoryName = (categoryId: string) =>
-    resolveCategoryLabel(categoryId, categories);
+  const getCategoryName = (item: Partial<WeeklyTrainingItem> | string) => {
+    if (typeof item === "string") {
+      return resolveCategoryLabel(item, categories);
+    }
+
+    return (
+      categories.find((category) => category.id === item.categoryId)?.name ||
+      item.categoryName ||
+      resolveCategoryLabel(item.categoryId || "", categories)
+    );
+  };
 
   const getTrainerNames = (trainerIds: string[]) =>
     trainerIds
@@ -713,7 +754,7 @@ export function WeeklyTrainingSchedule({
                                     <div className="flex items-start justify-between gap-2">
                                       <div>
                                         <p className="text-sm font-semibold text-slate-900">
-                                          {getCategoryName(item.categoryId)}
+                                          {getCategoryName(item)}
                                         </p>
                                         <p className="text-xs text-slate-500">
                                           {item.startTime} - {item.endTime}
@@ -784,6 +825,10 @@ export function WeeklyTrainingSchedule({
                   setNewTraining((current) => ({
                     ...current,
                     categoryId: event.target.value,
+                    categoryName:
+                      categories.find(
+                        (category) => category.id === event.target.value,
+                      )?.name || current.categoryName || null,
                     trainerIds: syncTrainerIdsForCategory(
                       current.trainerIds,
                       current.categoryId,
@@ -853,6 +898,7 @@ export function WeeklyTrainingSchedule({
                     ...current,
                     structureId: nextStructureId,
                     locationId: nextField?.id || "",
+                    location: nextField?.name || null,
                   }));
                 }}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -873,6 +919,13 @@ export function WeeklyTrainingSchedule({
                   setNewTraining((current) => ({
                     ...current,
                     locationId: event.target.value,
+                    location:
+                      getStructureFieldOptions(
+                        effectiveLocations,
+                        current.structureId,
+                      ).find((field) => field.id === event.target.value)?.name ||
+                      current.location ||
+                      null,
                   }))
                 }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -995,6 +1048,10 @@ export function WeeklyTrainingSchedule({
                       ? {
                             ...current,
                             categoryId: event.target.value,
+                            categoryName:
+                              categories.find(
+                                (category) => category.id === event.target.value,
+                              )?.name || current.categoryName || null,
                             trainerIds: syncTrainerIdsForCategory(
                               current.trainerIds,
                               current.categoryId,
@@ -1072,10 +1129,11 @@ export function WeeklyTrainingSchedule({
                     )[0];
                     setEditingTraining((current) =>
                       current
-                        ? {
+                      ? {
                             ...current,
                             structureId: nextStructureId,
                             locationId: nextField?.id || "",
+                            location: nextField?.name || null,
                           }
                         : current,
                     );
@@ -1097,9 +1155,16 @@ export function WeeklyTrainingSchedule({
                   onChange={(event) =>
                     setEditingTraining((current) =>
                       current
-                        ? {
+                      ? {
                             ...current,
                             locationId: event.target.value,
+                            location:
+                              getStructureFieldOptions(
+                                effectiveLocations,
+                                current.structureId,
+                              ).find((field) => field.id === event.target.value)?.name ||
+                              current.location ||
+                              null,
                           }
                         : current,
                     )

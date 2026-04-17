@@ -18,7 +18,13 @@ import {
 } from "./training-location-options";
 import {
   compareTrainingsByStart,
+  getTrainingCategoryReferences,
+  getTrainingEndTime,
+  getTrainingStartTime,
   isUpcomingGeneratedTraining,
+  isScheduledTraining,
+  resolveCategoryLabelForTraining,
+  resolveTrainingWeekday,
 } from "./training-utils";
 import {
   applySeasonIdToCollection,
@@ -2271,8 +2277,9 @@ const isWeeklyScheduleRecord = (value: unknown): value is Record<string, any> =>
   typeof value === "object" &&
   !Array.isArray(value) &&
   [
-    "id",
     "day",
+    "weekday",
+    "weekDay",
     "startTime",
     "start_time",
     "time",
@@ -2450,6 +2457,106 @@ const getClubDirectCollectionWithLegacySeasonFallback = async (
   return merged;
 };
 
+const getNonEmptyString = (...values: unknown[]) => {
+  for (const value of values) {
+    const candidate = String(value || "").trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return "";
+};
+
+const normalizeTrainerIds = (value: any): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => normalizeTrainerIds(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return normalizeTrainerIds([
+      value.id,
+      value.user_id,
+      value.linkedUserId,
+      value.linked_user_id,
+      value.trainerId,
+      value.trainer_id,
+      value.coachId,
+      value.coach_id,
+    ]);
+  }
+
+  const candidate = String(value || "").trim();
+  return candidate ? [candidate] : [];
+};
+
+const dedupeStringList = (values: string[]) => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  values.forEach((value) => {
+    const candidate = String(value || "").trim();
+    if (!candidate || seen.has(candidate)) {
+      return;
+    }
+
+    seen.add(candidate);
+    normalized.push(candidate);
+  });
+
+  return normalized;
+};
+
+const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
+  const day = resolveTrainingWeekday(item);
+  const startTime = getTrainingStartTime(item);
+
+  if (!day || !startTime) {
+    return null;
+  }
+
+  const categoryId = getNonEmptyString(
+    item?.categoryId,
+    item?.category_id,
+    item?.category?.id,
+  );
+  const categoryLabel = resolveCategoryLabelForTraining(item, []);
+  const trainerIds = dedupeStringList(
+    normalizeTrainerIds([
+      item?.trainerIds,
+      item?.trainer_ids,
+      item?.trainerId,
+      item?.trainer_id,
+      item?.coachId,
+      item?.coach_id,
+      item?.trainers,
+      item?.trainer,
+      item?.coach,
+    ]),
+  );
+
+  return {
+    id: String(item?.id || buildWeeklyScheduleIdentityKey(item)),
+    day,
+    startTime,
+    endTime: getTrainingEndTime(item) || "",
+    categoryId:
+      categoryId ||
+      getNonEmptyString(categoryLabel, getTrainingCategoryReferences(item)[0]) ||
+      "",
+    categoryName: categoryLabel || null,
+    trainerIds,
+    structureId: getNonEmptyString(item?.structureId, item?.structure_id),
+    locationId: getNonEmptyString(
+      item?.locationId,
+      item?.location_id,
+      item?.fieldId,
+      item?.field_id,
+    ),
+    location: getNonEmptyString(item?.location, item?.fieldName, item?.field_name),
+  };
+};
+
 export async function getClubTrainings(clubId: string) {
   try {
     const [clubTrainings, resourceTrainings, relationalResponse] =
@@ -2496,38 +2603,146 @@ export async function getClubTrainings(clubId: string) {
 
 export async function getClubWeeklySchedule(clubId: string) {
   try {
-    const [clubWeeklySchedule, resourceWeeklySchedule, legacyTrainings, resourceTrainings] =
-      await Promise.all([
-        getClubDirectCollectionWithLegacySeasonFallback(clubId, "weekly_schedule"),
-        getClubResourcePayloads(clubId, "weekly_schedule"),
-        getClubDirectCollectionWithLegacySeasonFallback(clubId, "trainings"),
-        getClubResourcePayloads(clubId, "trainings"),
-      ]);
-
-    const merged: Record<string, any>[] = [];
-    const seen = new Set<string>();
-
-    [
+    const [
       clubWeeklySchedule,
       resourceWeeklySchedule,
       legacyTrainings,
       resourceTrainings,
-    ].forEach((source) => {
+    ] = await Promise.all([
+      getClubDirectCollectionWithLegacySeasonFallback(clubId, "weekly_schedule"),
+      getClubResourcePayloads(clubId, "weekly_schedule"),
+      getClubDirectCollectionWithLegacySeasonFallback(clubId, "trainings"),
+      getClubResourcePayloads(clubId, "trainings"),
+    ]);
+
+    const scheduleSources = [clubWeeklySchedule, resourceWeeklySchedule];
+    const hasNativeWeeklySchedule = scheduleSources.some(
+      (source) => toWeeklyScheduleEntries(source).length > 0,
+    );
+
+    const merged: Record<string, any>[] = [];
+    const seen = new Set<string>();
+
+    scheduleSources.forEach((source) => {
       toWeeklyScheduleEntries(source).forEach((item) => {
-        const identity = buildWeeklyScheduleIdentityKey(item);
+        const normalizedItem = normalizeWeeklyScheduleSourceItem(item);
+        if (!normalizedItem) {
+          return;
+        }
+
+        const identity = buildWeeklyScheduleIdentityKey(normalizedItem);
         if (!identity || seen.has(identity)) {
           return;
         }
 
         seen.add(identity);
-        merged.push(item);
+        merged.push(normalizedItem);
       });
     });
+
+    if (!hasNativeWeeklySchedule) {
+      [legacyTrainings, resourceTrainings].forEach((source) => {
+        toTrainingEntries(source).forEach((item) => {
+          const normalizedItem = normalizeWeeklyScheduleSourceItem(item);
+          if (!normalizedItem) {
+            return;
+          }
+
+          const identity = buildWeeklyScheduleIdentityKey(normalizedItem);
+          if (!identity || seen.has(identity)) {
+            return;
+          }
+
+          seen.add(identity);
+          merged.push(normalizedItem);
+        });
+      });
+    }
 
     return merged;
   } catch (error) {
     console.error("Error fetching weekly training schedule:", error);
     return [];
+  }
+}
+
+export async function cleanupOrphanScheduledTrainings(
+  clubId: string,
+  missingCategoryReferences: string[],
+) {
+  try {
+    const normalizedMissingReferences = dedupeStringList(
+      (Array.isArray(missingCategoryReferences) ? missingCategoryReferences : []).map(
+        (reference) => String(reference || "").trim().toLowerCase(),
+      ),
+    );
+
+    if (!normalizedMissingReferences.length) {
+      return {
+        removedWeeklyScheduleItems: [],
+        removedUpcomingTrainings: [],
+      };
+    }
+
+    const { data: clubData, error } = await supabase
+      .from("clubs")
+      .select("weekly_schedule, trainings")
+      .eq("id", clubId)
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    const currentWeeklySchedule = Array.isArray(clubData?.weekly_schedule)
+      ? clubData.weekly_schedule
+      : [];
+    const currentTrainings = Array.isArray(clubData?.trainings)
+      ? clubData.trainings
+      : [];
+
+    const matchesMissingCategory = (record: any) =>
+      getTrainingCategoryReferences(record).some((reference) =>
+        normalizedMissingReferences.includes(
+          String(reference || "").trim().toLowerCase(),
+        ),
+      );
+
+    const removedWeeklyScheduleItems = currentWeeklySchedule.filter((record: any) =>
+      matchesMissingCategory(record),
+    );
+    const nextWeeklySchedule = currentWeeklySchedule.filter(
+      (record: any) => !matchesMissingCategory(record),
+    );
+
+    const removedUpcomingTrainings = currentTrainings.filter(
+      (record: any) =>
+        matchesMissingCategory(record) && isScheduledTraining(record),
+    );
+    const nextTrainings = currentTrainings.filter(
+      (record: any) =>
+        !(matchesMissingCategory(record) && isScheduledTraining(record)),
+    );
+
+    const { error: updateError } = await supabase
+      .from("clubs")
+      .update({
+        weekly_schedule: nextWeeklySchedule,
+        trainings: nextTrainings,
+      })
+      .eq("id", clubId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return {
+      removedWeeklyScheduleItems,
+      removedUpcomingTrainings,
+    };
+  } catch (error) {
+    console.error("Error cleaning orphan scheduled trainings:", error);
+    throw error;
   }
 }
 

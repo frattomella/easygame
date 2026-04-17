@@ -22,6 +22,34 @@ export type TrainingConflictItem = {
   status?: string | null;
 };
 
+export const WEEKLY_SCHEDULE_DAYS = [
+  "Lunedì",
+  "Martedì",
+  "Mercoledì",
+  "Giovedì",
+  "Venerdì",
+  "Sabato",
+  "Domenica",
+] as const;
+
+const NORMALIZED_WEEKLY_SCHEDULE_DAYS = WEEKLY_SCHEDULE_DAYS.map((day) =>
+  day
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""),
+);
+
+const DAY_INDEX_TO_WEEKLY_DAY: Record<number, (typeof WEEKLY_SCHEDULE_DAYS)[number]> =
+  {
+    0: "Domenica",
+    1: "Lunedì",
+    2: "Martedì",
+    3: "Mercoledì",
+    4: "Giovedì",
+    5: "Venerdì",
+    6: "Sabato",
+  };
+
 const DEFAULT_TRAINING_DURATION_MINUTES = 90;
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const INVALID_TRAINING_TEXT_VALUES = new Set(["", "undefined", "null"]);
@@ -181,6 +209,38 @@ const findCategoryMatch = (
       );
     }) || null
   );
+};
+
+const getCurrentCategoryMatch = (
+  training: Record<string, any>,
+  categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">>,
+) => {
+  if (!categories.length) {
+    return null;
+  }
+
+  const source = getTrainingSourceRecord(training);
+  const references = uniqueValues([
+    training.categoryId,
+    training.category_id,
+    training.category?.id,
+    ...collectCategoryReferenceValues(training.categories),
+    ...collectCategoryReferenceValues(training.category),
+    source.categoryId,
+    source.category_id,
+    source.category?.id,
+    ...collectCategoryReferenceValues(source.categories),
+    ...collectCategoryReferenceValues(source.category),
+  ]);
+
+  for (const reference of references) {
+    const match = findCategoryMatch(reference, categories);
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
 };
 
 const collectTrainerObjectLabels = (value: unknown): string[] => {
@@ -429,6 +489,41 @@ export const getTrainingDate = (training: unknown) => {
   return null;
 };
 
+export const resolveTrainingWeekday = (training: unknown) => {
+  if (isRecord(training)) {
+    const source = getTrainingSourceRecord(training);
+    const directDay = firstNonEmptyString(
+      training.day,
+      training.weekday,
+      training.weekDay,
+      source.day,
+      source.weekday,
+      source.weekDay,
+    );
+
+    if (directDay) {
+      const normalizedDay = directDay
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      const matchIndex = NORMALIZED_WEEKLY_SCHEDULE_DAYS.findIndex(
+        (day) => day === normalizedDay,
+      );
+
+      if (matchIndex >= 0) {
+        return WEEKLY_SCHEDULE_DAYS[matchIndex];
+      }
+    }
+  }
+
+  const trainingDate = getTrainingDate(training);
+  if (!trainingDate) {
+    return null;
+  }
+
+  return DAY_INDEX_TO_WEEKLY_DAY[trainingDate.getDay()] || null;
+};
+
 export const isSameLocalDay = (left: Date, right: Date) =>
   left.getFullYear() === right.getFullYear() &&
   left.getMonth() === right.getMonth() &&
@@ -520,7 +615,36 @@ export const compareTrainingsByStart = (left: unknown, right: unknown) => {
   });
 };
 
-export const getTrainingCategoryLabel = (
+export const getTrainingCategoryReferences = (training: unknown) => {
+  if (!isRecord(training)) {
+    return [];
+  }
+
+  const source = getTrainingSourceRecord(training);
+
+  return uniqueValues([
+    training.categoryId,
+    training.category_id,
+    training.category?.id,
+    training.category_name,
+    training.categoryName,
+    training.category?.name,
+    training.category,
+    ...collectCategoryReferenceValues(training.categories),
+    ...collectCategoryReferenceValues(training.category),
+    source.categoryId,
+    source.category_id,
+    source.category?.id,
+    source.category_name,
+    source.categoryName,
+    source.category?.name,
+    source.category,
+    ...collectCategoryReferenceValues(source.categories),
+    ...collectCategoryReferenceValues(source.category),
+  ]);
+};
+
+export const resolveCategoryLabelForTraining = (
   training: unknown,
   categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">> = [],
 ) => {
@@ -529,6 +653,11 @@ export const getTrainingCategoryLabel = (
   }
 
   const source = getTrainingSourceRecord(training);
+  const currentMatch = getCurrentCategoryMatch(training, categories);
+  if (currentMatch?.name) {
+    return String(currentMatch.name);
+  }
+
   const explicitLabel = firstNonEmptyString(
     training.category_name,
     training.categoryName,
@@ -542,25 +671,7 @@ export const getTrainingCategoryLabel = (
     return explicitLabel;
   }
 
-  const references = uniqueValues([
-    training.categoryId,
-    training.category_id,
-    training.category?.id,
-    ...collectCategoryReferenceValues(training.categories),
-    ...collectCategoryReferenceValues(training.category),
-    source.categoryId,
-    source.category_id,
-    source.category?.id,
-    ...collectCategoryReferenceValues(source.categories),
-    ...collectCategoryReferenceValues(source.category),
-  ]);
-
-  for (const reference of references) {
-    const match = findCategoryMatch(reference, categories);
-    if (match?.name) {
-      return String(match.name);
-    }
-  }
+  const references = getTrainingCategoryReferences(training);
 
   const fallbackLabel = firstNonEmptyString(
     training.category,
@@ -570,6 +681,8 @@ export const getTrainingCategoryLabel = (
 
   return fallbackLabel || "Categoria assegnata";
 };
+
+export const getTrainingCategoryLabel = resolveCategoryLabelForTraining;
 
 export const getTrainingCategoryColor = (
   training: unknown,
@@ -761,6 +874,73 @@ export const getTrainingPhase = (
   }
 
   return "upcoming" as const;
+};
+
+export const isHistoricalTraining = (
+  training: TrainingConflictItem,
+  now = new Date(),
+) => {
+  const normalizedStatus = String(training?.status || "").toLowerCase();
+  if (normalizedStatus === "completed" || normalizedStatus === "concluded") {
+    return true;
+  }
+
+  return getTrainingPhase(training, now) === "concluded";
+};
+
+export const isScheduledTraining = (
+  training: TrainingConflictItem,
+  now = new Date(),
+) => getTrainingPhase(training, now) === "upcoming";
+
+export const findTrainingsWithMissingCategories = (
+  trainings: unknown[],
+  categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">> = [],
+  options?: {
+    now?: Date;
+    scheduledOnly?: boolean;
+    includeHistorical?: boolean;
+  },
+) => {
+  const now = options?.now || new Date();
+
+  return (Array.isArray(trainings) ? trainings : []).flatMap((training, index) => {
+    if (!isRecord(training)) {
+      return [];
+    }
+
+    const references = getTrainingCategoryReferences(training);
+    if (!references.length) {
+      return [];
+    }
+
+    if (!options?.includeHistorical && getTrainingDate(training)) {
+      if (!isScheduledTraining(training, now) && !options?.scheduledOnly) {
+        return [];
+      }
+
+      if (options?.scheduledOnly && !isScheduledTraining(training, now)) {
+        return [];
+      }
+    }
+
+    if (!options?.includeHistorical && isHistoricalTraining(training, now)) {
+      return [];
+    }
+
+    if (getCurrentCategoryMatch(training, categories)) {
+      return [];
+    }
+
+    return [
+      {
+        id: String(training.id || `missing-category-${index}`),
+        references,
+        label: resolveCategoryLabelForTraining(training, []),
+        training,
+      },
+    ];
+  });
 };
 
 export const canRecordTrainingAttendance = (

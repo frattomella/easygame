@@ -14,6 +14,7 @@ import {
   Clock,
   MapPin,
   Users,
+  AlertTriangle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -37,6 +38,7 @@ import {
   getClubWeeklySchedule,
   getClubStructures,
   addClubData,
+  cleanupOrphanScheduledTrainings,
   updateClubDataItem,
   deleteClubDataItem,
   saveTrainingAttendance,
@@ -51,9 +53,11 @@ import {
 import {
   canRecordTrainingAttendance,
   compareTrainingsByStart,
+  findTrainingsWithMissingCategories,
   findTrainingCollisions,
   getTrainingCategoryColor,
   getTrainingCategoryLabel,
+  getTrainingCategoryReferences,
   getTrainingDate,
   getTrainingEndTime,
   getTrainingPhase,
@@ -129,6 +133,9 @@ interface TrainingSession {
   time: string;
   endTime?: string | null;
   category: string;
+  categoryId?: string | null;
+  categoryReferences?: string[];
+  historicalCategoryName?: string | null;
   trainer: string;
   location: string;
   locationId?: string | null;
@@ -253,6 +260,27 @@ const formatTrainingSession = ({
     time: getTrainingStartTime(training) || getTrainingTimeLabel(training),
     endTime: getTrainingEndTime(training),
     category: getTrainingCategoryLabel(training, categories),
+    categoryId:
+      String(
+        training?.categoryId ||
+          training?.category_id ||
+          training?.category?.id ||
+          source?.categoryId ||
+          source?.category_id ||
+          source?.category?.id ||
+          "",
+      ).trim() || null,
+    categoryReferences: getTrainingCategoryReferences(training),
+    historicalCategoryName:
+      String(
+        training?.category_name ||
+          training?.categoryName ||
+          training?.category?.name ||
+          source?.category_name ||
+          source?.categoryName ||
+          source?.category?.name ||
+          "",
+      ).trim() || null,
     trainer: getTrainingTrainerLabel(training, trainers),
     location:
       matchedLocation?.name ||
@@ -338,6 +366,8 @@ export default function TrainingPage() {
     undefined,
   );
   const [shouldRenderSchedule, setShouldRenderSchedule] = useState(false);
+  const [cleaningMissingCategories, setCleaningMissingCategories] =
+    useState(false);
   const scheduleSectionRef = React.useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const { activeClub } = useAuth();
@@ -496,6 +526,98 @@ export default function TrainingPage() {
     loadData();
   }, [loadData]);
 
+  const missingWeeklyScheduleCategories = React.useMemo(
+    () => findTrainingsWithMissingCategories(weeklySchedule, categories),
+    [categories, weeklySchedule],
+  );
+
+  const missingUpcomingTrainingCategories = React.useMemo(
+    () =>
+      findTrainingsWithMissingCategories(trainings, categories, {
+        scheduledOnly: true,
+      }),
+    [categories, trainings],
+  );
+
+  const missingCategoryPanel = React.useMemo(() => {
+    const combined = [
+      ...missingWeeklyScheduleCategories,
+      ...missingUpcomingTrainingCategories,
+    ];
+
+    if (!combined.length) {
+      return null;
+    }
+
+    const labels = Array.from(
+      new Set(
+        combined
+          .map((item) => String(item.label || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    const references = Array.from(
+      new Set(
+        combined.flatMap((item) =>
+          Array.isArray(item.references) ? item.references : [],
+        ),
+      ),
+    );
+
+    return {
+      labels,
+      references,
+      weeklyCount: missingWeeklyScheduleCategories.length,
+      upcomingCount: missingUpcomingTrainingCategories.length,
+    };
+  }, [missingUpcomingTrainingCategories, missingWeeklyScheduleCategories]);
+
+  const handleCleanupMissingCategories = React.useCallback(async () => {
+    if (!activeClub?.id || !missingCategoryPanel?.references.length) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Rimuovere solo gli allenamenti in programma collegati a categorie non piu disponibili? Gli allenamenti storici resteranno salvati.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setCleaningMissingCategories(true);
+      const result = await cleanupOrphanScheduledTrainings(
+        activeClub.id,
+        missingCategoryPanel.references,
+      );
+
+      const removedCount =
+        (Array.isArray(result?.removedWeeklyScheduleItems)
+          ? result.removedWeeklyScheduleItems.length
+          : 0) +
+        (Array.isArray(result?.removedUpcomingTrainings)
+          ? result.removedUpcomingTrainings.length
+          : 0);
+
+      await loadData();
+      showToast(
+        "success",
+        removedCount > 0
+          ? `Ripuliti ${removedCount} allenamenti programmati collegati a categorie eliminate`
+          : "Nessun allenamento programmato da ripulire",
+      );
+    } catch (error) {
+      console.error("Error cleaning orphan scheduled trainings:", error);
+      showToast(
+        "error",
+        "Errore durante la pulizia degli allenamenti con categorie non rilevate",
+      );
+    } finally {
+      setCleaningMissingCategories(false);
+    }
+  }, [activeClub?.id, loadData, missingCategoryPanel, showToast]);
+
   const handleAddTraining = async (trainingData: any) => {
     if (!activeClub?.id) {
       showToast("error", "Nessun club attivo selezionato");
@@ -589,6 +711,13 @@ export default function TrainingPage() {
         time: newTraining.time,
         endTime: newTraining.endTime,
         category: newTraining.category,
+        categoryId: newTraining.categoryId,
+        categoryReferences: Array.isArray(newTraining.categories)
+          ? newTraining.categories
+          : newTraining.categoryId
+            ? [newTraining.categoryId]
+            : [],
+        historicalCategoryName: newTraining.category,
         trainer: newTraining.trainer,
         location: newTraining.location,
         locationId: newTraining.locationId,
@@ -1872,6 +2001,57 @@ export default function TrainingPage() {
                 </Card>
               </TabsContent>
             </Tabs>
+
+            {missingCategoryPanel ? (
+              <Card className="border-amber-200 bg-amber-50/80">
+                <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 rounded-full bg-amber-100 p-2 text-amber-700">
+                        <AlertTriangle className="h-4 w-4" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-amber-900">
+                          Categorie non rilevate nel programma allenamenti
+                        </p>
+                        <p className="text-sm text-amber-800">
+                          Alcuni allenamenti in programma fanno riferimento a categorie che probabilmente sono state eliminate o rinominate fuori sincronizzazione.
+                        </p>
+                        <p className="text-xs text-amber-700">
+                          Programma settimanale: {missingCategoryPanel.weeklyCount} • Allenamenti futuri: {missingCategoryPanel.upcomingCount}
+                        </p>
+                        {missingCategoryPanel.labels.length > 0 ? (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {missingCategoryPanel.labels.slice(0, 6).map((label) => (
+                              <Badge
+                                key={label}
+                                variant="outline"
+                                className="border-amber-300 bg-white text-amber-800"
+                              >
+                                {label}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 justify-end">
+                    <Button
+                      variant="outline"
+                      className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                      disabled={cleaningMissingCategories}
+                      onClick={handleCleanupMissingCategories}
+                    >
+                      {cleaningMissingCategories
+                        ? "Pulizia in corso..."
+                        : "Rimuovi allenamenti in programma"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
 
             <Card className="overflow-hidden" ref={scheduleSectionRef}>
               <CardHeader>
