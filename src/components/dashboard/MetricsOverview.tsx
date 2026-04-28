@@ -194,7 +194,7 @@ const MetricsOverview = ({
               cachedQuery(`athletes-${orgId}`, () =>
                 supabase
                   .from("simplified_athletes")
-                  .select("*")
+                  .select("id, data")
                   .eq("club_id", orgId),
               ),
               cachedQuery(`all-athletes-${orgId}`, () =>

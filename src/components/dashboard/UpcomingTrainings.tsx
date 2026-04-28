@@ -275,7 +275,11 @@ const UpcomingTrainings = memo(
             {todayTrainings.length > 0 ? (
               <div className="space-y-4">
                 {todayTrainings.map((training) => (
-                  <TrainingCard key={training.id} training={training} />
+                  <TrainingCard
+                    key={training.id}
+                    training={training}
+                    organizationId={organizationId}
+                  />
                 ))}
               </div>
             ) : (
@@ -301,7 +305,14 @@ const EmptyTrainingsState = memo(() => (
 
 EmptyTrainingsState.displayName = "EmptyTrainingsState";
 
-const TrainingCard = memo(({ training }: { training: TrainingSession }) => {
+const TrainingCard = memo(
+  ({
+    training,
+    organizationId,
+  }: {
+    training: TrainingSession;
+    organizationId?: string | null;
+  }) => {
   const [showAttendance, setShowAttendance] = useState(false);
   const [attendanceData, setAttendanceData] = useState<
     { name: string; present: boolean }[]
@@ -320,16 +331,24 @@ const TrainingCard = memo(({ training }: { training: TrainingSession }) => {
           setLoadingAttendance(true);
 
           // Fetch attendance records for this training
-          const { data: attendanceRecords } = await supabase
-            .from("training_attendance")
-            .select(
-              `
+          let attendanceQuery = supabase.from("training_attendance").select(
+            `
               id,
               is_present,
               athletes(id, first_name, last_name)
             `,
-            )
-            .eq("training_id", training.id);
+          );
+
+          attendanceQuery = attendanceQuery.eq("training_id", training.id);
+
+          if (organizationId) {
+            attendanceQuery = attendanceQuery.eq(
+              "organization_id",
+              organizationId,
+            );
+          }
+
+          const { data: attendanceRecords } = await attendanceQuery;
 
           if (attendanceRecords) {
             const formattedAttendance = attendanceRecords.map((record) => ({
@@ -351,7 +370,7 @@ const TrainingCard = memo(({ training }: { training: TrainingSession }) => {
 
       fetchAttendanceData();
     }
-  }, [showAttendance, training.id, attendanceData.length]);
+  }, [showAttendance, training.id, organizationId, attendanceData.length]);
 
   return (
     <div className="p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
@@ -446,7 +465,8 @@ const TrainingCard = memo(({ training }: { training: TrainingSession }) => {
       </div>
     </div>
   );
-});
+  },
+);
 
 TrainingCard.displayName = "TrainingCard";
 

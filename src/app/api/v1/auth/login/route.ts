@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/server/prisma";
+import {
+  getPrismaConnectionErrorMessage,
+  isPrismaConnectionError,
+  prisma,
+} from "@/lib/server/prisma";
 import {
   attachSessionCookie,
   serializeAuthUser,
@@ -134,10 +138,30 @@ export async function POST(request: Request) {
     attachSessionCookie(response, session);
     return response;
   } catch (error: any) {
+    if (isPrismaConnectionError(error)) {
+      console.error("Login database connection error:", {
+        databaseUrlConfigured: Boolean(process.env.DATABASE_URL),
+        directUrlConfigured: Boolean(process.env.DIRECT_URL),
+        message: error?.message,
+      });
+
+      return NextResponse.json(
+        {
+          data: { user: null, session: null },
+          error: {
+            message: getPrismaConnectionErrorMessage(),
+            code: "DATABASE_UNAVAILABLE",
+          },
+        },
+        { status: 503 },
+      );
+    }
+
+    console.error("Login error:", error);
     return NextResponse.json(
       {
         data: { user: null, session: null },
-        error: { message: error?.message || "Errore durante il login" },
+        error: { message: "Errore durante il login" },
       },
       { status: 500 },
     );

@@ -1,0 +1,95 @@
+Crea un'app mobile React Native/Expo per allenatori sportivi chiamata "EasyGame Mobile" con le seguenti specifiche:
+
+Tema e Stile
+Colore primario: Royal Blue (#2563EB)
+Background: #F8FAFC
+Foreground: #0F172A
+Muted: #F1F5F9, #64748B
+Border: #E2E8F0
+Success: #22C55E, Warning: #F59E0B, Destructive: #EF4444
+Card con shadow leggera, border-radius 12px
+Lingua UI: Italiano
+Navigazione
+Stack Navigator per flusso auth (Login → Selezione Contesto → Main)
+Bottom Tab Navigator con 5 tab: Home, Allenamenti, Gare, Atleti, Profilo
+Icone Ionicons, tab attivo in royal blue
+Schermate
+1. Login
+
+Logo pallone con sfondo royal blue
+Titolo "EasyGame" + sottotitolo "App per Allenatori"
+Campi: Email, Password
+Pulsante "Accedi"
+Sezione espandibile "Configurazione Server" per inserire URL backend API
+Salvataggio URL in SecureStore
+2. Selezione Contesto
+
+Header con titolo "Seleziona Contesto" + pulsante logout
+Sezione "Club Posseduti" (fetch da /clubs/owned)
+Sezione "I Miei Accessi" (fetch da /accesses) con pulsante "+ Aggiungi"
+Ogni card mostra: Avatar, Nome Club, Ruolo
+Modal per inserire token 5-8 cifre per collegare nuovi accessi
+Al tap su una card → salva contesto (clubId, role) in SecureStore
+3. Home
+
+Header: "Buongiorno, [Nome]" + Avatar club
+Badge con nome club e categorie
+Sezione "Attività & Promemoria" con task pendenti
+Sezione "Programma di Oggi" con prossimo allenamento
+Card allenamento: orario, titolo, location, categoria, pulsante "Presenze"
+Pulsante "Prossima Gara: vs [Avversario]"
+4. Allenamenti
+
+Header "Calendario Allenamenti"
+Vista settimana con 5 giorni (Lun-Ven), giorno attivo evidenziato
+Lista sessioni con: titolo, categoria (badge), orario, data, location, numero presenti
+Pulsante "Registra Presenze" per ogni sessione
+Bordo sinistro colorato royal blue
+5. Gare
+
+Header "Gare"
+Tab switcher: "In Arrivo" / "Risultati"
+Card gara in arrivo: header blu con data/ora, sezione VS con nomi squadre, location, divisa
+Pulsante "Gestisci Convocazioni"
+Card risultato: data, avversario, score in box grigio
+6. Atleti
+
+Header "Rosa Squadra"
+Barra ricerca
+FlatList atleti con: Avatar (numero maglia), nome, status (badge colorato), posizione, categoria
+Modal dettaglio atleta: avatar grande, nome, numero, posizione, stato, categoria, contatti
+7. Profilo
+
+Header blu con avatar, nome, ruolo
+Card "Club" con pulsante "Cambia" per tornare a selezione contesto
+Sezione "Impostazioni": Notifiche (toggle), Privacy, Aiuto
+Pulsante "Esci" rosso
+Versione app in fondo
+Servizio API (src/services/api.ts)
+Base URL configurabile salvato in SecureStore
+Contesto (clubId, role) salvato in SecureStore
+Funzioni:
+login(username, password)
+logout()
+getClubs() → /clubs/owned
+getAccesses() → /accesses
+verifyToken(token) → /accesses/verify-token
+getUser() → /user?clubId=X&role=Y
+getAthletes(query) → /athletes
+getTrainings() → /trainings
+getMatches() → /matches
+getTasks() → /tasks
+Gestione errori con messaggi in italiano
+Componenti Riutilizzabili
+Button: varianti primary/secondary/outline/destructive/ghost, size sm/md/lg
+Input: con label e error
+Card: con onPress opzionale
+Avatar: image o fallback con iniziali
+Badge: varianti default/primary/success/warning/destructive
+Dipendenze
+expo, expo-secure-store, expo-status-bar
+@react-navigation/native, @react-navigation/native-stack, @react-navigation/bottom-tabs
+@tanstack/react-query
+@expo/vector-icons (Ionicons)
+date-fns con locale italiano
+react-native-safe-area-context, react-native-screens, react-native-gesture-handler

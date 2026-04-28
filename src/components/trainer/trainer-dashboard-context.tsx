@@ -355,6 +355,10 @@ export function TrainerDashboardProvider({
     setLoading(true);
 
     try {
+      const activeClubHeaders = {
+        "x-active-club-id": String(activeClub.id),
+      };
+
       const [
         apiCategories,
         apiTrainers,
@@ -372,13 +376,34 @@ export function TrainerDashboardProvider({
         legacySecretariatNotes,
         clubSettings,
       ] = await Promise.all([
-        apiRequest<any[]>("/api/v1/categories", { method: "GET" }),
-        apiRequest<any[]>("/api/v1/trainers", { method: "GET" }),
-        apiRequest<any[]>("/api/v1/staff_members", { method: "GET" }),
-        apiRequest<any[]>("/api/v1/athletes", { method: "GET" }),
-        apiRequest<any[]>("/api/v1/trainings", { method: "GET" }),
-        apiRequest<any[]>("/api/v1/matches", { method: "GET" }),
-        apiRequest<any[]>("/api/v1/secretariat_notes", { method: "GET" }),
+        apiRequest<any[]>("/api/v1/categories", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        apiRequest<any[]>("/api/v1/trainers", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        apiRequest<any[]>("/api/v1/staff_members", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        apiRequest<any[]>("/api/v1/athletes", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        apiRequest<any[]>("/api/v1/trainings", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        apiRequest<any[]>("/api/v1/matches", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        apiRequest<any[]>("/api/v1/secretariat_notes", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
         getClubData(activeClub.id, "categories"),
         getClubData(activeClub.id, "trainers"),
         getClubData(activeClub.id, "staff_members"),
