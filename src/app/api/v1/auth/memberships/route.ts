@@ -37,12 +37,57 @@ export async function GET(request: Request) {
       },
       orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
     });
+    const ownedClubs = await prisma.club.findMany({
+      where: {
+        creator_id: session.db.user_id,
+      },
+      select: {
+        id: true,
+        name: true,
+        logo_url: true,
+        creator_id: true,
+        contact_email: true,
+        contact_phone: true,
+        city: true,
+        province: true,
+        created_at: true,
+        settings: true,
+      },
+      orderBy: { created_at: "asc" },
+    });
+
+    const membershipRows = memberships.map((membership) => ({
+      ...membership,
+      access_kind: "membership",
+      is_ownership_record: false,
+      organizations: membership.organization,
+    }));
+
+    const ownershipRows = ownedClubs.map((club) => {
+      const matchingPrimaryMembership = memberships.find(
+        (membership) =>
+          membership.organization_id === club.id &&
+          membership.role === "owner" &&
+          membership.is_primary,
+      );
+
+      return {
+        id: `ownership:${club.id}`,
+        organization_id: club.id,
+        user_id: session.db.user_id,
+        role: "owner",
+        is_primary: Boolean(matchingPrimaryMembership),
+        access_kind: "ownership",
+        is_ownership_record: true,
+        created_at: club.created_at,
+        updated_at: club.created_at,
+        organization: club,
+        organizations: club,
+      };
+    });
 
     return NextResponse.json({
-      data: memberships.map((membership) => ({
-        ...membership,
-        organizations: membership.organization,
-      })),
+      data: [...ownershipRows, ...membershipRows],
       error: null,
     });
   } catch (error: any) {

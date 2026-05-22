@@ -18,6 +18,7 @@ import { AccountClub, formatDate } from "./account-shared";
 type ClubCardProps = {
   club: AccountClub;
   activeClubId: string | null;
+  activeAccessKey?: string | null;
   switchingClubId: string | null;
   ownerMode: boolean;
   onSetActive: () => void;
@@ -27,11 +28,18 @@ type ClubCardProps = {
 export function AccountClubCard({
   club,
   activeClubId,
+  activeAccessKey,
   switchingClubId,
   ownerMode,
   onSetActive,
   onOpen,
 }: ClubCardProps) {
+  const isActive = club.accessKey
+    ? activeAccessKey
+      ? activeAccessKey === club.accessKey
+      : club.isPrimary
+    : activeClubId === club.id || club.isPrimary;
+
   return (
     <Card className="overflow-hidden rounded-[28px] border-white/70 bg-white/90 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.28)] backdrop-blur">
       <CardContent className="space-y-5 p-6">
@@ -69,7 +77,7 @@ export function AccountClubCard({
                 {club.roleLabel}
               </Badge>
             )}
-            {club.isPrimary || activeClubId === club.id ? (
+            {isActive ? (
               <Badge className="rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
                 Attivo
               </Badge>

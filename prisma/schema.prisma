@@ -194,7 +194,7 @@ model OrganizationUser {
   organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  @@unique([organization_id, user_id])
+  @@unique([organization_id, user_id, role])
   @@index([user_id])
   @@map("organization_users")
 }

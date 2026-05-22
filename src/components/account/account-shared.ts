@@ -44,9 +44,15 @@ export type MembershipOrganization = {
 };
 
 export type MembershipRecord = {
+  id?: string;
   organization_id: string;
   role: string;
   is_primary?: boolean;
+  redirect_path?: string | null;
+  resolved_role?: string | null;
+  linked_athlete_id?: string | null;
+  access_kind?: "ownership" | "membership" | string;
+  is_ownership_record?: boolean;
   organization?: MembershipOrganization | null;
   organizations?: MembershipOrganization | null;
 };
@@ -64,6 +70,9 @@ export type AccountClub = {
   contactPhone?: string | null;
   createdAt?: string | null;
   ownerId?: string | null;
+  membershipId?: string | null;
+  accessKind?: "ownership" | "membership" | string;
+  accessKey?: string;
   activeSeasonId?: string | null;
   activeSeasonLabel?: string | null;
 };
@@ -246,10 +255,13 @@ export const createClubDefaults = (user: any): ClubCreateFormState => ({
 
 export const mapMembershipToClub = (
   membership: MembershipRecord,
-  currentUserId?: string | null,
+  _currentUserId?: string | null,
 ): AccountClub => {
   const organization = membership.organization || membership.organizations || {};
   const seasonState = normalizeClubSeasons(organization.settings || {});
+  const accessKind =
+    membership.access_kind ||
+    (membership.is_ownership_record ? "ownership" : "membership");
 
   return {
     id: membership.organization_id,
@@ -263,7 +275,13 @@ export const mapMembershipToClub = (
     contactEmail: organization.contact_email || null,
     contactPhone: organization.contact_phone || null,
     createdAt: organization.created_at || null,
-    ownerId: organization.creator_id || currentUserId || null,
+    ownerId: organization.creator_id || null,
+    membershipId: accessKind === "ownership" ? null : membership.id || null,
+    accessKind,
+    accessKey:
+      accessKind === "ownership"
+        ? `ownership:${membership.organization_id}`
+        : `membership:${membership.id || `${membership.organization_id}:${membership.role}`}`,
     activeSeasonId: seasonState.activeSeasonId,
     activeSeasonLabel: seasonState.activeSeason?.label || null,
   };

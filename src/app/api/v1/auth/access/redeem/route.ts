@@ -10,6 +10,46 @@ const normalizeToken = (value: string) =>
     .replace(/\s+/g, "")
     .replace(/-/g, "");
 
+const organizationUserInclude = {
+  organization: {
+    select: {
+      id: true,
+      name: true,
+      logo_url: true,
+      creator_id: true,
+      contact_email: true,
+      contact_phone: true,
+      city: true,
+      province: true,
+      created_at: true,
+    },
+  },
+};
+
+const isOrganizationUserUniqueError = (error: any) => {
+  if (error?.code !== "P2002") {
+    return false;
+  }
+
+  const target = Array.isArray(error?.meta?.target)
+    ? error.meta.target.join(",")
+    : String(error?.meta?.target || error?.message || "");
+
+  return (
+    target.includes("organization_id") &&
+    target.includes("user_id")
+  );
+};
+
+const ensureOrganizationUserMultiRoleIndex = async () => {
+  await prisma.$executeRawUnsafe(
+    'DROP INDEX IF EXISTS "organization_users_organization_id_user_id_key"',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX IF NOT EXISTS "organization_users_organization_id_user_id_role_key" ON "organization_users"("organization_id", "user_id", "role")',
+  );
+};
+
 const loadTrainerAccessTarget = async (trainerId: string) => {
   try {
     return {
@@ -26,6 +66,50 @@ const loadTrainerAccessTarget = async (trainerId: string) => {
       return null;
     }
   }
+};
+
+const loadParentAccessTarget = async (
+  athleteId: string,
+  guardianId: string,
+  organizationId: string,
+) => {
+  const athlete = await prisma.athlete.findFirst({
+    where: {
+      id: athleteId,
+      organization_id: organizationId,
+    },
+  });
+
+  if (!athlete) {
+    return null;
+  }
+
+  const data =
+    athlete.data && typeof athlete.data === "object"
+      ? (athlete.data as Record<string, any>)
+      : {};
+  const guardians = Array.isArray(data.guardians) ? data.guardians : [];
+  const guardianIndex = guardians.findIndex(
+    (guardian: any) => String(guardian?.id || "").trim() === guardianId,
+  );
+
+  if (guardianIndex < 0) {
+    return {
+      athlete,
+      data,
+      guardians,
+      guardian: null,
+      guardianIndex,
+    };
+  }
+
+  return {
+    athlete,
+    data,
+    guardians,
+    guardian: guardians[guardianIndex],
+    guardianIndex,
+  };
 };
 
 export async function POST(request: Request) {
@@ -125,9 +209,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const role = String(payload.role || "member").trim() || "member";
+    const tokenType = String(payload.token_type || payload.tokenType || "").trim();
+    let role = String(payload.role || "member").trim() || "member";
     const trainerId = String(payload.trainer_id || "").trim();
+    const athleteId = String(payload.athlete_id || "").trim();
+    const guardianId = String(payload.guardian_id || "").trim();
+
+    if (
+      tokenType === "parent_access" ||
+      (athleteId && guardianId && (!payload.role || role === "member"))
+    ) {
+      role = "parent";
+    }
+
     const trainerTarget = trainerId ? await loadTrainerAccessTarget(trainerId) : null;
+    const parentTarget =
+      athleteId && guardianId
+        ? await loadParentAccessTarget(
+            athleteId,
+            guardianId,
+            accessToken.organization_id,
+          )
+        : null;
 
     if (trainerId && !trainerTarget?.record) {
       return NextResponse.json(
@@ -142,9 +245,24 @@ export async function POST(request: Request) {
       );
     }
 
+    if ((athleteId || guardianId) && (!parentTarget || !parentTarget.guardian)) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Il genitore collegato a questo token non e stato trovato nella scheda atleta",
+          },
+        },
+        { status: 404 },
+      );
+    }
+
     const alreadyLinkedUserId = String(
       trainerTarget?.record?.linkedUserId ||
         trainerTarget?.record?.linked_user_id ||
+        parentTarget?.guardian?.linkedUserId ||
+        parentTarget?.guardian?.linked_user_id ||
         "",
     ).trim();
 
@@ -154,19 +272,20 @@ export async function POST(request: Request) {
           data: null,
           error: {
             message:
-              "Questo allenatore e gia collegato a un altro account EasyGame",
+              trainerId
+                ? "Questo allenatore e gia collegato a un altro account EasyGame"
+                : "Questo genitore e gia collegato a un altro account EasyGame",
           },
         },
         { status: 409 },
       );
     }
 
-    const existingMembership = await prisma.organizationUser.findUnique({
+    const existingMembership = await prisma.organizationUser.findFirst({
       where: {
-        organization_id_user_id: {
-          organization_id: accessToken.organization_id,
-          user_id: session.db.user_id,
-        },
+        organization_id: accessToken.organization_id,
+        user_id: session.db.user_id,
+        role,
       },
     });
 
@@ -180,38 +299,65 @@ export async function POST(request: Request) {
       },
     });
 
-    const membership = await prisma.organizationUser.upsert({
-      where: {
-        organization_id_user_id: {
+    const updateExistingMembership = (membershipId: string, isPrimary: boolean) =>
+      prisma.organizationUser.update({
+        where: { id: membershipId },
+        data: {
+          is_primary: isPrimary || !hasPrimaryMembership,
+        },
+        include: organizationUserInclude,
+      });
+
+    const createAssignedMembership = () =>
+      prisma.organizationUser.create({
+        data: {
           organization_id: accessToken.organization_id,
           user_id: session.db.user_id,
+          role,
+          is_primary: !hasPrimaryMembership,
         },
-      },
-      update: {
-        role,
-      },
-      create: {
-        organization_id: accessToken.organization_id,
-        user_id: session.db.user_id,
-        role,
-        is_primary: !hasPrimaryMembership,
-      },
-      include: {
-        organization: {
-          select: {
-            id: true,
-            name: true,
-            logo_url: true,
-            creator_id: true,
-            contact_email: true,
-            contact_phone: true,
-            city: true,
-            province: true,
-            created_at: true,
+        include: organizationUserInclude,
+      });
+
+    let membership = existingMembership
+      ? await updateExistingMembership(
+          existingMembership.id,
+          existingMembership.is_primary,
+        )
+      : null;
+
+    if (!membership) {
+      try {
+        membership = await createAssignedMembership();
+      } catch (error: any) {
+        if (!isOrganizationUserUniqueError(error)) {
+          throw error;
+        }
+
+        try {
+          await ensureOrganizationUserMultiRoleIndex();
+        } catch {
+          throw new Error(
+            "Il database ha ancora il vecchio vincolo su organization_id/user_id. Applica la migration Prisma 20260521103000_allow_multiple_roles_per_organization_user per abilitare piu ruoli nello stesso club.",
+          );
+        }
+
+        const membershipAfterIndexFix = await prisma.organizationUser.findFirst({
+          where: {
+            organization_id: accessToken.organization_id,
+            user_id: session.db.user_id,
+            role,
           },
-        },
-      },
-    });
+        });
+
+        membership = membershipAfterIndexFix
+          ? await updateExistingMembership(
+              membershipAfterIndexFix.id,
+              membershipAfterIndexFix.is_primary,
+            )
+          : await createAssignedMembership();
+      }
+    }
     const nowIso = new Date().toISOString();
 
     await prisma.clubResourceItem.update({
@@ -225,8 +371,11 @@ export async function POST(request: Request) {
           redemption_count: Number(payload.redemption_count || 0) + 1,
           last_redeemed_membership_id: membership.id,
           reused_membership: Boolean(existingMembership),
-          redeemed_profile_resource: trainerTarget?.resource || null,
+          redeemed_profile_resource:
+            trainerTarget?.resource || (parentTarget ? "athletes" : null),
           redeemed_trainer_id: trainerId || null,
+          redeemed_athlete_id: athleteId || null,
+          redeemed_guardian_id: guardianId || null,
         },
       },
     });
@@ -249,6 +398,44 @@ export async function POST(request: Request) {
         access_token_value:
           payload.one_time === false ? String(accessToken.name || "") : "",
         token: payload.one_time === false ? String(accessToken.name || "") : "",
+      });
+    }
+
+    if (parentTarget?.guardian) {
+      const updatedGuardians = parentTarget.guardians.map((guardian: any) =>
+        String(guardian?.id || "").trim() === guardianId
+          ? {
+              ...guardian,
+              linkedUserId: session.db.user_id,
+              linked_user_id: session.db.user_id,
+              linkedUserEmail: session.db.user.email,
+              linked_user_email: session.db.user.email,
+              linkedAt: nowIso,
+              linked_at: nowIso,
+              parentAccessTokenRecordId: accessToken.id,
+              parent_access_token_record_id: accessToken.id,
+              parentAccessTokenStatus:
+                payload.one_time === false ? "active" : "redeemed",
+              parent_access_token_status:
+                payload.one_time === false ? "active" : "redeemed",
+              parentAccessTokenRedeemedAt: nowIso,
+              parent_access_token_redeemed_at: nowIso,
+              parentAccessTokenValue:
+                payload.one_time === false ? String(accessToken.name || "") : "",
+              parent_access_token_value:
+                payload.one_time === false ? String(accessToken.name || "") : "",
+            }
+          : guardian,
+      );
+
+      await prisma.athlete.update({
+        where: { id: parentTarget.athlete.id },
+        data: {
+          data: {
+            ...parentTarget.data,
+            guardians: updatedGuardians,
+          },
+        },
       });
     }
 

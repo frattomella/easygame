@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,19 +16,22 @@ import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
 import {
+  ArrowRight,
+  Bell,
   Building2,
+  ChevronDown,
+  ChevronRight,
   CircleHelp,
   Crown,
+  Home,
   Loader2,
   LogOut,
   Plus,
-  Sparkles,
   UserCircle2,
+  UserPlus,
   Users,
 } from "lucide-react";
-import { AccountClubCard } from "./account-club-card";
 import { AccountCreateClubDialog } from "./account-create-club-dialog";
-import { AccountEmptyState } from "./account-empty-state";
 import { AccountProfileDialog } from "./account-profile-dialog";
 import { AccountRedeemAccessDialog } from "./account-redeem-access-dialog";
 import {
@@ -38,13 +40,416 @@ import {
   ClubCreateFormState,
   createClubDefaults,
   createProfileDefaults,
-  EASYGAME_LOGO,
   getInitials,
   mapMembershipToClub,
   MembershipRecord,
   ProfileFormState,
   sortClubs,
 } from "./account-shared";
+
+const ACCOUNT_HERO_IMAGE = "/images/account/account-hero.png";
+const ACCOUNT_TEAM_IMAGE = "/images/account/account-team.png";
+
+const getAccountFirstName = (displayName: string) =>
+  displayName.split(" ").filter(Boolean)[0] || "EasyGamer";
+
+const getAccessBadgeClassName = (ownerMode: boolean) =>
+  ownerMode
+    ? "bg-[#fff1d8] text-[#d97800]"
+    : "bg-[#e9f1ff] text-[#075eee]";
+
+type HeaderActionsProps = {
+  accountDisplayName: string;
+  avatarUrl?: string | null;
+  email: string;
+  onSupport: () => void;
+  onProfile: () => void;
+  onSignOut: () => void;
+};
+
+function AccountHeaderActions({
+  accountDisplayName,
+  avatarUrl,
+  email,
+  onSupport,
+  onProfile,
+  onSignOut,
+}: HeaderActionsProps) {
+  return (
+    <div className="flex items-center gap-3 md:gap-4">
+      <Button
+        type="button"
+        variant="outline"
+        className="hidden h-12 rounded-full border-[#d8e4f6] bg-white px-6 text-sm font-bold text-[#111a35] shadow-[0_12px_30px_-18px_rgba(15,23,42,0.45)] hover:bg-[#f7fbff] md:inline-flex"
+        onClick={onSupport}
+      >
+        <CircleHelp className="mr-2 h-4 w-4" />
+        Ricevi assistenza
+      </Button>
+
+      <button
+        type="button"
+        className="flex h-14 w-14 items-center justify-center rounded-full border border-[#dfe8f6] bg-white text-[#111a35] shadow-[0_14px_32px_-20px_rgba(15,23,42,0.5)] transition hover:-translate-y-0.5 hover:border-blue-200 md:hidden"
+        onClick={onSupport}
+        aria-label="Ricevi assistenza"
+      >
+        <CircleHelp className="h-6 w-6" />
+      </button>
+
+      <button
+        type="button"
+        className="relative flex h-14 w-14 items-center justify-center rounded-full border border-[#dfe8f6] bg-white text-[#111a35] shadow-[0_14px_32px_-20px_rgba(15,23,42,0.5)] transition hover:-translate-y-0.5 hover:border-blue-200"
+        aria-label="Notifiche"
+      >
+        <Bell className="h-6 w-6" />
+        <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-[#ff3131] px-1 text-xs font-black text-white ring-2 ring-white">
+          3
+        </span>
+      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex h-14 items-center gap-2 rounded-full border border-[#dfe8f6] bg-white px-2 text-sm font-black text-[#111a35] shadow-[0_14px_32px_-20px_rgba(15,23,42,0.5)] transition hover:-translate-y-0.5 hover:border-blue-200 md:h-14 md:px-2"
+            aria-label="Menu profilo"
+          >
+            <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-black">
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={accountDisplayName}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                getInitials(accountDisplayName)
+              )}
+            </span>
+            <ChevronDown className="hidden h-4 w-4 text-[#111a35] md:block" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64 rounded-2xl p-2">
+          <div className="px-3 py-2">
+            <p className="font-medium text-slate-900">{accountDisplayName}</p>
+            <p className="text-xs text-slate-500">{email}</p>
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="rounded-xl" onSelect={onProfile}>
+            <UserCircle2 className="mr-2 h-4 w-4" />
+            Profilo account
+          </DropdownMenuItem>
+          <DropdownMenuItem className="rounded-xl" onSelect={onSupport}>
+            <CircleHelp className="mr-2 h-4 w-4" />
+            Assistenza
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="rounded-xl text-red-600 focus:text-red-600"
+            onSelect={onSignOut}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Esci dall'account
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+type AccountHeroProps = HeaderActionsProps & {
+  firstName: string;
+};
+
+function AccountHero(props: AccountHeroProps) {
+  return (
+    <header className="relative overflow-hidden px-5 pt-8 md:px-8 md:pt-8 xl:px-12 xl:pt-9">
+      <div className="relative z-10 flex items-center justify-between gap-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center md:h-12 md:w-12">
+            <span className="bg-gradient-to-br from-[#0875ff] to-[#004de1] bg-clip-text text-[44px] font-black leading-none tracking-[-0.08em] text-transparent md:text-[48px]">
+              G
+            </span>
+          </div>
+          <span className="text-[25px] font-black tracking-normal text-[#07112f] md:text-[26px]">
+            EasyGame
+          </span>
+        </div>
+
+        <AccountHeaderActions {...props} />
+      </div>
+
+      <div className="relative z-10 grid min-h-[395px] pt-10 md:min-h-[340px] md:grid-cols-[minmax(0,0.82fr)_minmax(420px,1fr)] md:items-start md:pt-12">
+        <div className="max-w-[560px]">
+          <div className="inline-flex items-center gap-2 rounded-full bg-[#eaf2ff] px-3 py-1.5 text-sm font-black uppercase text-[#075eee] md:text-sm">
+            <Home className="h-4 w-4" />
+            HOME ACCOUNT
+          </div>
+
+          <h1 className="mt-8 max-w-[560px] text-[43px] font-black leading-[1.12] tracking-normal text-[#07112f] md:mt-9 md:text-[52px] xl:text-[58px]">
+            Bentornata, {props.firstName} 👋
+          </h1>
+          <p className="mt-5 max-w-[410px] text-[20px] font-medium leading-[1.55] text-[#5f6b84] md:text-[21px]">
+            Gestisci i club che possiedi e accedi a quelli dove sei stata
+            invitata.
+          </p>
+        </div>
+
+        <div className="pointer-events-none absolute -right-10 top-[120px] h-[300px] w-[390px] md:relative md:-right-4 md:top-auto md:h-[345px] md:w-full xl:-right-1 xl:h-[360px]">
+          <Image
+            src={ACCOUNT_HERO_IMAGE}
+            alt="Kit sportivo EasyGame"
+            fill
+            priority
+            sizes="(max-width: 768px) 390px, 760px"
+            className="object-contain object-center"
+            style={{
+              maskImage:
+                "radial-gradient(ellipse at center, black 58%, rgba(0,0,0,0.88) 70%, transparent 98%)",
+            }}
+          />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function ClubLogo({ club }: { club: AccountClub }) {
+  return (
+    <span className="flex h-[74px] w-[74px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f2f6fd] md:h-[78px] md:w-[78px]">
+      {club.logoUrl ? (
+        <img
+          src={club.logoUrl}
+          alt={club.name}
+          className="h-[62px] w-[62px] object-contain md:h-[66px] md:w-[66px]"
+        />
+      ) : (
+        <Building2 className="h-8 w-8 text-[#8fa2c2]" />
+      )}
+    </span>
+  );
+}
+
+type ClubAccessRowProps = {
+  club: AccountClub;
+  ownerMode: boolean;
+  switchingClubId: string | null;
+  onOpen: () => void;
+};
+
+function ClubAccessRow({
+  club,
+  ownerMode,
+  switchingClubId,
+  onOpen,
+}: ClubAccessRowProps) {
+  const isSwitching = switchingClubId === club.id;
+
+  return (
+    <button
+      type="button"
+      className="group flex w-full items-center gap-4 rounded-[20px] border border-[#dce6f4] bg-white px-4 py-4 text-left shadow-[0_12px_36px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)] md:gap-5 md:rounded-[18px] md:px-5 md:py-5"
+      onClick={onOpen}
+    >
+      <ClubLogo club={club} />
+
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+          <span className="truncate text-[22px] font-black leading-tight text-[#07112f] md:text-[20px] xl:text-[22px]">
+            {club.name}
+          </span>
+          <span
+            className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-sm font-black ${getAccessBadgeClassName(ownerMode)}`}
+          >
+            {ownerMode ? "Proprietà" : club.roleLabel}
+          </span>
+        </span>
+      </span>
+
+      <span className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center text-[#596781] transition group-hover:translate-x-1 group-hover:text-[#075eee]">
+        {isSwitching ? (
+          <Loader2 className="h-5 w-5 animate-spin" />
+        ) : (
+          <ChevronRight className="h-8 w-8 stroke-[2.4]" />
+        )}
+      </span>
+    </button>
+  );
+}
+
+type AccessPanelProps = {
+  ownerMode: boolean;
+  title: string;
+  description: string;
+  mobileDescription: string;
+  countLabel: string;
+  actionLabel: string;
+  footerLabel: string;
+  clubs: AccountClub[];
+  switchingClubId: string | null;
+  onAction: () => void;
+  onOpenClub: (club: AccountClub) => void;
+  onFooter: () => void;
+  slotLabel?: string;
+};
+
+function AccountAccessPanel({
+  ownerMode,
+  title,
+  description,
+  mobileDescription,
+  countLabel,
+  actionLabel,
+  footerLabel,
+  clubs,
+  switchingClubId,
+  onAction,
+  onOpenClub,
+  onFooter,
+  slotLabel,
+}: AccessPanelProps) {
+  const icon = ownerMode ? (
+    <Crown className="h-9 w-9 stroke-[2.2]" />
+  ) : (
+    <Users className="h-9 w-9 stroke-[2.2]" />
+  );
+
+  return (
+    <section
+      id={ownerMode ? "owned-clubs" : "assigned-clubs"}
+      className="rounded-[26px] border border-[#dfe8f6] bg-white/95 p-5 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.42)] backdrop-blur md:rounded-[24px] md:p-7 xl:p-8"
+    >
+      <div className="flex items-start gap-4 md:gap-5">
+        <div className="flex h-[78px] w-[78px] shrink-0 items-center justify-center rounded-full bg-[#eaf2ff] text-[#075eee]">
+          {icon}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-[24px] font-black leading-tight text-[#07112f] md:text-[21px] xl:text-[23px]">
+              {title}
+            </h2>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-black ${getAccessBadgeClassName(ownerMode)}`}
+            >
+              {ownerMode ? <Crown className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+              {countLabel}
+            </span>
+          </div>
+          <p className="mt-2 hidden max-w-[460px] text-[15px] font-medium leading-7 text-[#5f6b84] md:block">
+            {description}
+          </p>
+          <p className="mt-1 text-[20px] font-medium leading-7 text-[#5f6b84] md:hidden">
+            {mobileDescription}
+          </p>
+          {slotLabel ? (
+            <p className="mt-2 hidden text-xs font-semibold text-[#8b97ad] md:block">
+              {slotLabel}
+            </p>
+          ) : null}
+        </div>
+
+        <Button
+          type="button"
+          className="h-[70px] w-[70px] shrink-0 rounded-[20px] bg-[#075eee] p-0 text-white shadow-[0_18px_34px_-18px_rgba(7,94,238,0.72)] hover:bg-[#0052db] md:h-12 md:w-auto md:rounded-full md:px-7 md:text-[15px] md:font-black"
+          onClick={onAction}
+        >
+          <Plus className="h-9 w-9 md:mr-2 md:h-5 md:w-5" />
+          <span className="hidden md:inline">{actionLabel}</span>
+        </Button>
+      </div>
+
+      <div className="mt-8 space-y-3 md:mt-7">
+        {clubs.map((club) => (
+          <ClubAccessRow
+            key={club.accessKey || `${club.id}:${club.role}`}
+            club={club}
+            ownerMode={ownerMode}
+            switchingClubId={switchingClubId}
+            onOpen={() => onOpenClub(club)}
+          />
+        ))}
+
+        {clubs.length === 0 ? (
+          <div className="rounded-[20px] border border-dashed border-[#d4dfed] bg-[#fbfdff] px-5 py-6 text-center text-[15px] font-semibold text-[#7b879d]">
+            {ownerMode
+              ? "Vuoi creare un nuovo club? Inizia ora e porta la tua squadra al successo."
+              : "Inserisci un token per visualizzare qui i club a cui hai accesso."}
+          </div>
+        ) : null}
+
+        {ownerMode ? (
+          <button
+            type="button"
+            className="hidden w-full items-center justify-center gap-4 rounded-[16px] border border-dashed border-[#d9e4f3] bg-white px-5 py-5 text-sm font-medium text-[#69768f] md:flex"
+            onClick={onAction}
+          >
+            <Building2 className="h-7 w-7 text-[#aab7ca]" />
+            Vuoi creare un nuovo club? Inizia ora e porta la tua squadra al
+            successo.
+          </button>
+        ) : null}
+      </div>
+
+      <button
+        type="button"
+        className="mx-auto mt-8 flex items-center gap-3 text-[20px] font-black text-[#075eee] transition hover:gap-4 md:mt-7 md:text-base"
+        onClick={onFooter}
+      >
+        {footerLabel}
+        <ArrowRight className="h-6 w-6" />
+      </button>
+    </section>
+  );
+}
+
+function AccountBottomCTA({ onAddAccess }: { onAddAccess: () => void }) {
+  return (
+    <section className="relative overflow-hidden rounded-[26px] border border-[#d9e7fb] bg-[#f8fbff] shadow-[0_22px_70px_-46px_rgba(15,23,42,0.42)] md:rounded-[22px]">
+      <div className="grid min-h-[250px] gap-2 p-7 md:min-h-[155px] md:grid-cols-[330px_minmax(0,1fr)_360px] md:items-center md:p-0 md:pr-10">
+        <div className="pointer-events-none absolute right-0 top-8 h-[190px] w-[330px] md:relative md:right-auto md:top-auto md:h-[155px] md:w-full">
+          <Image
+            src={ACCOUNT_TEAM_IMAGE}
+            alt="Squadra EasyGame"
+            fill
+            sizes="(max-width: 768px) 330px, 330px"
+            className="object-cover object-center"
+            style={{
+              maskImage:
+                "linear-gradient(to right, transparent 0%, black 18%, black 76%, transparent 100%)",
+            }}
+          />
+        </div>
+
+        <div className="relative z-10 max-w-[430px] pt-4 md:flex md:max-w-none md:items-center md:gap-7 md:pt-0">
+          <div className="hidden h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-[#eaf2ff] text-[#075eee] md:flex">
+            <Users className="h-9 w-9" />
+          </div>
+          <div>
+            <h2 className="max-w-[300px] text-[28px] font-black leading-[1.35] text-[#07112f] md:max-w-none md:text-[23px]">
+              Un club, una squadra, un'unica passione.
+            </h2>
+            <p className="mt-4 max-w-[315px] text-[19px] font-medium leading-8 text-[#5f6b84] md:mt-3 md:max-w-[520px] md:text-[17px] md:leading-7">
+              Organizza, comunica e porta la tua squadra verso nuovi traguardi
+              con EasyGame.
+            </p>
+          </div>
+        </div>
+
+        <div className="relative z-10 mt-28 md:mt-0 md:flex md:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-[74px] w-full rounded-full border-[#cbdcf7] bg-white text-[22px] font-black text-[#075eee] shadow-[0_18px_38px_-28px_rgba(15,23,42,0.45)] hover:bg-[#f8fbff] md:h-14 md:w-auto md:px-9 md:text-[18px]"
+            onClick={onAddAccess}
+          >
+            <UserPlus className="mr-3 h-7 w-7 md:h-5 md:w-5" />
+            Aggiungi accesso a un club
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export default function AccountHomeScreen() {
   const router = useRouter();
@@ -91,6 +496,10 @@ export default function AccountHomeScreen() {
     "Utente EasyGame";
 
   const syncActiveClubLocally = (club: AccountClub) => {
+    const isSelectedAccess = (item: AccountClub) =>
+      club.accessKey
+        ? item.accessKey === club.accessKey
+        : item.id === club.id && item.role === club.role;
     const nextActiveClub = {
       id: club.id,
       role: club.role,
@@ -99,6 +508,9 @@ export default function AccountHomeScreen() {
       logo_url: club.logoUrl || null,
       email: club.contactEmail || null,
       phone: club.contactPhone || null,
+      membershipId: club.membershipId || null,
+      accessKind: club.accessKind || "membership",
+      accessKey: club.accessKey || null,
       activeSeasonId: club.activeSeasonId || null,
       activeSeasonLabel: club.activeSeasonLabel || null,
     };
@@ -117,7 +529,7 @@ export default function AccountHomeScreen() {
       sortClubs(
         current.map((item) => ({
           ...item,
-          isPrimary: item.id === club.id,
+          isPrimary: isSelectedAccess(item),
         })),
       ),
     );
@@ -125,7 +537,7 @@ export default function AccountHomeScreen() {
       sortClubs(
         current.map((item) => ({
           ...item,
-          isPrimary: item.id === club.id,
+          isPrimary: isSelectedAccess(item),
         })),
       ),
     );
@@ -165,12 +577,16 @@ export default function AccountHomeScreen() {
 
     setOwnedClubs(
       mappedClubs
-        .filter((club) => club.role === "owner" || club.ownerId === user.id)
+        .filter((club) => club.accessKind === "ownership")
         .map(({ ownerId, ...club }) => club),
     );
     setAccessClubs(
       mappedClubs
-        .filter((club) => !(club.role === "owner" || club.ownerId === user.id))
+        .filter(
+          (club) =>
+            club.accessKind !== "ownership" &&
+            !(club.role === "owner" && club.ownerId === user.id),
+        )
         .map(({ ownerId, ...club }) => club),
     );
 
@@ -271,6 +687,12 @@ export default function AccountHomeScreen() {
         method: "POST",
         body: {
           organization_id: club.id,
+          role: club.role,
+          membership_id:
+            club.accessKind === "ownership"
+              ? undefined
+              : club.membershipId || undefined,
+          access_kind: club.accessKind || "membership",
         },
       },
     );
@@ -284,11 +706,19 @@ export default function AccountHomeScreen() {
 
     syncActiveClubLocally(club);
     setSwitchingClubId(null);
+
+    return response.data;
   };
 
   const openClubArea = async (club: AccountClub) => {
     try {
-      await persistActiveClub(club);
+      const activatedAccess = await persistActiveClub(club);
+      const redirectPath = String(activatedAccess?.redirect_path || "").trim();
+
+      if (redirectPath) {
+        router.push(redirectPath);
+        return;
+      }
 
       if (club.role === "trainer") {
         router.push("/trainer-dashboard");
@@ -434,6 +864,8 @@ export default function AccountHomeScreen() {
         createdClub.contact_phone || createClubForm.contactPhone || null,
       createdAt: createdClub.created_at || null,
       ownerId: user.id,
+      accessKind: "ownership",
+      accessKey: `ownership:${createdClub.id}`,
     };
 
     if (shouldBePrimary) {
@@ -447,7 +879,7 @@ export default function AccountHomeScreen() {
     setCreatingClub(false);
     showToast(
       "success",
-      `Club ${createdSummary.name} creato correttamente. Ora lo trovi nei tuoi club di proprieta.`,
+      `Club ${createdSummary.name} creato correttamente. Ora lo trovi nei tuoi club di proprietà.`,
     );
   };
 
@@ -498,10 +930,10 @@ export default function AccountHomeScreen() {
 
   if (loading || pageLoading) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.22),_transparent_42%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_45%,#f8fafc_100%)] px-4 py-10">
-        <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-6xl items-center justify-center rounded-[32px] border border-white/70 bg-white/85 shadow-2xl backdrop-blur">
-          <div className="flex items-center gap-3 text-slate-600">
-            <Loader2 className="h-5 w-5 animate-spin" />
+      <div className="min-h-screen bg-[#f6faff] px-5 py-6 md:p-4">
+        <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-[1840px] items-center justify-center rounded-[28px] border border-white bg-white shadow-[0_24px_90px_-58px_rgba(15,23,42,0.45)]">
+          <div className="flex items-center gap-3 text-lg font-semibold text-[#5f6b84]">
+            <Loader2 className="h-6 w-6 animate-spin text-[#075eee]" />
             Caricamento home account...
           </div>
         </div>
@@ -509,226 +941,85 @@ export default function AccountHomeScreen() {
     );
   }
 
+  const firstName = getAccountFirstName(accountDisplayName);
+  const ownedFooterAction = () => {
+    const firstOwnedClub = ownedClubs[0];
+    if (firstOwnedClub) {
+      void openClubArea(firstOwnedClub);
+      return;
+    }
+
+    setCreateClubOpen(true);
+  };
+  const accessFooterAction = () => {
+    const firstAccessClub = accessClubs[0];
+    if (firstAccessClub) {
+      void openClubArea(firstAccessClub);
+      return;
+    }
+
+    setRedeemAccessOpen(true);
+  };
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.22),_transparent_42%),linear-gradient(180deg,#f7fbff_0%,#eef4ff_45%,#f8fafc_100%)] px-4 py-6">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="overflow-hidden rounded-[34px] border border-white/70 bg-white/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] backdrop-blur-xl">
-          <div className="flex flex-col gap-5 border-b border-slate-100 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-gradient-to-br from-blue-600 to-sky-500 shadow-lg">
-                <Image
-                  src={EASYGAME_LOGO}
-                  alt="EasyGame"
-                  width={42}
-                  height={42}
-                  className="object-contain"
-                />
-              </div>
-              <div className="space-y-1">
-                <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-blue-700">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Home Account
-                </div>
-                <h1 className="text-2xl font-semibold text-slate-900">
-                  Bentornato, {accountDisplayName}
-                </h1>
-                <p className="text-sm text-slate-500">
-                  Da qui gestisci il tuo profilo utente, scegli quale club aprire
-                  e aggiungi nuovi accessi senza entrare direttamente in una dashboard.
-                </p>
-              </div>
-            </div>
+    <div className="min-h-screen bg-[#f6faff] p-0 text-[#07112f] md:p-4">
+      <div className="mx-auto min-h-screen max-w-[1840px] overflow-hidden bg-white shadow-[0_24px_90px_-58px_rgba(15,23,42,0.45)] md:min-h-[calc(100vh-2rem)] md:rounded-[28px] md:border md:border-white">
+        <AccountHero
+          firstName={firstName}
+          accountDisplayName={accountDisplayName}
+          avatarUrl={profileForm.avatarUrl}
+          email={profileForm.email}
+          onSupport={handleSupport}
+          onProfile={() => setProfileOpen(true)}
+          onSignOut={() => {
+            void signOut();
+          }}
+        />
 
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full border-slate-200 bg-white"
-                onClick={handleSupport}
-              >
-                <CircleHelp className="mr-2 h-4 w-4" />
-                Ricevi assistenza
-              </Button>
+        <main className="relative z-20 space-y-7 px-5 pb-9 md:-mt-2 md:px-12 md:pb-10">
+          <div className="grid gap-7 xl:grid-cols-2">
+            <AccountAccessPanel
+              ownerMode
+              title="I tuoi club di proprietà"
+              description="Qui trovi tutti i club che hai creato e che puoi amministrare come proprietario."
+              mobileDescription="Qui trovi i club che hai creato."
+              countLabel={`${ownedClubs.length} club`}
+              slotLabel={
+                clubSlotLimit === null
+                  ? "Slot illimitati"
+                  : `${availableClubSlots} slot disponibili`
+              }
+              actionLabel="Crea nuovo club"
+              footerLabel="Vai alla gestione club"
+              clubs={ownedClubs}
+              switchingClubId={switchingClubId}
+              onAction={() => setCreateClubOpen(true)}
+              onOpenClub={(club) => {
+                void openClubArea(club);
+              }}
+              onFooter={ownedFooterAction}
+            />
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:text-blue-700"
-                  >
-                    {profileForm.avatarUrl ? (
-                      <img
-                        src={profileForm.avatarUrl}
-                        alt={accountDisplayName}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      getInitials(accountDisplayName)
-                    )}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64 rounded-2xl p-2">
-                  <div className="px-3 py-2">
-                    <p className="font-medium text-slate-900">{accountDisplayName}</p>
-                    <p className="text-xs text-slate-500">{profileForm.email}</p>
-                  </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="rounded-xl"
-                    onSelect={() => setProfileOpen(true)}
-                  >
-                    <UserCircle2 className="mr-2 h-4 w-4" />
-                    Profilo account
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="rounded-xl" onSelect={handleSupport}>
-                    <CircleHelp className="mr-2 h-4 w-4" />
-                    Assistenza
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="rounded-xl text-red-600 focus:text-red-600"
-                    onSelect={() => {
-                      void signOut();
-                    }}
-                  >
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Esci dall'account
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <AccountAccessPanel
+              ownerMode={false}
+              title="Club con accesso assegnato"
+              description="Qui trovi i club ai quali hai accesso con il ruolo assegnato."
+              mobileDescription="Qui trovi i club ai quali hai accesso."
+              countLabel={`${accessClubs.length} accessi`}
+              actionLabel="Aggiungi accesso"
+              footerLabel="Vai a tutti i club"
+              clubs={accessClubs}
+              switchingClubId={switchingClubId}
+              onAction={() => setRedeemAccessOpen(true)}
+              onOpenClub={(club) => {
+                void openClubArea(club);
+              }}
+              onFooter={accessFooterAction}
+            />
           </div>
 
-          <div className="grid gap-6 px-6 py-6 xl:grid-cols-[1fr_1fr]">
-            <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-lg font-semibold text-slate-900">
-                    Club di proprieta
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    Qui trovi tutti i club che hai creato e che puoi amministrare
-                    come proprietario.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="rounded-full bg-amber-50 text-amber-700 hover:bg-amber-50">
-                    <Crown className="mr-1 h-3.5 w-3.5" />
-                    {ownedClubs.length} club
-                  </Badge>
-                  <Badge className="rounded-full bg-slate-100 text-slate-700 hover:bg-slate-100">
-                    {clubSlotLimit === null
-                      ? "Slot illimitati"
-                      : `${availableClubSlots} slot disponibili`}
-                  </Badge>
-                  <Button
-                    type="button"
-                    className="rounded-full bg-blue-600 hover:bg-blue-700"
-                    onClick={() => setCreateClubOpen(true)}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Crea nuovo club
-                  </Button>
-                </div>
-              </div>
-
-              {ownedClubs.length === 0 ? (
-                <AccountEmptyState
-                  icon={<Building2 className="h-9 w-9" />}
-                  title="Nessun club di proprieta"
-                  description="Il tuo account utente e separato dai club: da qui puoi crearne uno nuovo, completare gia molte informazioni societarie e poi decidere quando aprirne la dashboard."
-                  actionLabel="Crea il primo club"
-                  onAction={() => setCreateClubOpen(true)}
-                />
-              ) : (
-                <div className="grid gap-4">
-                  {ownedClubs.map((club) => (
-                    <AccountClubCard
-                      key={club.id}
-                      club={club}
-                      activeClubId={activeClubId}
-                      switchingClubId={switchingClubId}
-                      ownerMode
-                      onSetActive={() => {
-                        void persistActiveClub(club).catch((error: any) => {
-                          showToast(
-                            "error",
-                            error?.message || "Errore cambio club attivo",
-                          );
-                        });
-                      }}
-                      onOpen={() => {
-                        void openClubArea(club);
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-lg font-semibold text-slate-900">
-                    Club con accesso assegnato
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    Inserisci un token condiviso da un club per collegare questo
-                    account con il ruolo che ti e stato assegnato.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="rounded-full bg-violet-50 text-violet-700 hover:bg-violet-50">
-                    <Users className="mr-1 h-3.5 w-3.5" />
-                    {accessClubs.length} accessi
-                  </Badge>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-full border-blue-200 bg-white text-blue-700 hover:bg-blue-50"
-                    onClick={() => setRedeemAccessOpen(true)}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Aggiungi accesso
-                  </Button>
-                </div>
-              </div>
-
-              {accessClubs.length === 0 ? (
-                <AccountEmptyState
-                  icon={<Users className="h-9 w-9" />}
-                  title="Nessun accesso esterno collegato"
-                  description="Quando un club ti condivide un token di accesso, lo inserisci qui e il relativo ruolo viene aggiunto al tuo account in modo ordinato e reperibile."
-                  actionLabel="Inserisci un token"
-                  onAction={() => setRedeemAccessOpen(true)}
-                />
-              ) : (
-                <div className="grid gap-4">
-                  {accessClubs.map((club) => (
-                    <AccountClubCard
-                      key={club.id}
-                      club={club}
-                      activeClubId={activeClubId}
-                      switchingClubId={switchingClubId}
-                      ownerMode={false}
-                      onSetActive={() => {
-                        void persistActiveClub(club).catch((error: any) => {
-                          showToast(
-                            "error",
-                            error?.message || "Errore cambio club attivo",
-                          );
-                        });
-                      }}
-                      onOpen={() => {
-                        void openClubArea(club);
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+          <AccountBottomCTA onAddAccess={() => setRedeemAccessOpen(true)} />
+        </main>
       </div>
 
       <AccountProfileDialog
