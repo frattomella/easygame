@@ -1,34 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 import clubLogoDefault from "@/../public/images/club_logo.png";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MetricsOverview from "@/components/dashboard/MetricsOverview";
-import RecentActivity from "@/components/dashboard/RecentActivity";
 import UpcomingTrainings from "@/components/dashboard/UpcomingTrainings";
 import CertificationAlerts from "@/components/dashboard/CertificationAlerts";
-import { Button } from "@/components/ui/button";
+import { PageHeading } from "@/components/dashboard/page-heading";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
 import { getClubData } from "@/lib/simplified-db";
-import { formatMatchLocationLabel } from "@/lib/match-location";
 import {
+  ArrowRight,
   Calendar,
-  Clock,
   Trophy,
-  MapPin,
-  Users,
   Bell,
-  FileText,
 } from "lucide-react";
 
 interface ClubInfo {
@@ -67,9 +54,95 @@ interface Match {
   status: string;
 }
 
+type DashboardSideCardItem = {
+  id: string;
+  title: string;
+  meta?: string;
+  detail?: string;
+};
+
+type DashboardSideCardProps = {
+  title: string;
+  count: number;
+  description: string;
+  accent: string;
+  icon: ReactNode;
+  onClick: () => void;
+  items: DashboardSideCardItem[];
+  emptyText: string;
+};
+
+const formatDashboardDate = (date: Date) =>
+  date.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "short",
+  });
+
+const DashboardSideCard = ({
+  title,
+  count,
+  description,
+  accent,
+  icon,
+  onClick,
+  items,
+  emptyText,
+}: DashboardSideCardProps) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`group flex min-h-[190px] w-full flex-col rounded-lg p-4 text-left text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 ${accent}`}
+  >
+    <div className="flex items-start justify-between gap-3 pb-3">
+      <div className="flex items-center gap-3">
+        <div className="rounded-md bg-white/20 p-2 text-white shadow-inner">
+          {icon}
+        </div>
+        <div>
+          <p className="text-lg font-black uppercase tracking-normal">
+            {title}
+          </p>
+          <p className="text-xs font-medium text-white/80">{description}</p>
+        </div>
+      </div>
+      <Badge className="border-0 bg-white/20 text-white hover:bg-white/20">
+        {count}
+      </Badge>
+    </div>
+
+    <div className="min-h-[76px] flex-1 space-y-2">
+      {items.length > 0 ? (
+        items.slice(0, 3).map((item) => (
+          <div
+            key={item.id}
+            className="rounded-md bg-white/15 px-3 py-2 text-white shadow-sm ring-1 ring-white/15 backdrop-blur"
+          >
+            <p className="line-clamp-1 text-sm font-semibold">{item.title}</p>
+            {item.meta || item.detail ? (
+              <p className="line-clamp-1 text-xs text-white/80">
+                {[item.meta, item.detail].filter(Boolean).join(" - ")}
+              </p>
+            ) : null}
+          </div>
+        ))
+      ) : (
+        <div className="rounded-md border border-white/20 bg-white/10 px-3 py-3 text-sm text-white/85">
+          {emptyText}
+        </div>
+      )}
+    </div>
+
+    <div className="pt-3">
+      <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-normal text-white/90">
+        Vedi tutte
+        <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </div>
+  </button>
+);
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("overview");
   const [isLoading, setIsLoading] = useState(true);
   const [clubId, setClubId] = useState<string | null>(null);
   const [clubInfo, setClubInfo] = useState<ClubInfo | null>(null);
@@ -180,7 +253,7 @@ export default function DashboardPage() {
             window.dispatchEvent(event);
           }
 
-          // Load today's appointments, notes and matches
+          // Load upcoming appointments, active reminders and upcoming matches
           await loadTodayData(organization.id);
         }
       } catch (error) {
@@ -192,8 +265,6 @@ export default function DashboardPage() {
       try {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
 
         // Load appointments
         const appointmentsData = await getClubData(orgId, "appointments");
@@ -202,12 +273,16 @@ export default function DashboardPage() {
             .filter((app: any) => {
               const appDate = new Date(app.date);
               appDate.setHours(0, 0, 0, 0);
-              return appDate.getTime() === today.getTime();
+              return appDate >= today;
             })
             .map((app: any) => ({
               ...app,
               date: new Date(app.date),
-            }));
+            }))
+            .sort((left: Appointment, right: Appointment) => {
+              const byDate = left.date.getTime() - right.date.getTime();
+              return byDate || left.time.localeCompare(right.time);
+            });
           setTodayAppointments(todayApps);
         }
 
@@ -237,12 +312,16 @@ export default function DashboardPage() {
             .filter((match: any) => {
               const matchDate = new Date(match.date);
               matchDate.setHours(0, 0, 0, 0);
-              return matchDate.getTime() === today.getTime();
+              return matchDate >= today && match.status !== "cancelled";
             })
             .map((match: any) => ({
               ...match,
               date: new Date(match.date),
-            }));
+            }))
+            .sort((left: Match, right: Match) => {
+              const byDate = left.date.getTime() - right.date.getTime();
+              return byDate || left.time.localeCompare(right.time);
+            });
           setTodayMatches(todayMatchesList);
         }
       } catch (error) {
@@ -253,10 +332,38 @@ export default function DashboardPage() {
     getClubId();
   }, [router]);
 
+  const matchItems: DashboardSideCardItem[] = todayMatches
+    .slice(0, 3)
+    .map((match) => ({
+      id: match.id,
+      title: match.opponent ? `vs ${match.opponent}` : match.title,
+      meta: `${formatDashboardDate(match.date)} - ${match.time || "Orario da definire"}`,
+      detail: match.category,
+    }));
+
+  const appointmentItems: DashboardSideCardItem[] = todayAppointments
+    .slice(0, 3)
+    .map((appointment) => ({
+      id: appointment.id,
+      title: appointment.title,
+      meta: `${formatDashboardDate(appointment.date)} - ${appointment.time || "Orario da definire"}`,
+      detail: appointment.person || appointment.athlete,
+    }));
+
+  const reminderItems: DashboardSideCardItem[] = todayNotes
+    .slice(0, 3)
+    .map((note) => ({
+      id: note.id,
+      title: note.content,
+      meta: note.expiryDate
+        ? `Scade ${formatDashboardDate(note.expiryDate)}`
+        : "Promemoria attivo",
+    }));
+
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-t...50 to-blue-50 dark:from-gray-900 dark:to-gray-800">
-      <div className="mx-auto max-w-9xl w-full space-y-6 p-6">
-        <div className="space-y-2">
+    <div className="min-h-full bg-slate-50">
+      <div className="mx-auto w-full max-w-[1500px] space-y-5">
+        <div className="space-y-2 px-1">
           {clubInfo && (
             <div className="flex items-center gap-3 lg:hidden mb-2">
               <div className="relative h-10 w-10">
@@ -274,219 +381,89 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Dashboard
-          </h1>
-          <p className="text-gray-600 mt-2">
-            {clubInfo
-              ? `Benvenuto nella dashboard di ${clubInfo.name}`
-              : "Benvenuto nella dashboard di gestione del tuo club sportivo."}
-          </p>
+          <PageHeading
+            title="Dashboard"
+            subtitle={
+              clubInfo
+                ? `Benvenuto nella dashboard di ${clubInfo.name}`
+                : "Benvenuto nella dashboard di gestione del tuo club sportivo."
+            }
+            className="px-0"
+          />
         </div>
 
-        <div className="space-y-6">
-          <div className="space-y-6">
-            <MetricsOverview
-              isLoading={isLoading}
-              organizationId={clubId}
-              showEmptyState={false}
-            />
+        <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm md:p-5">
+          <div className="space-y-5">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="rounded-lg border border-slate-200 bg-slate-100/80 p-3 md:p-4">
+                <div className="grid gap-4">
+                  <div className="h-[360px] rounded-lg bg-white p-3 shadow-sm">
+                    <UpcomingTrainings
+                      isLoading={isLoading}
+                      trainings={[]}
+                      organizationId={clubId}
+                      showEmptyState={false}
+                      maxHeight="285px"
+                      variant="embedded"
+                    />
+                  </div>
 
-            {/* Today's Appointments and Matches Row */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {/* Today's Appointments */}
-              <Card className="bg-gradient-to-br from-purple-500 to-purple-700 text-white shadow-lg border-0">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                    <Calendar className="h-5 w-5" />
-                    Appuntamenti di Oggi
-                  </CardTitle>
-                  <Badge
-                    variant="secondary"
-                    className="bg-white/20 text-white hover:bg-white/30"
-                  >
-                    {todayAppointments.length}
-                  </Badge>
-                </CardHeader>
-                <CardContent>
-                  {todayAppointments.length > 0 ? (
-                    <div className="space-y-3 max-h-48 overflow-y-auto">
-                      {todayAppointments.slice(0, 5).map((app) => (
-                        <div
-                          key={app.id}
-                          className="p-3 bg-white/10 rounded-lg backdrop-blur-sm"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-medium">{app.title}</p>
-                              <p className="text-sm text-white/80 flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {app.time}
-                              </p>
-                            </div>
-                            {app.person && (
-                              <Badge
-                                variant="secondary"
-                                className="bg-white/20 text-white text-xs"
-                              >
-                                {app.person}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-white/70">
-                      <Calendar className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                      <p>Nessun appuntamento per oggi</p>
-                    </div>
-                  )}
-                  <Button
-                    variant="secondary"
-                    className="w-full mt-4 bg-white/20 hover:bg-white/30 text-white border-0"
-                    onClick={() => router.push("/secretariat")}
-                  >
-                    Vai alla Segreteria
-                  </Button>
-                </CardContent>
-              </Card>
+                  <div className="h-[360px] rounded-lg bg-white p-3 shadow-sm">
+                    <CertificationAlerts
+                      isLoading={isLoading}
+                      alerts={[]}
+                      organizationId={clubId}
+                      showEmptyState={false}
+                      variant="embedded"
+                      maxHeight="285px"
+                    />
+                  </div>
+                </div>
+              </div>
 
-              {/* Today's Matches */}
-              <Card className="bg-gradient-to-br from-orange-500 to-red-600 text-white shadow-lg border-0">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                    <Trophy className="h-5 w-5" />
-                    Gare di Oggi
-                  </CardTitle>
-                  <Badge
-                    variant="secondary"
-                    className="bg-white/20 text-white hover:bg-white/30"
-                  >
-                    {todayMatches.length}
-                  </Badge>
-                </CardHeader>
-                <CardContent>
-                  {todayMatches.length > 0 ? (
-                    <div className="space-y-3 max-h-48 overflow-y-auto">
-                      {todayMatches.slice(0, 5).map((match) => (
-                        <div
-                          key={match.id}
-                          className="p-3 bg-white/10 rounded-lg backdrop-blur-sm"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-medium">{match.title}</p>
-                              <p className="text-sm text-white/80 flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {match.time}
-                              </p>
-                              <p className="text-sm text-white/80 flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
-                                {formatMatchLocationLabel(match)}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="secondary"
-                              className="bg-white/20 text-white text-xs"
-                            >
-                              {match.category}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-white/70">
-                      <Trophy className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                      <p>Nessuna gara per oggi</p>
-                    </div>
-                  )}
-                  <Button
-                    variant="secondary"
-                    className="w-full mt-4 bg-white/20 hover:bg-white/30 text-white border-0"
-                    onClick={() => router.push("/matches")}
-                  >
-                    Vai alle Gare
-                  </Button>
-                </CardContent>
-              </Card>
+              <aside className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+                <DashboardSideCard
+                  title="Gare"
+                  count={todayMatches.length}
+                  description="Prossime gare"
+                  accent="bg-gradient-to-br from-orange-500 via-orange-500 to-rose-500"
+                  icon={<Trophy className="h-5 w-5" />}
+                  onClick={() => router.push("/matches")}
+                  items={matchItems}
+                  emptyText="Nessuna gara in programma"
+                />
 
-              {/* Notes and Reminders */}
-              <Card className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg border-0">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                    <Bell className="h-5 w-5" />
-                    Promemoria Attivi
-                  </CardTitle>
-                  <Badge
-                    variant="secondary"
-                    className="bg-white/20 text-white hover:bg-white/30"
-                  >
-                    {todayNotes.length}
-                  </Badge>
-                </CardHeader>
-                <CardContent>
-                  {todayNotes.length > 0 ? (
-                    <div className="space-y-3 max-h-48 overflow-y-auto">
-                      {todayNotes.slice(0, 5).map((note) => (
-                        <div
-                          key={note.id}
-                          className="p-3 bg-white/10 rounded-lg backdrop-blur-sm"
-                        >
-                          <p className="font-medium line-clamp-2">
-                            {note.content}
-                          </p>
-                          {note.expiryDate && (
-                            <p className="text-sm text-white/80 flex items-center gap-1 mt-1">
-                              <Clock className="h-3 w-3" />
-                              Scade:{" "}
-                              {note.expiryDate.toLocaleDateString("it-IT")}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-white/70">
-                      <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                      <p>Nessun promemoria attivo</p>
-                    </div>
-                  )}
-                  <Button
-                    variant="secondary"
-                    className="w-full mt-4 bg-white/20 hover:bg-white/30 text-white border-0"
-                    onClick={() => router.push("/secretariat")}
-                  >
-                    Gestisci Promemoria
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
+                <DashboardSideCard
+                  title="Appuntamenti"
+                  count={todayAppointments.length}
+                  description="Agenda"
+                  accent="bg-gradient-to-br from-violet-500 via-fuchsia-500 to-purple-600"
+                  icon={<Calendar className="h-5 w-5" />}
+                  onClick={() => router.push("/secretariat")}
+                  items={appointmentItems}
+                  emptyText="Nessun appuntamento in agenda"
+                />
 
-            <UpcomingTrainings
-              isLoading={isLoading}
-              trainings={[]}
-              organizationId={clubId}
-              showEmptyState={false}
-            />
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-              <CertificationAlerts
-                isLoading={isLoading}
-                alerts={[]}
-                organizationId={clubId}
-                showEmptyState={false}
-              />
-              <RecentActivity
-                isLoading={isLoading}
-                activities={[]}
-                organizationId={clubId}
-                showEmptyState={false}
-              />
+                <DashboardSideCard
+                  title="Promemoria"
+                  count={todayNotes.length}
+                  description="Note attive"
+                  accent="bg-gradient-to-br from-lime-500 via-emerald-500 to-green-600"
+                  icon={<Bell className="h-5 w-5" />}
+                  onClick={() => router.push("/secretariat")}
+                  items={reminderItems}
+                  emptyText="Nessun promemoria attivo"
+                />
+              </aside>
             </div>
           </div>
-        </div>
+        </section>
+
+        <MetricsOverview
+          isLoading={isLoading}
+          organizationId={clubId}
+          showEmptyState={false}
+        />
       </div>
     </div>
   );
