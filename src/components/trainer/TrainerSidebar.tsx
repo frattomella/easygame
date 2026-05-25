@@ -12,18 +12,16 @@ import {
   ChevronRight,
   Home,
   UserCircle,
-  GraduationCap,
   CalendarDays,
   Trophy,
   LogOut,
-  Sparkles,
 } from "lucide-react";
 
 const TrainerSidebar = memo(() => {
   const [collapsed, setCollapsed] = React.useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { permissions, signOut } = useTrainerDashboard();
+  const { permissions } = useTrainerDashboard();
 
   React.useEffect(() => {
     if (typeof window === "undefined") {
@@ -58,7 +56,7 @@ const TrainerSidebar = memo(() => {
     {
       label: "CLUB",
       items: permissions.navigation.home
-        ? [{ href: "/trainer-dashboard", label: "Dashboard", icon: Home }]
+        ? [{ href: "/trainer-dashboard", label: "Home", icon: Home }]
         : [],
     },
     {
@@ -69,13 +67,6 @@ const TrainerSidebar = memo(() => {
               href: "/trainer-dashboard/athletes",
               label: "Atleti",
               icon: UserCircle,
-            }
-          : null,
-        permissions.navigation.categories
-          ? {
-              href: "/trainer-dashboard/categories",
-              label: "Categorie",
-              icon: GraduationCap,
             }
           : null,
       ].filter(Boolean) as Array<{
@@ -154,26 +145,6 @@ const TrainerSidebar = memo(() => {
           scrollbarColor: "rgba(255, 255, 255, 0.3) transparent",
         }}
       >
-        <div className="mb-4">
-          <Link
-            href="/trainer-dashboard"
-            className={cn(
-              "flex items-center gap-3 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-3 shadow-lg transition-all hover:from-purple-600 hover:to-pink-600",
-              pathname === "/trainer-dashboard" && "ring-2 ring-white/50",
-            )}
-          >
-            <Sparkles size={20} className="text-white" />
-            {!collapsed && (
-              <div className="flex flex-col">
-                <span className="font-bold text-white">Area Allenatore</span>
-                <span className="text-xs text-white/80">
-                  Dashboard tecnica personale
-                </span>
-              </div>
-            )}
-          </Link>
-        </div>
-
         {navSections.map((section) => (
           <div key={section.label} className="mb-6">
             {!collapsed && (
@@ -215,15 +186,6 @@ const TrainerSidebar = memo(() => {
             className="w-full flex items-center justify-center gap-2 bg-white text-blue-600 rounded-md px-3 py-2 hover:bg-blue-50 transition-colors font-medium"
           >
             <LogOut size={18} />
-            <span>Torna al mio account</span>
-          </button>
-          <button
-            onClick={() => {
-              void signOut();
-            }}
-            className="mt-2 w-full flex items-center justify-center gap-2 rounded-md border border-white/20 px-3 py-2 text-white hover:bg-blue-500/40 transition-colors font-medium"
-          >
-            <LogOut size={18} />
             <span>Esci</span>
           </button>
           <p className="text-xs text-center text-blue-200 mt-2">
@@ -237,7 +199,7 @@ const TrainerSidebar = memo(() => {
             <button
               onClick={() => router.push("/account")}
               className="w-full flex items-center justify-center bg-white text-blue-600 rounded-md p-2 hover:bg-blue-50 transition-colors"
-              title="Torna al mio account"
+              title="Esci"
             >
               <LogOut size={18} />
             </button>

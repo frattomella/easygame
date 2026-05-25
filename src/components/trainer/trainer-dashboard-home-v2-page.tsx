@@ -1,35 +1,67 @@
 "use client";
 
 import {
-  Bell,
+  AlertTriangle,
   CalendarDays,
-  Dumbbell,
-  FolderKanban,
+  ClipboardCheck,
+  Clock3,
+  ListChecks,
+  MapPin,
   Trophy,
-  Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
-  FeatureHighlightCard,
+  CompactEntityCard,
   SectionBlockedState,
-  SummaryCard,
+  SectionEmptyState,
+  SurfacePanel,
+  formatDate,
   formatTimeRange,
-  getAthleteMedicalExpiry,
+  getStatusBadgeClasses,
 } from "@/components/trainer/trainer-dashboard-shared";
-import { isSameTrainerDay } from "@/lib/trainer-dashboard-helpers";
+import {
+  compareTrainerRecordsByStart,
+  isSameTrainerDay,
+} from "@/lib/trainer-dashboard-helpers";
+import { getTrainingStableKey } from "@/lib/training-utils";
 import { formatMatchLocationLabel } from "@/lib/match-location";
+import {
+  getMatchConvocationLabel,
+  getMatchConvocationStatus,
+  getTrainerRecordAthletes,
+  getTrainingAttendanceLabel,
+  getTrainingAttendanceStatus,
+  isTrainingMissingAttendance,
+} from "@/lib/trainer-operational-alerts";
+import { cn } from "@/lib/utils";
+
+const convocationBadgeClassName = (state: string) => {
+  if (state === "convocations_complete") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50";
+  }
+
+  if (state === "convocations_missing") {
+    return "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50";
+  }
+
+  return "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50";
+};
 
 export default function TrainerDashboardHomeV2Page() {
   const router = useRouter();
   const {
     assignedAthletes,
     assignedCategories,
+    categories,
+    matchConvocationDeadlineDays,
+    operationalAlerts,
     permissions,
     trainerProfile,
+    user,
     visibleMatches,
-    visibleReminders,
     visibleTrainings,
   } = useTrainerDashboard();
 
@@ -38,220 +70,348 @@ export default function TrainerDashboardHomeV2Page() {
   }
 
   const now = new Date();
-  const todayTrainings = visibleTrainings.filter((training) =>
-    isSameTrainerDay(training?.startsAt, now),
-  );
-  const todayMatches = visibleMatches.filter((match) =>
-    isSameTrainerDay(match?.startsAt, now),
-  );
-  const expiringMedicalAthletes = assignedAthletes.filter((athlete) => {
-    const expiry = getAthleteMedicalExpiry(athlete);
-    if (!expiry) {
-      return false;
-    }
+  const todayTrainings = visibleTrainings
+    .filter((training) => isSameTrainerDay(training?.startsAt, now))
+    .sort(compareTrainerRecordsByStart);
+  const todayMatches = visibleMatches
+    .filter((match) => isSameTrainerDay(match?.startsAt, now))
+    .sort(compareTrainerRecordsByStart);
+  const nextMatches = visibleMatches
+    .filter((match) => match?.startsAt && match.startsAt >= now)
+    .sort(compareTrainerRecordsByStart);
+  const matchOfTheDay = todayMatches[0] || null;
+  const trainerDisplayName =
+    trainerProfile?.name ||
+    user?.user_metadata?.name ||
+    user?.user_metadata?.firstName ||
+    user?.email?.split("@")[0] ||
+    "Allenatore";
+  const trainerFirstName =
+    String(trainerDisplayName).trim().split(/\s+/)[0] || "Allenatore";
 
-    const parsed = new Date(String(expiry));
-    if (Number.isNaN(parsed.getTime())) {
-      return false;
-    }
-
-    const threshold = new Date();
-    threshold.setDate(threshold.getDate() + 30);
-    return parsed <= threshold;
-  });
+  const getAthletesForRecord = (record: any) =>
+    getTrainerRecordAthletes({
+      record,
+      assignedAthletes,
+      assignedCategories,
+      categories,
+    });
 
   return (
     <div className="space-y-6 pb-2">
-      <div className="space-y-2">
-        <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-4xl font-bold text-transparent">
-          Dashboard
-        </h1>
-        <p className="text-gray-600">
-          Benvenuto nella tua area tecnica, {trainerProfile?.name || "Allenatore"}.
-          Qui vedi solo quello che il club ti ha abilitato.
+      <section className="rounded-[30px] border border-slate-200/70 bg-white/95 px-5 py-5 shadow-sm md:px-7">
+        <p className="text-xs font-semibold tracking-[0.18em] text-blue-600">
+          Home
         </p>
-      </div>
+        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">
+          Bentornato, {trainerFirstName} 👋
+        </h1>
+        <p className="mt-2 text-sm text-slate-500">
+          Hai tutto pronto per presenze e convocazioni.
+        </p>
+      </section>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        {permissions.widgets.todayTrainings !== false ? (
-          <FeatureHighlightCard
-            tone="violet"
-            title="Allenamenti di Oggi"
-            count={todayTrainings.length}
-            icon={CalendarDays}
-            footer={
-              <Button
-                variant="secondary"
-                className="w-full border-0 bg-transparent !text-white hover:!text-white hover:bg-transparent"
-                onClick={() => router.push("/trainer-dashboard/trainings")}
+      {matchOfTheDay ? (
+        <section className="overflow-hidden rounded-[30px] border border-blue-100 bg-gradient-to-br from-white via-blue-50/70 to-slate-50 p-5 shadow-sm md:p-6">
+          <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-3xl font-bold leading-tight text-slate-950 md:text-4xl">
+                  Gara di oggi
+                </h2>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 shadow-sm">
+                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <Trophy className="h-4 w-4" />
+                    Categoria
+                  </div>
+                  <p className="mt-1 font-semibold text-slate-950">
+                    {matchOfTheDay.displayCategory ||
+                      matchOfTheDay.category ||
+                      "Categoria"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 shadow-sm">
+                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <Clock3 className="h-4 w-4" />
+                    Orario
+                  </div>
+                  <p className="mt-1 font-semibold text-slate-950">
+                    {formatTimeRange(matchOfTheDay.time)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 shadow-sm sm:col-span-2">
+                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <MapPin className="h-4 w-4" />
+                    Luogo
+                  </div>
+                  <p className="mt-1 font-semibold text-slate-950">
+                    {formatMatchLocationLabel(matchOfTheDay)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[26px] border border-blue-100 bg-white/90 p-4 shadow-sm">
+              {(() => {
+                const matchAthletes = getAthletesForRecord(matchOfTheDay);
+                const convocationStatus = getMatchConvocationStatus({
+                  match: matchOfTheDay,
+                  totalAthletes: matchAthletes.length,
+                  deadlineDays: matchConvocationDeadlineDays,
+                  now,
+                });
+
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-700">
+                        Convocazioni
+                      </p>
+                      <Badge
+                        className={cn(
+                          "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
+                          convocationStatus.state === "convocations_missing"
+                            ? "border-rose-200 bg-rose-50 text-rose-700"
+                            : "",
+                        )}
+                      >
+                        {convocationStatus.convocated}/{convocationStatus.total}
+                      </Badge>
+                    </div>
+                    <p className="text-xl font-semibold text-slate-950">
+                      {getMatchConvocationLabel(convocationStatus.state)}
+                    </p>
+                    <Button
+                      className="w-full rounded-2xl bg-blue-600 text-white hover:bg-blue-700"
+                      onClick={() =>
+                        router.push(
+                          `/trainer-dashboard/matches?focus=${matchOfTheDay.id}`,
+                        )
+                      }
+                    >
+                      <ListChecks className="mr-2 h-4 w-4" />
+                      Gestisci convocazioni
+                    </Button>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {operationalAlerts.length > 0 ? (
+        <SurfacePanel
+          title="Da completare"
+          icon={AlertTriangle}
+          className="border-rose-200 bg-rose-50/90 shadow-md"
+        >
+          <div className="grid gap-3 lg:grid-cols-2">
+            {operationalAlerts.slice(0, 6).map((alert) => (
+              <button
+                key={alert.key}
+                type="button"
+                onClick={() => router.push(alert.actionHref)}
+                className="rounded-2xl border border-rose-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-rose-300 hover:bg-rose-50"
               >
-                Vai agli Allenamenti
-              </Button>
-            }
-          >
-            {todayTrainings.length > 0 ? (
-              <div className="space-y-3">
-                {todayTrainings.slice(0, 3).map((training) => (
-                  <button
-                    key={training.id}
-                    className="w-full rounded-lg bg-white/10 p-3 text-left backdrop-blur-sm transition hover:bg-white/15"
-                    onClick={() =>
-                      router.push(`/trainer-dashboard/trainings?focus=${training.id}`)
-                    }
-                    type="button"
-                  >
-                    <p className="font-medium">
-                      {training.title || "Allenamento"}
-                    </p>
-                    <p className="mt-1 text-sm text-white/80">
-                      {formatTimeRange(training.time, training.endTime)}
-                    </p>
-                    <p className="text-sm text-white/80">
-                      {training.displayCategory || training.category || "Categoria"}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="py-5 text-center text-white/75">
-                <CalendarDays className="mx-auto mb-2 h-10 w-10 opacity-50" />
-                <p>Nessun allenamento per oggi</p>
-              </div>
-            )}
-          </FeatureHighlightCard>
-        ) : null}
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+                    {alert.type === "missing_attendance" ? (
+                      <ClipboardCheck className="h-4 w-4" />
+                    ) : (
+                      <ListChecks className="h-4 w-4" />
+                    )}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-slate-950">
+                      {alert.title}
+                    </span>
+                    <span className="mt-1 block text-sm text-slate-600">
+                      {alert.message}
+                    </span>
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </SurfacePanel>
+      ) : null}
 
-        {permissions.widgets.todayMatches !== false ? (
-          <FeatureHighlightCard
-            tone="orange"
-            title="Gare di Oggi"
-            count={todayMatches.length}
-            icon={Trophy}
-            footer={
-              <Button
-                variant="secondary"
-                className="w-full border-0 bg-transparent !text-white hover:!text-white hover:bg-transparent"
-                onClick={() => router.push("/trainer-dashboard/matches")}
-              >
-                Vai alle Gare
-              </Button>
-            }
-          >
-            {todayMatches.length > 0 ? (
-              <div className="space-y-3">
-                {todayMatches.slice(0, 3).map((match) => (
-                  <button
-                    key={match.id}
-                    className="w-full rounded-lg bg-white/10 p-3 text-left backdrop-blur-sm transition hover:bg-white/15"
-                    onClick={() =>
-                      router.push(`/trainer-dashboard/matches?focus=${match.id}`)
-                    }
-                    type="button"
-                  >
-                    <p className="font-medium">
-                      vs {match.opponent || "Avversario da definire"}
-                    </p>
-                    <p className="mt-1 text-sm text-white/80">
-                      {formatTimeRange(match.time)}
-                    </p>
-                    <p className="text-sm text-white/80">
-                      {formatMatchLocationLabel(match)}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="py-5 text-center text-white/75">
-                <Trophy className="mx-auto mb-2 h-10 w-10 opacity-50" />
-                <p>Nessuna gara per oggi</p>
-              </div>
-            )}
-          </FeatureHighlightCard>
-        ) : null}
-
-        <FeatureHighlightCard
-          tone="emerald"
-          title="Promemoria Attivi"
-          count={visibleReminders.length}
-          icon={Bell}
-          footer={
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <SurfacePanel
+          title="Allenamenti di oggi"
+          icon={CalendarDays}
+          action={
             <Button
-              variant="secondary"
-              className="w-full border-0 bg-transparent !text-white hover:!text-white hover:bg-transparent"
-              onClick={() => router.push("/trainer-dashboard/profile")}
+              variant="outline"
+              className="rounded-2xl"
+              onClick={() => router.push("/trainer-dashboard/trainings")}
             >
-              Apri il Profilo
+              Storico
             </Button>
           }
         >
-          {visibleReminders.length > 0 ? (
+          {todayTrainings.length > 0 ? (
             <div className="space-y-3">
-              {visibleReminders.slice(0, 3).map((reminder) => (
-                <div
-                  key={reminder.id}
-                  className="rounded-lg bg-white/10 px-3 py-2 text-sm backdrop-blur-sm"
-                >
-                  <p className="font-medium">{reminder.content || "Promemoria"}</p>
-                  <p className="mt-1 text-white/80">
-                    {reminder.targetSummary ||
-                      (expiringMedicalAthletes.length > 0
-                        ? `${expiringMedicalAthletes.length} atleti con alert medico`
-                        : "Promemoria attivo")}
-                  </p>
-                </div>
-              ))}
+              {todayTrainings.map((training) => {
+                const status = getStatusBadgeClasses(
+                  training?.status,
+                  training?.startsAt,
+                  training?.endsAt,
+                );
+                const trainingAthletes = getAthletesForRecord(training);
+                const attendanceStatus = getTrainingAttendanceStatus(
+                  training,
+                  trainingAthletes,
+                );
+                const missingAttendance = isTrainingMissingAttendance(
+                  training,
+                  trainingAthletes,
+                  now,
+                );
+
+                return (
+                  <CompactEntityCard
+                    key={getTrainingStableKey(training)}
+                    title={training.title || "Allenamento"}
+                    className={
+                      missingAttendance
+                        ? "border-rose-200 bg-rose-50/60"
+                        : undefined
+                    }
+                    badge={
+                      <Badge className={status.className}>{status.label}</Badge>
+                    }
+                    lines={[
+                      <span key="category">
+                        <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                          {training.displayCategory ||
+                            training.category ||
+                            "Categoria"}
+                        </Badge>
+                      </span>,
+                      <span key="time">
+                        {formatTimeRange(training.time, training.endTime)}
+                      </span>,
+                      <span key="location">
+                        {training.location || "Luogo da definire"}
+                      </span>,
+                      <span key="attendance" className="font-medium">
+                        {attendanceStatus.present}/{attendanceStatus.total} ·{" "}
+                        {getTrainingAttendanceLabel(attendanceStatus.state)}
+                      </span>,
+                    ]}
+                    footer={
+                      missingAttendance ? (
+                        <div className="flex items-center gap-2 text-sm font-medium text-rose-700">
+                          <AlertTriangle className="h-4 w-4" />
+                          Completa le presenze
+                        </div>
+                      ) : null
+                    }
+                    actions={
+                      permissions.actions.manageAttendance ? (
+                        <Button
+                          size="sm"
+                          className="bg-blue-600 hover:bg-blue-700"
+                          onClick={() =>
+                            router.push(
+                              `/trainer-dashboard/trainings?focus=${training.id}`,
+                            )
+                          }
+                        >
+                          <ClipboardCheck className="mr-2 h-4 w-4" />
+                          {attendanceStatus.state === "missing"
+                            ? "Prendi presenze"
+                            : "Modifica presenze"}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="rounded-lg bg-white/10 px-3 py-2 text-sm backdrop-blur-sm">
-                Presenze {permissions.actions.manageAttendance ? "abilitate" : "nascoste"}
-              </div>
-              <div className="rounded-lg bg-white/10 px-3 py-2 text-sm backdrop-blur-sm">
-                Convocazioni{" "}
-                {permissions.actions.manageConvocations ? "abilitate" : "nascoste"}
-              </div>
-              <div className="rounded-lg bg-white/10 px-3 py-2 text-sm backdrop-blur-sm">
-                {expiringMedicalAthletes.length > 0
-                  ? `${expiringMedicalAthletes.length} atleti con alert medico`
-                  : "Nessun promemoria attivo"}
-              </div>
-            </div>
+            <SectionEmptyState
+              title="Nessun allenamento oggi"
+              description="La giornata è libera."
+            />
           )}
-        </FeatureHighlightCard>
+        </SurfacePanel>
+
+        <SurfacePanel
+          title="Gare imminenti"
+          icon={Trophy}
+          action={
+            <Button
+              variant="outline"
+              className="rounded-2xl"
+              onClick={() => router.push("/trainer-dashboard/matches")}
+            >
+              Apri gare
+            </Button>
+          }
+        >
+          {nextMatches.length > 0 ? (
+            <div className="space-y-3">
+              {nextMatches.slice(0, 4).map((match) => {
+                const matchAthletes = getAthletesForRecord(match);
+                const convocationStatus = getMatchConvocationStatus({
+                  match,
+                  totalAthletes: matchAthletes.length,
+                  deadlineDays: matchConvocationDeadlineDays,
+                  now,
+                });
+
+                return (
+                  <CompactEntityCard
+                    key={match.id}
+                    title={match.title || `vs ${match.opponent || "Gara"}`}
+                    badge={
+                      <Badge
+                        className={convocationBadgeClassName(
+                          convocationStatus.state,
+                        )}
+                      >
+                        {convocationStatus.convocated}/{convocationStatus.total}
+                      </Badge>
+                    }
+                    lines={[
+                      <span key="category">
+                        <Badge className="border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-50">
+                          {match.displayCategory ||
+                            match.category ||
+                            "Categoria"}
+                        </Badge>
+                      </span>,
+                      <span key="date">
+                        {formatDate(match.date)} · {formatTimeRange(match.time)}
+                      </span>,
+                      <span key="opponent">
+                        vs {match.opponent || "Avversario da definire"}
+                      </span>,
+                      <span key="convocations">
+                        {getMatchConvocationLabel(convocationStatus.state)}
+                      </span>,
+                    ]}
+                    onClick={() =>
+                      router.push(`/trainer-dashboard/matches?focus=${match.id}`)
+                    }
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <SectionEmptyState
+              title="Nessuna gara programmata"
+              description="Calendario gare vuoto."
+            />
+          )}
+        </SurfacePanel>
       </div>
 
-      {permissions.widgets.summary ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard
-            icon={Users}
-            label="Atleti seguiti"
-            value={assignedAthletes.length}
-            accentClassName="bg-blue-50 text-blue-600"
-            topBarClassName="from-blue-500 to-blue-600"
-          />
-          <SummaryCard
-            icon={FolderKanban}
-            label="Categorie attive"
-            value={assignedCategories.length}
-            accentClassName="bg-emerald-50 text-emerald-600"
-            topBarClassName="from-emerald-500 to-emerald-600"
-          />
-          <SummaryCard
-            icon={Dumbbell}
-            label="Allenamenti oggi"
-            value={todayTrainings.length}
-            accentClassName="bg-orange-50 text-orange-600"
-            topBarClassName="from-orange-500 to-orange-600"
-          />
-          <SummaryCard
-            icon={Trophy}
-            label="Gare oggi"
-            value={todayMatches.length}
-            accentClassName="bg-rose-50 text-rose-600"
-            topBarClassName="from-rose-500 to-rose-600"
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

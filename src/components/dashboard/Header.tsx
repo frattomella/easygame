@@ -14,7 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +34,11 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
-import { MobileTopBar } from "@/components/layout/MobileTopBar";
+import {
+  MobileTopBar,
+  type MobileNavSection,
+} from "@/components/layout/MobileTopBar";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 // Import default club logo
 import clubLogoDefault from "@/../public/images/club_logo.png";
@@ -51,6 +55,8 @@ interface HeaderProps {
   userAvatar?: string;
   searchQuery?: string;
   showQuickActions?: boolean;
+  mobileNavSections?: MobileNavSection[];
+  showMobileHubLink?: boolean;
 }
 
 // Quick Actions data
@@ -104,18 +110,21 @@ const Header = memo(
     title = "Dashboard",
     onSearch = () => {},
     notificationCount = 0,
-    userAvatar = "https://api.dicebear.com/7.x/avataaars/svg?seed=new",
+    userAvatar = "",
     searchQuery = "",
     showQuickActions = true,
+    mobileNavSections,
+    showMobileHubLink = true,
   }: HeaderProps) => {
     const router = useRouter();
+    const pathname = usePathname();
     const [orgName, setOrgName] = React.useState("EasyGame");
     const [activeSeasonLabel, setActiveSeasonLabel] = React.useState<string | null>(
       null,
     );
     const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
-    const { user } = useAuth();
+    const { activeClub, isTrainer, user } = useAuth();
     const fullName = [user?.user_metadata?.firstName, user?.user_metadata?.lastName]
       .filter(Boolean)
       .join(" ");
@@ -307,16 +316,45 @@ const Header = memo(
       }
     }, []);
 
+    React.useEffect(() => {
+      const isTrainerContext =
+        isTrainer || String(activeClub?.role || "").toLowerCase() === "trainer";
+
+      if (!isTrainerContext || !pathname) {
+        return;
+      }
+
+      const trainerAllowedPaths = [
+        "/trainer-dashboard",
+        "/private",
+        "/account",
+        "/profile",
+        "/login",
+        "/token-verification",
+      ];
+      const isAllowedPath = trainerAllowedPaths.some((path) =>
+        pathname === path || pathname.startsWith(`${path}/`),
+      );
+
+      if (!isAllowedPath) {
+        router.replace("/trainer-dashboard");
+      }
+    }, [activeClub?.id, activeClub?.role, isTrainer, pathname, router]);
+
     const handleNotificationClick = useCallback(() => {
+      const notificationsHref = pathname?.startsWith("/trainer-dashboard")
+        ? "/trainer-dashboard/notifications"
+        : "/notifications";
+
       // Prevent navigation in storyboard environment
       if (
         typeof window !== "undefined" &&
         !window.location.href.includes("storyboard=true") &&
-        window.location.pathname !== "/notifications"
+        window.location.pathname !== notificationsHref
       ) {
-        window.location.href = "/notifications";
+        window.location.href = notificationsHref;
       }
-    }, []);
+    }, [pathname]);
 
     const handleQuickAction = (href: string) => {
       setQuickActionsOpen(false);
@@ -340,7 +378,9 @@ const Header = memo(
         <div className="lg:hidden">
           <MobileTopBar
             showQuickActions={showQuickActions}
+            showHubLink={showMobileHubLink}
             title={title}
+            navSectionsOverride={mobileNavSections}
           />
         </div>
 
@@ -464,49 +504,55 @@ const Header = memo(
 
           <ChatButton />
 
-          <NotificationsDropdown notificationCount={notificationCount} />
+          <NotificationsDropdown
+            notificationCount={notificationCount}
+            allNotificationsHref={
+              pathname?.startsWith("/trainer-dashboard")
+                ? "/trainer-dashboard/notifications"
+                : "/notifications"
+            }
+          />
 
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 rounded-full border border-slate-200 bg-white p-0 hover:bg-slate-50"
-                    >
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={accountAvatar} alt={userName} />
-                        <AvatarFallback className="bg-blue-50 text-xs font-semibold text-blue-700">
-                          {accountInitials || "EG"}
-                        </AvatarFallback>
-                      </Avatar>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64">
-                    <DropdownMenuLabel className="flex flex-col">
-                      <span className="font-semibold text-slate-900">
-                        {userName}
-                      </span>
-                      {user?.email ? (
-                        <span className="text-xs font-normal text-slate-500">
-                          {user.email}
-                        </span>
-                      ) : null}
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => router.push("/account")}>
-                      Apri account
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{userName}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 rounded-full border border-slate-200 bg-white p-0 hover:bg-slate-50"
+                aria-label={`Account ${userName}`}
+                title={userName}
+              >
+                <Avatar className="h-8 w-8">
+                  {accountAvatar ? (
+                    <AvatarImage src={accountAvatar} alt={userName} />
+                  ) : null}
+                  <AvatarFallback className="bg-transparent p-0">
+                    <EntityIcon
+                      type="user"
+                      label={accountInitials || userName}
+                      className="h-full w-full border-0"
+                    />
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel className="flex flex-col">
+                <span className="font-semibold text-slate-900">
+                  {userName}
+                </span>
+                {user?.email ? (
+                  <span className="text-xs font-normal text-slate-500">
+                    {user.email}
+                  </span>
+                ) : null}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => router.push("/account")}>
+                Apri account
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         </header>
       </>

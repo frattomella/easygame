@@ -14,6 +14,7 @@ import { apiRequest } from "@/lib/api/client";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import {
   Building2,
+  BookOpen,
   Loader2,
   ShieldCheck,
   Trash2,
@@ -259,6 +260,34 @@ export default function PlatformAdminPage() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card className="border-blue-100 bg-blue-50/60">
+              <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="rounded-2xl bg-blue-600 p-3 text-white">
+                    <BookOpen className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-blue-700">
+                      Documentazione interna
+                    </p>
+                    <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                      API applicazione
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Registro privato degli endpoint EasyGame per sviluppo web
+                      e futura app mobile.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  className="bg-blue-600 hover:bg-blue-700"
+                  onClick={() => router.push("/private/api-docs")}
+                >
+                  Apri API interne
+                </Button>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>

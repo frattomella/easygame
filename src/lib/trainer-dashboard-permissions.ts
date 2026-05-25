@@ -37,7 +37,7 @@ export const DEFAULT_TRAINER_DASHBOARD_PERMISSIONS: TrainerDashboardPermissions 
       trainings: true,
       matches: true,
       athletes: true,
-      categories: true,
+      categories: false,
     },
     widgets: {
       summary: true,
@@ -99,11 +99,16 @@ export const resolveTrainerDashboardPermissions = (
       ? (rawPermissions as Record<string, unknown>)
       : {};
 
+  const navigation = mergePermissionGroup(
+    DEFAULT_TRAINER_DASHBOARD_PERMISSIONS.navigation,
+    normalizedPermissions.navigation,
+  );
+
   return {
-    navigation: mergePermissionGroup(
-      DEFAULT_TRAINER_DASHBOARD_PERMISSIONS.navigation,
-      normalizedPermissions.navigation,
-    ),
+    navigation: {
+      ...navigation,
+      categories: false,
+    },
     widgets: mergePermissionGroup(
       DEFAULT_TRAINER_DASHBOARD_PERMISSIONS.widgets,
       normalizedPermissions.widgets,
@@ -141,7 +146,6 @@ export const getFirstAccessibleTrainerRoute = (
     "trainings",
     "matches",
     "athletes",
-    "categories",
   ];
 
   const enabledKey = orderedKeys.find((key) => permissions.navigation[key]);

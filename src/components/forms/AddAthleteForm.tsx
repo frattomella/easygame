@@ -58,7 +58,7 @@ export function AddAthleteForm({
       name: `${formData.firstName} ${formData.lastName}`,
       age: new Date().getFullYear() - parseInt(formData.birthYear),
       status: "active",
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.firstName}${formData.lastName}`,
+      avatar: null,
       accessCode: formData.accessCode,
     });
 

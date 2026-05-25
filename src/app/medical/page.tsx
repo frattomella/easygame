@@ -33,10 +33,12 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { getMedicalCertificateStatus } from "@/lib/medical-certificates";
+import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import {
   downloadClientFileUrl,
   openClientFileUrl,
 } from "@/lib/client-files";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface Certificate {
   id: string;
@@ -203,9 +205,7 @@ export default function MedicalPage() {
             if (!athlete) continue;
 
             const athleteName =
-              athlete.first_name && athlete.last_name
-                ? `${athlete.first_name} ${athlete.last_name}`.trim()
-                : athlete.name || "Atleta Sconosciuto";
+              getAthleteDisplayName(athlete) || "Atleta Sconosciuto";
             const candidateCertificate: Certificate = {
               id: cert.id,
               athleteId: cert.athlete_id,
@@ -218,7 +218,7 @@ export default function MedicalPage() {
               avatar:
                 athlete.profile_image ||
                 athlete.data?.avatar ||
-                `https://api.dicebear.com/7.x/avataaars/svg?seed=${athleteName.replace(/\s+/g, "")}`,
+                "",
             };
             const currentCertificate = certificatesByAthlete.get(athlete.id);
 
@@ -244,9 +244,7 @@ export default function MedicalPage() {
 
           for (const athlete of athletesWithoutCertificates) {
             const athleteName =
-              athlete.first_name && athlete.last_name
-                ? `${athlete.first_name} ${athlete.last_name}`.trim()
-                : athlete.name || "Atleta Sconosciuto";
+              getAthleteDisplayName(athlete) || "Atleta Sconosciuto";
             certificatesByAthlete.set(athlete.id, {
               id: `missing-${athlete.id}`,
               athleteId: athlete.id,
@@ -258,7 +256,7 @@ export default function MedicalPage() {
               avatar:
                 athlete.profile_image ||
                 athlete.data?.avatar ||
-                `https://api.dicebear.com/7.x/avataaars/svg?seed=${athleteName.replace(/\s+/g, "")}`,
+                "",
             });
           }
         }
@@ -331,7 +329,7 @@ export default function MedicalPage() {
           id: data.id,
           athleteId: certificateData.athleteId,
           athleteName: athlete
-            ? `${athlete.first_name} ${athlete.last_name}`.trim()
+            ? getAthleteDisplayName(athlete)
             : certificateData.athleteName,
           certificateType: certificateData.certificateType,
           issueDate: certificateData.issueDate,
@@ -340,7 +338,8 @@ export default function MedicalPage() {
           fileUrl: certificateData.fileUrl || "",
           avatar:
             athlete?.profile_image ||
-            `https://api.dicebear.com/7.x/avataaars/svg?seed=${athlete ? athlete.first_name + athlete.last_name : certificateData.athleteName.replace(/ /g, "")}`,
+            athlete?.data?.avatar ||
+            "",
         };
 
         setCertificates((currentCertificates) =>
@@ -586,12 +585,18 @@ export default function MedicalPage() {
                       >
                         <div className="flex items-center gap-4">
                           <Avatar>
-                            <AvatarImage
-                              src={certificate.avatar}
-                              alt={certificate.athleteName}
-                            />
-                            <AvatarFallback>
-                              {certificate.athleteName.charAt(0)}
+                            {certificate.avatar ? (
+                              <AvatarImage
+                                src={certificate.avatar}
+                                alt={certificate.athleteName}
+                              />
+                            ) : null}
+                            <AvatarFallback className="bg-transparent p-0">
+                              <EntityIcon
+                                type="athlete"
+                                label={certificate.athleteName}
+                                className="h-full w-full border-0"
+                              />
                             </AvatarFallback>
                           </Avatar>
                           <div>
@@ -700,7 +705,7 @@ export default function MedicalPage() {
         onSubmit={handleAddCertificate}
         athletes={athletes.map((athlete) => ({
           id: athlete.id,
-          name: `${athlete.first_name} ${athlete.last_name}`.trim(),
+          name: getAthleteDisplayName(athlete) || "Atleta",
         }))}
         clubId={clubId}
       />

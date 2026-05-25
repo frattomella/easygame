@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 export default function ProfilePage({
   params,
@@ -77,9 +78,6 @@ export default function ProfilePage({
           // Set profile image
           if (userData.profile_image) {
             setProfileImage(userData.profile_image);
-          } else if (!profileImage && !storedProfileImage) {
-            const defaultImage = `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`;
-            setProfileImage(defaultImage);
           }
 
           // Set user data from database
@@ -102,11 +100,6 @@ export default function ProfilePage({
           }
         }
 
-        // Set default profile image if none exists
-        if (!profileImage && !storedProfileImage && !userData?.profile_image) {
-          const defaultImage = `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`;
-          setProfileImage(defaultImage);
-        }
       } catch (err) {
         console.error("Error loading user data:", err);
       }
@@ -129,10 +122,11 @@ export default function ProfilePage({
       setIsUploading(true);
       setError("");
 
-      // For demo purposes, we'll use a placeholder image instead of actual upload
-      const seed = Math.random().toString(36).substring(2, 10);
-      const newImageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
-      setProfileImage(newImageUrl);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setProfileImage(String(event.target?.result || ""));
+      };
+      reader.readAsDataURL(file);
       setIsUploading(false);
     } catch (err) {
       console.error("Error uploading image:", err);
@@ -276,14 +270,20 @@ export default function ProfilePage({
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="flex flex-col items-center mb-6">
             <div className="relative h-24 w-24 mb-4">
-              <img
-                src={
-                  profileImage ||
-                  "https://api.dicebear.com/7.x/avataaars/svg?seed=default"
-                }
-                alt="Profile"
-                className="h-full w-full rounded-full object-cover border-4 border-blue-500"
-              />
+              {profileImage ? (
+                <img
+                  src={profileImage}
+                  alt="Profile"
+                  className="h-full w-full rounded-full object-cover border-4 border-blue-500"
+                />
+              ) : (
+                <EntityIcon
+                  type="user"
+                  size="xl"
+                  label="Profile"
+                  className="h-full w-full border-4 border-blue-500"
+                />
+              )}
               <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-20 rounded-full flex items-center justify-center transition-all">
                 <span className="text-white opacity-0 hover:opacity-100 text-xs font-medium">
                   Cambia

@@ -49,9 +49,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGlobalLoading } from "@/components/providers/GlobalLoadingProvider";
-import Image from "next/image";
-import userDefaultImage from "@/../public/images/user.png";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
+import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   findCategoryForBirthDate,
   formatCategoryBirthYears,
@@ -64,6 +63,12 @@ import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
 } from "@/lib/athlete-category-memberships";
+import {
+  compareAthletesByLastName,
+  getAthleteDisplayName,
+  getAthleteFirstName,
+  getAthleteLastName,
+} from "@/lib/athlete-name-utils";
 import {
   getClubAthletes,
   addClubAthlete,
@@ -96,6 +101,8 @@ const AthleteImportDialog = dynamic(
 interface Athlete {
   id: string;
   name: string;
+  firstName: string;
+  lastName: string;
   categoryId: string | null;
   categoryLabel: string;
   membershipType: "primary" | "secondary";
@@ -108,6 +115,7 @@ interface Athlete {
   avatar?: string;
   accessCode?: string;
   jerseyNumber?: string;
+  registrationComplete: boolean;
 }
 
 type BulkActionType =
@@ -156,6 +164,24 @@ const buildCategoryList = (rawCategories: any[]) =>
     };
   });
 
+const coerceBoolean = (value: unknown) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return ["true", "1", "yes", "si", "sì", "active", "enabled"].includes(
+    normalized,
+  );
+};
+
 export default function AthletesPage() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [athletes, setAthletes] = React.useState<Athlete[]>([]);
@@ -185,13 +211,14 @@ export default function AthletesPage() {
   // Default column preferences
   const defaultColumns = {
     name: true,
-    category: true,
-    age: true,
+    category: false,
+    age: false,
     status: true,
     medicalCert: true,
-    birthYear: false,
+    birthYear: true,
     registrationComplete: false,
     jerseyNumber: false,
+    columnSchemaVersion: 2,
   };
 
   // Load column preferences from localStorage
@@ -200,7 +227,18 @@ export default function AthletesPage() {
       const saved = localStorage.getItem(`athleteColumns_${clubId}`);
       if (saved) {
         try {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          return {
+            ...defaultColumns,
+            ...parsed,
+            category:
+              parsed?.columnSchemaVersion === 2
+                ? Boolean(parsed.category)
+                : false,
+            age: false,
+            birthYear: true,
+            columnSchemaVersion: 2,
+          };
         } catch (e) {
           console.error("Error parsing column preferences:", e);
         }
@@ -289,7 +327,9 @@ export default function AthletesPage() {
 
           return {
             id: athlete.id,
-            name: `${athlete.first_name} ${athlete.last_name}`.trim(),
+            name: getAthleteDisplayName(athlete),
+            firstName: getAthleteFirstName(athlete),
+            lastName: getAthleteLastName(athlete),
             categoryId,
             categoryLabel,
             membershipType: membership.isPrimary ? "primary" : "secondary",
@@ -306,10 +346,17 @@ export default function AthletesPage() {
             avatar: athlete.avatar_url || athlete.data?.avatar || null,
             accessCode: athlete.access_code || athlete.data?.accessCode,
             jerseyNumber: athlete.jersey_number || athlete.data?.jerseyNumber,
+            registrationComplete: coerceBoolean(
+              athlete.data?.enrollmentStatus ??
+                athlete.data?.isRegistered ??
+                athlete.data?.registered ??
+                athlete.data?.enrolled,
+            ),
           } as Athlete;
         });
       });
 
+      transformedAthletes.sort(compareAthletesByLastName);
       setAthletes(transformedAthletes);
       setSelectedAthleteIds((currentSelection) => {
         const nextSelection = new Set<string>();
@@ -407,6 +454,8 @@ export default function AthletesPage() {
       const newAthlete: Athlete = {
         id: savedAthlete.id,
         name: `${athleteData.firstName} ${athleteData.lastName}`.trim(),
+        firstName: athleteData.firstName,
+        lastName: athleteData.lastName,
         categoryId: linkedCategory?.id || null,
         categoryLabel: linkedCategory?.name || "Senza categoria",
         membershipType: "primary",
@@ -418,6 +467,7 @@ export default function AthletesPage() {
         status: "active",
         medicalCertExpiry: "",
         birthDate: athleteData.birthDate,
+        registrationComplete: false,
       };
 
       setAthletes((currentAthletes) => [...currentAthletes, newAthlete]);
@@ -1011,13 +1061,11 @@ export default function AthletesPage() {
                     {athlete.avatar ? (
                       <AvatarImage src={athlete.avatar} alt={athlete.name} />
                     ) : (
-                      <AvatarFallback className="bg-white dark:bg-gray-800 p-0.5">
-                        <Image
-                          src={userDefaultImage}
-                          alt={athlete.name}
-                          className="object-contain w-full h-full"
-                          width={40}
-                          height={40}
+                      <AvatarFallback className="bg-transparent p-0">
+                        <EntityIcon
+                          type="athlete"
+                          label={athlete.name}
+                          className="h-full w-full border-0"
                         />
                       </AvatarFallback>
                     )}
@@ -1110,7 +1158,7 @@ export default function AthletesPage() {
               )}
               {visibleColumns.registrationComplete && (
                 <td className="py-3 px-4">
-                  {Math.random() > 0.5 ? (
+                  {athlete.registrationComplete ? (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
                   ) : (
                     <X className="h-5 w-5 text-red-500" />
@@ -1293,7 +1341,7 @@ export default function AthletesPage() {
               </div>
             </div>
 
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
               <h2 className="text-xl font-semibold">
                 Atleti Attivi:{" "}
                 {athletes.filter((a) => a.status === "active").length} | Atleti
@@ -1302,9 +1350,160 @@ export default function AthletesPage() {
                 Atleti in Prestito:{" "}
                 {athletes.filter((a) => a.status === "inactive").length}
               </h2>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-fit"
+                    disabled={!athletes.length}
+                  >
+                    <MoreVertical className="mr-1.5 h-3.5 w-3.5" />
+                    Azioni su tutti
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "all",
+                        action: "activate",
+                      })
+                    }
+                  >
+                    <UserCheck className="mr-2 h-4 w-4 text-green-500" />
+                    Rendi tutti attivi
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "all",
+                        action: "inactive",
+                      })
+                    }
+                  >
+                    <UserMinus className="mr-2 h-4 w-4 text-gray-500" />
+                    Rendi tutti inattivi
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "all",
+                        action: "suspended",
+                      })
+                    }
+                  >
+                    <UserX className="mr-2 h-4 w-4 text-amber-500" />
+                    Sospendi tutti
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-red-600"
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "all",
+                        action: "delete",
+                      })
+                    }
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Elimina tutti
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
-            <Card className="overflow-hidden border-blue-100 bg-gradient-to-br from-white via-white to-blue-50 shadow-sm">
+            {selectedAthletesCount >= 2 ? (
+              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <ListChecks className="h-4 w-4 text-slate-500" />
+                  <span>{selectedAthletesCount} atleti selezionati</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "selected",
+                        action: "activate",
+                      })
+                    }
+                  >
+                    <UserCheck className="mr-1.5 h-3.5 w-3.5 text-green-600" />
+                    Attiva
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "selected",
+                        action: "inactive",
+                      })
+                    }
+                  >
+                    <UserMinus className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
+                    Inattiva
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "selected",
+                        action: "suspended",
+                      })
+                    }
+                  >
+                    <UserX className="mr-1.5 h-3.5 w-3.5 text-amber-600" />
+                    Sospendi
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    disabled={!categories.length}
+                    onClick={() => {
+                      setBulkCategoryTargetId("");
+                      setShowBulkCategoryDialog(true);
+                    }}
+                  >
+                    <CheckSquare className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
+                    Cambia categoria
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-red-600 hover:text-red-700"
+                    onClick={() =>
+                      setPendingBulkAction({
+                        scope: "selected",
+                        action: "delete",
+                      })
+                    }
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    Elimina
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8"
+                    onClick={clearAthleteSelection}
+                  >
+                    <X className="mr-1.5 h-3.5 w-3.5" />
+                    Cancella selezione
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            <Card className="hidden">
               <CardContent className="p-0">
                 <div className="grid gap-0 lg:grid-cols-[320px_minmax(0,1fr)]">
                   <div className="border-b border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-600 p-5 text-white lg:border-b-0 lg:border-r">
@@ -1313,7 +1512,7 @@ export default function AthletesPage() {
                       Modifiche in blocco
                     </div>
                     <h3 className="mt-3 text-2xl font-semibold">
-                      Gestione rapida atleti
+                      Azioni selezione
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-blue-50/90">
                       Seleziona gli atleti dalla griglia e applica operazioni massive in modo chiaro e controllato.
@@ -1668,7 +1867,7 @@ export default function AthletesPage() {
                 />
                 <Label htmlFor="column-category">Categoria</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="hidden">
                 <Checkbox
                   id="column-age"
                   checked={visibleColumns.age}

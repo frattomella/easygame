@@ -2,17 +2,22 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { CalendarDays, Home, Trophy, Users } from "lucide-react";
 import Header from "@/components/dashboard/Header";
 import TrainerSidebar from "@/components/trainer/TrainerSidebar";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
-import { getFirstAccessibleTrainerRoute } from "@/lib/trainer-dashboard-permissions";
+import {
+  getFirstAccessibleTrainerRoute,
+  TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY,
+} from "@/lib/trainer-dashboard-permissions";
+import type { MobileNavSection } from "@/components/layout/MobileTopBar";
 
 const PAGE_TITLES: Record<string, string> = {
-  "/trainer-dashboard": "Dashboard Allenatore",
+  "/trainer-dashboard": "Home",
+  "/trainer-dashboard/notifications": "Notifiche",
   "/trainer-dashboard/trainings": "Allenamenti",
   "/trainer-dashboard/matches": "Gare",
   "/trainer-dashboard/athletes": "Atleti",
-  "/trainer-dashboard/categories": "Categorie",
 };
 
 const resolvePageTitle = (pathname: string) => {
@@ -28,7 +33,6 @@ const resolveNavigationKey = (pathname: string) => {
   if (pathname.startsWith("/trainer-dashboard/trainings")) return "trainings";
   if (pathname.startsWith("/trainer-dashboard/matches")) return "matches";
   if (pathname.startsWith("/trainer-dashboard/athletes")) return "athletes";
-  if (pathname.startsWith("/trainer-dashboard/categories")) return "categories";
   return null;
 };
 
@@ -39,8 +43,45 @@ export default function TrainerDashboardClubShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { activeClub, loading, permissions, trainerProfile } =
+  const { activeClub, loading, operationalAlerts, permissions, trainerProfile } =
     useTrainerDashboard();
+
+  const trainerMobileNavSections: MobileNavSection[] = [
+    {
+      id: "trainer",
+      label: "ALLENATORE",
+      items: [
+        permissions.navigation.home
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.home,
+              label: "Home",
+              icon: Home,
+            }
+          : null,
+        permissions.navigation.trainings
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.trainings,
+              label: "Allenamenti",
+              icon: CalendarDays,
+            }
+          : null,
+        permissions.navigation.matches
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.matches,
+              label: "Gare",
+              icon: Trophy,
+            }
+          : null,
+        permissions.navigation.athletes
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.athletes,
+              label: "Atleti",
+              icon: Users,
+            }
+          : null,
+      ].filter(Boolean) as MobileNavSection["items"],
+    },
+  ].filter((section) => section.items.length > 0);
 
   useEffect(() => {
     if (loading) {
@@ -76,7 +117,10 @@ export default function TrainerDashboardClubShell({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Header
           title={resolvePageTitle(pathname)}
+          notificationCount={operationalAlerts.length}
           showQuickActions={false}
+          showMobileHubLink={false}
+          mobileNavSections={trainerMobileNavSections}
         />
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-6 pb-8">

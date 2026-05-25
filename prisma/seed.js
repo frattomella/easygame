@@ -445,42 +445,56 @@ async function main() {
     },
   });
 
-  await prisma.organizationUser.upsert({
+  const ownerAccess = await prisma.organizationUser.findFirst({
     where: {
-      organization_id_user_id: {
-        organization_id: club.id,
-        user_id: owner.id,
-      },
-    },
-    update: { role: "owner", is_primary: true },
-    create: {
       organization_id: club.id,
       user_id: owner.id,
       role: "owner",
-      is_primary: true,
     },
   });
+  if (ownerAccess) {
+    await prisma.organizationUser.update({
+      where: { id: ownerAccess.id },
+      data: { is_primary: true },
+    });
+  } else {
+    await prisma.organizationUser.create({
+      data: {
+        organization_id: club.id,
+        user_id: owner.id,
+        role: "owner",
+        is_primary: true,
+      },
+    });
+  }
 
   for (const access of [
     { user_id: trainer.id, role: "trainer" },
     { user_id: athleteUser.id, role: "athlete" },
     { user_id: parent.id, role: "parent" },
   ]) {
-    await prisma.organizationUser.upsert({
+    const existingAccess = await prisma.organizationUser.findFirst({
       where: {
-        organization_id_user_id: {
-          organization_id: club.id,
-          user_id: access.user_id,
-        },
-      },
-      update: { role: access.role, is_primary: true },
-      create: {
         organization_id: club.id,
         user_id: access.user_id,
         role: access.role,
-        is_primary: true,
       },
     });
+    if (existingAccess) {
+      await prisma.organizationUser.update({
+        where: { id: existingAccess.id },
+        data: { is_primary: true },
+      });
+    } else {
+      await prisma.organizationUser.create({
+        data: {
+          organization_id: club.id,
+          user_id: access.user_id,
+          role: access.role,
+          is_primary: true,
+        },
+      });
+    }
   }
 
   const athletes = [

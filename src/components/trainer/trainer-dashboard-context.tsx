@@ -22,6 +22,7 @@ import {
   getTrainerDisplayName,
   normalizeTrainerCategories,
 } from "@/lib/trainer-utils";
+import { compareAthletesByLastName } from "@/lib/athlete-name-utils";
 import {
   TrainerDashboardPermissions,
   resolveTrainerDashboardPermissions,
@@ -35,6 +36,12 @@ import {
   getReminderTargetSummary,
   isReminderVisibleToTrainer,
 } from "@/lib/reminder-targeting";
+import { dedupeTrainings } from "@/lib/training-utils";
+import {
+  buildTrainerOperationalAlerts,
+  getMatchConvocationDeadlineDays,
+  type TrainerOperationalAlert,
+} from "@/lib/trainer-operational-alerts";
 
 type TrainerDashboardContextValue = {
   loading: boolean;
@@ -47,6 +54,8 @@ type TrainerDashboardContextValue = {
   visibleTrainings: any[];
   visibleMatches: any[];
   visibleReminders: any[];
+  operationalAlerts: TrainerOperationalAlert[];
+  matchConvocationDeadlineDays: number;
   permissions: TrainerDashboardPermissions;
   reload: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -137,7 +146,9 @@ const findCategoryIdsFromRecord = (record: any, categories: any[]) => {
 const mergeCategories = (clubCategories: any[], trainerCategories: any[]) => {
   const merged = [...clubCategories];
   const seen = new Set(
-    clubCategories.map((category: any) => normalizeValue(category?.id || category?.name)),
+    clubCategories.map((category: any) =>
+      normalizeValue(category?.id || category?.name),
+    ),
   );
 
   for (const category of trainerCategories) {
@@ -156,22 +167,37 @@ const mergeCategories = (clubCategories: any[], trainerCategories: any[]) => {
   return merged.filter((category: any) => category.id || category.name);
 };
 
-const buildAssignedAthletes = (athletes: any[], categories: any[], categoryIds: Set<string>) =>
-  athletes.filter((athlete: any) => {
-    const athleteTokens = extractCategoryTokens(athlete, categories);
+const isActiveAthleteRecord = (athlete: any) => {
+  const status = normalizeValue(athlete?.status || athlete?.data?.status || "active");
+  return !status || ["active", "attivo", "enabled", "abilitato"].includes(status);
+};
 
-    return Array.from(categoryIds).some((categoryId) => {
-      const category = categories.find(
-        (entry) => normalizeValue(entry?.id) === normalizeValue(categoryId),
-      );
-      const categoryName = category?.name || categoryId;
+const buildAssignedAthletes = (
+  athletes: any[],
+  categories: any[],
+  categoryIds: Set<string>,
+) =>
+  athletes
+    .filter((athlete: any) => {
+      if (!isActiveAthleteRecord(athlete)) {
+        return false;
+      }
 
-      return (
-        athleteTokens.has(normalizeValue(categoryId)) ||
-        athleteTokens.has(normalizeValue(categoryName))
-      );
-    });
-  });
+      const athleteTokens = extractCategoryTokens(athlete, categories);
+
+      return Array.from(categoryIds).some((categoryId) => {
+        const category = categories.find(
+          (entry) => normalizeValue(entry?.id) === normalizeValue(categoryId),
+        );
+        const categoryName = category?.name || categoryId;
+
+        return (
+          athleteTokens.has(normalizeValue(categoryId)) ||
+          athleteTokens.has(normalizeValue(categoryName))
+        );
+      });
+    })
+    .sort(compareAthletesByLastName);
 
 const buildVisibleTrainings = (
   trainings: any[],
@@ -179,7 +205,7 @@ const buildVisibleTrainings = (
   categoryIds: Set<string>,
   trainerProfile: any,
 ) =>
-  trainings
+  dedupeTrainings(Array.isArray(trainings) ? trainings : [])
     .filter((training: any) => {
       const trainerIds = Array.isArray(training?.trainerIds)
         ? training.trainerIds.map((value: any) => normalizeValue(value))
@@ -188,7 +214,10 @@ const buildVisibleTrainings = (
         .split(",")
         .map((value) => normalizeValue(value))
         .filter(Boolean);
-      const trainingCategoryIds = findCategoryIdsFromRecord(training, categories);
+      const trainingCategoryIds = findCategoryIdsFromRecord(
+        training,
+        categories,
+      );
 
       return (
         trainerIds.includes(normalizeValue(trainerProfile?.id)) ||
@@ -210,8 +239,12 @@ const buildVisibleTrainings = (
       displayCategory: getRecordDisplayCategory(training, categories),
     }))
     .sort((left: any, right: any) => {
-      const leftTime = left?.startsAt ? left.startsAt.getTime() : Number.MAX_SAFE_INTEGER;
-      const rightTime = right?.startsAt ? right.startsAt.getTime() : Number.MAX_SAFE_INTEGER;
+      const leftTime = left?.startsAt
+        ? left.startsAt.getTime()
+        : Number.MAX_SAFE_INTEGER;
+      const rightTime = right?.startsAt
+        ? right.startsAt.getTime()
+        : Number.MAX_SAFE_INTEGER;
       return leftTime - rightTime;
     });
 
@@ -243,15 +276,16 @@ const buildVisibleMatches = (
       displayCategory: getRecordDisplayCategory(match, categories),
     }))
     .sort((left: any, right: any) => {
-      const leftTime = left?.startsAt ? left.startsAt.getTime() : Number.MAX_SAFE_INTEGER;
-      const rightTime = right?.startsAt ? right.startsAt.getTime() : Number.MAX_SAFE_INTEGER;
+      const leftTime = left?.startsAt
+        ? left.startsAt.getTime()
+        : Number.MAX_SAFE_INTEGER;
+      const rightTime = right?.startsAt
+        ? right.startsAt.getTime()
+        : Number.MAX_SAFE_INTEGER;
       return leftTime - rightTime;
     });
 
-const buildVisibleReminders = (
-  reminders: any[],
-  trainerProfile: any,
-) => {
+const buildVisibleReminders = (reminders: any[], trainerProfile: any) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -275,7 +309,9 @@ const buildVisibleReminders = (
       parsedExpiry.setHours(0, 0, 0, 0);
       return parsedExpiry >= today;
     })
-    .filter((reminder: any) => isReminderVisibleToTrainer(reminder, trainerProfile))
+    .filter((reminder: any) =>
+      isReminderVisibleToTrainer(reminder, trainerProfile),
+    )
     .map((reminder: any) => ({
       ...reminder,
       targetSummary: getReminderTargetSummary(reminder),
@@ -304,7 +340,10 @@ const buildVisibleReminders = (
     });
 };
 
-const resolveApiList = <T,>(response: { data: T[] | null; error: any }, fallback: unknown) => {
+const resolveApiList = <T,>(
+  response: { data: T[] | null; error: any },
+  fallback: unknown,
+) => {
   if (!response?.error && Array.isArray(response?.data)) {
     return response.data;
   }
@@ -327,6 +366,11 @@ export function TrainerDashboardProvider({
   const [visibleTrainings, setVisibleTrainings] = useState<any[]>([]);
   const [visibleMatches, setVisibleMatches] = useState<any[]>([]);
   const [visibleReminders, setVisibleReminders] = useState<any[]>([]);
+  const [operationalAlerts, setOperationalAlerts] = useState<
+    TrainerOperationalAlert[]
+  >([]);
+  const [matchConvocationDeadlineDays, setMatchConvocationDeadlineDays] =
+    useState(2);
   const [permissions, setPermissions] = useState<TrainerDashboardPermissions>(
     resolveTrainerDashboardPermissions({}),
   );
@@ -388,15 +432,15 @@ export function TrainerDashboardProvider({
           method: "GET",
           headers: activeClubHeaders,
         }),
-        apiRequest<any[]>("/api/v1/athletes", {
+        apiRequest<any[]>("/api/v1/athletes?trainer_dashboard=1", {
           method: "GET",
           headers: activeClubHeaders,
         }),
-        apiRequest<any[]>("/api/v1/trainings", {
+        apiRequest<any[]>("/api/v1/trainings?trainer_dashboard=1", {
           method: "GET",
           headers: activeClubHeaders,
         }),
-        apiRequest<any[]>("/api/v1/matches", {
+        apiRequest<any[]>("/api/v1/matches?trainer_dashboard=1", {
           method: "GET",
           headers: activeClubHeaders,
         }),
@@ -425,7 +469,9 @@ export function TrainerDashboardProvider({
         legacySecretariatNotes,
       );
 
-      const normalizedCategories = (Array.isArray(rawCategories) ? rawCategories : [])
+      const normalizedCategories = (
+        Array.isArray(rawCategories) ? rawCategories : []
+      )
         .map((category: any) => ({
           ...category,
           id: String(
@@ -451,7 +497,9 @@ export function TrainerDashboardProvider({
       const normalizedTrainerPool = trainerPool.map((trainer: any) => ({
         ...trainer,
         id: String(trainer?.id || trainer?.data?.id || "").trim(),
-        name: getTrainerDisplayName(trainer?.data ? { ...trainer, ...trainer.data } : trainer),
+        name: getTrainerDisplayName(
+          trainer?.data ? { ...trainer, ...trainer.data } : trainer,
+        ),
         email: String(trainer?.email || trainer?.data?.email || "").trim(),
         phone: String(trainer?.phone || trainer?.data?.phone || "").trim(),
         linkedUserId:
@@ -461,8 +509,7 @@ export function TrainerDashboardProvider({
               trainer?.data?.linkedUserId ||
               trainer?.data?.linked_user_id ||
               "",
-          ).trim() ||
-          null,
+          ).trim() || null,
         linkedUserEmail:
           String(
             trainer?.linkedUserEmail ||
@@ -472,8 +519,7 @@ export function TrainerDashboardProvider({
               trainer?.email ||
               trainer?.data?.email ||
               "",
-          ).trim() ||
-          null,
+          ).trim() || null,
         linkedAt:
           String(
             trainer?.linkedAt ||
@@ -503,7 +549,8 @@ export function TrainerDashboardProvider({
         normalizedTrainerPool.find(
           (trainer: any) =>
             normalizeValue(trainer.linkedUserId) === normalizeValue(user.id) ||
-            normalizeValue(trainer.linkedUserEmail) === normalizeValue(user.email) ||
+            normalizeValue(trainer.linkedUserEmail) ===
+              normalizeValue(user.email) ||
             normalizeValue(trainer.email) === normalizeValue(user.email),
         ) || null;
 
@@ -513,9 +560,10 @@ export function TrainerDashboardProvider({
       );
 
       const categoryIdSet = new Set(
-        getTrainerCategoryIds(nextTrainerProfile?.categories, mergedCategories).map(
-          (value) => normalizeValue(value),
-        ),
+        getTrainerCategoryIds(
+          nextTrainerProfile?.categories,
+          mergedCategories,
+        ).map((value) => normalizeValue(value)),
       );
 
       const nextAssignedAthletes = buildAssignedAthletes(
@@ -539,6 +587,28 @@ export function TrainerDashboardProvider({
         Array.isArray(rawSecretariatNotes) ? rawSecretariatNotes : [],
         nextTrainerProfile,
       );
+      const nextDeadlineDays =
+        getMatchConvocationDeadlineDays(clubSettings);
+      const nextAssignedCategories = (() => {
+        const categoryEntries = mergedCategories.filter((category) =>
+          categoryIdSet.has(normalizeValue(category?.id)),
+        );
+
+        return categoryEntries.length > 0
+          ? categoryEntries
+          : normalizeTrainerCategories(
+              nextTrainerProfile?.categories,
+              mergedCategories,
+            );
+      })();
+      const nextOperationalAlerts = buildTrainerOperationalAlerts({
+        trainings: nextVisibleTrainings,
+        matches: nextVisibleMatches,
+        assignedAthletes: nextAssignedAthletes,
+        assignedCategories: nextAssignedCategories,
+        categories: mergedCategories,
+        matchConvocationDeadlineDays: nextDeadlineDays,
+      });
 
       setCategories(mergedCategories);
       setTrainerProfile(nextTrainerProfile);
@@ -546,7 +616,17 @@ export function TrainerDashboardProvider({
       setVisibleTrainings(nextVisibleTrainings);
       setVisibleMatches(nextVisibleMatches);
       setVisibleReminders(nextVisibleReminders);
+      setOperationalAlerts(nextOperationalAlerts);
+      setMatchConvocationDeadlineDays(nextDeadlineDays);
       setPermissions(resolveTrainerDashboardPermissions(clubSettings));
+
+      void apiRequest("/api/v1/trainer/operational-alerts", {
+        method: "POST",
+        headers: activeClubHeaders,
+        body: {
+          alerts: nextOperationalAlerts,
+        },
+      });
     } catch (error) {
       console.error("Error loading trainer dashboard:", error);
       showToast("error", "Errore nel caricamento della dashboard allenatore");
@@ -561,8 +641,8 @@ export function TrainerDashboardProvider({
 
   const assignedCategories = useMemo(() => {
     const categoryIds = new Set(
-      getTrainerCategoryIds(trainerProfile?.categories, categories).map((value) =>
-        normalizeValue(value),
+      getTrainerCategoryIds(trainerProfile?.categories, categories).map(
+        (value) => normalizeValue(value),
       ),
     );
 
@@ -588,6 +668,8 @@ export function TrainerDashboardProvider({
       visibleTrainings,
       visibleMatches,
       visibleReminders,
+      operationalAlerts,
+      matchConvocationDeadlineDays,
       permissions,
       reload: loadDashboardData,
       signOut,
@@ -599,6 +681,8 @@ export function TrainerDashboardProvider({
       categories,
       loadDashboardData,
       loading,
+      matchConvocationDeadlineDays,
+      operationalAlerts,
       permissions,
       signOut,
       trainerProfile,

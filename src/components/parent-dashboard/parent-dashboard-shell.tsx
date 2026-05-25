@@ -35,6 +35,8 @@ export default function ParentDashboardShell({
   const pathname = usePathname();
   const { athleteRouteId, data, loading, error, refresh } = useParentDashboard();
   const basePath = `/parent-view/${athleteRouteId}`;
+  const isBlockingLoad = loading && !data;
+  const isBlockingError = !data && Boolean(error);
   const mobileNavSections: MobileNavSection[] = [
     {
       id: "parent-main",
@@ -82,13 +84,13 @@ export default function ParentDashboardShell({
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-8 md:p-6">
           <div className="mx-auto max-w-9xl space-y-6">
-            {loading ? (
+            {isBlockingLoad ? (
               <div className="flex min-h-[55vh] items-center justify-center">
                 <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-center text-slate-600 shadow-sm">
                   Caricamento dashboard...
                 </div>
               </div>
-            ) : error || !data ? (
+            ) : isBlockingError || !data ? (
               <div className="flex min-h-[55vh] items-center justify-center">
                 <div className="max-w-lg rounded-3xl border border-red-100 bg-white p-8 text-center shadow-sm">
                   <h2 className="text-2xl font-bold text-slate-900">

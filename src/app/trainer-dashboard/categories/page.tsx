@@ -1,5 +1,5 @@
-import TrainerCategoriesDashboardPage from "@/components/trainer/trainer-categories-dashboard-page";
+import { redirect } from "next/navigation";
 
 export default function TrainerDashboardCategoriesRoute() {
-  return <TrainerCategoriesDashboardPage />;
+  redirect("/trainer-dashboard");
 }

@@ -60,6 +60,9 @@ import {
   Shirt,
   Loader2,
   RefreshCw,
+  Copy,
+  KeyRound,
+  Unlink2,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
@@ -100,6 +103,11 @@ import {
   normalizeTextValue,
   normalizeStringList,
 } from "@/lib/athlete-profile-utils";
+import {
+  calculateAthleteExpectedIncome,
+  mergeAthletePayments,
+} from "@/lib/athlete-payment-utils";
+import { apiRequest } from "@/lib/api/client";
 
 const CustomKitComponentsBuilder = dynamic(
   () =>
@@ -224,6 +232,180 @@ const deriveClothingProfile = (gender?: string, birthDate?: string) => {
   return isFemale ? "DONNA" : "UOMO";
 };
 
+const coerceBooleanField = (value: unknown) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return ["true", "1", "yes", "si", "sì", "active", "enabled"].includes(
+    normalized,
+  );
+};
+
+const PARENT_TOKEN_EXPIRY_HOURS = 72;
+
+const createParentAccessToken = () => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const randomValues = new Uint32Array(9);
+
+  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(randomValues);
+  } else {
+    for (let index = 0; index < randomValues.length; index += 1) {
+      randomValues[index] = Math.floor(Math.random() * alphabet.length);
+    }
+  }
+
+  return `PAR${Array.from(
+    randomValues,
+    (value) => alphabet[value % alphabet.length],
+  ).join("")}`;
+};
+
+const formatParentAccessToken = (value?: string | null) => {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/-/g, "");
+
+  if (!normalized) {
+    return "-";
+  }
+
+  return normalized.match(/.{1,4}/g)?.join("-") || normalized;
+};
+
+const getGuardianDisplayName = (guardian: any) =>
+  [guardian?.name, guardian?.surname].filter(Boolean).join(" ").trim() ||
+  guardian?.email ||
+  "Genitore/Tutore";
+
+const normalizeGuardianRows = (items: any[]) =>
+  items.map((guardian, index) => ({
+    ...guardian,
+    id:
+      guardian?.id ||
+      `guardian-${index}-${String(
+        guardian?.email || guardian?.phone || guardian?.name || Date.now(),
+      )
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")}`,
+  }));
+
+const getGuardianAccessStatus = (guardian: any) => {
+  const linkedUserId = String(
+    guardian?.linkedUserId || guardian?.linked_user_id || "",
+  ).trim();
+  const status = String(
+    guardian?.parentAccessTokenStatus ||
+      guardian?.parent_access_token_status ||
+      guardian?.accessTokenStatus ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  const expiresAtRaw =
+    guardian?.parentAccessTokenExpiresAt ||
+    guardian?.parent_access_token_expires_at ||
+    guardian?.accessTokenExpiresAt ||
+    null;
+  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null;
+  const isExpired = Boolean(
+    expiresAt &&
+      !Number.isNaN(expiresAt.getTime()) &&
+      expiresAt.getTime() < Date.now(),
+  );
+
+  if (linkedUserId) {
+    return {
+      label: "Account collegato",
+      className:
+        "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
+    };
+  }
+
+  if (status === "revoked" || status === "disconnected") {
+    return {
+      label: "Account non collegato",
+      className:
+        "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
+    };
+  }
+
+  if ((status === "expired" || isExpired) && expiresAtRaw) {
+    return {
+      label: "Token scaduto",
+      className:
+        "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
+    };
+  }
+
+  if (
+    guardian?.parentAccessTokenValue ||
+    guardian?.parent_access_token_value ||
+    guardian?.accessTokenValue
+  ) {
+    return {
+      label: "Token attivo",
+      className: "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
+    };
+  }
+
+  return {
+    label: "Account non collegato",
+    className:
+      "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
+  };
+};
+
+const getGuardianTokenTiming = (guardian: any, nowMs: number) => {
+  const expiresAtRaw =
+    guardian?.parentAccessTokenExpiresAt ||
+    guardian?.parent_access_token_expires_at ||
+    guardian?.accessTokenExpiresAt ||
+    null;
+  const generatedAtRaw =
+    guardian?.parentAccessTokenGeneratedAt ||
+    guardian?.parent_access_token_generated_at ||
+    guardian?.accessTokenGeneratedAt ||
+    null;
+  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw).getTime() : 0;
+  const generatedAt = generatedAtRaw ? new Date(generatedAtRaw).getTime() : 0;
+
+  if (!expiresAt || Number.isNaN(expiresAt)) {
+    return {
+      label: "Scadenza non disponibile",
+      progress: 0,
+      isExpired: false,
+    };
+  }
+
+  const remainingMs = Math.max(expiresAt - nowMs, 0);
+  const totalMs =
+    generatedAt && !Number.isNaN(generatedAt)
+      ? Math.max(expiresAt - generatedAt, 1)
+      : PARENT_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000;
+  const hours = Math.floor(remainingMs / (60 * 60 * 1000));
+  const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+
+  return {
+    label:
+      remainingMs > 0 ? `${hours}h ${minutes}m rimanenti` : "Token scaduto",
+    progress: Math.max(0, Math.min(100, (remainingMs / totalMs) * 100)),
+    isExpired: remainingMs <= 0,
+  };
+};
+
 const buildAthleteKitBuilderComponents = (components: any[]) =>
   normalizeKitComponents(components).map((componentName, index) => ({
     id: `athlete-kit-component-${index}-${componentName.replace(/\s+/g, "-").toLowerCase()}`,
@@ -268,6 +450,10 @@ export default function AthleteProfilePage() {
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [guardians, setGuardians] = useState<any[]>([]);
+  const [guardianAccessBusyId, setGuardianAccessBusyId] = useState<string | null>(
+    null,
+  );
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [medicalVisits, setMedicalVisits] = useState<any[]>([]);
   const [medicalCertificates, setMedicalCertificates] = useState<any[]>([]);
@@ -275,6 +461,8 @@ export default function AthleteProfilePage() {
   const [enrollmentDocuments, setEnrollmentDocuments] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [athletePaymentRecords, setAthletePaymentRecords] = useState<any[]>([]);
+  const [expectedIncomeEntries, setExpectedIncomeEntries] = useState<any[]>([]);
   const [clothingSizes, setClothingSizes] = useState(DEFAULT_CLOTHING_SIZES);
   // ---- Numero maglia (sincronizzato con pagina Abbigliamento) ----
   const [isJerseyNumberDialogOpen, setIsJerseyNumberDialogOpen] =
@@ -341,6 +529,7 @@ export default function AthleteProfilePage() {
     amount: "",
     status: "Pagato",
   });
+  const [isEnrollmentSaving, setIsEnrollmentSaving] = useState(false);
   const [showDocumentScannerModal, setShowDocumentScannerModal] =
     useState(false);
   const [documentScanImage, setDocumentScanImage] = useState<string | null>(
@@ -366,6 +555,14 @@ export default function AthleteProfilePage() {
         date: new Date().toISOString().split("T")[0],
       }));
     }
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60000);
+
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const stopDocumentScannerCamera = React.useCallback(() => {
@@ -480,6 +677,7 @@ export default function AthleteProfilePage() {
         const {
           getAthlete,
           getAthleteCertificates,
+          getAthletePayments,
           getClub,
           getClubCategories,
           getClubTrainings,
@@ -492,6 +690,7 @@ export default function AthleteProfilePage() {
           categoryOptions,
           trainingRecords,
           matchRecords,
+          athletePaymentRows,
         ] = await Promise.all([
           getAthlete(athleteId),
           getAthleteCertificates(athleteId).catch(() => []),
@@ -501,6 +700,7 @@ export default function AthleteProfilePage() {
           clubId
             ? getClubData(clubId, "matches").catch(() => [])
             : Promise.resolve([]),
+          getAthletePayments(athleteId).catch(() => []),
         ]);
 
         if (!athleteRecord) {
@@ -627,7 +827,12 @@ export default function AthleteProfilePage() {
           emergencyContact: normalizeTextValue(athleteData.emergencyContact),
           emergencyPhone: normalizeTextValue(athleteData.emergencyPhone),
           medicalCertExpiry: latestMedicalCertExpiry,
-          enrollmentStatus: athleteData.enrollmentStatus || false,
+          enrollmentStatus: coerceBooleanField(
+            athleteData.enrollmentStatus ??
+              athleteData.isRegistered ??
+              athleteData.registered ??
+              athleteData.enrolled,
+          ),
           enrollmentNotes: normalizeTextValue(athleteData.enrollmentNotes),
           selectedPlan: normalizeTextValue(athleteData.selectedPlan),
           discount: normalizeTextValue(athleteData.discount),
@@ -653,7 +858,7 @@ export default function AthleteProfilePage() {
             : String(athleteData.jerseyNumber),
         );
 
-        setGuardians(normalizedCollections.guardians);
+        setGuardians(normalizeGuardianRows(normalizedCollections.guardians));
         setRegistrations(normalizedCollections.registrations);
         setMedicalVisits(normalizedCollections.medicalVisits);
         setMedicalCertificates(normalizedMedicalCertificates);
@@ -661,6 +866,9 @@ export default function AthleteProfilePage() {
         setEnrollmentDocuments(normalizedCollections.enrollmentDocuments);
         setDocuments(normalizedCollections.documents);
         setPayments(normalizedCollections.payments);
+        setAthletePaymentRecords(
+          Array.isArray(athletePaymentRows) ? athletePaymentRows : [],
+        );
         setCertificateFiles(normalizedCollections.certificateFiles);
         setClothingSizes(resolvedClothingSizes);
         setClubFederations(normalizeClubFederations(clubRecord));
@@ -677,6 +885,10 @@ export default function AthleteProfilePage() {
             const clubDiscounts = await getClubData(
               effectiveClubId,
               "discounts",
+            );
+            const expectedIncome = await getClubData(
+              effectiveClubId,
+              "expected_income",
             );
             const kits = await getClubData(effectiveClubId, "clothing_kits");
             const assignments = await getClubData(
@@ -698,6 +910,9 @@ export default function AthleteProfilePage() {
             setJerseyAssignments(Array.isArray(jersey) ? jersey : []);
             setPaymentPlans(Array.isArray(plans) ? plans : []);
             setDiscounts(Array.isArray(clubDiscounts) ? clubDiscounts : []);
+            setExpectedIncomeEntries(
+              Array.isArray(expectedIncome) ? expectedIncome : [],
+            );
           }
         } catch (e) {
           // Silently handle errors - empty arrays are already set as defaults
@@ -1004,6 +1219,249 @@ export default function AthleteProfilePage() {
     setAthlete(nextAthlete);
   };
 
+  const updateGuardianAccessState = async (
+    guardianId: string,
+    updates: Record<string, any>,
+  ) => {
+    const nextGuardians = guardians.map((guardian) =>
+      guardian.id === guardianId
+        ? {
+            ...guardian,
+            ...updates,
+          }
+        : guardian,
+    );
+
+    await persistAthleteCollections({
+      guardiansOverride: nextGuardians,
+    });
+    setGuardians(nextGuardians);
+    return nextGuardians.find((guardian) => guardian.id === guardianId);
+  };
+
+  const copyGuardianAccessToken = async (tokenValue?: string | null) => {
+    const normalizedToken = String(tokenValue || "").trim();
+    if (!normalizedToken) {
+      showToast("error", "Genera prima un token per questo genitore");
+      return false;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        formatParentAccessToken(normalizedToken),
+      );
+      showToast("success", "Token genitore copiato negli appunti");
+      return true;
+    } catch (error) {
+      console.error("Error copying guardian token:", error);
+      showToast("error", "Impossibile copiare il token");
+      return false;
+    }
+  };
+
+  const handleGenerateGuardianToken = async (guardianId: string) => {
+    const guardian = guardians.find((entry) => entry.id === guardianId);
+    const effectiveClubId = athlete?.club_id || clubId;
+
+    if (!guardian || !effectiveClubId || !athleteId || !athlete) {
+      showToast("error", "Genitore o atleta non disponibile");
+      return;
+    }
+
+    const existingToken =
+      guardian.parentAccessTokenValue ||
+      guardian.parent_access_token_value ||
+      guardian.accessTokenValue ||
+      "";
+    const linkedUserId = String(
+      guardian.linkedUserId || guardian.linked_user_id || "",
+    ).trim();
+
+    if (
+      existingToken &&
+      !linkedUserId &&
+      !window.confirm(
+        "Esiste gia un token attivo per questo genitore. Vuoi rigenerarlo?",
+      )
+    ) {
+      return;
+    }
+
+    setGuardianAccessBusyId(guardianId);
+
+    try {
+      const headers = {
+        "x-active-club-id": effectiveClubId,
+      };
+      const nowIso = new Date().toISOString();
+      const expiresAt = new Date(
+        Date.now() + PARENT_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000,
+      ).toISOString();
+      const tokenValue = createParentAccessToken();
+      const previousRecordId =
+        guardian.parentAccessTokenRecordId ||
+        guardian.parent_access_token_record_id ||
+        guardian.accessTokenRecordId ||
+        null;
+
+      if (previousRecordId) {
+        const expireResponse = await apiRequest(
+          `/api/v1/access_tokens/${previousRecordId}`,
+          {
+            method: "PATCH",
+            headers,
+            body: {
+              status: "expired",
+              date: nowIso,
+              expired_at: nowIso,
+              superseded_at: nowIso,
+              superseded_by_guardian_id: guardianId,
+            },
+          },
+        );
+
+        if (expireResponse.error) {
+          throw new Error(expireResponse.error.message);
+        }
+      }
+
+      const createResponse = await apiRequest<any>("/api/v1/access_tokens", {
+        method: "POST",
+        headers,
+        body: {
+          organization_id: effectiveClubId,
+          name: tokenValue,
+          status: "active",
+          date: expiresAt,
+          role: "parent",
+          one_time: true,
+          token_type: "parent_access",
+          usage_context: "guardian_account_link",
+          athlete_id: athleteId,
+          athlete_name: `${athlete.firstName || ""} ${athlete.lastName || ""}`.trim(),
+          guardian_id: guardianId,
+          guardian_name: getGuardianDisplayName(guardian),
+          guardian_email: guardian.email || null,
+          expires_at: expiresAt,
+          generated_at: nowIso,
+        },
+      });
+
+      if (createResponse.error || !createResponse.data?.id) {
+        throw new Error(
+          createResponse.error?.message || "Errore generazione token genitore",
+        );
+      }
+
+      const accessState = {
+        parentAccessTokenRecordId: createResponse.data.id,
+        parent_access_token_record_id: createResponse.data.id,
+        parentAccessTokenValue: tokenValue,
+        parent_access_token_value: tokenValue,
+        parentAccessTokenStatus: "active",
+        parent_access_token_status: "active",
+        parentAccessTokenExpiresAt: expiresAt,
+        parent_access_token_expires_at: expiresAt,
+        parentAccessTokenGeneratedAt: nowIso,
+        parent_access_token_generated_at: nowIso,
+        parentAccessTokenRedeemedAt: null,
+        parent_access_token_redeemed_at: null,
+        linkedUserId: null,
+        linked_user_id: null,
+        linkedUserEmail: "",
+        linked_user_email: "",
+        linkedAt: null,
+        linked_at: null,
+      };
+
+      await updateGuardianAccessState(guardianId, accessState);
+      await copyGuardianAccessToken(tokenValue);
+      showToast(
+        "success",
+        "Token genitore generato. Il token e collegato solo a questo genitore.",
+      );
+    } catch (error: any) {
+      console.error("Error generating guardian token:", error);
+      showToast(
+        "error",
+        error?.message || "Errore nella generazione del token genitore",
+      );
+    } finally {
+      setGuardianAccessBusyId(null);
+    }
+  };
+
+  const handleDisconnectGuardianAccount = async (guardianId: string) => {
+    const guardian = guardians.find((entry) => entry.id === guardianId);
+    const effectiveClubId = athlete?.club_id || clubId;
+
+    if (!guardian || !effectiveClubId) {
+      showToast("error", "Genitore non disponibile");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Scollegare l'account da questo genitore? Il genitore rimarra nella scheda atleta.",
+      )
+    ) {
+      return;
+    }
+
+    setGuardianAccessBusyId(guardianId);
+
+    try {
+      const recordId =
+        guardian.parentAccessTokenRecordId ||
+        guardian.parent_access_token_record_id ||
+        guardian.accessTokenRecordId ||
+        null;
+      const nowIso = new Date().toISOString();
+
+      if (recordId) {
+        const revokeResponse = await apiRequest(`/api/v1/access_tokens/${recordId}`, {
+          method: "PATCH",
+          headers: {
+            "x-active-club-id": effectiveClubId,
+          },
+          body: {
+            status: "revoked",
+            revoked_at: nowIso,
+            revoked_by_guardian_id: guardianId,
+            revoked_linked_user_id:
+              guardian.linkedUserId || guardian.linked_user_id || null,
+          },
+        });
+
+        if (revokeResponse.error) {
+          throw new Error(revokeResponse.error.message);
+        }
+      }
+
+      await updateGuardianAccessState(guardianId, {
+        linkedUserId: null,
+        linked_user_id: null,
+        linkedUserEmail: "",
+        linked_user_email: "",
+        linkedAt: null,
+        linked_at: null,
+        parentAccessTokenStatus: "revoked",
+        parent_access_token_status: "revoked",
+        parentAccessTokenValue: "",
+        parent_access_token_value: "",
+      });
+      showToast("success", "Account scollegato dal genitore");
+    } catch (error: any) {
+      console.error("Error disconnecting guardian account:", error);
+      showToast(
+        "error",
+        error?.message || "Errore nello scollegamento dell'account genitore",
+      );
+    } finally {
+      setGuardianAccessBusyId(null);
+    }
+  };
+
   const buildStoredAttachment = async (
     input: { name: string; type: string; notes?: string; file: File | null },
     fallbackType: string,
@@ -1028,25 +1486,93 @@ export default function AthleteProfilePage() {
       minimumFractionDigits: 2,
     }).format(Number.isFinite(value) ? value : 0);
 
-  const paymentSummary = React.useMemo(() => {
-    return payments.reduce(
-      (summary, payment) => {
-        const amount = Number(payment?.amount) || 0;
-        const status = String(payment?.status || "").toLowerCase();
+  const mergedPaymentRecords = React.useMemo(
+    () => mergeAthletePayments(payments, athletePaymentRecords),
+    [athletePaymentRecords, payments],
+  );
 
-        summary.total += amount;
+  const expectedIncomeSummary = React.useMemo(
+    () =>
+      calculateAthleteExpectedIncome({
+        athlete,
+        athleteId,
+        paymentPlans,
+        discounts,
+        payments: mergedPaymentRecords,
+        expectedIncomeEntries,
+      }),
+    [
+      athlete,
+      athleteId,
+      discounts,
+      expectedIncomeEntries,
+      mergedPaymentRecords,
+      paymentPlans,
+    ],
+  );
 
-        if (status === "pagato") {
-          summary.paid += amount;
-        } else {
-          summary.pending += amount;
-        }
+  const saveEnrollmentProfile = React.useCallback(
+    async (overrides: Record<string, any>, successMessage?: string) => {
+      await persistAthleteCollections({
+        athleteOverrides: {
+          enrollmentStatus: athlete?.enrollmentStatus ?? false,
+          enrollmentNotes: athlete?.enrollmentNotes || "",
+          selectedPlan: athlete?.selectedPlan || "",
+          discount: athlete?.discount || "",
+          ...overrides,
+        },
+      });
 
-        return summary;
-      },
-      { paid: 0, pending: 0, total: 0 },
-    );
-  }, [payments]);
+      if (successMessage) {
+        showToast("success", successMessage);
+      }
+    },
+    [athlete, showToast],
+  );
+
+  const handleEnrollmentToggle = React.useCallback(
+    async (checked: boolean) => {
+      if (!athlete) {
+        return;
+      }
+
+      const previousStatus = coerceBooleanField(athlete.enrollmentStatus);
+      setAthlete((current: any) =>
+        current
+          ? {
+              ...current,
+              enrollmentStatus: checked,
+            }
+          : current,
+      );
+      setIsEnrollmentSaving(true);
+
+      try {
+        await saveEnrollmentProfile(
+          {
+            enrollmentStatus: checked,
+          },
+          checked
+            ? "Iscrizione attivata correttamente"
+            : "Iscrizione disattivata correttamente",
+        );
+      } catch (error) {
+        console.error("Error updating enrollment status:", error);
+        setAthlete((current: any) =>
+          current
+            ? {
+                ...current,
+                enrollmentStatus: previousStatus,
+              }
+            : current,
+        );
+        showToast("error", "Impossibile salvare lo stato iscrizione");
+      } finally {
+        setIsEnrollmentSaving(false);
+      }
+    },
+    [athlete, saveEnrollmentProfile, showToast],
+  );
 
   // Handle add document
   const handleAddDocument = async () => {
@@ -1084,7 +1610,7 @@ export default function AthleteProfilePage() {
   };
 
   // Handle add guardian
-  const handleAddGuardian = () => {
+  const handleAddGuardian = async () => {
     if (!newGuardian.name || !newGuardian.surname) {
       showToast({
         title: "Errore",
@@ -1094,18 +1620,30 @@ export default function AthleteProfilePage() {
       return;
     }
 
+    const existingGuardian =
+      editingGuardianIndex !== null ? guardians[editingGuardianIndex] : null;
     const guardian = {
+      ...(existingGuardian || {}),
       ...newGuardian,
-      id: Date.now().toString(),
+      id: newGuardian.id || existingGuardian?.id || Date.now().toString(),
     };
+    const nextGuardians =
+      editingGuardianIndex !== null
+        ? guardians.map((item, index) =>
+            index === editingGuardianIndex ? guardian : item,
+          )
+        : [...guardians, guardian];
 
-    if (editingGuardianIndex !== null) {
-      const updatedGuardians = [...guardians];
-      updatedGuardians[editingGuardianIndex] = guardian;
-      setGuardians(updatedGuardians);
+    try {
+      await persistAthleteCollections({
+        guardiansOverride: nextGuardians,
+      });
+      setGuardians(nextGuardians);
       setEditingGuardianIndex(null);
-    } else {
-      setGuardians([...guardians, guardian]);
+    } catch (error) {
+      console.error("Error saving guardian:", error);
+      showToast("error", "Impossibile salvare il tutore");
+      return;
     }
 
     setNewGuardian({
@@ -1172,8 +1710,18 @@ export default function AthleteProfilePage() {
     setShowAddGuardianModal(true);
   };
 
-  const removeGuardian = (id: string) => {
-    setGuardians(guardians.filter((g) => g.id !== id));
+  const removeGuardian = async (id: string) => {
+    try {
+      const nextGuardians = guardians.filter((g) => g.id !== id);
+      await persistAthleteCollections({
+        guardiansOverride: nextGuardians,
+      });
+      setGuardians(nextGuardians);
+      showToast("success", "Tutore eliminato");
+    } catch (error) {
+      console.error("Error removing guardian:", error);
+      showToast("error", "Impossibile eliminare il tutore");
+    }
   };
 
   const addMedicalVisit = () => {
@@ -1889,7 +2437,7 @@ export default function AthleteProfilePage() {
                   name={`${athlete.name} ${athlete.surname || ""}`}
                   size="xl"
                   shape="square"
-                  type="user"
+                  type="athlete"
                 />
                 <div>
                   <h1 className="text-2xl font-bold">
@@ -2317,6 +2865,152 @@ export default function AthleteProfilePage() {
                                 <p className="mt-1">{guardian.email || "-"}</p>
                               </div>
                             </div>
+                            {(() => {
+                              const accessStatus =
+                                getGuardianAccessStatus(guardian);
+                              const tokenValue =
+                                guardian.parentAccessTokenValue ||
+                                guardian.parent_access_token_value ||
+                                guardian.accessTokenValue ||
+                                "";
+                              const linkedEmail =
+                                guardian.linkedUserEmail ||
+                                guardian.linked_user_email ||
+                                "";
+                              const expiresAt =
+                                guardian.parentAccessTokenExpiresAt ||
+                                guardian.parent_access_token_expires_at ||
+                                guardian.accessTokenExpiresAt ||
+                                null;
+                              const timing = getGuardianTokenTiming(
+                                guardian,
+                                nowMs,
+                              );
+                              const isBusy =
+                                guardianAccessBusyId === guardian.id;
+                              const isLinked = Boolean(
+                                guardian.linkedUserId ||
+                                  guardian.linked_user_id,
+                              );
+
+                              return (
+                                <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
+                                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-900">
+                                        Accesso genitore
+                                      </p>
+                                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <Badge className={accessStatus.className}>
+                                          {accessStatus.label}
+                                        </Badge>
+                                        {isLinked && linkedEmail ? (
+                                          <span className="text-sm text-slate-600">
+                                            {linkedEmail}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {isLinked ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="border-red-200 text-red-700 hover:bg-red-50"
+                                          disabled={isBusy}
+                                          onClick={() => {
+                                            void handleDisconnectGuardianAccount(
+                                              guardian.id,
+                                            );
+                                          }}
+                                        >
+                                          {isBusy ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <Unlink2 className="mr-2 h-4 w-4" />
+                                          )}
+                                          Scollega account
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={isBusy}
+                                          onClick={() => {
+                                            void handleGenerateGuardianToken(
+                                              guardian.id,
+                                            );
+                                          }}
+                                        >
+                                          {isBusy ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          ) : tokenValue ? (
+                                            <RefreshCw className="mr-2 h-4 w-4" />
+                                          ) : (
+                                            <KeyRound className="mr-2 h-4 w-4" />
+                                          )}
+                                          {tokenValue
+                                            ? "Rigenera token"
+                                            : "Genera token"}
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {tokenValue ? (
+                                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+                                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">
+                                            Token genitore
+                                          </p>
+                                          <p className="mt-1 font-mono text-lg font-semibold text-slate-900">
+                                            {formatParentAccessToken(tokenValue)}
+                                          </p>
+                                        </div>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            void copyGuardianAccessToken(
+                                              tokenValue,
+                                            );
+                                          }}
+                                        >
+                                          <Copy className="mr-2 h-4 w-4" />
+                                          Copia token
+                                        </Button>
+                                      </div>
+                                      <div className="mt-3 space-y-2">
+                                        <div className="flex items-center justify-between text-xs text-slate-600">
+                                          <span>{timing.label}</span>
+                                          <span>
+                                            Scade{" "}
+                                            {expiresAt
+                                              ? new Date(
+                                                  expiresAt,
+                                                ).toLocaleString("it-IT")
+                                              : "-"}
+                                          </span>
+                                        </div>
+                                        <div className="h-2 overflow-hidden rounded-full bg-white">
+                                          <div
+                                            className={`h-full rounded-full ${
+                                              timing.isExpired
+                                                ? "bg-amber-500"
+                                                : "bg-blue-600"
+                                            }`}
+                                            style={{
+                                              width: `${timing.progress}%`,
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })()}
                           </div>
                         ))}
                       </div>
@@ -2991,12 +3685,8 @@ export default function AthleteProfilePage() {
                           <Switch
                             id="enrollment"
                             checked={athlete.enrollmentStatus}
-                            onCheckedChange={(checked) =>
-                              setAthlete({
-                                ...athlete,
-                                enrollmentStatus: checked,
-                              })
-                            }
+                            disabled={isEnrollmentSaving}
+                            onCheckedChange={handleEnrollmentToggle}
                           />
                         </div>
                       </div>
@@ -3085,6 +3775,47 @@ export default function AthleteProfilePage() {
                               ))}
                           </SelectContent>
                         </Select>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-3">
+                        <p className="text-sm text-slate-600">
+                          Salva note, piano e sconto per mantenere stabile il calcolo dell&apos;incasso dopo il refresh.
+                        </p>
+                        <Button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              setIsEnrollmentSaving(true);
+                              await saveEnrollmentProfile(
+                                {},
+                                "Dati iscrizione e pagamenti salvati",
+                              );
+                            } catch (error) {
+                              console.error(
+                                "Error saving enrollment profile:",
+                                error,
+                              );
+                              showToast(
+                                "error",
+                                "Impossibile salvare i dati di iscrizione",
+                              );
+                            } finally {
+                              setIsEnrollmentSaving(false);
+                            }
+                          }}
+                          disabled={isEnrollmentSaving}
+                        >
+                          {isEnrollmentSaving ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Salvataggio...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="mr-2 h-4 w-4" />
+                              Salva dati iscrizione
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </div>
                   </CardContent>
@@ -3197,32 +3928,48 @@ export default function AthleteProfilePage() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Riepilogo Pagamenti</CardTitle>
+                    <CardTitle>Riepilogo Incasso</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                      <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-900/40">
+                        <h3 className="text-sm font-medium text-muted-foreground">
+                          Previsto / Dovuto
+                        </h3>
+                        <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                          {formatCurrency(expectedIncomeSummary.expectedTotal)}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Fonte:{" "}
+                          {expectedIncomeSummary.source === "payment_plan"
+                            ? expectedIncomeSummary.planName || "Piano di pagamento"
+                            : expectedIncomeSummary.source === "expected_income"
+                              ? "Expected income club"
+                              : "Calcolo manuale"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-green-50 p-4 dark:bg-green-900/20">
                         <h3 className="text-sm font-medium text-muted-foreground">
                           Incassato
                         </h3>
-                        <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-                          {formatCurrency(paymentSummary.paid)}
+                        <p className="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">
+                          {formatCurrency(expectedIncomeSummary.recordedPaid)}
                         </p>
                       </div>
-                      <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                      <div className="rounded-lg bg-yellow-50 p-4 dark:bg-yellow-900/20">
                         <h3 className="text-sm font-medium text-muted-foreground">
-                          Da Incassare
+                          Residuo
                         </h3>
-                        <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
-                          {formatCurrency(paymentSummary.pending)}
+                        <p className="mt-1 text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                          {formatCurrency(expectedIncomeSummary.residual)}
                         </p>
                       </div>
-                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
                         <h3 className="text-sm font-medium text-muted-foreground">
-                          Totale
+                          Totale Registrato
                         </h3>
-                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-                          {formatCurrency(paymentSummary.total)}
+                        <p className="mt-1 text-2xl font-bold text-blue-600 dark:text-blue-400">
+                          {formatCurrency(expectedIncomeSummary.recordedTotal)}
                         </p>
                       </div>
                     </div>
@@ -3254,6 +4001,76 @@ export default function AthleteProfilePage() {
                       </div>
                       </div>
                     </div>
+                    <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                      <summary className="cursor-pointer list-none font-medium text-slate-900 dark:text-slate-100">
+                        Dettagli incasso
+                      </summary>
+                      <div className="mt-4 space-y-4 text-sm">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/60">
+                            <p className="text-xs uppercase tracking-wide text-slate-500">
+                              Lordo piano
+                            </p>
+                            <p className="mt-1 font-semibold">
+                              {formatCurrency(expectedIncomeSummary.grossAmount)}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/60">
+                            <p className="text-xs uppercase tracking-wide text-slate-500">
+                              Totale sconti
+                            </p>
+                            <p className="mt-1 font-semibold">
+                              {formatCurrency(expectedIncomeSummary.totalDiscounts)}
+                            </p>
+                          </div>
+                        </div>
+                        {expectedIncomeSummary.appliedDiscounts.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="font-medium">Sconti applicati</p>
+                            <div className="flex flex-wrap gap-2">
+                              {expectedIncomeSummary.appliedDiscounts.map((discount) => (
+                                <Badge
+                                  key={discount.id}
+                                  variant="secondary"
+                                  className="bg-amber-100 text-amber-900"
+                                >
+                                  {discount.label}: -{formatCurrency(discount.amount)}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-slate-500">
+                            Nessuno sconto applicato.
+                          </p>
+                        )}
+                        {expectedIncomeSummary.installments.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="font-medium">Rate previste</p>
+                            <div className="space-y-2">
+                              {expectedIncomeSummary.installments.map((installment) => (
+                                <div
+                                  key={installment.id}
+                                  className="flex flex-col justify-between gap-1 rounded-lg border border-slate-200 px-3 py-2 sm:flex-row sm:items-center dark:border-slate-800"
+                                >
+                                  <div>
+                                    <p className="font-medium">{installment.label}</p>
+                                    <p className="text-xs text-slate-500">
+                                      {installment.dueDate
+                                        ? `Scadenza ${formatDate(installment.dueDate)}`
+                                        : "Scadenza non definita"}
+                                    </p>
+                                  </div>
+                                  <p className="font-semibold">
+                                    {formatCurrency(installment.amount)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </details>
                   </CardContent>
                 </Card>
 
@@ -3262,9 +4079,9 @@ export default function AthleteProfilePage() {
                     <div>
                       <CardTitle>Storico Pagamenti</CardTitle>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Totale registrato: {formatCurrency(paymentSummary.total)} ·
-                        Pagato: {formatCurrency(paymentSummary.paid)} · Da incassare:{" "}
-                        {formatCurrency(paymentSummary.pending)}
+                        Totale registrato: {formatCurrency(expectedIncomeSummary.recordedTotal)} ·
+                        Pagato: {formatCurrency(expectedIncomeSummary.recordedPaid)} · Residuo:{" "}
+                        {formatCurrency(expectedIncomeSummary.residual)}
                       </p>
                     </div>
                     <Button
@@ -3289,15 +4106,17 @@ export default function AthleteProfilePage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {payments.length > 0 ? (
-                            payments.map((payment, idx) => (
-                              <tr key={idx} className="border-b">
+                          {mergedPaymentRecords.length > 0 ? (
+                            mergedPaymentRecords.map((payment) => (
+                              <tr key={payment.id} className="border-b">
                                 <td className="p-2">
                                   {formatDate(payment.date)}
                                 </td>
                                 <td className="p-2">{payment.description}</td>
                                 <td className="p-2">{payment.type}</td>
-                                <td className="p-2">€ {payment.amount}</td>
+                                <td className="p-2">
+                                  {formatCurrency(Number(payment.amount || 0))}
+                                </td>
                                 <td className="p-2">
                                   <Badge
                                     className={

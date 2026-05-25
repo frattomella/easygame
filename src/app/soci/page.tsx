@@ -39,6 +39,8 @@ import {
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface Socio {
   id: string;
@@ -69,14 +71,16 @@ const getSocioIdentity = (member: Record<string, any>) => {
     member?.fullName ?? member?.full_name ?? member?.name,
   );
   const fullName =
-    explicitFullName ||
-    [firstName, lastName].filter(Boolean).join(" ").trim();
+    formatPersonNameLastFirst({
+      first_name: firstName,
+      last_name: lastName,
+      name: explicitFullName,
+      fullName: explicitFullName,
+    }) || explicitFullName;
 
   return {
-    firstName: firstName || (fullName ? fullName.split(/\s+/)[0] || "" : ""),
-    lastName:
-      lastName ||
-      (fullName ? fullName.split(/\s+/).slice(1).join(" ").trim() : ""),
+    firstName,
+    lastName,
     fullName,
   };
 };
@@ -181,7 +185,22 @@ export default function SociPage() {
                 member.membershipDate || member.registrationDate || "",
               club_id: clubId,
             };
-          });
+          })
+          .sort((left: Socio, right: Socio) =>
+            formatPersonNameLastFirst({
+              firstName: left.firstName,
+              lastName: left.lastName,
+              name: left.name,
+            }).localeCompare(
+              formatPersonNameLastFirst({
+                firstName: right.firstName,
+                lastName: right.lastName,
+                name: right.name,
+              }),
+              "it",
+              { sensitivity: "base" },
+            ),
+          );
 
         setSoci(transformedData);
       } catch (error) {
@@ -478,7 +497,14 @@ export default function SociPage() {
                                 key={`${socio.id}-name`}
                                 className="font-medium"
                               >
-                                {socio.name}
+                                <div className="flex items-center gap-2">
+                                  <EntityIcon
+                                    type="member"
+                                    size="sm"
+                                    label={socio.name}
+                                  />
+                                  {socio.name}
+                                </div>
                               </TableCell>
                             )}
                             {visibleColumns.email && (
@@ -591,8 +617,17 @@ export default function SociPage() {
                     }
                   >
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                      <div>
-                        <CardTitle className="text-lg">{socio.name}</CardTitle>
+                      <div className="flex items-center gap-3">
+                        <EntityIcon
+                          type="member"
+                          size="sm"
+                          label={socio.name}
+                        />
+                        <div>
+                          <CardTitle className="text-lg">
+                            {socio.name}
+                          </CardTitle>
+                        </div>
                       </div>
                       <Badge
                         variant={

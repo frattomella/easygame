@@ -17,6 +17,11 @@ import {
   deleteClubDataItem,
 } from "@/lib/simplified-db";
 import {
+  aggregateClubPayments,
+  loadClubFinancialSources,
+  summarizeClubMovements,
+} from "@/lib/club-financial-summary";
+import {
   ArrowDownUp,
   ArrowUp,
   ArrowDown,
@@ -73,6 +78,7 @@ export default function MovementsPage() {
 
   // Data for transactions
   const [transactions, setTransactions] = useState([]);
+  const [clubMovements, setClubMovements] = useState<any[]>([]);
 
   // Data for expected income
   const [expectedIncome, setExpectedIncome] = useState([]);
@@ -143,6 +149,14 @@ export default function MovementsPage() {
         setExpectedIncome(expectedIncomeData || []);
         setExpectedExpenses(expectedExpensesData || []);
         setTransfers(transfersData || []);
+        setClubMovements(
+          aggregateClubPayments({
+            ...(await loadClubFinancialSources(activeClub.id)),
+            transactions: transactionsData || [],
+            expectedIncome: expectedIncomeData || [],
+            expectedExpenses: expectedExpensesData || [],
+          }),
+        );
       } catch (error) {
         console.error("Error loading financial data:", error);
         showToast("error", "Errore nel caricamento dei dati finanziari");
@@ -190,17 +204,27 @@ export default function MovementsPage() {
   });
 
   // Filter transactions based on search query and selected bank account
-  const filteredTransactions = transactions.filter((transaction) => {
+  const movementRows =
+    clubMovements.length > 0 ? clubMovements : aggregateClubPayments({ transactions });
+
+  const filteredTransactions = movementRows.filter((transaction) => {
+    const raw = (transaction.raw || {}) as any;
+    const searchableText = [
+      transaction.description,
+      transaction.category,
+      transaction.subjectName,
+      transaction.source,
+      transaction.status,
+      raw.reference,
+    ]
+      .join(" ")
+      .toLowerCase();
     const matchesSearch =
-      transaction.description
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase()) ||
-      transaction.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transaction.reference.toLowerCase().includes(searchQuery.toLowerCase());
+      !searchQuery || searchableText.includes(searchQuery.toLowerCase());
 
     const matchesAccount =
       selectedBankAccountFilter === "all" ||
-      transaction.bankAccountId === selectedBankAccountFilter;
+      raw.bankAccountId === selectedBankAccountFilter;
 
     return matchesSearch && matchesAccount;
   });
@@ -675,29 +699,14 @@ export default function MovementsPage() {
 
   // Calculate totals
   const calculateTotals = () => {
-    const totalIncome = transactions
-      .filter((t) => t.type === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
-    const totalExpense = transactions
-      .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
-    const balance = totalIncome - totalExpense;
-
-    const totalExpectedIncome = expectedIncome.reduce(
-      (sum, t) => sum + t.amount,
-      0,
-    );
-    const totalExpectedExpense = expectedExpenses.reduce(
-      (sum, t) => sum + t.amount,
-      0,
-    );
+    const summary = summarizeClubMovements(movementRows);
 
     return {
-      totalIncome,
-      totalExpense,
-      balance,
-      totalExpectedIncome,
-      totalExpectedExpense,
+      totalIncome: summary.totalIncome,
+      totalExpense: summary.totalExpense,
+      balance: summary.balance,
+      totalExpectedIncome: summary.totalPendingIncome,
+      totalExpectedExpense: summary.totalPendingExpense,
     };
   };
 
@@ -865,46 +874,66 @@ export default function MovementsPage() {
                             </TableRow>
                           ) : (
                             filteredTransactions.map((transaction) => (
-                              <TableRow key={transaction.id}>
+                              <TableRow key={`${transaction.source}-${transaction.id}`}>
                                 <TableCell>
-                                  {formatDate(transaction.date)}
+                                  {formatDate(
+                                    transaction.paidAt ||
+                                      transaction.date ||
+                                      transaction.dueDate,
+                                  )}
                                 </TableCell>
                                 <TableCell>
                                   <TruncatedDescription
                                     description={transaction.description}
                                   />
                                 </TableCell>
-                                <TableCell>{transaction.category}</TableCell>
+                                <TableCell>
+                                  {transaction.category || transaction.source}
+                                </TableCell>
                                 <TableCell
                                   className={
-                                    transaction.type === "income"
+                                    transaction.direction === "income"
                                       ? "text-green-600"
                                       : "text-red-600"
                                   }
                                 >
-                                  {transaction.type === "income" ? "+" : "-"}€
+                                  {transaction.direction === "income" ? "+" : "-"}€
                                   {transaction.amount.toFixed(2)}
                                 </TableCell>
                                 <TableCell>
-                                  {transaction.paymentMethod}
+                                  {(transaction.raw as any)?.paymentMethod ||
+                                    (transaction.raw as any)?.method ||
+                                    "-"}
                                 </TableCell>
                                 <TableCell>
                                   {bankAccounts.find(
                                     (account) =>
-                                      account.id === transaction.bankAccountId,
+                                      account.id ===
+                                      (transaction.raw as any)?.bankAccountId,
                                   )?.name || ""}
                                 </TableCell>
-                                <TableCell>{transaction.reference}</TableCell>
+                                <TableCell>
+                                  {transaction.subjectName ||
+                                    (transaction.raw as any)?.reference ||
+                                    "-"}
+                                </TableCell>
                                 <TableCell className="text-right">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() =>
-                                      handleDeleteTransaction(transaction.id)
-                                    }
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                  {transaction.source === "manual" &&
+                                  (transaction.raw as any)?.id ? (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() =>
+                                        handleDeleteTransaction(
+                                          (transaction.raw as any).id,
+                                        )
+                                      }
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
                                 </TableCell>
                               </TableRow>
                             ))

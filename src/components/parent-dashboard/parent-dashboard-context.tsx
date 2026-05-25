@@ -6,9 +6,10 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import type { ParentDashboardData } from "./parent-dashboard-types";
@@ -33,6 +34,8 @@ type ParentDashboardContextValue = {
   athleteRouteId: string;
   refresh: () => Promise<void>;
   bookAppointment: (input: AppointmentInput) => Promise<void>;
+  updateAppointment: (id: string, input: AppointmentInput) => Promise<void>;
+  cancelAppointment: (id: string) => Promise<void>;
   uploadDocument: (input: DocumentInput) => Promise<void>;
 };
 
@@ -43,6 +46,12 @@ const missingProviderContext: ParentDashboardContextValue = {
   athleteRouteId: "",
   refresh: async () => {},
   bookAppointment: async () => {
+    throw new Error("Dashboard genitore non inizializzata");
+  },
+  updateAppointment: async () => {
+    throw new Error("Dashboard genitore non inizializzata");
+  },
+  cancelAppointment: async () => {
     throw new Error("Dashboard genitore non inizializzata");
   },
   uploadDocument: async () => {
@@ -61,19 +70,82 @@ const fileToBase64 = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+const getParentDashboardCacheKey = (athleteId: string) =>
+  athleteId ? `easygame:parent-dashboard:${athleteId}` : "";
+
+const readCachedParentDashboard = (athleteId: string) => {
+  if (typeof window === "undefined" || !athleteId) return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(
+      getParentDashboardCacheKey(athleteId),
+    );
+    return raw ? (JSON.parse(raw) as ParentDashboardData) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedParentDashboard = (
+  routeId: string,
+  nextData: ParentDashboardData,
+) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    const serialized = JSON.stringify(nextData);
+    if (routeId) {
+      window.sessionStorage.setItem(
+        getParentDashboardCacheKey(routeId),
+        serialized,
+      );
+    }
+    if (nextData.athlete?.id && nextData.athlete.id !== routeId) {
+      window.sessionStorage.setItem(
+        getParentDashboardCacheKey(nextData.athlete.id),
+        serialized,
+      );
+    }
+  } catch {
+    // La cache serve solo a evitare schermate vuote tra navigazioni.
+  }
+};
+
 export function ParentDashboardProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const params = useParams<{ id: string }>();
+  const pathname = usePathname();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { showToast } = useToast();
-  const athleteRouteId = String(params?.id || "");
-  const [data, setData] = useState<ParentDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const routeIdFromPath = String(pathname || "")
+    .split("/")
+    .filter(Boolean)[1];
+  const athleteRouteId = String(params?.id || routeIdFromPath || "");
+  const [data, setData] = useState<ParentDashboardData | null>(() =>
+    readCachedParentDashboard(athleteRouteId),
+  );
+  const [loading, setLoading] = useState(
+    () => !readCachedParentDashboard(athleteRouteId),
+  );
   const [error, setError] = useState<string | null>(null);
+  const dataRef = useRef<ParentDashboardData | null>(null);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => {
+    const cachedData = readCachedParentDashboard(athleteRouteId);
+    if (!cachedData) return;
+
+    setData(cachedData);
+    setLoading(false);
+    setError(null);
+  }, [athleteRouteId]);
 
   const refresh = useCallback(async () => {
     if (authLoading) {
@@ -85,8 +157,18 @@ export function ParentDashboardProvider({
       return;
     }
 
+    if (!athleteRouteId) {
+      setError("Atleta non selezionato");
+      setLoading(false);
+      return;
+    }
+
     try {
-      setLoading(true);
+      if (!dataRef.current) {
+        setLoading(true);
+      } else {
+        setLoading(false);
+      }
       setError(null);
       const response = await fetch(`/api/parent-dashboard/${athleteRouteId}`, {
         cache: "no-store",
@@ -100,6 +182,7 @@ export function ParentDashboardProvider({
       }
 
       setData(payload.data);
+      writeCachedParentDashboard(athleteRouteId, payload.data);
 
       if (typeof window !== "undefined" && payload.data?.club) {
         const activeClub = {
@@ -155,6 +238,54 @@ export function ParentDashboardProvider({
     [athleteRouteId, data?.athlete.id, refresh, showToast],
   );
 
+  const updateAppointment = useCallback(
+    async (id: string, input: AppointmentInput) => {
+      const response = await fetch(
+        `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/appointments`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id, ...input }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload?.error) {
+        throw new Error(
+          payload?.error?.message || "Impossibile modificare l'appuntamento",
+        );
+      }
+
+      showToast("success", "Richiesta appuntamento aggiornata");
+      await refresh();
+    },
+    [athleteRouteId, data?.athlete.id, refresh, showToast],
+  );
+
+  const cancelAppointment = useCallback(
+    async (id: string) => {
+      const response = await fetch(
+        `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/appointments`,
+        {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload?.error) {
+        throw new Error(
+          payload?.error?.message || "Impossibile cancellare l'appuntamento",
+        );
+      }
+
+      showToast("success", "Richiesta appuntamento cancellata");
+      await refresh();
+    },
+    [athleteRouteId, data?.athlete.id, refresh, showToast],
+  );
+
   const uploadDocument = useCallback(
     async (input: DocumentInput) => {
       const dataBase64 = await fileToBase64(input.file);
@@ -194,11 +325,15 @@ export function ParentDashboardProvider({
       athleteRouteId: data?.athlete.id || athleteRouteId,
       refresh,
       bookAppointment,
+      updateAppointment,
+      cancelAppointment,
       uploadDocument,
     }),
     [
       athleteRouteId,
       bookAppointment,
+      updateAppointment,
+      cancelAppointment,
       data,
       error,
       loading,

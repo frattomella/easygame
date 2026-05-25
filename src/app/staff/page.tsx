@@ -31,6 +31,7 @@ import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface StaffMember {
   id: string;
@@ -339,11 +340,18 @@ export default function StaffPage() {
                 }
               >
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div>
-                    <CardTitle className="text-lg">
-                      {getStaffDisplayName(member)}
-                    </CardTitle>
-                    <p className="text-sm text-gray-500">{member.role}</p>
+                  <div className="flex items-center gap-3">
+                    <EntityIcon
+                      type="staff"
+                      size="sm"
+                      label={getStaffDisplayName(member)}
+                    />
+                    <div>
+                      <CardTitle className="text-lg">
+                        {getStaffDisplayName(member)}
+                      </CardTitle>
+                      <p className="text-sm text-gray-500">{member.role}</p>
+                    </div>
                   </div>
                   <Badge
                     variant={member.status === "active" ? "default" : "outline"}

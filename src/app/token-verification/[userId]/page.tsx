@@ -925,10 +925,10 @@ export default function TokenVerificationPage() {
               redirectPath = `/trainer-dashboard/${dashboardData.id}?clubId=${club.id}`;
               break;
             case "athlete":
-              redirectPath = `/parent-view/${club.id}/${dashboardData.id}`;
+              redirectPath = `/parent-view/${club.id}`;
               break;
             case "parent":
-              redirectPath = `/parent-view/${club.id}/${dashboardData.id}`;
+              redirectPath = `/parent-view/${club.id}`;
               break;
             default:
               redirectPath = `/dashboard/${dashboardData.id}?clubId=${club.id}`;
@@ -997,10 +997,10 @@ export default function TokenVerificationPage() {
                 redirectPath = `/trainer-dashboard/${newDashboard[0].id}?clubId=${club.id}`;
                 break;
               case "athlete":
-                redirectPath = `/parent-view/clubId/${club.id}/dashboardId/${newDashboard[0].id}`;
+                redirectPath = `/parent-view/${club.id}`;
                 break;
               case "parent":
-                redirectPath = `/parent-view/clubId/${club.id}/dashboardId/${newDashboard[0].id}`;
+                redirectPath = `/parent-view/${club.id}`;
                 break;
               default:
                 redirectPath = `/dashboard/${newDashboard[0].id}?clubId=${club.id}`;

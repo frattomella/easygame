@@ -11,8 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast-notification";
 import { LogoUpload } from "@/components/ui/avatar-upload";
-import Image from "next/image";
-import companyDefaultImage from "@/../public/images/company.png";
+import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   Building,
   CreditCard,
@@ -715,15 +714,11 @@ export default function SponsorsPage() {
                                         />
                                       </div>
                                     ) : (
-                                      <div className="h-10 w-10 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-800 p-1">
-                                        <Image
-                                          src={companyDefaultImage}
-                                          alt={sponsor.name}
-                                          className="w-full h-full object-contain"
-                                          width={40}
-                                          height={40}
-                                        />
-                                      </div>
+                                      <EntityIcon
+                                        type="sponsor"
+                                        shape="square"
+                                        label={sponsor.name}
+                                      />
                                     )}
                                     <span>{sponsor.name || "N/A"}</span>
                                   </div>

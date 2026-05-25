@@ -26,6 +26,17 @@ export type ParentDashboardData = {
     category_id?: string | null;
     category_name?: string | null;
     status?: string | null;
+    jersey_number?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    city?: string | null;
+    province?: string | null;
+    postal_code?: string | null;
+    fiscal_code?: string | null;
+    birth_place?: string | null;
+    nationality?: string | null;
+    gender?: string | null;
     user_id?: string | null;
     data?: any;
     guardians: Array<Record<string, any>>;
@@ -50,9 +61,11 @@ export type ParentDashboardData = {
     totalDue: number;
     totalPaid: number;
     remaining: number;
+    summary?: Record<string, any>;
     receipts: Array<Record<string, any>>;
     invoices: Array<Record<string, any>>;
   };
+  enrollment?: Record<string, any>;
   documents: {
     required: Array<Record<string, any>>;
     uploaded: Array<Record<string, any>>;

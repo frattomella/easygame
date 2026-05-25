@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
+import {
+  compareAthletesByLastName,
+  getAthleteDisplayName,
+} from "@/lib/athlete-name-utils";
 
 interface AddCertificateFormProps {
   isOpen: boolean;
@@ -98,10 +102,13 @@ export function AddCertificateForm({
             return;
           }
 
-          const fetchedAthletes = (athletesData || []).map((athlete: any) => ({
-            id: athlete.id,
-            name: `${athlete.first_name} ${athlete.last_name}`.trim(),
-          }));
+          const fetchedAthletes = (athletesData || [])
+            .slice()
+            .sort(compareAthletesByLastName)
+            .map((athlete: any) => ({
+              id: athlete.id,
+              name: getAthleteDisplayName(athlete) || "Atleta",
+            }));
           console.log("Fetched athletes:", fetchedAthletes);
           setLocalAthletes(fetchedAthletes);
           setFilteredAthletes(fetchedAthletes);

@@ -5,11 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeftRight,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  FolderKanban,
   Home,
   LifeBuoy,
   Loader2,
@@ -82,13 +80,6 @@ const NAV_ITEMS: Array<{
     href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.athletes,
     icon: Users,
   },
-  {
-    key: "categories",
-    label: "Categorie",
-    description: "Le tue categorie",
-    href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.categories,
-    icon: FolderKanban,
-  },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
@@ -96,7 +87,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/trainer-dashboard/trainings": "Allenamenti",
   "/trainer-dashboard/matches": "Gare",
   "/trainer-dashboard/athletes": "Atleti",
-  "/trainer-dashboard/categories": "Categorie",
 };
 
 const getCurrentNavigationKey = (pathname: string) => {
@@ -137,7 +127,6 @@ function TrainerSidebarContent({
     assignedAthletes,
     assignedCategories,
     permissions,
-    signOut,
     trainerProfile,
   } = useTrainerDashboard();
 
@@ -145,9 +134,9 @@ function TrainerSidebarContent({
     (item) => permissions.navigation[item.key],
   );
 
-  const handleSignOut = async () => {
+  const handleExitToAccount = () => {
     onNavigate?.();
-    await signOut();
+    router.push("/account");
   };
 
   return (
@@ -177,7 +166,12 @@ function TrainerSidebarContent({
           ) : null}
         </div>
 
-        <div className={cn("mt-4 flex items-center", collapsed ? "justify-center" : "justify-between")}>
+        <div
+          className={cn(
+            "mt-4 flex items-center",
+            collapsed ? "justify-center" : "justify-between",
+          )}
+        >
           {!collapsed ? (
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-white/90">
@@ -210,7 +204,8 @@ function TrainerSidebarContent({
           const Icon = item.icon;
           const isActive =
             pathname === item.href ||
-            (item.href !== "/trainer-dashboard" && pathname.startsWith(item.href));
+            (item.href !== "/trainer-dashboard" &&
+              pathname.startsWith(item.href));
 
           return (
             <button
@@ -277,21 +272,7 @@ function TrainerSidebarContent({
               "w-full rounded-2xl text-white hover:bg-white/10 hover:text-white",
               collapsed ? "justify-center px-0" : "justify-start",
             )}
-            onClick={() => {
-              router.push("/account");
-              onNavigate?.();
-            }}
-          >
-            <ArrowLeftRight className="mr-0 h-4 w-4 shrink-0" />
-            {!collapsed ? <span className="ml-3">Home account</span> : null}
-          </Button>
-          <Button
-            variant="ghost"
-            className={cn(
-              "w-full rounded-2xl text-white hover:bg-white/10 hover:text-white",
-              collapsed ? "justify-center px-0" : "justify-start",
-            )}
-            onClick={handleSignOut}
+            onClick={handleExitToAccount}
           >
             <LogOut className="mr-0 h-4 w-4 shrink-0" />
             {!collapsed ? <span className="ml-3">Esci</span> : null}
@@ -302,11 +283,7 @@ function TrainerSidebarContent({
   );
 }
 
-function TrainerTopBar({
-  onOpenMobileMenu,
-}: {
-  onOpenMobileMenu: () => void;
-}) {
+function TrainerTopBar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const { activeClub, signOut, trainerProfile, user } = useTrainerDashboard();
@@ -466,7 +443,10 @@ export default function TrainerDashboardLayoutShell({
           onToggleCollapsed={() => {
             const nextValue = !collapsed;
             setCollapsed(nextValue);
-            localStorage.setItem("trainer-sidebar-collapsed", String(nextValue));
+            localStorage.setItem(
+              "trainer-sidebar-collapsed",
+              String(nextValue),
+            );
           }}
         />
       </div>
@@ -483,8 +463,8 @@ export default function TrainerDashboardLayoutShell({
                     Profilo non collegato
                   </p>
                   <h2 className="mt-3 text-3xl font-semibold text-slate-900">
-                    L&apos;accesso al club è attivo, ma manca ancora il collegamento
-                    con la scheda allenatore.
+                    L&apos;accesso al club è attivo, ma manca ancora il
+                    collegamento con la scheda allenatore.
                   </h2>
                   <p className="mt-3 text-sm leading-6 text-slate-600">
                     Chiedi al club di generare il token dalla tua scheda

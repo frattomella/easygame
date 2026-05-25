@@ -49,6 +49,36 @@ const DAY_INDEX_TO_WEEKLY_DAY: Record<number, (typeof WEEKLY_SCHEDULE_DAYS)[numb
     5: "Venerdì",
     6: "Sabato",
   };
+const WEEKLY_DAY_ALIAS_INDEX: Record<string, number> = {
+  monday: 0,
+  mon: 0,
+  lunedi: 0,
+  lun: 0,
+  tuesday: 1,
+  tue: 1,
+  martedi: 1,
+  mar: 1,
+  wednesday: 2,
+  wed: 2,
+  mercoledi: 2,
+  mer: 2,
+  thursday: 3,
+  thu: 3,
+  giovedi: 3,
+  gio: 3,
+  friday: 4,
+  fri: 4,
+  venerdi: 4,
+  ven: 4,
+  saturday: 5,
+  sat: 5,
+  sabato: 5,
+  sab: 5,
+  sunday: 6,
+  sun: 6,
+  domenica: 6,
+  dom: 6,
+};
 
 const DEFAULT_TRAINING_DURATION_MINUTES = 90;
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -90,6 +120,14 @@ const normalizeLookupValue = (value: unknown) =>
   String(value || "")
     .trim()
     .toLowerCase();
+
+export const formatLocalDateKey = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
 
 const firstNonEmptyString = (...values: unknown[]) => {
   for (const value of values) {
@@ -474,11 +512,15 @@ export const getTrainingDate = (training: unknown) => {
     training.startDate,
     training.scheduled_at,
     training.scheduledAt,
+    training.startsAt,
+    training.start,
     source.date,
     source.start_date,
     source.startDate,
     source.scheduled_at,
     source.scheduledAt,
+    source.startsAt,
+    source.start,
   ]) {
     const parsed = normalizeDateValue(candidate as string | Date | null | undefined);
     if (parsed) {
@@ -489,13 +531,48 @@ export const getTrainingDate = (training: unknown) => {
   return null;
 };
 
-export const resolveTrainingWeekday = (training: unknown) => {
-  if (isRecord(training)) {
-    const source = getTrainingSourceRecord(training);
+const capitalizeItalianWord = (value: string) => {
+  if (!value) {
+    return "";
+  }
+
+  return value.charAt(0).toLocaleUpperCase("it-IT") + value.slice(1);
+};
+
+export const formatTrainingTitle = (dateInput: string | Date | null | undefined) => {
+  const parsedDate =
+    dateInput instanceof Date
+      ? new Date(dateInput)
+      : getTrainingDate({ date: dateInput });
+
+  if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
+    return "Allenamento";
+  }
+
+  const formatter = new Intl.DateTimeFormat("it-IT", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  const parts = formatter.formatToParts(parsedDate);
+  const weekday = capitalizeItalianWord(
+    parts.find((part) => part.type === "weekday")?.value || "",
+  );
+  const day = parts.find((part) => part.type === "day")?.value || "";
+  const month = capitalizeItalianWord(
+    parts.find((part) => part.type === "month")?.value || "",
+  );
+
+  return [weekday, day, month].filter(Boolean).join(" ");
+};
+
+export const resolveExplicitWeeklyScheduleDay = (scheduleItem: unknown) => {
+  if (isRecord(scheduleItem)) {
+    const source = getTrainingSourceRecord(scheduleItem);
     const directDay = firstNonEmptyString(
-      training.day,
-      training.weekday,
-      training.weekDay,
+      scheduleItem.day,
+      scheduleItem.weekday,
+      scheduleItem.weekDay,
       source.day,
       source.weekday,
       source.weekDay,
@@ -513,7 +590,21 @@ export const resolveTrainingWeekday = (training: unknown) => {
       if (matchIndex >= 0) {
         return WEEKLY_SCHEDULE_DAYS[matchIndex];
       }
+
+      const aliasIndex = WEEKLY_DAY_ALIAS_INDEX[normalizedDay];
+      if (aliasIndex !== undefined) {
+        return WEEKLY_SCHEDULE_DAYS[aliasIndex];
+      }
     }
+  }
+
+  return null;
+};
+
+export const resolveTrainingWeekday = (training: unknown) => {
+  const explicitDay = resolveExplicitWeeklyScheduleDay(training);
+  if (explicitDay) {
+    return explicitDay;
   }
 
   const trainingDate = getTrainingDate(training);
@@ -535,6 +626,18 @@ export const getTrainingStartTime = (training: unknown) => {
   }
 
   const source = getTrainingSourceRecord(training);
+  const startsAt = normalizeDateValue(
+    (training.startsAt || training.start || source.startsAt || source.start) as
+      | string
+      | Date
+      | null
+      | undefined,
+  );
+  const startsAtTime = startsAt
+    ? `${String(startsAt.getHours()).padStart(2, "0")}:${String(
+        startsAt.getMinutes(),
+      ).padStart(2, "0")}`
+    : null;
 
   return (
     firstNonEmptyString(
@@ -542,6 +645,7 @@ export const getTrainingStartTime = (training: unknown) => {
       training.startTime,
       extractTimeParts(training.time)[0],
       training.time,
+      startsAtTime,
       source.start_time,
       source.startTime,
       extractTimeParts(source.time)[0],
@@ -556,12 +660,25 @@ export const getTrainingEndTime = (training: unknown) => {
   }
 
   const source = getTrainingSourceRecord(training);
+  const endsAt = normalizeDateValue(
+    (training.endsAt || training.end || source.endsAt || source.end) as
+      | string
+      | Date
+      | null
+      | undefined,
+  );
+  const endsAtTime = endsAt
+    ? `${String(endsAt.getHours()).padStart(2, "0")}:${String(
+        endsAt.getMinutes(),
+      ).padStart(2, "0")}`
+    : null;
 
   return (
     firstNonEmptyString(
       training.end_time,
       training.endTime,
       extractTimeParts(training.time)[1],
+      endsAtTime,
       source.end_time,
       source.endTime,
       extractTimeParts(source.time)[1],
@@ -613,6 +730,188 @@ export const compareTrainingsByStart = (left: unknown, right: unknown) => {
   return leftTitle.localeCompare(rightTitle, "it", {
     sensitivity: "base",
   });
+};
+
+const getTrainingExplicitId = (training: unknown) => {
+  if (!isRecord(training)) {
+    return "";
+  }
+
+  const source = getTrainingSourceRecord(training);
+
+  return firstNonEmptyString(
+    training.id,
+    training.training_id,
+    training.trainingId,
+    source.id,
+    source.training_id,
+    source.trainingId,
+  );
+};
+
+const getTrainingLocationReference = (training: unknown) => {
+  if (!isRecord(training)) {
+    return "";
+  }
+
+  const source = getTrainingSourceRecord(training);
+
+  return firstNonEmptyString(
+    training.locationId,
+    training.location_id,
+    training.fieldId,
+    training.field_id,
+    training.structureId,
+    training.structure_id,
+    training.location,
+    training.field,
+    source.locationId,
+    source.location_id,
+    source.fieldId,
+    source.field_id,
+    source.structureId,
+    source.structure_id,
+    source.location,
+    source.field,
+  );
+};
+
+const getTrainingTitleReference = (training: unknown) => {
+  if (!isRecord(training)) {
+    return "";
+  }
+
+  const source = getTrainingSourceRecord(training);
+
+  return firstNonEmptyString(training.title, training.name, source.title, source.name);
+};
+
+const getTrainingUpdatedTimestamp = (training: unknown) => {
+  if (!isRecord(training)) {
+    return 0;
+  }
+
+  const source = getTrainingSourceRecord(training);
+  const updatedAt = firstNonEmptyString(
+    training.updated_at,
+    training.updatedAt,
+    training.created_at,
+    training.createdAt,
+    source.updated_at,
+    source.updatedAt,
+    source.created_at,
+    source.createdAt,
+  );
+  const parsed = updatedAt ? new Date(updatedAt).getTime() : 0;
+
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const getTrainingCompletenessScore = (training: unknown) => {
+  if (!isRecord(training)) {
+    return 0;
+  }
+
+  const fields = [
+    getTrainingExplicitId(training),
+    getTrainingDate(training),
+    getTrainingStartTime(training),
+    getTrainingEndTime(training),
+    getTrainingCategoryReferences(training)[0],
+    getTrainingLocationReference(training),
+    getTrainingTitleReference(training),
+    training.status,
+    training.attendance,
+    training.trainerIds,
+    training.trainer,
+  ];
+
+  return fields.reduce((score, value) => {
+    if (Array.isArray(value)) {
+      return score + (value.length > 0 ? 1 : 0);
+    }
+
+    return score + (value ? 1 : 0);
+  }, 0);
+};
+
+export const getTrainingStableKey = (
+  training: unknown,
+  fallbackIndex?: number,
+) => {
+  if (!isRecord(training)) {
+    return `training|malformed|${fallbackIndex ?? "unknown"}`;
+  }
+
+  const trainingDate = getTrainingDate(training);
+  const dateKey = trainingDate ? formatLocalDateKey(trainingDate) : "";
+  const startTime = getTrainingStartTime(training) || "";
+  const endTime = getTrainingEndTime(training) || "";
+  const categoryReference = getTrainingCategoryReferences(training)[0] || "";
+  const locationReference = getTrainingLocationReference(training);
+  const titleReference = getTrainingTitleReference(training);
+  const semanticParts = [
+    dateKey,
+    startTime,
+    endTime,
+    categoryReference,
+    locationReference,
+    titleReference,
+  ]
+    .map((value) => normalizeLookupValue(value))
+    .filter(Boolean);
+
+  if (semanticParts.length >= 3) {
+    return `training|${semanticParts.join("|")}`;
+  }
+
+  const explicitId = getTrainingExplicitId(training);
+  if (explicitId) {
+    return `training|id|${normalizeLookupValue(explicitId)}`;
+  }
+
+  return `training|fallback|${fallbackIndex ?? "unknown"}`;
+};
+
+export const dedupeTrainings = <T>(trainings: T[] = []): T[] => {
+  const uniqueTrainings: T[] = [];
+  const keyToIndex = new Map<string, number>();
+
+  (Array.isArray(trainings) ? trainings : []).forEach((training, index) => {
+    const explicitId = getTrainingExplicitId(training);
+    const keys = uniqueValues([
+      getTrainingStableKey(training, index),
+      explicitId ? `training|id|${normalizeLookupValue(explicitId)}` : null,
+    ]);
+
+    const existingIndex = keys
+      .map((key) => keyToIndex.get(key))
+      .find((itemIndex) => itemIndex !== undefined);
+
+    if (existingIndex === undefined) {
+      const nextIndex = uniqueTrainings.length;
+      uniqueTrainings.push(training);
+      keys.forEach((key) => keyToIndex.set(key, nextIndex));
+      return;
+    }
+
+    const currentTraining = uniqueTrainings[existingIndex];
+    const currentScore = getTrainingCompletenessScore(currentTraining);
+    const nextScore = getTrainingCompletenessScore(training);
+    const currentUpdatedAt = getTrainingUpdatedTimestamp(currentTraining);
+    const nextUpdatedAt = getTrainingUpdatedTimestamp(training);
+
+    if (
+      nextScore > currentScore ||
+      (nextScore === currentScore && nextUpdatedAt > currentUpdatedAt)
+    ) {
+      uniqueTrainings[existingIndex] = training;
+    }
+
+    keys.forEach((key) => keyToIndex.set(key, existingIndex));
+  });
+
+  return uniqueTrainings;
 };
 
 export const getTrainingCategoryReferences = (training: unknown) => {

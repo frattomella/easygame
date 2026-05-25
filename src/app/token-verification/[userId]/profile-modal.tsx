@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface ProfileModalProps {
   userId: string;
@@ -40,11 +41,16 @@ export default function ProfileModal({
       setIsUploading(true);
       setError("");
 
-      // For demo purposes, we'll use a placeholder image instead of actual upload
-      const seed = Math.random().toString(36).substring(2, 10);
-      const newImageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
-      setImageUrl(newImageUrl);
-      setIsUploading(false);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setImageUrl(String(event.target?.result || ""));
+        setIsUploading(false);
+      };
+      reader.onerror = () => {
+        setError("Errore durante il caricamento dell'immagine");
+        setIsUploading(false);
+      };
+      reader.readAsDataURL(file);
     } catch (err) {
       console.error("Error uploading image:", err);
       setError("Errore durante il caricamento dell'immagine");
@@ -89,14 +95,20 @@ export default function ProfileModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex flex-col items-center mb-6">
             <div className="relative h-24 w-24 mb-4">
-              <img
-                src={
-                  imageUrl ||
-                  "https://api.dicebear.com/7.x/avataaars/svg?seed=default"
-                }
-                alt="Profile"
-                className="h-full w-full rounded-full object-cover border-4 border-blue-500"
-              />
+              {imageUrl ? (
+                <img
+                  src={imageUrl}
+                  alt="Profile"
+                  className="h-full w-full rounded-full object-cover border-4 border-blue-500"
+                />
+              ) : (
+                <EntityIcon
+                  type="user"
+                  size="xl"
+                  label="Profile"
+                  className="h-full w-full border-4 border-blue-500"
+                />
+              )}
               <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-20 rounded-full flex items-center justify-center transition-all">
                 <span className="text-white opacity-0 hover:opacity-100 text-xs font-medium">
                   Cambia

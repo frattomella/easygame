@@ -44,8 +44,7 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 import { getClubTrainers } from "@/lib/simplified-db";
-import Image from "next/image";
-import userDefaultImage from "@/../public/images/user.png";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface Trainer {
   id: string;
@@ -445,13 +444,11 @@ export default function TrainersPage() {
                                         alt={trainer.name}
                                       />
                                     ) : (
-                                      <AvatarFallback className="bg-white p-0.5">
-                                        <Image
-                                          src={userDefaultImage}
-                                          alt={trainer.name}
-                                          className="object-contain w-full h-full"
-                                          width={40}
-                                          height={40}
+                                      <AvatarFallback className="bg-transparent p-0">
+                                        <EntityIcon
+                                          type="trainer"
+                                          label={trainer.name}
+                                          className="h-full w-full border-0"
                                         />
                                       </AvatarFallback>
                                     )}

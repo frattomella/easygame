@@ -51,6 +51,7 @@ import {
   Trash2,
   CreditCard,
   CalendarClock,
+  Building2,
   Save,
   Eye,
   EyeOff,
@@ -862,7 +863,10 @@ export default function StrutturePage() {
                       <CardHeader className="flex flex-row items-start justify-between gap-4">
                         <div>
                           <CardTitle className="flex items-center gap-2">
-                            {s.name || "(Senza nome)"}
+                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+                              <Building2 className="h-4 w-4" />
+                            </span>
+                            <span>{s.name || "(Senza nome)"}</span>
                             {(s as any).isVisibleToMembers ? (
                               <Badge className="bg-gray-100 text-gray-700 border border-gray-200">
                                 Visibile ai tesserati

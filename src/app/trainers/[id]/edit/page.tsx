@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -21,6 +20,7 @@ import {
   getTrainerCategoryIds,
   getTrainerDisplayName,
 } from "@/lib/trainer-utils";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 export default function EditTrainerPage() {
   const params = useParams<{ id: string }>();
@@ -92,9 +92,7 @@ export default function EditTrainerPage() {
               : trainerFound.birthDate || "",
             startDate: trainerFound.hireDate || trainerFound.startDate || "",
             bio: trainerFound.bio || "",
-            avatar:
-              trainerFound.avatar ||
-              `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(getTrainerDisplayName(trainerFound).replace(/\s+/g, ""))}`,
+            avatar: trainerFound.avatar || "",
             categories: normalizedCategoryIds,
             salary: trainerFound.salary?.toString() || "0",
             fiscalCode: trainerFound.fiscalCode || "",
@@ -284,19 +282,19 @@ export default function EditTrainerPage() {
             <div className="flex flex-col md:flex-row items-center gap-4 bg-white p-6 rounded-lg border">
               <div className="relative">
                 <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-gray-200">
-                  {avatarPreview ? (
+                  {avatarPreview || trainerData.avatar ? (
                     <Image
-                      src={avatarPreview}
-                      alt="Anteprima avatar"
+                      src={avatarPreview || trainerData.avatar}
+                      alt={trainerData.name}
                       fill
                       className="object-cover"
                     />
                   ) : (
-                    <Image
-                      src={trainerData.avatar}
-                      alt={trainerData.name}
-                      fill
-                      className="object-cover"
+                    <EntityIcon
+                      type="trainer"
+                      size="xl"
+                      label={trainerData.name}
+                      className="h-full w-full border-0"
                     />
                   )}
                 </div>

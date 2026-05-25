@@ -6,24 +6,28 @@ import {
   CalendarDays,
   ClipboardCheck,
   RotateCcw,
+  Search,
   XCircle,
 } from "lucide-react";
+import { PageHeading } from "@/components/dashboard/page-heading";
 import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
 import {
   ConfirmDialog,
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   CompactEntityCard,
-  FeatureHighlightCard,
   SectionBlockedState,
   SectionEmptyState,
-  SummaryCard,
   SurfacePanel,
   formatDate,
   formatTimeRange,
@@ -31,12 +35,25 @@ import {
   getStatusBadgeClasses,
 } from "@/components/trainer/trainer-dashboard-shared";
 import {
+  compareTrainerRecordsByStart,
   getTrainerEndOfWeek,
   isSameTrainerDay,
   recordMatchesCategory,
 } from "@/lib/trainer-dashboard-helpers";
-import { canRecordTrainingAttendance } from "@/lib/training-utils";
-import { saveTrainingAttendance, updateClubDataItem } from "@/lib/simplified-db";
+import {
+  canRecordTrainingAttendance,
+  dedupeTrainings,
+  getTrainingStableKey,
+} from "@/lib/training-utils";
+import {
+  getTrainingAttendanceLabel,
+  getTrainingAttendanceStatus,
+  isTrainingMissingAttendance,
+} from "@/lib/trainer-operational-alerts";
+import {
+  saveTrainingAttendance,
+  updateClubDataItem,
+} from "@/lib/simplified-db";
 import { useToast } from "@/components/ui/toast-notification";
 
 export default function TrainerTrainingsDashboardPage() {
@@ -52,7 +69,10 @@ export default function TrainerTrainingsDashboardPage() {
   } = useTrainerDashboard();
   const { showToast } = useToast();
   const [selectedTraining, setSelectedTraining] = useState<any | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(
+    new Date(),
+  );
+  const [historySearch, setHistorySearch] = useState("");
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -72,22 +92,46 @@ export default function TrainerTrainingsDashboardPage() {
   const now = new Date();
   const focusedTrainingId = searchParams.get("focus");
   const endOfWeek = getTrainerEndOfWeek(now);
-  const todayTrainings = visibleTrainings.filter((training) =>
-    isSameTrainerDay(training?.startsAt, now),
-  );
-  const weekTrainings = visibleTrainings.filter(
+  const uniqueVisibleTrainings = dedupeTrainings(visibleTrainings);
+  const weekTrainings = uniqueVisibleTrainings.filter(
     (training) =>
       training?.startsAt &&
       training.startsAt >= now &&
       training.startsAt <= endOfWeek &&
       !isSameTrainerDay(training.startsAt, now),
   );
-  const futureTrainings = visibleTrainings.filter(
-    (training) => training?.startsAt && training.startsAt > endOfWeek,
-  );
-  const selectedDateTrainings = visibleTrainings.filter((training) =>
+  const historyTrainings = uniqueVisibleTrainings
+    .filter(
+      (training) =>
+        training?.startsAt &&
+        training.startsAt < now &&
+        !isSameTrainerDay(training.startsAt, now),
+    )
+    .sort((left, right) => {
+      const leftTime = left?.startsAt ? left.startsAt.getTime() : 0;
+      const rightTime = right?.startsAt ? right.startsAt.getTime() : 0;
+      return rightTime - leftTime;
+    });
+  const normalizedHistorySearch = historySearch.trim().toLowerCase();
+  const filteredHistoryTrainings = normalizedHistorySearch
+    ? historyTrainings.filter((training) =>
+        [
+          training?.title,
+          training?.date,
+          training?.time,
+          training?.displayCategory,
+          training?.category,
+          training?.status,
+          training?.location,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedHistorySearch),
+      )
+    : historyTrainings;
+  const selectedDateTrainings = uniqueVisibleTrainings.filter((training) =>
     selectedDate ? isSameTrainerDay(training?.startsAt, selectedDate) : false,
-  );
+  ).sort(compareTrainerRecordsByStart);
 
   const getTrainingAthletes = (training: any) => {
     const trainingCategories = assignedCategories.filter((category) =>
@@ -102,7 +146,9 @@ export default function TrainerTrainingsDashboardPage() {
       )
       .map((athlete) => {
         const attendanceRecord = Array.isArray(training?.attendance)
-          ? training.attendance.find((entry: any) => entry.athleteId === athlete.id)
+          ? training.attendance.find(
+              (entry: any) => entry.athleteId === athlete.id,
+            )
           : null;
 
         return {
@@ -124,24 +170,32 @@ export default function TrainerTrainingsDashboardPage() {
     emptyTitle: string,
     emptyDescription: string,
   ) => {
-    if (trainings.length === 0) {
+    const uniqueTrainings = dedupeTrainings(trainings);
+
+    if (uniqueTrainings.length === 0) {
       return (
-        <SectionEmptyState
-          title={emptyTitle}
-          description={emptyDescription}
-        />
+        <SectionEmptyState title={emptyTitle} description={emptyDescription} />
       );
     }
 
     return (
       <div className="space-y-3">
-        {trainings.map((training) => {
+        {uniqueTrainings.map((training) => {
           const status = getStatusBadgeClasses(
             training?.status,
             training?.startsAt,
             training?.endsAt,
           );
           const trainingAthletes = getTrainingAthletes(training);
+          const attendanceStatus = getTrainingAttendanceStatus(
+            training,
+            trainingAthletes,
+          );
+          const missingAttendance = isTrainingMissingAttendance(
+            training,
+            trainingAthletes,
+            now,
+          );
           const canTakeAttendance =
             permissions.actions.manageAttendance &&
             canRecordTrainingAttendance({
@@ -153,17 +207,21 @@ export default function TrainerTrainingsDashboardPage() {
 
           return (
             <CompactEntityCard
-              key={training.id}
+              key={getTrainingStableKey(training)}
               title={training.title || "Allenamento"}
               className={
                 focusedTrainingId === training.id
                   ? "border-blue-300 bg-blue-50/70 shadow-sm"
-                  : undefined
+                  : missingAttendance
+                    ? "border-rose-200 bg-rose-50/60"
+                    : undefined
               }
               badge={<Badge className={status.className}>{status.label}</Badge>}
               lines={[
                 <span key="category">
-                  {training.displayCategory || training.category || "Categoria"}
+                  <Badge className="border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 hover:bg-blue-50">
+                    {training.displayCategory || training.category || "Categoria"}
+                  </Badge>
                 </span>,
                 <span key="date">
                   {formatDate(training.date)} ·{" "}
@@ -174,10 +232,19 @@ export default function TrainerTrainingsDashboardPage() {
                     ? training.location || "Luogo da definire"
                     : "Dettagli luogo non visibili"}
                 </span>,
-                <span key="athletes">
-                  {trainingAthletes.length} atleti collegati
+                <span key="attendance" className="font-medium text-slate-700">
+                  {attendanceStatus.present}/{attendanceStatus.total} ·{" "}
+                  {getTrainingAttendanceLabel(attendanceStatus.state)}
                 </span>,
               ]}
+              footer={
+                missingAttendance ? (
+                  <div className="flex items-center gap-2 text-sm font-medium text-rose-700">
+                    <XCircle className="h-4 w-4" />
+                    Presenze da completare
+                  </div>
+                ) : null
+              }
               actions={
                 <>
                   {canTakeAttendance &&
@@ -190,7 +257,11 @@ export default function TrainerTrainingsDashboardPage() {
                       onClick={() => setSelectedTraining(training)}
                     >
                       <ClipboardCheck className="mr-2 h-4 w-4" />
-                      Presenze
+                      {attendanceStatus.state === "missing"
+                        ? "Prendi presenze"
+                        : attendanceStatus.state === "partial"
+                          ? "Completa presenze"
+                          : "Modifica presenze"}
                     </Button>
                   ) : null}
 
@@ -270,118 +341,21 @@ export default function TrainerTrainingsDashboardPage() {
 
   return (
     <div className="space-y-6 pb-2">
-      <div className="space-y-2">
-        <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-4xl font-bold text-transparent">
-          Allenamenti
-        </h1>
-        <p className="text-gray-600">
-          In alto trovi gli allenamenti del giorno, sotto la settimana corrente e
-          il calendario delle prossime attivita delle tue categorie.
-        </p>
-      </div>
+      <PageHeading
+        eyebrow="Dashboard trainer"
+        title="Allenamenti"
+        subtitle="Presenze, settimana e storico."
+      />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryCard
-          icon={CalendarDays}
-          label="Allenamenti visibili"
-          value={visibleTrainings.length}
-          accentClassName="bg-blue-50 text-blue-600"
-          topBarClassName="from-blue-500 to-blue-600"
-        />
-        <SummaryCard
-          icon={ClipboardCheck}
-          label="Allenamenti di oggi"
-          value={todayTrainings.length}
-          accentClassName="bg-emerald-50 text-emerald-600"
-          topBarClassName="from-emerald-500 to-emerald-600"
-        />
-        <SummaryCard
-          icon={XCircle}
-          label="Stato operativo"
-          value={
-            permissions.actions.manageTrainingStatus &&
-            permissions.actions.manageAttendance
-              ? 2
-              : permissions.actions.manageAttendance ||
-                  permissions.actions.manageTrainingStatus
-                ? 1
-                : 0
-          }
-          accentClassName="bg-orange-50 text-orange-600"
-          topBarClassName="from-orange-500 to-orange-600"
-        />
-      </div>
-
-      <FeatureHighlightCard
-        tone="violet"
-        title="Allenamenti di Oggi"
-        count={todayTrainings.length}
-        icon={CalendarDays}
-      >
-        {todayTrainings.length === 0 ? (
-          <div className="py-5 text-center text-white/75">
-            <CalendarDays className="mx-auto mb-2 h-10 w-10 opacity-50" />
-            <p>Nessun allenamento previsto per oggi</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {todayTrainings.map((training) => (
-              <div
-                key={training.id}
-                className="rounded-lg bg-white/10 p-3 backdrop-blur-sm"
-              >
-                <p className="font-medium">{training.title || "Allenamento"}</p>
-                <p className="mt-1 text-sm text-white/80">
-                  {formatTimeRange(training.time, training.endTime)}
-                </p>
-                <p className="text-sm text-white/80">
-                  {training.displayCategory || training.category || "Categoria"}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </FeatureHighlightCard>
-
-      {visibleTrainings.length === 0 ? (
+      {uniqueVisibleTrainings.length === 0 ? (
         <SectionEmptyState
           title="Nessun allenamento disponibile"
-          description="Qui vedrai soltanto gli allenamenti delle categorie assegnate al trainer."
+          description="Il calendario è vuoto."
         />
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-6">
-            <SurfacePanel
-              title="Allenamenti della Settimana"
-              description="Le sedute da oggi fino a fine settimana."
-              icon={CalendarDays}
-            >
-              {renderTrainingList(
-                weekTrainings,
-                "Nessun altro allenamento questa settimana",
-                "Le nuove attivita assegnate dal club compariranno qui.",
-              )}
-            </SurfacePanel>
-
-            <SurfacePanel
-              title="Allenamenti Successivi"
-              description="Le settimane successive in ordine cronologico."
-              icon={CalendarDays}
-            >
-              {renderTrainingList(
-                futureTrainings,
-                "Nessun allenamento nelle settimane successive",
-                "Quando il programma si estende, i nuovi appuntamenti compariranno qui.",
-              )}
-            </SurfacePanel>
-          </div>
-
-          <SurfacePanel
-            title="Calendario Allenamenti"
-            description="Seleziona un giorno per vedere subito le sedute programmate."
-            icon={CalendarDays}
-          >
-            <div className="space-y-5">
+        <div className="space-y-6">
+          <SurfacePanel title="Calendario allenamenti" icon={CalendarDays}>
+            <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
                 <Calendar
                   mode="single"
@@ -389,7 +363,7 @@ export default function TrainerTrainingsDashboardPage() {
                   onSelect={setSelectedDate}
                   className="mx-auto"
                   modifiers={{
-                    scheduled: visibleTrainings
+                    scheduled: uniqueVisibleTrainings
                       .map((training) => training?.startsAt)
                       .filter(Boolean) as Date[],
                   }}
@@ -403,47 +377,62 @@ export default function TrainerTrainingsDashboardPage() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-slate-900">
                   {selectedDate
-                    ? `Allenamenti del ${selectedDate.toLocaleDateString("it-IT")}`
+                    ? isSameTrainerDay(selectedDate, now)
+                      ? "Allenamenti di oggi"
+                      : `Allenamenti del ${selectedDate.toLocaleDateString("it-IT")}`
                     : "Seleziona un giorno"}
                 </p>
-                {selectedDateTrainings.length > 0 ? (
-                  selectedDateTrainings.map((training) => {
-                    const status = getStatusBadgeClasses(
-                      training?.status,
-                      training?.startsAt,
-                      training?.endsAt,
-                    );
-
-                    return (
-                      <CompactEntityCard
-                        key={training.id}
-                        title={training.title || "Allenamento"}
-                        badge={
-                          <Badge className={status.className}>{status.label}</Badge>
-                        }
-                        lines={[
-                          <span key="time">
-                            {formatTimeRange(training.time, training.endTime)}
-                          </span>,
-                          <span key="location">
-                            {training.location || "Luogo da definire"}
-                          </span>,
-                          <span key="category">
-                            {training.displayCategory || training.category || "Categoria"}
-                          </span>,
-                        ]}
-                      />
-                    );
-                  })
-                ) : (
-                  <SectionEmptyState
-                    title="Nessun allenamento nel giorno selezionato"
-                    description="Prova un'altra data del calendario."
-                  />
+                {renderTrainingList(
+                  selectedDateTrainings,
+                  selectedDate && isSameTrainerDay(selectedDate, now)
+                    ? "Nessun allenamento oggi"
+                    : "Nessun allenamento nel giorno selezionato",
+                  selectedDate && isSameTrainerDay(selectedDate, now)
+                    ? "La giornata è libera."
+                    : "Prova un'altra data.",
                 )}
               </div>
             </div>
           </SurfacePanel>
+
+          <div className="space-y-6">
+            <SurfacePanel
+              title="Allenamenti della settimana"
+              description="Le sedute da oggi fino a fine settimana."
+              icon={CalendarDays}
+            >
+              {renderTrainingList(
+                weekTrainings,
+                "Nessun altro allenamento questa settimana",
+                "Settimana libera.",
+              )}
+            </SurfacePanel>
+
+            <SurfacePanel
+              title="Storico allenamenti"
+              icon={ClipboardCheck}
+              action={
+                <div className="relative w-full md:w-80">
+                  <Input
+                    value={historySearch}
+                    onChange={(event) => setHistorySearch(event.target.value)}
+                    placeholder="Cerca per data, categoria, stato..."
+                    className="rounded-2xl pl-10"
+                  />
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                </div>
+              }
+            >
+              {renderTrainingList(
+                filteredHistoryTrainings,
+                historySearch ? "Nessun risultato" : "Storico vuoto",
+                historySearch
+                  ? "Modifica la ricerca."
+                  : "Non ci sono allenamenti passati.",
+              )}
+            </SurfacePanel>
+          </div>
+
         </div>
       )}
 
@@ -457,6 +446,12 @@ export default function TrainerTrainingsDashboardPage() {
           }}
         >
           <DialogContent className="max-w-4xl border-none bg-transparent p-0 shadow-none">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Presenze allenamento</DialogTitle>
+              <DialogDescription>
+                Gestisci presenze e note degli atleti per questo allenamento.
+              </DialogDescription>
+            </DialogHeader>
             <AttendanceSheet
               trainingId={selectedTraining.id}
               trainingTitle={selectedTraining.title || "Allenamento"}

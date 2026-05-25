@@ -24,6 +24,7 @@ import {
   BarChart3,
   FolderKanban,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -114,14 +115,28 @@ const navSections = [
   },
 ];
 
+export type MobileNavSection = {
+  id: string;
+  label: string;
+  items: Array<{
+    href: string;
+    label: string;
+    icon: LucideIcon;
+  }>;
+};
+
 interface MobileTopBarProps {
   showQuickActions?: boolean;
+  showHubLink?: boolean;
   title?: string;
+  navSectionsOverride?: MobileNavSection[];
 }
 
 export const MobileTopBar: React.FC<MobileTopBarProps> = ({
   showQuickActions = true,
+  showHubLink = true,
   title,
+  navSectionsOverride,
 }) => {
   const { user } = useAuth();
   const router = useRouter();
@@ -179,6 +194,8 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
       router.push(`/profile/${user.id}`);
     }
   };
+
+  const visibleNavSections = navSectionsOverride || navSections;
 
   return (
     <>
@@ -267,29 +284,30 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
             <SheetTitle>Menu</SheetTitle>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-6">
-            {/* EasyGame HUB featured link */}
-            <div className="mb-4">
-              <Link
-                href={buildUrl("/hub")}
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-3 shadow-md transition-all hover:from-purple-600 hover:to-pink-600"
-              >
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                  <Home className="h-4 w-4 text-white" />
-                </span>
-                <div className="flex flex-col">
-                  <span className="text-sm font-bold text-white">
-                    EasyGame HUB
+            {showHubLink ? (
+              <div className="mb-4">
+                <Link
+                  href={buildUrl("/hub")}
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-3 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-3 shadow-md transition-all hover:from-purple-600 hover:to-pink-600"
+                >
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
+                    <Home className="h-4 w-4 text-white" />
                   </span>
-                  <span className="text-[11px] text-white/80">
-                    Marketplace e servizi per il tuo club
-                  </span>
-                </div>
-              </Link>
-            </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-white">
+                      EasyGame HUB
+                    </span>
+                    <span className="text-[11px] text-white/80">
+                      Marketplace e servizi per il tuo club
+                    </span>
+                  </div>
+                </Link>
+              </div>
+            ) : null}
 
             <nav className="space-y-4">
-              {navSections.map((section) => (
+              {visibleNavSections.map((section) => (
                 <div key={section.id}>
                   <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     {section.label}

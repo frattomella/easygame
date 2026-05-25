@@ -24,6 +24,10 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/providers/AuthProvider";
 import {
+  compareAthletesByLastName,
+  getAthleteDisplayName,
+} from "@/lib/athlete-name-utils";
+import {
   formatCategoryBirthYears,
   normalizeCategoryBirthYears,
 } from "@/lib/category-utils";
@@ -286,14 +290,14 @@ export default function CategoriesPage() {
     );
   };
 
-  const buildDialogAthletesForCategory = (category: Category) =>
-    clubAthletes
-      .filter((athlete: any) => athleteBelongsToCategory(athlete, category))
-      .map((athlete: any) => ({
-        id: athlete.id,
-        name:
-          `${athlete.first_name || ""} ${athlete.last_name || ""}`.trim() ||
-          "Atleta",
+const buildDialogAthletesForCategory = (category: Category) =>
+  clubAthletes
+    .slice()
+    .sort(compareAthletesByLastName)
+    .filter((athlete: any) => athleteBelongsToCategory(athlete, category))
+    .map((athlete: any) => ({
+      id: athlete.id,
+      name: getAthleteDisplayName(athlete) || "Atleta",
         avatar: athlete.avatar_url || athlete.data?.avatar || undefined,
         status: (athlete.status || athlete.data?.status || "active") as
           | "active"

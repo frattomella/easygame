@@ -1,6 +1,12 @@
 "use client";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,7 +49,6 @@ export default function TrainerAthleteTechnicalDialog({
   const canViewDetails = permissions.actions.viewAthleteDetails;
   const canViewContacts = permissions.actions.viewAthleteContacts;
   const canViewMedical = permissions.actions.viewMedicalStatus;
-  const canViewEnrollment = permissions.actions.viewEnrollmentAndPayments;
   const canViewTechnical = permissions.actions.viewAthleteTechnicalSheet;
 
   return (
@@ -53,6 +58,9 @@ export default function TrainerAthleteTechnicalDialog({
           <DialogTitle className="text-2xl font-bold text-slate-900">
             {getAthleteDisplayName(athlete)}
           </DialogTitle>
+          <DialogDescription>
+            Scheda atleta visibile in base ai permessi trainer.
+          </DialogDescription>
           <div className="flex flex-wrap gap-2 pt-2">
             <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
               {athlete?.category_name || data?.categoryName || "Senza categoria"}
@@ -69,16 +77,13 @@ export default function TrainerAthleteTechnicalDialog({
         </DialogHeader>
 
         <Tabs defaultValue="overview" className="mt-2">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="overview">Panoramica</TabsTrigger>
             <TabsTrigger value="technical" disabled={!canViewTechnical}>
               Tecnica
             </TabsTrigger>
             <TabsTrigger value="medical" disabled={!canViewMedical}>
               Medico
-            </TabsTrigger>
-            <TabsTrigger value="enrollment" disabled={!canViewEnrollment}>
-              Iscrizione
             </TabsTrigger>
           </TabsList>
 
@@ -138,10 +143,6 @@ export default function TrainerAthleteTechnicalDialog({
                   value={athlete?.category_name || data?.categoryName || "-"}
                 />
                 <InfoRow label="Numero maglia" value={athlete?.jersey_number || data?.jerseyNumber || "-"} />
-                <InfoRow label="Gruppo taglie" value={data?.clothingProfile || "-"} />
-                <InfoRow label="Taglia maglia" value={data?.shirtSize || "-"} />
-                <InfoRow label="Taglia pantaloni" value={data?.pantsSize || "-"} />
-                <InfoRow label="Taglia scarpe" value={data?.shoeSize || "-"} />
                 <InfoRow label="Note tecniche" value={data?.notes || "-"} />
               </CardContent>
             </Card>
@@ -170,27 +171,6 @@ export default function TrainerAthleteTechnicalDialog({
             </Card>
           </TabsContent>
 
-          <TabsContent value="enrollment" className="space-y-4 pt-4">
-            <Card className="border-slate-200 shadow-none">
-              <CardHeader>
-                <CardTitle className="text-lg">Iscrizione e pagamenti</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                <InfoRow label="Stato iscrizione" value={data?.enrollmentStatus ? "Attiva" : "Non definita"} />
-                <InfoRow label="Piano selezionato" value={data?.selectedPlan || "-"} />
-                <InfoRow label="Sconto" value={data?.discount || "-"} />
-                <InfoRow
-                  label="Pagamenti registrati"
-                  value={Array.isArray(data?.payments) ? String(data.payments.length) : "0"}
-                />
-                <InfoRow
-                  label="Tesseramenti"
-                  value={Array.isArray(data?.registrations) ? String(data.registrations.length) : "0"}
-                />
-                <InfoRow label="Note iscrizione" value={data?.enrollmentNotes || "-"} />
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>

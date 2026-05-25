@@ -13,13 +13,16 @@ import {
 } from "@/lib/simplified-db";
 import {
   compareTrainingsByStart,
+  dedupeTrainings,
   getTrainingCategoryColor,
   getTrainingCategoryLabel,
   getTrainingDate,
+  getTrainingStableKey,
   getTrainingTimeLabel,
   getTrainingTrainerLabel,
   isTrainingOnDate,
 } from "@/lib/training-utils";
+import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import {
   CalendarIcon,
   CheckCircle,
@@ -50,6 +53,7 @@ interface UpcomingTrainingsProps {
   isLoading?: boolean;
   organizationId?: string | null;
   showEmptyState?: boolean;
+  variant?: "card" | "embedded";
 }
 
 const INVALID_TRAINING_VALUES = new Set(["", "undefined", "null"]);
@@ -84,7 +88,7 @@ const normalizeTrainingSession = (
 
   return {
     id: String(
-      training?.id || globalThis.crypto?.randomUUID?.() || Math.random(),
+      training?.id || training?.training_id || getTrainingStableKey(training),
     ),
     title:
       normalizeTrainingText(training?.title) ||
@@ -127,10 +131,13 @@ const UpcomingTrainings = memo(
     isLoading = false,
     organizationId = null,
     showEmptyState = false,
+    variant = "card",
   }: UpcomingTrainingsProps) => {
     const [loadedTrainings, setLoadedTrainings] =
       useState<TrainingSession[]>(() =>
-        (Array.isArray(trainings) ? trainings : []).map(normalizeTrainingSession),
+        dedupeTrainings(Array.isArray(trainings) ? trainings : []).map(
+          normalizeTrainingSession,
+        ),
       );
     const [loading, setLoading] = useState(isLoading);
 
@@ -158,7 +165,7 @@ const UpcomingTrainings = memo(
             });
 
             if (result?.trainingsData) {
-              return (Array.isArray(result.trainingsData)
+              return dedupeTrainings(Array.isArray(result.trainingsData)
                 ? result.trainingsData
                 : []
               )
@@ -190,7 +197,7 @@ const UpcomingTrainings = memo(
         debounce(async () => {
           if (trainings.length > 0) {
             setLoadedTrainings(
-              (Array.isArray(trainings) ? trainings : []).map(
+              dedupeTrainings(Array.isArray(trainings) ? trainings : []).map(
                 normalizeTrainingSession,
               ),
             );
@@ -223,23 +230,34 @@ const UpcomingTrainings = memo(
     const todayTrainings = useMemo(() => {
       const today = new Date();
 
-      return loadedTrainings
+      return dedupeTrainings(loadedTrainings)
         .filter((training) => isTrainingOnDate(training, today))
         .sort(compareTrainingsByStart);
     }, [loadedTrainings]);
+    const isEmbedded = variant === "embedded";
+    const shellClassName = cn(
+      "w-full h-full",
+      isEmbedded
+        ? "border-0 bg-transparent shadow-none"
+        : "bg-white dark:bg-gray-800 shadow-md border-0",
+    );
+    const headerClassName = cn(
+      isEmbedded ? "px-0 pb-3 pt-0" : "border-b border-gray-100 dark:border-gray-700",
+    );
+    const contentClassName = isEmbedded ? "px-0 pb-0 pt-0" : "pt-4";
 
     if (loading) {
       return (
-        <Card className="w-full h-full bg-white dark:bg-gray-800 shadow-md border-0">
-          <CardHeader className="border-b border-gray-100 dark:border-gray-700">
+        <Card className={shellClassName}>
+          <CardHeader className={headerClassName}>
             <CardTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 flex items-center justify-center">
                 <CalendarIcon className="h-4 w-4 text-white" />
               </div>
-              Prossimi Allenamenti
+              Allenamenti del giorno
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className={contentClassName}>
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="p-3 border rounded-lg animate-pulse">
@@ -261,22 +279,25 @@ const UpcomingTrainings = memo(
     }
 
     return (
-      <Card className="w-full h-full bg-white dark:bg-gray-800 shadow-md border-0">
-        <CardHeader className="border-b border-gray-100 dark:border-gray-700">
+      <Card className={shellClassName}>
+        <CardHeader className={headerClassName}>
           <CardTitle className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 flex items-center justify-center">
               <CalendarIcon className="h-4 w-4 text-white" />
             </div>
-            Prossimi Allenamenti
+            Allenamenti del giorno
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-4">
-          <div className="overflow-auto" style={{ maxHeight: maxHeight }}>
+        <CardContent className={contentClassName}>
+          <div
+            className="overflow-y-auto pr-1 scrollbar-hide"
+            style={{ maxHeight }}
+          >
             {todayTrainings.length > 0 ? (
               <div className="space-y-4">
                 {todayTrainings.map((training) => (
                   <TrainingCard
-                    key={training.id}
+                    key={getTrainingStableKey(training)}
                     training={training}
                     organizationId={organizationId}
                   />
@@ -353,7 +374,7 @@ const TrainingCard = memo(
           if (attendanceRecords) {
             const formattedAttendance = attendanceRecords.map((record) => ({
               name: record.athletes
-                ? `${record.athletes.first_name} ${record.athletes.last_name}`
+                ? getAthleteDisplayName(record.athletes)
                 : "Atleta sconosciuto",
               present: record.is_present,
             }));

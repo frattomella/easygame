@@ -18,7 +18,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
 import { CalendarIcon, Plus, Trash } from "lucide-react";
@@ -28,7 +27,7 @@ interface MultipleAddMatchFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: any[]) => void;
-  categories: { id: string; name: string }[];
+  categories: { id?: string; name?: string }[];
   trainers: { id: string; name: string }[];
   selectedDate?: Date;
   homeFields?: { id: string; name: string }[];
@@ -63,6 +62,17 @@ export function MultipleAddMatchForm({
       matchNumber: "",
     },
   ]);
+
+  const categoryOptions = React.useMemo(
+    () =>
+      (Array.isArray(categories) ? categories : [])
+        .map((category) => ({
+          id: String(category?.id || "").trim(),
+          name: String(category?.name || category?.id || "").trim(),
+        }))
+        .filter((category) => category.id && category.name),
+    [categories],
+  );
 
   const handleTrainerChange = (trainerId: string, checked: boolean) => {
     setTrainerIds((prev) => {
@@ -122,6 +132,11 @@ export function MultipleAddMatchForm({
     e.preventDefault();
 
     // Validate required fields
+    if (categoryOptions.length === 0) {
+      alert("Nessuna categoria registrata. Crea prima una categoria.");
+      return;
+    }
+
     if (categoryIds.length === 0) {
       alert("Seleziona almeno una categoria");
       return;
@@ -183,23 +198,29 @@ export function MultipleAddMatchForm({
           <div className="space-y-2">
             <Label>Categorie</Label>
             <div className="border rounded-md p-3 space-y-2 max-h-40 overflow-y-auto">
-              {categories.map((category) => (
-                <div key={category.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`category-${category.id}`}
-                    checked={categoryIds.includes(category.id)}
-                    onCheckedChange={(checked) =>
-                      handleCategoryChange(category.id, checked as boolean)
-                    }
-                  />
-                  <Label
-                    htmlFor={`category-${category.id}`}
-                    className="text-sm font-normal"
-                  >
-                    {category.name}
-                  </Label>
-                </div>
-              ))}
+              {categoryOptions.length > 0 ? (
+                categoryOptions.map((category) => (
+                  <div key={category.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`category-${category.id}`}
+                      checked={categoryIds.includes(category.id)}
+                      onCheckedChange={(checked) =>
+                        handleCategoryChange(category.id, checked as boolean)
+                      }
+                    />
+                    <Label
+                      htmlFor={`category-${category.id}`}
+                      className="text-sm font-normal"
+                    >
+                      {category.name}
+                    </Label>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  Nessuna categoria registrata. Crea prima una categoria.
+                </p>
+              )}
             </div>
           </div>
 
@@ -390,7 +411,11 @@ export function MultipleAddMatchForm({
             <Button type="button" variant="outline" onClick={handleClose}>
               Annulla
             </Button>
-            <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
+            <Button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={categoryOptions.length === 0}
+            >
               Salva Tutte le Gare
             </Button>
           </DialogFooter>

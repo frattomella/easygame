@@ -233,7 +233,7 @@ function NewStaffMemberPageContent() {
         fullName,
         firstName: formData.name.trim(),
         lastName: formData.surname.trim(),
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName.replace(/\s+/g, ""))}`,
+        avatar: null,
       };
 
       await addStaffMember(clubId, newStaffMember);

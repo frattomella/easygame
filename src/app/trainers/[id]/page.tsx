@@ -42,6 +42,8 @@ import {
   Eye,
   Award,
   Copy,
+  ChevronDown,
+  ChevronRight,
   KeyRound,
   Link2,
   Loader2,
@@ -441,6 +443,7 @@ export default function TrainerDetailsPage() {
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
   const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false);
   const [showChangeStatusDialog, setShowChangeStatusDialog] = useState(false);
+  const [isTrainerAccessOpen, setIsTrainerAccessOpen] = useState(false);
   const [isGeneratingAccessToken, setIsGeneratingAccessToken] = useState(false);
   const [isLoadingAccessData, setIsLoadingAccessData] = useState(false);
   const [isDisconnectingAccess, setIsDisconnectingAccess] = useState(false);
@@ -575,7 +578,7 @@ export default function TrainerDetailsPage() {
             headers,
           }),
           apiRequest<any[]>(
-            `/api/v1/organization_users?organization_id=${encodeURIComponent(clubId)}&user_id=${encodeURIComponent(currentTrainer.linkedUserId)}`,
+            `/api/v1/organization_users?organization_id=${encodeURIComponent(clubId)}&user_id=${encodeURIComponent(currentTrainer.linkedUserId)}&role=trainer`,
             {
               method: "GET",
               headers,
@@ -785,7 +788,7 @@ export default function TrainerDetailsPage() {
 
       if (trainer.linkedUserId) {
         const membershipResponse = await apiRequest<any[]>(
-          `/api/v1/organization_users?organization_id=${encodeURIComponent(clubId)}&user_id=${encodeURIComponent(trainer.linkedUserId)}`,
+          `/api/v1/organization_users?organization_id=${encodeURIComponent(clubId)}&user_id=${encodeURIComponent(trainer.linkedUserId)}&role=trainer`,
           {
             method: "GET",
             headers,
@@ -1200,35 +1203,6 @@ export default function TrainerDetailsPage() {
                 </div>
               </div>
               <div className="flex gap-2 w-full flex-wrap md:w-auto md:justify-end">
-                {trainer?.accessTokenValue && (
-                  <Button
-                    variant="outline"
-                    className="flex-1 md:flex-none"
-                    onClick={() => {
-                      void copyAccessToken(trainer.accessTokenValue);
-                    }}
-                  >
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copia Token
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  className="flex-1 md:flex-none"
-                  onClick={() => {
-                    void handleGenerateAccessToken();
-                  }}
-                  disabled={isGeneratingAccessToken}
-                >
-                  {isGeneratingAccessToken ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : trainer?.accessTokenValue ? (
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                  ) : (
-                    <KeyRound className="h-4 w-4 mr-2" />
-                  )}
-                  {trainer?.accessTokenValue ? "Rigenera Token" : "Genera Token"}
-                </Button>
                 <Button variant="destructive" className="flex-1 md:flex-none" onClick={handleDeleteTrainer}>
                   <Trash2 className="h-4 w-4 mr-2" />
                   Elimina
@@ -1704,17 +1678,34 @@ export default function TrainerDetailsPage() {
                     <div className="space-y-2">
                       <CardTitle className="flex items-center gap-2">
                         <Link2 className="h-5 w-5 text-blue-600" />
-                        Accesso EasyGame Allenatore
+                        Accesso account allenatore
                       </CardTitle>
                       <p className="text-sm text-muted-foreground">
                         Da questa tab il club gestisce il collegamento tra il profilo
                         allenatore e l&apos;account EasyGame personale dell&apos;allenatore.
                       </p>
                     </div>
-                    <Badge className={trainerAccessStatus.className}>
-                      {trainerAccessStatus.label}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className={trainerAccessStatus.className}>
+                        {trainerAccessStatus.label}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setIsTrainerAccessOpen((current) => !current)
+                        }
+                      >
+                        {isTrainerAccessOpen ? (
+                          <ChevronDown className="mr-2 h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="mr-2 h-4 w-4" />
+                        )}
+                        {isTrainerAccessOpen ? "Chiudi" : "Apri"}
+                      </Button>
+                    </div>
                   </CardHeader>
+                  {isTrainerAccessOpen ? (
                   <CardContent className="space-y-5 pt-6">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-4">
@@ -1798,10 +1789,21 @@ export default function TrainerDetailsPage() {
                         )}
                         Scollega Account
                       </Button>
+                      <Button
+                        variant="outline"
+                        className="border-red-200 text-red-700 hover:bg-red-50"
+                        onClick={() => setShowDisconnectAccessDialog(true)}
+                        disabled={!trainer.linkedUserId || isDisconnectingAccess}
+                      >
+                        <Unlink2 className="mr-2 h-4 w-4" />
+                        Scollega tutti gli account
+                      </Button>
                     </div>
                   </CardContent>
+                  ) : null}
                 </Card>
 
+                {isTrainerAccessOpen ? (
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle className="flex items-center gap-2">
@@ -1895,6 +1897,7 @@ export default function TrainerDetailsPage() {
                     </div>
                   </CardContent>
                 </Card>
+                ) : null}
               </TabsContent>
 
               {/* DATI SOCIETARI TAB */}

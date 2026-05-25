@@ -6,20 +6,23 @@ import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
-  Clock,
   CreditCard,
   Download,
+  Edit,
   FileText,
   HeartPulse,
   Mail,
   MapPin,
+  MinusCircle,
   Phone,
   Search,
   Send,
+  Trash2,
   Trophy,
   Upload,
   UserCircle,
   Users,
+  XCircle,
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +32,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast-notification";
+import {
+  formatOpeningHourSlots,
+  isDateTimeWithinOpeningHours,
+  normalizeOpeningHours,
+} from "@/lib/opening-hours-utils";
+import { getTrainingStableKey } from "@/lib/training-utils";
 import { useParentDashboard } from "./parent-dashboard-context";
 
 const formatDate = (value?: unknown) => {
@@ -69,6 +78,12 @@ const getStatusLabel = (status: unknown) => {
   if (["requested", "richiesto"].includes(normalized)) {
     return "Richiesto";
   }
+  if (["pending", "in_attesa"].includes(normalized)) {
+    return "In attesa";
+  }
+  if (["confirmed", "confermato"].includes(normalized)) {
+    return "Confermato";
+  }
   if (["approved", "approvato"].includes(normalized)) {
     return "Approvato";
   }
@@ -106,7 +121,17 @@ const getStatusClassName = (status: unknown) => {
   ) {
     return "border-red-200 bg-red-50 text-red-700";
   }
-  if (["requested", "richiesto", "in_verifica", "review", "pending_review"].includes(normalized)) {
+  if (
+    [
+      "requested",
+      "richiesto",
+      "pending",
+      "in_attesa",
+      "in_verifica",
+      "review",
+      "pending_review",
+    ].includes(normalized)
+  ) {
     return "border-amber-200 bg-amber-50 text-amber-700";
   }
   if (normalized === "missing") {
@@ -126,6 +151,8 @@ const matchesSearch = (record: Record<string, any>, query: string) => {
     record.location,
     record.opponent,
     record.status,
+    record.attendanceStatus,
+    record.participationStatus,
     record.date,
     record.time,
   ]
@@ -201,7 +228,16 @@ function EventList({
     <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
       {visibleItems.map((item) => (
         <div
-          key={item.id}
+          key={[
+            item.id,
+            item.startsAt,
+            item.date,
+            item.time,
+            item.category,
+            item.title,
+          ]
+            .filter(Boolean)
+            .join("|")}
           className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="min-w-0">
@@ -265,57 +301,233 @@ function PaymentList({ items }: { items: Array<Record<string, any>> }) {
   );
 }
 
+const getAge = (birthDate?: unknown) => {
+  if (!birthDate) return "-";
+  const date = new Date(String(birthDate));
+  if (Number.isNaN(date.getTime())) return "-";
+  const today = new Date();
+  let age = today.getFullYear() - date.getFullYear();
+  const monthDiff = today.getMonth() - date.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < date.getDate())) {
+    age -= 1;
+  }
+  return age > 0 ? `${age} anni` : "-";
+};
+
+const readAthleteData = (athlete: Record<string, any>, ...keys: string[]) => {
+  const data = athlete.data && typeof athlete.data === "object" ? athlete.data : {};
+  for (const key of keys) {
+    const value = athlete[key] ?? data[key];
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+
+function InfoGrid({
+  items,
+}: {
+  items: Array<{ label: string; value?: unknown }>;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {items.map((item) => (
+        <div key={item.label} className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">{item.label}</p>
+          <p className="mt-1 font-semibold text-slate-950">
+            {String(item.value || "").trim() || "-"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AttendanceIndicator({ status }: { status?: unknown }) {
+  const normalized = normalizeText(status);
+  if (["present", "presente", "late", "ritardo"].includes(normalized)) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Presente
+      </span>
+    );
+  }
+  if (["absent", "assente", "justified", "giustificato"].includes(normalized)) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+        <XCircle className="h-3.5 w-3.5" />
+        Assente
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500">
+      <MinusCircle className="h-3.5 w-3.5" />
+      Non registrato
+    </span>
+  );
+}
+
+function ParticipationIndicator({ status }: { status?: unknown }) {
+  const normalized = normalizeText(status);
+  if (["participated", "called", "convocato", "presente"].includes(normalized)) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        {normalized === "participated" ? "Partecipato" : "Convocato"}
+      </span>
+    );
+  }
+  if (["not_called", "not_participated", "assente"].includes(normalized)) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+        <XCircle className="h-3.5 w-3.5" />
+        Non convocato
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500">
+      <MinusCircle className="h-3.5 w-3.5" />
+      Non registrato
+    </span>
+  );
+}
+
+function TrainingHistoryList({
+  items,
+  emptyText,
+}: {
+  items: Array<Record<string, any>>;
+  emptyText: string;
+}) {
+  if (items.length === 0) return <EmptyState text={emptyText} />;
+
+  return (
+    <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      {items.map((item) => (
+        <div
+          key={getTrainingStableKey(item)}
+          className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-slate-950">{item.title}</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {formatDate(item.startsAt || item.date)} - {formatTime(item.time)}
+              {item.location ? ` - ${item.location}` : ""}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Badge variant="outline" className="border-slate-200 bg-slate-50">
+              {item.category || "Categoria"}
+            </Badge>
+            <AttendanceIndicator status={item.attendanceStatus} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MatchListWithParticipation({
+  items,
+  emptyText,
+}: {
+  items: Array<Record<string, any>>;
+  emptyText: string;
+}) {
+  if (items.length === 0) return <EmptyState text={emptyText} />;
+
+  return (
+    <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-slate-950">{item.title}</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {formatDate(item.startsAt || item.date)} - {formatTime(item.time)}
+              {item.location ? ` - ${item.location}` : ""}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Badge variant="outline" className="border-slate-200 bg-slate-50">
+              {item.category || "Categoria"}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={cn("border", getStatusClassName(item.status))}
+            >
+              {getStatusLabel(item.status)}
+            </Badge>
+            <ParticipationIndicator status={item.participationStatus} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Legend({
+  type,
+}: {
+  type: "attendance" | "participation";
+}) {
+  return (
+    <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+      <span className="inline-flex items-center gap-1">
+        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+        {type === "attendance" ? "Presente" : "Convocato/partecipato"}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+        {type === "attendance" ? "Assente" : "Non convocato"}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+        Non registrato
+      </span>
+    </div>
+  );
+}
+
 function renderOpeningHours(openingHours: any) {
-  if (!openingHours) {
-    return <EmptyState text="Orari non inseriti dal club." />;
+  const days = normalizeOpeningHours(openingHours);
+
+  if (days.length === 0) {
+    return <EmptyState text="Orari non configurati" />;
   }
 
-  if (typeof openingHours === "string") {
-    return <p className="text-sm leading-6 text-slate-600">{openingHours}</p>;
-  }
-
-  if (Array.isArray(openingHours)) {
-    return (
-      <div className="space-y-2">
-        {openingHours.map((row, index) => (
-          <div
-            key={`${row?.day || "orario"}-${index}`}
-            className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm"
+  return (
+    <div className="space-y-2">
+      {days.map((day) => (
+        <div
+          key={day.key}
+          className="flex flex-col gap-1 rounded-xl bg-slate-50 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span className="font-medium text-slate-700">{day.label}</span>
+          <span
+            className={cn(
+              "text-slate-600",
+              day.closed && "font-medium text-slate-400",
+            )}
           >
-            <span className="font-medium text-slate-700">
-              {row?.day || row?.label || "Giorno"}
-            </span>
-            <span className="text-slate-500">
-              {row?.hours || row?.time || row?.value || "-"}
-            </span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (typeof openingHours === "object") {
-    return (
-      <div className="space-y-2">
-        {Object.entries(openingHours).map(([day, hours]) => (
-          <div
-            key={day}
-            className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm"
-          >
-            <span className="font-medium capitalize text-slate-700">{day}</span>
-            <span className="text-slate-500">{String(hours || "-")}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return <EmptyState text="Orari non disponibili." />;
+            {formatOpeningHourSlots(day)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ParentDashboardHome() {
   const router = useRouter();
-  const { data, athleteRouteId } = useParentDashboard();
+  const { data } = useParentDashboard();
 
   if (!data) return null;
 
@@ -482,43 +694,58 @@ export function ParentAthletePage() {
   const { data } = useParentDashboard();
   if (!data) return null;
 
+  const athlete = data.athlete;
+  const athleteData =
+    athlete.data && typeof athlete.data === "object" ? athlete.data : {};
+  const enrollment = data.enrollment || {};
+  const paymentSummary = data.payments.summary || {};
+  const enrollmentDocuments = Array.isArray(enrollment.documents)
+    ? enrollment.documents
+    : [];
+  const medicalVisits = Array.isArray(athleteData.medicalVisits)
+    ? athleteData.medicalVisits
+    : [];
+
   return (
     <div className="space-y-6">
       <PageHeading
         title="Atleta"
-        subtitle="Profilo sportivo, contatti e situazione sanitaria."
+        subtitle="Profilo, salute, iscrizione e pagamenti."
       />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
-            <CardTitle>{data.athlete.name}</CardTitle>
+            <CardTitle>{athlete.name}</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Data di nascita</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {formatDate(data.athlete.birth_date)}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Categoria</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {data.athlete.category_name || "Da assegnare"}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Presenze</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {data.attendance.rate}%
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Certificato</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {getStatusLabel(data.health.status)}
-              </p>
-            </div>
+          <CardContent>
+            <InfoGrid
+              items={[
+                { label: "Data di nascita", value: formatDate(athlete.birth_date) },
+                { label: "Eta", value: getAge(athlete.birth_date) },
+                { label: "Luogo di nascita", value: athlete.birth_place },
+                { label: "Categoria", value: athlete.category_name || "Da assegnare" },
+                { label: "Numero maglia", value: athlete.jersey_number },
+                { label: "Codice fiscale", value: athlete.fiscal_code },
+                { label: "Telefono atleta", value: athlete.phone },
+                { label: "Email atleta", value: athlete.email },
+                {
+                  label: "Indirizzo",
+                  value:
+                    [
+                      athlete.address,
+                      athlete.city,
+                      athlete.province,
+                      athlete.postal_code,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || readAthleteData(athlete, "address"),
+                },
+                { label: "Nazionalita", value: athlete.nationality },
+                { label: "Genere", value: athlete.gender },
+                { label: "Stato", value: getStatusLabel(athlete.status) },
+              ]}
+            />
           </CardContent>
         </Card>
 
@@ -527,10 +754,10 @@ export function ParentAthletePage() {
             <CardTitle>Contatti familiari</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {data.athlete.guardians.length === 0 ? (
+            {athlete.guardians.length === 0 ? (
               <EmptyState text="Nessun contatto registrato." />
             ) : (
-              data.athlete.guardians.map((guardian) => (
+              athlete.guardians.map((guardian) => (
                 <div
                   key={guardian.id}
                   className="rounded-2xl border border-slate-200 p-4"
@@ -556,7 +783,7 @@ export function ParentAthletePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
-            <CardTitle>Salute</CardTitle>
+            <CardTitle>Dati sanitari</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -575,6 +802,28 @@ export function ParentAthletePage() {
                       </span>
                       <span className="text-sm text-slate-500">
                         {formatDate(certificate.expiry_date)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-500">Visite mediche</p>
+              <div className="mt-3 space-y-2">
+                {medicalVisits.length === 0 ? (
+                  <EmptyState text="Nessuna visita registrata." />
+                ) : (
+                  medicalVisits.map((visit: any, index: number) => (
+                    <div
+                      key={visit.id || `medical-visit-${index}`}
+                      className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
+                    >
+                      <span className="font-medium text-slate-800">
+                        {visit.type || visit.title || "Visita medica"}
+                      </span>
+                      <span className="text-sm text-slate-500">
+                        {formatDate(visit.date || visit.visitDate)}
                       </span>
                     </div>
                   ))
@@ -630,6 +879,115 @@ export function ParentAthletePage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader>
+          <CardTitle>Iscrizione e pagamenti</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-4">
+            <MetricCard
+              icon={FileText}
+              title="Iscrizione"
+              value={enrollment.status === "enrolled" ? "Iscritto" : "Non iscritto"}
+              tone={enrollment.status === "enrolled" ? "emerald" : "amber"}
+            />
+            <MetricCard
+              icon={CreditCard}
+              title="Dovuto"
+              value={formatCurrency(data.payments.totalDue)}
+            />
+            <MetricCard
+              icon={CheckCircle2}
+              title="Incassato"
+              value={formatCurrency(data.payments.totalPaid)}
+              tone="emerald"
+            />
+            <MetricCard
+              icon={AlertCircle}
+              title="Residuo"
+              value={formatCurrency(data.payments.remaining)}
+              tone="amber"
+            />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Piano pagamento</p>
+              <p className="mt-1 font-semibold text-slate-950">
+                {paymentSummary.planName || enrollment.selectedPlan || "-"}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Sconti</p>
+              <p className="mt-1 font-semibold text-slate-950">
+                {formatCurrency(paymentSummary.totalDiscounts || 0)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Totale registrato</p>
+              <p className="mt-1 font-semibold text-slate-950">
+                {formatCurrency(paymentSummary.recordedTotal || 0)}
+              </p>
+            </div>
+          </div>
+
+          {Array.isArray(paymentSummary.appliedDiscounts) &&
+          paymentSummary.appliedDiscounts.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {paymentSummary.appliedDiscounts.map((discount: any) => (
+                <Badge
+                  key={discount.id}
+                  variant="secondary"
+                  className="bg-amber-100 text-amber-900"
+                >
+                  {discount.label}: -{formatCurrency(discount.amount)}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+
+          {enrollment.notes ? (
+            <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
+              {enrollment.notes}
+            </div>
+          ) : null}
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div>
+              <p className="mb-3 text-sm font-semibold text-slate-700">
+                Storico pagamenti
+              </p>
+              <PaymentList items={data.payments.items} />
+            </div>
+            <div>
+              <p className="mb-3 text-sm font-semibold text-slate-700">
+                Documenti iscrizione
+              </p>
+              {enrollmentDocuments.length === 0 ? (
+                <EmptyState text="Nessun documento iscrizione registrato." />
+              ) : (
+                <div className="space-y-2">
+                  {enrollmentDocuments.map((document: any, index: number) => (
+                    <div
+                      key={document.id || `enrollment-document-${index}`}
+                      className="rounded-2xl border border-slate-200 px-4 py-3"
+                    >
+                      <p className="font-semibold text-slate-950">
+                        {document.name || document.title || "Documento"}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {document.type || "Documento iscrizione"} -{" "}
+                        {formatDate(document.uploadDate || document.date)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -639,6 +997,21 @@ export function ParentTrainingsPage() {
   const [query, setQuery] = useState("");
   if (!data) return null;
 
+  const today = new Date();
+  const startOfWeek = new Date(today);
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 7);
+  const weeklyTrainings = data.trainings.all.filter((training) => {
+    const date = new Date(String(training.startsAt || training.date || ""));
+    return (
+      !Number.isNaN(date.getTime()) &&
+      date >= startOfWeek &&
+      date < endOfWeek &&
+      normalizeText(training.status) !== "cancelled"
+    );
+  });
   const history = data.trainings.history.filter((item) => matchesSearch(item, query));
 
   return (
@@ -646,18 +1019,21 @@ export function ParentTrainingsPage() {
       <PageHeading title="Allenamenti" subtitle="Calendario e presenze." />
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle>Prossimi allenamenti</CardTitle>
+          <CardTitle>Allenamenti della settimana</CardTitle>
         </CardHeader>
         <CardContent>
           <EventList
-            items={data.trainings.upcoming}
-            emptyText="Nessun allenamento in programma."
+            items={weeklyTrainings}
+            emptyText="Nessun allenamento questa settimana."
           />
         </CardContent>
       </Card>
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Storico allenamenti</CardTitle>
+          <div className="space-y-2">
+            <CardTitle>Storico allenamenti</CardTitle>
+            <Legend type="attendance" />
+          </div>
           <div className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -669,7 +1045,7 @@ export function ParentTrainingsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <EventList items={history} emptyText="Nessun risultato." />
+          <TrainingHistoryList items={history} emptyText="Nessun risultato." />
         </CardContent>
       </Card>
     </div>
@@ -681,15 +1057,22 @@ export function ParentMatchesPage() {
   const [query, setQuery] = useState("");
   if (!data) return null;
 
-  const allMatches = [...data.matches.upcoming, ...data.matches.history];
-  const visibleMatches = allMatches.filter((item) => matchesSearch(item, query));
+  const upcomingMatches = data.matches.upcoming.filter((item) =>
+    matchesSearch(item, query),
+  );
+  const historyMatches = data.matches.history.filter((item) =>
+    matchesSearch(item, query),
+  );
 
   return (
     <div className="space-y-6">
       <PageHeading title="Gare" subtitle="Programma, storico e convocazioni." />
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Gare</CardTitle>
+          <div className="space-y-2">
+            <CardTitle>Gare</CardTitle>
+            <Legend type="participation" />
+          </div>
           <div className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -700,8 +1083,23 @@ export function ParentMatchesPage() {
             />
           </div>
         </CardHeader>
-        <CardContent>
-          <EventList items={visibleMatches} emptyText="Nessuna gara trovata." />
+        <CardContent className="space-y-6">
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700">
+              Gare programmate
+            </h3>
+            <MatchListWithParticipation
+              items={upcomingMatches}
+              emptyText="Nessuna gara programmata."
+            />
+          </div>
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700">Storico gare</h3>
+            <MatchListWithParticipation
+              items={historyMatches}
+              emptyText="Nessuna gara nello storico."
+            />
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -962,7 +1360,12 @@ export function ParentDocumentsPage() {
 }
 
 export function ParentSecretariatPage() {
-  const { data, bookAppointment } = useParentDashboard();
+  const {
+    data,
+    bookAppointment,
+    updateAppointment,
+    cancelAppointment,
+  } = useParentDashboard();
   const { showToast } = useToast();
   const [form, setForm] = useState({
     reason: "",
@@ -970,19 +1373,73 @@ export function ParentSecretariatPage() {
     time: "",
     notes: "",
   });
+  const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
   if (!data) return null;
 
+  const resetForm = () => {
+    setForm({ reason: "", date: "", time: "", notes: "" });
+    setEditingAppointmentId(null);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const validation = isDateTimeWithinOpeningHours(
+      data.appointments.openingHours,
+      form.date,
+      form.time,
+    );
+    if (!validation.valid) {
+      showToast(
+        "error",
+        validation.reason ||
+          "L'orario selezionato e fuori dagli orari di apertura della segreteria.",
+      );
+      return;
+    }
+
     try {
       setSaving(true);
-      await bookAppointment(form);
-      setForm({ reason: "", date: "", time: "", notes: "" });
+      if (editingAppointmentId) {
+        await updateAppointment(editingAppointmentId, form);
+      } else {
+        await bookAppointment(form);
+      }
+      resetForm();
     } catch (error: any) {
       showToast("error", error?.message || "Errore prenotazione");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const startEditAppointment = (appointment: Record<string, any>) => {
+    setEditingAppointmentId(String(appointment.id));
+    setForm({
+      reason: appointment.reason || appointment.title || "",
+      date: appointment.date ? String(appointment.date).slice(0, 10) : "",
+      time: appointment.time || "",
+      notes: appointment.notes || "",
+    });
+  };
+
+  const handleCancelAppointment = async (appointment: Record<string, any>) => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Vuoi cancellare questa richiesta appuntamento?")
+    ) {
+      return;
+    }
+
+    try {
+      await cancelAppointment(String(appointment.id));
+      if (editingAppointmentId === appointment.id) {
+        resetForm();
+      }
+    } catch (error: any) {
+      showToast("error", error?.message || "Errore cancellazione appuntamento");
     }
   };
 
@@ -999,7 +1456,9 @@ export function ParentSecretariatPage() {
 
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
-            <CardTitle>Prenota appuntamento</CardTitle>
+            <CardTitle>
+              {editingAppointmentId ? "Modifica appuntamento" : "Prenota appuntamento"}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -1045,10 +1504,26 @@ export function ParentSecretariatPage() {
                 }
                 placeholder="Note"
               />
-              <Button type="submit" disabled={saving} className="w-full">
-                <Send className="mr-2 h-4 w-4" />
-                {saving ? "Invio..." : "Invia richiesta"}
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button type="submit" disabled={saving} className="flex-1">
+                  <Send className="mr-2 h-4 w-4" />
+                  {saving
+                    ? "Salvataggio..."
+                    : editingAppointmentId
+                      ? "Salva modifica"
+                      : "Invia richiesta"}
+                </Button>
+                {editingAppointmentId ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={resetForm}
+                  >
+                    Annulla
+                  </Button>
+                ) : null}
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -1075,13 +1550,44 @@ export function ParentSecretariatPage() {
                     <p className="text-sm text-slate-500">
                       {formatDate(appointment.date)} · {formatTime(appointment.time)}
                     </p>
+                    {appointment.notes ? (
+                      <span className="mt-1 block text-sm text-slate-500">
+                        {appointment.notes}
+                      </span>
+                    ) : null}
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={cn("border", getStatusClassName(appointment.status))}
-                  >
-                    {getStatusLabel(appointment.status)}
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={cn("border", getStatusClassName(appointment.status))}
+                    >
+                      {getStatusLabel(appointment.status)}
+                    </Badge>
+                    {["pending", "requested", "richiesto"].includes(
+                      normalizeText(appointment.status),
+                    ) ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => startEditAppointment(appointment)}
+                      >
+                        <Edit className="mr-2 h-4 w-4" />
+                        Modifica
+                      </Button>
+                    ) : null}
+                    {normalizeText(appointment.status) !== "cancelled" ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleCancelAppointment(appointment)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Elimina
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>

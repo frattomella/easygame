@@ -33,7 +33,7 @@ export const getMedicalCertificateStatus = (
   );
 
   if (!expiryDate) {
-    return "expired";
+    return "valid";
   }
 
   const comparisonDate = new Date(referenceDate);

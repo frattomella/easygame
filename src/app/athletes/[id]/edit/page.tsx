@@ -15,6 +15,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { Upload, Save, ArrowLeft, Plus, Trash2 } from "lucide-react";
 import Image from "next/image";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 export default function EditAthletePage() {
   const params = useParams<{ id: string }>();
@@ -31,7 +32,7 @@ export default function EditAthletePage() {
     age: "13",
     status: "active",
     medicalCertExpiry: "2024-12-31",
-    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=MarioRossi`,
+    avatar: "",
     email: "genitore@esempio.it",
     phone: "+39 123 456 7890",
     address: "Via Roma 123",
@@ -196,19 +197,19 @@ export default function EditAthletePage() {
             <div className="flex flex-col md:flex-row items-center gap-4 bg-white p-6 rounded-lg border">
               <div className="relative">
                 <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-gray-200">
-                  {avatarPreview ? (
+                  {avatarPreview || athleteData.avatar ? (
                     <Image
-                      src={avatarPreview}
-                      alt="Anteprima avatar"
+                      src={avatarPreview || athleteData.avatar}
+                      alt={athleteData.name}
                       fill
                       className="object-cover"
                     />
                   ) : (
-                    <Image
-                      src={athleteData.avatar}
-                      alt={athleteData.name}
-                      fill
-                      className="object-cover"
+                    <EntityIcon
+                      type="athlete"
+                      size="xl"
+                      label={athleteData.name}
+                      className="h-full w-full border-0"
                     />
                   )}
                 </div>

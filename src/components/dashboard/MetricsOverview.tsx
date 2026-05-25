@@ -241,30 +241,33 @@ const MetricsOverview = ({
           // Count expiring and expired certificates
           const certificates = allCertificates?.data || [];
           const expiringCerts = certificates.filter((cert) => {
+            if (!cert?.expiry_date) {
+              return false;
+            }
             const expiryDate = new Date(cert.expiry_date);
+            if (Number.isNaN(expiryDate.getTime())) {
+              return false;
+            }
             return expiryDate >= today && expiryDate <= thirtyDaysFromNow;
           });
 
           const expiredCerts = certificates.filter((cert) => {
+            if (!cert?.expiry_date) {
+              return false;
+            }
             const expiryDate = new Date(cert.expiry_date);
+            if (Number.isNaN(expiryDate.getTime())) {
+              return false;
+            }
             return expiryDate < today;
           });
-
-          // Count athletes without any certificates
-          const athletesWithCertificates = new Set(
-            certificates.map((cert) => cert.athlete_id),
-          );
-          const athletesWithoutCertificates = (allAthletes?.data || []).filter(
-            (athlete) => !athletesWithCertificates.has(athlete.id),
-          );
 
           return {
             totalAthletes: activeAthletes.length,
             activeCategories: categories.length,
             upcomingTrainings: upcomingTrainingsCount,
             expiringCertificates: expiringCerts.length,
-            expiredCertificates:
-              expiredCerts.length + athletesWithoutCertificates.length,
+            expiredCertificates: expiredCerts.length,
           };
         } catch (error) {
           console.error("Error calculating metrics:", error);

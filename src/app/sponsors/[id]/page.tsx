@@ -12,8 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { LogoUpload } from "@/components/ui/avatar-upload";
-import Image from "next/image";
-import companyDefaultImage from "@/../public/images/company.png";
+import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   Building,
   Mail,
@@ -411,15 +410,12 @@ export default function SponsorDetailsPage() {
                     />
                   </div>
                 ) : (
-                  <div className="h-16 w-16 rounded-lg overflow-hidden border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2">
-                    <Image
-                      src={companyDefaultImage}
-                      alt={sponsor.name}
-                      className="w-full h-full object-contain"
-                      width={64}
-                      height={64}
-                    />
-                  </div>
+                  <EntityIcon
+                    type="sponsor"
+                    size="lg"
+                    shape="square"
+                    label={sponsor.name}
+                  />
                 )}
                 <div>
                   <h1 className="text-2xl font-bold">{sponsor.name}</h1>

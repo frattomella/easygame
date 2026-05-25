@@ -24,6 +24,7 @@ import {
   getLatestMedicalCertificateExpiry,
   getMedicalCertificateStatus,
 } from "@/lib/medical-certificates";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 export default function AthleteProfilePage() {
   const params = useParams<{ id: string }>();
@@ -52,7 +53,7 @@ export default function AthleteProfilePage() {
     age: 0,
     status: "",
     medicalCertExpiry: "",
-    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${athleteId}`,
+    avatar: "",
     email: "",
     phone: "",
     address: "",
@@ -130,7 +131,7 @@ export default function AthleteProfilePage() {
           avatar:
             athleteRecord.avatar_url ||
             athleteData.avatar ||
-            `https://api.dicebear.com/7.x/avataaars/svg?seed=${athleteRecord.id}`,
+            "",
           email: athleteData.email || "",
           phone: athleteData.phone || "",
           address: [athleteData.address, athleteData.city].filter(Boolean).join(", "),
@@ -268,9 +269,15 @@ export default function AthleteProfilePage() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="flex items-center gap-4">
                 <Avatar className="h-16 w-16 border-2 border-white shadow-md">
-                  <AvatarImage src={athlete.avatar} alt={athlete.name} />
-                  <AvatarFallback>
-                    {athlete.name ? athlete.name.charAt(0) : "A"}
+                  {athlete.avatar ? (
+                    <AvatarImage src={athlete.avatar} alt={athlete.name} />
+                  ) : null}
+                  <AvatarFallback className="bg-transparent p-0">
+                    <EntityIcon
+                      type="athlete"
+                      label={athlete.name || "Atleta"}
+                      className="h-full w-full border-0"
+                    />
                   </AvatarFallback>
                 </Avatar>
                 <div>

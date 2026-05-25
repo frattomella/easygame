@@ -1,5 +1,10 @@
 import { prisma } from "./prisma";
 import { hashPassword } from "./auth";
+import {
+  buildClubCategoryOptions,
+  resolveCategoryId,
+  resolveCategoryLabel,
+} from "../category-utils";
 
 type ResourceConfig = {
   kind: "model" | "club_resource";
@@ -41,14 +46,12 @@ const CLUB_RESOURCE_TYPES = [
 ];
 
 const CLUB_JSON_FIELDS = Array.from(
-  new Set(
-    [
-      ...CLUB_RESOURCE_TYPES.filter((resource) => resource !== "access_tokens"),
-      "structures",
-      "members",
-      "dashboard_data",
-    ],
-  ),
+  new Set([
+    ...CLUB_RESOURCE_TYPES.filter((resource) => resource !== "access_tokens"),
+    "structures",
+    "members",
+    "dashboard_data",
+  ]),
 );
 
 const MODEL_RESOURCES: Record<string, ResourceConfig> = {
@@ -279,7 +282,10 @@ const assertRecordAccess = (
     return;
   }
 
-  ensureOrganizationAccess(scope, resolveRecordOrganizationId(resource, record));
+  ensureOrganizationAccess(
+    scope,
+    resolveRecordOrganizationId(resource, record),
+  );
 };
 
 export const API_REGISTRY = [
@@ -515,7 +521,9 @@ const parseJsonIfString = (value: any) => {
   }
 };
 
-const getClubResourceLogicalId = (record: Record<string, any> | null | undefined) => {
+const getClubResourceLogicalId = (
+  record: Record<string, any> | null | undefined,
+) => {
   const payloadId = record?.payload?.id;
   if (typeof payloadId !== "string") {
     return null;
@@ -529,7 +537,10 @@ const getClubResourceLogicalId = (record: Record<string, any> | null | undefined
   return trimmed;
 };
 
-const withCompatibilityAliases = (resource: string, record: Record<string, any>) => {
+const withCompatibilityAliases = (
+  resource: string,
+  record: Record<string, any>,
+) => {
   const next = clone(record);
 
   if (next.organization_id && !next.club_id) {
@@ -600,7 +611,9 @@ const serializeClubResourceItem = (record: Record<string, any>) =>
     date: record.date,
     created_at: record.created_at,
     updated_at: record.updated_at,
-    ...(typeof record.payload === "object" && record.payload ? record.payload : {}),
+    ...(typeof record.payload === "object" && record.payload
+      ? record.payload
+      : {}),
   });
 
 const serializeRecord = (resource: string, record: Record<string, any>) => {
@@ -656,7 +669,10 @@ const normalizeCommonAliases = (input: Record<string, any>) => {
   return next;
 };
 
-const normalizeModelInput = async (resource: string, input: Record<string, any>) => {
+const normalizeModelInput = async (
+  resource: string,
+  input: Record<string, any>,
+) => {
   const preservedClubJsonFields =
     resource === "clubs" || resource === "organizations"
       ? Object.fromEntries(
@@ -760,24 +776,32 @@ const syncUserClubAccess = async (user_id: string, club_access: any) => {
       continue;
     }
 
-    await prisma.organizationUser.upsert({
+    const role = access?.role || "member";
+    const existingAccess = await prisma.organizationUser.findFirst({
       where: {
-        organization_id_user_id: {
-          organization_id,
-          user_id,
-        },
-      },
-      update: {
-        role: access?.role || "member",
-        is_primary: Boolean(access?.is_primary ?? access?.isPrimary),
-      },
-      create: {
         organization_id,
         user_id,
-        role: access?.role || "member",
-        is_primary: Boolean(access?.is_primary ?? access?.isPrimary),
+        role,
       },
     });
+
+    if (existingAccess) {
+      await prisma.organizationUser.update({
+        where: { id: existingAccess.id },
+        data: {
+          is_primary: Boolean(access?.is_primary ?? access?.isPrimary),
+        },
+      });
+    } else {
+      await prisma.organizationUser.create({
+        data: {
+          organization_id,
+          user_id,
+          role,
+          is_primary: Boolean(access?.is_primary ?? access?.isPrimary),
+        },
+      });
+    }
   }
 };
 
@@ -791,24 +815,32 @@ const syncClubMembers = async (organization_id: string, members: any) => {
       continue;
     }
 
-    await prisma.organizationUser.upsert({
+    const role = member?.role || "member";
+    const existingAccess = await prisma.organizationUser.findFirst({
       where: {
-        organization_id_user_id: {
-          organization_id,
-          user_id: member.user_id,
-        },
-      },
-      update: {
-        role: member?.role || "member",
-        is_primary: Boolean(member?.is_primary ?? member?.isPrimary),
-      },
-      create: {
         organization_id,
         user_id: member.user_id,
-        role: member?.role || "member",
-        is_primary: Boolean(member?.is_primary ?? member?.isPrimary),
+        role,
       },
     });
+
+    if (existingAccess) {
+      await prisma.organizationUser.update({
+        where: { id: existingAccess.id },
+        data: {
+          is_primary: Boolean(member?.is_primary ?? member?.isPrimary),
+        },
+      });
+    } else {
+      await prisma.organizationUser.create({
+        data: {
+          organization_id,
+          user_id: member.user_id,
+          role,
+          is_primary: Boolean(member?.is_primary ?? member?.isPrimary),
+        },
+      });
+    }
   }
 };
 
@@ -909,7 +941,10 @@ const syncClubResourceItemsFromField = async (
   await syncClubAggregateField(organization_id, resource_type);
 };
 
-const normalizeClubResourceInput = (resource: string, input: Record<string, any>) => {
+const normalizeClubResourceInput = (
+  resource: string,
+  input: Record<string, any>,
+) => {
   const next = normalizeCommonAliases(input);
   const {
     id,
@@ -959,12 +994,11 @@ const findClubResourceRecord = async (
   const directId = isUuid(trimmedIdentifier)
     ? normalizeUuid(trimmedIdentifier)
     : undefined;
-  const organizationFilter =
-    scope?.activeOrganizationId
-      ? { organization_id: scope.activeOrganizationId }
-      : scope?.allowedOrganizationIds?.length
-        ? { organization_id: { in: scope.allowedOrganizationIds } }
-        : {};
+  const organizationFilter = scope?.activeOrganizationId
+    ? { organization_id: scope.activeOrganizationId }
+    : scope?.allowedOrganizationIds?.length
+      ? { organization_id: { in: scope.allowedOrganizationIds } }
+      : {};
 
   return prisma.clubResourceItem.findFirst({
     where: {
@@ -1000,6 +1034,7 @@ const buildWhereFromSearchParams = (
     "path",
     "status",
     "type",
+    "role",
   ];
 
   for (const key of passthrough) {
@@ -1044,6 +1079,331 @@ const getModelInclude = (resource: string) => {
   return undefined;
 };
 
+const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
+  "athletes",
+  "simplified_athletes",
+  "trainings",
+  "matches",
+]);
+
+const toArrayValue = (value: unknown): any[] =>
+  Array.isArray(value) ? value : [];
+
+const normalizeTrainerToken = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const toObjectPayload = (value: any) =>
+  value?.data && typeof value.data === "object"
+    ? value.data
+    : value?.payload && typeof value.payload === "object"
+      ? value.payload
+      : {};
+
+const flattenTokenInput = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => flattenTokenInput(entry));
+  }
+
+  if (typeof value === "string" && value.includes(",")) {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [value];
+};
+
+const buildCategoryTokenSet = (
+  source: unknown,
+  categories: Array<{ id?: string; name?: string }>,
+) => {
+  const tokens = new Set<string>();
+
+  for (const entry of flattenTokenInput(source)) {
+    const raw =
+      entry && typeof entry === "object"
+        ? String(
+            (entry as any).id ||
+              (entry as any).name ||
+              (entry as any).category ||
+              (entry as any).categoryId ||
+              (entry as any).category_id ||
+              "",
+          ).trim()
+        : String(entry || "").trim();
+
+    if (!raw) {
+      continue;
+    }
+
+    tokens.add(normalizeTrainerToken(raw));
+
+    const resolvedId = resolveCategoryId(raw, categories);
+    if (resolvedId) {
+      tokens.add(normalizeTrainerToken(resolvedId));
+    }
+
+    const resolvedLabel = resolveCategoryLabel(raw, categories);
+    if (resolvedLabel) {
+      tokens.add(normalizeTrainerToken(resolvedLabel));
+    }
+  }
+
+  return tokens;
+};
+
+const extractRecordCategoryTokens = (
+  record: Record<string, any>,
+  categories: Array<{ id?: string; name?: string }>,
+) => {
+  const source = toObjectPayload(record);
+
+  return buildCategoryTokenSet(
+    [
+      record.category,
+      record.category_id,
+      record.categoryId,
+      record.category_name,
+      record.categoryName,
+      record.categories,
+      source.category,
+      source.category_id,
+      source.categoryId,
+      source.category_name,
+      source.categoryName,
+      source.categories,
+    ],
+    categories,
+  );
+};
+
+const hasTokenIntersection = (left: Set<string>, right: Set<string>) =>
+  Array.from(left).some((token) => right.has(token));
+
+const isTrainerLikeProfile = (profile: any) => {
+  const source = toObjectPayload(profile);
+  const role = normalizeTrainerToken(profile?.role || source?.role);
+  return ["trainer", "allenatore", "coach"].includes(role);
+};
+
+const isProfileLinkedToUser = (
+  profile: any,
+  userId: string,
+  userEmail?: string | null,
+) => {
+  const source = toObjectPayload(profile);
+  const linkedCandidates = [
+    profile?.linkedUserId,
+    profile?.linked_user_id,
+    profile?.userId,
+    profile?.user_id,
+    source?.linkedUserId,
+    source?.linked_user_id,
+    source?.userId,
+    source?.user_id,
+  ];
+  const linkedListCandidates = [
+    profile?.linkedUserIds,
+    profile?.linked_user_ids,
+    source?.linkedUserIds,
+    source?.linked_user_ids,
+  ].flatMap((entry) => flattenTokenInput(entry));
+  const emailCandidates = [
+    profile?.linkedUserEmail,
+    profile?.linked_user_email,
+    profile?.email,
+    source?.linkedUserEmail,
+    source?.linked_user_email,
+    source?.email,
+  ];
+  const normalizedUserId = normalizeTrainerToken(userId);
+  const normalizedUserEmail = normalizeTrainerToken(userEmail);
+
+  return (
+    linkedCandidates
+      .concat(linkedListCandidates)
+      .some(
+        (candidate) => normalizeTrainerToken(candidate) === normalizedUserId,
+      ) ||
+    (Boolean(normalizedUserEmail) &&
+      emailCandidates.some(
+        (candidate) => normalizeTrainerToken(candidate) === normalizedUserEmail,
+      ))
+  );
+};
+
+const buildTrainerTokenSet = (profile: any) => {
+  const source = toObjectPayload(profile);
+  const tokens = [
+    profile?.id,
+    profile?.name,
+    profile?.fullName,
+    profile?.email,
+    source?.id,
+    source?.name,
+    source?.fullName,
+    source?.email,
+    [source?.name, source?.surname].filter(Boolean).join(" "),
+    [profile?.name, profile?.surname].filter(Boolean).join(" "),
+  ];
+
+  return new Set(
+    tokens.map((entry) => normalizeTrainerToken(entry)).filter(Boolean),
+  );
+};
+
+const extractRecordTrainerTokens = (record: Record<string, any>) => {
+  const source = toObjectPayload(record);
+  return new Set(
+    [
+      record.trainerId,
+      record.trainer_id,
+      record.trainerIds,
+      record.trainer_ids,
+      record.trainers,
+      record.coach,
+      record.coachName,
+      source.trainerId,
+      source.trainer_id,
+      source.trainerIds,
+      source.trainer_ids,
+      source.trainers,
+      source.coach,
+      source.coachName,
+    ]
+      .flatMap((entry) => flattenTokenInput(entry))
+      .map((entry) =>
+        entry && typeof entry === "object"
+          ? normalizeTrainerToken(
+              (entry as any).id || (entry as any).name || (entry as any).email,
+            )
+          : normalizeTrainerToken(entry),
+      )
+      .filter(Boolean),
+  );
+};
+
+const resolveTrainerDashboardFilterContext = async (
+  organizationId: string,
+  userId: string,
+) => {
+  const [club, user] = await Promise.all([
+    prisma.club.findUnique({
+      where: { id: organizationId },
+      select: {
+        categories: true,
+        trainers: true,
+        staff_members: true,
+      },
+    }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    }),
+  ]);
+
+  if (!club) {
+    return null;
+  }
+
+  const trainerPool = [
+    ...toArrayValue(club.trainers),
+    ...toArrayValue(club.staff_members).filter(isTrainerLikeProfile),
+  ];
+  const categoryOptions = buildClubCategoryOptions({
+    clubCategories: club.categories,
+    resourceCategories: trainerPool.flatMap((profile) => {
+      const source = toObjectPayload(profile);
+      return [profile?.categories, source?.categories];
+    }),
+  });
+  const trainerProfile =
+    trainerPool.find((profile) =>
+      isProfileLinkedToUser(profile, userId, user?.email),
+    ) || null;
+
+  if (!trainerProfile) {
+    return {
+      categoryOptions,
+      assignedCategoryTokens: new Set<string>(),
+      trainerTokens: new Set<string>(),
+    };
+  }
+
+  const source = toObjectPayload(trainerProfile);
+  const assignedCategoryTokens = buildCategoryTokenSet(
+    [
+      trainerProfile.categories,
+      trainerProfile.category,
+      trainerProfile.categoryId,
+      trainerProfile.category_id,
+      trainerProfile.categoryName,
+      trainerProfile.category_name,
+      source.categories,
+      source.category,
+      source.categoryId,
+      source.category_id,
+      source.categoryName,
+      source.category_name,
+    ],
+    categoryOptions,
+  );
+
+  return {
+    categoryOptions,
+    assignedCategoryTokens,
+    trainerTokens: buildTrainerTokenSet(trainerProfile),
+  };
+};
+
+const filterTrainerDashboardRecords = async (
+  resource: string,
+  records: Record<string, any>[],
+  searchParams: URLSearchParams,
+  scope?: ResourceAccessScope,
+) => {
+  if (
+    searchParams.get("trainer_dashboard") !== "1" ||
+    !scope?.userId ||
+    !scope.activeOrganizationId ||
+    !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(resource)
+  ) {
+    return records;
+  }
+
+  const context = await resolveTrainerDashboardFilterContext(
+    scope.activeOrganizationId,
+    scope.userId,
+  );
+
+  if (!context) {
+    return [];
+  }
+
+  return records.filter((record) => {
+    const matchesCategory = hasTokenIntersection(
+      extractRecordCategoryTokens(record, context.categoryOptions),
+      context.assignedCategoryTokens,
+    );
+
+    if (matchesCategory) {
+      return true;
+    }
+
+    if (resource === "trainings" || resource === "matches") {
+      return hasTokenIntersection(
+        extractRecordTrainerTokens(record),
+        context.trainerTokens,
+      );
+    }
+
+    return false;
+  });
+};
+
 export const listResource = async (
   resource: string,
   searchParams: URLSearchParams,
@@ -1077,12 +1437,19 @@ export const listResource = async (
     where,
     include: getModelInclude(resource),
     orderBy:
-      config.kind === "club_resource"
-        ? { created_at: "asc" }
-        : undefined,
+      config.kind === "club_resource" ? { created_at: "asc" } : undefined,
   });
 
-  return records.map((record: Record<string, any>) => serializeRecord(resource, record));
+  const serializedRecords = records.map((record: Record<string, any>) =>
+    serializeRecord(resource, record),
+  );
+
+  return filterTrainerDashboardRecords(
+    resource,
+    serializedRecords.filter(Boolean) as Record<string, any>[],
+    searchParams,
+    scope,
+  );
 };
 
 export const getResourceById = async (
@@ -1116,19 +1483,6 @@ const resolveUpsertWhere = (resource: string, input: Record<string, any>) => {
 
   if (resource === "users" && input.email) {
     return { email: input.email };
-  }
-
-  if (
-    resource === "organization_users" &&
-    input.organization_id &&
-    input.user_id
-  ) {
-    return {
-      organization_id_user_id: {
-        organization_id: input.organization_id,
-        user_id: input.user_id,
-      },
-    };
   }
 
   if (resource === "invoices" && input.invoice_number) {
@@ -1180,7 +1534,9 @@ export const createResource = async (
       if (existing) {
         assertRecordAccess(resource, existing, scope);
         const preservedLogicalId =
-          (!isUuid(input?.id) && typeof input?.id === "string" && input.id.trim()) ||
+          (!isUuid(input?.id) &&
+            typeof input?.id === "string" &&
+            input.id.trim()) ||
           getClubResourceLogicalId(existing);
         const existingPayload =
           typeof existing.payload === "object" && existing.payload
@@ -1204,7 +1560,8 @@ export const createResource = async (
             organization_id: data.organization_id || existing.organization_id,
             resource_type: resource,
             name: data.name ?? existing.name ?? nextPayload.name ?? null,
-            status: data.status ?? existing.status ?? nextPayload.status ?? null,
+            status:
+              data.status ?? existing.status ?? nextPayload.status ?? null,
             date:
               data.date ??
               existing.date ??
@@ -1248,6 +1605,41 @@ export const createResource = async (
     );
   }
 
+  if (
+    mode === "upsert" &&
+    resource === "organization_users" &&
+    normalized.organization_id &&
+    normalized.user_id
+  ) {
+    const role = normalized.role || "member";
+    const existingAccess = await prisma.organizationUser.findFirst({
+      where: {
+        organization_id: normalized.organization_id,
+        user_id: normalized.user_id,
+        role,
+      },
+    });
+
+    const record = existingAccess
+      ? await prisma.organizationUser.update({
+          where: { id: existingAccess.id },
+          data: {
+            ...normalized,
+            role,
+          },
+          include: getModelInclude(resource),
+        })
+      : await prisma.organizationUser.create({
+          data: {
+            ...normalized,
+            role,
+          },
+          include: getModelInclude(resource),
+        });
+
+    return serializeRecord(resource, record);
+  }
+
   if (mode === "upsert") {
     const where = resolveUpsertWhere(resource, normalized);
     if (where) {
@@ -1264,10 +1656,18 @@ export const createResource = async (
 
       if (resource === "clubs" || resource === "organizations") {
         await syncClubMembers(record.id, input.members);
-        await ensureClubDashboard(record.id, normalized.creator_id, input.dashboard_data);
+        await ensureClubDashboard(
+          record.id,
+          normalized.creator_id,
+          input.dashboard_data,
+        );
         for (const field of CLUB_RESOURCE_TYPES) {
           if (input[field] !== undefined) {
-            await syncClubResourceItemsFromField(record.id, field, input[field]);
+            await syncClubResourceItemsFromField(
+              record.id,
+              field,
+              input[field],
+            );
           }
         }
       }
@@ -1287,7 +1687,11 @@ export const createResource = async (
 
   if (resource === "clubs" || resource === "organizations") {
     await syncClubMembers(record.id, input.members);
-    await ensureClubDashboard(record.id, normalized.creator_id, input.dashboard_data);
+    await ensureClubDashboard(
+      record.id,
+      normalized.creator_id,
+      input.dashboard_data,
+    );
     for (const field of CLUB_RESOURCE_TYPES) {
       if (input[field] !== undefined) {
         await syncClubResourceItemsFromField(record.id, field, input[field]);
@@ -1392,7 +1796,11 @@ export const updateResource = async (
 
   if (resource === "clubs" || resource === "organizations") {
     await syncClubMembers(record.id, input.members);
-    await ensureClubDashboard(record.id, normalized.creator_id, input.dashboard_data);
+    await ensureClubDashboard(
+      record.id,
+      normalized.creator_id,
+      input.dashboard_data,
+    );
     for (const field of CLUB_RESOURCE_TYPES) {
       if (input[field] !== undefined) {
         await syncClubResourceItemsFromField(record.id, field, input[field]);

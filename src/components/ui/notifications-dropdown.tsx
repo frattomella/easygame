@@ -19,9 +19,13 @@ interface Notification {
 
 interface NotificationsDropdownProps {
   notificationCount?: number;
+  allNotificationsHref?: string;
 }
 
-export function NotificationsDropdown({ notificationCount = 0 }: NotificationsDropdownProps) {
+export function NotificationsDropdown({
+  notificationCount = 0,
+  allNotificationsHref = "/notifications",
+}: NotificationsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -128,7 +132,7 @@ export function NotificationsDropdown({ notificationCount = 0 }: NotificationsDr
 
   const handleViewAll = () => {
     setIsOpen(false);
-    router.push('/notifications');
+    router.push(allNotificationsHref);
   };
 
   return (

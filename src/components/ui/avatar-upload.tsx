@@ -3,14 +3,9 @@
 import React, { useState, useRef, useCallback } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Camera, Upload, X } from "lucide-react";
+import { Camera, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Image from "next/image";
-
-// Import default images
-import userDefaultImage from "@/../public/images/user.png";
-import companyDefaultImage from "@/../public/images/company.png";
-import clubLogoDefaultImage from "@/../public/images/club_logo.png";
+import { EntityIcon, type EntityIconType } from "@/components/ui/entity-icon";
 
 interface AvatarUploadProps {
   currentImage?: string | null;
@@ -18,7 +13,7 @@ interface AvatarUploadProps {
   name?: string;
   size?: "sm" | "md" | "lg" | "xl";
   shape?: "circle" | "square";
-  type?: "user" | "organization" | "sponsor";
+  type?: EntityIconType;
   className?: string;
   disabled?: boolean;
 }
@@ -123,12 +118,6 @@ export function AvatarUpload({
     }
   };
 
-  const getDefaultImage = () => {
-    if (type === "organization") return clubLogoDefaultImage;
-    if (type === "sponsor") return companyDefaultImage;
-    return userDefaultImage;
-  };
-
   return (
     <div className={cn("relative inline-block", className)}>
       <div
@@ -159,15 +148,15 @@ export function AvatarUpload({
             <AvatarFallback
               className={cn(
                 shape === "square" && "rounded-lg",
-                "bg-white dark:bg-gray-800 p-1"
+                "bg-transparent p-0"
               )}
             >
-              <Image
-                src={getDefaultImage()}
-                alt={name || "Default avatar"}
-                className="object-contain w-full h-full"
-                width={128}
-                height={128}
+              <EntityIcon
+                type={type}
+                size={size}
+                shape={shape}
+                label={name || "Avatar"}
+                className="h-full w-full border-0"
               />
             </AvatarFallback>
           )}
@@ -324,12 +313,12 @@ export function LogoUpload({
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full">
-            <Image
-              src={clubLogoDefaultImage}
-              alt="Default logo"
-              className="object-contain w-16 h-16 opacity-50"
-              width={64}
-              height={64}
+            <EntityIcon
+              type="organization"
+              size="lg"
+              shape="square"
+              label={name || "Logo"}
+              className="opacity-80"
             />
             <span className="text-xs text-center px-2 text-gray-400 mt-1">
               {isDragging ? "Rilascia qui" : "Carica logo"}
@@ -412,13 +401,11 @@ export function ProfileAvatar({
         {image ? (
           <AvatarImage src={image} alt={name} className="object-cover" />
         ) : (
-          <AvatarFallback className="bg-white dark:bg-gray-800 p-0.5">
-            <Image
-              src={userDefaultImage}
-              alt={name || "Default avatar"}
-              className="object-contain w-full h-full"
-              width={48}
-              height={48}
+          <AvatarFallback className="bg-transparent p-0">
+            <EntityIcon
+              type="user"
+              label={name || "Avatar"}
+              className="h-full w-full border-0"
             />
           </AvatarFallback>
         )}

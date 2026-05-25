@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar as TrainingCalendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import {
   Plus,
@@ -32,6 +33,10 @@ import {
   athleteMatchesAnyCategory,
 } from "@/lib/category-utils";
 import {
+  compareAthletesByLastName,
+  getAthleteDisplayName,
+} from "@/lib/athlete-name-utils";
+import {
   getClubCategories,
   getClubTrainings,
   getClubTrainers,
@@ -53,6 +58,7 @@ import {
 import {
   canRecordTrainingAttendance,
   compareTrainingsByStart,
+  dedupeTrainings,
   findTrainingsWithMissingCategories,
   findTrainingCollisions,
   getTrainingCategoryColor,
@@ -62,6 +68,7 @@ import {
   getTrainingEndTime,
   getTrainingPhase,
   getTrainingStartTime,
+  getTrainingStableKey,
   getTrainingTimeLabel,
   getTrainingTrainerLabel,
   isTrainingOnDate,
@@ -73,16 +80,6 @@ import {
 import {
   normalizeTrainingAttendanceEntries,
 } from "@/lib/athlete-participation-utils";
-
-const TrainingCalendar = dynamic(
-  () => import("@/components/ui/calendar").then((module) => module.Calendar),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[320px] animate-pulse rounded-md border bg-slate-100" />
-    ),
-  },
-);
 
 const WeeklyTrainingSchedule = dynamic(
   () =>
@@ -150,6 +147,8 @@ interface TrainingSession {
 type AttendanceSheetAthlete = {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   avatar?: string;
   present?: boolean;
   notes?: string;
@@ -159,6 +158,7 @@ type AttendanceSheetAthlete = {
   isExtraCategory?: boolean;
   isManualExtra?: boolean;
   primaryCategoryName?: string | null;
+  rawAthlete?: any;
 };
 
 type AttendanceModalState = {
@@ -317,11 +317,13 @@ const buildTrainingAttendanceAthlete = ({
 
   return {
     id: athlete.id,
-    name: `${athlete.first_name || ""} ${athlete.last_name || ""}`.trim() || "Atleta",
+    name: getAthleteDisplayName(athlete) || "Atleta",
+    firstName: athlete.first_name || "",
+    lastName: athlete.last_name || "",
     avatar:
       athlete.avatar_url ||
       athlete.data?.avatar ||
-      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(`${athlete.first_name || "atleta"}-${athlete.last_name || ""}`)}`,
+      "",
     present: existingEntry?.present || false,
     notes: existingEntry?.notes || "",
     medicalCertExpiry:
@@ -339,6 +341,7 @@ const buildTrainingAttendanceAthlete = ({
       context === "extra" ||
       Boolean(existingEntry?.isManualExtra),
     primaryCategoryName: primaryCategory?.categoryName || null,
+    rawAthlete: athlete,
   };
 };
 
@@ -368,6 +371,7 @@ export default function TrainingPage() {
   const [shouldRenderSchedule, setShouldRenderSchedule] = useState(false);
   const [cleaningMissingCategories, setCleaningMissingCategories] =
     useState(false);
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const scheduleSectionRef = React.useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const { activeClub } = useAuth();
@@ -461,14 +465,7 @@ export default function TrainingPage() {
     }
 
     try {
-      const [
-        clubCategories,
-        clubTrainers,
-        clubStructures,
-        allAthletes,
-        clubTrainings,
-        clubWeeklySchedule,
-      ] = await Promise.all([
+      const settledResults = await Promise.allSettled([
         getClubCategories(activeClub.id),
         getClubTrainers(activeClub.id),
         getClubStructures(activeClub.id),
@@ -476,6 +473,28 @@ export default function TrainingPage() {
         getClubTrainings(activeClub.id),
         getClubWeeklySchedule(activeClub.id),
       ]);
+
+      const failedSections: string[] = [];
+      const readArrayResult = (
+        index: number,
+        fallbackLabel: string,
+      ): any[] => {
+        const result = settledResults[index];
+        if (result.status === "fulfilled") {
+          return Array.isArray(result.value) ? result.value : [];
+        }
+
+        console.error(`Error loading training ${fallbackLabel}:`, result.reason);
+        failedSections.push(fallbackLabel);
+        return [];
+      };
+
+      const clubCategories = readArrayResult(0, "categorie");
+      const clubTrainers = readArrayResult(1, "allenatori");
+      const clubStructures = readArrayResult(2, "strutture");
+      const allAthletes = readArrayResult(3, "atleti");
+      const clubTrainings = readArrayResult(4, "allenamenti");
+      const clubWeeklySchedule = readArrayResult(5, "programma settimanale");
 
       const normalizedCategories = Array.isArray(clubCategories)
         ? clubCategories
@@ -514,9 +533,20 @@ export default function TrainingPage() {
         .filter(Boolean)
         .sort(compareTrainingsByStart) as TrainingSession[];
 
-      setTrainings(formattedTrainings);
+      setTrainings(dedupeTrainings(formattedTrainings));
+
+      if (failedSections.length > 0) {
+        setLoadWarning(
+          `Alcune sezioni non sono state caricate correttamente: ${failedSections.join(", ")}.`,
+        );
+      } else {
+        setLoadWarning(null);
+      }
     } catch (error) {
       console.error("Error loading training data:", error);
+      setLoadWarning(
+        "Non è stato possibile caricare tutti i dati degli allenamenti. Riprova tra qualche istante.",
+      );
       showToast("error", "Errore nel caricamento dei dati");
     }
   }, [activeClub?.id, showToast]);
@@ -730,7 +760,7 @@ export default function TrainingPage() {
       };
 
       setTrainings((current) =>
-        [...current, formattedTraining].sort(compareTrainingsByStart),
+        dedupeTrainings([...current, formattedTraining]).sort(compareTrainingsByStart),
       );
       setShowAddTrainingModal(false);
       showToast(
@@ -780,15 +810,7 @@ export default function TrainingPage() {
           collection.push(athlete);
           return collection;
         }, [])
-        .sort((left: any, right: any) =>
-          `${left.first_name || ""} ${left.last_name || ""}`
-            .trim()
-            .localeCompare(
-              `${right.first_name || ""} ${right.last_name || ""}`.trim(),
-              "it",
-              { sensitivity: "base" },
-            ),
-        );
+        .sort(compareAthletesByLastName);
 
       setAttendanceModalState({
         training,
@@ -808,9 +830,16 @@ export default function TrainingPage() {
             }),
           )
           .sort((left, right) =>
-            left.name.localeCompare(right.name, "it", {
-              sensitivity: "base",
-            }),
+            compareAthletesByLastName(
+              left.rawAthlete || {
+                first_name: left.firstName,
+                last_name: left.lastName,
+              },
+              right.rawAthlete || {
+                first_name: right.firstName,
+                last_name: right.lastName,
+              },
+            ),
           ),
       });
     },
@@ -888,7 +917,7 @@ export default function TrainingPage() {
           <Badge className="bg-green-100 text-green-800">Completato</Badge>
         );
       case "concluded":
-        return <Badge className="bg-green-100 text-green-800">Concluso</Badge>;
+        return <Badge className="bg-blue-100 text-blue-800">Concluso</Badge>;
       case "cancelled":
       case "annullato":
         return <Badge className="bg-red-100 text-red-800">Annullato</Badge>;
@@ -983,6 +1012,12 @@ export default function TrainingPage() {
                 Nuovo Allenamento
               </Button>
             </div>
+
+            {loadWarning ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {loadWarning}
+              </div>
+            ) : null}
 
             <Tabs
               value={activeTab}
@@ -1099,7 +1134,7 @@ export default function TrainingPage() {
 
                           return (
                             <div
-                              key={training.id}
+                              key={getTrainingStableKey(training)}
                               className="min-w-0 rounded-xl border p-4 transition-colors hover:bg-gray-50 dark:hover:bg-gray-900"
                             >
                               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1108,7 +1143,7 @@ export default function TrainingPage() {
                                 </h4>
                               <Badge
                                 className={cn(
-                                  "w-fit text-xs",
+                                  "w-fit rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm ring-1 ring-black/5",
                                   training.categoryColor,
                                 )}
                               >
@@ -1286,13 +1321,16 @@ export default function TrainingPage() {
                                           );
 
                                           // Format athletes for the attendance sheet
-                                          const formattedAthletes =
-                                            finalAthletes.map((athlete) => ({
-                                              id: athlete.id,
-                                              name: `${athlete.first_name} ${athlete.last_name}`,
-                                              avatar:
-                                                athlete.data?.avatar ||
-                                                `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(athlete.first_name + athlete.last_name)}`,
+                                            const formattedAthletes =
+                                              finalAthletes.map((athlete) => ({
+                                                id: athlete.id,
+                                                name:
+                                                  getAthleteDisplayName(athlete) ||
+                                                  "Atleta",
+                                                avatar:
+                                                  athlete.avatar_url ||
+                                                  athlete.data?.avatar ||
+                                                  "",
                                               medicalCertExpiry:
                                                 athlete.data?.medicalCertExpiry ||
                                                 athlete.medical_cert_expiry ||
@@ -1910,7 +1948,7 @@ export default function TrainingPage() {
 
                                     return (
                                     <div
-                                      key={training.id}
+                                      key={getTrainingStableKey(training)}
                                       className="rounded-lg border bg-gray-50 p-3 dark:bg-gray-800"
                                     >
                                       <div className="flex justify-between items-start mb-2">
@@ -1947,7 +1985,7 @@ export default function TrainingPage() {
                                       <div className="mt-2 flex flex-wrap items-center gap-2">
                                         <Badge
                                           className={cn(
-                                            "text-xs",
+                                            "rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm ring-1 ring-black/5",
                                             training.categoryColor,
                                           )}
                                         >

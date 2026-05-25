@@ -34,7 +34,7 @@ export default function TrainerAthletesPage() {
     return (
       <SectionEmptyState
         title="Nessun atleta assegnato"
-        description="Questa pagina mostra solo gli atleti appartenenti alle categorie collegate al trainer."
+        description="Nessun atleta disponibile."
       />
     );
   }
@@ -45,36 +45,42 @@ export default function TrainerAthletesPage() {
         <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
           Atleti
         </h1>
-        <p className="text-gray-600 mt-2">
-          Vedi tutti gli atleti delle categorie assegnate e apri la loro scheda tecnica in base ai permessi del club.
-        </p>
+        <p className="text-gray-600 mt-2">I tuoi atleti.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-white shadow-md border-0 overflow-hidden">
           <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-blue-600"></div>
           <CardContent className="p-6">
-            <p className="text-sm font-medium text-muted-foreground">Atleti visibili</p>
+            <p className="text-sm font-medium text-muted-foreground">
+              Atleti visibili
+            </p>
             <p className="mt-2 text-3xl font-bold">{assignedAthletes.length}</p>
           </CardContent>
         </Card>
         <Card className="bg-white shadow-md border-0 overflow-hidden">
           <div className="h-1 w-full bg-gradient-to-r from-emerald-500 to-emerald-600"></div>
           <CardContent className="p-6">
-            <p className="text-sm font-medium text-muted-foreground">Scheda tecnica</p>
+            <p className="text-sm font-medium text-muted-foreground">
+              Scheda tecnica
+            </p>
             <p className="mt-2 text-sm font-semibold text-slate-700">
-              {permissions.actions.viewAthleteTechnicalSheet ? "Abilitata" : "Disabilitata"}
+              {permissions.actions.viewAthleteTechnicalSheet
+                ? "Abilitata"
+                : "Disabilitata"}
             </p>
           </CardContent>
         </Card>
         <Card className="bg-white shadow-md border-0 overflow-hidden">
           <div className="h-1 w-full bg-gradient-to-r from-purple-500 to-purple-600"></div>
           <CardContent className="p-6">
-            <p className="text-sm font-medium text-muted-foreground">Dati sensibili</p>
+            <p className="text-sm font-medium text-muted-foreground">
+              Dati autorizzati
+            </p>
             <p className="mt-2 text-sm font-semibold text-slate-700">
-              {permissions.actions.viewEnrollmentAndPayments
-                ? "Iscrizione e pagamenti visibili"
-                : "Iscrizione e pagamenti oscurati"}
+              {permissions.actions.viewMedicalStatus
+                ? "Certificati e note"
+                : "Solo dati base"}
             </p>
           </CardContent>
         </Card>
@@ -89,19 +95,12 @@ export default function TrainerAthletesPage() {
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">
               Atleti visibili dal tuo account
             </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              I dati esposti qui rispettano i permessi impostati dal club.
-            </p>
+            <p className="mt-2 text-sm text-slate-500">Schede atleta rapide.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge className="border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100">
               {assignedAthletes.length} atleti
             </Badge>
-            {permissions.actions.viewMedicalStatus ? (
-              <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
-                Stato medico visibile
-              </Badge>
-            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -126,11 +125,16 @@ export default function TrainerAthletesPage() {
                     {getAthleteDisplayName(athlete)}
                   </TableCell>
                   <TableCell className="px-4 py-4">
-                    {athlete?.category_name || athlete?.data?.categoryName || "-"}
+                    {athlete?.category_name ||
+                      athlete?.data?.categoryName ||
+                      "-"}
                   </TableCell>
                   <TableCell className="px-4 py-4">
                     {permissions.actions.viewAthleteContacts
-                      ? athlete?.data?.phone || athlete?.phone || athlete?.data?.email || "-"
+                      ? athlete?.data?.phone ||
+                        athlete?.phone ||
+                        athlete?.data?.email ||
+                        "-"
                       : "Nascosti"}
                   </TableCell>
                   <TableCell className="px-4 py-4">

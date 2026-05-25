@@ -101,8 +101,8 @@ export function AttendanceSheet({
   }, [athletes]);
 
   const handleTogglePresence = (athleteId: string) => {
-    setAttendance(
-      attendance.map((item) =>
+    setAttendance((currentAttendance) =>
+      currentAttendance.map((item) =>
         item.athleteId === athleteId
           ? { ...item, present: !item.present }
           : item,
@@ -110,16 +110,26 @@ export function AttendanceSheet({
     );
   };
 
+  const handleSetPresence = (athleteId: string, present: boolean) => {
+    setAttendance((currentAttendance) =>
+      currentAttendance.map((item) =>
+        item.athleteId === athleteId ? { ...item, present } : item,
+      ),
+    );
+  };
+
   const handleNotesChange = (athleteId: string, notes: string) => {
-    setAttendance(
-      attendance.map((item) =>
+    setAttendance((currentAttendance) =>
+      currentAttendance.map((item) =>
         item.athleteId === athleteId ? { ...item, notes } : item,
       ),
     );
   };
 
   const handleMarkAllPresent = () => {
-    setAttendance(attendance.map((item) => ({ ...item, present: true })));
+    setAttendance((currentAttendance) =>
+      currentAttendance.map((item) => ({ ...item, present: true })),
+    );
   };
 
   const handleAddExtraAthlete = (athlete: AttendanceSheetAthlete) => {
@@ -276,94 +286,114 @@ export function AttendanceSheet({
             ) : null}
           </div>
 
-          <div className="overflow-hidden rounded-md border">
-            <div className="hidden grid-cols-12 gap-4 bg-muted p-3 text-sm font-medium text-muted-foreground sm:grid">
-              <div className="col-span-5">Atleta</div>
-              <div className="col-span-2 text-center">Presenza</div>
-              <div className="col-span-5">Note</div>
-            </div>
-
-            <div className="max-h-[300px] overflow-y-auto">
-              {athleteRows.map((athlete, index) => {
+          <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            {athleteRows.map((athlete) => {
                 const attendanceRecord = attendance.find(
                   (a) => a.athleteId === athlete.id,
                 );
+                const isPresent = Boolean(attendanceRecord?.present);
 
                 return (
                   <div
                     key={athlete.id}
-                    className={`grid grid-cols-1 gap-3 p-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800 sm:grid-cols-12 sm:items-center sm:gap-4 ${index !== athleteRows.length - 1 ? "border-b" : ""}`}
+                    onClick={() => handleTogglePresence(athlete.id)}
+                    className={`w-full rounded-2xl border p-4 text-left transition-colors ${
+                      isPresent
+                        ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20"
+                        : "border-slate-200 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-900"
+                    }`}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isPresent}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleTogglePresence(athlete.id);
+                      }
+                    }}
                   >
-                    <div className="sm:col-span-5">
-                      <div className="flex items-center gap-2 font-medium">
-                        <span>{athlete.name}</span>
-                        {athlete.participationBadgeLabel ? (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                      <span
+                        className="mt-1 inline-flex"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Checkbox
+                          id={`attendance-${athlete.id}`}
+                          checked={isPresent}
+                          onCheckedChange={(checked) =>
+                            handleSetPresence(athlete.id, checked === true)
+                          }
+                          className="h-5 w-5 shrink-0 data-[state=checked]:bg-blue-600"
+                        />
+                      </span>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-slate-950 dark:text-slate-100">
+                            {athlete.name}
+                          </p>
                           <Badge
-                            variant="outline"
-                            className={getParticipationBadgeClassName(
-                              athlete.participationContext,
-                            )}
+                            className={
+                              isPresent
+                                ? "border-blue-200 bg-blue-600 text-white hover:bg-blue-600"
+                                : "border-slate-200 bg-white text-slate-600 hover:bg-white"
+                            }
                           >
-                            {athlete.participationBadgeLabel}
+                            {isPresent ? "Presente" : "Assente"}
                           </Badge>
-                        ) : null}
+                          {athlete.participationBadgeLabel ? (
+                            <Badge
+                              variant="outline"
+                              className={getParticipationBadgeClassName(
+                                athlete.participationContext,
+                              )}
+                            >
+                              {athlete.participationBadgeLabel}
+                            </Badge>
+                          ) : null}
+                          {getMedicalCertificateAvailability(
+                            athlete.medicalCertExpiry,
+                          ) !== "valid" ? (
+                            <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          ) : null}
+                        </div>
+
                         {getMedicalCertificateAvailability(
                           athlete.medicalCertExpiry,
                         ) !== "valid" ? (
-                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          <p className="mt-1 text-xs font-medium text-amber-600">
+                            {getMedicalCertificateAvailabilityLabel(
+                              getMedicalCertificateAvailability(
+                                athlete.medicalCertExpiry,
+                              ),
+                            )}
+                          </p>
                         ) : null}
+                        {athlete.primaryCategoryName &&
+                        athlete.participationContext !== "primary" ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Categoria primaria: {athlete.primaryCategoryName}
+                          </p>
+                        ) : null}
+
+                        <div
+                          className="mt-3"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <Input
+                            placeholder="Note per questo atleta"
+                            value={attendanceRecord?.notes || ""}
+                            onChange={(e) =>
+                              handleNotesChange(athlete.id, e.target.value)
+                            }
+                          />
+                        </div>
                       </div>
-                      {getMedicalCertificateAvailability(
-                        athlete.medicalCertExpiry,
-                      ) !== "valid" ? (
-                        <p className="mt-1 text-xs font-medium text-amber-600">
-                          {getMedicalCertificateAvailabilityLabel(
-                            getMedicalCertificateAvailability(
-                              athlete.medicalCertExpiry,
-                            ),
-                          )}
-                        </p>
-                      ) : null}
-                      {athlete.primaryCategoryName &&
-                      athlete.participationContext !== "primary" ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Categoria primaria: {athlete.primaryCategoryName}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="sm:col-span-2">
-                      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:hidden">
-                        Presenza
-                      </div>
-                      <div className="flex justify-start sm:justify-center">
-                      <div className="flex h-4 w-4 items-center justify-center rounded-sm border border-primary">
-                        <Checkbox
-                          id={`attendance-${athlete.id}`}
-                          checked={attendanceRecord?.present || false}
-                          onCheckedChange={() =>
-                            handleTogglePresence(athlete.id)
-                          }
-                          className="h-4 w-4 rounded-sm border-none data-[state=checked]:bg-blue-600"
-                        />
-                      </div>
-                    </div>
-                    </div>
-                    <div className="sm:col-span-5">
-                      <div className="mb-1 pl-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:hidden">
-                        Note
-                      </div>
-                      <Input
-                        placeholder="Note (opzionale)"
-                        value={attendanceRecord?.notes || ""}
-                        onChange={(e) =>
-                          handleNotesChange(athlete.id, e.target.value)
-                        }
-                      />
                     </div>
                   </div>
                 );
               })}
-            </div>
           </div>
 
           <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

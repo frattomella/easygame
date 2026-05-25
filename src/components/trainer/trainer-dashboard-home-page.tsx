@@ -31,6 +31,7 @@ import {
   getRecordDisplayCategory,
   isSameTrainerDay,
 } from "@/lib/trainer-dashboard-helpers";
+import { getTrainingStableKey } from "@/lib/training-utils";
 
 export default function TrainerDashboardHomePage() {
   const router = useRouter();
@@ -160,7 +161,7 @@ export default function TrainerDashboardHomePage() {
               <div className="space-y-3">
                 {todayTrainings.slice(0, 3).map((training) => (
                   <div
-                    key={training.id}
+                    key={getTrainingStableKey(training)}
                     className="rounded-lg bg-white/10 p-3 backdrop-blur-sm"
                   >
                     <p className="font-medium">{training.title || "Allenamento"}</p>
@@ -288,7 +289,7 @@ export default function TrainerDashboardHomePage() {
 
                   return (
                     <CompactEntityCard
-                      key={training.id}
+                      key={getTrainingStableKey(training)}
                       title={training.title || "Allenamento"}
                       badge={
                         <Badge className={status.className}>{status.label}</Badge>

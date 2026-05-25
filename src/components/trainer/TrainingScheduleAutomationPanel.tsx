@@ -7,12 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { apiRequest } from "@/lib/api/client";
 import {
   clearUpcomingGeneratedTrainings,
-  generateTrainingsFromWeeklySchedule,
   getClubSettings,
   saveClubSettings,
 } from "@/lib/simplified-db";
+import {
+  DEFAULT_TRAINING_AUTOMATION_SETTINGS,
+  TRAINING_AUTOMATION_DAY_LABELS,
+  getNextTrainingAutomationRun,
+  parseTrainingAutomationSettings,
+  type TrainingAutomationFrequency,
+  type TrainingAutomationSettings,
+} from "@/lib/training-automation-utils";
 import {
   CalendarClock,
   RefreshCw,
@@ -22,169 +30,14 @@ import {
   Trash2,
 } from "lucide-react";
 
-type AutomationFrequency = "weekly" | "interval";
-
-type TrainingAutomationSettings = {
-  enabled: boolean;
-  frequency: AutomationFrequency;
-  time: string;
-  day: string;
-  intervalDays: number;
-  startDate: string;
-  generateDaysAhead: number;
-  lastRunAt: string | null;
-};
-
-const DEFAULT_SETTINGS: TrainingAutomationSettings = {
-  enabled: false,
-  frequency: "weekly",
-  time: "23:00",
-  day: "sunday",
-  intervalDays: 7,
-  startDate: new Date().toISOString().split("T")[0],
-  generateDaysAhead: 21,
-  lastRunAt: null,
-};
-
-const DAY_LABELS: Record<string, string> = {
-  monday: "Lunedì",
-  tuesday: "Martedì",
-  wednesday: "Mercoledì",
-  thursday: "Giovedì",
-  friday: "Venerdì",
-  saturday: "Sabato",
-  sunday: "Domenica",
-};
-
-const DAY_TO_NUMBER: Record<string, number> = {
-  sunday: 0,
-  monday: 1,
-  tuesday: 2,
-  wednesday: 3,
-  thursday: 4,
-  friday: 5,
-  saturday: 6,
-};
-
-const parseSettings = (value: any): TrainingAutomationSettings => ({
-  ...DEFAULT_SETTINGS,
-  ...(typeof value === "object" && value ? value : {}),
-  intervalDays: Math.max(1, Number(value?.intervalDays || DEFAULT_SETTINGS.intervalDays)),
-  generateDaysAhead: Math.max(
-    7,
-    Number(value?.generateDaysAhead || DEFAULT_SETTINGS.generateDaysAhead),
-  ),
-  startDate:
-    String(value?.startDate || DEFAULT_SETTINGS.startDate).slice(0, 10) ||
-    DEFAULT_SETTINGS.startDate,
-  time: String(value?.time || DEFAULT_SETTINGS.time).slice(0, 5),
-  lastRunAt: value?.lastRunAt || null,
-});
-
-const combineDateAndTime = (date: Date, time: string) => {
-  const [hours, minutes] = String(time || "00:00")
-    .split(":")
-    .map((value) => Number(value || 0));
-  const next = new Date(date);
-  next.setHours(hours, minutes, 0, 0);
-  return next;
-};
-
-const getNextWeeklyDue = (settings: TrainingAutomationSettings, now: Date) => {
-  const targetDay = DAY_TO_NUMBER[settings.day] ?? 0;
-  const next = new Date(now);
-  const diff = (targetDay - now.getDay() + 7) % 7;
-  next.setDate(now.getDate() + diff);
-  const due = combineDateAndTime(next, settings.time);
-
-  if (due > now) {
-    return due;
-  }
-
-  due.setDate(due.getDate() + 7);
-  return due;
-};
-
-const getLastIntervalDue = (settings: TrainingAutomationSettings, now: Date) => {
-  const start = combineDateAndTime(new Date(settings.startDate), settings.time);
-
-  if (Number.isNaN(start.getTime())) {
-    return combineDateAndTime(new Date(), settings.time);
-  }
-
-  if (start > now) {
-    return start;
-  }
-
-  const intervalMs = settings.intervalDays * 24 * 60 * 60 * 1000;
-  const elapsedIntervals = Math.floor(
-    (now.getTime() - start.getTime()) / intervalMs,
-  );
-  return new Date(start.getTime() + elapsedIntervals * intervalMs);
-};
-
-const shouldRunAutomation = (
-  settings: TrainingAutomationSettings,
-  now: Date,
-) => {
-  if (!settings.enabled) {
-    return false;
-  }
-
-  const due =
-    settings.frequency === "weekly"
-      ? (() => {
-          const lastRun = settings.lastRunAt ? new Date(settings.lastRunAt) : null;
-          const thisWeekDue = combineDateAndTime(new Date(now), settings.time);
-          thisWeekDue.setDate(
-            now.getDate() +
-              ((DAY_TO_NUMBER[settings.day] ?? 0) - now.getDay()),
-          );
-
-          if (thisWeekDue <= now) {
-            return thisWeekDue;
-          }
-
-          const previousDue = new Date(thisWeekDue);
-          previousDue.setDate(previousDue.getDate() - 7);
-          return lastRun && lastRun >= thisWeekDue ? null : previousDue;
-        })()
-      : getLastIntervalDue(settings, now);
-
-  if (!due || due > now) {
-    return false;
-  }
-
-  if (!settings.lastRunAt) {
-    return true;
-  }
-
-  return new Date(settings.lastRunAt) < due;
-};
-
-const formatNextRun = (settings: TrainingAutomationSettings) => {
-  const now = new Date();
-  const nextRun =
-    settings.frequency === "weekly"
-      ? getNextWeeklyDue(settings, now)
-      : (() => {
-          const lastDue = getLastIntervalDue(settings, now);
-          if (lastDue > now) {
-            return lastDue;
-          }
-          return new Date(
-            lastDue.getTime() + settings.intervalDays * 24 * 60 * 60 * 1000,
-          );
-        })();
-
-  return nextRun.toLocaleString("it-IT", {
+const formatNextRun = (settings: TrainingAutomationSettings) =>
+  getNextTrainingAutomationRun(settings).toLocaleString("it-IT", {
     weekday: "long",
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });
-};
 
 interface TrainingScheduleAutomationPanelProps {
   weeklySchedule?: any[];
@@ -200,21 +53,19 @@ export function TrainingScheduleAutomationPanel({
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isResetting, setIsResetting] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
-  const [settings, setSettings] =
-    React.useState<TrainingAutomationSettings>(DEFAULT_SETTINGS);
-  const [loaded, setLoaded] = React.useState(false);
-  const autoRunGuardRef = React.useRef(false);
+  const [settings, setSettings] = React.useState<TrainingAutomationSettings>(
+    DEFAULT_TRAINING_AUTOMATION_SETTINGS,
+  );
 
   const loadSettings = React.useCallback(async () => {
     if (!activeClub?.id) {
-      setLoaded(true);
       return;
     }
 
     const clubSettings = await getClubSettings(activeClub.id);
-    const trainingAutomation = parseSettings(clubSettings?.trainingAutomation);
-    setSettings(trainingAutomation);
-    setLoaded(true);
+    setSettings(
+      parseTrainingAutomationSettings(clubSettings?.trainingAutomation),
+    );
   }, [activeClub?.id]);
 
   React.useEffect(() => {
@@ -240,79 +91,83 @@ export function TrainingScheduleAutomationPanel({
     [activeClub?.id],
   );
 
-  const runGeneration = React.useCallback(
-    async (options?: { automated?: boolean }) => {
-      if (!activeClub?.id) {
-        showToast("error", "Nessun club attivo selezionato");
-        return;
-      }
-
-      if (!Array.isArray(weeklySchedule) || weeklySchedule.length === 0) {
-        showToast(
-          "error",
-          "Configura prima il programma settimanale per generare gli allenamenti",
-        );
-        return;
-      }
-
-      setIsGenerating(true);
-      try {
-        const start = new Date();
-        const end = new Date();
-        end.setDate(end.getDate() + Math.max(7, settings.generateDaysAhead));
-
-        const generated = await generateTrainingsFromWeeklySchedule(
-          activeClub.id,
-          weeklySchedule,
-          start,
-          end,
-        );
-
-        const nextSettings = {
-          ...settings,
-          lastRunAt: new Date().toISOString(),
-        };
-        await persistSettings(nextSettings);
-        onGenerateTrainings();
-
-        if (generated.length > 0) {
-          showToast(
-            "success",
-            `${generated.length} allenamenti creati dal programma settimanale`,
-          );
-        } else if (!options?.automated) {
-          showToast(
-            "success",
-            "Nessun duplicato creato: il calendario era già allineato",
-          );
-        }
-      } catch (error) {
-        console.error("Error generating trainings:", error);
-        showToast("error", "Errore nella generazione degli allenamenti");
-      } finally {
-        setIsGenerating(false);
-      }
-    },
-    [
-      activeClub?.id,
-      onGenerateTrainings,
-      persistSettings,
-      settings,
-      showToast,
-      weeklySchedule,
-    ],
-  );
-
-  React.useEffect(() => {
-    if (!loaded || autoRunGuardRef.current) {
+  const runGeneration = React.useCallback(async () => {
+    if (!activeClub?.id) {
+      showToast("error", "Nessun club attivo selezionato");
       return;
     }
 
-    if (shouldRunAutomation(settings, new Date())) {
-      autoRunGuardRef.current = true;
-      runGeneration({ automated: true });
+    if (!Array.isArray(weeklySchedule) || weeklySchedule.length === 0) {
+      showToast(
+        "error",
+        "Configura prima il programma settimanale per generare gli allenamenti",
+      );
+      return;
     }
-  }, [loaded, runGeneration, settings]);
+
+    setIsGenerating(true);
+    try {
+      const response = await apiRequest<{
+        generatedCount: number;
+        generatedTrainings: any[];
+        lastRunAt: string | null;
+        reason?: string;
+      }>("/api/v1/training-automation", {
+        method: "POST",
+        body: {
+          force: true,
+          weeklySchedule,
+          settings,
+        },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || "Generazione fallita");
+      }
+
+      if (response.data?.reason === "missing_schedule") {
+        showToast(
+          "error",
+          "Il programma settimanale non contiene sessioni valide da generare",
+        );
+        return;
+      }
+
+      const generatedTrainings = Array.isArray(response.data?.generatedTrainings)
+        ? response.data.generatedTrainings
+        : [];
+      const nextLastRunAt =
+        response.data?.lastRunAt || new Date().toISOString();
+
+      setSettings((current) => ({
+        ...current,
+        lastRunAt: nextLastRunAt,
+      }));
+      onGenerateTrainings();
+
+      if (generatedTrainings.length > 0) {
+        showToast(
+          "success",
+          `${generatedTrainings.length} allenamenti creati dal programma settimanale`,
+        );
+      } else {
+        showToast(
+          "success",
+          "Nessun duplicato creato: il calendario era già allineato",
+        );
+      }
+    } catch (error) {
+      console.error("Error generating trainings:", error);
+      showToast(
+        "error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore nella generazione degli allenamenti",
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [activeClub?.id, onGenerateTrainings, settings, showToast, weeklySchedule]);
 
   const saveManualSettings = async () => {
     try {
@@ -455,8 +310,8 @@ export function TrainingScheduleAutomationPanel({
                 Automazione attiva
               </p>
               <p className="text-xs text-slate-500">
-                Quando attiva, alla prima apertura utile dell&apos;app esegue la
-                generazione prevista.
+                Quando attiva, il controllo gira lato server e genera gli
+                allenamenti senza dover aprire questa pagina.
               </p>
             </div>
             <Switch
@@ -475,7 +330,8 @@ export function TrainingScheduleAutomationPanel({
                 onChange={(event) =>
                   setSettings((prev) => ({
                     ...prev,
-                    frequency: event.target.value as AutomationFrequency,
+                    frequency:
+                      event.target.value as TrainingAutomationFrequency,
                   }))
                 }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -514,11 +370,13 @@ export function TrainingScheduleAutomationPanel({
                 }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                {Object.entries(DAY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
+                {Object.entries(TRAINING_AUTOMATION_DAY_LABELS).map(
+                  ([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ),
+                )}
               </select>
             </div>
           ) : (
@@ -598,7 +456,9 @@ export function TrainingScheduleAutomationPanel({
           <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Button
               variant="outline"
-              onClick={() => setSettings(DEFAULT_SETTINGS)}
+              onClick={() =>
+                setSettings(DEFAULT_TRAINING_AUTOMATION_SETTINGS)
+              }
               disabled={isSaving}
             >
               Ripristina

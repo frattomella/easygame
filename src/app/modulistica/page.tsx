@@ -19,7 +19,9 @@ import {
   Trash2,
   Sparkles,
 } from "lucide-react";
-import DocumentEditor from "@/components/forms/DocumentEditor";
+import DocumentEditor, {
+  DOCUMENT_TEMPLATE_TOKENS,
+} from "@/components/forms/DocumentEditor";
 import LayoutWithMobileNav from "@/app/layout-with-mobile-nav";
 import {
   Dialog,
@@ -74,6 +76,10 @@ type Athlete = {
     email?: string;
     phone?: string;
     medicalCertExpiry?: string;
+    parentName?: string;
+    guardianName?: string;
+    parent_name?: string;
+    guardian_name?: string;
     accessCode?: string;
     avatar?: string;
     status?: string;
@@ -212,6 +218,9 @@ const normalizeTemplates = (value: any): DocumentTemplate[] =>
       content: String(item?.content || item?.html || "<p></p>"),
     }))
     .filter((template) => template.id && template.title);
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function ModulisticaPage() {
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
@@ -657,9 +666,31 @@ function ModulisticaPage() {
     if (!athlete) return;
 
     let compiledText = activeTemplate.content;
+    const guardianName =
+      [
+        athlete.data?.parentName,
+        athlete.data?.guardianName,
+        athlete.data?.parent_name,
+        athlete.data?.guardian_name,
+      ]
+        .map((value) => String(value || "").trim())
+        .find(Boolean) || "";
 
     // Replace placeholders with athlete data
     const replacements = {
+      "athlete.first_name": athlete.first_name || "",
+      "athlete.last_name": athlete.last_name || "",
+      "athlete.birth_date": athlete.birth_date || "",
+      "athlete.fiscal_code": athlete.data?.fiscalCode || "",
+      "athlete.address": athlete.data?.address || "",
+      "athlete.email": athlete.data?.email || "",
+      "athlete.phone": athlete.data?.phone || "",
+      "athlete.category": athlete.data?.category || "",
+      "medical_certificate.expiry_date":
+        athlete.data?.medicalCertExpiry || "",
+      "club.name": clubData?.name || "",
+      current_date: new Date().toLocaleDateString("it-IT"),
+      "guardian.name": guardianName,
       first_name: athlete.first_name || "",
       last_name: athlete.last_name || "",
       birth_date: athlete.birth_date || "",
@@ -668,10 +699,14 @@ function ModulisticaPage() {
       email: athlete.data?.email || "",
       phone: athlete.data?.phone || "",
       category: athlete.data?.category || "",
+      "image.placeholder": "Immagine",
     };
 
     Object.entries(replacements).forEach(([key, value]) => {
-      compiledText = compiledText.replace(new RegExp(`{{${key}}}`, "g"), value);
+      compiledText = compiledText.replace(
+        new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, "g"),
+        value,
+      );
     });
 
     setCompiledContent(compiledText);
@@ -942,6 +977,7 @@ function ModulisticaPage() {
             <DocumentEditor
               initialContent={activeTemplate.content}
               onSave={handleSaveTemplate}
+              tokens={DOCUMENT_TEMPLATE_TOKENS}
             />
           </div>
         )

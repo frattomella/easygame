@@ -1,3 +1,4 @@
+import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 declare global {
@@ -20,14 +21,19 @@ export const isPrismaConnectionError = (error: unknown) =>
 export const getPrismaConnectionErrorMessage = () =>
   "Connessione database non disponibile. Verifica DATABASE_URL nell'ambiente corrente e conferma che l'endpoint Neon configurato sia raggiungibile da Prisma. DIRECT_URL serve ai comandi Prisma CLI/migrazioni.";
 
+const prismaAdapter = new PrismaPg(databaseUrl, {
+  onPoolError: (error) => {
+    console.error("Prisma PostgreSQL pool error:", error);
+  },
+  onConnectionError: (error) => {
+    console.error("Prisma PostgreSQL connection error:", error);
+  },
+});
+
 export const prisma =
   global.__easygame_prisma__ ||
   new PrismaClient({
-    datasources: {
-      db: {
-        url: databaseUrl,
-      },
-    },
+    adapter: prismaAdapter,
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 

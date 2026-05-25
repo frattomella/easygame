@@ -22,6 +22,7 @@ import { format } from "date-fns";
 import { it } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
 
 type MatchLocationOption = {
   id: string;
@@ -33,12 +34,23 @@ type MatchLocationOption = {
   label?: string;
 };
 
+type MatchCategoryOption = {
+  id?: string;
+  name?: string;
+};
+
+type MatchTrainerOption = {
+  id: string;
+  name: string;
+  categories?: any[];
+};
+
 interface AddMatchFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: any) => void;
-  categories: { id: string; name: string }[];
-  trainers: { id: string; name: string }[];
+  categories: MatchCategoryOption[];
+  trainers: MatchTrainerOption[];
   selectedDate?: Date;
   editMode?: boolean;
   homeFields?: MatchLocationOption[];
@@ -70,6 +82,7 @@ export function AddMatchForm({
   homeFields = [],
   initialData,
 }: AddMatchFormProps) {
+  const previousAutoTrainerIdsRef = React.useRef<string[]>([]);
   const [formData, setFormData] = useState({
     title: initialData?.title || "",
     date: initialData?.date || selectedDate || new Date(),
@@ -85,6 +98,17 @@ export function AddMatchForm({
     notes: initialData?.notes || "",
     matchNumber: initialData?.matchNumber || "",
   });
+
+  const categoryOptions = React.useMemo(
+    () =>
+      (Array.isArray(categories) ? categories : [])
+        .map((category) => ({
+          id: String(category?.id || "").trim(),
+          name: String(category?.name || category?.id || "").trim(),
+        }))
+        .filter((category) => category.id && category.name),
+    [categories],
+  );
 
   const structureOptions = React.useMemo(() => {
     const structureMap = new Map<string, { id: string; name: string }>();
@@ -110,9 +134,15 @@ export function AddMatchForm({
     [formData.structureId, homeFields],
   );
 
+  const autoTrainerIds = React.useMemo(
+    () => getAssociatedTrainerIds(trainers, formData.categoryIds, categoryOptions),
+    [trainers, formData.categoryIds, categoryOptions],
+  );
+
   // Update form data when initialData changes
   React.useEffect(() => {
     if (initialData) {
+      previousAutoTrainerIdsRef.current = [];
       setFormData({
         title: initialData.title,
         date: initialData.date,
@@ -130,6 +160,34 @@ export function AddMatchForm({
       });
     }
   }, [initialData]);
+
+  React.useEffect(() => {
+    setFormData((prev) => {
+      const previousAutoIds = previousAutoTrainerIdsRef.current;
+      const manualTrainerIds = prev.trainerIds.filter(
+        (trainerId) => !previousAutoIds.includes(trainerId),
+      );
+      const nextTrainerIds = Array.from(
+        new Set([...autoTrainerIds, ...manualTrainerIds]),
+      );
+
+      if (
+        nextTrainerIds.length === prev.trainerIds.length &&
+        nextTrainerIds.every(
+          (trainerId, index) => trainerId === prev.trainerIds[index],
+        )
+      ) {
+        previousAutoTrainerIdsRef.current = autoTrainerIds;
+        return prev;
+      }
+
+      previousAutoTrainerIdsRef.current = autoTrainerIds;
+      return {
+        ...prev,
+        trainerIds: nextTrainerIds,
+      };
+    });
+  }, [autoTrainerIds]);
 
   React.useEffect(() => {
     if (formData.venueMode !== "home") {
@@ -253,6 +311,11 @@ export function AddMatchForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (categoryOptions.length === 0) {
+      alert("Nessuna categoria registrata. Crea prima una categoria.");
+      return;
+    }
+
     if (formData.categoryIds.length === 0) {
       alert("Seleziona almeno una categoria");
       return;
@@ -284,6 +347,7 @@ export function AddMatchForm({
   };
 
   const resetForm = () => {
+    previousAutoTrainerIdsRef.current = [];
     setFormData({
       title: "",
       date: new Date(),
@@ -374,23 +438,29 @@ export function AddMatchForm({
           <div className="space-y-2">
             <Label>Categorie</Label>
             <div className="border rounded-md p-3 space-y-2 max-h-40 overflow-y-auto">
-              {categories.map((category) => (
-                <div key={category.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`category-${category.id}`}
-                    checked={formData.categoryIds.includes(category.id)}
-                    onCheckedChange={(checked) =>
-                      handleCategoryChange(category.id, checked as boolean)
-                    }
-                  />
-                  <Label
-                    htmlFor={`category-${category.id}`}
-                    className="text-sm font-normal"
-                  >
-                    {category.name}
-                  </Label>
-                </div>
-              ))}
+              {categoryOptions.length > 0 ? (
+                categoryOptions.map((category) => (
+                  <div key={category.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`category-${category.id}`}
+                      checked={formData.categoryIds.includes(category.id)}
+                      onCheckedChange={(checked) =>
+                        handleCategoryChange(category.id, checked as boolean)
+                      }
+                    />
+                    <Label
+                      htmlFor={`category-${category.id}`}
+                      className="text-sm font-normal"
+                    >
+                      {category.name}
+                    </Label>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  Nessuna categoria registrata. Crea prima una categoria.
+                </p>
+              )}
             </div>
           </div>
 
@@ -487,24 +557,46 @@ export function AddMatchForm({
           <div className="space-y-2">
             <Label>Allenatori</Label>
             <div className="border rounded-md p-3 space-y-2 max-h-40 overflow-y-auto">
-              {trainers.map((trainer) => (
-                <div key={trainer.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`trainer-${trainer.id}`}
-                    checked={formData.trainerIds.includes(trainer.id)}
-                    onCheckedChange={(checked) =>
-                      handleTrainerChange(trainer.id, checked as boolean)
-                    }
-                  />
-                  <Label
-                    htmlFor={`trainer-${trainer.id}`}
-                    className="text-sm font-normal"
-                  >
-                    {trainer.name}
-                  </Label>
-                </div>
-              ))}
+              {trainers.length > 0 ? (
+                trainers.map((trainer) => {
+                  const isAutoAssigned = autoTrainerIds.includes(trainer.id);
+
+                  return (
+                    <div
+                      key={trainer.id}
+                      className="flex items-center space-x-2"
+                    >
+                      <Checkbox
+                        id={`trainer-${trainer.id}`}
+                        checked={formData.trainerIds.includes(trainer.id)}
+                        onCheckedChange={(checked) =>
+                          handleTrainerChange(trainer.id, checked as boolean)
+                        }
+                      />
+                      <Label
+                        htmlFor={`trainer-${trainer.id}`}
+                        className="flex flex-1 items-center gap-2 text-sm font-normal"
+                      >
+                        <span>{trainer.name}</span>
+                        {isAutoAssigned ? (
+                          <span className="ml-auto rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
+                            Associato
+                          </span>
+                        ) : null}
+                      </Label>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-gray-500">
+                  Nessun allenatore disponibile.
+                </p>
+              )}
             </div>
+            <p className="text-xs text-muted-foreground">
+              Gli allenatori collegati alle categorie selezionate vengono
+              proposti automaticamente. Puoi modificarli manualmente.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -523,7 +615,11 @@ export function AddMatchForm({
             <Button type="button" variant="outline" onClick={handleClose}>
               Annulla
             </Button>
-            <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
+            <Button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={categoryOptions.length === 0}
+            >
               {editMode ? "Salva Modifiche" : "Aggiungi Gara"}
             </Button>
           </DialogFooter>

@@ -2,31 +2,41 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ListChecks, Trophy } from "lucide-react";
+import { AlertTriangle, ListChecks, Search, Trophy } from "lucide-react";
+import { PageHeading } from "@/components/dashboard/page-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
 import { updateClubDataItem } from "@/lib/simplified-db";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   CompactEntityCard,
-  FeatureHighlightCard,
   SectionBlockedState,
   SectionEmptyState,
-  SummaryCard,
   SurfacePanel,
   formatDate,
   formatTimeRange,
   getAthleteDisplayName,
   getStatusBadgeClasses,
 } from "@/components/trainer/trainer-dashboard-shared";
-import {
-  getTrainerEndOfWeek,
-  isSameTrainerDay,
-  recordMatchesCategory,
-} from "@/lib/trainer-dashboard-helpers";
+import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
 import { formatMatchLocationLabel } from "@/lib/match-location";
+import {
+  getMatchConvocationLabel,
+  getMatchConvocationStatus,
+} from "@/lib/trainer-operational-alerts";
+
+const getMatchNotes = (match: any) =>
+  String(
+    match?.notes ||
+      match?.note ||
+      match?.description ||
+      match?.data?.notes ||
+      match?.payload?.notes ||
+      "",
+  ).trim();
 
 export default function TrainerMatchesDashboardPage() {
   const searchParams = useSearchParams();
@@ -35,12 +45,14 @@ export default function TrainerMatchesDashboardPage() {
     assignedAthletes,
     assignedCategories,
     categories,
+    matchConvocationDeadlineDays,
     permissions,
     reload,
     visibleMatches,
   } = useTrainerDashboard();
   const { showToast } = useToast();
   const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const focusedMatchId = searchParams.get("focus");
 
   if (!permissions.navigation.matches) {
@@ -48,20 +60,37 @@ export default function TrainerMatchesDashboardPage() {
   }
 
   const now = new Date();
-  const endOfWeek = getTrainerEndOfWeek(now);
-  const todayMatches = visibleMatches.filter((match) =>
-    isSameTrainerDay(match?.startsAt, now),
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredMatches = normalizedSearch
+    ? visibleMatches.filter((match) =>
+        [
+          match?.title,
+          match?.opponent,
+          match?.homeTeam,
+          match?.awayTeam,
+          match?.displayCategory,
+          match?.category,
+          match?.date,
+          match?.time,
+          match?.status,
+          getMatchNotes(match),
+          formatMatchLocationLabel(match),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch),
+      )
+    : visibleMatches;
+  const programmedMatches = filteredMatches.filter(
+    (match) => match?.startsAt && match.startsAt >= now,
   );
-  const weekMatches = visibleMatches.filter(
-    (match) =>
-      match?.startsAt &&
-      match.startsAt >= now &&
-      match.startsAt <= endOfWeek &&
-      !isSameTrainerDay(match.startsAt, now),
-  );
-  const futureMatches = visibleMatches.filter(
-    (match) => match?.startsAt && match.startsAt > endOfWeek,
-  );
+  const historyMatches = filteredMatches
+    .filter((match) => match?.startsAt && match.startsAt < now)
+    .sort((left, right) => {
+      const leftTime = left?.startsAt ? left.startsAt.getTime() : 0;
+      const rightTime = right?.startsAt ? right.startsAt.getTime() : 0;
+      return rightTime - leftTime;
+    });
 
   const getMatchAthletes = (match: any) => {
     const matchCategories = assignedCategories.filter((category) =>
@@ -93,10 +122,7 @@ export default function TrainerMatchesDashboardPage() {
   ) => {
     if (matches.length === 0) {
       return (
-        <SectionEmptyState
-          title={emptyTitle}
-          description={emptyDescription}
-        />
+        <SectionEmptyState title={emptyTitle} description={emptyDescription} />
       );
     }
 
@@ -109,15 +135,39 @@ export default function TrainerMatchesDashboardPage() {
             match?.startsAt,
           );
           const availableAthletes = getMatchAthletes(match);
+          const convocationStatus = getMatchConvocationStatus({
+            match,
+            totalAthletes: availableAthletes.length,
+            deadlineDays: matchConvocationDeadlineDays,
+            now,
+          });
+          const missingConvocations =
+            convocationStatus.state === "convocations_missing";
+          const matchCategory =
+            match.displayCategory || match.category || "Categoria";
+          const matchNotes = getMatchNotes(match);
+          const hasSavedConvocations =
+            convocationStatus.convocated > 0 ||
+            String(match?.convocationsStatus || "").toLowerCase() ===
+              "completed" ||
+            (Array.isArray(match?.convocationEntries) &&
+              match.convocationEntries.length > 0);
 
           return (
             <CompactEntityCard
               key={match.id}
               title={match.title || "Gara"}
+              leadingBadge={
+                <Badge className="border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 hover:bg-blue-50">
+                  {matchCategory}
+                </Badge>
+              }
               className={
                 focusedMatchId === match.id
                   ? "border-blue-300 bg-blue-50/70 shadow-sm"
-                  : undefined
+                  : missingConvocations
+                    ? "border-rose-200 bg-rose-50/60"
+                    : undefined
               }
               badge={<Badge className={status.className}>{status.label}</Badge>}
               lines={[
@@ -132,11 +182,29 @@ export default function TrainerMatchesDashboardPage() {
                     ? formatMatchLocationLabel(match)
                     : "Dettagli luogo non visibili"}
                 </span>,
-                <span key="category">
-                  {match.displayCategory || match.category || "Categoria"}
+                <span key="convocations" className="font-medium text-slate-700">
+                  {convocationStatus.convocated}/{convocationStatus.total} ·{" "}
+                  {getMatchConvocationLabel(convocationStatus.state)}
                 </span>,
-                <span key="roster">{availableAthletes.length} atleti convocabili</span>,
+                ...(matchNotes
+                  ? [
+                      <span
+                        key="notes"
+                        className="line-clamp-2 text-slate-600"
+                      >
+                        Note: {matchNotes}
+                      </span>,
+                    ]
+                  : []),
               ]}
+              footer={
+                missingConvocations ? (
+                  <div className="flex items-center gap-2 text-sm font-medium text-rose-700">
+                    <AlertTriangle className="h-4 w-4" />
+                    Scadenza convocazioni vicina
+                  </div>
+                ) : null
+              }
               actions={
                 permissions.actions.manageConvocations ? (
                   <Button
@@ -145,7 +213,9 @@ export default function TrainerMatchesDashboardPage() {
                     onClick={() => setSelectedMatch(match)}
                   >
                     <ListChecks className="mr-2 h-4 w-4" />
-                    Convocazioni
+                    {hasSavedConvocations
+                      ? "Modifica Convocazioni"
+                      : "Convocazioni"}
                   </Button>
                 ) : undefined
               }
@@ -158,102 +228,44 @@ export default function TrainerMatchesDashboardPage() {
 
   return (
     <div className="space-y-6 pb-2">
-      <div className="space-y-2">
-        <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-4xl font-bold text-transparent">
-          Gare
-        </h1>
-        <p className="text-gray-600">
-          In alto trovi le gare di oggi, sotto il calendario della settimana e le
-          gare successive in ordine cronologico.
-        </p>
-      </div>
+      <PageHeading
+        eyebrow="Dashboard trainer"
+        title="Gare"
+        subtitle="Programma, storico e convocazioni."
+      />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryCard
-          icon={Trophy}
-          label="Gare visibili"
-          value={visibleMatches.length}
-          accentClassName="bg-orange-50 text-orange-600"
-          topBarClassName="from-orange-500 to-orange-600"
+      <div className="relative w-full md:w-[420px]">
+        <Input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Cerca gara, categoria, avversario, data..."
+          className="rounded-2xl pl-10"
         />
-        <SummaryCard
-          icon={ListChecks}
-          label="Gare di oggi"
-          value={todayMatches.length}
-          accentClassName="bg-blue-50 text-blue-600"
-          topBarClassName="from-blue-500 to-blue-600"
-        />
-        <SummaryCard
-          icon={Trophy}
-          label="Convocazioni abilitate"
-          value={permissions.actions.manageConvocations ? 1 : 0}
-          accentClassName="bg-emerald-50 text-emerald-600"
-          topBarClassName="from-emerald-500 to-emerald-600"
-        />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
       </div>
-
-      <FeatureHighlightCard
-        tone="orange"
-        title="Gare di Oggi"
-        count={todayMatches.length}
-        icon={Trophy}
-      >
-        {todayMatches.length === 0 ? (
-          <div className="py-5 text-center text-white/75">
-            <Trophy className="mx-auto mb-2 h-10 w-10 opacity-50" />
-            <p>Nessuna gara prevista per oggi</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {todayMatches.map((match) => (
-              <div
-                key={match.id}
-                className="rounded-lg bg-white/10 p-3 backdrop-blur-sm"
-              >
-                <p className="font-medium">{match.title || "Gara"}</p>
-                <p className="mt-1 text-sm text-white/80">
-                  vs {match.opponent || "Avversario da definire"}
-                </p>
-                <p className="text-sm text-white/80">
-                  {formatTimeRange(match.time)}
-                </p>
-                <p className="text-sm text-white/80">
-                  {formatMatchLocationLabel(match)}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </FeatureHighlightCard>
 
       {visibleMatches.length === 0 ? (
         <SectionEmptyState
           title="Nessuna gara disponibile"
-          description="In questa sezione compariranno solo le gare delle tue categorie."
+          description="Calendario gare vuoto."
         />
       ) : (
         <div className="space-y-6">
-          <SurfacePanel
-            title="Gare della Settimana"
-            description="Le prossime gare da oggi fino a fine settimana."
-            icon={Trophy}
-          >
+          <SurfacePanel title="Gare programmate" icon={Trophy}>
             {renderMatchList(
-              weekMatches,
-              "Nessuna gara questa settimana",
-              "Le nuove gare assegnate dal club compariranno qui.",
+              programmedMatches,
+              searchQuery ? "Nessun risultato" : "Nessuna gara programmata",
+              searchQuery ? "Modifica la ricerca." : "Calendario futuro vuoto.",
             )}
           </SurfacePanel>
 
-          <SurfacePanel
-            title="Gare Successive"
-            description="Le gare delle settimane successive, ordinate per data."
-            icon={Trophy}
-          >
+          <SurfacePanel title="Storico gare" icon={Trophy}>
             {renderMatchList(
-              futureMatches,
-              "Nessuna gara futura",
-              "Quando il club aggiorna il calendario gare, le vedrai qui.",
+              historyMatches,
+              searchQuery ? "Nessun risultato" : "Storico vuoto",
+              searchQuery
+                ? "Modifica la ricerca."
+                : "Non ci sono gare concluse.",
             )}
           </SurfacePanel>
         </div>
@@ -267,6 +279,7 @@ export default function TrainerMatchesDashboardPage() {
           matchTitle={selectedMatch.title || "Gara"}
           matchDate={selectedMatch.date}
           matchTime={formatTimeRange(selectedMatch.time)}
+          matchNotes={getMatchNotes(selectedMatch)}
           categoryName={
             selectedMatch.displayCategory ||
             selectedMatch.category ||
@@ -275,13 +288,19 @@ export default function TrainerMatchesDashboardPage() {
           opponent={selectedMatch.opponent || "Avversario"}
           location={formatMatchLocationLabel(selectedMatch)}
           athletes={getMatchAthletes(selectedMatch)}
-          onSave={async ({ convocatedAthletes }) => {
+          onSave={async ({ convocatedAthletes, convocationEntries }) => {
             if (!activeClub?.id) return;
             try {
-              await updateClubDataItem(activeClub.id, "matches", selectedMatch.id, {
-                convocatedAthletes,
-                convocationsStatus: "completed",
-              });
+              await updateClubDataItem(
+                activeClub.id,
+                "matches",
+                selectedMatch.id,
+                {
+                  convocatedAthletes,
+                  convocationEntries,
+                  convocationsStatus: "completed",
+                },
+              );
               await reload();
               showToast("success", "Convocazioni salvate correttamente");
               setSelectedMatch(null);
@@ -291,6 +310,7 @@ export default function TrainerMatchesDashboardPage() {
             }
           }}
           savedConvocations={selectedMatch.convocatedAthletes || []}
+          savedConvocationEntries={selectedMatch.convocationEntries || []}
         />
       ) : null}
     </div>

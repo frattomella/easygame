@@ -1178,10 +1178,22 @@ class LocalQueryBuilder {
             if (item?.id && row.id === item.id) return true;
             if (item?.email && row.email === item.email) return true;
             if (
+              this.table !== "organization_users" &&
               item?.organization_id &&
               item?.user_id &&
               row.organization_id === item.organization_id &&
               row.user_id === item.user_id
+            ) {
+              return true;
+            }
+            if (
+              this.table === "organization_users" &&
+              item?.organization_id &&
+              item?.user_id &&
+              item?.role &&
+              row.organization_id === item.organization_id &&
+              row.user_id === item.user_id &&
+              row.role === item.role
             ) {
               return true;
             }

@@ -5,9 +5,9 @@ import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -31,7 +31,6 @@ import {
   Users,
   Trophy,
   Calendar as CalendarIcon,
-  CheckCircle,
   ChevronLeft,
   ChevronRight,
   FileCheck,
@@ -41,6 +40,7 @@ import {
   UserCheck,
   AlertTriangle,
   Filter,
+  Home,
   Search,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
@@ -56,8 +56,11 @@ import {
   addClubData,
   updateClubData,
   getClubAthletes,
+  getClubCategories,
   getClubStructures,
   getClubTrainers,
+  getClubSettings,
+  saveClubSettings,
 } from "@/lib/simplified-db";
 import { athleteMatchesAnyCategory } from "@/lib/category-utils";
 import {
@@ -71,6 +74,7 @@ import {
 } from "@/lib/training-location-options";
 import { formatMatchLocationLabel } from "@/lib/match-location";
 import { normalizeMatchConvocationEntries } from "@/lib/athlete-participation-utils";
+import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 
 interface Match {
   id: string;
@@ -89,6 +93,77 @@ interface Match {
   convocatedAthletes?: string[];
   [key: string]: any;
 }
+
+type MatchStatusSource = {
+  status?: unknown;
+  date?: unknown;
+  time?: unknown;
+};
+
+const CANCELLED_MATCH_STATUSES = new Set([
+  "cancelled",
+  "annullata",
+  "annullato",
+]);
+
+const COMPLETED_MATCH_STATUSES = new Set([
+  "completed",
+  "complete",
+  "conclusa",
+  "concluso",
+  "passata",
+]);
+
+const normalizeMatchStatus = (status: unknown): Match["status"] => {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+
+  if (CANCELLED_MATCH_STATUSES.has(normalized)) {
+    return "cancelled";
+  }
+
+  if (COMPLETED_MATCH_STATUSES.has(normalized)) {
+    return "completed";
+  }
+
+  return "upcoming";
+};
+
+const getMatchBoundaryDate = (match: MatchStatusSource) => {
+  const date = new Date(match.date as any);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const timeMatches = String(match.time || "").match(/\d{1,2}:\d{2}/g) || [];
+  const boundaryTime = timeMatches[timeMatches.length > 1 ? 1 : 0];
+
+  if (!boundaryTime) {
+    date.setHours(23, 59, 59, 999);
+    return date;
+  }
+
+  const [hours, minutes] = boundaryTime.split(":").map(Number);
+  date.setHours(hours || 0, minutes || 0, 0, 0);
+
+  return date;
+};
+
+const getEffectiveMatchStatus = (match: MatchStatusSource): Match["status"] => {
+  const normalizedStatus = normalizeMatchStatus(match.status);
+
+  if (normalizedStatus === "cancelled") {
+    return "cancelled";
+  }
+
+  const boundaryDate = getMatchBoundaryDate(match);
+  if (boundaryDate && boundaryDate < new Date()) {
+    return "completed";
+  }
+
+  return normalizedStatus === "completed" ? "completed" : "upcoming";
+};
 
 const buildMatchAthleteOption = ({
   athlete,
@@ -109,11 +184,11 @@ const buildMatchAthleteOption = ({
 
   return {
     id: athlete.id,
-    name: `${athlete.first_name || ""} ${athlete.last_name || ""}`.trim() || "Atleta",
+    name: getAthleteDisplayName(athlete) || "Atleta",
     avatar:
       athlete.avatar_url ||
       athlete.data?.avatar ||
-      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(`${athlete.first_name || "atleta"}-${athlete.last_name || ""}`)}`,
+      "",
     matchesPlayed: 0,
     matchesAbsent: 0,
     medicalCertExpiry:
@@ -174,7 +249,6 @@ export default function MatchesPage() {
   const [showConvocationsModal, setShowConvocationsModal] = useState(false);
   const [showEditMatchModal, setShowEditMatchModal] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [scheduleConflictsEnabled, setScheduleConflictsEnabled] =
     useState(true);
@@ -185,6 +259,9 @@ export default function MatchesPage() {
     [],
   );
   const [athleteStatusFilter, setAthleteStatusFilter] = useState("active");
+  const [matchConvocationDeadlineDays, setMatchConvocationDeadlineDays] =
+    useState(2);
+  const [savingMatchSettings, setSavingMatchSettings] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [historySelectedCategory, setHistorySelectedCategory] = useState("all");
@@ -245,19 +322,40 @@ export default function MatchesPage() {
 
         // Load matches from club data
         const matchesData = await getClubData(activeClub.id, "matches");
-        const transformedMatches = matchesData.map((match: any) => ({
-          ...match,
-          date: new Date(match.date),
-        }));
+        const transformedMatches = (
+          Array.isArray(matchesData) ? matchesData : []
+        ).map((match: any) => {
+          const normalizedMatch = {
+            ...match,
+            date: new Date(match.date),
+          };
+
+          return {
+            ...normalizedMatch,
+            status: getEffectiveMatchStatus(normalizedMatch),
+          };
+        });
         setMatches(transformedMatches);
 
-        // Load categories from club data
-        const categoriesData = await getClubData(activeClub.id, "categories");
-        setCategories(categoriesData);
+        // Load normalized categories from the club registry and legacy sources.
+        const categoriesData = await getClubCategories(activeClub.id);
+        setCategories(Array.isArray(categoriesData) ? categoriesData : []);
 
         // Load trainers from the dedicated trainers registry
         const trainerData = await getClubTrainers(activeClub.id);
         setTrainers(Array.isArray(trainerData) ? trainerData : []);
+
+        const clubSettings = await getClubSettings(activeClub.id);
+        const deadlineDays = Number(
+          clubSettings?.matchConvocationDeadlineDays ??
+            clubSettings?.match_convocation_deadline_days ??
+            2,
+        );
+        setMatchConvocationDeadlineDays(
+          Number.isFinite(deadlineDays)
+            ? Math.max(0, Math.min(Math.round(deadlineDays), 30))
+            : 2,
+        );
 
         // Load club structures as available home fields / locations
         const structuresData = await getClubStructures(activeClub.id);
@@ -329,7 +427,7 @@ export default function MatchesPage() {
 
     // Check for conflicts on the same day (not just same time)
     const dayMatches = matches.filter((match) => {
-      if (match.status === "cancelled") return false;
+      if (getEffectiveMatchStatus(match) === "cancelled") return false;
       return new Date(match.date).toDateString() === matchDate.toDateString();
     });
 
@@ -439,12 +537,18 @@ export default function MatchesPage() {
       const matchPromises = matchData.categoryIds.map(
         async (categoryId: string) => {
           const categoryObj = categories.find((c) => c.id === categoryId);
+          const matchDateIso = matchData.date.toISOString();
+          const effectiveStatus = getEffectiveMatchStatus({
+            date: matchDateIso,
+            time: matchData.time,
+            status: "upcoming",
+          });
 
           const newMatchData = {
             title:
               matchData.title ||
               `Partita ${categoryObj?.name || ""} vs ${matchData.opponent}`,
-            date: matchData.date.toISOString(),
+            date: matchDateIso,
             time: matchData.time,
             category: categoryObj?.name || "Categoria",
             categoryId: categoryId,
@@ -460,7 +564,7 @@ export default function MatchesPage() {
             notes: matchData.notes,
             matchNumber: matchData.matchNumber || "",
             categoryColor: "bg-blue-500 text-white",
-            status: "upcoming",
+            status: effectiveStatus,
             convocationsStatus: "none",
             convocatedAthletes: [],
             convocationEntries: [],
@@ -475,6 +579,7 @@ export default function MatchesPage() {
           return {
             ...savedMatch,
             date: new Date(savedMatch.date),
+            status: getEffectiveMatchStatus(savedMatch),
           };
         },
       );
@@ -531,6 +636,11 @@ export default function MatchesPage() {
         trainers: trainerNames,
         notes: matchData.notes,
         matchNumber: matchData.matchNumber || "",
+        status: getEffectiveMatchStatus({
+          status: selectedMatch.status,
+          date: matchData.date.toISOString(),
+          time: matchData.time,
+        }),
         updated_at: new Date().toISOString(),
       };
 
@@ -685,20 +795,13 @@ export default function MatchesPage() {
       matchDate.getMonth() === date.getMonth() &&
       matchDate.getFullYear() === date.getFullYear();
 
-    // Apply search filter
-    const searchMatches =
-      searchQuery === "" ||
-      match.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      match.opponent.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      match.category.toLowerCase().includes(searchQuery.toLowerCase());
-
     // Apply category filter
     const categoryMatches =
       selectedCategory === "all" ||
       categories.find((c) => c.id === selectedCategory)?.name ===
         match.category;
 
-    return dateMatches && searchMatches && categoryMatches;
+    return dateMatches && categoryMatches;
   });
 
   // Function to get dates with matches for calendar highlighting
@@ -708,15 +811,15 @@ export default function MatchesPage() {
       .map((match) => new Date(match.date));
   };
 
-  const getStatusBadge = (status: Match["status"]) => {
-    switch (status) {
+  const getStatusBadge = (match: MatchStatusSource) => {
+    switch (getEffectiveMatchStatus(match)) {
       case "upcoming":
         return (
           <Badge className="bg-blue-100 text-blue-800">In Programma</Badge>
         );
       case "completed":
         return (
-          <Badge className="bg-green-100 text-green-800">Completata</Badge>
+          <Badge className="bg-green-100 text-green-800">Conclusa</Badge>
         );
       case "cancelled":
         return <Badge className="bg-red-100 text-red-800">Annullata</Badge>;
@@ -776,6 +879,30 @@ export default function MatchesPage() {
     setDate(newDate);
   };
 
+  const handleSaveMatchSettings = async () => {
+    if (!activeClub?.id) {
+      return;
+    }
+
+    try {
+      setSavingMatchSettings(true);
+      const deadlineDays = Math.max(
+        0,
+        Math.min(Math.round(Number(matchConvocationDeadlineDays) || 2), 30),
+      );
+      await saveClubSettings(activeClub.id, {
+        matchConvocationDeadlineDays: deadlineDays,
+      });
+      setMatchConvocationDeadlineDays(deadlineDays);
+      showToast("success", "Impostazioni convocazioni salvate");
+    } catch (error) {
+      console.error("Error saving match settings:", error);
+      showToast("error", "Errore nel salvataggio delle impostazioni gare");
+    } finally {
+      setSavingMatchSettings(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       <Sidebar />
@@ -816,21 +943,12 @@ export default function MatchesPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <Input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Cerca una gara per titolo, avversario o categoria..."
-                  className="pl-9"
-                />
-              </div>
+            <div className="flex justify-end">
               <Select
                 value={selectedCategory}
                 onValueChange={setSelectedCategory}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full sm:w-[240px]">
                   <SelectValue placeholder="Tutte le categorie" />
                 </SelectTrigger>
                 <SelectContent>
@@ -843,6 +961,53 @@ export default function MatchesPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            <Card className="border-blue-100 bg-blue-50/60">
+              <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-blue-950">
+                    Scadenza convocazioni
+                  </p>
+                  <p className="mt-1 text-sm text-blue-700">
+                    Avvisa gli allenatori quando una gara è vicina e mancano le
+                    convocazioni.
+                  </p>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-blue-800">
+                      Convocare entro
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={matchConvocationDeadlineDays}
+                      onChange={(event) =>
+                        setMatchConvocationDeadlineDays(
+                          Math.max(
+                            0,
+                            Math.min(Number(event.target.value) || 0, 30),
+                          ),
+                        )
+                      }
+                      className="h-10 w-20 rounded-xl border-blue-200 bg-white"
+                    />
+                    <span className="text-sm text-blue-800">
+                      giorni prima
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="border-blue-300 bg-white text-blue-700 hover:bg-blue-100"
+                    disabled={savingMatchSettings}
+                    onClick={handleSaveMatchSettings}
+                  >
+                    {savingMatchSettings ? "Salvataggio..." : "Salva"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
             <div className="grid grid-cols-1 gap-6">
               <Card>
@@ -987,7 +1152,12 @@ export default function MatchesPage() {
                     <CardContent>
                       {filteredMatches.length > 0 ? (
                         <div className="space-y-4">
-                          {filteredMatches.map((match) => (
+                          {filteredMatches.map((match) => {
+                            const effectiveStatus =
+                              getEffectiveMatchStatus(match);
+                            const canManageMatch = effectiveStatus === "upcoming";
+
+                            return (
                             <div
                               key={match.id}
                               className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
@@ -1030,8 +1200,8 @@ export default function MatchesPage() {
                               </div>
                               <div className="flex justify-between items-center mt-4">
                                 <div className="flex items-center gap-4">
-                                  {getStatusBadge(match.status)}
-                                  {match.status === "upcoming" &&
+                                  {getStatusBadge(match)}
+                                  {canManageMatch &&
                                     match.convocationsStatus === "none" && (
                                       <Badge className="bg-amber-100 text-amber-800 flex items-center gap-1">
                                         <AlertTriangle className="h-3 w-3" />
@@ -1050,7 +1220,7 @@ export default function MatchesPage() {
                                   )}
                                 </div>
                                 <div className="flex gap-2">
-                                  {match.status === "upcoming" && (
+                                  {canManageMatch && (
                                     <>
                                       <Button
                                         size="sm"
@@ -1083,7 +1253,7 @@ export default function MatchesPage() {
                                       </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent>
-                                      {match.status === "upcoming" && (
+                                      {canManageMatch && (
                                         <DropdownMenuItem
                                           onClick={() => {
                                             if (
@@ -1119,7 +1289,8 @@ export default function MatchesPage() {
                                 </div>
                               </div>
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center h-64 text-center text-gray-500 p-6">
@@ -1141,7 +1312,9 @@ export default function MatchesPage() {
                       <div className="space-y-4">
                         {matches
                           .filter((match) => {
-                            if (match.status !== "upcoming") return false;
+                            if (getEffectiveMatchStatus(match) !== "upcoming") {
+                              return false;
+                            }
                             if (!(match.date instanceof Date)) return false;
                             const matchDate = new Date(match.date);
                             const today = new Date();
@@ -1213,7 +1386,9 @@ export default function MatchesPage() {
                             </div>
                           ))}
                         {matches.filter((match) => {
-                          if (match.status !== "upcoming") return false;
+                          if (getEffectiveMatchStatus(match) !== "upcoming") {
+                            return false;
+                          }
                           if (!(match.date instanceof Date)) return false;
                           const matchDate = new Date(match.date);
                           const today = new Date();
@@ -1246,20 +1421,7 @@ export default function MatchesPage() {
                               setHistorySearchQuery(e.target.value)
                             }
                           />
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                            />
-                          </svg>
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
                         </div>
                         <select
                           className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background w-full sm:w-auto"
@@ -1281,11 +1443,8 @@ export default function MatchesPage() {
                         {matches
                           .filter((match) => {
                             if (!(match.date instanceof Date)) return false;
-                            const matchDate = new Date(match.date);
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
                             const isPast =
-                              matchDate < today || match.status === "completed";
+                              getEffectiveMatchStatus(match) === "completed";
 
                             // Apply search filter
                             const searchMatches =
@@ -1355,9 +1514,7 @@ export default function MatchesPage() {
                                     variant="secondary"
                                     className="text-xs"
                                   >
-                                    {match.status === "completed"
-                                      ? "Completata"
-                                      : "Passata"}
+                                    Conclusa
                                   </Badge>
                                 </div>
                               </div>
@@ -1379,11 +1536,8 @@ export default function MatchesPage() {
                           ))}
                         {matches.filter((match) => {
                           if (!(match.date instanceof Date)) return false;
-                          const matchDate = new Date(match.date);
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
                           const isPast =
-                            matchDate < today || match.status === "completed";
+                            getEffectiveMatchStatus(match) === "completed";
 
                           const searchMatches =
                             historySearchQuery === "" ||
@@ -1496,7 +1650,7 @@ export default function MatchesPage() {
                             categoryName: category.name,
                             athletes: categoryAthletes.map((athlete: any) => ({
                               id: athlete.id,
-                              name: `${athlete.first_name} ${athlete.last_name}`,
+                              name: getAthleteDisplayName(athlete) || "Atleta",
                               matchesPlayed: 0,
                               matchesAbsent: 0,
                               status: athlete.data?.status || "active",

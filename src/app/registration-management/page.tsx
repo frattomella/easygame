@@ -65,6 +65,11 @@ import {
   normalizeKitComponents,
   normalizeKitRecord,
 } from "@/lib/clothing-kit-utils";
+import {
+  compareAthletesByLastName,
+  getAthleteDisplayName,
+} from "@/lib/athlete-name-utils";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 const normalizePaymentMethodRecord = (method: any) => ({
   id:
@@ -318,25 +323,29 @@ export default function RegistrationManagementPage() {
         // Load athletes from simplified_athletes table
         try {
           const athletesData = await getClubAthletes(activeClub.id);
-          const formattedAthletes = athletesData.map((athlete: any) => ({
-            id: athlete.id,
-            name: `${athlete.first_name} ${athlete.last_name}`,
-            firstName: athlete.first_name,
-            lastName: athlete.last_name,
-            birthDate: athlete.birth_date,
-            gender: athlete.data?.gender || "",
-            category: athlete.data?.category || "",
-            categoryName: athlete.data?.category_name || "",
-            status: athlete.data?.status || "active",
-            jerseyNumber:
-              athlete.data?.jerseyNumber ??
-              athlete.jersey_number ??
-              null,
-            clothingSizes: athlete.data?.clothingSizes || {},
-            avatar:
-              athlete.data?.avatar ||
-              `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(athlete.first_name + athlete.last_name)}`,
-          }));
+          const formattedAthletes = athletesData
+            .slice()
+            .sort(compareAthletesByLastName)
+            .map((athlete: any) => ({
+              id: athlete.id,
+              name: getAthleteDisplayName(athlete) || "Atleta",
+              firstName: athlete.first_name,
+              lastName: athlete.last_name,
+              birthDate: athlete.birth_date,
+              gender: athlete.data?.gender || "",
+              category: athlete.data?.category || "",
+              categoryName: athlete.data?.category_name || "",
+              status: athlete.data?.status || "active",
+              jerseyNumber:
+                athlete.data?.jerseyNumber ??
+                athlete.jersey_number ??
+                null,
+              clothingSizes: athlete.data?.clothingSizes || {},
+              avatar:
+                athlete.avatar_url ||
+                athlete.data?.avatar ||
+                "",
+            }));
           setAthletes(formattedAthletes);
         } catch (error) {
           console.warn("Athletes not found, using empty array");
@@ -2312,11 +2321,19 @@ export default function RegistrationManagementPage() {
                                       >
                                         <td className="px-4 py-3">
                                           <div className="flex items-center space-x-3">
-                                            <img
-                                              src={athlete.avatar}
-                                              alt={athlete.name}
-                                              className="w-8 h-8 rounded-full"
-                                            />
+                                            {athlete.avatar ? (
+                                              <img
+                                                src={athlete.avatar}
+                                                alt={athlete.name}
+                                                className="w-8 h-8 rounded-full object-cover"
+                                              />
+                                            ) : (
+                                              <EntityIcon
+                                                type="athlete"
+                                                size="sm"
+                                                label={athlete.name}
+                                              />
+                                            )}
                                             <button
                                               onClick={() => {
                                                 const query = activeClub?.id

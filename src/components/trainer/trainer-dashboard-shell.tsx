@@ -27,6 +27,7 @@ import {
   UserCircle2,
   Users,
 } from "lucide-react";
+import { dedupeTrainings, getTrainingStableKey } from "@/lib/training-utils";
 
 const EASYGAME_LOGO = "/logo-blu.png";
 
@@ -216,7 +217,7 @@ export default function TrainerDashboardShell() {
 
   const visibleTrainings = useMemo(
     () =>
-      trainings
+      dedupeTrainings(trainings)
         .filter((training: any) => {
           const trainerIds = Array.isArray(training?.trainerIds)
             ? training.trainerIds.map((value: any) => normalizeValue(value))
@@ -381,7 +382,7 @@ export default function TrainerDashboardShell() {
                   {visibleTrainings.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">Nessun allenamento in agenda per le tue categorie.</div> : visibleTrainings.map((training: any) => {
                     const status = getStatusBadge(training?.status, training?.startsAt);
                     return (
-                      <div key={training.id} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
+                      <div key={getTrainingStableKey(training)} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-2">
                             <p className="text-base font-semibold text-slate-900">{training.title || "Allenamento"}</p>

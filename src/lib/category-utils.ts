@@ -1,5 +1,3 @@
-"use client";
-
 import {
   getAthleteCategoryReferences as getNormalizedAthleteCategoryReferences,
   getPrimaryAthleteCategoryMembership,
@@ -266,7 +264,7 @@ const getAthleteCategoryReferences = (athlete: unknown) => {
     .filter(Boolean);
 };
 
-export const buildClubCategoryOptions = ({
+export function buildClubCategoryOptions({
   clubCategories = [],
   resourceCategories = [],
   athletes = [],
@@ -274,7 +272,7 @@ export const buildClubCategoryOptions = ({
   clubCategories?: unknown;
   resourceCategories?: unknown;
   athletes?: unknown;
-}) => {
+}): NormalizedCategoryOption[] {
   const merged: NormalizedCategoryOption[] = [];
 
   [clubCategories, resourceCategories].forEach((source) => {
@@ -298,7 +296,7 @@ export const buildClubCategoryOptions = ({
   }
 
   return sortCategoryOptions(merged);
-};
+}
 
 export const athleteMatchesCategory = (
   athlete: unknown,

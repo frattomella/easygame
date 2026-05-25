@@ -296,6 +296,7 @@ export function SurfacePanel({
 
 export function CompactEntityCard({
   title,
+  leadingBadge,
   badge,
   lines,
   footer,
@@ -304,6 +305,7 @@ export function CompactEntityCard({
   onClick,
 }: {
   title: string;
+  leadingBadge?: React.ReactNode;
   badge?: React.ReactNode;
   lines: React.ReactNode[];
   footer?: React.ReactNode;
@@ -334,7 +336,12 @@ export function CompactEntityCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {leadingBadge}
+            <p className="truncate text-sm font-semibold text-slate-900">
+              {title}
+            </p>
+          </div>
         </div>
         {badge}
       </div>

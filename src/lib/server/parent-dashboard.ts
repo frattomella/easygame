@@ -5,6 +5,8 @@ import {
   type NormalizedCategoryOption,
 } from "@/lib/category-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
+import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
+import { dedupeTrainings } from "@/lib/training-utils";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
@@ -213,6 +215,147 @@ const getRecordCategoryTokens = (
 const hasTokenIntersection = (left: Set<string>, right: Set<string>) =>
   Array.from(left).some((token) => right.has(token));
 
+const getAthleteReferenceTokens = (athlete: any) => {
+  const data = asRecord(athlete?.data);
+  const tokens = [
+    athlete?.id,
+    athlete?.user_id,
+    athlete?.jersey_number,
+    athlete?.category_id,
+    athlete?.category_name,
+    getAthleteDisplayName(athlete),
+    [athlete?.first_name, athlete?.last_name].filter(Boolean).join(" "),
+    data.name,
+    data.fullName,
+    data.full_name,
+    data.athleteName,
+    data.athlete_name,
+    data.jerseyNumber,
+    data.jersey_number,
+  ]
+    .map(normalizeToken)
+    .filter(Boolean);
+
+  return new Set(tokens);
+};
+
+const valueReferencesAthlete = (value: unknown, tokens: Set<string>): boolean => {
+  if (value === null || value === undefined) return false;
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => valueReferencesAthlete(entry, tokens));
+  }
+
+  if (isRecord(value)) {
+    const directTokens = [
+      value.id,
+      value.athleteId,
+      value.athlete_id,
+      value.userId,
+      value.user_id,
+      value.name,
+      value.fullName,
+      value.full_name,
+      value.athleteName,
+      value.athlete_name,
+      [value.firstName, value.lastName].filter(Boolean).join(" "),
+      [value.first_name, value.last_name].filter(Boolean).join(" "),
+      value.jerseyNumber,
+      value.jersey_number,
+    ]
+      .map(normalizeToken)
+      .filter(Boolean);
+
+    return directTokens.some((token) => tokens.has(token));
+  }
+
+  const normalized = normalizeToken(value);
+  if (!normalized) return false;
+
+  if (tokens.has(normalized)) return true;
+
+  return normalized
+    .split(",")
+    .map((entry) => normalizeToken(entry))
+    .some((entry) => tokens.has(entry));
+};
+
+const resolveMatchParticipationStatus = (match: any, athlete: any) => {
+  const tokens = getAthleteReferenceTokens(athlete);
+  const data = asRecord(match?.data);
+  const payload = asRecord(match?.payload);
+  const negativeSources = [
+    match?.absentAthletes,
+    match?.absent_athletes,
+    match?.notCalledAthletes,
+    match?.not_called_athletes,
+    match?.unavailableAthletes,
+    payload.absentAthletes,
+    payload.notCalledAthletes,
+    data.absentAthletes,
+    data.notCalledAthletes,
+  ];
+  const participatedSources = [
+    match?.participants,
+    match?.participantIds,
+    match?.participant_ids,
+    match?.playedAthletes,
+    match?.presentAthletes,
+    payload.participants,
+    payload.participantIds,
+    payload.playedAthletes,
+    data.participants,
+    data.participantIds,
+  ];
+  const calledSources = [
+    match?.calledAthletes,
+    match?.calledAthleteIds,
+    match?.called_athletes,
+    match?.selectedAthletes,
+    match?.selectedAthleteIds,
+    match?.athletes,
+    match?.athleteIds,
+    match?.roster,
+    match?.lineup,
+    match?.convocations,
+    payload.calledAthletes,
+    payload.calledAthleteIds,
+    payload.selectedAthletes,
+    payload.athletes,
+    payload.convocations,
+    data.calledAthletes,
+    data.calledAthleteIds,
+    data.selectedAthletes,
+    data.athletes,
+    data.convocations,
+  ];
+
+  if (negativeSources.some((source) => valueReferencesAthlete(source, tokens))) {
+    return "not_called";
+  }
+
+  if (participatedSources.some((source) => valueReferencesAthlete(source, tokens))) {
+    return "participated";
+  }
+
+  if (calledSources.some((source) => valueReferencesAthlete(source, tokens))) {
+    return "called";
+  }
+
+  return "unknown";
+};
+
+const normalizeAttendanceStatus = (status: unknown) => {
+  const normalized = normalizeToken(status);
+  if (["present", "presente", "late", "ritardo"].includes(normalized)) {
+    return "present";
+  }
+  if (["absent", "assente", "justified", "giustificato"].includes(normalized)) {
+    return "absent";
+  }
+  return "unknown";
+};
+
 const recordMatchesAthlete = (
   record: any,
   athlete: any,
@@ -310,7 +453,18 @@ const summarizeEvent = (
 
   return {
     ...event,
-    id: firstText(event?.id) || `${kind}-${eventDate?.getTime() || Date.now()}`,
+    id:
+      firstText(event?.id) ||
+      [
+        kind,
+        eventDate?.toISOString() || firstText(event?.date),
+        firstText(event?.time, event?.startTime, event?.start_time),
+        category,
+        firstText(event?.title, event?.name),
+      ]
+        .map((value) => normalizeToken(value))
+        .filter(Boolean)
+        .join("-"),
     title:
       firstText(event?.title, event?.name) ||
       (kind === "training" ? "Allenamento" : "Gara"),
@@ -377,17 +531,32 @@ const normalizeUploadedDocuments = (athlete: any) => {
   }));
 };
 
-const serializeAthleteCard = (athlete: any) => ({
-  id: athlete.id,
-  organization_id: athlete.organization_id,
-  name: getAthleteDisplayName(athlete),
-  first_name: athlete.first_name,
-  last_name: athlete.last_name,
-  birth_date: toIso(athlete.birth_date),
-  category_id: athlete.category_id,
-  category_name: athlete.category_name,
-  status: athlete.status,
-});
+const serializeAthleteCard = (athlete: any) => {
+  const data = asRecord(athlete?.data);
+
+  return {
+    id: athlete.id,
+    organization_id: athlete.organization_id,
+    name: getAthleteDisplayName(athlete),
+    first_name: athlete.first_name,
+    last_name: athlete.last_name,
+    birth_date: toIso(athlete.birth_date),
+    category_id: athlete.category_id,
+    category_name: athlete.category_name,
+    status: athlete.status,
+    jersey_number: firstText(athlete.jersey_number, data.jerseyNumber, data.jersey_number),
+    email: firstText(data.email, data.athleteEmail, data.athlete_email),
+    phone: firstText(data.phone, data.mobile, data.athletePhone, data.athlete_phone),
+    address: firstText(data.address),
+    city: firstText(data.city),
+    province: firstText(data.province),
+    postal_code: firstText(data.postalCode, data.postal_code),
+    fiscal_code: firstText(data.fiscalCode, data.fiscal_code),
+    birth_place: firstText(data.birthPlace, data.birth_place),
+    nationality: firstText(data.nationality),
+    gender: firstText(data.gender),
+  };
+};
 
 export const getParentLinkedAthletes = async (userId: string) => {
   const user = await prisma.user.findUnique({
@@ -520,19 +689,35 @@ export const getParentDashboardData = async (
   });
   const rawTrainings = asArray(club.trainings);
   const rawMatches = asArray(club.matches);
-  const attendanceTrainingIds = new Set(attendance.map((item) => item.training_id));
+  const attendanceByTrainingId = new Map(
+    attendance.map((item) => [String(item.training_id || ""), item]),
+  );
+  const attendanceTrainingIds = new Set(attendanceByTrainingId.keys());
 
-  const trainings = rawTrainings
-    .filter(
-      (training) =>
-        recordMatchesAthlete(training, selectedAthlete, categoryOptions) ||
-        attendanceTrainingIds.has(String(training?.id || "")),
-    )
-    .map((training) => summarizeEvent(training, categoryOptions, "training"))
+  const trainings = dedupeTrainings(
+    rawTrainings
+      .filter(
+        (training) =>
+          recordMatchesAthlete(training, selectedAthlete, categoryOptions) ||
+          attendanceTrainingIds.has(String(training?.id || "")),
+      )
+      .map((training) => {
+        const summary = summarizeEvent(training, categoryOptions, "training");
+        const attendanceRecord = attendanceByTrainingId.get(String(summary.id || ""));
+        return {
+          ...summary,
+          attendanceStatus: normalizeAttendanceStatus(attendanceRecord?.status),
+          attendanceNotes: firstText(attendanceRecord?.notes),
+        };
+      }),
+  )
     .sort(sortByStart);
   const matches = rawMatches
     .filter((match) => recordMatchesAthlete(match, selectedAthlete, categoryOptions))
-    .map((match) => summarizeEvent(match, categoryOptions, "match"))
+    .map((match) => ({
+      ...summarizeEvent(match, categoryOptions, "match"),
+      participationStatus: resolveMatchParticipationStatus(match, selectedAthlete),
+    }))
     .sort(sortByStart);
   const now = Date.now();
   const upcomingTrainings = trainings.filter(
@@ -570,19 +755,6 @@ export const getParentDashboardData = async (
   const attendanceTotal = presentCount + absentCount;
   const uploadedDocuments = normalizeUploadedDocuments(selectedAthlete);
   const requiredDocuments = resolveDocumentTemplates(club, uploadedDocuments);
-  const paidPayments = payments.filter(
-    (payment) =>
-      payment.paid_at ||
-      ["paid", "pagato", "completed", "saldato"].includes(
-        normalizeToken(payment.status),
-      ),
-  );
-  const pendingPayments = payments.filter((payment) => !paidPayments.includes(payment));
-  const totalDue = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const totalPaid = paidPayments.reduce(
-    (sum, payment) => sum + Number(payment.amount || 0),
-    0,
-  );
   const certificates = medicalCertificates.map((certificate) => ({
     ...certificate,
     issue_date: toIso(certificate.issue_date),
@@ -599,6 +771,28 @@ export const getParentDashboardData = async (
     return new Date(certificate.expiry_date).getTime() < now;
   });
   const athleteData = asRecord(selectedAthlete.data);
+  const enrollmentSummary = getAthleteEnrollmentSummary({
+    athlete: selectedAthlete,
+    athleteId: selectedAthlete.id,
+    paymentPlans: asArray(club.payment_plans),
+    discounts: asArray(club.discounts),
+    payments: asArray(athleteData.payments),
+    athletePayments: payments,
+    expectedIncomeEntries: asArray(club.expected_income),
+  });
+  const normalizedPayments = enrollmentSummary.payments.map((payment) => ({
+    ...payment,
+    due_date: payment.dueDate,
+    paid_at: payment.paidAt,
+    status: payment.status,
+    statusKey: payment.statusKey,
+  }));
+  const pendingPayments = normalizedPayments.filter(
+    (payment) => payment.statusKey !== "paid",
+  );
+  const paidPayments = normalizedPayments.filter(
+    (payment) => payment.statusKey === "paid",
+  );
 
   return {
     user: {
@@ -644,18 +838,13 @@ export const getParentDashboardData = async (
       ),
     },
     payments: {
-      items: payments.map((payment) => ({
-        ...payment,
-        due_date: toIso(payment.due_date),
-        paid_at: toIso(payment.paid_at),
-        created_at: toIso(payment.created_at),
-        updated_at: toIso(payment.updated_at),
-      })),
+      items: normalizedPayments,
       pending: pendingPayments.length,
       paid: paidPayments.length,
-      totalDue,
-      totalPaid,
-      remaining: Math.max(totalDue - totalPaid, 0),
+      totalDue: enrollmentSummary.income.expectedTotal,
+      totalPaid: enrollmentSummary.income.recordedPaid,
+      remaining: enrollmentSummary.income.residual,
+      summary: enrollmentSummary.income,
       receipts: receipts.map((receipt) => ({
         ...receipt,
         issue_date: toIso(receipt.issue_date),
@@ -669,6 +858,7 @@ export const getParentDashboardData = async (
         updated_at: toIso(invoice.updated_at),
       })),
     },
+    enrollment: enrollmentSummary,
     documents: {
       required: requiredDocuments,
       uploaded: uploadedDocuments,
@@ -707,10 +897,16 @@ export const getParentDashboardData = async (
         .map((appointment, index) => ({
           id: firstText(appointment?.id) || `appointment-${index}`,
           title: firstText(appointment?.title, appointment?.reason) || "Appuntamento",
+          reason: firstText(appointment?.reason, appointment?.title),
           date: toIso(appointment?.date),
           time: firstText(appointment?.time),
-          status: firstText(appointment?.status) || "requested",
+          status: firstText(appointment?.status) || "pending",
           notes: firstText(appointment?.notes),
+          person: firstText(appointment?.person, appointment?.parent_name),
+          athlete_name: firstText(appointment?.athlete_name, appointment?.athlete),
+          requested_by_user_id: firstText(appointment?.requested_by_user_id),
+          created_at: toIso(appointment?.created_at),
+          updated_at: toIso(appointment?.updated_at),
         })),
       openingHours: club.opening_hours,
     },

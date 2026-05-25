@@ -196,7 +196,7 @@ function NewTrainerPageContent() {
         role: "trainer",
         status: "active",
         categories: formData.selectedCategories,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName.replace(/\s+/g, ""))}`,
+        avatar: null,
         payments: [],
         contracts: [],
       };

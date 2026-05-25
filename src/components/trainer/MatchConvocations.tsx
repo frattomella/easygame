@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -41,6 +42,7 @@ interface MatchConvocationsProps {
   matchTitle: string;
   matchDate: string;
   matchTime: string;
+  matchNotes?: string;
   categoryName: string;
   opponent: string;
   location: string;
@@ -54,6 +56,8 @@ interface MatchConvocationsProps {
       isExtraCategory?: boolean;
       isManualExtra?: boolean;
       categoryMembershipType?: string | null;
+      medicalCertificateAvailability?: string | null;
+      medicalCertificateWarning?: string | null;
     }[];
   }) => void | Promise<void>;
   savedConvocations?: string[];
@@ -62,6 +66,8 @@ interface MatchConvocationsProps {
     isExtraCategory?: boolean;
     isManualExtra?: boolean;
     categoryMembershipType?: string | null;
+    medicalCertificateAvailability?: string | null;
+    medicalCertificateWarning?: string | null;
   }[];
 }
 
@@ -86,6 +92,107 @@ const resolveSelectedAthleteIds = (
   return [...new Set(derivedIds)];
 };
 
+const normalizeAthleteId = (value: unknown) => String(value || "").trim();
+
+const toAthleteIdSet = (ids: string[] = []) =>
+  new Set(ids.map(normalizeAthleteId).filter(Boolean));
+
+const areStringSetsEqual = (left: Set<string>, right: Set<string>) => {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const buildAthleteRowSignature = (athlete: Athlete) =>
+  [
+    normalizeAthleteId(athlete.id),
+    athlete.name,
+    athlete.medicalCertExpiry,
+    athlete.participationContext,
+    athlete.participationBadgeLabel,
+    athlete.isExtraCategory ? "extra" : "",
+    athlete.isManualExtra ? "manual" : "",
+    athlete.primaryCategoryName,
+  ]
+    .map((value) => String(value || "").trim())
+    .join("|");
+
+const areAthleteRowsEqual = (left: Athlete[] = [], right: Athlete[] = []) => {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every(
+    (athlete, index) =>
+      buildAthleteRowSignature(athlete) === buildAthleteRowSignature(right[index]),
+  );
+};
+
+const normalizeConvocationEntries = (
+  entries: MatchConvocationsProps["savedConvocationEntries"] = [],
+) =>
+  (Array.isArray(entries) ? entries : [])
+    .map((entry) => ({
+      athleteId: String(entry?.athleteId || "").trim(),
+      isExtraCategory: Boolean(entry?.isExtraCategory),
+      isManualExtra: Boolean(entry?.isManualExtra),
+      categoryMembershipType: entry?.categoryMembershipType || null,
+      medicalCertificateAvailability:
+        entry?.medicalCertificateAvailability || null,
+      medicalCertificateWarning: entry?.medicalCertificateWarning || null,
+    }))
+    .filter((entry) => entry.athleteId);
+
+const areConvocationEntriesEqual = (
+  left: MatchConvocationsProps["savedConvocationEntries"] = [],
+  right: MatchConvocationsProps["savedConvocationEntries"] = [],
+) => {
+  const normalizedLeft = normalizeConvocationEntries(left);
+  const normalizedRight = normalizeConvocationEntries(right);
+
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every((entry, index) => {
+    const otherEntry = normalizedRight[index];
+    return (
+      entry.athleteId === otherEntry.athleteId &&
+      entry.isExtraCategory === otherEntry.isExtraCategory &&
+      entry.isManualExtra === otherEntry.isManualExtra &&
+      entry.categoryMembershipType === otherEntry.categoryMembershipType &&
+      entry.medicalCertificateAvailability ===
+        otherEntry.medicalCertificateAvailability &&
+      entry.medicalCertificateWarning === otherEntry.medicalCertificateWarning
+    );
+  });
+};
+
+const dedupeAthleteRows = (rows: Athlete[]) => {
+  const seen = new Set<string>();
+  const uniqueRows: Athlete[] = [];
+
+  rows.forEach((athlete) => {
+    const athleteId = normalizeAthleteId(athlete?.id);
+    if (!athleteId || seen.has(athleteId)) {
+      return;
+    }
+
+    seen.add(athleteId);
+    uniqueRows.push(athlete);
+  });
+
+  return uniqueRows;
+};
+
 export function MatchConvocations({
   isOpen,
   onClose,
@@ -93,6 +200,7 @@ export function MatchConvocations({
   matchTitle,
   matchDate,
   matchTime,
+  matchNotes,
   categoryName,
   opponent,
   location,
@@ -105,8 +213,11 @@ export function MatchConvocations({
   const { showToast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [athleteRows, setAthleteRows] = useState<Athlete[]>(athletes);
-  const [convocatedAthletes, setConvocatedAthletes] = useState<string[]>(
-    resolveSelectedAthleteIds(savedConvocations, savedConvocationEntries),
+  const [selectedAthleteIds, setSelectedAthleteIds] = useState<Set<string>>(
+    () =>
+      toAthleteIdSet(
+        resolveSelectedAthleteIds(savedConvocations, savedConvocationEntries),
+      ),
   );
   const [convocationEntries, setConvocationEntries] = useState<
     {
@@ -114,35 +225,54 @@ export function MatchConvocations({
       isExtraCategory?: boolean;
       isManualExtra?: boolean;
       categoryMembershipType?: string | null;
+      medicalCertificateAvailability?: string | null;
+      medicalCertificateWarning?: string | null;
     }[]
   >(savedConvocationEntries);
-  const [isEditing, setIsEditing] = useState(savedConvocations.length === 0);
+  const [isEditing, setIsEditing] = useState(true);
+  const initializedMatchKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
+      initializedMatchKeyRef.current = null;
       return;
     }
 
-    const savedEntries = Array.isArray(savedConvocationEntries)
-      ? savedConvocationEntries
-      : [];
-    const savedIds = resolveSelectedAthleteIds(savedConvocations, savedEntries);
-    const missingSavedAthletes = clubAthletes.filter(
-      (athlete) =>
-        savedIds.includes(athlete.id) &&
-        !athletes.some((currentAthlete) => currentAthlete.id === athlete.id),
-    );
+    const initializationKey = normalizeAthleteId(matchId);
+    if (initializedMatchKeyRef.current === initializationKey) {
+      return;
+    }
+    initializedMatchKeyRef.current = initializationKey;
 
-    const nextAthleteRows = [...athletes, ...missingSavedAthletes];
-    setAthleteRows(nextAthleteRows);
-    setConvocatedAthletes(savedIds);
-    setConvocationEntries(
+    const savedEntries = normalizeConvocationEntries(savedConvocationEntries);
+    const savedIds = resolveSelectedAthleteIds(savedConvocations, savedEntries);
+    const nextSelectedAthleteIds = toAthleteIdSet(savedIds);
+    const savedIdSet = toAthleteIdSet(savedIds);
+    const missingSavedAthletes = clubAthletes.filter((athlete) => {
+      const athleteId = normalizeAthleteId(athlete?.id);
+      return (
+        savedIdSet.has(athleteId) &&
+        !athletes.some(
+          (currentAthlete) =>
+            normalizeAthleteId(currentAthlete?.id) === athleteId,
+        )
+      );
+    });
+
+    const nextAthleteRows = dedupeAthleteRows([...athletes, ...missingSavedAthletes]);
+    const nextConvocationEntries =
       savedEntries.length > 0
         ? savedEntries
         : savedIds.map((athleteId) => {
-            const athlete = nextAthleteRows.find((row) => row.id === athleteId);
+            const normalizedAthleteId = normalizeAthleteId(athleteId);
+            const athlete = nextAthleteRows.find(
+              (row) => normalizeAthleteId(row.id) === normalizedAthleteId,
+            );
+            const availability = getMedicalCertificateAvailability(
+              athlete?.medicalCertExpiry,
+            );
             return {
-              athleteId,
+              athleteId: normalizedAthleteId,
               isExtraCategory:
                 athlete?.participationContext === "extra" ||
                 Boolean(athlete?.isExtraCategory),
@@ -150,92 +280,201 @@ export function MatchConvocations({
                 athlete?.participationContext === "extra" ||
                 Boolean(athlete?.isManualExtra),
               categoryMembershipType: athlete?.participationContext || "primary",
+              medicalCertificateAvailability: availability,
+              medicalCertificateWarning:
+                availability !== "valid"
+                  ? getMedicalCertificateAvailabilityLabel(availability)
+                  : null,
             };
-          }),
+          });
+    setAthleteRows((currentRows) =>
+      areAthleteRowsEqual(currentRows, nextAthleteRows)
+        ? currentRows
+        : nextAthleteRows,
     );
-    setIsEditing(!(Array.isArray(savedConvocations) && savedConvocations.length > 0));
+    setSelectedAthleteIds((currentAthletes) =>
+      areStringSetsEqual(currentAthletes, nextSelectedAthleteIds)
+        ? currentAthletes
+        : nextSelectedAthleteIds,
+    );
+    setConvocationEntries((currentEntries) =>
+      areConvocationEntriesEqual(currentEntries, nextConvocationEntries)
+        ? currentEntries
+        : nextConvocationEntries,
+    );
+    setIsEditing((current) => (current ? current : true));
   }, [isOpen, matchId, savedConvocations, savedConvocationEntries, athletes, clubAthletes]);
 
-  const handleToggleAthlete = (athleteId: string) => {
-    if (!isEditing) return;
-
-    if (convocatedAthletes.includes(athleteId)) {
-      setConvocatedAthletes(
-        convocatedAthletes.filter((id) => id !== athleteId),
-      );
-    } else {
-      setConvocatedAthletes([...convocatedAthletes, athleteId]);
-    }
-
-    const athlete = athleteRows.find((row) => row.id === athleteId);
-    if (!athlete) {
+  const syncConvocationEntry = (athleteId: string, selected: boolean) => {
+    const normalizedAthleteId = normalizeAthleteId(athleteId);
+    if (!normalizedAthleteId) {
       return;
     }
 
     setConvocationEntries((currentEntries) => {
-      if (currentEntries.some((entry) => entry.athleteId === athleteId)) {
+      if (!selected) {
+        return currentEntries.filter(
+          (entry) => normalizeAthleteId(entry.athleteId) !== normalizedAthleteId,
+        );
+      }
+
+      if (
+        currentEntries.some(
+          (entry) => normalizeAthleteId(entry.athleteId) === normalizedAthleteId,
+        )
+      ) {
         return currentEntries;
       }
 
+      const athlete = athleteRows.find(
+        (row) => normalizeAthleteId(row.id) === normalizedAthleteId,
+      );
+      const availability = getMedicalCertificateAvailability(
+        athlete?.medicalCertExpiry,
+      );
       return [
         ...currentEntries,
         {
-          athleteId,
+          athleteId: normalizedAthleteId,
           isExtraCategory:
-            athlete.participationContext === "extra" || Boolean(athlete.isExtraCategory),
+            athlete?.participationContext === "extra" ||
+            Boolean(athlete?.isExtraCategory),
           isManualExtra:
-            athlete.participationContext === "extra" || Boolean(athlete.isManualExtra),
-          categoryMembershipType: athlete.participationContext || "primary",
+            athlete?.participationContext === "extra" ||
+            Boolean(athlete?.isManualExtra),
+          categoryMembershipType: athlete?.participationContext || "primary",
+          medicalCertificateAvailability: availability,
+          medicalCertificateWarning:
+            availability !== "valid"
+              ? getMedicalCertificateAvailabilityLabel(availability)
+              : null,
         },
       ];
     });
   };
 
-  const handleAddExtraAthlete = (athlete: Athlete) => {
-    if (!athlete || athleteRows.some((row) => row.id === athlete.id)) {
+  const handleSetAthleteSelected = (athleteId: string, selected: boolean) => {
+    if (!isEditing) return;
+
+    const normalizedAthleteId = normalizeAthleteId(athleteId);
+    if (!normalizedAthleteId) {
       return;
     }
 
+    setSelectedAthleteIds((currentAthletes) => {
+      const nextAthletes = new Set(currentAthletes);
+      if (selected) {
+        nextAthletes.add(normalizedAthleteId);
+      } else {
+        nextAthletes.delete(normalizedAthleteId);
+      }
+
+      return nextAthletes;
+    });
+    syncConvocationEntry(normalizedAthleteId, selected);
+
+    if (selected) {
+      const athlete = athleteRows.find(
+        (row) => normalizeAthleteId(row.id) === normalizedAthleteId,
+      );
+      const availability = getMedicalCertificateAvailability(
+        athlete?.medicalCertExpiry,
+      );
+
+      if (availability !== "valid") {
+        showToast(
+          "info",
+          `Attenzione: ${getMedicalCertificateAvailabilityLabel(availability).toLowerCase()}`,
+        );
+      }
+    }
+  };
+
+  const handleToggleAthlete = (athleteId: string) => {
+    const normalizedAthleteId = normalizeAthleteId(athleteId);
+    handleSetAthleteSelected(
+      normalizedAthleteId,
+      !selectedAthleteIds.has(normalizedAthleteId),
+    );
+  };
+
+  const handleAddExtraAthlete = (athlete: Athlete) => {
+    const athleteId = normalizeAthleteId(athlete?.id);
+    if (
+      !athleteId ||
+      athleteRows.some((row) => normalizeAthleteId(row.id) === athleteId)
+    ) {
+      return;
+    }
+
+    const availability = getMedicalCertificateAvailability(
+      athlete.medicalCertExpiry,
+    );
     setAthleteRows((currentRows) => [...currentRows, athlete]);
     setConvocationEntries((currentEntries) => [
       ...currentEntries,
       {
-        athleteId: athlete.id,
+        athleteId,
         isExtraCategory:
           athlete.participationContext === "extra" || Boolean(athlete.isExtraCategory),
         isManualExtra:
           athlete.participationContext === "extra" || Boolean(athlete.isManualExtra),
         categoryMembershipType: athlete.participationContext || "primary",
+        medicalCertificateAvailability: availability,
+        medicalCertificateWarning:
+          availability !== "valid"
+            ? getMedicalCertificateAvailabilityLabel(availability)
+            : null,
       },
     ]);
-    setConvocatedAthletes((currentAthletes) =>
-      currentAthletes.includes(athlete.id)
-        ? currentAthletes
-        : [...currentAthletes, athlete.id],
-    );
+    setSelectedAthleteIds((currentAthletes) => {
+      const nextAthletes = new Set(currentAthletes);
+      nextAthletes.add(athleteId);
+      return nextAthletes;
+    });
+    if (availability !== "valid") {
+      showToast(
+        "info",
+        `Attenzione: ${getMedicalCertificateAvailabilityLabel(availability).toLowerCase()}`,
+      );
+    }
     setSearchQuery("");
   };
 
   const handleSaveConvocations = async () => {
+    const convocatedAthletes = Array.from(selectedAthleteIds);
     const normalizedConvocationEntries = convocatedAthletes.map((athleteId) => {
+      const normalizedAthleteId = normalizeAthleteId(athleteId);
       const existingEntry = convocationEntries.find(
-        (entry) => entry.athleteId === athleteId,
+        (entry) => normalizeAthleteId(entry.athleteId) === normalizedAthleteId,
       );
 
-      if (existingEntry) {
-        return existingEntry;
-      }
-
-      const athlete = athleteRows.find((row) => row.id === athleteId);
+      const athlete = athleteRows.find(
+        (row) => normalizeAthleteId(row.id) === normalizedAthleteId,
+      );
+      const availability = getMedicalCertificateAvailability(
+        athlete?.medicalCertExpiry,
+      );
       return {
-        athleteId,
+        ...(existingEntry || {}),
+        athleteId: normalizedAthleteId,
         isExtraCategory:
-          athlete?.participationContext === "extra" ||
-          Boolean(athlete?.isExtraCategory),
+          existingEntry?.isExtraCategory ??
+          (athlete?.participationContext === "extra" ||
+            Boolean(athlete?.isExtraCategory)),
         isManualExtra:
-          athlete?.participationContext === "extra" ||
-          Boolean(athlete?.isManualExtra),
-        categoryMembershipType: athlete?.participationContext || "primary",
+          existingEntry?.isManualExtra ??
+          (athlete?.participationContext === "extra" ||
+            Boolean(athlete?.isManualExtra)),
+        categoryMembershipType:
+          existingEntry?.categoryMembershipType ||
+          athlete?.participationContext ||
+          "primary",
+        medicalCertificateAvailability: availability,
+        medicalCertificateWarning:
+          availability !== "valid"
+            ? getMedicalCertificateAvailabilityLabel(availability)
+            : null,
       };
     });
 
@@ -248,7 +487,9 @@ export function MatchConvocations({
     showToast("success", "Convocazioni salvate con successo");
 
     const flaggedAthletes = athleteRows
-      .filter((athlete) => convocatedAthletes.includes(athlete.id))
+      .filter((athlete) =>
+        convocatedAthletes.includes(normalizeAthleteId(athlete.id)),
+      )
       .map((athlete) => ({
         name: athlete.name,
         availability: getMedicalCertificateAvailability(
@@ -288,7 +529,9 @@ export function MatchConvocations({
   const suggestedAthletes = clubAthletes
     .filter(
       (athlete) =>
-        !athleteRows.some((row) => row.id === athlete.id) &&
+        !athleteRows.some(
+          (row) => normalizeAthleteId(row.id) === normalizeAthleteId(athlete.id),
+        ) &&
         athlete.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
     )
     .slice(0, 6);
@@ -308,10 +551,20 @@ export function MatchConvocations({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl">Convocazioni</DialogTitle>
+          <DialogDescription>
+            Seleziona gli atleti convocati per la gara e salva le modifiche.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -338,11 +591,16 @@ export function MatchConvocations({
               </p>
             </div>
           </div>
+          {matchNotes ? (
+            <div className="mt-4 rounded-md border border-blue-100 bg-white px-3 py-2 text-sm text-slate-700">
+              <span className="font-medium">Note gara:</span> {matchNotes}
+            </div>
+          ) : null}
         </div>
 
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-lg font-semibold">
-            Atleti convocati ({convocatedAthletes.length} convocati)
+            Atleti convocati ({selectedAthleteIds.size} convocati)
           </h3>
           <div className="flex flex-wrap gap-2">
             {!isEditing ? (
@@ -355,7 +613,7 @@ export function MatchConvocations({
                   <Edit className="h-4 w-4" />
                   Modifica
                 </Button>
-                {convocatedAthletes.length > 0 && (
+                {selectedAthleteIds.size > 0 && (
                   <Button
                     className="bg-green-600 hover:bg-green-700 flex items-center gap-1"
                     onClick={() => {
@@ -400,9 +658,11 @@ export function MatchConvocations({
           {isEditing && searchQuery.trim() ? (
             suggestedAthletes.length > 0 ? (
               <div className="space-y-2">
-                {suggestedAthletes.map((athlete) => (
+                {suggestedAthletes.map((athlete) => {
+                  const athleteId = normalizeAthleteId(athlete.id);
+                  return (
                   <button
-                    key={`convocation-extra-${athlete.id}`}
+                    key={`convocation-extra-${athleteId}`}
                     type="button"
                     onClick={() => handleAddExtraAthlete(athlete)}
                     className="flex w-full items-center justify-between rounded-md border bg-white px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50"
@@ -424,7 +684,8 @@ export function MatchConvocations({
                       {athlete.participationBadgeLabel || "Aggiungi"}
                     </Badge>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
@@ -435,16 +696,29 @@ export function MatchConvocations({
         </div>
 
         <div className="space-y-2">
-          {athleteRows.map((athlete) => (
+          {athleteRows.map((athlete) => {
+            const athleteId = normalizeAthleteId(athlete.id);
+            if (!athleteId) {
+              return null;
+            }
+
+            const isSelected = selectedAthleteIds.has(athleteId);
+
+            return (
             <div
-              key={athlete.id}
-              className={`rounded-lg border p-4 transition-colors ${convocatedAthletes.includes(athlete.id) ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800"} ${!isEditing ? "cursor-default" : "cursor-pointer"}`}
-              onClick={() => handleToggleAthlete(athlete.id)}
+              key={athleteId}
+              className={`rounded-lg border p-4 transition-colors ${isSelected ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800"} ${!isEditing ? "cursor-default" : "cursor-pointer"}`}
+              onClick={() => handleToggleAthlete(athleteId)}
+              role={isEditing ? "button" : undefined}
+              aria-pressed={isEditing ? isSelected : undefined}
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                 <Checkbox
-                  checked={convocatedAthletes.includes(athlete.id)}
-                  onCheckedChange={() => handleToggleAthlete(athlete.id)}
+                  checked={isSelected}
+                  onCheckedChange={(checked) =>
+                    handleSetAthleteSelected(athleteId, checked === true)
+                  }
+                  onClick={(event) => event.stopPropagation()}
                   disabled={!isEditing}
                   className="h-5 w-5 shrink-0"
                 />
@@ -463,7 +737,10 @@ export function MatchConvocations({
                   ) : null}
                   {getMedicalCertificateAvailability(athlete.medicalCertExpiry) !==
                   "valid" ? (
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    <Badge className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50">
+                      <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                      Attenzione
+                    </Badge>
                   ) : null}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -492,7 +769,7 @@ export function MatchConvocations({
                 ) : null}
               </div>
               <div className="sm:self-center">
-                {convocatedAthletes.includes(athlete.id) ? (
+                {isSelected ? (
                   <Badge className="bg-blue-500 text-white">
                     <CheckCircle className="h-3 w-3 mr-1" />
                     Convocato
@@ -508,7 +785,8 @@ export function MatchConvocations({
               </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </DialogContent>
     </Dialog>

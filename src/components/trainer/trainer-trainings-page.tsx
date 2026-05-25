@@ -10,6 +10,9 @@ import {
   ConfirmDialog,
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   SectionBlockedState,
@@ -20,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { saveTrainingAttendance, updateClubDataItem } from "@/lib/simplified-db";
 import { useToast } from "@/components/ui/toast-notification";
+import { dedupeTrainings, getTrainingStableKey } from "@/lib/training-utils";
 
 export default function TrainerTrainingsPage() {
   const { activeClub, assignedAthletes, permissions, reload, visibleTrainings } =
@@ -42,7 +46,9 @@ export default function TrainerTrainingsPage() {
     return <SectionBlockedState section="trainings" />;
   }
 
-  if (visibleTrainings.length === 0) {
+  const uniqueVisibleTrainings = dedupeTrainings(visibleTrainings);
+
+  if (uniqueVisibleTrainings.length === 0) {
     return (
       <SectionEmptyState
         title="Nessun allenamento disponibile"
@@ -67,7 +73,7 @@ export default function TrainerTrainingsPage() {
           <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-blue-600"></div>
           <CardContent className="p-6">
             <p className="text-sm font-medium text-muted-foreground">Allenamenti visibili</p>
-            <p className="mt-2 text-3xl font-bold">{visibleTrainings.length}</p>
+            <p className="mt-2 text-3xl font-bold">{uniqueVisibleTrainings.length}</p>
           </CardContent>
         </Card>
         <Card className="bg-white shadow-md border-0 overflow-hidden">
@@ -107,7 +113,7 @@ export default function TrainerTrainingsPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge className="border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100">
-              {visibleTrainings.length} allenamenti
+              {uniqueVisibleTrainings.length} allenamenti
             </Badge>
             <Badge
               className={cn(
@@ -126,7 +132,7 @@ export default function TrainerTrainingsPage() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {visibleTrainings.map((training) => {
+        {uniqueVisibleTrainings.map((training) => {
           const status = getStatusBadgeClasses(
             training?.status,
             training?.startsAt,
@@ -172,7 +178,7 @@ export default function TrainerTrainingsPage() {
 
           return (
             <Card
-              key={training.id}
+              key={getTrainingStableKey(training)}
               className="bg-white shadow-md border-0 overflow-hidden"
             >
               <div className="h-1 w-full bg-gradient-to-r from-emerald-500 to-teal-600"></div>
@@ -307,6 +313,12 @@ export default function TrainerTrainingsPage() {
           }}
         >
           <DialogContent className="max-w-4xl border-none bg-transparent p-0 shadow-none">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Presenze allenamento</DialogTitle>
+              <DialogDescription>
+                Gestisci presenze e note degli atleti per questo allenamento.
+              </DialogDescription>
+            </DialogHeader>
             <AttendanceSheet
               trainingId={selectedTraining.id}
               trainingTitle={selectedTraining.title || "Allenamento"}

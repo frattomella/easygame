@@ -229,11 +229,17 @@ export const resolveOrganizationScopeForUser = async (
     },
     orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
   });
+  const ownedClubs = await prisma.club.findMany({
+    where: { creator_id: userId },
+    select: { id: true },
+    orderBy: { created_at: "asc" },
+  });
 
   const allowedOrganizationIds = Array.from(
     new Set(
       memberships
         .map((membership) => membership.organization_id)
+        .concat(ownedClubs.map((club) => club.id))
         .filter(Boolean),
     ),
   );
@@ -244,6 +250,7 @@ export const resolveOrganizationScopeForUser = async (
       ? preferredOrganizationId
       : null) ||
     memberships.find((membership) => membership.is_primary)?.organization_id ||
+    ownedClubs[0]?.id ||
     allowedOrganizationIds[0] ||
     null;
 

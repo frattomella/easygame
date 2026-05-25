@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,6 +30,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { deleteClubDataItem } from "@/lib/simplified-db";
+import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
 
 const getMemberIdentity = (memberData: Record<string, any>) => {
   const sanitizeText = (value: any) => {
@@ -47,14 +47,16 @@ const getMemberIdentity = (memberData: Record<string, any>) => {
     memberData?.fullName ?? memberData?.full_name ?? memberData?.name,
   );
   const fullName =
-    explicitFullName ||
-    [firstName, lastName].filter(Boolean).join(" ").trim();
+    formatPersonNameLastFirst({
+      first_name: firstName,
+      last_name: lastName,
+      name: explicitFullName,
+      fullName: explicitFullName,
+    }) || explicitFullName;
 
   return {
-    firstName: firstName || (fullName ? fullName.split(/\s+/)[0] || "" : ""),
-    lastName:
-      lastName ||
-      (fullName ? fullName.split(/\s+/).slice(1).join(" ").trim() : ""),
+    firstName,
+    lastName,
     fullName: fullName || "Nome non disponibile",
   };
 };
@@ -214,10 +216,12 @@ export default function MemberDetailsPage() {
 
     try {
       const { updateClubDataItem } = await import("@/lib/simplified-db");
-      const fullName = [editFormData.firstName, editFormData.lastName]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
+      const fullName = formatPersonNameLastFirst({
+        firstName: editFormData.firstName,
+        lastName: editFormData.lastName,
+        name: editFormData.name,
+        fullName: editFormData.fullName,
+      });
       const payload = {
         ...editFormData,
         name: fullName || editFormData.name || undefined,
@@ -333,7 +337,7 @@ export default function MemberDetailsPage() {
                   }}
                   name={member.name}
                   size="lg"
-                  type="user"
+                  type="member"
                 />
                 <div>
                   <h1 className="text-2xl font-bold">{member.name}</h1>
@@ -504,14 +508,30 @@ export default function MemberDetailsPage() {
                       <Label>Nome</Label>
                       <Input 
                         value={editFormData.firstName || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, firstName: e.target.value, name: `${e.target.value} ${editFormData.lastName || ''}`})}
+                        onChange={(e) => setEditFormData({
+                          ...editFormData,
+                          firstName: e.target.value,
+                          name: formatPersonNameLastFirst({
+                            firstName: e.target.value,
+                            lastName: editFormData.lastName,
+                            name: editFormData.name,
+                          }),
+                        })}
                       />
                     </div>
                     <div>
                       <Label>Cognome</Label>
                       <Input 
                         value={editFormData.lastName || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, lastName: e.target.value, name: `${editFormData.firstName || ''} ${e.target.value}`})}
+                        onChange={(e) => setEditFormData({
+                          ...editFormData,
+                          lastName: e.target.value,
+                          name: formatPersonNameLastFirst({
+                            firstName: editFormData.firstName,
+                            lastName: e.target.value,
+                            name: editFormData.name,
+                          }),
+                        })}
                       />
                     </div>
                     <div>

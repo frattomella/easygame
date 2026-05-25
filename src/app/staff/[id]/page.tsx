@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -188,7 +187,7 @@ export default function StaffMemberDetailsPage() {
           hireDate: staffData.hireDate || "",
           
           // Existing fields
-          avatar: staffData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent((staffData.name || "staff").replace(/\s+/g, ""))}`,
+          avatar: staffData.avatar || null,
           fiscalCode: staffData.fiscalCode || "",
         });
       } catch (error) {
@@ -333,7 +332,7 @@ export default function StaffMemberDetailsPage() {
                     `${staffMember.name} ${staffMember.surname || ""}`.trim()
                   }
                   size="lg"
-                  type="user"
+                  type="staff"
                 />
                 <div>
                   <h1 className="text-2xl font-bold">

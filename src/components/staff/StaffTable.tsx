@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Trash2, Edit, Eye, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface StaffMember {
   id: string;
@@ -113,7 +114,14 @@ export function StaffTable({
             >
               {visibleColumns.name && (
                 <TableCell className="font-medium">
-                  {getStaffDisplayName(member)}
+                  <div className="flex items-center gap-2">
+                    <EntityIcon
+                      type="staff"
+                      size="sm"
+                      label={getStaffDisplayName(member)}
+                    />
+                    {getStaffDisplayName(member)}
+                  </div>
                 </TableCell>
               )}
               {visibleColumns.role && (

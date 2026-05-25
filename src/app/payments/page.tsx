@@ -29,6 +29,16 @@ import { PaymentMethodsConfig } from "@/app/organization/payment-methods-config"
 import { supabase } from "@/lib/supabase";
 import { getClubSettings } from "@/lib/simplified-db";
 import {
+  aggregateClubPayments,
+  loadClubFinancialSources,
+  summarizeClubMovements,
+  type NormalizedClubMovement,
+} from "@/lib/club-financial-summary";
+import {
+  compareAthletesByLastName,
+  getAthleteDisplayName,
+} from "@/lib/athlete-name-utils";
+import {
   CreditCard,
   FileText,
   Receipt,
@@ -48,6 +58,9 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [athletes, setAthletes] = useState<AthleteOption[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [clubMovements, setClubMovements] = useState<NormalizedClubMovement[]>(
+    [],
+  );
   const [invoices, setInvoices] = useState<any[]>([]);
   const [receipts, setReceipts] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
@@ -95,16 +108,24 @@ export default function PaymentsPage() {
       const fallbackMethods = Array.isArray(clubSettings?.paymentMethods)
         ? clubSettings.paymentMethods
         : [];
+      const financialSources = await loadClubFinancialSources(clubId);
 
       setAthletes(
-        (athletesResponse.data || []).map((athlete: any) => ({
-          id: athlete.id,
-          name:
-            athlete.name ||
-            `${athlete.first_name || ""} ${athlete.last_name || ""}`.trim(),
-        })),
+        (athletesResponse.data || [])
+          .slice()
+          .sort(compareAthletesByLastName)
+          .map((athlete: any) => ({
+            id: athlete.id,
+            name: getAthleteDisplayName(athlete) || "Atleta",
+          })),
       );
       setPayments(paymentsResponse.data || []);
+      setClubMovements(
+        aggregateClubPayments({
+          ...financialSources,
+          payments: paymentsResponse.data || [],
+        }),
+      );
       setInvoices(invoicesResponse.data || []);
       setReceipts(receiptsResponse.data || []);
       setPaymentMethods(
@@ -152,20 +173,28 @@ export default function PaymentsPage() {
   );
 
   const totals = useMemo(() => {
-    const totalCollected = payments
-      .filter((payment) => payment.status === "paid")
-      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    const totalPending = payments
-      .filter((payment) => payment.status !== "paid")
-      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const financialTotals = summarizeClubMovements(clubMovements);
 
     return {
-      totalCollected,
-      totalPending,
+      totalCollected: financialTotals.totalIncome,
+      totalPending: financialTotals.totalPendingIncome,
       invoices: invoices.length,
       receipts: receipts.length,
     };
-  }, [payments, invoices.length, receipts.length]);
+  }, [clubMovements, invoices.length, receipts.length]);
+
+  const athletePaymentIds = useMemo(
+    () => new Set(payments.map((payment) => String(payment.id))),
+    [payments],
+  );
+
+  const paymentRows = useMemo(() => {
+    if (clubMovements.length) {
+      return clubMovements;
+    }
+
+    return aggregateClubPayments({ payments });
+  }, [clubMovements, payments]);
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("it-IT", {
@@ -435,7 +464,8 @@ export default function PaymentsPage() {
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>Atleta</TableHead>
+                                <TableHead>Soggetto</TableHead>
+                                <TableHead>Origine</TableHead>
                                 <TableHead>Descrizione</TableHead>
                                 <TableHead>Importo</TableHead>
                                 <TableHead>Data</TableHead>
@@ -446,22 +476,37 @@ export default function PaymentsPage() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {payments.map((payment) => {
-                                const linkedInvoice = invoiceByPaymentId.get(payment.id);
-                                const linkedReceipt = receiptByPaymentId.get(payment.id);
+                              {paymentRows.map((payment) => {
+                                const rawPayment =
+                                  payment.source === "athlete" &&
+                                  athletePaymentIds.has(String((payment.raw as any)?.id))
+                                    ? (payment.raw as any)
+                                    : null;
+                                const linkedInvoice = rawPayment
+                                  ? invoiceByPaymentId.get(rawPayment.id)
+                                  : null;
+                                const linkedReceipt = rawPayment
+                                  ? receiptByPaymentId.get(rawPayment.id)
+                                  : null;
                                 return (
-                                  <TableRow key={payment.id}>
+                                  <TableRow key={`${payment.source}-${payment.id}`}>
                                     <TableCell>
-                                      {athleteMap.get(payment.athlete_id) ||
-                                        payment.data?.athlete_name ||
-                                        "-"}
+                                      {payment.subjectName || "-"}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline">
+                                        {payment.source}
+                                      </Badge>
                                     </TableCell>
                                     <TableCell>{payment.description}</TableCell>
                                     <TableCell>
+                                      {payment.direction === "expense" ? "-" : ""}
                                       {formatCurrency(Number(payment.amount))}
                                     </TableCell>
                                     <TableCell>
-                                      {formatDate(payment.paid_at || payment.due_date)}
+                                      {formatDate(
+                                        payment.paidAt || payment.date || payment.dueDate,
+                                      )}
                                     </TableCell>
                                     <TableCell>{paymentBadge(payment.status)}</TableCell>
                                     <TableCell>
@@ -483,28 +528,32 @@ export default function PaymentsPage() {
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      <div className="flex flex-wrap gap-2">
-                                        {!linkedInvoice && (
+                                      {rawPayment ? (
+                                        <div className="flex flex-wrap gap-2">
+                                          {!linkedInvoice && (
                                           <Button
                                             size="sm"
                                             variant="outline"
-                                            onClick={() => openInvoiceModal(payment)}
+                                            onClick={() => openInvoiceModal(rawPayment)}
                                           >
                                             <Link2 className="mr-1 h-3.5 w-3.5" />
                                             Fattura
                                           </Button>
-                                        )}
-                                        {!linkedReceipt && (
+                                          )}
+                                          {!linkedReceipt && (
                                           <Button
                                             size="sm"
                                             variant="outline"
-                                            onClick={() => handleGenerateReceipt(payment)}
+                                            onClick={() => handleGenerateReceipt(rawPayment)}
                                           >
                                             <Receipt className="mr-1 h-3.5 w-3.5" />
                                             Ricevuta
                                           </Button>
-                                        )}
-                                      </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground">-</span>
+                                      )}
                                     </TableCell>
                                   </TableRow>
                                 );

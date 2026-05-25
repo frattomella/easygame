@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import {
   Award,
@@ -20,6 +19,7 @@ import {
   Shirt,
   User,
 } from "lucide-react";
+import { PageHeading } from "@/components/dashboard/page-heading";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,8 +34,11 @@ import {
   getAthleteMedicalExpiry,
 } from "@/components/trainer/trainer-dashboard-shared";
 import { downloadClientFileUrl, openClientFileUrl } from "@/lib/client-files";
-import { getRecordDisplayCategory } from "@/lib/trainer-dashboard-helpers";
-import userDefaultImage from "@/../public/images/user.png";
+import {
+  getRecordDisplayCategory,
+  recordMatchesCategory,
+} from "@/lib/trainer-dashboard-helpers";
+import { EntityIcon } from "@/components/ui/entity-icon";
 
 type ReadOnlyAttachment = {
   id?: string | null;
@@ -104,7 +107,9 @@ function DetailField({
     <div>
       <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
       <div className="mt-1 flex items-start gap-2">
-        {Icon ? <Icon className="mt-0.5 h-4 w-4 text-muted-foreground" /> : null}
+        {Icon ? (
+          <Icon className="mt-0.5 h-4 w-4 text-muted-foreground" />
+        ) : null}
         <div className="min-w-0 text-sm text-slate-900">{value}</div>
       </div>
     </div>
@@ -153,19 +158,27 @@ function ReadOnlyAttachmentList({
                     <div className="min-w-0">
                       <p className="font-medium text-slate-900">{fileName}</p>
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        {getTextValue(document.type) ? <span>{document.type}</span> : null}
+                        {getTextValue(document.type) ? (
+                          <span>{document.type}</span>
+                        ) : null}
                         {getTextValue(document.status) ? (
                           <span>Stato: {document.status}</span>
                         ) : null}
                         {getTextValue(document.issueDate) ? (
-                          <span>Emissione: {formatDate(document.issueDate)}</span>
+                          <span>
+                            Emissione: {formatDate(document.issueDate)}
+                          </span>
                         ) : null}
                         {getTextValue(document.expiryDate) ? (
-                          <span>Scadenza: {formatDate(document.expiryDate)}</span>
+                          <span>
+                            Scadenza: {formatDate(document.expiryDate)}
+                          </span>
                         ) : null}
                       </div>
                       {getTextValue(document.notes) ? (
-                        <p className="mt-2 text-sm text-slate-600">{document.notes}</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {document.notes}
+                        </p>
                       ) : null}
                     </div>
                     <div className="flex gap-2">
@@ -202,7 +215,13 @@ function ReadOnlyAttachmentList({
 export default function TrainerAthleteProfilePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { assignedAthletes, categories, permissions } = useTrainerDashboard();
+  const {
+    assignedAthletes,
+    categories,
+    permissions,
+    visibleMatches,
+    visibleTrainings,
+  } = useTrainerDashboard();
   const athleteId = String(params?.id || "").trim();
 
   if (!permissions.navigation.athletes) {
@@ -269,15 +288,62 @@ export default function TrainerAthleteProfilePage() {
   const rawCategories = Array.isArray(data?.categories) ? data.categories : [];
   const normalizedCategoryBadges = rawCategories
     .map((entry: any) =>
-      typeof entry === "string"
-        ? entry
-        : getTextValue(entry?.name, entry?.id),
+      typeof entry === "string" ? entry : getTextValue(entry?.name, entry?.id),
     )
     .filter(Boolean);
   const categoryBadges =
     normalizedCategoryBadges.length > 0
       ? normalizedCategoryBadges
       : [categoryLabel];
+  const showTrainerEnrollmentSections = false;
+  const showTrainerClothingSections = false;
+  const athleteVisibleTrainings = visibleTrainings.filter((training: any) => {
+    const attendance = Array.isArray(training?.attendance)
+      ? training.attendance
+      : [];
+
+    return (
+      attendance.some(
+        (entry: any) =>
+          String(entry?.athleteId || entry?.athlete_id || "").trim() ===
+          athleteId,
+      ) || recordMatchesCategory(training, athlete, categories)
+    );
+  });
+  const attendanceRows = athleteVisibleTrainings.flatMap((training: any) =>
+    Array.isArray(training?.attendance)
+      ? training.attendance
+          .filter(
+            (entry: any) =>
+              String(entry?.athleteId || entry?.athlete_id || "").trim() ===
+              athleteId,
+          )
+          .map((entry: any) => ({ ...entry, training }))
+      : [],
+  );
+  const presentCount = attendanceRows.filter(
+    (entry: any) => entry.present || entry.status === "present",
+  ).length;
+  const absenceCount = attendanceRows.filter(
+    (entry: any) =>
+      entry.present === false ||
+      ["absent", "assente", "giustificato", "ritardo"].includes(
+        String(entry.status || "").toLowerCase(),
+      ),
+  ).length;
+  const attendanceRate = attendanceRows.length
+    ? Math.round((presentCount / attendanceRows.length) * 100)
+    : 0;
+  const athleteVisibleMatches = visibleMatches.filter((match: any) => {
+    const convocatedAthletes = Array.isArray(match?.convocatedAthletes)
+      ? match.convocatedAthletes
+      : [];
+
+    return (
+      convocatedAthletes.map(String).includes(athleteId) ||
+      recordMatchesCategory(match, athlete, categories)
+    );
+  });
 
   const visibleTabs = [
     { value: "generale", label: "Generale", icon: User, visible: true },
@@ -297,13 +363,17 @@ export default function TrainerAthleteProfilePage() {
       value: "pagamenti",
       label: "Iscrizione",
       icon: DollarSign,
-      visible: permissions.actions.viewEnrollmentAndPayments,
+      visible:
+        showTrainerEnrollmentSections &&
+        permissions.actions.viewEnrollmentAndPayments,
     },
     {
       value: "abbigliamento",
       label: "Abbigliamento",
       icon: Shirt,
-      visible: permissions.actions.viewAthleteTechnicalSheet,
+      visible:
+        showTrainerClothingSections &&
+        permissions.actions.viewAthleteTechnicalSheet,
     },
     {
       value: "documenti",
@@ -325,22 +395,35 @@ export default function TrainerAthleteProfilePage() {
 
   return (
     <div className="space-y-6 pb-2">
+      <PageHeading
+        eyebrow="Dashboard trainer"
+        title="Scheda atleta"
+        subtitle={displayName}
+      />
+
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
           <Avatar className="h-20 w-20 rounded-3xl">
-            {getTextValue(athlete?.avatar_url, data?.avatar, athlete?.avatar) ? (
+            {getTextValue(
+              athlete?.avatar_url,
+              data?.avatar,
+              athlete?.avatar,
+            ) ? (
               <AvatarImage
-                src={getTextValue(athlete?.avatar_url, data?.avatar, athlete?.avatar)}
+                src={getTextValue(
+                  athlete?.avatar_url,
+                  data?.avatar,
+                  athlete?.avatar,
+                )}
                 alt={displayName}
               />
             ) : (
-              <AvatarFallback className="rounded-3xl bg-white p-1">
-                <Image
-                  src={userDefaultImage}
-                  alt={displayName}
-                  width={72}
-                  height={72}
-                  className="h-full w-full object-contain"
+              <AvatarFallback className="rounded-3xl bg-transparent p-0">
+                <EntityIcon
+                  type="athlete"
+                  shape="square"
+                  label={displayName}
+                  className="h-full w-full border-0"
                 />
               </AvatarFallback>
             )}
@@ -374,9 +457,6 @@ export default function TrainerAthleteProfilePage() {
           >
             Torna agli atleti
           </Button>
-          <Badge className="justify-center border-slate-200 bg-slate-100 px-4 text-slate-700 hover:bg-slate-100">
-            Consultazione Allenatore
-          </Badge>
         </div>
       </div>
 
@@ -457,17 +537,15 @@ export default function TrainerAthleteProfilePage() {
                 <CardTitle>Riepilogo Tecnico</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                   <DetailField
                     label="Numero maglia"
                     value={
-                      getTextValue(athlete?.jersey_number, data?.jerseyNumber) ||
-                      "-"
+                      getTextValue(
+                        athlete?.jersey_number,
+                        data?.jerseyNumber,
+                      ) || "-"
                     }
-                  />
-                  <DetailField
-                    label="Profilo taglie"
-                    value={getTextValue(clothingSizes?.profile) || "-"}
                   />
                   <DetailField
                     label="Note tecniche"
@@ -551,7 +629,9 @@ export default function TrainerAthleteProfilePage() {
                           <p>
                             Ruolo: {getTextValue(guardian?.relationship) || "-"}
                           </p>
-                          <p>Telefono: {getTextValue(guardian?.phone) || "-"}</p>
+                          <p>
+                            Telefono: {getTextValue(guardian?.phone) || "-"}
+                          </p>
                           <p>Email: {getTextValue(guardian?.email) || "-"}</p>
                         </div>
                       </div>
@@ -617,11 +697,7 @@ export default function TrainerAthleteProfilePage() {
               description="Storico delle visite e relativi allegati caricati dal club."
               documents={medicalVisits.map((visit: any) => ({
                 id: visit?.id,
-                name: getTextValue(
-                  visit?.title,
-                  visit?.name,
-                  "Visita medica",
-                ),
+                name: getTextValue(visit?.title, visit?.name, "Visita medica"),
                 type: visit?.type,
                 notes: getTextValue(visit?.description, visit?.outcome),
                 fileName: visit?.fileName,
@@ -632,7 +708,8 @@ export default function TrainerAthleteProfilePage() {
           </TabsContent>
         ) : null}
 
-        {permissions.actions.viewEnrollmentAndPayments ? (
+        {showTrainerEnrollmentSections &&
+        permissions.actions.viewEnrollmentAndPayments ? (
           <TabsContent value="pagamenti" className="mt-4 space-y-6">
             <Card>
               <CardHeader>
@@ -739,7 +816,8 @@ export default function TrainerAthleteProfilePage() {
           </TabsContent>
         ) : null}
 
-        {permissions.actions.viewAthleteTechnicalSheet ? (
+        {showTrainerClothingSections &&
+        permissions.actions.viewAthleteTechnicalSheet ? (
           <TabsContent value="abbigliamento" className="mt-4 space-y-6">
             <Card>
               <CardHeader>
@@ -776,8 +854,10 @@ export default function TrainerAthleteProfilePage() {
                   <DetailField
                     label="Numero maglia"
                     value={
-                      getTextValue(athlete?.jersey_number, data?.jerseyNumber) ||
-                      "-"
+                      getTextValue(
+                        athlete?.jersey_number,
+                        data?.jerseyNumber,
+                      ) || "-"
                     }
                   />
                   <DetailField
@@ -787,14 +867,17 @@ export default function TrainerAthleteProfilePage() {
                   <DetailField
                     label="Componenti consegnati"
                     value={String(
-                      kitAssignments.reduce((total: number, assignment: any) => {
-                        const items = Array.isArray(assignment?.components)
-                          ? assignment.components
-                          : Array.isArray(assignment?.items)
-                            ? assignment.items
-                            : [];
-                        return total + items.length;
-                      }, 0),
+                      kitAssignments.reduce(
+                        (total: number, assignment: any) => {
+                          const items = Array.isArray(assignment?.components)
+                            ? assignment.components
+                            : Array.isArray(assignment?.items)
+                              ? assignment.items
+                              : [];
+                          return total + items.length;
+                        },
+                        0,
+                      ),
                     )}
                   />
                 </div>
@@ -803,7 +886,9 @@ export default function TrainerAthleteProfilePage() {
                   <div className="mt-6 space-y-3">
                     {kitAssignments.map((assignment: any, index: number) => (
                       <div
-                        key={assignment?.id || `${assignment?.kitName}-${index}`}
+                        key={
+                          assignment?.id || `${assignment?.kitName}-${index}`
+                        }
                         className="rounded-xl border border-slate-200 bg-slate-50 p-4"
                       >
                         <p className="font-medium text-slate-900">
@@ -896,39 +981,86 @@ export default function TrainerAthleteProfilePage() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Card>
                 <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">Età atleta</p>
+                  <p className="text-sm text-muted-foreground">Presenze</p>
                   <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {age > 0 ? age : "-"}
+                    {presentCount}
                   </p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">Pagamenti</p>
+                  <p className="text-sm text-muted-foreground">Assenze</p>
                   <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {payments.length}
+                    {absenceCount}
                   </p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">Visite mediche</p>
+                  <p className="text-sm text-muted-foreground">Percentuale</p>
                   <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {medicalVisits.length}
+                    {attendanceRows.length ? `${attendanceRate}%` : "-"}
                   </p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">Documenti</p>
+                  <p className="text-sm text-muted-foreground">
+                    Gare correlate
+                  </p>
                   <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {identityDocuments.length +
-                      enrollmentDocuments.length +
-                      documents.length}
+                    {athleteVisibleMatches.length}
                   </p>
                 </CardContent>
               </Card>
             </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Ultime presenze</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {attendanceRows.length > 0 ? (
+                  <div className="space-y-3">
+                    {attendanceRows
+                      .slice(0, 6)
+                      .map((entry: any, index: number) => {
+                        const training = entry.training || {};
+                        const status =
+                          entry.present || entry.status === "present"
+                            ? "Presente"
+                            : getTextValue(entry.status) || "Assente";
+
+                        return (
+                          <div
+                            key={`${training.id || "training"}-${index}`}
+                            className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between"
+                          >
+                            <div>
+                              <p className="font-medium text-slate-900">
+                                {getTextValue(training.title) || "Allenamento"}
+                              </p>
+                              <p className="mt-1 text-sm text-slate-500">
+                                {training.date
+                                  ? formatDate(training.date)
+                                  : "-"}{" "}
+                                -{" "}
+                                {getRecordDisplayCategory(training, categories)}
+                              </p>
+                            </div>
+                            <Badge className="w-fit border-slate-200 bg-white text-slate-700 hover:bg-white">
+                              {status}
+                            </Badge>
+                          </div>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Nessuna presenza registrata per questo atleta.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         ) : null}
       </Tabs>

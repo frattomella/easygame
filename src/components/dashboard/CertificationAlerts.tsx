@@ -7,13 +7,14 @@ import { Button } from "../ui/button";
 import { AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 interface CertificationAlert {
   id: string;
   athleteName: string;
   certificateType: string;
   expiryDate: string;
-  status: "expired" | "expiring" | "valid";
+  status: "expired" | "expiring" | "missing" | "valid";
 }
 
 interface CertificationAlertsProps {
@@ -24,10 +25,14 @@ interface CertificationAlertsProps {
   isLoading?: boolean;
   organizationId?: string | null;
   showEmptyState?: boolean;
+  variant?: "card" | "embedded";
+  maxHeight?: string;
 }
 
+const EMPTY_CERTIFICATION_ALERTS: CertificationAlert[] = [];
+
 const CertificationAlerts = ({
-  alerts = [],
+  alerts = EMPTY_CERTIFICATION_ALERTS,
   onViewAll = () => console.log("View all alerts"),
   onViewAthlete = (id) => console.log(`View athlete ${id}`),
   onSendReminder = (id) => {
@@ -37,24 +42,53 @@ const CertificationAlerts = ({
   isLoading = false,
   organizationId = null,
   showEmptyState = false,
+  variant = "card",
+  maxHeight = "320px",
 }: CertificationAlertsProps) => {
   const router = useRouter();
   const [loadedAlerts, setLoadedAlerts] =
     useState<CertificationAlert[]>(alerts);
   const [loading, setLoading] = useState(isLoading);
   const MAX_VISIBLE_ALERTS = 6;
+  const alertsRef = React.useRef(alerts);
+  const alertsSignature = React.useMemo(
+    () =>
+      alerts
+        .map((alert) =>
+          [
+            alert.id,
+            alert.athleteName,
+            alert.certificateType,
+            alert.expiryDate,
+            alert.status,
+          ].join(":"),
+        )
+        .join("|"),
+    [alerts],
+  );
 
   useEffect(() => {
+    alertsRef.current = alerts;
+  }, [alertsSignature, alerts]);
+
+  useEffect(() => {
+    let isMounted = true;
+
     const fetchCertificateAlerts = async () => {
-      if (alerts.length > 0) {
-        setLoadedAlerts(alerts);
+      const providedAlerts = alertsRef.current;
+
+      if (providedAlerts.length > 0) {
+        setLoadedAlerts(providedAlerts);
+        setLoading(false);
         return;
       }
 
       // If showEmptyState is true, don't fetch any data
       if (showEmptyState) {
-        setLoadedAlerts([]);
-        setLoading(false);
+        if (isMounted) {
+          setLoadedAlerts([]);
+          setLoading(false);
+        }
         return;
       }
 
@@ -68,7 +102,9 @@ const CertificationAlerts = ({
           } = await supabase.auth.getSession();
 
           if (!session?.user) {
-            setLoading(false);
+            if (isMounted) {
+              setLoading(false);
+            }
             return;
           }
 
@@ -83,7 +119,9 @@ const CertificationAlerts = ({
         }
 
         if (!effectiveOrganizationId) {
-          setLoading(false);
+          if (isMounted) {
+            setLoading(false);
+          }
           return;
         }
 
@@ -100,7 +138,7 @@ const CertificationAlerts = ({
           .select("id, first_name, last_name")
           .eq("organization_id", effectiveOrganizationId);
 
-        // Fetch medical certificates that are expired or expiring
+        // Fetch all certificates for the club so missing vs expired stays correct.
         const { data: certificates } = await supabase
           .from("medical_certificates")
           .select(
@@ -112,35 +150,44 @@ const CertificationAlerts = ({
             athletes!inner(id, first_name, last_name, organization_id)
           `,
           )
-          .eq("athletes.organization_id", effectiveOrganizationId)
-          .lte("expiry_date", thirtyDaysFromNow.toISOString().split("T")[0]);
+          .eq("athletes.organization_id", effectiveOrganizationId);
 
         const formattedAlerts: CertificationAlert[] = [];
 
         if (certificates) {
           // Transform the data to match our component's expected format
-          const certificateAlerts = certificates.map((cert) => {
-            const expiryDate = new Date(cert.expiry_date);
-            let status: "expired" | "expiring" | "valid" = "valid";
+          const certificateAlerts = certificates
+            .map((cert) => {
+              if (!cert?.expiry_date) {
+                return null;
+              }
 
-            if (expiryDate < today) {
-              status = "expired";
-            } else if (expiryDate <= thirtyDaysFromNow) {
-              status = "expiring";
-            }
+              const expiryDate = new Date(cert.expiry_date);
+              if (Number.isNaN(expiryDate.getTime())) {
+                return null;
+              }
 
-            return {
-              id: cert.athletes.id,
-              athleteName: `${cert.athletes.first_name} ${cert.athletes.last_name}`,
-              certificateType: cert.type || "Certificato Medico",
-              expiryDate: cert.expiry_date,
-              status,
-            };
-          });
+              let status: "expired" | "expiring" | "valid" = "valid";
+
+              if (expiryDate < today) {
+                status = "expired";
+              } else if (expiryDate <= thirtyDaysFromNow) {
+                status = "expiring";
+              }
+
+              return {
+                id: cert.athletes.id,
+                athleteName: `${cert.athletes.first_name} ${cert.athletes.last_name}`,
+                certificateType: cert.type || "Certificato Medico",
+                expiryDate: cert.expiry_date,
+                status,
+              };
+            })
+            .filter(Boolean) as CertificationAlert[];
           formattedAlerts.push(...certificateAlerts);
         }
 
-        // Check for athletes without any medical certificates (they should be marked as expired)
+        // Athletes without certificates are missing, not expired.
         if (allAthletes) {
           const athletesWithCertificates = new Set(
             certificates?.map((cert) => cert.athlete_id) || [],
@@ -150,40 +197,51 @@ const CertificationAlerts = ({
             (athlete) => !athletesWithCertificates.has(athlete.id),
           );
 
-          // Add expired alerts for athletes without certificates
+          // Add missing alerts for athletes without certificates
           const noCertificateAlerts = athletesWithoutCertificates.map(
             (athlete) => ({
               id: athlete.id,
               athleteName: `${athlete.first_name} ${athlete.last_name}`,
               certificateType: "Certificato Medico Mancante",
-              expiryDate: new Date().toISOString().split("T")[0], // Today's date as "expired"
-              status: "expired" as const,
+              expiryDate: "",
+              status: "missing" as const,
             }),
           );
 
           formattedAlerts.push(...noCertificateAlerts);
         }
 
-        // Sort by status (expired first, then expiring)
+        // Sort by status severity while keeping missing separate from expired.
         formattedAlerts.sort((a, b) => {
+          if (a.status === "missing" && b.status === "expired") return 1;
+          if (a.status === "expired" && b.status === "missing") return -1;
           if (a.status === "expired" && b.status !== "expired") return -1;
           if (a.status !== "expired" && b.status === "expired") return 1;
+          if (a.status === "missing" && b.status !== "missing") return -1;
+          if (a.status !== "missing" && b.status === "missing") return 1;
           if (a.status === "expiring" && b.status === "valid") return -1;
           if (a.status === "valid" && b.status === "expiring") return 1;
           return 0;
         });
 
-        setLoadedAlerts(formattedAlerts);
-
-        setLoading(false);
+        if (isMounted) {
+          setLoadedAlerts(formattedAlerts);
+          setLoading(false);
+        }
       } catch (error) {
         console.error("Error fetching certificate alerts:", error);
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchCertificateAlerts();
-  }, [alerts, organizationId, showEmptyState]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [alertsSignature, organizationId, showEmptyState]);
 
   const getStatusIcon = (status: CertificationAlert["status"]) => {
     switch (status) {
@@ -191,6 +249,8 @@ const CertificationAlerts = ({
         return <AlertCircle className="h-5 w-5 text-destructive" />;
       case "expiring":
         return <Clock className="h-5 w-5 text-amber-500" />;
+      case "missing":
+        return <AlertCircle className="h-5 w-5 text-slate-500" />;
       case "valid":
         return <CheckCircle className="h-5 w-5 text-gray-500" />;
       default:
@@ -208,6 +268,12 @@ const CertificationAlerts = ({
             In Scadenza
           </Badge>
         );
+      case "missing":
+        return (
+          <Badge variant="secondary" className="bg-slate-200 text-slate-900">
+            Mancante
+          </Badge>
+        );
       case "valid":
         return (
           <Badge variant="secondary" className="bg-gray-500 text-white">
@@ -220,6 +286,10 @@ const CertificationAlerts = ({
   };
 
   const formatDate = (dateString: string) => {
+    if (!dateString) {
+      return "Non presente";
+    }
+
     const date = new Date(dateString);
     return date.toLocaleDateString("it-IT", {
       year: "numeric",
@@ -263,23 +333,40 @@ const CertificationAlerts = ({
 
   const visibleAlerts = loadedAlerts.slice(0, MAX_VISIBLE_ALERTS);
   const hiddenAlertsCount = Math.max(loadedAlerts.length - visibleAlerts.length, 0);
+  const isEmbedded = variant === "embedded";
+  const shellClassName = cn(
+    "w-full",
+    isEmbedded
+      ? "border-0 bg-transparent shadow-none"
+      : "bg-white dark:bg-gray-800 shadow-md border-0",
+  );
+  const headerClassName = cn(
+    "flex flex-row items-center justify-between",
+    isEmbedded
+      ? "px-0 pb-3 pt-0"
+      : "pb-2 border-b border-gray-100 dark:border-gray-700",
+  );
+  const contentClassName = isEmbedded ? "px-0 pb-0 pt-0" : "pt-4";
 
   if (loading) {
     return (
-      <Card className="w-full bg-white dark:bg-gray-800 shadow-md border-0">
-        <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-gray-100 dark:border-gray-700">
+      <Card className={shellClassName}>
+        <CardHeader className={headerClassName}>
           <CardTitle className="text-xl font-bold flex items-center gap-2">
             <div className="h-8 w-8 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 flex items-center justify-center">
               <AlertCircle className="h-4 w-4 text-white" />
             </div>
-            Avvisi Certificati
+            Avvisi certificati
           </CardTitle>
           <Button variant="outline" size="sm" disabled>
             Vedi Tutti
           </Button>
         </CardHeader>
-        <CardContent className="pt-4">
-          <div className="space-y-4">
+        <CardContent className={contentClassName}>
+          <div
+            className="space-y-4 overflow-y-auto pr-1 scrollbar-hide"
+            style={{ maxHeight }}
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {[1, 2, 3, 4].map((i) => (
                 <div
@@ -306,13 +393,13 @@ const CertificationAlerts = ({
   }
 
   return (
-    <Card className="w-full bg-white dark:bg-gray-800 shadow-md border-0">
-      <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-gray-100 dark:border-gray-700">
+    <Card className={shellClassName}>
+      <CardHeader className={headerClassName}>
         <CardTitle className="text-xl font-bold flex items-center gap-2">
           <div className="h-8 w-8 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 flex items-center justify-center">
             <AlertCircle className="h-4 w-4 text-white" />
           </div>
-          Avvisi Certificati
+          Avvisi certificati
         </CardTitle>
         <Button
           variant="outline"
@@ -323,8 +410,11 @@ const CertificationAlerts = ({
           Vedi Tutti
         </Button>
       </CardHeader>
-      <CardContent className="pt-4">
-        <div className="space-y-4">
+      <CardContent className={contentClassName}>
+        <div
+          className="space-y-4 overflow-y-auto pr-1 scrollbar-hide"
+          style={{ maxHeight }}
+        >
           {loadedAlerts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center text-gray-500">
               <div className="h-16 w-16 rounded-full bg-gradient-to-r from-gray-100 to-gray-200 flex items-center justify-center mb-3">
@@ -365,7 +455,8 @@ const CertificationAlerts = ({
                         Vedi Profilo
                       </Button>
                       {(alert.status === "expired" ||
-                        alert.status === "expiring") && (
+                        alert.status === "expiring" ||
+                        alert.status === "missing") && (
                         <Button
                           variant="secondary"
                           size="sm"
@@ -387,7 +478,7 @@ const CertificationAlerts = ({
                   onClick={handleViewAllAlerts}
                   className="w-full rounded-xl border border-dashed border-orange-300 bg-orange-50/80 px-4 py-3 text-sm font-medium text-orange-700 transition-colors hover:bg-orange-100"
                 >
-                  +{hiddenAlertsCount} altri atleti con certificato scaduto o mancante.
+                  +{hiddenAlertsCount} altri atleti con certificato scaduto, in scadenza o mancante.
                   Vai alla pagina certificati
                 </button>
               ) : null}

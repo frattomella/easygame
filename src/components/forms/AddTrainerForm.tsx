@@ -108,7 +108,7 @@ export function AddTrainerForm({
       ...formData,
       name: `${formData.firstName} ${formData.lastName}`,
       categories: selectedCategoriesData,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.firstName}${formData.lastName}`,
+      avatar: null,
     });
 
     // Reset form

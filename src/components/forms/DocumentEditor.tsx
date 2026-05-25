@@ -12,8 +12,10 @@ import {
   Bold,
   Eye,
   EyeOff,
+  GripVertical,
   Heading1,
   Heading2,
+  Image as ImageIcon,
   Italic,
   Link2,
   List,
@@ -21,14 +23,46 @@ import {
   Maximize,
   Minimize,
   Pilcrow,
+  PenLine,
   Quote,
+  Tags,
   Underline as UnderlineIcon,
 } from "lucide-react";
+
+export type DocumentTemplateToken = {
+  label: string;
+  value: string;
+  group: "Atleta" | "Certificati" | "Club" | "Famiglia" | "Data";
+};
+
+export const DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] = [
+  { label: "Nome atleta", value: "{{athlete.first_name}}", group: "Atleta" },
+  { label: "Cognome atleta", value: "{{athlete.last_name}}", group: "Atleta" },
+  {
+    label: "Data di nascita",
+    value: "{{athlete.birth_date}}",
+    group: "Atleta",
+  },
+  { label: "Categoria", value: "{{athlete.category}}", group: "Atleta" },
+  {
+    label: "Certificato medico",
+    value: "{{medical_certificate.expiry_date}}",
+    group: "Certificati",
+  },
+  { label: "Club", value: "{{club.name}}", group: "Club" },
+  { label: "Data corrente", value: "{{current_date}}", group: "Data" },
+  {
+    label: "Genitore/Tutore",
+    value: "{{guardian.name}}",
+    group: "Famiglia",
+  },
+];
 
 interface DocumentEditorProps {
   initialContent?: string;
   onSave?: (content: string) => void;
   readOnly?: boolean;
+  tokens?: DocumentTemplateToken[];
 }
 
 type ToolbarButtonProps = {
@@ -65,10 +99,19 @@ const ensureBaseContent = (value?: string) => {
   return value;
 };
 
+const TEMPLATE_DRAG_MIME = "application/x-easygame-template-insert";
+
+const SIGNATURE_BLOCK =
+  '<div style="margin-top: 32px;"><p style="margin-bottom: 24px;">Firma</p><div style="width: 260px; border-bottom: 1px solid #111827;"></div></div>';
+
+const IMAGE_PLACEHOLDER_BLOCK =
+  '<div style="margin: 20px 0; padding: 24px; border: 1px dashed #94a3b8; text-align: center; color: #64748b;">{{image.placeholder}}</div>';
+
 export default function DocumentEditor({
   initialContent = "",
   onSave,
   readOnly = false,
+  tokens = DOCUMENT_TEMPLATE_TOKENS,
 }: DocumentEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -80,6 +123,38 @@ export default function DocumentEditor({
   }, [initialContent]);
 
   const previewHtml = useMemo(() => ensureBaseContent(content), [content]);
+  const tokensByGroup = useMemo(
+    () =>
+      tokens.reduce<Record<string, DocumentTemplateToken[]>>((groups, token) => {
+        if (!groups[token.group]) {
+          groups[token.group] = [];
+        }
+
+        groups[token.group].push(token);
+        return groups;
+      }, {}),
+    [tokens],
+  );
+
+  const insertTextAtSelection = (value: string) => {
+    if (readOnly || !textareaRef.current) {
+      return;
+    }
+
+    const textarea = textareaRef.current;
+    const selectionStart = textarea.selectionStart ?? content.length;
+    const selectionEnd = textarea.selectionEnd ?? content.length;
+    const nextValue =
+      content.slice(0, selectionStart) + value + content.slice(selectionEnd);
+
+    setContent(nextValue);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const cursorPosition = selectionStart + value.length;
+      textarea.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  };
 
   const applyInsertion = (
     before: string,
@@ -111,6 +186,60 @@ export default function DocumentEditor({
         selectionStart + before.length + selectedText.length + after.length;
       textarea.setSelectionRange(cursorPosition, cursorPosition);
     });
+  };
+
+  const handleDragStart = (
+    event: React.DragEvent,
+    value: string,
+  ) => {
+    event.dataTransfer.setData(TEMPLATE_DRAG_MIME, value);
+    event.dataTransfer.setData("text/plain", value);
+    event.dataTransfer.effectAllowed = "copy";
+  };
+
+  const insertImageFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      if (!dataUrl) {
+        return;
+      }
+
+      insertTextAtSelection(
+        `<img src="${dataUrl}" alt="Immagine documento" style="max-width: 100%; height: auto; margin: 16px 0;" />`,
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleEditorDrop = (event: React.DragEvent<HTMLTextAreaElement>) => {
+    if (readOnly) {
+      return;
+    }
+
+    const imageFile = Array.from(event.dataTransfer.files || []).find((file) =>
+      file.type.startsWith("image/"),
+    );
+    const droppedText =
+      event.dataTransfer.getData(TEMPLATE_DRAG_MIME) ||
+      event.dataTransfer.getData("text/plain");
+
+    if (!imageFile && !droppedText) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (imageFile) {
+      insertImageFile(imageFile);
+      return;
+    }
+
+    insertTextAtSelection(droppedText);
   };
 
   const handleSave = () => {
@@ -296,42 +425,112 @@ export default function DocumentEditor({
           </div>
         </CardHeader>
         <CardContent className="space-y-4 p-4">
-          <div
-            className={cn(
-              "grid gap-4",
-              showPreview ? "lg:grid-cols-2" : "grid-cols-1",
-            )}
-          >
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
-              <div className="mb-2 px-2 text-sm font-medium text-slate-600">
-                HTML del documento
-              </div>
-              <Textarea
-                ref={textareaRef}
-                value={content}
-                readOnly={readOnly}
-                onChange={(event) => setContent(event.target.value)}
-                className="min-h-[420px] resize-none rounded-xl border-slate-200 bg-white font-mono text-[13px] leading-6 text-slate-700"
-              />
-            </div>
+          <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
+            {!readOnly && (
+              <aside className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <Tags className="h-4 w-4 text-blue-600" />
+                  Campi dinamici
+                </div>
+                <div className="space-y-4">
+                  {Object.entries(tokensByGroup).map(([group, groupTokens]) => (
+                    <div key={group} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+                        {group}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {groupTokens.map((token) => (
+                          <button
+                            key={token.value}
+                            type="button"
+                            draggable
+                            onDragStart={(event) =>
+                              handleDragStart(event, token.value)
+                            }
+                            onClick={() => insertTextAtSelection(token.value)}
+                            className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition hover:border-blue-200 hover:bg-blue-100"
+                          >
+                            <GripVertical className="h-3 w-3 text-blue-400" />
+                            {token.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
-            {showPreview && (
+                <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+                    Blocchi
+                  </p>
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={(event) =>
+                      handleDragStart(event, SIGNATURE_BLOCK)
+                    }
+                    onClick={() => insertTextAtSelection(SIGNATURE_BLOCK)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    <PenLine className="h-4 w-4 text-slate-500" />
+                    Firma
+                  </button>
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={(event) =>
+                      handleDragStart(event, IMAGE_PLACEHOLDER_BLOCK)
+                    }
+                    onClick={() =>
+                      insertTextAtSelection(IMAGE_PLACEHOLDER_BLOCK)
+                    }
+                    className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    <ImageIcon className="h-4 w-4 text-slate-500" />
+                    Immagine
+                  </button>
+                </div>
+              </aside>
+            )}
+
+            <div
+              className={cn(
+                "grid gap-4",
+                showPreview ? "lg:grid-cols-2" : "grid-cols-1",
+              )}
+            >
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                 <div className="mb-2 px-2 text-sm font-medium text-slate-600">
-                  Anteprima documento
+                  Documento
                 </div>
-                <div
-                  className="min-h-[420px] rounded-xl border border-slate-200 bg-white px-5 py-4 text-[15px] leading-7 text-slate-700"
-                  dangerouslySetInnerHTML={{ __html: previewHtml }}
+                <Textarea
+                  ref={textareaRef}
+                  value={content}
+                  readOnly={readOnly}
+                  onChange={(event) => setContent(event.target.value)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleEditorDrop}
+                  className="min-h-[480px] resize-none rounded-xl border-slate-200 bg-white font-mono text-[13px] leading-6 text-slate-700"
                 />
               </div>
-            )}
+
+              {showPreview && (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                  <div className="mb-2 px-2 text-sm font-medium text-slate-600">
+                    Anteprima
+                  </div>
+                  <div
+                    className="min-h-[480px] rounded-xl border border-slate-200 bg-white px-5 py-4 text-[15px] leading-7 text-slate-700"
+                    dangerouslySetInnerHTML={{ __html: previewHtml }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
           {!readOnly && (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-slate-500">
-                Editor gratuito integrato, con HTML modificabile e anteprima in
-                tempo reale.
+                I campi dinamici vengono compilati quando selezioni un atleta.
               </p>
               <Button onClick={handleSave} disabled={!content.trim()}>
                 Salva Documento
