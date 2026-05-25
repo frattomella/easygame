@@ -37,10 +37,32 @@ import {
   Edit,
   Trash2,
   Shirt,
+  Check,
   ChevronDown,
   ChevronUp,
+  ChevronsUpDown,
   Pencil,
 } from "lucide-react";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import {
+  compareAthletesByLastName,
+  getAthleteDisplayName,
+  getAthleteFirstName,
+  getAthleteLastName,
+} from "@/lib/athlete-name-utils";
 
 function formatDate(dateString?: string) {
   if (!dateString) return "-";
@@ -136,6 +158,7 @@ export default function ClothingPage() {
     components: [],
     notes: "",
   });
+  const [assignmentComboboxOpen, setAssignmentComboboxOpen] = useState(false);
 
   // Product add
   const [newProduct, setNewProduct] = useState<any>({
@@ -233,7 +256,9 @@ export default function ClothingPage() {
         // people
         try {
           const ath = await getClubAthletes(activeClub.id);
-          setAthletes(Array.isArray(ath) ? ath : []);
+          setAthletes(
+            Array.isArray(ath) ? [...ath].sort(compareAthletesByLastName) : [],
+          );
         } catch (e) {
           setAthletes([]);
         }
@@ -257,18 +282,65 @@ export default function ClothingPage() {
   }, [activeClub?.id, user]);
 
   const peopleOptions = useMemo(() => {
-    const a = athletes.map((x: any) => ({
-      id: x.id,
+    const a = [...athletes].sort(compareAthletesByLastName).map((x: any) => ({
+      id: String(x.id || x.athlete_id || x.user_id || "").trim(),
       type: "athlete",
-      label: `${x.name || ""} ${x.surname || ""}`.trim() || x.id,
+      label: getAthleteDisplayName(x) || x.id,
+      firstName: getAthleteFirstName(x),
+      lastName: getAthleteLastName(x),
+      category:
+        x?.category_name ||
+        x?.data?.categoryName ||
+        x?.data?.category ||
+        x?.category ||
+        "Senza categoria",
+      jerseyNumber:
+        x?.jersey_number ||
+        x?.data?.jerseyNumber ||
+        x?.data?.jersey_number ||
+        "",
     }));
     const s = staff.map((x: any) => ({
-      id: x.id,
+      id: String(x.id || x.user_id || "").trim(),
       type: "staff",
       label: `${x.name || ""} ${x.surname || ""}`.trim() || x.id,
+      firstName: String(x.name || "").trim(),
+      lastName: String(x.surname || x.last_name || "").trim(),
+      category: "Staff",
+      jerseyNumber: "",
     }));
-    return [...a, ...s].sort((p, q) => p.label.localeCompare(q.label));
+    return [...a, ...s]
+      .filter((person: any) => person.id)
+      .map((person: any) => ({
+        ...person,
+        searchValue: [
+          person.firstName,
+          person.lastName,
+          person.label,
+          [person.lastName, person.firstName].filter(Boolean).join(" "),
+          [person.firstName, person.lastName].filter(Boolean).join(" "),
+          person.category,
+          person.jerseyNumber,
+          person.type === "staff" ? "staff" : "atleta",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      }))
+      .sort((p, q) => p.label.localeCompare(q.label));
   }, [athletes, staff]);
+
+  const selectedAssignee = peopleOptions.find(
+    (person) => person.id === newAssignment.assigneeId,
+  );
+
+  const selectAssignmentAssignee = (person: any) => {
+    setNewAssignment({
+      ...newAssignment,
+      assigneeId: person.id,
+      assigneeType: person.type === "staff" ? "staff" : "athlete",
+    });
+    setAssignmentComboboxOpen(false);
+  };
 
   const normalizeAssignments = (arr: any[]) => {
     return (arr || []).map((a: any) => {
@@ -320,17 +392,23 @@ export default function ClothingPage() {
   }, [athletes, jerseyAssignments, jerseyGroups]);
 
   const athletesForNumbers = useMemo(() => {
-    if (!jerseyGroupFilterId) return athletes;
+    if (!jerseyGroupFilterId) {
+      return [...athletes].sort(compareAthletesByLastName);
+    }
     const group = jerseyGroups.find((g: any) => g.id === jerseyGroupFilterId);
-    if (!group) return athletes;
+    if (!group) {
+      return [...athletes].sort(compareAthletesByLastName);
+    }
     const cats = Array.isArray(group.categories) ? group.categories : [];
-    return athletes.filter((a: any) => {
-      const athleteId = a.id;
-      const category = a?.data?.category || "Senza Categoria";
-      const assigned = effectiveAssignment.get(athleteId);
-      if (assigned?.groupId === group.id) return true;
-      return cats.includes(category);
-    });
+    return athletes
+      .filter((a: any) => {
+        const athleteId = a.id;
+        const category = a?.data?.category || "Senza Categoria";
+        const assigned = effectiveAssignment.get(athleteId);
+        if (assigned?.groupId === group.id) return true;
+        return cats.includes(category);
+      })
+      .sort(compareAthletesByLastName);
   }, [athletes, jerseyGroups, jerseyGroupFilterId, effectiveAssignment]);
 
   const duplicateNumberMap = useMemo(() => {
@@ -998,34 +1076,87 @@ export default function ClothingPage() {
                             <div className="space-y-4 py-2">
                               <div>
                                 <Label>Tesserato</Label>
-                                <Select
-                                  value={newAssignment.assigneeId}
-                                  onValueChange={(val) => {
-                                    const p = peopleOptions.find(
-                                      (x) => x.id === val,
-                                    );
-                                    setNewAssignment({
-                                      ...newAssignment,
-                                      assigneeId: val,
-                                      assigneeType:
-                                        p?.type === "staff"
-                                          ? "staff"
-                                          : "athlete",
-                                    });
-                                  }}
+                                <Popover
+                                  open={assignmentComboboxOpen}
+                                  onOpenChange={setAssignmentComboboxOpen}
                                 >
-                                  <SelectTrigger className="mt-2">
-                                    <SelectValue placeholder="Seleziona tesserato" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {peopleOptions.map((p) => (
-                                      <SelectItem key={p.id} value={p.id}>
-                                        {p.label}{" "}
-                                        {p.type === "staff" ? "(Staff)" : ""}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={assignmentComboboxOpen}
+                                      className="mt-2 w-full justify-between"
+                                    >
+                                      {selectedAssignee ? (
+                                        <span className="min-w-0 truncate text-left">
+                                          {selectedAssignee.label}
+                                        </span>
+                                      ) : (
+                                        <span className="text-muted-foreground">
+                                          Cerca tesserato...
+                                        </span>
+                                      )}
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent
+                                    className="w-[--radix-popover-trigger-width] p-0"
+                                    align="start"
+                                  >
+                                    <Command>
+                                      <CommandInput placeholder="Cerca per nome, cognome, categoria o numero maglia..." />
+                                      <CommandList>
+                                        <CommandEmpty>
+                                          Nessun atleta trovato
+                                        </CommandEmpty>
+                                        <CommandGroup>
+                                          {peopleOptions.map((person) => (
+                                            <CommandItem
+                                              key={`${person.type}-${person.id}`}
+                                              value={`${person.id} ${person.searchValue}`}
+                                              onMouseDown={(event) => {
+                                                event.preventDefault();
+                                                selectAssignmentAssignee(person);
+                                              }}
+                                              onSelect={() =>
+                                                selectAssignmentAssignee(person)
+                                              }
+                                              className="cursor-pointer items-start gap-3 py-3"
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mt-1 h-4 w-4",
+                                                  newAssignment.assigneeId ===
+                                                    person.id
+                                                    ? "opacity-100"
+                                                    : "opacity-0",
+                                                )}
+                                              />
+                                              <div className="min-w-0 flex-1">
+                                                <p className="truncate font-medium">
+                                                  {person.label}
+                                                </p>
+                                                <p className="truncate text-xs text-muted-foreground">
+                                                  {person.type === "staff"
+                                                    ? "Staff"
+                                                    : person.category}
+                                                </p>
+                                              </div>
+                                              {person.type === "staff" ? (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="shrink-0"
+                                                >
+                                                  Staff
+                                                </Badge>
+                                              ) : null}
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
                               </div>
 
                               <div>
@@ -2035,7 +2166,7 @@ export default function ClothingPage() {
                           return (
                             <tr key={athleteId} className="border-b">
                               <td className="py-2 pr-3 whitespace-nowrap">
-                                {a?.first_name} {a?.last_name}
+                                {getAthleteDisplayName(a)}
                                 {(() => {
                                   const v = effectiveAssignment.get(athleteId);
                                   const key =

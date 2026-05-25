@@ -40,6 +40,7 @@ import {
   ClubCreateFormState,
   createClubDefaults,
   createProfileDefaults,
+  EASYGAME_LOGO,
   getInitials,
   mapMembershipToClub,
   MembershipRecord,
@@ -166,9 +167,14 @@ function AccountHero(props: AccountHeroProps) {
       <div className="relative z-10 flex items-center justify-between gap-5">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center md:h-12 md:w-12">
-            <span className="bg-gradient-to-br from-[#0875ff] to-[#004de1] bg-clip-text text-[44px] font-black leading-none tracking-[-0.08em] text-transparent md:text-[48px]">
-              G
-            </span>
+            <Image
+              src={EASYGAME_LOGO}
+              alt="EasyGame Logo"
+              width={48}
+              height={48}
+              className="object-contain"
+              unoptimized
+            />
           </div>
           <span className="text-[25px] font-black tracking-normal text-[#07112f] md:text-[26px]">
             EasyGame

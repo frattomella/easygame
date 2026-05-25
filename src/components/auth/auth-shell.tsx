@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { apiRequest } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
@@ -22,6 +23,7 @@ import {
   Smartphone,
   UserRound,
 } from "lucide-react";
+import { EASYGAME_LOGO } from "@/components/account/account-shared";
 
 type AuthMode = "login" | "register";
 
@@ -419,46 +421,52 @@ export function AuthShell({
         <div className="grid w-full gap-8 lg:grid-cols-[1.1fr_520px]">
           <div className="hidden rounded-[32px] bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 p-10 text-white shadow-2xl lg:flex lg:flex-col lg:justify-between">
             <div className="space-y-5">
-              <div className="inline-flex w-fit items-center rounded-full bg-white/15 px-4 py-1 text-sm backdrop-blur">
-                EasyGame Auth
+              <div className="flex items-center gap-4">
+                <Image
+                  src={EASYGAME_LOGO}
+                  alt="EasyGame Logo"
+                  width={44}
+                  height={44}
+                  className="object-contain"
+                  unoptimized
+                />
+                <span className="text-2xl font-bold">EasyGame</span>
               </div>
               <h1 className="max-w-lg text-4xl font-bold leading-tight">
-                Accesso applicazione, senza sito vetrina, con autenticazione pronta per il testing reale.
+                Gestisci la tua societa sportiva in modo semplice.
               </h1>
               <p className="max-w-xl text-blue-100">
-                Login e registrazione sono separati dal sito pubblico e preparati per email verification, OTP telefono e provider OAuth.
+                Accedi a club, atleti, allenamenti, pagamenti e comunicazioni da un unico posto.
               </p>
             </div>
 
-            <div className="grid gap-4">
-              <div className="rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  <ShieldCheck className="h-4 w-4" />
-                  Sicurezza
-                </div>
-                <p className="text-sm text-blue-100">
-                  Password classica, verifica email, verifica cellulare e accesso OAuth convivono nello stesso backend.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  <Building2 className="h-4 w-4" />
-                  Multi-club
-                </div>
-                <p className="text-sm text-blue-100">
-                  Per i creatori club il tenant viene completato solo dopo la verifica, evitando club creati da account non confermati.
-                </p>
-              </div>
+            <div className="rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur">
+              <p className="text-sm text-blue-100">
+                Una dashboard per organizzare il lavoro quotidiano della societa.
+              </p>
             </div>
           </div>
 
           <Card className="border-white/70 bg-white/90 shadow-2xl backdrop-blur">
             <CardHeader className="space-y-3 pb-3">
+              <div className="flex items-center gap-3">
+                <Image
+                  src={EASYGAME_LOGO}
+                  alt="EasyGame Logo"
+                  width={40}
+                  height={40}
+                  className="object-contain"
+                  unoptimized
+                />
+                <span className="text-xl font-bold text-slate-900">
+                  EasyGame
+                </span>
+              </div>
               <CardTitle className="text-2xl text-slate-900">
-                Accedi a EasyGame
+                Accedi
               </CardTitle>
               <p className="text-sm text-slate-500">
-                Solo autenticazione applicativa: login, registrazione e verifiche account.
+                Entra nella gestione della tua societa sportiva.
               </p>
             </CardHeader>
             <CardContent className="space-y-6">

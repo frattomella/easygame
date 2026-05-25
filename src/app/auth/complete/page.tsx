@@ -99,7 +99,7 @@ export default function AuthCompletePage() {
 
       if (user.user_metadata?.isClubCreator || role === "club_creator") {
         setMessage("Accesso confermato. Apertura home account...");
-        window.location.replace("/account?openCreateClub=1");
+        window.location.replace("/account");
         return;
       }
 
