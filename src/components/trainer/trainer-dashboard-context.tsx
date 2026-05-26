@@ -72,26 +72,50 @@ const normalizeValue = (value: unknown) =>
 const findCategoryIdsFromRecord = (record: any, categories: any[]) => {
   const source =
     record?.data && typeof record.data === "object" ? record.data : {};
-  const explicitCategoryIds = Array.isArray(record?.categories)
-    ? record.categories
-        .map((value: any) => {
-          if (value && typeof value === "object") {
-            return String(value.id || value.name || "").trim();
-          }
-          return String(value || "").trim();
-        })
-        .filter(Boolean)
-    : [];
-  const explicitSourceCategoryIds = Array.isArray(source?.categories)
-    ? source.categories
-        .map((value: any) => {
-          if (value && typeof value === "object") {
-            return String(value.id || value.name || "").trim();
-          }
-          return String(value || "").trim();
-        })
-        .filter(Boolean)
-    : [];
+  const normalizeCategoryList = (value: any): string[] => {
+    if (Array.isArray(value)) {
+      return value.flatMap((entry) => normalizeCategoryList(entry));
+    }
+
+    if (typeof value === "string" && value.includes(",")) {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+
+    if (value && typeof value === "object") {
+      return [
+        String(
+          value.id ||
+            value.value ||
+            value.categoryId ||
+            value.category_id ||
+            value.category ||
+            value.name ||
+            value.label ||
+            value.categoryName ||
+            value.category_name ||
+            "",
+        ).trim(),
+      ].filter(Boolean);
+    }
+
+    return [String(value || "").trim()].filter(Boolean);
+  };
+
+  const explicitCategoryIds = [
+    record?.categories,
+    record?.categoryIds,
+    record?.category_ids,
+    record?.selectedCategories,
+    record?.selectedCategoryIds,
+    source?.categories,
+    source?.categoryIds,
+    source?.category_ids,
+    source?.selectedCategories,
+    source?.selectedCategoryIds,
+  ].flatMap((value) => normalizeCategoryList(value));
 
   const fallbackValues = [
     String(record?.categoryId || "").trim(),
@@ -126,7 +150,6 @@ const findCategoryIdsFromRecord = (record: any, categories: any[]) => {
 
   const rawValues = [
     ...explicitCategoryIds,
-    ...explicitSourceCategoryIds,
     ...fallbackValues,
   ].filter(Boolean);
   const ids = rawValues

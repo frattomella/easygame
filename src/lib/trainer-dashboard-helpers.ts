@@ -38,6 +38,10 @@ export const extractCategoryTokens = (
     record?.category_name,
     record?.categoryId,
     record?.categoryName,
+    record?.categoryIds,
+    record?.category_ids,
+    record?.selectedCategories,
+    record?.selectedCategoryIds,
     source?.id,
     source?.name,
     source?.category,
@@ -45,13 +49,29 @@ export const extractCategoryTokens = (
     source?.category_name,
     source?.categoryId,
     source?.categoryName,
+    source?.categoryIds,
+    source?.category_ids,
+    source?.selectedCategories,
+    source?.selectedCategoryIds,
     record?.categories,
     source?.categories,
   ]
     .flatMap((value) => flattenCategoryInput(value))
     .map((value) =>
       typeof value === "object" && value
-        ? String(value.id || value.name || value.category || "").trim()
+        ? String(
+            value.id ||
+              value.value ||
+              value.categoryId ||
+              value.category_id ||
+              value.category ||
+              value.name ||
+              value.label ||
+              value.categoryName ||
+              value.category_name ||
+              value.title ||
+              "",
+          ).trim()
         : String(value || "").trim(),
     )
     .filter(Boolean);
@@ -86,18 +106,33 @@ export const getRecordDisplayCategory = (
     record?.category,
     record?.category_id,
     record?.categoryId,
+    record?.categoryIds,
+    record?.category_ids,
     source?.category_name,
     source?.categoryName,
     source?.category,
     source?.category_id,
     source?.categoryId,
+    source?.categoryIds,
+    source?.category_ids,
     Array.isArray(record?.categories) ? record.categories[0] : null,
     Array.isArray(source?.categories) ? source.categories[0] : null,
   ]
     .flatMap((value) => flattenCategoryInput(value))
     .map((value) =>
       typeof value === "object" && value
-        ? String(value.name || value.id || "").trim()
+        ? String(
+            value.name ||
+              value.label ||
+              value.categoryName ||
+              value.category_name ||
+              value.title ||
+              value.id ||
+              value.value ||
+              value.categoryId ||
+              value.category_id ||
+              "",
+          ).trim()
         : String(value || "").trim(),
     )
     .filter(Boolean);

@@ -24,6 +24,7 @@ import {
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
 import { formatMatchLocationLabel } from "@/lib/match-location";
 import {
+  getConvocatedAthleteIds,
   getMatchConvocationLabel,
   getMatchConvocationStatus,
 } from "@/lib/trainer-operational-alerts";
@@ -99,6 +100,7 @@ export default function TrainerMatchesDashboardPage() {
 
     return assignedAthletes
       .filter((athlete) =>
+        recordMatchesCategory(athlete, match, categories) ||
         matchCategories.some((category) =>
           recordMatchesCategory(athlete, category, categories),
         ),
@@ -112,8 +114,30 @@ export default function TrainerMatchesDashboardPage() {
           athlete?.medical_cert_expiry ||
           athlete?.medicalCertExpiry ||
           null,
+        primaryCategoryName:
+          athlete?.category_name ||
+          athlete?.data?.categoryName ||
+          athlete?.data?.category_name ||
+          null,
       }));
   };
+
+  const getTrainerAthleteOptions = () =>
+    assignedAthletes.map((athlete) => ({
+      id: athlete.id,
+      name: getAthleteDisplayName(athlete),
+      avatar: athlete?.avatar_url || athlete?.data?.avatar || "",
+      medicalCertExpiry:
+        athlete?.data?.medicalCertExpiry ||
+        athlete?.medical_cert_expiry ||
+        athlete?.medicalCertExpiry ||
+        null,
+      primaryCategoryName:
+        athlete?.category_name ||
+        athlete?.data?.categoryName ||
+        athlete?.data?.category_name ||
+        null,
+    }));
 
   const renderMatchList = (
     matches: any[],
@@ -288,6 +312,7 @@ export default function TrainerMatchesDashboardPage() {
           opponent={selectedMatch.opponent || "Avversario"}
           location={formatMatchLocationLabel(selectedMatch)}
           athletes={getMatchAthletes(selectedMatch)}
+          clubAthletes={getTrainerAthleteOptions()}
           onSave={async ({ convocatedAthletes, convocationEntries }) => {
             if (!activeClub?.id) return;
             try {
@@ -309,8 +334,12 @@ export default function TrainerMatchesDashboardPage() {
               showToast("error", "Errore nel salvataggio delle convocazioni");
             }
           }}
-          savedConvocations={selectedMatch.convocatedAthletes || []}
-          savedConvocationEntries={selectedMatch.convocationEntries || []}
+          savedConvocations={getConvocatedAthleteIds(selectedMatch)}
+          savedConvocationEntries={
+            selectedMatch.convocationEntries ||
+            selectedMatch.convocation_entries ||
+            []
+          }
         />
       ) : null}
     </div>

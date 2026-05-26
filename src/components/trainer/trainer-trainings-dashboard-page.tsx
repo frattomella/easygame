@@ -140,6 +140,7 @@ export default function TrainerTrainingsDashboardPage() {
 
     return assignedAthletes
       .filter((athlete) =>
+        recordMatchesCategory(athlete, training, categories) ||
         trainingCategories.some((category) =>
           recordMatchesCategory(athlete, category, categories),
         ),
@@ -164,6 +165,22 @@ export default function TrainerTrainingsDashboardPage() {
         };
       });
   };
+
+  const getTrainerAthleteOptions = () =>
+    assignedAthletes.map((athlete) => ({
+      id: athlete.id,
+      name: getAthleteDisplayName(athlete),
+      medicalCertExpiry:
+        athlete?.data?.medicalCertExpiry ||
+        athlete?.medical_cert_expiry ||
+        athlete?.medicalCertExpiry ||
+        null,
+      primaryCategoryName:
+        athlete?.category_name ||
+        athlete?.data?.categoryName ||
+        athlete?.data?.category_name ||
+        null,
+    }));
 
   const renderTrainingList = (
     trainings: any[],
@@ -467,6 +484,7 @@ export default function TrainerTrainingsDashboardPage() {
               }
               location={selectedTraining.location || "Campo"}
               athletes={getTrainingAthletes(selectedTraining)}
+              clubAthletes={getTrainerAthleteOptions()}
               onSave={async ({ attendance }) => {
                 if (!activeClub?.id) return;
                 try {
