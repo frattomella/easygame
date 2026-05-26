@@ -1,5 +1,8 @@
 {
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); fs.rmSync('.next', { recursive: true, force: true });\"",
     "local": "node scripts/start-local.mjs",
