@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { apiRequest } from "@/lib/api/client";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { useRouter } from "next/navigation";
 
 type AuthContextType = {
@@ -51,6 +53,89 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
+type MembershipRecord = {
+  id?: string | null;
+  organization_id: string;
+  role: string;
+  is_primary?: boolean | null;
+  access_kind?: string | null;
+  is_ownership_record?: boolean | null;
+  organization?: Record<string, any> | null;
+  organizations?: Record<string, any> | null;
+};
+
+const getRoleLabel = (role: string) => {
+  switch (role) {
+    case "owner":
+      return "Proprietario";
+    case "admin":
+      return "Amministratore";
+    case "trainer":
+      return "Allenatore";
+    case "athlete":
+      return "Atleta";
+    case "parent":
+      return "Genitore";
+    default:
+      return "Collaboratore";
+  }
+};
+
+const parseStoredActiveClub = (rawValue: string | null) => {
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    return parsed?.id ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const buildActiveClubFromMembership = (membership: MembershipRecord) => {
+  const organization = membership.organization || membership.organizations || {};
+  const seasonState = normalizeClubSeasons(organization.settings || {});
+  const accessKind =
+    membership.access_kind ||
+    (membership.is_ownership_record ? "ownership" : "membership");
+
+  return {
+    id: membership.organization_id,
+    role: membership.role,
+    roleLabel: getRoleLabel(membership.role),
+    name: organization.name || "Club",
+    logo_url: organization.logo_url || null,
+    email: organization.contact_email || null,
+    phone: organization.contact_phone || null,
+    membershipId: accessKind === "ownership" ? null : membership.id || null,
+    accessKind,
+    accessKey:
+      accessKind === "ownership"
+        ? `ownership:${membership.organization_id}`
+        : `membership:${membership.id || `${membership.organization_id}:${membership.role}`}`,
+    activeSeasonId: seasonState.activeSeasonId,
+    activeSeasonLabel: seasonState.activeSeason?.label || null,
+  };
+};
+
+const storeActiveClubForUser = (userId: string, club: any | null) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!club) {
+    window.localStorage.removeItem("activeClub");
+    window.localStorage.removeItem(`activeClub_${userId}`);
+    return;
+  }
+
+  const serialized = JSON.stringify(club);
+  window.localStorage.setItem("activeClub", serialized);
+  window.localStorage.setItem(`activeClub_${userId}`, serialized);
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,36 +184,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return result;
   };
 
-  // Load active club when user changes
+  // Load and validate active club when user changes
   useEffect(() => {
     if (typeof window === "undefined" || !user?.id) return;
 
-    const loadActiveClub = () => {
-      const userSpecificClub = localStorage.getItem(`activeClub_${user.id}`);
-      const genericClub = localStorage.getItem("activeClub");
+    let cancelled = false;
 
-      try {
-        if (userSpecificClub) {
-          const parsedClub = JSON.parse(userSpecificClub);
-          console.log("Loading user-specific active club:", parsedClub);
-          setActiveClub(parsedClub);
-        } else if (genericClub) {
-          const parsedClub = JSON.parse(genericClub);
-          console.log("Loading generic active club:", parsedClub);
-          setActiveClub(parsedClub);
-          // Migrate to user-specific storage
-          localStorage.setItem(`activeClub_${user.id}`, genericClub);
-        } else {
-          console.log("No active club found in localStorage");
-          setActiveClub(null);
-        }
-      } catch (e) {
-        console.error("Error parsing active club:", e);
-        setActiveClub(null);
+    const loadActiveClub = async () => {
+      const userSpecificClub = parseStoredActiveClub(
+        localStorage.getItem(`activeClub_${user.id}`),
+      );
+      const genericClub = parseStoredActiveClub(localStorage.getItem("activeClub"));
+      const storedClub = userSpecificClub || genericClub;
+
+      if (userSpecificClub) {
+        setActiveClub(userSpecificClub);
       }
+
+      const response = await apiRequest<MembershipRecord[]>(
+        "/api/v1/auth/memberships",
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      if (response.error || !Array.isArray(response.data)) {
+        if (!userSpecificClub) {
+          setActiveClub(storedClub || null);
+        }
+        return;
+      }
+
+      const memberships = response.data;
+      const matchingStoredMembership = storedClub
+        ? memberships.find(
+            (membership) => membership.organization_id === storedClub.id,
+          )
+        : null;
+      const nextMembership =
+        matchingStoredMembership ||
+        memberships.find((membership) => membership.is_primary) ||
+        memberships.find((membership) => membership.access_kind === "ownership") ||
+        memberships[0] ||
+        null;
+
+      if (!nextMembership) {
+        storeActiveClubForUser(user.id, null);
+        setActiveClub(null);
+        return;
+      }
+
+      const nextClub = matchingStoredMembership
+        ? { ...buildActiveClubFromMembership(matchingStoredMembership), ...storedClub }
+        : buildActiveClubFromMembership(nextMembership);
+
+      storeActiveClubForUser(user.id, nextClub);
+      setActiveClub(nextClub);
     };
 
-    loadActiveClub();
+    void loadActiveClub();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   // Optimized authentication check with caching

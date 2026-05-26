@@ -39,9 +39,9 @@ export async function GET(request: Request, context: Context) {
     const url = new URL(request.url);
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
-      request.headers.get("x-active-club-id") ||
-        url.searchParams.get("organization_id") ||
-        url.searchParams.get("club_id"),
+      url.searchParams.get("organization_id") ||
+        url.searchParams.get("club_id") ||
+        request.headers.get("x-active-club-id"),
     );
     const data = await listResource(resource, url.searchParams, scope);
 

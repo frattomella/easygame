@@ -396,8 +396,11 @@ const inferRelations = (
   return relations;
 };
 
-const fetchTable = async (resource: string) => {
-  const response = await apiRequest<any[]>(`/api/v1/${resource}`);
+const fetchTable = async (resource: string, searchParams?: URLSearchParams) => {
+  const queryString = searchParams?.toString();
+  const response = await apiRequest<any[]>(
+    `/api/v1/${resource}${queryString ? `?${queryString}` : ""}`,
+  );
   return {
     data: Array.isArray(response.data) ? response.data : [],
     error: response.error,
@@ -453,6 +456,39 @@ class ApiQueryBuilder {
   private rowLimit?: number;
 
   constructor(private readonly table: string) {}
+
+  private buildServerSearchParams() {
+    const passthroughFilters = new Set([
+      "id",
+      "email",
+      "user_id",
+      "organization_id",
+      "club_id",
+      "athlete_id",
+      "payment_id",
+      "invoice_id",
+      "bucket",
+      "path",
+      "status",
+      "type",
+      "role",
+    ]);
+    const params = new URLSearchParams();
+
+    this.filters.forEach((filter) => {
+      if (
+        filter.type === "eq" &&
+        passthroughFilters.has(filter.column) &&
+        filter.value !== undefined &&
+        filter.value !== null &&
+        filter.value !== ""
+      ) {
+        params.set(filter.column, String(filter.value));
+      }
+    });
+
+    return params;
+  }
 
   select(columns: string = "*") {
     this.selectClause = columns;
@@ -594,7 +630,7 @@ class ApiQueryBuilder {
   }
 
   private async loadRows() {
-    const result = await fetchTable(this.table);
+    const result = await fetchTable(this.table, this.buildServerSearchParams());
 
     if (result.error) {
       throw new Error(result.error.message || "Errore caricamento risorsa");

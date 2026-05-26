@@ -10,19 +10,45 @@ type ApiRequestOptions = Omit<RequestInit, "body"> & {
   body?: any;
 };
 
+const readCachedUserId = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const sources: Array<[Storage, string]> = [
+    [window.localStorage, "easygame.api-session.v1"],
+    [window.sessionStorage, "supabase_session"],
+  ];
+
+  for (const [storage, key] of sources) {
+    const rawSession = storage.getItem(key);
+    if (!rawSession) {
+      continue;
+    }
+
+    try {
+      const session = JSON.parse(rawSession);
+      const userId = session?.user?.id;
+      if (typeof userId === "string" && userId.trim()) {
+        return userId;
+      }
+    } catch {
+      storage.removeItem(key);
+    }
+  }
+
+  return null;
+};
+
 const readStoredActiveClub = () => {
   if (typeof window === "undefined") {
     return null;
   }
 
-  const candidateKeys = ["activeClub"];
-
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index);
-    if (key && key.startsWith("activeClub_")) {
-      candidateKeys.push(key);
-    }
-  }
+  const cachedUserId = readCachedUserId();
+  const candidateKeys = cachedUserId
+    ? [`activeClub_${cachedUserId}`, "activeClub"]
+    : ["activeClub"];
 
   for (const key of candidateKeys) {
     const rawActiveClub = window.localStorage.getItem(key);
