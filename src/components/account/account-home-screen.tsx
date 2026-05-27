@@ -27,6 +27,7 @@ import {
   Loader2,
   LogOut,
   Plus,
+  Trash2,
   UserCircle2,
   UserPlus,
   Users,
@@ -239,23 +240,29 @@ type ClubAccessRowProps = {
   club: AccountClub;
   ownerMode: boolean;
   switchingClubId: string | null;
+  deletingAccessKey?: string | null;
   onOpen: () => void;
+  onDelete?: () => void;
 };
 
 function ClubAccessRow({
   club,
   ownerMode,
   switchingClubId,
+  deletingAccessKey,
   onOpen,
+  onDelete,
 }: ClubAccessRowProps) {
   const isSwitching = switchingClubId === club.id;
+  const isDeleting = deletingAccessKey === (club.accessKey || club.membershipId);
 
   return (
-    <button
-      type="button"
-      className="group flex w-full items-center gap-4 rounded-[20px] border border-[#dce6f4] bg-white px-4 py-4 text-left shadow-[0_12px_36px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)] md:gap-5 md:rounded-[18px] md:px-5 md:py-5"
-      onClick={onOpen}
-    >
+    <div className="group flex w-full items-center gap-3 rounded-[20px] border border-[#dce6f4] bg-white px-4 py-4 text-left shadow-[0_12px_36px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)] md:gap-4 md:rounded-[18px] md:px-5 md:py-5">
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-4 text-left md:gap-5"
+        onClick={onOpen}
+      >
       <ClubLogo club={club} />
 
       <span className="min-w-0 flex-1">
@@ -278,7 +285,26 @@ function ClubAccessRow({
           <ChevronRight className="h-8 w-8 stroke-[2.4]" />
         )}
       </span>
-    </button>
+      </button>
+
+      {!ownerMode && onDelete ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-11 w-11 shrink-0 rounded-2xl text-slate-400 hover:bg-red-50 hover:text-red-600"
+          disabled={isDeleting}
+          onClick={onDelete}
+          aria-label={`Elimina accesso ${club.roleLabel} a ${club.name}`}
+        >
+          {isDeleting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -292,8 +318,10 @@ type AccessPanelProps = {
   footerLabel: string;
   clubs: AccountClub[];
   switchingClubId: string | null;
+  deletingAccessKey?: string | null;
   onAction: () => void;
   onOpenClub: (club: AccountClub) => void;
+  onDeleteClub?: (club: AccountClub) => void;
   onFooter: () => void;
   slotLabel?: string;
 };
@@ -308,8 +336,10 @@ function AccountAccessPanel({
   footerLabel,
   clubs,
   switchingClubId,
+  deletingAccessKey,
   onAction,
   onOpenClub,
+  onDeleteClub,
   onFooter,
   slotLabel,
 }: AccessPanelProps) {
@@ -371,7 +401,11 @@ function AccountAccessPanel({
             club={club}
             ownerMode={ownerMode}
             switchingClubId={switchingClubId}
+            deletingAccessKey={deletingAccessKey}
             onOpen={() => onOpenClub(club)}
+            onDelete={
+              !ownerMode && onDeleteClub ? () => onDeleteClub(club) : undefined
+            }
           />
         ))}
 
@@ -467,6 +501,9 @@ export default function AccountHomeScreen() {
   const [creatingClub, setCreatingClub] = useState(false);
   const [redeemingAccess, setRedeemingAccess] = useState(false);
   const [switchingClubId, setSwitchingClubId] = useState<string | null>(null);
+  const [deletingAccessKey, setDeletingAccessKey] = useState<string | null>(
+    null,
+  );
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [createClubOpen, setCreateClubOpen] = useState(false);
@@ -930,6 +967,58 @@ export default function AccountHomeScreen() {
     showToast("success", "Accesso aggiunto correttamente al tuo account");
   };
 
+  const deleteAssignedAccess = async (club: AccountClub) => {
+    if (!club.membershipId) {
+      showToast("error", "Accesso assegnato non valido");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Eliminare l'accesso ${club.roleLabel.toLowerCase()} a ${club.name}? Il profilo collegato verra scollegato dal tuo account, ma non verra eliminato dal club.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const accessKey = club.accessKey || club.membershipId;
+    setDeletingAccessKey(accessKey);
+
+    const response = await apiRequest<{
+      deletedMembershipId: string;
+      unlinkedProfilesCount: number;
+    }>("/api/v1/auth/memberships/delete", {
+      method: "POST",
+      body: {
+        membership_id: club.membershipId,
+        organization_id: club.id,
+        role: club.role,
+      },
+    });
+
+    if (response.error) {
+      showToast(
+        "error",
+        response.error.message || "Errore eliminazione accesso",
+      );
+      setDeletingAccessKey(null);
+      return;
+    }
+
+    const activeAccessMatches =
+      activeClub?.membershipId === club.membershipId ||
+      activeClub?.accessKey === club.accessKey;
+    if (activeAccessMatches && user?.id) {
+      window.localStorage.removeItem("activeClub");
+      window.localStorage.removeItem(`activeClub_${user.id}`);
+      setActiveClub(null);
+    }
+
+    await loadMemberships(true);
+    setDeletingAccessKey(null);
+    showToast("success", "Accesso eliminato e profilo scollegato");
+  };
+
   const handleSupport = () => {
     window.open("https://www.cedisoft.it/contatti/", "_blank", "noopener,noreferrer");
   };
@@ -1016,9 +1105,13 @@ export default function AccountHomeScreen() {
               footerLabel="Vai a tutti i club"
               clubs={accessClubs}
               switchingClubId={switchingClubId}
+              deletingAccessKey={deletingAccessKey}
               onAction={() => setRedeemAccessOpen(true)}
               onOpenClub={(club) => {
                 void openClubArea(club);
+              }}
+              onDeleteClub={(club) => {
+                void deleteAssignedAccess(club);
               }}
               onFooter={accessFooterAction}
             />

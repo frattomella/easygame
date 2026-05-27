@@ -255,13 +255,19 @@ export default function AthletesPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const requestedClubId =
+    searchParams.get("clubId") ||
+    searchParams.get("organization_id") ||
+    searchParams.get("organizationId");
 
   const resolveCurrentClubId = () => {
-    let clubId = activeClub?.id;
+    let clubId = requestedClubId || activeClub?.id;
 
     if (!clubId && typeof window !== "undefined") {
       try {
-        const activeClubData = localStorage.getItem("activeClub");
+        const activeClubData =
+          (user?.id && localStorage.getItem(`activeClub_${user.id}`)) ||
+          localStorage.getItem("activeClub");
         if (activeClubData) {
           const parsedClub = JSON.parse(activeClubData);
           clubId = parsedClub.id;
@@ -399,7 +405,7 @@ export default function AthletesPage() {
   // Load athletes and categories from database
   useEffect(() => {
     refreshAthletesData();
-  }, [activeClub?.id, user?.id]);
+  }, [activeClub?.id, requestedClubId, user?.id]);
 
   useEffect(() => {
     const action = searchParams.get("action");
@@ -691,13 +697,15 @@ export default function AthletesPage() {
     athleteId: string,
     newStatus: "active" | "inactive" | "suspended",
   ) => {
-    if (!activeClub?.id) {
+    const clubId = resolveCurrentClubId();
+
+    if (!clubId) {
       showToast("error", "Club non trovato");
       return;
     }
 
     try {
-      await updateClubAthlete(activeClub.id, athleteId, { status: newStatus });
+      await updateClubAthlete(clubId, athleteId, { status: newStatus });
 
       // Update local state
       setAthletes(
@@ -721,7 +729,9 @@ export default function AthletesPage() {
 
   // Function to delete athlete
   const deleteAthlete = async (athleteId: string, athleteName: string) => {
-    if (!activeClub?.id) {
+    const clubId = resolveCurrentClubId();
+
+    if (!clubId) {
       showToast("error", "Club non trovato");
       return;
     }
@@ -735,7 +745,7 @@ export default function AthletesPage() {
     }
 
     try {
-      await deleteClubAthlete(activeClub.id, athleteId);
+      await deleteClubAthlete(clubId, athleteId);
 
       // Update local state
       setAthletes(athletes.filter((a) => a.id !== athleteId));
@@ -1073,7 +1083,7 @@ export default function AthletesPage() {
                   <button
                     onClick={() =>
                       router.push(
-                        `/athletes/${athlete.id}?clubId=${activeClub?.id}`,
+                        `/athletes/${athlete.id}?clubId=${resolveCurrentClubId() || ""}`,
                       )
                     }
                     className="hover:text-blue-600 hover:underline cursor-pointer text-left"
@@ -1180,7 +1190,7 @@ export default function AthletesPage() {
                       <DropdownMenuItem
                         onClick={() =>
                           router.push(
-                            `/athletes/${athlete.id}?clubId=${activeClub?.id}`,
+                            `/athletes/${athlete.id}?clubId=${resolveCurrentClubId() || ""}`,
                           )
                         }
                       >

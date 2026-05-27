@@ -85,6 +85,12 @@ const MODEL_RESOURCES: Record<string, ResourceConfig> = {
     description: "Associazione utenti-organizzazione con ruolo",
     mobile_ready: true,
   },
+  club_resource_items: {
+    kind: "model",
+    delegate: "clubResourceItem",
+    description: "Risorse normalizzate del club",
+    mobile_ready: true,
+  },
   athletes: {
     kind: "model",
     delegate: "athlete",
@@ -201,6 +207,7 @@ type ResourceAccessScope = {
 const ORGANIZATION_SCOPED_MODEL_RESOURCES = new Set([
   "dashboards",
   "organization_users",
+  "club_resource_items",
   "athletes",
   "athlete_category_memberships",
   "simplified_athletes",
@@ -1035,6 +1042,7 @@ const buildWhereFromSearchParams = (
     "status",
     "type",
     "role",
+    "resource_type",
   ];
 
   for (const key of passthrough) {

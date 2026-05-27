@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { apiRequest } from "./api/client";
 import { normalizeTrainerList } from "./trainer-utils";
 import {
   getAthleteCategoryLabels,
@@ -72,8 +73,6 @@ const CLUB_DIRECT_UPDATE_FIELDS = [
 ] as const;
 
 const ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE = "athlete_category_memberships";
-const ATHLETE_CATEGORY_SOURCE_SELECT =
-  "id, club_id, organization_id, category_id, category_name, data";
 const UUID_PATTERN =
   /^(?:urn:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -198,6 +197,27 @@ const loadClubAthleteMemberships = async (
     }
     return [];
   }
+};
+
+const loadClubAthleteRows = async (clubId: string) => {
+  if (!clubId) {
+    return [];
+  }
+
+  const params = new URLSearchParams({ club_id: clubId });
+  const response = await apiRequest<any[]>(
+    `/api/v1/simplified_athletes?${params.toString()}`,
+  );
+
+  if (response.error) {
+    console.warn(
+      "Error fetching club athletes:",
+      response.error.message || response.error,
+    );
+    return [];
+  }
+
+  return Array.isArray(response.data) ? response.data : [];
 };
 
 const replaceAthleteMemberships = async (
@@ -482,25 +502,10 @@ export async function getUserClubs(userId: string) {
  */
 export async function getClubAthletes(clubId: string) {
   try {
-    const [{ data, error }, membershipRecords] = await Promise.all([
-      supabase.from("simplified_athletes").select("*").eq("club_id", clubId),
+    const [data, membershipRecords] = await Promise.all([
+      loadClubAthleteRows(clubId),
       loadClubAthleteMemberships(clubId),
     ]);
-
-    if (error) {
-      // Handle network errors gracefully
-      if (
-        error.message?.includes("Failed to fetch") ||
-        error.message?.includes("TypeError")
-      ) {
-        console.warn(
-          "Network error fetching club athletes, returning empty array",
-        );
-        return [];
-      }
-      console.warn("Error fetching club athletes:", error.message || error);
-      return [];
-    }
 
     const membershipsByAthleteId = new Map<string, any[]>();
     membershipRecords.forEach((membership: any) => {
@@ -542,31 +547,10 @@ export async function getClubAthletes(clubId: string) {
 
 const getClubAthleteCategorySources = async (clubId: string) => {
   try {
-    const [{ data, error }, membershipRecords] = await Promise.all([
-      supabase
-        .from("simplified_athletes")
-        .select(ATHLETE_CATEGORY_SOURCE_SELECT)
-        .eq("club_id", clubId),
+    const [data, membershipRecords] = await Promise.all([
+      loadClubAthleteRows(clubId),
       loadClubAthleteMemberships(clubId),
     ]);
-
-    if (error) {
-      if (
-        error.message?.includes("Failed to fetch") ||
-        error.message?.includes("TypeError")
-      ) {
-        console.warn(
-          "Network error fetching athlete category sources, returning empty array",
-        );
-        return [];
-      }
-
-      console.warn(
-        "Error fetching athlete category sources:",
-        error.message || error,
-      );
-      return [];
-    }
 
     const membershipsByAthleteId = new Map<string, any[]>();
     membershipRecords.forEach((membership: any) => {

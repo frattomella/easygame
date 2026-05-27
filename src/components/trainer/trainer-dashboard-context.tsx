@@ -69,6 +69,86 @@ const normalizeValue = (value: unknown) =>
     .trim()
     .toLowerCase();
 
+const flattenIdentityTokens = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => flattenIdentityTokens(entry));
+  }
+
+  if (typeof value === "string" && value.includes(",")) {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, any>;
+    return [
+      record.id,
+      record.value,
+      record.userId,
+      record.user_id,
+      record.email,
+      record.label,
+    ]
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean);
+  }
+
+  return [String(value || "").trim()].filter(Boolean);
+};
+
+const collectIdentityTokens = (...values: unknown[]) =>
+  values.flatMap((value) => flattenIdentityTokens(value)).filter(Boolean);
+
+const hasToken = (tokens: unknown[], target: unknown) => {
+  const normalizedTarget = normalizeValue(target);
+  if (!normalizedTarget) {
+    return false;
+  }
+
+  return tokens.some((token) => normalizeValue(token) === normalizedTarget);
+};
+
+const getRecordStableKey = (record: any) =>
+  normalizeValue(
+    record?.id ||
+      record?.data?.id ||
+      record?.payload?.id ||
+      record?.name ||
+      record?.data?.name ||
+      record?.payload?.name ||
+      record?.email ||
+      record?.data?.email ||
+      "",
+  );
+
+const mergeApiAndLegacyLists = <T,>(
+  response: { data: T[] | null; error: any },
+  fallback: unknown,
+) => {
+  const apiList = !response?.error && Array.isArray(response?.data)
+    ? response.data
+    : [];
+  const legacyList = Array.isArray(fallback) ? fallback : [];
+  const merged: any[] = [];
+  const seen = new Set<string>();
+
+  for (const record of [...apiList, ...legacyList]) {
+    const key = getRecordStableKey(record);
+    if (key && seen.has(key)) {
+      continue;
+    }
+
+    if (key) {
+      seen.add(key);
+    }
+    merged.push(record);
+  }
+
+  return merged as T[];
+};
+
 const findCategoryIdsFromRecord = (record: any, categories: any[]) => {
   const source =
     record?.data && typeof record.data === "object" ? record.data : {};
@@ -363,17 +443,6 @@ const buildVisibleReminders = (reminders: any[], trainerProfile: any) => {
     });
 };
 
-const resolveApiList = <T,>(
-  response: { data: T[] | null; error: any },
-  fallback: unknown,
-) => {
-  if (!response?.error && Array.isArray(response?.data)) {
-    return response.data;
-  }
-
-  return Array.isArray(fallback) ? fallback : [];
-};
-
 export function TrainerDashboardProvider({
   children,
 }: {
@@ -481,13 +550,13 @@ export function TrainerDashboardProvider({
         getClubSettings(activeClub.id),
       ]);
 
-      const rawCategories = resolveApiList(apiCategories, legacyCategories);
-      const rawTrainers = resolveApiList(apiTrainers, legacyTrainers);
-      const rawStaff = resolveApiList(apiStaff, legacyStaff);
-      const rawAthletes = resolveApiList(apiAthletes, legacyAthletes);
-      const rawTrainings = resolveApiList(apiTrainings, legacyTrainings);
-      const rawMatches = resolveApiList(apiMatches, legacyMatches);
-      const rawSecretariatNotes = resolveApiList(
+      const rawCategories = mergeApiAndLegacyLists(apiCategories, legacyCategories);
+      const rawTrainers = mergeApiAndLegacyLists(apiTrainers, legacyTrainers);
+      const rawStaff = mergeApiAndLegacyLists(apiStaff, legacyStaff);
+      const rawAthletes = mergeApiAndLegacyLists(apiAthletes, legacyAthletes);
+      const rawTrainings = mergeApiAndLegacyLists(apiTrainings, legacyTrainings);
+      const rawMatches = mergeApiAndLegacyLists(apiMatches, legacyMatches);
+      const rawSecretariatNotes = mergeApiAndLegacyLists(
         apiSecretariatNotes,
         legacySecretariatNotes,
       );
@@ -517,63 +586,77 @@ export function TrainerDashboardProvider({
         ),
       ];
 
-      const normalizedTrainerPool = trainerPool.map((trainer: any) => ({
-        ...trainer,
-        id: String(trainer?.id || trainer?.data?.id || "").trim(),
-        name: getTrainerDisplayName(
-          trainer?.data ? { ...trainer, ...trainer.data } : trainer,
-        ),
-        email: String(trainer?.email || trainer?.data?.email || "").trim(),
-        phone: String(trainer?.phone || trainer?.data?.phone || "").trim(),
-        linkedUserId:
-          String(
-            trainer?.linkedUserId ||
-              trainer?.linked_user_id ||
-              trainer?.data?.linkedUserId ||
-              trainer?.data?.linked_user_id ||
-              "",
-          ).trim() || null,
-        linkedUserEmail:
-          String(
-            trainer?.linkedUserEmail ||
-              trainer?.linked_user_email ||
-              trainer?.data?.linkedUserEmail ||
-              trainer?.data?.linked_user_email ||
-              trainer?.email ||
-              trainer?.data?.email ||
-              "",
-          ).trim() || null,
-        linkedAt:
-          String(
-            trainer?.linkedAt ||
-              trainer?.linked_at ||
-              trainer?.data?.linkedAt ||
-              trainer?.data?.linked_at ||
-              "",
-          ).trim() || null,
-        categories: normalizeTrainerCategories(
-          trainer?.categories ||
-            trainer?.data?.categories ||
-            trainer?.category ||
-            trainer?.data?.category ||
-            trainer?.categoryId ||
-            trainer?.data?.categoryId ||
-            trainer?.category_id ||
-            trainer?.data?.category_id ||
-            trainer?.categoryName ||
-            trainer?.data?.categoryName ||
-            trainer?.category_name ||
-            trainer?.data?.category_name,
-          normalizedCategories,
-        ),
-      }));
+      const normalizedTrainerPool = trainerPool.map((trainer: any) => {
+        const source =
+          trainer?.data && typeof trainer.data === "object" ? trainer.data : {};
+        const linkedUserIds = collectIdentityTokens(
+          trainer?.linkedUserId,
+          trainer?.linked_user_id,
+          trainer?.userId,
+          trainer?.user_id,
+          trainer?.linkedUserIds,
+          trainer?.linked_user_ids,
+          source?.linkedUserId,
+          source?.linked_user_id,
+          source?.userId,
+          source?.user_id,
+          source?.linkedUserIds,
+          source?.linked_user_ids,
+        );
+        const linkedUserEmails = collectIdentityTokens(
+          trainer?.linkedUserEmail,
+          trainer?.linked_user_email,
+          trainer?.email,
+          trainer?.linkedUserEmails,
+          trainer?.linked_user_emails,
+          source?.linkedUserEmail,
+          source?.linked_user_email,
+          source?.email,
+          source?.linkedUserEmails,
+          source?.linked_user_emails,
+        );
+
+        return {
+          ...trainer,
+          id: String(trainer?.id || source?.id || "").trim(),
+          name: getTrainerDisplayName(source ? { ...trainer, ...source } : trainer),
+          email: String(trainer?.email || source?.email || "").trim(),
+          phone: String(trainer?.phone || source?.phone || "").trim(),
+          linkedUserId: linkedUserIds[0] || null,
+          linkedUserIds,
+          linkedUserEmail: linkedUserEmails[0] || null,
+          linkedUserEmails,
+          linkedAt:
+            String(
+              trainer?.linkedAt ||
+                trainer?.linked_at ||
+                source?.linkedAt ||
+                source?.linked_at ||
+                "",
+            ).trim() || null,
+          categories: normalizeTrainerCategories(
+            trainer?.categories ||
+              source?.categories ||
+              trainer?.category ||
+              source?.category ||
+              trainer?.categoryId ||
+              source?.categoryId ||
+              trainer?.category_id ||
+              source?.category_id ||
+              trainer?.categoryName ||
+              source?.categoryName ||
+              trainer?.category_name ||
+              source?.category_name,
+            normalizedCategories,
+          ),
+        };
+      });
 
       const nextTrainerProfile =
         normalizedTrainerPool.find(
           (trainer: any) =>
-            normalizeValue(trainer.linkedUserId) === normalizeValue(user.id) ||
-            normalizeValue(trainer.linkedUserEmail) ===
-              normalizeValue(user.email) ||
+            hasToken(trainer.linkedUserIds || [], user.id) ||
+            hasToken(trainer.linkedUserEmails || [], user.email) ||
             normalizeValue(trainer.email) === normalizeValue(user.email),
         ) || null;
 

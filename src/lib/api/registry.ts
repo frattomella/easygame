@@ -12,6 +12,7 @@ const resourceNames = [
   "organizations",
   "dashboards",
   "organization_users",
+  "club_resource_items",
   "athletes",
   "athlete_category_memberships",
   "simplified_athletes",

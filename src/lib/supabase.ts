@@ -472,6 +472,7 @@ class ApiQueryBuilder {
       "status",
       "type",
       "role",
+      "resource_type",
     ]);
     const params = new URLSearchParams();
 

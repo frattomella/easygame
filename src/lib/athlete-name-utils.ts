@@ -19,6 +19,8 @@ export type AthleteNameLike = {
 export const cleanNamePart = (value: unknown) =>
   String(value || "").trim();
 
+export const normalizeNamePart = cleanNamePart;
+
 const getRecordValue = (athlete: unknown, keys: string[]) => {
   if (!athlete || typeof athlete !== "object") {
     return "";
@@ -26,7 +28,7 @@ const getRecordValue = (athlete: unknown, keys: string[]) => {
 
   const record = athlete as Record<string, any>;
   for (const key of keys) {
-    const value = normalizeNamePart(record[key]);
+    const value = cleanNamePart(record[key]);
     if (value) {
       return value;
     }
@@ -41,7 +43,7 @@ const getFallbackDisplayValue = (person: unknown) => {
   }
 
   const record = person as Record<string, any>;
-  return normalizeNamePart(
+  return cleanNamePart(
     record.fullName || record.full_name || record.displayName || record.label || record.name,
   );
 };

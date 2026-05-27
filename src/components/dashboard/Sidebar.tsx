@@ -60,6 +60,9 @@ import Image from "next/image";
 const Sidebar = memo(() => {
   const [collapsed, setCollapsed] = React.useState(false);
   const [clubId, setClubId] = React.useState<string | null>(null);
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user, isAthlete, activeClub } = useAuth();
 
   // Get club ID from URL or localStorage
   React.useEffect(() => {
@@ -73,11 +76,31 @@ const Sidebar = memo(() => {
         return;
       }
 
+      if (activeClub?.id) {
+        setClubId(activeClub.id);
+        return;
+      }
+
+      if (user?.id) {
+        const userSpecificClub = localStorage.getItem(`activeClub_${user.id}`);
+        if (userSpecificClub) {
+          try {
+            const parsedClub = JSON.parse(userSpecificClub);
+            if (parsedClub.id) {
+              setClubId(parsedClub.id);
+              return;
+            }
+          } catch (e) {
+            console.error("Error parsing user-specific active club:", e);
+          }
+        }
+      }
+
       // Then check localStorage
-      const activeClub = localStorage.getItem("activeClub");
-      if (activeClub) {
+      const rawActiveClub = localStorage.getItem("activeClub");
+      if (rawActiveClub) {
         try {
-          const parsedClub = JSON.parse(activeClub);
+          const parsedClub = JSON.parse(rawActiveClub);
           if (parsedClub.id) {
             setClubId(parsedClub.id);
           }
@@ -85,10 +108,12 @@ const Sidebar = memo(() => {
           console.error("Error parsing active club:", e);
         }
       }
+
+      setClubId(null);
     };
 
     getClubData();
-  }, []);
+  }, [activeClub?.id, user?.id]);
 
   // Memoized helper function to build URL with clubId
   const buildUrl = useMemo(
@@ -132,10 +157,6 @@ const Sidebar = memo(() => {
       return () => window.removeEventListener("resize", handleResize);
     }
   }, [collapsed]);
-
-  const pathname = usePathname();
-  const router = useRouter();
-  const { user, isAthlete } = useAuth();
 
   return (
     <aside
