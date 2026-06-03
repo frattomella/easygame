@@ -4,6 +4,11 @@ import React, { useState, useEffect } from "react";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -581,8 +586,8 @@ export default function SponsorsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Gestione Sponsor" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-9xl">
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer>
               <Card>
                 <CardContent className="p-8 text-center">
                   <Building className="h-16 w-16 mx-auto text-gray-400 mb-4" />
@@ -601,7 +606,7 @@ export default function SponsorsPage() {
                   </Button>
                 </CardContent>
               </Card>
-            </div>
+            </DashboardPageContainer>
           </main>
         </div>
       </div>
@@ -609,9 +614,29 @@ export default function SponsorsPage() {
   }
 
   const renderSponsorsMainContent = () => (
-    <main className="flex-1 overflow-y-auto p-4 md:p-6">
-      <div className="mx-auto max-w-9xl space-y-6">
-        <div className="flex justify-between items-center">
+    <main className={dashboardMainClassName}>
+      <DashboardPageContainer>
+        <SharedPageHeader
+          title="Gestione Sponsor e Fornitori"
+          subtitle="Gestisci sponsor, partner e fornitori della societa."
+          actions={
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => {
+                resetNewSponsor();
+                setNewSponsor((prev) => ({
+                  ...prev,
+                  type: activeTab === "suppliers" ? "fornitore" : "sponsor",
+                }));
+                setShowAddSponsorDialog(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Nuovo Sponsor/Fornitore
+            </Button>
+          }
+        />
+        <div className="hidden">
           <div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
               Gestione Sponsor e Fornitori
@@ -637,7 +662,7 @@ export default function SponsorsPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="w-full flex overflow-x-auto rounded-xl bg-muted p-1">
+          <TabsList className="flex h-auto w-full flex-wrap items-center justify-start gap-1 rounded-xl bg-muted p-1 sm:w-fit">
             <TabsTrigger
               value="sponsors"
               className="flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm px-3 py-1.5"
@@ -985,7 +1010,7 @@ export default function SponsorsPage() {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
+      </DashboardPageContainer>
     </main>
   );
 
@@ -1015,16 +1040,16 @@ export default function SponsorsPage() {
           }
         }}
       >
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl rounded-[28px] border-slate-200 bg-white/95 p-0 shadow-[0_30px_90px_-32px_rgba(15,23,42,0.35)]">
-          <DialogHeader className="border-b border-slate-100 bg-gradient-to-r from-blue-700 via-blue-600 to-sky-500 px-6 py-5 text-white">
-            <DialogTitle className="text-2xl">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-hidden">
+          <DialogHeader className="border-b px-6 py-4">
+            <DialogTitle className="text-lg">
               {isEditMode
                 ? `Modifica ${getSponsorTypeLabel(newSponsor.type)}`
                 : `Nuovo ${getSponsorTypeLabel(newSponsor.type)}`}
             </DialogTitle>
           </DialogHeader>
-          <div className="grid gap-0 lg:grid-cols-[280px_1fr]">
-            <div className="space-y-4 border-b border-slate-100 bg-slate-50/80 px-6 py-6 lg:border-b-0 lg:border-r">
+          <div className="max-h-[calc(90vh-9rem)] overflow-y-auto px-6 py-6">
+            <div className="hidden">
               <div className="rounded-[24px] bg-white p-5 shadow-sm">
                 <div className="flex justify-center">
                   <LogoUpload
@@ -1061,7 +1086,7 @@ export default function SponsorsPage() {
               </div>
             </div>
 
-            <div className="max-h-[78vh] space-y-6 overflow-y-auto px-6 py-6">
+            <div className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="sponsor-name">Nome / Ragione sociale *</Label>
@@ -1152,7 +1177,7 @@ export default function SponsorsPage() {
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-slate-100 bg-slate-50/70 p-5">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-5">
                 <p className="text-base font-semibold text-slate-900">
                   Sede e localizzazione
                 </p>
@@ -1220,7 +1245,7 @@ export default function SponsorsPage() {
               </div>
             </div>
           </div>
-          <DialogFooter className="border-t border-slate-100 px-6 py-4">
+          <DialogFooter className="border-t px-6 py-4">
             <Button variant="outline" onClick={() => setShowAddSponsorDialog(false)}>
               Annulla
             </Button>

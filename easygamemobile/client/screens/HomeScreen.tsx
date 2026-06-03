@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, RefreshControl } from "react-native";
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  RefreshControl,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -127,10 +133,7 @@ export default function HomeScreen() {
               <View style={styles.taskContent}>
                 <Pressable
                   onPress={() => handleToggleTask(task.id)}
-                  style={[
-                    styles.taskCheckbox,
-                    { borderColor: theme.primary },
-                  ]}
+                  style={[styles.taskCheckbox, { borderColor: theme.primary }]}
                 >
                   {task.completed ? (
                     <Ionicons
@@ -199,11 +202,7 @@ export default function HomeScreen() {
           <Card leftBorderColor={theme.primary} style={styles.trainingCard}>
             <View style={styles.trainingHeader}>
               <View style={styles.trainingTime}>
-                <Ionicons
-                  name="time-outline"
-                  size={16}
-                  color={theme.primary}
-                />
+                <Ionicons name="time-outline" size={16} color={theme.primary} />
                 <ThemedText
                   type="body"
                   style={[styles.timeText, { color: theme.primary }]}
@@ -233,7 +232,9 @@ export default function HomeScreen() {
               variant="outline"
               size="sm"
               style={styles.presenceButton}
-              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+              onPress={() =>
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              }
             >
               Presenze
             </Button>
@@ -264,16 +265,28 @@ export default function HomeScreen() {
         >
           <Card
             style={styles.matchCard}
-            onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+            onPress={() =>
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+            }
           >
             <View style={styles.matchHeader}>
-              <Ionicons name="football-outline" size={20} color={theme.primary} />
-              <ThemedText type="body" style={{ color: theme.primary, fontWeight: "600" }}>
+              <Ionicons
+                name="football-outline"
+                size={20}
+                color={theme.primary}
+              />
+              <ThemedText
+                type="body"
+                style={{ color: theme.primary, fontWeight: "600" }}
+              >
                 Prossima Gara
               </ThemedText>
             </View>
             <ThemedText type="h4" style={styles.matchTitle}>
-              vs {upcomingMatch.isHome ? upcomingMatch.awayTeam : upcomingMatch.homeTeam}
+              vs{" "}
+              {upcomingMatch.isHome
+                ? upcomingMatch.awayTeam
+                : upcomingMatch.homeTeam}
             </ThemedText>
             <View style={styles.matchInfo}>
               <View style={styles.matchInfoItem}>
@@ -283,7 +296,9 @@ export default function HomeScreen() {
                   color={theme.textSecondary}
                 />
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {format(parseISO(upcomingMatch.date), "d MMMM", { locale: it })}
+                  {format(parseISO(upcomingMatch.date), "d MMMM", {
+                    locale: it,
+                  })}
                 </ThemedText>
               </View>
               <View style={styles.matchInfoItem}>

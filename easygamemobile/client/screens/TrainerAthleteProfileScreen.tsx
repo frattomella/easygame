@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -20,7 +20,7 @@ import {
   getAthleteStatusLabel,
   getAthleteStatusVariant,
 } from "@/lib/mobile-ui";
-import { Athlete } from "@/services/api";
+import { Athlete, Match, Training } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { BorderRadius, Colors, Spacing } from "@/constants/theme";
 import { AthletesStackParamList } from "@/navigation/AthletesStackNavigator";
@@ -34,14 +34,20 @@ const renderDocumentLine = (label: string, value?: string | null) => (
   </ThemedText>
 );
 
+const normalizeText = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
 export default function TrainerAthleteProfileScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const route =
-    useRoute<RouteProp<AthletesStackParamList, "AthleteProfile">>();
+  const route = useRoute<RouteProp<AthletesStackParamList, "AthleteProfile">>();
   const { theme } = useTheme();
   const { trainerPermissions } = useAuthContext();
   const [athlete, setAthlete] = useState<Athlete | null>(null);
+  const [trainings, setTrainings] = useState<Training[]>([]);
+  const [matches, setMatches] = useState<Match[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const athleteId = route.params?.athleteId;
@@ -52,11 +58,19 @@ export default function TrainerAthleteProfileScreen() {
   const loadData = useCallback(async () => {
     if (!athleteId) {
       setAthlete(null);
+      setTrainings([]);
+      setMatches([]);
       return;
     }
 
-    const nextAthlete = await mobileBackendStorage.getAthlete(athleteId);
+    const [nextAthlete, nextTrainings, nextMatches] = await Promise.all([
+      mobileBackendStorage.getAthlete(athleteId),
+      mobileBackendStorage.getTrainings(),
+      mobileBackendStorage.getMatches(),
+    ]);
     setAthlete(nextAthlete);
+    setTrainings(nextTrainings);
+    setMatches(nextMatches);
   }, [athleteId]);
 
   useFocusEffect(
@@ -76,8 +90,55 @@ export default function TrainerAthleteProfileScreen() {
   const canSeeContacts =
     trainerPermissions?.actions.viewAthleteContacts !== false;
   const canSeeMedical = trainerPermissions?.actions.viewMedicalStatus !== false;
-  const canSeeEnrollment =
-    trainerPermissions?.actions.viewEnrollmentAndPayments !== false;
+  const canSeeEnrollment = false;
+  const athleteTrainings = useMemo(() => {
+    if (!athlete) {
+      return [];
+    }
+
+    return trainings.filter(
+      (training) =>
+        training.attendance?.some((entry) => entry.athleteId === athlete.id) ||
+        (training.categoryId &&
+          athlete.categoryId &&
+          normalizeText(training.categoryId) ===
+            normalizeText(athlete.categoryId)) ||
+        normalizeText(training.category) === normalizeText(athlete.category),
+    );
+  }, [athlete, trainings]);
+  const attendanceEntries = useMemo(
+    () =>
+      athleteTrainings.flatMap((training) =>
+        (training.attendance || [])
+          .filter((entry) => entry.athleteId === athlete?.id)
+          .map((entry) => ({ ...entry, training })),
+      ),
+    [athlete?.id, athleteTrainings],
+  );
+  const presentCount = attendanceEntries.filter(
+    (entry) => entry.present,
+  ).length;
+  const absenceCount = attendanceEntries.filter(
+    (entry) => !entry.present,
+  ).length;
+  const attendanceRate = attendanceEntries.length
+    ? Math.round((presentCount / attendanceEntries.length) * 100)
+    : 0;
+  const athleteMatches = useMemo(() => {
+    if (!athlete) {
+      return [];
+    }
+
+    return matches.filter(
+      (match) =>
+        match.convocatedAthletes?.includes(athlete.id) ||
+        (match.categoryId &&
+          athlete.categoryId &&
+          normalizeText(match.categoryId) ===
+            normalizeText(athlete.categoryId)) ||
+        normalizeText(match.category) === normalizeText(athlete.category),
+    );
+  }, [athlete, matches]);
 
   return (
     <ScrollView
@@ -93,7 +154,9 @@ export default function TrainerAthleteProfileScreen() {
     >
       {athlete ? (
         <View style={styles.content}>
-          <Card style={[styles.heroCard, { backgroundColor: Colors.light.primary }]}>
+          <Card
+            style={[styles.heroCard, { backgroundColor: Colors.light.primary }]}
+          >
             <Avatar
               name={athlete.name}
               size={76}
@@ -138,9 +201,15 @@ export default function TrainerAthleteProfileScreen() {
             </ThemedText>
             {renderDocumentLine("Nome", athlete.firstName || athlete.name)}
             {renderDocumentLine("Cognome", athlete.lastName)}
-            {renderDocumentLine("Data di nascita", formatItalianDate(athlete.birthDate))}
+            {renderDocumentLine(
+              "Data di nascita",
+              formatItalianDate(athlete.birthDate),
+            )}
             {renderDocumentLine("Categoria", athlete.category)}
-            {renderDocumentLine("Numero maglia", athlete.number ? String(athlete.number) : "")}
+            {renderDocumentLine(
+              "Numero maglia",
+              athlete.number ? String(athlete.number) : "",
+            )}
             {renderDocumentLine("Citta", athlete.city)}
           </Card>
 
@@ -151,10 +220,6 @@ export default function TrainerAthleteProfileScreen() {
               </ThemedText>
               {renderDocumentLine("Ruolo", athlete.position)}
               {renderDocumentLine("Note tecniche", athlete.technicalNotes)}
-              {renderDocumentLine("Profilo abbigliamento", athlete.clothingProfile)}
-              {renderDocumentLine("Taglia maglia", athlete.shirtSize)}
-              {renderDocumentLine("Taglia pantalone", athlete.pantsSize)}
-              {renderDocumentLine("Numero scarpa", athlete.shoeSize)}
             </Card>
           ) : null}
 
@@ -179,8 +244,9 @@ export default function TrainerAthleteProfileScreen() {
                         {guardian.surname ? ` ${guardian.surname}` : ""}
                       </ThemedText>
                       <ThemedText type="small" style={styles.mutedText}>
-                        {[guardian.phone, guardian.email].filter(Boolean).join(" · ") ||
-                          "Contatti non disponibili"}
+                        {[guardian.phone, guardian.email]
+                          .filter(Boolean)
+                          .join(" · ") || "Contatti non disponibili"}
                       </ThemedText>
                     </View>
                   </View>
@@ -223,19 +289,95 @@ export default function TrainerAthleteProfileScreen() {
                   </ThemedText>
                 </View>
               </View>
-              {athlete.documents?.length ? (
-                athlete.documents.map((document) => (
-                  <ThemedText
-                    key={document.id}
-                    type="small"
-                    style={styles.sectionText}
-                  >
-                    {document.name} · {renderValue(document.type, "Documento")}
-                  </ThemedText>
-                ))
-              ) : null}
+              {athlete.documents?.length
+                ? athlete.documents.map((document) => (
+                    <ThemedText
+                      key={document.id}
+                      type="small"
+                      style={styles.sectionText}
+                    >
+                      {document.name} ·{" "}
+                      {renderValue(document.type, "Documento")}
+                    </ThemedText>
+                  ))
+                : null}
             </Card>
           ) : null}
+
+          <Card style={styles.sectionCard}>
+            <ThemedText type="body" style={styles.sectionTitle}>
+              Analitiche
+            </ThemedText>
+            <View style={styles.analyticsGrid}>
+              <View style={styles.analyticsItem}>
+                <ThemedText type="h4" style={styles.analyticsValue}>
+                  {presentCount}
+                </ThemedText>
+                <ThemedText type="small" style={styles.mutedText}>
+                  Presenze
+                </ThemedText>
+              </View>
+              <View style={styles.analyticsItem}>
+                <ThemedText type="h4" style={styles.analyticsValue}>
+                  {absenceCount}
+                </ThemedText>
+                <ThemedText type="small" style={styles.mutedText}>
+                  Assenze
+                </ThemedText>
+              </View>
+              <View style={styles.analyticsItem}>
+                <ThemedText type="h4" style={styles.analyticsValue}>
+                  {attendanceEntries.length ? `${attendanceRate}%` : "-"}
+                </ThemedText>
+                <ThemedText type="small" style={styles.mutedText}>
+                  Frequenza
+                </ThemedText>
+              </View>
+              <View style={styles.analyticsItem}>
+                <ThemedText type="h4" style={styles.analyticsValue}>
+                  {athleteMatches.length}
+                </ThemedText>
+                <ThemedText type="small" style={styles.mutedText}>
+                  Gare
+                </ThemedText>
+              </View>
+            </View>
+            {attendanceEntries.length > 0 ? (
+              attendanceEntries.slice(0, 4).map((entry) => (
+                <View
+                  key={`${entry.training.id}-${entry.athleteId}`}
+                  style={styles.listItem}
+                >
+                  <Ionicons
+                    name={
+                      entry.present
+                        ? "checkmark-circle-outline"
+                        : "close-circle-outline"
+                    }
+                    size={16}
+                    color={
+                      entry.present
+                        ? Colors.light.success
+                        : Colors.light.warning
+                    }
+                  />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText type="small" style={styles.sectionText}>
+                      {entry.training.title}
+                    </ThemedText>
+                    <ThemedText type="small" style={styles.mutedText}>
+                      {formatItalianDate(entry.training.date)} -{" "}
+                      {entry.present ? "Presente" : "Assente"}
+                    </ThemedText>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <ThemedText type="small" style={styles.mutedText}>
+                Nessuna presenza registrata.
+              </ThemedText>
+            )}
+          </Card>
 
           {canSeeEnrollment ? (
             <>
@@ -256,7 +398,10 @@ export default function TrainerAthleteProfileScreen() {
                           {registration.federation} · {registration.number}
                         </ThemedText>
                         <ThemedText type="small" style={styles.mutedText}>
-                          {[registration.status, formatItalianDate(registration.expiryDate)]
+                          {[
+                            registration.status,
+                            formatItalianDate(registration.expiryDate),
+                          ]
                             .filter(Boolean)
                             .join(" · ")}
                         </ThemedText>
@@ -384,5 +529,22 @@ const styles = StyleSheet.create({
   groupTitle: {
     fontWeight: "700",
     color: Colors.light.text,
+  },
+  analyticsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+  },
+  analyticsItem: {
+    flexBasis: "47%",
+    flexGrow: 1,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+  },
+  analyticsValue: {
+    color: Colors.light.text,
+    marginBottom: 2,
   },
 });

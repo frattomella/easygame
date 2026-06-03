@@ -68,11 +68,16 @@ export default function TrainerProfileDashboardScreen() {
         phone: phone.trim(),
         city: city.trim(),
       });
-      Alert.alert("Profilo aggiornato", "Le tue informazioni sono state salvate.");
+      Alert.alert(
+        "Profilo aggiornato",
+        "Le tue informazioni sono state salvate.",
+      );
     } catch (error) {
       Alert.alert(
         "Errore",
-        error instanceof Error ? error.message : "Impossibile salvare il profilo.",
+        error instanceof Error
+          ? error.message
+          : "Impossibile salvare il profilo.",
       );
     } finally {
       setSaving(false);
@@ -89,7 +94,9 @@ export default function TrainerProfileDashboardScreen() {
       }}
     >
       <View style={styles.content}>
-        <Card style={[styles.heroCard, { backgroundColor: Colors.light.primary }]}>
+        <Card
+          style={[styles.heroCard, { backgroundColor: Colors.light.primary }]}
+        >
           <Avatar name={user?.name || "Coach"} size={74} />
           <View style={{ flex: 1 }}>
             <ThemedText type="h4" style={styles.heroName}>
@@ -102,7 +109,11 @@ export default function TrainerProfileDashboardScreen() {
         </Card>
 
         <Card style={styles.sectionCard}>
-          <Input label="Nome e cognome" value={fullName} onChangeText={setFullName} />
+          <Input
+            label="Nome e cognome"
+            value={fullName}
+            onChangeText={setFullName}
+          />
           <Input
             label="Email"
             value={email}
@@ -117,7 +128,11 @@ export default function TrainerProfileDashboardScreen() {
             keyboardType="phone-pad"
           />
           <Input label="Citta" value={city} onChangeText={setCity} />
-          <Button fullWidth onPress={() => void handleSaveProfile()} loading={saving}>
+          <Button
+            fullWidth
+            onPress={() => void handleSaveProfile()}
+            loading={saving}
+          >
             Salva modifiche
           </Button>
         </Card>
@@ -148,7 +163,9 @@ export default function TrainerProfileDashboardScreen() {
                   name={item.enabled ? "checkmark-circle" : "close-circle"}
                   size={18}
                   color={
-                    item.enabled ? Colors.light.success : Colors.light.destructive
+                    item.enabled
+                      ? Colors.light.success
+                      : Colors.light.destructive
                   }
                 />
                 <ThemedText type="small">{item.label}</ThemedText>

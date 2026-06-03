@@ -14,10 +14,13 @@ import MetricsOverview from "@/components/dashboard/MetricsOverview";
 import RecentActivity from "@/components/dashboard/RecentActivity";
 import UpcomingTrainings from "@/components/dashboard/UpcomingTrainings";
 import CertificationAlerts from "@/components/dashboard/CertificationAlerts";
+import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
+import { PageHeading } from "@/components/dashboard/page-heading";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
-import { getClubData } from "@/lib/simplified-db";
+import { getClubAthletes, getClubData } from "@/lib/simplified-db";
+import { getInvalidCertificatesForConvocatedAthletes } from "@/lib/match-certificate-warnings";
 import {
   Calendar,
   Clock,
@@ -62,6 +65,7 @@ interface Match {
   category: string;
   categoryColor?: string;
   status: string;
+  [key: string]: any;
 }
 
 export default function DashboardPage() {
@@ -73,6 +77,7 @@ export default function DashboardPage() {
   const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [todayNotes, setTodayNotes] = useState<Note[]>([]);
   const [todayMatches, setTodayMatches] = useState<Match[]>([]);
+  const [clubAthletes, setClubAthletes] = useState<any[]>([]);
 
   useEffect(() => {
     // Get club ID from URL query parameter or active organization
@@ -226,6 +231,9 @@ export default function DashboardPage() {
             }));
           setTodayMatches(todayMatchesList);
         }
+
+        const athletesData = await getClubAthletes(orgId);
+        setClubAthletes(Array.isArray(athletesData) ? athletesData : []);
       } catch (error) {
         console.warn("Error loading today's data:", error);
       }
@@ -235,17 +243,16 @@ export default function DashboardPage() {
   }, [router]);
 
   return (
-    <div className="flex flex-col gap-6 p-6 md:p-8 max-w-9xl mx-auto w-full bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 min-h-screen">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-          Dashboard
-        </h1>
-        <p className="text-gray-600 mt-2">
-          {clubInfo
+    <div className="mx-auto flex w-full max-w-9xl flex-col gap-6">
+      <PageHeading
+        title="Dashboard"
+        subtitle={
+          clubInfo
             ? `Benvenuto nella dashboard di ${clubInfo.name}`
-            : "Benvenuto nella dashboard di gestione del tuo club sportivo."}
-        </p>
-      </div>
+            : "Benvenuto nella dashboard di gestione del tuo club sportivo."
+        }
+        variant="home"
+      />
 
       <div className="space-y-6">
         <div className="space-y-6">
@@ -332,32 +339,49 @@ export default function DashboardPage() {
               <CardContent>
                 {todayMatches.length > 0 ? (
                   <div className="space-y-3 max-h-48 overflow-y-auto">
-                    {todayMatches.slice(0, 5).map((match) => (
-                      <div
-                        key={match.id}
-                        className="p-3 bg-white/10 rounded-lg backdrop-blur-sm"
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-medium">{match.title}</p>
-                            <p className="text-sm text-white/80 flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {match.time}
-                            </p>
-                            <p className="text-sm text-white/80 flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {match.location}
-                            </p>
+                    {todayMatches.slice(0, 5).map((match) => {
+                      const certificateWarning =
+                        getInvalidCertificatesForConvocatedAthletes(
+                          match,
+                          clubAthletes,
+                        );
+
+                      return (
+                        <div
+                          key={match.id}
+                          className="p-3 bg-white/10 rounded-lg backdrop-blur-sm"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-medium">{match.title}</p>
+                              <p className="text-sm text-white/80 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {match.time}
+                              </p>
+                              <p className="text-sm text-white/80 flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {match.location}
+                              </p>
+                              {certificateWarning.hasInvalidCertificates ? (
+                                <div className="mt-2">
+                                  <MatchCertificateWarningBadge
+                                    warning={certificateWarning}
+                                    compact
+                                    className="border-amber-100 bg-amber-100 text-amber-900"
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                            <Badge
+                              variant="secondary"
+                              className="bg-white/20 text-white text-xs"
+                            >
+                              {match.category}
+                            </Badge>
                           </div>
-                          <Badge
-                            variant="secondary"
-                            className="bg-white/20 text-white text-xs"
-                          >
-                            {match.category}
-                          </Badge>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-6 text-white/70">

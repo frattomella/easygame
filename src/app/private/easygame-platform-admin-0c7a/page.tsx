@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -200,8 +204,8 @@ export default function PlatformAdminPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="EasyGame Platform Admin" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-7xl">
             <div className="rounded-3xl border border-blue-100 bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 px-6 py-6 text-white shadow-xl">
               <div className="flex items-start justify-between gap-6">
                 <div className="space-y-2">
@@ -209,7 +213,9 @@ export default function PlatformAdminPage() {
                     <ShieldCheck className="h-4 w-4" />
                     Accesso riservato piattaforma
                   </div>
-                  <h1 className="text-3xl font-bold">Controllo globale EasyGame</h1>
+                  <h1 className="bg-gradient-to-r from-blue-200 to-purple-200 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">
+                    Controllo globale EasyGame
+                  </h1>
                   <p className="max-w-3xl text-sm text-blue-100/90">
                     Qui puoi monitorare club, account registrati e accessi
                     dell'applicazione. Il percorso è privato e accessibile solo
@@ -402,7 +408,7 @@ export default function PlatformAdminPage() {
                 </CardContent>
               </Card>
             </div>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

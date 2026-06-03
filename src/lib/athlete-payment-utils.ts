@@ -1,3 +1,21 @@
+import {
+  calculatePlanInstallmentsForTotal,
+  calculatePlanRequiredTotal,
+  calculateProratedTotal,
+  calculateSelectedOptionalServicesTotal,
+  calculatePlanTotal,
+  findPaymentPlan,
+  getEnrollmentStartDateFromAthlete,
+  getManualEnrollmentAmountFromAthlete,
+  getPlanServicesForAthlete,
+  getSelectedOptionalServiceIdsFromAthlete,
+  planAllowsDiscount,
+} from "@/lib/payment-plan-utils";
+import {
+  isPaymentExcludedFromTotals,
+  normalizePaymentAccountingStatus,
+} from "@/lib/payments/payment-status-utils";
+
 type NormalizedPaymentRecord = {
   id: string;
   date: string;
@@ -7,8 +25,12 @@ type NormalizedPaymentRecord = {
   type: string;
   amount: number;
   status: string;
-  statusKey: "paid" | "pending";
+  statusKey: "paid" | "pending" | "cancelled";
   method?: string | null;
+  notes?: string | null;
+  reference?: string | null;
+  data?: Record<string, any>;
+  raw?: Record<string, any>;
   source: "athlete_json" | "athlete_payment";
 };
 
@@ -94,8 +116,25 @@ const buildPaymentIdentityKey = (payment: NormalizedPaymentRecord) =>
     .filter(Boolean)
     .join("|");
 
-const normalizePaymentStatus = (value: unknown, paidAt?: unknown) => {
-  if (toTrimmedString(paidAt)) {
+const normalizePaymentStatus = (
+  value: unknown,
+  paidAt?: unknown,
+  data?: Record<string, any>,
+) => {
+  const accountingStatus = normalizePaymentAccountingStatus({
+    status: value,
+    paidAt,
+    data,
+  });
+
+  if (accountingStatus === "cancelled") {
+    return {
+      statusKey: "cancelled" as const,
+      status: "Annullato",
+    };
+  }
+
+  if (accountingStatus === "paid") {
     return {
       statusKey: "paid" as const,
       status: "Pagato",
@@ -103,21 +142,12 @@ const normalizePaymentStatus = (value: unknown, paidAt?: unknown) => {
   }
 
   const normalized = toLowerText(value);
-  if (
-    normalized.includes("pagat") ||
-    normalized === "paid" ||
-    normalized === "completed" ||
-    normalized === "saldato"
-  ) {
-    return {
-      statusKey: "paid" as const,
-      status: "Pagato",
-    };
-  }
-
   return {
     statusKey: "pending" as const,
-    status: normalized ? "Da incassare" : "Da incassare",
+    status:
+      normalized.includes("scad") || normalized === "overdue"
+        ? "Scaduto"
+        : "Da incassare",
   };
 };
 
@@ -141,12 +171,13 @@ const normalizeStoredPayment = (
     "Pagamento atleta",
   );
   const amount = getFirstPositiveNumber(record.amount, record.value, record.total);
+  const data = getRecord(record.data);
 
   if (!description || amount <= 0) {
     return null;
   }
 
-  const normalizedStatus = normalizePaymentStatus(record.status, paidAt);
+  const normalizedStatus = normalizePaymentStatus(record.status, paidAt, data);
 
   return {
     id:
@@ -161,6 +192,10 @@ const normalizeStoredPayment = (
     status: normalizedStatus.status,
     statusKey: normalizedStatus.statusKey,
     method: getFirstString(record.method) || null,
+    notes: getFirstString(record.notes, data.notes) || null,
+    reference: getFirstString(record.reference, data.reference) || null,
+    data,
+    raw: record,
     source,
   };
 };
@@ -250,25 +285,7 @@ const resolvePlanBaseAmount = (plan: Record<string, any>) => {
 };
 
 const resolveSelectedPlan = (selectedPlan: unknown, paymentPlans: any[] = []) => {
-  const normalizedSelectedPlan = toLowerText(selectedPlan);
-  if (!normalizedSelectedPlan) {
-    return null;
-  }
-
-  return (
-    paymentPlans.find((plan) => {
-      const record = getRecord(plan);
-      return [
-        record.id,
-        record.name,
-        record.title,
-        record.code,
-      ]
-        .map((value) => toLowerText(value))
-        .filter(Boolean)
-        .includes(normalizedSelectedPlan);
-    }) || null
-  );
+  return findPaymentPlan(selectedPlan, paymentPlans);
 };
 
 const resolveSelectedDiscounts = (
@@ -467,20 +484,51 @@ export const calculateAthleteExpectedIncome = ({
   expectedIncomeEntries = [],
 }: AthleteIncomeSummaryInput) => {
   const record = getRecord(athlete);
-  const selectedPlan = resolveSelectedPlan(record.selectedPlan, paymentPlans);
-  const selectedDiscounts = resolveSelectedDiscounts(record.discount, discounts);
+  const selectedPlan = resolveSelectedPlan(
+    record.selectedPlan || record.selectedPlanId || record.selected_plan_id,
+    paymentPlans,
+  );
   const normalizedPayments = mergeAthletePayments(payments, []);
-  const planRecord = selectedPlan ? getRecord(selectedPlan) : null;
-  const installments = planRecord ? normalizeInstallments(planRecord) : [];
+  const planRecord = selectedPlan;
+  const selectedOptionalServiceIds =
+    getSelectedOptionalServiceIdsFromAthlete(record);
+  const enrollmentDate = getFirstString(
+    record.enrollmentDate,
+    record.enrollment_date,
+    getRecord(record.data).enrollmentDate,
+    getRecord(record.data).enrollment_date,
+  );
+  const enrollmentStartDate = getEnrollmentStartDateFromAthlete(record);
+  const manualEnrollmentAmount = getManualEnrollmentAmountFromAthlete(record);
+  const selectedDiscounts = resolveSelectedDiscounts(record.discount, discounts);
+  const applicableSelectedDiscounts = selectedDiscounts.filter((discount) =>
+    planAllowsDiscount(planRecord, discount),
+  );
+  const includedServices = planRecord
+    ? getPlanServicesForAthlete(planRecord, selectedOptionalServiceIds)
+    : [];
 
-  const planBaseAmount = planRecord ? resolvePlanBaseAmount(planRecord) : 0;
+  const planBaseAmount = planRecord
+    ? calculatePlanTotal(planRecord, { selectedOptionalServiceIds })
+    : 0;
+  const proratedPlanTotal = planRecord
+    ? calculateProratedTotal({
+        total: planBaseAmount,
+        proration: planRecord.proration,
+        startDate: enrollmentStartDate,
+        manualOverride: manualEnrollmentAmount,
+      })
+    : null;
   const expectedIncomeFallback =
     planBaseAmount > 0
       ? 0
       : resolveExpectedIncomeFallback(expectedIncomeEntries, record, athleteId);
-  const grossAmount = planBaseAmount > 0 ? planBaseAmount : expectedIncomeFallback;
+  const grossAmount =
+    planBaseAmount > 0
+      ? proratedPlanTotal?.total ?? planBaseAmount
+      : expectedIncomeFallback;
 
-  const appliedDiscounts = selectedDiscounts
+  const appliedDiscounts = applicableSelectedDiscounts
     .map((discount) => calculateDiscountAmount(grossAmount, discount))
     .filter(Boolean) as AppliedDiscountSummary[];
   const totalDiscounts = appliedDiscounts.reduce(
@@ -488,14 +536,22 @@ export const calculateAthleteExpectedIncome = ({
     0,
   );
   const expectedTotal = Math.max(0, Number((grossAmount - totalDiscounts).toFixed(2)));
+  const installments = planRecord
+    ? calculatePlanInstallmentsForTotal(planRecord, expectedTotal, {
+        startDate: enrollmentStartDate,
+      })
+    : [];
 
-  const recordedPaid = normalizedPayments
+  const accountingPayments = normalizedPayments.filter(
+    (payment) => !isPaymentExcludedFromTotals(payment),
+  );
+  const recordedPaid = accountingPayments
     .filter((payment) => payment.statusKey === "paid")
     .reduce((total, payment) => total + payment.amount, 0);
-  const recordedPending = normalizedPayments
-    .filter((payment) => payment.statusKey !== "paid")
+  const recordedPending = accountingPayments
+    .filter((payment) => payment.statusKey === "pending")
     .reduce((total, payment) => total + payment.amount, 0);
-  const recordedTotal = normalizedPayments.reduce(
+  const recordedTotal = accountingPayments.reduce(
     (total, payment) => total + payment.amount,
     0,
   );
@@ -511,7 +567,27 @@ export const calculateAthleteExpectedIncome = ({
         : expectedIncomeFallback > 0
           ? "expected_income"
           : "manual",
-    planName: getFirstString(planRecord?.name, planRecord?.title, record.selectedPlan) || null,
+    planId: getFirstString(planRecord?.id) || null,
+    planName: getFirstString(planRecord?.name, planRecord?.raw?.title, record.selectedPlan) || null,
+    planDescription: getFirstString(planRecord?.description) || null,
+    services: includedServices,
+    allPlanServices: planRecord?.services || [],
+    selectedOptionalServiceIds,
+    enrollmentDate: enrollmentDate || null,
+    subscriptionStartDate: enrollmentStartDate,
+    enrollmentStartDate,
+    manualEnrollmentAmount,
+    proration: planRecord?.proration || null,
+    prorationResult: proratedPlanTotal,
+    requiredServicesTotal: planRecord ? calculatePlanRequiredTotal(planRecord) : 0,
+    selectedOptionalServicesTotal: planRecord
+      ? calculateSelectedOptionalServicesTotal(
+          planRecord,
+          selectedOptionalServiceIds,
+        )
+      : 0,
+    planNotes: getFirstString(planRecord?.notes) || null,
+    applicableDiscountIds: planRecord?.applicableDiscountIds || [],
     grossAmount,
     totalDiscounts: Number(totalDiscounts.toFixed(2)),
     expectedTotal,
@@ -524,3 +600,6 @@ export const calculateAthleteExpectedIncome = ({
     payments: normalizedPayments,
   };
 };
+
+export const calculateAthleteEnrollmentPaymentSummary =
+  calculateAthleteExpectedIncome;

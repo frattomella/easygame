@@ -11,6 +11,11 @@ import { ArrowLeft, Save, UserPlus } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 
 function NewSocioPageContent() {
@@ -152,8 +157,8 @@ function NewSocioPageContent() {
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-3xl">
             <div className="flex items-center gap-4 mb-6">
               <Button
                 variant="outline"
@@ -163,14 +168,11 @@ function NewSocioPageContent() {
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Indietro
               </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Nuovo Socio
-                </h1>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Aggiungi un nuovo socio all'associazione
-                </p>
-              </div>
+              <SharedPageHeader
+                title="Nuovo Socio"
+                subtitle="Aggiungi un nuovo socio all'associazione"
+                className="flex-1"
+              />
             </div>
 
             <Card>
@@ -356,7 +358,7 @@ function NewSocioPageContent() {
                 </form>
               </CardContent>
             </Card>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

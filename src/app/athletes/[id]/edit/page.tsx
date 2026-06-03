@@ -3,6 +3,10 @@
 import React, { useState } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -174,8 +178,8 @@ export default function EditAthletePage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Modifica Atleta" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-7xl">
             <div className="flex justify-between items-center">
               <Button
                 variant="outline"
@@ -600,7 +604,7 @@ export default function EditAthletePage() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

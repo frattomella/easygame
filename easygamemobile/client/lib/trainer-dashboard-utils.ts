@@ -42,11 +42,15 @@ export const formatMobileMatchLocationLabel = (
     return "Luogo da definire";
   }
 
-  const structureName = String(match.structureName || match.structure || "").trim();
+  const structureName = String(
+    match.structureName || match.structure || "",
+  ).trim();
   const fieldName = String(match.fieldName || match.field || "").trim();
   const fallbackLocation = String(match.location || "").trim();
 
-  const structuredLocation = [structureName, fieldName].filter(Boolean).join(" - ");
+  const structuredLocation = [structureName, fieldName]
+    .filter(Boolean)
+    .join(" - ");
   if (structuredLocation) {
     return structuredLocation;
   }

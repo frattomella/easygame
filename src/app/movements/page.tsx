@@ -3,6 +3,11 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -718,12 +723,12 @@ export default function MovementsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Movimenti Finanziari" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-9xl space-y-6">
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer>
               <div className="flex justify-center items-center h-64">
                 <div className="text-lg">Caricamento dati finanziari...</div>
               </div>
-            </div>
+            </DashboardPageContainer>
           </main>
         </div>
       </div>
@@ -736,16 +741,12 @@ export default function MovementsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Movimenti Finanziari" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-9xl space-y-6">
-              <div className="space-y-2">
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Movimenti Finanziari
-                </h1>
-                <p className="text-gray-600 mt-2">
-                  Monitora entrate, uscite e bilanci del club.
-                </p>
-              </div>
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer>
+              <SharedPageHeader
+                title="Movimenti Finanziari"
+                subtitle="Monitora entrate, uscite e bilanci del club."
+              />
 
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1201,7 +1202,7 @@ export default function MovementsPage() {
                   </TabsContent>
                 </Tabs>
               </div>
-            </div>
+            </DashboardPageContainer>
           </main>
         </div>
 

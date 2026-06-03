@@ -4,6 +4,11 @@ import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +32,7 @@ import {
   Eye,
   EyeOff,
   Upload,
+  BarChart3,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
 import {
@@ -1250,16 +1256,12 @@ export default function AthletesPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Atleti" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Atleti
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Gestisci gli atleti tesserati del tuo club.
-              </p>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Atleti"
+              subtitle="Gestisci gli atleti tesserati del tuo club."
+            />
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div className="relative w-full sm:w-auto">
                 <Input
@@ -1332,6 +1334,14 @@ export default function AthletesPage() {
                 >
                   <Settings className="h-4 w-4 mr-2" />
                   Personalizza Colonne
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => router.push("/reports?report=categories")}
+                >
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                  Report categorie
                 </Button>
                 <Button
                   variant="outline"
@@ -1794,19 +1804,40 @@ export default function AthletesPage() {
                         open={!isCollapsed}
                         onOpenChange={() => toggleCategoryCollapse(category.id)}
                       >
-                        <CollapsibleTrigger asChild>
-                          <CardHeader className="pb-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                            <CardTitle className="flex items-center gap-2">
-                              {isCollapsed ? (
-                                <ChevronRight className="h-5 w-5 text-gray-500" />
-                              ) : (
-                                <ChevronDown className="h-5 w-5 text-gray-500" />
-                              )}
-                              <span className="inline-block w-3 h-3 rounded-full bg-blue-500"></span>
-                              {category.name} ({categoryAthletes.length})
-                            </CardTitle>
-                          </CardHeader>
-                        </CollapsibleTrigger>
+                        <CardHeader className="pb-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <CollapsibleTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                              >
+                                <CardTitle className="flex items-center gap-2">
+                                  {isCollapsed ? (
+                                    <ChevronRight className="h-5 w-5 text-gray-500" />
+                                  ) : (
+                                    <ChevronDown className="h-5 w-5 text-gray-500" />
+                                  )}
+                                  <span className="inline-block w-3 h-3 rounded-full bg-blue-500"></span>
+                                  {category.name} ({categoryAthletes.length})
+                                </CardTitle>
+                              </button>
+                            </CollapsibleTrigger>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full sm:w-auto"
+                              disabled={category.id === UNCATEGORIZED_CATEGORY_ID}
+                              onClick={() =>
+                                router.push(
+                                  `/reports?report=categories&categoryId=${encodeURIComponent(category.id)}`,
+                                )
+                              }
+                            >
+                              <BarChart3 className="h-4 w-4 mr-2" />
+                              Report
+                            </Button>
+                          </div>
+                        </CardHeader>
                         <CollapsibleContent>
                           <CardContent>
                             {renderAthleteTable(categoryAthletes)}
@@ -1818,7 +1849,7 @@ export default function AthletesPage() {
                 })}
               </div>
             )}
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

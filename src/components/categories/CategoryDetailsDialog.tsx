@@ -35,7 +35,7 @@ export function CategoryDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl [&>button]:hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between gap-3">
             <span>Informazioni Categoria {category.name}</span>

@@ -3,14 +3,18 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ClubPersonDetailHeader } from "@/components/club/ClubPersonDetailHeader";
 import {
   Calendar,
   Mail,
@@ -267,7 +271,7 @@ export default function StaffMemberDetailsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Dettaglio Membro Staff" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex justify-center items-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
             </div>
@@ -284,7 +288,7 @@ export default function StaffMemberDetailsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Membro Staff Non Trovato" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex flex-col items-center justify-center py-8">
               <h2 className="text-xl font-semibold mb-4">
                 Membro dello staff non trovato
@@ -304,64 +308,44 @@ export default function StaffMemberDetailsPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Dettaglio Membro Staff" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
-            {/* Header with avatar and actions */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div className="flex items-center gap-4">
-                <AvatarUpload
-                  currentImage={staffMember.avatar}
-                  onImageChange={async (imageData) => {
-                    const newAvatar = imageData || null;
-                    setStaffMember({ ...staffMember, avatar: newAvatar });
-                    
-                    // Save to database immediately
-                    if (clubId && staffId) {
-                      try {
-                        const { updateClubDataItem } = await import("@/lib/simplified-db");
-                        await updateClubDataItem(clubId, "staff_members", staffId, { avatar: newAvatar });
-                        showToast("success", "Foto profilo aggiornata");
-                      } catch (error) {
-                        console.error("Error saving avatar:", error);
-                        showToast("error", "Errore nel salvataggio della foto");
-                      }
-                    }
-                  }}
-                  name={
-                    staffMember.fullName ||
-                    `${staffMember.name} ${staffMember.surname || ""}`.trim()
-                  }
-                  size="lg"
-                  type="staff"
-                />
-                <div>
-                  <h1 className="text-2xl font-bold">
-                    {staffMember.fullName ||
-                      `${staffMember.name} ${staffMember.surname}`.trim()}
-                  </h1>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge className="bg-blue-500 text-white">
-                      {staffMember.role}
-                    </Badge>
-                    {staffMember.department && (
-                      <Badge variant="outline">
-                        {staffMember.department}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2 w-full md:w-auto">
-                <Button variant="outline" className="flex-1 md:flex-none" onClick={handleShareCredentials}>
-                  <Share2 className="h-4 w-4 mr-2" />
-                  Invia Credenziali
-                </Button>
-                <Button variant="destructive" className="flex-1 md:flex-none" onClick={handleDeleteStaffMember}>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Elimina
-                </Button>
-              </div>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-7xl">
+            <ClubPersonDetailHeader
+              title={
+                staffMember.fullName ||
+                `${staffMember.name} ${staffMember.surname}`.trim()
+              }
+              iconType="staff"
+              badges={[
+                {
+                  label: staffMember.role,
+                  className: "bg-blue-500 text-white",
+                },
+                ...(staffMember.department
+                  ? [{ label: staffMember.department, variant: "outline" as const }]
+                  : []),
+              ]}
+              actions={
+                <>
+                  <Button
+                    variant="outline"
+                    className="flex-1 md:flex-none"
+                    onClick={handleShareCredentials}
+                  >
+                    <Share2 className="h-4 w-4 mr-2" />
+                    Invia Credenziali
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1 md:flex-none"
+                    onClick={handleDeleteStaffMember}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Elimina
+                  </Button>
+                </>
+              }
+            />
 
             {/* Tabs for different sections */}
             <Tabs defaultValue="anagrafica">
@@ -591,7 +575,7 @@ export default function StaffMemberDetailsPage() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

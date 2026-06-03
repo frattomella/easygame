@@ -3,17 +3,24 @@
 import React, { useState, useEffect, memo, useMemo, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { supabase, cachedQuery } from "@/lib/supabase";
 import { debounce, memoize } from "@/lib/performance";
 import {
+  getClubAthletes,
   getClubCategories,
   getClubTrainers,
   getClubTrainings,
 } from "@/lib/simplified-db";
 import {
+  athleteMatchesAnyCategory,
+  buildClubCategoryOptions,
+} from "@/lib/category-utils";
+import {
   compareTrainingsByStart,
   dedupeTrainings,
+  getTrainingCategoryReferences,
   getTrainingCategoryColor,
   getTrainingCategoryLabel,
   getTrainingDate,
@@ -43,6 +50,7 @@ interface TrainingSession {
   attendees: number;
   categoryColor: string;
   expectedAttendees?: number;
+  categoryReferences?: string[];
   status?: "upcoming" | "completed" | "cancelled" | "annullato" | "concluded";
   attendanceStatus?: "saved" | "pending" | "none";
 }
@@ -81,10 +89,38 @@ const normalizeTrainingText = (value: unknown): string | null => {
 
 const normalizeTrainingSession = (
   training: any,
-  options?: { categories?: any[]; trainers?: any[] },
+  options?: { categories?: any[]; trainers?: any[]; athletes?: any[] },
 ): TrainingSession => {
   const source =
     training?.data && typeof training.data === "object" ? training.data : {};
+  const categoryReferences = getTrainingCategoryReferences(training);
+  const categoryOptions = buildClubCategoryOptions({
+    clubCategories: options?.categories || [],
+    athletes: options?.athletes || [],
+  });
+  const matchedCategoryOptions = categoryReferences
+    .map((reference) => {
+      const normalizedReference = String(reference || "").trim().toLowerCase();
+      return categoryOptions.find(
+        (category) =>
+          String(category.id || "").trim().toLowerCase() ===
+            normalizedReference ||
+          String(category.name || "").trim().toLowerCase() ===
+            normalizedReference,
+      );
+    })
+    .filter(Boolean) as Array<{ id: string; name: string }>;
+  const categoryCandidates =
+    matchedCategoryOptions.length > 0
+      ? matchedCategoryOptions
+      : categoryReferences.length > 0
+        ? categoryReferences
+        : [getTrainingCategoryLabel(training, options?.categories || [])];
+  const categoryAthleteCount = Array.isArray(options?.athletes)
+    ? options.athletes.filter((athlete) =>
+        athleteMatchesAnyCategory(athlete, categoryCandidates),
+      ).length
+    : 0;
 
   return {
     id: String(
@@ -113,11 +149,14 @@ const normalizeTrainingSession = (
       options?.categories || [],
     ),
     expectedAttendees:
-      typeof training?.expectedAttendees === "number"
+      categoryAthleteCount > 0
+        ? categoryAthleteCount
+        : typeof training?.expectedAttendees === "number"
         ? training.expectedAttendees
         : typeof training?.expected_attendees === "number"
           ? training.expected_attendees
           : 0,
+    categoryReferences,
     status: training?.status || "upcoming",
     attendanceStatus:
       training?.attendanceStatus || training?.attendance_status || "none",
@@ -150,17 +189,19 @@ const UpcomingTrainings = memo(
           try {
             // Use cached query for better performance
             const result = await cachedQuery(`trainings-${orgId}`, async () => {
-              const [trainingsData, categoriesData, trainersData] =
+              const [trainingsData, categoriesData, trainersData, athletesData] =
                 await Promise.all([
                   getClubTrainings(orgId),
                   getClubCategories(orgId),
                   getClubTrainers(orgId),
+                  getClubAthletes(orgId),
                 ]);
 
               return {
                 trainingsData,
                 categoriesData,
                 trainersData,
+                athletesData,
               };
             });
 
@@ -176,6 +217,9 @@ const UpcomingTrainings = memo(
                       : [],
                     trainers: Array.isArray(result.trainersData)
                       ? result.trainersData
+                      : [],
+                    athletes: Array.isArray(result.athletesData)
+                      ? result.athletesData
                       : [],
                   }),
                 )
@@ -339,10 +383,44 @@ const TrainingCard = memo(
     { name: string; present: boolean }[]
   >([]);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const presentCount =
+    attendanceData.length > 0
+      ? attendanceData.filter((athlete) => athlete.present).length
+      : training.attendees;
+  const attendanceTotal =
+    typeof training.expectedAttendees === "number" &&
+    training.expectedAttendees > 0
+      ? training.expectedAttendees
+      : attendanceData.length > 0
+        ? attendanceData.length
+        : 0;
+  const attendanceTotalLabel = attendanceTotal > 0 ? attendanceTotal : "-";
+  const attendanceRatio = `${presentCount}/${attendanceTotalLabel}`;
 
   const toggleAttendance = useCallback(() => {
     setShowAttendance((prev) => !prev);
   }, []);
+  const openAttendanceManagement = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams({
+      focus: "attendance",
+      trainingId: training.id,
+    });
+    const trainingDateTime = training.date.getTime();
+
+    if (!Number.isNaN(trainingDateTime)) {
+      params.set("date", training.date.toISOString().slice(0, 10));
+    }
+
+    if (organizationId) {
+      params.set("clubId", organizationId);
+    }
+
+    window.location.href = `/training?${params.toString()}`;
+  }, [organizationId, training.date, training.id]);
 
   useEffect(() => {
     // Only fetch attendance data if the user expands the attendance section
@@ -395,14 +473,25 @@ const TrainingCard = memo(
 
   return (
     <div className="p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
-      <div className="flex justify-between items-start mb-2">
-        <h4 className="font-medium">{training.title}</h4>
-        <Badge
-          variant="secondary"
-          className={cn("text-xs", training.categoryColor)}
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge
+            variant="secondary"
+            className={cn("shrink-0 text-xs", training.categoryColor)}
+          >
+            {training.category}
+          </Badge>
+          <h4 className="truncate font-medium">{training.title}</h4>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 shrink-0 px-2 text-xs"
+          onClick={openAttendanceManagement}
         >
-          {training.category}
-        </Badge>
+          Presenze
+        </Button>
       </div>
       <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
         <div className="flex items-center gap-2">
@@ -416,10 +505,7 @@ const TrainingCard = memo(
         <div className="flex items-center gap-2">
           <Users className="h-3.5 w-3.5" />
           <span>
-            {training.trainer} · {training.attendees} atleti ·{" "}
-            <span className="text-green-600">
-              {training.expectedAttendees || training.attendees} previsti
-            </span>
+            {training.trainer} · {attendanceRatio} Atleti
             {training.status && training.status !== "upcoming" && (
               <span className="ml-1 text-blue-600">
                 ·{" "}
@@ -454,7 +540,10 @@ const TrainingCard = memo(
                       <p className="font-medium">
                         Presenze:{" "}
                         {attendanceData.filter((a) => a.present).length}/
-                        {attendanceData.length}
+                        {Math.max(
+                          training.expectedAttendees || 0,
+                          attendanceData.length,
+                        )}
                       </p>
                       {attendanceData.map((athlete, idx) => (
                         <div key={idx} className="flex items-center gap-1">

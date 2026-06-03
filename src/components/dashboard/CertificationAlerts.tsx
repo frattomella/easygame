@@ -8,9 +8,13 @@ import { AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/api/client";
+import { toast } from "@/components/ui/use-toast";
 
 interface CertificationAlert {
   id: string;
+  athleteId?: string;
+  certificateId?: string | null;
   athleteName: string;
   certificateType: string;
   expiryDate: string;
@@ -21,7 +25,7 @@ interface CertificationAlertsProps {
   alerts?: CertificationAlert[];
   onViewAll?: () => void;
   onViewAthlete?: (id: string) => void;
-  onSendReminder?: (id: string) => boolean | void;
+  onSendReminder?: (id: string) => boolean | void | Promise<boolean | void>;
   isLoading?: boolean;
   organizationId?: string | null;
   showEmptyState?: boolean;
@@ -34,11 +38,8 @@ const EMPTY_CERTIFICATION_ALERTS: CertificationAlert[] = [];
 const CertificationAlerts = ({
   alerts = EMPTY_CERTIFICATION_ALERTS,
   onViewAll = () => console.log("View all alerts"),
-  onViewAthlete = (id) => console.log(`View athlete ${id}`),
-  onSendReminder = (id) => {
-    console.log(`Send reminder to athlete ${id}`);
-    return true; // Return true to indicate success
-  },
+  onViewAthlete,
+  onSendReminder,
   isLoading = false,
   organizationId = null,
   showEmptyState = false,
@@ -49,6 +50,9 @@ const CertificationAlerts = ({
   const [loadedAlerts, setLoadedAlerts] =
     useState<CertificationAlert[]>(alerts);
   const [loading, setLoading] = useState(isLoading);
+  const [reminderLoadingIds, setReminderLoadingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const MAX_VISIBLE_ALERTS = 6;
   const alertsRef = React.useRef(alerts);
   const alertsSignature = React.useMemo(
@@ -57,6 +61,8 @@ const CertificationAlerts = ({
         .map((alert) =>
           [
             alert.id,
+            alert.athleteId,
+            alert.certificateId,
             alert.athleteName,
             alert.certificateType,
             alert.expiryDate,
@@ -176,7 +182,9 @@ const CertificationAlerts = ({
               }
 
               return {
-                id: cert.athletes.id,
+                id: cert.id,
+                athleteId: cert.athletes.id,
+                certificateId: cert.id,
                 athleteName: `${cert.athletes.first_name} ${cert.athletes.last_name}`,
                 certificateType: cert.type || "Certificato Medico",
                 expiryDate: cert.expiry_date,
@@ -201,6 +209,8 @@ const CertificationAlerts = ({
           const noCertificateAlerts = athletesWithoutCertificates.map(
             (athlete) => ({
               id: athlete.id,
+              athleteId: athlete.id,
+              certificateId: null,
               athleteName: `${athlete.first_name} ${athlete.last_name}`,
               certificateType: "Certificato Medico Mancante",
               expiryDate: "",
@@ -298,31 +308,72 @@ const CertificationAlerts = ({
     });
   };
 
-  const handleSendReminder = (id: string, athleteName: string) => {
-    const result = onSendReminder(id);
-    if (result !== false) {
-      // Show success toast directly using the useToast hook
-      if (typeof document !== "undefined") {
-        // Try to use the custom event first for backward compatibility
-        try {
-          const event = new CustomEvent("show-toast", {
-            detail: {
-              type: "success",
-              message: `Promemoria inviato a ${athleteName}`,
-            },
-          });
-          document.dispatchEvent(event);
-        } catch (error) {
-          console.log(`Promemoria inviato a ${athleteName}`);
-        }
+  const handleViewAthlete = (alert: CertificationAlert) => {
+    const athleteId = alert.athleteId || alert.id;
+
+    if (onViewAthlete) {
+      onViewAthlete(athleteId);
+      return;
+    }
+
+    const query = organizationId ? `?clubId=${organizationId}&tab=sanitari` : "?tab=sanitari";
+    router.push(`/athletes/${athleteId}${query}#sanitari`);
+  };
+
+  const handleSendReminder = async (alert: CertificationAlert) => {
+    const athleteId = alert.athleteId || alert.id;
+    setReminderLoadingIds((current) => new Set(current).add(alert.id));
+
+    try {
+      if (onSendReminder) {
+        const result = await onSendReminder(athleteId);
+        if (result === false) return;
+        toast({
+          title: "Promemoria inviato",
+          description: `Promemoria inviato a ${alert.athleteName}`,
+        });
+        return;
       }
 
-      // Send an email notification (simulated)
-      setTimeout(() => {
-        console.log(
-          `Email di promemoria inviata a ${athleteName} per il certificato in scadenza`,
-        );
-      }, 1000);
+      const response = await apiRequest<{
+        created: number;
+        skipped: number;
+        recipients: number;
+      }>("/api/medical-certificate-reminders", {
+        method: "POST",
+        body: {
+          athleteId,
+          certificateId: alert.certificateId,
+          organizationId,
+        },
+      });
+
+      if (response.error) {
+        toast({
+          title: "Promemoria non inviato",
+          description: response.error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const created = response.data?.created || 0;
+      const skipped = response.data?.skipped || 0;
+      toast({
+        title: created > 0 ? "Promemoria inviato" : "Promemoria già presente",
+        description:
+          created > 0
+            ? `${created} notifica${created === 1 ? "" : "e"} inviata${created === 1 ? "" : "e"} ai contatti collegati.`
+            : skipped > 0
+              ? "Esiste già un promemoria non letto per questo certificato."
+              : "Nessun nuovo promemoria creato.",
+      });
+    } finally {
+      setReminderLoadingIds((current) => {
+        const next = new Set(current);
+        next.delete(alert.id);
+        return next;
+      });
     }
   };
 
@@ -450,9 +501,9 @@ const CertificationAlerts = ({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onViewAthlete(alert.id)}
+                        onClick={() => handleViewAthlete(alert)}
                       >
-                        Vedi Profilo
+                        Vedi
                       </Button>
                       {(alert.status === "expired" ||
                         alert.status === "expiring" ||
@@ -460,11 +511,12 @@ const CertificationAlerts = ({
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={() =>
-                            handleSendReminder(alert.id, alert.athleteName)
-                          }
+                          onClick={() => handleSendReminder(alert)}
+                          disabled={reminderLoadingIds.has(alert.id)}
                         >
-                          Invia Promemoria
+                          {reminderLoadingIds.has(alert.id)
+                            ? "Invio..."
+                            : "Invia Promemoria"}
                         </Button>
                       )}
                     </div>

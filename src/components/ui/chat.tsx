@@ -435,7 +435,7 @@ const mockMessages: Record<string, Message[]> = {
   ],
 };
 
-export function ChatButton() {
+export function ChatButton({ className = "relative" }: { className?: string }) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -443,7 +443,7 @@ export function ChatButton() {
       <Button
         variant="ghost"
         size="icon"
-        className="relative"
+        className={className}
         onClick={() => setIsOpen(true)}
         title="Chat"
       >

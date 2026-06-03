@@ -8,6 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast-notification";
 
+const currentYear = new Date().getFullYear();
+const birthYearOptions = Array.from({ length: 80 }, (_, index) =>
+  String(currentYear - index),
+);
+
 interface CategoryEditorDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -201,32 +206,44 @@ export function CategoryEditorDialog({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="birthYearFrom">Anno di nascita dal</Label>
-            <Input
+            <select
               id="birthYearFrom"
               name="birthYearFrom"
-              type="number"
-              min="1900"
-              max="2100"
               value={formData.birthYearFrom}
               onChange={handleChange}
-              placeholder="Es. 2012"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
               required
-            />
+            >
+              <option value="" disabled>
+                Seleziona anno
+              </option>
+              {birthYearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="birthYearTo">Anno di nascita al</Label>
-            <Input
+            <select
               id="birthYearTo"
               name="birthYearTo"
-              type="number"
-              min="1900"
-              max="2100"
               value={formData.birthYearTo}
               onChange={handleChange}
-              placeholder="Es. 2014"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
               required
-            />
+            >
+              <option value="" disabled>
+                Seleziona anno
+              </option>
+              {birthYearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

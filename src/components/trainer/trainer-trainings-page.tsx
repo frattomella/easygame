@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { saveTrainingAttendance, updateClubDataItem } from "@/lib/simplified-db";
 import { useToast } from "@/components/ui/toast-notification";
 import { dedupeTrainings, getTrainingStableKey } from "@/lib/training-utils";
+import { PageHeading } from "@/components/dashboard/page-heading";
 
 export default function TrainerTrainingsPage() {
   const { activeClub, assignedAthletes, permissions, reload, visibleTrainings } =
@@ -59,14 +60,10 @@ export default function TrainerTrainingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-          Allenamenti
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Visualizzi e gestisci solo gli allenamenti delle categorie assegnate al trainer.
-        </p>
-      </div>
+      <PageHeading
+        title="Allenamenti"
+        subtitle="Visualizzi e gestisci solo gli allenamenti delle categorie assegnate al trainer."
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-white shadow-md border-0 overflow-hidden">

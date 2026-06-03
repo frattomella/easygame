@@ -71,10 +71,7 @@ export default function NotificationsScreen() {
                 <ThemedText type="body" style={styles.cardTitle}>
                   {notification.title}
                 </ThemedText>
-                <ThemedText
-                  type="small"
-                  style={{ color: theme.textSecondary }}
-                >
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
                   {notification.dueDate
                     ? formatItalianDate(notification.dueDate, "d MMM yyyy")
                     : "Senza scadenza"}

@@ -292,7 +292,7 @@ export function LogoUpload({
     <div className={cn("relative", className)}>
       <div
         className={cn(
-          "relative cursor-pointer transition-all duration-200 border-2 border-dashed rounded-lg overflow-hidden",
+          "relative cursor-pointer transition-all duration-200 border-2 border-dashed rounded-lg overflow-visible",
           aspectRatio === "square" ? "w-32 h-32" : "w-48 h-24",
           isDragging ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "border-gray-300 dark:border-gray-600",
           isHovering && !disabled && "border-blue-400 bg-gray-50 dark:bg-gray-800",
@@ -338,7 +338,7 @@ export function LogoUpload({
           <Button
             variant="destructive"
             size="icon"
-            className="absolute -top-2 -right-2 h-6 w-6 rounded-full shadow-lg"
+            className="absolute -right-2 -top-2 z-20 h-6 w-6 rounded-full shadow-lg"
             onClick={handleRemove}
           >
             <X className="h-3 w-3" />

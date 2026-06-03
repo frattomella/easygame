@@ -1,11 +1,5 @@
 import React, { useState, useEffect } from "react";
-import {
-  View,
-  StyleSheet,
-  FlatList,
-  Modal,
-  Pressable,
-} from "react-native";
+import { View, StyleSheet, FlatList, Modal, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -140,9 +134,7 @@ export default function ContextSelectionScreen() {
         ListHeaderComponent={
           <>
             {ownedClubs.length > 0 ? (
-              <Animated.View
-                entering={FadeInDown.delay(100).duration(400)}
-              >
+              <Animated.View entering={FadeInDown.delay(100).duration(400)}>
                 <ThemedText
                   type="small"
                   style={[styles.sectionTitle, { color: theme.textSecondary }]}
@@ -157,9 +149,7 @@ export default function ContextSelectionScreen() {
               </Animated.View>
             ) : null}
 
-            <Animated.View
-              entering={FadeInDown.delay(200).duration(400)}
-            >
+            <Animated.View entering={FadeInDown.delay(200).duration(400)}>
               <View style={styles.sectionHeader}>
                 <ThemedText
                   type="small"
@@ -211,7 +201,10 @@ export default function ContextSelectionScreen() {
           onPress={() => setShowTokenModal(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}
+            style={[
+              styles.modalContent,
+              { backgroundColor: theme.backgroundDefault },
+            ]}
             onPress={(e) => e.stopPropagation()}
           >
             <ThemedText type="h4" style={styles.modalTitle}>

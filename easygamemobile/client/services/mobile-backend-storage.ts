@@ -72,10 +72,11 @@ const toRecord = (value: unknown) =>
 const toArray = <T = any>(value: unknown): T[] =>
   Array.isArray(value) ? (value as T[]) : [];
 
-const compact = <T,>(value: Array<T | null | undefined | false>) =>
+const compact = <T>(value: (T | null | undefined | false)[]) =>
   value.filter(Boolean) as T[];
 
-const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
+const unique = (values: string[]) =>
+  Array.from(new Set(values.filter(Boolean)));
 
 const roleHasFullClubAccess = (role?: string | null) =>
   role === "owner" || role === "admin";
@@ -161,10 +162,9 @@ const buildClubPayload = (
   },
 });
 
-const mapMembershipToClub = (
-  membership: MembershipRecord,
-): Club => {
-  const organization = membership.organization || membership.organizations || {};
+const mapMembershipToClub = (membership: MembershipRecord): Club => {
+  const organization =
+    membership.organization || membership.organizations || {};
 
   return {
     id: membership.organization_id,
@@ -204,7 +204,8 @@ const mapCategory = (rawCategory: any): ClubCategorySummary | null => {
   const birthYearsLabel =
     Number.isFinite(startYear) && Number.isFinite(endYear)
       ? `${startYear}-${endYear}`
-      : String(data.birthYearsLabel || data.birthYears || "").trim() || undefined;
+      : String(data.birthYearsLabel || data.birthYears || "").trim() ||
+        undefined;
 
   return {
     id,
@@ -261,7 +262,10 @@ const resolveCategoryId = (
   return candidates[0] || undefined;
 };
 
-const mapAthlete = (rawAthlete: any, categories: ClubCategorySummary[]): Athlete => {
+const mapAthlete = (
+  rawAthlete: any,
+  categories: ClubCategorySummary[],
+): Athlete => {
   const athlete = toRecord(rawAthlete);
   const data = toRecord(athlete.data);
   const firstName = String(athlete.first_name || data.firstName || "").trim();
@@ -279,7 +283,9 @@ const mapAthlete = (rawAthlete: any, categories: ClubCategorySummary[]): Athlete
 
   return {
     id: String(athlete.id || "").trim(),
-    clubId: String(athlete.organization_id || athlete.club_id || "").trim() || undefined,
+    clubId:
+      String(athlete.organization_id || athlete.club_id || "").trim() ||
+      undefined,
     name:
       String(athlete.name || data.name || "").trim() ||
       [firstName, lastName].filter(Boolean).join(" ").trim() ||
@@ -291,7 +297,10 @@ const mapAthlete = (rawAthlete: any, categories: ClubCategorySummary[]): Athlete
     status: mapAthleteStatus(athlete.status || data.status),
     category,
     categoryId,
-    avatar: String(athlete.avatar_url || data.avatar || data.avatarUrl || "").trim() || undefined,
+    avatar:
+      String(
+        athlete.avatar_url || data.avatar || data.avatarUrl || "",
+      ).trim() || undefined,
     phone: String(data.phone || "").trim() || undefined,
     email: String(data.email || "").trim() || undefined,
     birthDate: isoDate(athlete.birth_date || data.birthDate),
@@ -319,13 +328,22 @@ const mapTraining = (
   const training = toRecord(rawTraining);
   const data = toRecord(training.data);
   const categoryId = resolveCategoryId(
-    training.categoryId || training.category_id || data.categoryId || data.category_id,
-    training.category || training.categoryName || data.category || data.categoryName,
+    training.categoryId ||
+      training.category_id ||
+      data.categoryId ||
+      data.category_id,
+    training.category ||
+      training.categoryName ||
+      data.category ||
+      data.categoryName,
     categories,
   );
   const category = resolveCategoryName(
     categoryId,
-    training.category || training.categoryName || data.category || data.categoryName,
+    training.category ||
+      training.categoryName ||
+      data.category ||
+      data.categoryName,
     categories,
   );
   const attendance = toArray<TrainingAttendanceEntry>(
@@ -334,19 +352,32 @@ const mapTraining = (
 
   return {
     id: String(training.id || "").trim(),
-    clubId: String(training.organization_id || training.club_id || "").trim() || undefined,
-    title: String(training.title || data.title || `${category} Training`).trim(),
+    clubId:
+      String(training.organization_id || training.club_id || "").trim() ||
+      undefined,
+    title: String(
+      training.title || data.title || `${category} Training`,
+    ).trim(),
     date: isoDate(training.date || data.date) || "",
     time: String(training.time || data.time || "").trim(),
     endTime: String(training.endTime || data.endTime || "").trim() || undefined,
-    location: String(training.location || data.location || "").trim() || "Luogo da definire",
+    location:
+      String(training.location || data.location || "").trim() ||
+      "Luogo da definire",
     category,
     categoryId,
-    coachName: String(training.trainer || data.trainer || "").trim() || undefined,
-    status: String(training.status || data.status || "scheduled").trim() as Training["status"],
+    coachName:
+      String(training.trainer || data.trainer || "").trim() || undefined,
+    status: String(
+      training.status || data.status || "scheduled",
+    ).trim() as Training["status"],
     presentCount:
-      Number(training.attendees ?? training.presentCount ?? data.attendees ?? data.presentCount) ||
-      attendance.filter((entry) => Boolean(entry?.present)).length,
+      Number(
+        training.attendees ??
+          training.presentCount ??
+          data.attendees ??
+          data.presentCount,
+      ) || attendance.filter((entry) => Boolean(entry?.present)).length,
     totalCount:
       Number(
         training.expectedAttendees ??
@@ -365,12 +396,20 @@ const mapMatch = (rawMatch: any, categories: ClubCategorySummary[]): Match => {
   const data = toRecord(match.data);
   const isHome = Boolean(match.isHome ?? data.isHome ?? true);
   const categoryId = resolveCategoryId(
-    match.categoryId || match.category_id || data.categoryId || data.category_id,
+    match.categoryId ||
+      match.category_id ||
+      data.categoryId ||
+      data.category_id,
     match.category || data.category,
     categories,
   );
-  const category = resolveCategoryName(categoryId, match.category || data.category, categories);
-  const opponent = String(match.opponent || data.opponent || "").trim() || undefined;
+  const category = resolveCategoryName(
+    categoryId,
+    match.category || data.category,
+    categories,
+  );
+  const opponent =
+    String(match.opponent || data.opponent || "").trim() || undefined;
   const structureId =
     String(match.structureId || data.structureId || "").trim() || undefined;
   const fieldId =
@@ -393,16 +432,21 @@ const mapMatch = (rawMatch: any, categories: ClubCategorySummary[]): Match => {
 
   return {
     id: String(match.id || "").trim(),
-    clubId: String(match.organization_id || match.club_id || "").trim() || undefined,
+    clubId:
+      String(match.organization_id || match.club_id || "").trim() || undefined,
     date: isoDate(match.date || data.date) || "",
     time: String(match.time || data.time || "").trim(),
     homeTeam:
       String(
-        match.homeTeam || data.homeTeam || (!isHome && opponent ? opponent : "Casa"),
+        match.homeTeam ||
+          data.homeTeam ||
+          (!isHome && opponent ? opponent : "Casa"),
       ).trim() || "Casa",
     awayTeam:
       String(
-        match.awayTeam || data.awayTeam || (isHome && opponent ? opponent : "Ospiti"),
+        match.awayTeam ||
+          data.awayTeam ||
+          (isHome && opponent ? opponent : "Ospiti"),
       ).trim() || "Ospiti",
     opponent,
     location: displayLocation,
@@ -414,10 +458,14 @@ const mapMatch = (rawMatch: any, categories: ClubCategorySummary[]): Match => {
     category,
     categoryId,
     convokedCount:
-      toArray(match.convocatedAthletes || data.convocatedAthletes).length || undefined,
-    totalConvocable: Number(match.totalConvocable || data.totalConvocable || 0) || undefined,
+      toArray(match.convocatedAthletes || data.convocatedAthletes).length ||
+      undefined,
+    totalConvocable:
+      Number(match.totalConvocable || data.totalConvocable || 0) || undefined,
     result:
-      typeof match.result === "object" && match.result ? match.result : undefined,
+      typeof match.result === "object" && match.result
+        ? match.result
+        : undefined,
     convocatedAthletes: toArray<string>(
       match.convocatedAthletes || data.convocatedAthletes,
     ),
@@ -428,11 +476,14 @@ const mapMatch = (rawMatch: any, categories: ClubCategorySummary[]): Match => {
   };
 };
 
-const resolveMobilePermissions = (settings: unknown): TrainerDashboardPermissions => {
+const resolveMobilePermissions = (
+  settings: unknown,
+): TrainerDashboardPermissions => {
   const source = resolveTrainerDashboardPermissions(settings);
   const rawSettings = toRecord(settings);
   const rawPermissions = toRecord(
-    rawSettings.trainerDashboardPermissions || rawSettings.trainer_dashboard_permissions,
+    rawSettings.trainerDashboardPermissions ||
+      rawSettings.trainer_dashboard_permissions,
   );
   const widgets = toRecord(rawPermissions.widgets);
 
@@ -505,7 +556,10 @@ class MobileBackendStorageService {
       (nextContext.accessId || null) !== (rawContext.accessId || null);
 
     if (hasChanged) {
-      await AsyncStorage.setItem(KEYS.currentContext, JSON.stringify(nextContext));
+      await AsyncStorage.setItem(
+        KEYS.currentContext,
+        JSON.stringify(nextContext),
+      );
     }
 
     return nextContext;
@@ -516,7 +570,10 @@ class MobileBackendStorageService {
     return categories.map(mapCategory).filter(Boolean) as ClubCategorySummary[];
   }
 
-  private normalizeTrainerProfile(rawTrainer: any, categories: ClubCategorySummary[]): TrainerProfile {
+  private normalizeTrainerProfile(
+    rawTrainer: any,
+    categories: ClubCategorySummary[],
+  ): TrainerProfile {
     const trainer = toRecord(rawTrainer);
     const data = toRecord(trainer.data);
 
@@ -543,8 +600,9 @@ class MobileBackendStorageService {
             "",
         ).trim() || null,
       linkedAt:
-        String(trainer.linkedAt || trainer.linked_at || data.linkedAt || "").trim() ||
-        null,
+        String(
+          trainer.linkedAt || trainer.linked_at || data.linkedAt || "",
+        ).trim() || null,
       categories: normalizeTrainerCategories(
         trainer.categories ||
           data.categories ||
@@ -563,7 +621,11 @@ class MobileBackendStorageService {
     };
   }
 
-  private async fetchTrainerProfile(clubId: string, user: User, categories: ClubCategorySummary[]) {
+  private async fetchTrainerProfile(
+    clubId: string,
+    user: User,
+    categories: ClubCategorySummary[],
+  ) {
     const [trainers, staffMembers] = await Promise.all([
       api.listResource<any>("trainers", { clubId }),
       api.listResource<any>("staff_members", { clubId }).catch(() => []),
@@ -603,7 +665,8 @@ class MobileBackendStorageService {
     }
 
     const membership =
-      memberships.find((item) => item.organization_id === context.clubId) || null;
+      memberships.find((item) => item.organization_id === context.clubId) ||
+      null;
     const categories = await this.fetchClubCategories(context.clubId);
     const clubDetails = await api
       .getResourceById<any>("clubs", context.clubId)
@@ -639,21 +702,25 @@ class MobileBackendStorageService {
       ? {
           ...baseClub,
           contactEmail:
-            String(clubDetails?.contact_email || baseClub.contactEmail || "").trim() ||
-            undefined,
+            String(
+              clubDetails?.contact_email || baseClub.contactEmail || "",
+            ).trim() || undefined,
           contactPhone:
-            String(clubDetails?.contact_phone || baseClub.contactPhone || "").trim() ||
-            undefined,
+            String(
+              clubDetails?.contact_phone || baseClub.contactPhone || "",
+            ).trim() || undefined,
           avatar:
-            String(clubDetails?.logo_url || baseClub.avatar || "").trim() || undefined,
+            String(clubDetails?.logo_url || baseClub.avatar || "").trim() ||
+            undefined,
           categoryItems:
-            roleHasFullClubAccess(effectiveRole) || assignedCategories.length === 0
+            roleHasFullClubAccess(effectiveRole) ||
+            assignedCategories.length === 0
               ? categories
               : assignedCategories,
-          categories:
-            (
-              roleHasFullClubAccess(effectiveRole) ? categories : assignedCategories
-            ).map((category) => category.name),
+          categories: (roleHasFullClubAccess(effectiveRole)
+            ? categories
+            : assignedCategories
+          ).map((category) => category.name),
         }
       : null;
 
@@ -706,14 +773,18 @@ class MobileBackendStorageService {
   }
 
   async updateUserProfile(
-    updates: Partial<Pick<User, "name" | "email" | "phone" | "city" | "avatar">>,
+    updates: Partial<
+      Pick<User, "name" | "email" | "phone" | "city" | "avatar">
+    >,
   ) {
     const user = await this.getUser();
     if (!user) {
       return null;
     }
 
-    const names = String(updates.name || user.name || "").trim().split(/\s+/);
+    const names = String(updates.name || user.name || "")
+      .trim()
+      .split(/\s+/);
     return api.updateCurrentUser({
       email: updates.email || user.email,
       data: {
@@ -728,7 +799,12 @@ class MobileBackendStorageService {
     });
   }
 
-  async setContext(clubId: string, role: string, accessId?: string | null, source?: "owned" | "assigned" | null) {
+  async setContext(
+    clubId: string,
+    role: string,
+    accessId?: string | null,
+    source?: "owned" | "assigned" | null,
+  ) {
     await api.activateMembership(clubId).catch(() => null);
     await AsyncStorage.setItem(
       KEYS.currentContext,
@@ -768,9 +844,9 @@ class MobileBackendStorageService {
     return Promise.all(
       ownedMemberships.map(async (membership) => {
         const club = mapMembershipToClub(membership);
-        const categories = await this.fetchClubCategories(membership.organization_id).catch(
-          () => [],
-        );
+        const categories = await this.fetchClubCategories(
+          membership.organization_id,
+        ).catch(() => []);
 
         return {
           ...club,
@@ -811,7 +887,9 @@ class MobileBackendStorageService {
           return null;
         }
 
-        const categories = await this.fetchClubCategories(membership.organization_id);
+        const categories = await this.fetchClubCategories(
+          membership.organization_id,
+        );
         const trainerProfile = await this.fetchTrainerProfile(
           membership.organization_id,
           user,
@@ -833,7 +911,8 @@ class MobileBackendStorageService {
           .map((category) => category.name);
 
         return {
-          id: membership.id || `${membership.organization_id}-${membership.role}`,
+          id:
+            membership.id || `${membership.organization_id}-${membership.role}`,
           clubId: membership.organization_id,
           clubName: club.name,
           clubAvatar: club.avatar,
@@ -900,9 +979,11 @@ class MobileBackendStorageService {
     }
 
     const accesses = await this.getAccesses();
-    return accesses.find(
-      (access) => access.clubId === response.membership.organization_id,
-    ) || null;
+    return (
+      accesses.find(
+        (access) => access.clubId === response.membership.organization_id,
+      ) || null
+    );
   }
 
   async getAthletes(query?: string) {
@@ -913,14 +994,20 @@ class MobileBackendStorageService {
 
     const athletes = await api.listResource<any>("athletes", {
       clubId: snapshot.context.clubId,
+      query: roleHasFullClubAccess(snapshot.context.role)
+        ? undefined
+        : { trainer_dashboard: "1" },
     });
-    let mapped = athletes.map((athlete) => mapAthlete(athlete, snapshot.categories));
+    let mapped = athletes.map((athlete) =>
+      mapAthlete(athlete, snapshot.categories),
+    );
 
     if (!roleHasFullClubAccess(snapshot.context.role)) {
       mapped = mapped.filter((athlete) =>
         athlete.categoryId
           ? snapshot.assignedCategoryIds.some(
-              (value) => normalizeText(value) === normalizeText(athlete.categoryId),
+              (value) =>
+                normalizeText(value) === normalizeText(athlete.categoryId),
             )
           : false,
       );
@@ -930,12 +1017,9 @@ class MobileBackendStorageService {
       const search = normalizeText(query);
       mapped = mapped.filter((athlete) =>
         normalizeText(
-          [
-            athlete.name,
-            athlete.category,
-            athlete.position,
-            athlete.city,
-          ].join(" "),
+          [athlete.name, athlete.category, athlete.position, athlete.city].join(
+            " ",
+          ),
         ).includes(search),
       );
     }
@@ -956,15 +1040,21 @@ class MobileBackendStorageService {
 
     const trainings = await api.listResource<any>("trainings", {
       clubId: snapshot.context.clubId,
+      query: roleHasFullClubAccess(snapshot.context.role)
+        ? undefined
+        : { trainer_dashboard: "1" },
     });
-    let mapped = trainings.map((training) => mapTraining(training, snapshot.categories));
+    let mapped = trainings.map((training) =>
+      mapTraining(training, snapshot.categories),
+    );
 
     if (!roleHasFullClubAccess(snapshot.context.role)) {
       mapped = mapped.filter((training) => {
         const byCategory =
           training.categoryId &&
           snapshot.assignedCategoryIds.some(
-            (value) => normalizeText(value) === normalizeText(training.categoryId),
+            (value) =>
+              normalizeText(value) === normalizeText(training.categoryId),
           );
         const trainerIds = training.trainerIds || [];
         const coachName = training.coachName || "";
@@ -972,7 +1062,9 @@ class MobileBackendStorageService {
         return (
           byCategory ||
           trainerIds.some(
-            (value) => normalizeText(value) === normalizeText(snapshot.trainerProfile?.id),
+            (value) =>
+              normalizeText(value) ===
+              normalizeText(snapshot.trainerProfile?.id),
           ) ||
           normalizeText(coachName).includes(
             normalizeText(snapshot.trainerProfile?.name || ""),
@@ -986,7 +1078,10 @@ class MobileBackendStorageService {
     );
   }
 
-  async saveTrainingAttendance(trainingId: string, attendance: TrainingAttendanceEntry[]) {
+  async saveTrainingAttendance(
+    trainingId: string,
+    attendance: TrainingAttendanceEntry[],
+  ) {
     const snapshot = await this.getActiveSnapshot();
     if (!snapshot?.context?.clubId) {
       throw new Error("Club attivo non disponibile");
@@ -1038,6 +1133,9 @@ class MobileBackendStorageService {
 
     const matches = await api.listResource<any>("matches", {
       clubId: snapshot.context.clubId,
+      query: roleHasFullClubAccess(snapshot.context.role)
+        ? undefined
+        : { trainer_dashboard: "1" },
     });
     let mapped = matches.map((match) => mapMatch(match, snapshot.categories));
 
@@ -1090,7 +1188,9 @@ class MobileBackendStorageService {
     }
 
     const reminders = await api
-      .listResource<any>("secretariat_notes", { clubId: snapshot.context.clubId })
+      .listResource<any>("secretariat_notes", {
+        clubId: snapshot.context.clubId,
+      })
       .catch(() => []);
 
     return reminders

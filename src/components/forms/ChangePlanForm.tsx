@@ -10,21 +10,20 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast-notification";
 import { Check } from "lucide-react";
+import { normalizePaymentPlans } from "@/lib/payment-plan-utils";
 
-interface PaymentPlan {
-  id: string;
-  name: string;
-  description: string;
-  amount: number;
-  installments: number;
-  installmentAmount: number;
-}
+const formatCurrency = (value: unknown) =>
+  new Intl.NumberFormat("it-IT", {
+    style: "currency",
+    currency: "EUR",
+  }).format(Number(value || 0));
 
 interface ChangePlanFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (planId: string) => void;
   currentPlanId?: string;
+  paymentPlans?: any[];
 }
 
 export function ChangePlanForm({
@@ -32,39 +31,16 @@ export function ChangePlanForm({
   onClose,
   onSubmit,
   currentPlanId,
+  paymentPlans = [],
 }: ChangePlanFormProps) {
   const { showToast } = useToast();
   const [selectedPlanId, setSelectedPlanId] = useState<string>(
     currentPlanId || "",
   );
 
-  // Mock payment plans
-  const paymentPlans: PaymentPlan[] = [
-    {
-      id: "plan1",
-      name: "Quota Annuale - Unica Soluzione",
-      description: "Pagamento in un'unica soluzione con sconto del 10%",
-      amount: 450,
-      installments: 1,
-      installmentAmount: 450,
-    },
-    {
-      id: "plan2",
-      name: "Quota Annuale - Rate Trimestrali",
-      description: "Pagamento in 3 rate trimestrali",
-      amount: 480,
-      installments: 3,
-      installmentAmount: 160,
-    },
-    {
-      id: "plan3",
-      name: "Quota Annuale - Rate Mensili",
-      description: "Pagamento in 9 rate mensili",
-      amount: 495,
-      installments: 9,
-      installmentAmount: 55,
-    },
-  ];
+  const normalizedPaymentPlans = normalizePaymentPlans(paymentPlans).filter(
+    (plan) => plan.active,
+  );
 
   const handleSubmit = () => {
     if (!selectedPlanId) {
@@ -83,7 +59,12 @@ export function ChangePlanForm({
           <DialogTitle>Cambia Piano di Pagamento</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
-          {paymentPlans.map((plan) => (
+          {normalizedPaymentPlans.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              Nessun piano di pagamento configurato.
+            </div>
+          ) : null}
+          {normalizedPaymentPlans.map((plan) => (
             <div
               key={plan.id}
               className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedPlanId === plan.id ? "border-blue-500 bg-blue-50" : "hover:border-gray-400"}`}
@@ -99,14 +80,14 @@ export function ChangePlanForm({
                     <div className="flex justify-between text-sm">
                       <span>Importo totale:</span>
                       <span className="font-medium">
-                        €{plan.amount.toFixed(2)}
+                        {formatCurrency(plan.totalAmount)}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span>Rate:</span>
                       <span>
-                        {plan.installments} x €
-                        {plan.installmentAmount.toFixed(2)}
+                        {plan.installmentsCount} x{" "}
+                        {formatCurrency(plan.installmentAmount)}
                       </span>
                     </div>
                   </div>

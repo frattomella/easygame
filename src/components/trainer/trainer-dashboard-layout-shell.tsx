@@ -36,6 +36,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
   getFirstAccessibleTrainerRoute,
@@ -454,8 +458,8 @@ export default function TrainerDashboardLayoutShell({
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <TrainerTopBar onOpenMobileMenu={() => setMobileSidebarOpen(true)} />
 
-        <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
-          <div className="mx-auto max-w-9xl">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
             {!trainerProfile ? (
               <div className="rounded-[32px] border border-amber-200 bg-white/90 px-6 py-10 shadow-xl">
                 <div className="mx-auto max-w-2xl text-center">
@@ -485,7 +489,7 @@ export default function TrainerDashboardLayoutShell({
             ) : (
               children
             )}
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

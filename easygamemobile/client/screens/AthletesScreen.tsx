@@ -116,19 +116,17 @@ export default function AthletesScreen() {
     }
   };
 
-  const renderAthleteItem = ({ item, index }: { item: Athlete; index: number }) => (
+  const renderAthleteItem = ({
+    item,
+    index,
+  }: {
+    item: Athlete;
+    index: number;
+  }) => (
     <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
-      <Card
-        onPress={() => handleAthletePress(item)}
-        style={styles.athleteCard}
-      >
+      <Card onPress={() => handleAthletePress(item)} style={styles.athleteCard}>
         <View style={styles.athleteContent}>
-          <Avatar
-            name={item.name}
-            size={50}
-            showNumber
-            number={item.number}
-          />
+          <Avatar name={item.name} size={50} showNumber number={item.number} />
           <View style={styles.athleteInfo}>
             <ThemedText type="body" style={styles.athleteName}>
               {item.name}
@@ -184,9 +182,7 @@ export default function AthletesScreen() {
             illustration={require("../../assets/images/illustrations/empty_athletes_illustration.png")}
             title="Nessun atleta trovato"
             message={
-              searchQuery
-                ? "Prova a modificare la ricerca"
-                : "La rosa e vuota"
+              searchQuery ? "Prova a modificare la ricerca" : "La rosa e vuota"
             }
             style={styles.emptyState}
           />
@@ -204,7 +200,10 @@ export default function AthletesScreen() {
           onPress={() => setSelectedAthlete(null)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}
+            style={[
+              styles.modalContent,
+              { backgroundColor: theme.backgroundDefault },
+            ]}
             onPress={(e) => e.stopPropagation()}
           >
             {selectedAthlete ? (
@@ -237,7 +236,9 @@ export default function AthletesScreen() {
                       size={20}
                       color={theme.textSecondary}
                     />
-                    <ThemedText type="body">{selectedAthlete.position}</ThemedText>
+                    <ThemedText type="body">
+                      {selectedAthlete.position}
+                    </ThemedText>
                   </View>
                   <View style={styles.detailRow}>
                     <Ionicons
@@ -245,7 +246,9 @@ export default function AthletesScreen() {
                       size={20}
                       color={theme.textSecondary}
                     />
-                    <ThemedText type="body">{selectedAthlete.category}</ThemedText>
+                    <ThemedText type="body">
+                      {selectedAthlete.category}
+                    </ThemedText>
                   </View>
                 </View>
 
@@ -262,7 +265,12 @@ export default function AthletesScreen() {
                           size={18}
                           color={theme.primary}
                         />
-                        <ThemedText style={{ color: theme.primary, marginLeft: Spacing.xs }}>
+                        <ThemedText
+                          style={{
+                            color: theme.primary,
+                            marginLeft: Spacing.xs,
+                          }}
+                        >
                           Chiama
                         </ThemedText>
                       </View>
@@ -280,7 +288,12 @@ export default function AthletesScreen() {
                           size={18}
                           color={theme.primary}
                         />
-                        <ThemedText style={{ color: theme.primary, marginLeft: Spacing.xs }}>
+                        <ThemedText
+                          style={{
+                            color: theme.primary,
+                            marginLeft: Spacing.xs,
+                          }}
+                        >
                           Email
                         </ThemedText>
                       </View>

@@ -4,6 +4,11 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -19,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -622,17 +628,12 @@ export default function ProcuraPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Gestione Procure" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Procura
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Gestisci le procure e i relativi documenti associati ai
-                tesserati.
-              </p>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Procura"
+              subtitle="Gestisci le procure e i relativi documenti associati ai tesserati."
+            />
             <div className="space-y-6">
               {/* Data Grid for Procure */}
               <Card>
@@ -660,15 +661,15 @@ export default function ProcuraPage() {
                           Nuova Procura
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl overflow-hidden rounded-[30px] border border-slate-200 bg-white/95 p-0 shadow-[0_30px_90px_-32px_rgba(15,23,42,0.35)]">
-                        <DialogHeader>
-                          <DialogTitle className="border-b border-slate-100 bg-gradient-to-r from-blue-700 via-blue-600 to-sky-500 px-6 py-5 text-2xl text-white">
+                      <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-hidden">
+                        <DialogHeader className="border-b px-6 py-4">
+                          <DialogTitle className="text-lg">
                             {editingProcura
                               ? "Modifica Procura"
                               : "Nuova Procura"}
                           </DialogTitle>
                         </DialogHeader>
-                        <div className="max-h-[78vh] space-y-6 overflow-y-auto px-6 py-6">
+                        <div className="max-h-[calc(90vh-9rem)] space-y-6 overflow-y-auto px-6 py-6">
                           <div>
                             <Label htmlFor="name">Nome Procura *</Label>
                             <Input
@@ -897,7 +898,7 @@ export default function ProcuraPage() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex justify-end gap-2">
+                        <DialogFooter className="border-t px-6 py-4">
                           <Button
                             variant="outline"
                             onClick={() => setIsNewProcuraDialogOpen(false)}
@@ -907,7 +908,7 @@ export default function ProcuraPage() {
                           <Button onClick={saveProcura}>
                             {editingProcura ? "Aggiorna" : "Salva"}
                           </Button>
-                        </div>
+                        </DialogFooter>
                       </DialogContent>
                     </Dialog>
                   </div>
@@ -1658,7 +1659,7 @@ export default function ProcuraPage() {
                 </Card>
               )}
             </div>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

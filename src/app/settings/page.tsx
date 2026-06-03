@@ -5,6 +5,11 @@ import { useToast } from "@/components/ui/toast-notification";
 import { saveClubSettings, getClubSettings } from "@/lib/simplified-db";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -254,12 +259,13 @@ export default function SettingsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Impostazioni" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-9xl space-y-6">
-              <div className="space-y-2">
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Impostazioni
-                </h1>
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer>
+              <SharedPageHeader
+                title="Impostazioni"
+                subtitle="Configura preferenze, accessi e parametri dell'app."
+              />
+              <div className="hidden">
                 <p className="text-gray-600 mt-2">
                   Configura preferenze, accessi e parametri dell’app.
                 </p>
@@ -273,7 +279,7 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
-            </div>
+            </DashboardPageContainer>
           </main>
         </div>
       </div>
@@ -285,12 +291,13 @@ export default function SettingsPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Impostazioni" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div className="space-y-2">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Impostazioni
-              </h1>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Impostazioni"
+              subtitle="Configura preferenze, accessi e parametri dell'app."
+            />
+            <div className="hidden">
               <p className="text-gray-600 mt-2">
                 Configura preferenze, accessi e parametri dell’app.
               </p>
@@ -615,7 +622,7 @@ export default function SettingsPage() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

@@ -52,10 +52,12 @@ export default function TrainerTrainingsScreen() {
   const { trainerPermissions } = useAuthContext();
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedTraining, setSelectedTraining] = useState<Training | null>(null);
-  const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraftEntry[]>(
-    [],
+  const [selectedTraining, setSelectedTraining] = useState<Training | null>(
+    null,
   );
+  const [attendanceDraft, setAttendanceDraft] = useState<
+    AttendanceDraftEntry[]
+  >([]);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [statusSavingId, setStatusSavingId] = useState<string | null>(null);
 
@@ -103,10 +105,15 @@ export default function TrainerTrainingsScreen() {
     const athletes = await mobileBackendStorage.getAthletes();
     const relevantAthletes = athletes.filter((athlete) => {
       if (training.categoryId && athlete.categoryId) {
-        return normalizeText(training.categoryId) === normalizeText(athlete.categoryId);
+        return (
+          normalizeText(training.categoryId) ===
+          normalizeText(athlete.categoryId)
+        );
       }
 
-      return normalizeText(training.category) === normalizeText(athlete.category);
+      return (
+        normalizeText(training.category) === normalizeText(athlete.category)
+      );
     });
 
     const existingAttendance = new Map(
@@ -350,7 +357,10 @@ export default function TrainerTrainingsScreen() {
               >
                 {selectedTraining?.title} ·{" "}
                 {selectedTraining
-                  ? formatTimeRange(selectedTraining.time, selectedTraining.endTime)
+                  ? formatTimeRange(
+                      selectedTraining.time,
+                      selectedTraining.endTime,
+                    )
                   : ""}
               </ThemedText>
               <View style={styles.attendanceList}>
@@ -388,9 +398,7 @@ export default function TrainerTrainingsScreen() {
                     </View>
                     <Ionicons
                       name={
-                        entry.present
-                          ? "checkmark-circle"
-                          : "ellipse-outline"
+                        entry.present ? "checkmark-circle" : "ellipse-outline"
                       }
                       size={24}
                       color={

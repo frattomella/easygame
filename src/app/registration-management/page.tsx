@@ -4,6 +4,11 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -11,6 +16,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -70,6 +76,13 @@ import {
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import {
+  PAYMENT_PLAN_SERVICE_TYPES,
+  calculateProratedTotal,
+  calculatePlanTotal,
+  generateInstallmentPreview,
+  normalizePaymentPlan,
+} from "@/lib/payment-plan-utils";
 
 const normalizePaymentMethodRecord = (method: any) => ({
   id:
@@ -158,6 +171,59 @@ const getAthleteCategoryLabel = (
   );
 };
 
+const createPlanService = () => ({
+  id:
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `service_${Date.now()}`,
+  name: "",
+  description: "",
+  price: 0,
+  type: "allenamenti",
+  optional: false,
+  required: true,
+  included: true,
+});
+
+const createPlanInstallment = (index = 0) => ({
+  id:
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `installment_${Date.now()}_${index}`,
+  label: index === 0 ? "Pagamento unico" : `Rata ${index + 1}`,
+  amountType: index === 0 ? "percentage" : "remaining",
+  amount: index === 0 ? 100 : 0,
+  dueAfterDays: index * 30,
+});
+
+const createPlanProrationSettings = () => ({
+  enabled: false,
+  method: "none",
+  seasonStartDate: "",
+  seasonEndDate: "",
+  allowManualOverride: true,
+});
+
+const createEmptyPaymentPlanForm = () => ({
+  name: "",
+  description: "",
+  amount: 0,
+  services: [createPlanService()],
+  installments: 1,
+  installmentAmount: 0,
+  installmentSchedule: [createPlanInstallment()],
+  proration: createPlanProrationSettings(),
+  applicableDiscountIds: [] as string[],
+  notes: "",
+  active: true,
+});
+
+const formatPlanCurrency = (value: unknown) =>
+  new Intl.NumberFormat("it-IT", {
+    style: "currency",
+    currency: "EUR",
+  }).format(Number(value || 0));
+
 const resolveAthleteDefaultSize = (componentName: string, athlete: any) => {
   const normalizedName = String(componentName || "").trim().toLowerCase();
   const clothingSizes = athlete?.clothingSizes || {};
@@ -206,14 +272,7 @@ export default function RegistrationManagementPage() {
   // State for new payment plan dialog
   const [isNewPlanDialogOpen, setIsNewPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any>(null);
-  const [newPlan, setNewPlan] = useState({
-    name: "",
-    description: "",
-    amount: 0,
-    installments: 1,
-    installmentAmount: 0,
-    active: true,
-  });
+  const [newPlan, setNewPlan] = useState(createEmptyPaymentPlanForm);
 
   // State for payment methods
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
@@ -398,15 +457,134 @@ export default function RegistrationManagementPage() {
     if (type === "checkbox") {
       const target = e.target as HTMLInputElement;
       setNewPlan({ ...newPlan, [name]: target.checked });
-    } else if (
-      name === "amount" ||
-      name === "installments" ||
-      name === "installmentAmount"
-    ) {
+    } else if (name === "installments" || name === "installmentAmount") {
       setNewPlan({ ...newPlan, [name]: parseFloat(value) || 0 });
     } else {
       setNewPlan({ ...newPlan, [name]: value });
     }
+  };
+
+  const currentPlanTotal = calculatePlanTotal(newPlan);
+  const prorationPreview = calculateProratedTotal({
+    total: currentPlanTotal,
+    proration: normalizePaymentPlan(newPlan).proration,
+    startDate: new Date().toISOString().slice(0, 10),
+  });
+  const planInstallmentPreview = generateInstallmentPreview(
+    newPlan,
+    prorationPreview.total,
+    { startDate: new Date().toISOString().slice(0, 10) },
+  );
+  const displayedInstallmentAmount =
+    planInstallmentPreview.installments[0]?.amount ||
+    (newPlan.installments > 1
+      ? newPlan.installmentAmount ||
+        Number((currentPlanTotal / Math.max(newPlan.installments, 1)).toFixed(2))
+      : currentPlanTotal);
+
+  const updatePlanService = (
+    serviceId: string,
+    field: string,
+    value: string | number | boolean,
+  ) => {
+    setNewPlan((current) => ({
+      ...current,
+      services: current.services.map((service: any) =>
+        service.id === serviceId ? { ...service, [field]: value } : service,
+      ),
+    }));
+  };
+
+  const addPlanService = () => {
+    setNewPlan((current) => ({
+      ...current,
+      services: [...current.services, createPlanService()],
+    }));
+  };
+
+  const removePlanService = (serviceId: string) => {
+    setNewPlan((current) => ({
+      ...current,
+      services:
+        current.services.length > 1
+          ? current.services.filter((service: any) => service.id !== serviceId)
+          : current.services,
+    }));
+  };
+
+  const updatePlanInstallment = (
+    installmentId: string,
+    field: string,
+    value: string | number,
+  ) => {
+    setNewPlan((current) => ({
+      ...current,
+      installmentSchedule: current.installmentSchedule.map((installment: any) =>
+        installment.id === installmentId
+          ? { ...installment, [field]: value }
+          : installment,
+      ),
+    }));
+  };
+
+  const addPlanInstallment = () => {
+    setNewPlan((current) => ({
+      ...current,
+      installmentSchedule: [
+        ...current.installmentSchedule,
+        createPlanInstallment(current.installmentSchedule.length),
+      ],
+    }));
+  };
+
+  const removePlanInstallment = (installmentId: string) => {
+    setNewPlan((current) => ({
+      ...current,
+      installmentSchedule:
+        current.installmentSchedule.length > 1
+          ? current.installmentSchedule.filter(
+              (installment: any) => installment.id !== installmentId,
+            )
+          : current.installmentSchedule,
+    }));
+  };
+
+  const updatePlanProration = (field: string, value: string | boolean) => {
+    setNewPlan((current) => {
+      const nextProration = {
+        ...current.proration,
+        [field]: value,
+      };
+
+      if (field === "enabled" && value === false) {
+        nextProration.method = "none";
+      }
+
+      if (field === "enabled" && value === true && nextProration.method === "none") {
+        nextProration.method = "days";
+      }
+
+      return {
+        ...current,
+        proration: nextProration,
+      };
+    });
+  };
+
+  const toggleApplicableDiscount = (discountId: string, checked: boolean) => {
+    setNewPlan((current) => {
+      const currentIds = new Set(current.applicableDiscountIds || []);
+      if (checked) {
+        currentIds.add(discountId);
+      } else {
+        currentIds.delete(discountId);
+      }
+
+      return {
+        ...current,
+        applicableDiscountIds: Array.from(currentIds),
+      };
+    });
   };
 
   // Handle payment method form changes
@@ -510,8 +688,12 @@ export default function RegistrationManagementPage() {
 
   // Save payment plan
   const savePlan = async () => {
-    if (!newPlan.name || newPlan.amount <= 0) {
-      showToast("error", "Compila tutti i campi obbligatori");
+    const validServices = newPlan.services.filter((service: any) =>
+      String(service.name || "").trim(),
+    );
+
+    if (!newPlan.name || validServices.length === 0) {
+      showToast("error", "Inserisci nome piano e almeno un servizio");
       return;
     }
 
@@ -520,9 +702,39 @@ export default function RegistrationManagementPage() {
       return;
     }
 
+    if (planInstallmentPreview.warnings.length > 0) {
+      showToast("error", planInstallmentPreview.warnings[0]);
+      return;
+    }
+
     try {
-      const planToSave = {
+      const normalizedDraft = normalizePaymentPlan({
         ...newPlan,
+        services: validServices,
+        installmentSchedule: newPlan.installmentSchedule,
+        proration: newPlan.proration,
+        amount: currentPlanTotal,
+        totalAmount: currentPlanTotal,
+        installmentsCount: Math.max(newPlan.installmentSchedule.length, 1),
+        installmentAmount: displayedInstallmentAmount,
+      });
+      const normalizedPlanFields = { ...normalizedDraft };
+      delete (normalizedPlanFields as any).raw;
+      const planToSave = {
+        ...editingPlan,
+        ...normalizedPlanFields,
+        amount: normalizedDraft.totalAmount,
+        totalAmount: normalizedDraft.totalAmount,
+        installments: normalizedDraft.installmentsCount,
+        installmentsCount: normalizedDraft.installmentsCount,
+        installmentAmount: normalizedDraft.installmentAmount,
+        installmentSchedule: normalizedDraft.installments,
+        paymentSchedule: normalizedDraft.installments,
+        proration: normalizedDraft.proration,
+        applicableDiscountIds: normalizedDraft.applicableDiscountIds,
+        services: normalizedDraft.services,
+        notes: normalizedDraft.notes,
+        active: Boolean(newPlan.active ?? true),
         id: editingPlan?.id || `plan_${Date.now()}`,
         createdAt: editingPlan?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -607,14 +819,30 @@ export default function RegistrationManagementPage() {
 
   // Edit payment plan
   const editPlan = (plan: any) => {
+    const normalizedPlan = normalizePaymentPlan(plan);
     setEditingPlan(plan);
     setNewPlan({
-      name: plan.name,
-      description: plan.description,
-      amount: plan.amount,
-      installments: plan.installments,
-      installmentAmount: plan.installmentAmount || 0,
-      active: plan.active,
+      name: normalizedPlan.name,
+      description: normalizedPlan.description,
+      amount: normalizedPlan.totalAmount,
+      services:
+        normalizedPlan.services.length > 0
+          ? normalizedPlan.services.map((service) => ({ ...service }))
+          : [createPlanService()],
+      installments: normalizedPlan.installmentsCount || 1,
+      installmentAmount: normalizedPlan.installmentAmount || 0,
+      installmentSchedule:
+        normalizedPlan.installments.length > 0
+          ? normalizedPlan.installments.map((installment) => ({ ...installment }))
+          : [createPlanInstallment()],
+      proration: {
+        ...normalizedPlan.proration,
+        seasonStartDate: normalizedPlan.proration.seasonStartDate || "",
+        seasonEndDate: normalizedPlan.proration.seasonEndDate || "",
+      },
+      applicableDiscountIds: normalizedPlan.applicableDiscountIds,
+      notes: normalizedPlan.notes,
+      active: normalizedPlan.active,
     });
     setIsNewPlanDialogOpen(true);
   };
@@ -680,14 +908,7 @@ export default function RegistrationManagementPage() {
 
   // Reset new plan form
   const resetNewPlan = () => {
-    setNewPlan({
-      name: "",
-      description: "",
-      amount: 0,
-      installments: 1,
-      installmentAmount: 0,
-      active: true,
-    });
+    setNewPlan(createEmptyPaymentPlanForm());
   };
 
   // Reset new method form
@@ -702,7 +923,9 @@ export default function RegistrationManagementPage() {
   // Calculate installment amount
   const calculateInstallmentAmount = () => {
     if (newPlan.installments > 1) {
-      const amount = Math.ceil(newPlan.amount / newPlan.installments);
+      const amount = Number(
+        (currentPlanTotal / Math.max(newPlan.installments, 1)).toFixed(2),
+      );
       setNewPlan({ ...newPlan, installmentAmount: amount });
     }
   };
@@ -915,17 +1138,12 @@ export default function RegistrationManagementPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Gestione Iscrizioni" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Gestione iscrizioni
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Configura piani, metodi di pagamento e gestione delle
-                iscrizioni.
-              </p>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Gestione iscrizioni"
+              subtitle="Configura piani, metodi di pagamento e gestione delle iscrizioni."
+            />
             <Tabs defaultValue="payment-plans">
               <TabsList className="mb-4">
                 <TabsTrigger
@@ -948,13 +1166,6 @@ export default function RegistrationManagementPage() {
                 >
                   <Tag className="h-4 w-4" />
                   Sconti e Promozioni
-                </TabsTrigger>
-                <TabsTrigger
-                  value="clothing-kits"
-                  className="flex items-center gap-2"
-                >
-                  <User className="h-4 w-4" />
-                  Kit Abbigliamento
                 </TabsTrigger>
               </TabsList>
 
@@ -986,24 +1197,37 @@ export default function RegistrationManagementPage() {
                             Nuovo Piano
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
                           <DialogHeader>
                             <DialogTitle>
                               {editingPlan
                                 ? "Modifica Piano"
-                                : "Nuovo Piano di Pagamento"}
+                                : "Nuovo Piano / Abbonamento"}
                             </DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4 py-4">
-                            <div>
-                              <Label htmlFor="plan-name">Nome Piano</Label>
-                              <Input
-                                id="plan-name"
-                                name="name"
-                                value={newPlan.name}
-                                onChange={handlePlanChange}
-                                placeholder="Es. Piano Base"
-                              />
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div>
+                                <Label htmlFor="plan-name">Nome Piano</Label>
+                                <Input
+                                  id="plan-name"
+                                  name="name"
+                                  value={newPlan.name}
+                                  onChange={handlePlanChange}
+                                  placeholder="Es. Stagione completa"
+                                />
+                              </div>
+                              <div className="rounded-lg border bg-slate-50 p-4 dark:bg-slate-900/40">
+                                <p className="text-sm text-muted-foreground">
+                                  Totale automatico
+                                </p>
+                                <p className="text-2xl font-bold">
+                                  {formatPlanCurrency(currentPlanTotal)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Somma dei servizi inclusi nel piano.
+                                </p>
+                              </div>
                             </div>
                             <div>
                               <Label htmlFor="plan-description">
@@ -1017,46 +1241,555 @@ export default function RegistrationManagementPage() {
                                 placeholder="Descrizione del piano"
                               />
                             </div>
-                            <div>
-                              <Label htmlFor="plan-amount">Importo (€)</Label>
-                              <Input
-                                id="plan-amount"
-                                name="amount"
-                                type="number"
-                                value={newPlan.amount}
-                                onChange={handlePlanChange}
-                                placeholder="0.00"
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="plan-installments">
-                                Numero Rate
-                              </Label>
-                              <Input
-                                id="plan-installments"
-                                name="installments"
-                                type="number"
-                                value={newPlan.installments}
-                                onChange={handlePlanChange}
-                                onBlur={calculateInstallmentAmount}
-                                min="1"
-                              />
-                            </div>
-                            {newPlan.installments > 1 && (
-                              <div>
-                                <Label htmlFor="plan-installment-amount">
-                                  Importo Rata (€)
-                                </Label>
-                                <Input
-                                  id="plan-installment-amount"
-                                  name="installmentAmount"
-                                  type="number"
-                                  value={newPlan.installmentAmount}
-                                  onChange={handlePlanChange}
-                                  placeholder="0.00"
-                                />
+                            <div className="space-y-3 rounded-lg border p-4">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <h3 className="font-semibold">
+                                    Servizi inclusi
+                                  </h3>
+                                  <p className="text-sm text-muted-foreground">
+                                    Dettaglia quote, allenamenti, assicurazione,
+                                    kit o componenti extra del piano.
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={addPlanService}
+                                >
+                                  <Plus className="mr-2 h-4 w-4" />
+                                  Aggiungi servizio
+                                </Button>
                               </div>
-                            )}
+
+                              <div className="space-y-3">
+                                {newPlan.services.map(
+                                  (service: any, index: number) => (
+                                    <div
+                                      key={service.id}
+                                      className="rounded-lg border bg-white p-3 dark:bg-slate-950/40"
+                                    >
+                                      <div className="mb-3 flex items-center justify-between gap-3">
+                                        <p className="text-sm font-medium">
+                                          Servizio {index + 1}
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() =>
+                                            removePlanService(service.id)
+                                          }
+                                          disabled={newPlan.services.length <= 1}
+                                          aria-label="Rimuovi servizio"
+                                        >
+                                          <Trash2 className="h-4 w-4 text-red-600" />
+                                        </Button>
+                                      </div>
+                                      <div className="grid gap-3 md:grid-cols-4">
+                                        <div className="md:col-span-2">
+                                          <Label>Nome servizio</Label>
+                                          <Input
+                                            value={service.name}
+                                            onChange={(event) =>
+                                              updatePlanService(
+                                                service.id,
+                                                "name",
+                                                event.target.value,
+                                              )
+                                            }
+                                            placeholder="Es. Allenamenti stagione"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Tipo</Label>
+                                          <Select
+                                            value={service.type}
+                                            onValueChange={(value) =>
+                                              updatePlanService(
+                                                service.id,
+                                                "type",
+                                                value,
+                                              )
+                                            }
+                                          >
+                                            <SelectTrigger>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {PAYMENT_PLAN_SERVICE_TYPES.map(
+                                                (type) => (
+                                                  <SelectItem
+                                                    key={type.value}
+                                                    value={type.value}
+                                                  >
+                                                    {type.label}
+                                                  </SelectItem>
+                                                ),
+                                              )}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div>
+                                          <Label>Prezzo</Label>
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={service.price}
+                                            onChange={(event) =>
+                                              updatePlanService(
+                                                service.id,
+                                                "price",
+                                                parseFloat(
+                                                  event.target.value,
+                                                ) || 0,
+                                              )
+                                            }
+                                            placeholder="0.00"
+                                          />
+                                        </div>
+                                        <div className="md:col-span-4">
+                                          <Label>Descrizione servizio</Label>
+                                          <Textarea
+                                            value={service.description}
+                                            onChange={(event) =>
+                                              updatePlanService(
+                                                service.id,
+                                                "description",
+                                                event.target.value,
+                                              )
+                                            }
+                                            placeholder="Dettaglio opzionale visibile nel riepilogo"
+                                            rows={2}
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="mt-3 flex flex-wrap gap-4">
+                                        <label className="flex items-center gap-2 text-sm">
+                                          <Checkbox
+                                            checked={Boolean(service.optional)}
+                                            onCheckedChange={(checked) =>
+                                              setNewPlan((current) => ({
+                                                ...current,
+                                                services: current.services.map(
+                                                  (item: any) =>
+                                                    item.id === service.id
+                                                      ? {
+                                                          ...item,
+                                                          optional:
+                                                            checked === true,
+                                                          required:
+                                                            checked !== true,
+                                                        }
+                                                      : item,
+                                                ),
+                                              }))
+                                            }
+                                          />
+                                          Opzionale per atleta
+                                        </label>
+                                        <label className="flex items-center gap-2 text-sm">
+                                          <Checkbox
+                                            checked={service.included}
+                                            onCheckedChange={(checked) =>
+                                              updatePlanService(
+                                                service.id,
+                                                "included",
+                                                checked === true,
+                                              )
+                                            }
+                                          />
+                                          Incluso nel totale
+                                        </label>
+                                      </div>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                            </div>
+                            <div className="space-y-3 rounded-lg border p-4">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <h3 className="font-semibold">
+                                    Rate e scadenze
+                                  </h3>
+                                  <p className="text-sm text-muted-foreground">
+                                    Le scadenze sono relative alla data inizio
+                                    iscrizione dell'atleta.
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={addPlanInstallment}
+                                >
+                                  <Plus className="mr-2 h-4 w-4" />
+                                  Aggiungi rata
+                                </Button>
+                              </div>
+
+                              <div className="space-y-3">
+                                {newPlan.installmentSchedule.map(
+                                  (installment: any, index: number) => (
+                                    <div
+                                      key={installment.id}
+                                      className="rounded-lg border bg-white p-3 dark:bg-slate-950/40"
+                                    >
+                                      <div className="mb-3 flex items-center justify-between gap-3">
+                                        <p className="text-sm font-medium">
+                                          Rata {index + 1}
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() =>
+                                            removePlanInstallment(
+                                              installment.id,
+                                            )
+                                          }
+                                          disabled={
+                                            newPlan.installmentSchedule.length <=
+                                            1
+                                          }
+                                          aria-label="Rimuovi rata"
+                                        >
+                                          <Trash2 className="h-4 w-4 text-red-600" />
+                                        </Button>
+                                      </div>
+                                      <div className="grid gap-3 md:grid-cols-[1.3fr_1fr_1fr_1fr]">
+                                        <div>
+                                          <Label>Nome rata</Label>
+                                          <Input
+                                            value={installment.label}
+                                            onChange={(event) =>
+                                              updatePlanInstallment(
+                                                installment.id,
+                                                "label",
+                                                event.target.value,
+                                              )
+                                            }
+                                            placeholder="Es. Prima rata"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Tipo importo</Label>
+                                          <Select
+                                            value={installment.amountType}
+                                            onValueChange={(value) =>
+                                              updatePlanInstallment(
+                                                installment.id,
+                                                "amountType",
+                                                value,
+                                              )
+                                            }
+                                          >
+                                            <SelectTrigger>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="percentage">
+                                                Percentuale
+                                              </SelectItem>
+                                              <SelectItem value="fixed">
+                                                Importo fisso
+                                              </SelectItem>
+                                              <SelectItem value="remaining">
+                                                Saldo restante
+                                              </SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div>
+                                          <Label>Valore</Label>
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={installment.amount}
+                                            disabled={
+                                              installment.amountType ===
+                                              "remaining"
+                                            }
+                                            onChange={(event) =>
+                                              updatePlanInstallment(
+                                                installment.id,
+                                                "amount",
+                                                parseFloat(
+                                                  event.target.value,
+                                                ) || 0,
+                                              )
+                                            }
+                                            placeholder={
+                                              installment.amountType ===
+                                              "percentage"
+                                                ? "%"
+                                                : "EUR"
+                                            }
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Scadenza dopo giorni</Label>
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            value={installment.dueAfterDays}
+                                            onChange={(event) =>
+                                              updatePlanInstallment(
+                                                installment.id,
+                                                "dueAfterDays",
+                                                parseInt(
+                                                  event.target.value,
+                                                  10,
+                                                ) || 0,
+                                              )
+                                            }
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+
+                              {planInstallmentPreview.warnings.length > 0 ? (
+                                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                                  {planInstallmentPreview.warnings[0]}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div className="space-y-3 rounded-lg border p-4">
+                              <div>
+                                <h3 className="font-semibold">
+                                  Calcolo quota stagionale
+                                </h3>
+                                <p className="text-sm text-muted-foreground">
+                                  Il pro-rata viene applicato quando assegni il
+                                  piano a un atleta con data inizio.
+                                </p>
+                              </div>
+                              <label className="flex items-center gap-2 text-sm">
+                                <Checkbox
+                                  checked={Boolean(newPlan.proration.enabled)}
+                                  onCheckedChange={(checked) =>
+                                    updatePlanProration(
+                                      "enabled",
+                                      checked === true,
+                                    )
+                                  }
+                                />
+                                Abilita calcolo proporzionale
+                              </label>
+                              {newPlan.proration.enabled ? (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div>
+                                    <Label>Metodo</Label>
+                                    <Select
+                                      value={newPlan.proration.method}
+                                      onValueChange={(value) =>
+                                        updatePlanProration("method", value)
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="days">
+                                          Per giorni
+                                        </SelectItem>
+                                        <SelectItem value="months">
+                                          Per mesi
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label>Permetti override manuale</Label>
+                                    <label className="mt-2 flex items-center gap-2 text-sm">
+                                      <Checkbox
+                                        checked={Boolean(
+                                          newPlan.proration
+                                            .allowManualOverride,
+                                        )}
+                                        onCheckedChange={(checked) =>
+                                          updatePlanProration(
+                                            "allowManualOverride",
+                                            checked === true,
+                                          )
+                                        }
+                                      />
+                                      Modifica importo in scheda atleta
+                                    </label>
+                                  </div>
+                                  <div>
+                                    <Label>Inizio periodo/stagione</Label>
+                                    <Input
+                                      type="date"
+                                      value={newPlan.proration.seasonStartDate}
+                                      onChange={(event) =>
+                                        updatePlanProration(
+                                          "seasonStartDate",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label>Fine periodo/stagione</Label>
+                                    <Input
+                                      type="date"
+                                      value={newPlan.proration.seasonEndDate}
+                                      onChange={(event) =>
+                                        updatePlanProration(
+                                          "seasonEndDate",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div className="space-y-3 rounded-lg border bg-slate-50 p-4 dark:bg-slate-900/40">
+                              <div>
+                                <h3 className="font-semibold">Anteprima</h3>
+                                <p className="text-sm text-muted-foreground">
+                                  Esempio calcolato con data inizio oggi e rate
+                                  arrotondate a multipli di 5 euro.
+                                </p>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <div className="rounded-lg bg-white p-3 dark:bg-slate-950/40">
+                                  <p className="text-xs text-muted-foreground">
+                                    Totale servizi
+                                  </p>
+                                  <p className="text-lg font-semibold">
+                                    {formatPlanCurrency(currentPlanTotal)}
+                                  </p>
+                                </div>
+                                <div className="rounded-lg bg-white p-3 dark:bg-slate-950/40">
+                                  <p className="text-xs text-muted-foreground">
+                                    Totale esempio
+                                  </p>
+                                  <p className="text-lg font-semibold">
+                                    {formatPlanCurrency(
+                                      prorationPreview.total,
+                                    )}
+                                  </p>
+                                </div>
+                                <div className="rounded-lg bg-white p-3 dark:bg-slate-950/40">
+                                  <p className="text-xs text-muted-foreground">
+                                    Rate
+                                  </p>
+                                  <p className="text-lg font-semibold">
+                                    {
+                                      planInstallmentPreview.installments
+                                        .length
+                                    }
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                {planInstallmentPreview.installments.map(
+                                  (installment) => (
+                                    <div
+                                      key={installment.id}
+                                      className="flex flex-col justify-between gap-1 rounded-lg bg-white px-3 py-2 text-sm sm:flex-row sm:items-center dark:bg-slate-950/40"
+                                    >
+                                      <span className="font-medium">
+                                        {installment.label}
+                                      </span>
+                                      <span className="text-muted-foreground">
+                                        Dopo {installment.dueAfterDays} giorni
+                                      </span>
+                                      <span className="font-semibold">
+                                        {formatPlanCurrency(
+                                          installment.amount,
+                                        )}
+                                      </span>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                              {prorationPreview.warning ? (
+                                <p className="text-sm text-amber-700">
+                                  {prorationPreview.warning}
+                                </p>
+                              ) : null}
+                            </div>
+
+                            <div className="space-y-3 rounded-lg border p-4">
+                              <div>
+                                <h3 className="font-semibold">
+                                  Sconti applicabili
+                                </h3>
+                                <p className="text-sm text-muted-foreground">
+                                  Se non selezioni nulla, tutti gli sconti
+                                  restano applicabili a questo piano.
+                                </p>
+                              </div>
+                              {discounts.length > 0 ? (
+                                <div className="grid gap-2 md:grid-cols-2">
+                                  {discounts
+                                    .filter(
+                                      (discount: any) =>
+                                        discount.active !== false,
+                                    )
+                                    .map((discount: any) => {
+                                      const discountId = String(
+                                        discount.id ||
+                                          discount.title ||
+                                          discount.name,
+                                      );
+
+                                      return (
+                                        <label
+                                          key={discountId}
+                                          className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                                        >
+                                          <Checkbox
+                                            checked={newPlan.applicableDiscountIds.includes(
+                                              discountId,
+                                            )}
+                                            onCheckedChange={(checked) =>
+                                              toggleApplicableDiscount(
+                                                discountId,
+                                                checked === true,
+                                              )
+                                            }
+                                          />
+                                          <span>
+                                            {discount.title ||
+                                              discount.name ||
+                                              "Sconto"}
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">
+                                  Nessuno sconto configurato.
+                                </p>
+                              )}
+                            </div>
+
+                            <div>
+                              <Label htmlFor="plan-notes">Note interne</Label>
+                              <Textarea
+                                id="plan-notes"
+                                name="notes"
+                                value={newPlan.notes}
+                                onChange={handlePlanChange}
+                                placeholder="Note operative opzionali"
+                                rows={3}
+                              />
+                            </div>
                           </div>
                           <div className="flex justify-end gap-2">
                             <Button
@@ -1083,14 +1816,25 @@ export default function RegistrationManagementPage() {
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {Array.isArray(paymentPlans) &&
-                            paymentPlans.map((plan) => (
+                            paymentPlans.map((plan) => {
+                              const normalizedPlan =
+                                normalizePaymentPlan(plan);
+
+                              return (
                               <Card
-                                key={plan.id}
-                                className={`border-l-4 ${plan.active ? "border-l-green-500" : "border-l-gray-300"}`}
+                                key={normalizedPlan.id}
+                                className={`border-l-4 ${normalizedPlan.active ? "border-l-green-500" : "border-l-gray-300"}`}
                               >
                                 <CardContent className="p-4">
                                   <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-medium">{plan.name}</h3>
+                                    <div className="min-w-0">
+                                      <h3 className="font-medium">
+                                        {normalizedPlan.name}
+                                      </h3>
+                                      <p className="text-xs text-muted-foreground">
+                                        {normalizedPlan.services.length} servizi
+                                      </p>
+                                    </div>
                                     <div className="flex space-x-1">
                                       <Button
                                         variant="ghost"
@@ -1102,54 +1846,105 @@ export default function RegistrationManagementPage() {
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        onClick={() => deletePlan(plan.id)}
+                                        onClick={() =>
+                                          deletePlan(normalizedPlan.id)
+                                        }
                                       >
                                         <Trash2 className="h-4 w-4 text-red-600" />
                                       </Button>
                                     </div>
                                   </div>
                                   <p className="text-sm text-muted-foreground mb-3">
-                                    {plan.description}
+                                    {normalizedPlan.description ||
+                                      "Nessuna descrizione"}
                                   </p>
                                   <div className="space-y-2">
                                     <div className="flex justify-between">
                                       <span className="text-sm">
-                                        Importo totale:
+                                        Totale servizi:
                                       </span>
                                       <span className="font-medium">
-                                        €{plan.amount.toFixed(2)}
+                                        {formatPlanCurrency(
+                                          normalizedPlan.totalAmount,
+                                        )}
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-sm">Rate:</span>
-                                      <span>{plan.installments}</span>
+                                      <span>
+                                        {normalizedPlan.installmentsCount}
+                                      </span>
                                     </div>
-                                    {plan.installments > 1 && (
+                                    <div className="flex justify-between">
+                                      <span className="text-sm">
+                                        Prima scadenza:
+                                      </span>
+                                      <span>
+                                        Dopo{" "}
+                                        {normalizedPlan.installments[0]
+                                          ?.dueAfterDays ?? 0}{" "}
+                                        giorni
+                                      </span>
+                                    </div>
+                                    {normalizedPlan.proration.enabled ? (
                                       <div className="flex justify-between">
                                         <span className="text-sm">
-                                          Importo rata:
+                                          Pro-rata:
                                         </span>
                                         <span>
-                                          €{plan.installmentAmount.toFixed(2)}
+                                          {normalizedPlan.proration.method ===
+                                          "months"
+                                            ? "Mesi"
+                                            : "Giorni"}
                                         </span>
                                       </div>
-                                    )}
+                                    ) : null}
+                                    {normalizedPlan.services.length > 0 ? (
+                                      <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-600 dark:bg-slate-900/50 dark:text-slate-300">
+                                        {normalizedPlan.services
+                                          .slice(0, 3)
+                                          .map((service) => (
+                                            <div
+                                              key={service.id}
+                                              className="flex justify-between gap-2"
+                                            >
+                                              <span className="truncate">
+                                                {service.name}
+                                              </span>
+                                              <span>
+                                                {formatPlanCurrency(
+                                                  service.price,
+                                                )}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        {normalizedPlan.services.length > 3 ? (
+                                          <p className="mt-1 text-muted-foreground">
+                                            +{normalizedPlan.services.length - 3}{" "}
+                                            altri servizi
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
                                     <div className="flex justify-between">
                                       <span className="text-sm">Stato:</span>
                                       <span
                                         className={
-                                          plan.active
+                                          normalizedPlan.active
                                             ? "text-green-600"
                                             : "text-gray-500"
                                         }
                                       >
-                                        {plan.active ? "Attivo" : "Disattivato"}
+                                        {normalizedPlan.active
+                                          ? "Attivo"
+                                          : "Disattivato"}
                                       </span>
                                     </div>
                                   </div>
                                 </CardContent>
                               </Card>
-                            ))}
+                              );
+                            })}
                         </div>
                       )}
                     </div>
@@ -1215,6 +2010,18 @@ export default function RegistrationManagementPage() {
                                 rows={4}
                               />
                             </div>
+                            <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3">
+                              <input
+                                id="method-active"
+                                name="active"
+                                type="checkbox"
+                                checked={newMethod.active}
+                                onChange={handleMethodChange}
+                              />
+                              <Label htmlFor="method-active">
+                                Metodo attivo
+                              </Label>
+                            </div>
                           </div>
                           <div className="flex justify-end gap-2">
                             <Button
@@ -1271,72 +2078,17 @@ export default function RegistrationManagementPage() {
                                   <p className="text-sm text-muted-foreground mb-3 whitespace-pre-line">
                                     {method.details}
                                   </p>
-                                  <div className="flex justify-between items-center">
-                                    <div>
-                                      <span className="text-sm">Stato:</span>
-                                      <span
-                                        className={
-                                          method.active
-                                            ? "text-green-600 ml-2"
-                                            : "text-gray-500 ml-2"
-                                        }
-                                      >
-                                        {method.active
-                                          ? "Attivo"
-                                          : "Disattivato"}
-                                      </span>
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className={
-                                          method.active
-                                            ? "border-red-500 text-red-500"
-                                            : "border-green-500 text-green-500"
-                                        }
-                                        onClick={async () => {
-                                          try {
-                                            const updatedMethods =
-                                              await persistPaymentMethods(
-                                                paymentMethods.map((item) =>
-                                                  item.id === method.id
-                                                    ? {
-                                                        ...item,
-                                                        active: !item.active,
-                                                      }
-                                                    : item,
-                                                ),
-                                              );
-                                            setPaymentMethods(updatedMethods);
-                                            showToast(
-                                              "success",
-                                              `Metodo di pagamento ${method.active ? "disattivato" : "attivato"} con successo`,
-                                            );
-                                          } catch (error) {
-                                            console.error(
-                                              "Error updating payment method:",
-                                              error,
-                                            );
-                                            showToast(
-                                              "error",
-                                              "Errore nell'aggiornamento del metodo di pagamento",
-                                            );
-                                          }
-                                        }}
-                                      >
-                                        {method.active ? "Disattiva" : "Attiva"}
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="border-red-500 text-red-500"
-                                        onClick={() => deleteMethod(method.id)}
-                                      >
-                                        <Trash2 className="h-4 w-4 mr-1" />
-                                        Elimina
-                                      </Button>
-                                    </div>
+                                  <div>
+                                    <span className="text-sm">Stato:</span>
+                                    <span
+                                      className={
+                                        method.active
+                                          ? "text-green-600 ml-2"
+                                          : "text-gray-500 ml-2"
+                                      }
+                                    >
+                                      {method.active ? "Attivo" : "Disattivato"}
+                                    </span>
                                   </div>
                                 </CardContent>
                               </Card>
@@ -1452,6 +2204,22 @@ export default function RegistrationManagementPage() {
                                     : "0.01"
                                 }
                               />
+                            </div>
+                            <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3">
+                              <input
+                                id="discount-active"
+                                type="checkbox"
+                                checked={newDiscount.active}
+                                onChange={(event) =>
+                                  setNewDiscount({
+                                    ...newDiscount,
+                                    active: event.target.checked,
+                                  })
+                                }
+                              />
+                              <Label htmlFor="discount-active">
+                                Sconto attivo
+                              </Label>
                             </div>
                           </div>
                           <div className="flex justify-end gap-2">
@@ -1657,61 +2425,17 @@ export default function RegistrationManagementPage() {
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm">Stato:</span>
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className={
-                                          discount.active
-                                            ? "text-green-600"
-                                            : "text-gray-500"
-                                        }
-                                      >
-                                        {discount.active
-                                          ? "Attivo"
-                                          : "Disattivato"}
-                                      </span>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className={
-                                          discount.active
-                                            ? "border-red-500 text-red-500 text-xs h-6 px-2"
-                                            : "border-green-500 text-green-500 text-xs h-6 px-2"
-                                        }
-                                        onClick={async () => {
-                                          try {
-                                            const updatedDiscount = {
-                                              ...discount,
-                                              active: !discount.active,
-                                            };
-                                            const updatedDiscounts =
-                                              await updateClubDataItem(
-                                                activeClub.id,
-                                                "discounts",
-                                                discount.id,
-                                                updatedDiscount,
-                                              );
-                                            setDiscounts(updatedDiscounts);
-                                            showToast(
-                                              "success",
-                                              `Sconto ${discount.active ? "disattivato" : "attivato"} con successo`,
-                                            );
-                                          } catch (error) {
-                                            console.error(
-                                              "Error updating discount:",
-                                              error,
-                                            );
-                                            showToast(
-                                              "error",
-                                              "Errore nell'aggiornamento dello sconto",
-                                            );
-                                          }
-                                        }}
-                                      >
-                                        {discount.active
-                                          ? "Disattiva"
-                                          : "Attiva"}
-                                      </Button>
-                                    </div>
+                                    <span
+                                      className={
+                                        discount.active
+                                          ? "text-green-600"
+                                          : "text-gray-500"
+                                      }
+                                    >
+                                      {discount.active
+                                        ? "Attivo"
+                                        : "Disattivato"}
+                                    </span>
                                   </div>
                                 </div>
                               </CardContent>
@@ -2434,7 +3158,7 @@ export default function RegistrationManagementPage() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

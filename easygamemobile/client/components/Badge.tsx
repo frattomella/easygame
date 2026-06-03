@@ -5,7 +5,12 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing, Colors } from "@/constants/theme";
 
-type BadgeVariant = "default" | "primary" | "success" | "warning" | "destructive";
+type BadgeVariant =
+  | "default"
+  | "primary"
+  | "success"
+  | "warning"
+  | "destructive";
 
 interface BadgeProps {
   label: string;
@@ -14,29 +19,42 @@ interface BadgeProps {
   small?: boolean;
 }
 
-export function Badge({ label, variant = "default", style, small }: BadgeProps) {
+export function Badge({
+  label,
+  variant = "default",
+  style,
+  small,
+}: BadgeProps) {
   const { theme, isDark } = useTheme();
 
   const getColors = () => {
     switch (variant) {
       case "primary":
         return {
-          backgroundColor: isDark ? "rgba(59, 130, 246, 0.2)" : "rgba(37, 99, 235, 0.1)",
+          backgroundColor: isDark
+            ? "rgba(59, 130, 246, 0.2)"
+            : "rgba(37, 99, 235, 0.1)",
           textColor: theme.primary,
         };
       case "success":
         return {
-          backgroundColor: isDark ? "rgba(34, 197, 94, 0.2)" : "rgba(34, 197, 94, 0.1)",
+          backgroundColor: isDark
+            ? "rgba(34, 197, 94, 0.2)"
+            : "rgba(34, 197, 94, 0.1)",
           textColor: Colors.light.success,
         };
       case "warning":
         return {
-          backgroundColor: isDark ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.1)",
+          backgroundColor: isDark
+            ? "rgba(245, 158, 11, 0.2)"
+            : "rgba(245, 158, 11, 0.1)",
           textColor: Colors.light.warning,
         };
       case "destructive":
         return {
-          backgroundColor: isDark ? "rgba(239, 68, 68, 0.2)" : "rgba(239, 68, 68, 0.1)",
+          backgroundColor: isDark
+            ? "rgba(239, 68, 68, 0.2)"
+            : "rgba(239, 68, 68, 0.1)",
           textColor: Colors.light.destructive,
         };
       default:

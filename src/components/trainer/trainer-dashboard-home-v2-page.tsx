@@ -10,8 +10,10 @@ import {
   Trophy,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TrainerWeeklyMatchesWidget } from "@/components/trainer/TrainerWeeklyMatchesWidget";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
   CompactEntityCard,
@@ -36,6 +38,7 @@ import {
   getTrainingAttendanceStatus,
   isTrainingMissingAttendance,
 } from "@/lib/trainer-operational-alerts";
+import { getInvalidCertificatesForConvocatedAthletes } from "@/lib/match-certificate-warnings";
 import { cn } from "@/lib/utils";
 
 const convocationBadgeClassName = (state: string) => {
@@ -76,9 +79,7 @@ export default function TrainerDashboardHomeV2Page() {
   const todayMatches = visibleMatches
     .filter((match) => isSameTrainerDay(match?.startsAt, now))
     .sort(compareTrainerRecordsByStart);
-  const nextMatches = visibleMatches
-    .filter((match) => match?.startsAt && match.startsAt >= now)
-    .sort(compareTrainerRecordsByStart);
+  const nextMatches: any[] = [];
   const matchOfTheDay = todayMatches[0] || null;
   const trainerDisplayName =
     trainerProfile?.name ||
@@ -103,7 +104,7 @@ export default function TrainerDashboardHomeV2Page() {
         <p className="text-xs font-semibold tracking-[0.18em] text-blue-600">
           Home
         </p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">
+        <h1 className="mt-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">
           Bentornato, {trainerFirstName} 👋
         </h1>
         <p className="mt-2 text-sm text-slate-500">
@@ -162,6 +163,10 @@ export default function TrainerDashboardHomeV2Page() {
                   deadlineDays: matchConvocationDeadlineDays,
                   now,
                 });
+                const certificateWarning = getInvalidCertificatesForConvocatedAthletes(
+                  matchOfTheDay,
+                  assignedAthletes,
+                );
 
                 return (
                   <div className="space-y-4">
@@ -180,6 +185,7 @@ export default function TrainerDashboardHomeV2Page() {
                         {convocationStatus.convocated}/{convocationStatus.total}
                       </Badge>
                     </div>
+                    <MatchCertificateWarningBadge warning={certificateWarning} />
                     <p className="text-xl font-semibold text-slate-950">
                       {getMatchConvocationLabel(convocationStatus.state)}
                     </p>
@@ -342,7 +348,7 @@ export default function TrainerDashboardHomeV2Page() {
         </SurfacePanel>
 
         <SurfacePanel
-          title="Gare imminenti"
+          title="Agenda gare settimanale"
           icon={Trophy}
           action={
             <Button
@@ -354,6 +360,14 @@ export default function TrainerDashboardHomeV2Page() {
             </Button>
           }
         >
+          <TrainerWeeklyMatchesWidget
+            matches={visibleMatches}
+            athletes={assignedAthletes}
+            onSelectMatch={(match) =>
+              router.push(`/trainer-dashboard/matches?focus=${match.id}`)
+            }
+          />
+          <div className="hidden">
           {nextMatches.length > 0 ? (
             <div className="space-y-3">
               {nextMatches.slice(0, 4).map((match) => {
@@ -364,6 +378,10 @@ export default function TrainerDashboardHomeV2Page() {
                   deadlineDays: matchConvocationDeadlineDays,
                   now,
                 });
+                const certificateWarning = getInvalidCertificatesForConvocatedAthletes(
+                  match,
+                  assignedAthletes,
+                );
 
                 return (
                   <CompactEntityCard
@@ -395,6 +413,13 @@ export default function TrainerDashboardHomeV2Page() {
                       <span key="convocations">
                         {getMatchConvocationLabel(convocationStatus.state)}
                       </span>,
+                      ...(certificateWarning.hasInvalidCertificates
+                        ? [
+                            <span key="certificate-warning">
+                              <MatchCertificateWarningBadge warning={certificateWarning} />
+                            </span>,
+                          ]
+                        : []),
                     ]}
                     onClick={() =>
                       router.push(`/trainer-dashboard/matches?focus=${match.id}`)
@@ -409,6 +434,7 @@ export default function TrainerDashboardHomeV2Page() {
               description="Calendario gare vuoto."
             />
           )}
+          </div>
         </SurfacePanel>
       </div>
 

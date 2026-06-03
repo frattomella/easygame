@@ -12,6 +12,7 @@ import {
   getAthleteDisplayName,
 } from "@/components/trainer/trainer-dashboard-shared";
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
+import { PageHeading } from "@/components/dashboard/page-heading";
 
 export default function TrainerCategoriesDashboardPage() {
   const {
@@ -29,15 +30,10 @@ export default function TrainerCategoriesDashboardPage() {
 
   return (
     <div className="space-y-6 pb-2">
-      <div className="space-y-2">
-        <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-4xl font-bold text-transparent">
-          Categorie
-        </h1>
-        <p className="text-gray-600">
-          Qui trovi le categorie realmente assegnate al trainer, con atleti,
-          allenamenti e gare filtrati in modo coerente.
-        </p>
-      </div>
+      <PageHeading
+        title="Categorie"
+        subtitle="Qui trovi le categorie realmente assegnate al trainer, con atleti, allenamenti e gare filtrati in modo coerente."
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <SummaryCard

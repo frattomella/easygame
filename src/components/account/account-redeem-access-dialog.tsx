@@ -39,19 +39,19 @@ export function AccountRedeemAccessDialog({
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl rounded-[32px] border-white/70 bg-white/95 p-0 shadow-2xl backdrop-blur-xl">
-        <div className="rounded-t-[32px] bg-gradient-to-r from-blue-700 via-blue-600 to-sky-500 px-8 py-7 text-white">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-hidden">
+        <div className="border-b px-6 py-4">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Aggiungi un accesso</DialogTitle>
-            <DialogDescription className="text-blue-100">
+            <DialogTitle className="text-lg">Aggiungi un accesso</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
               Inserisci il token che il club ti ha condiviso. Se il token e
               valido e non scaduto, il ruolo viene aggiunto al tuo account.
             </DialogDescription>
           </DialogHeader>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-6 px-8 py-7">
-          <div className="rounded-[26px] border border-slate-100 bg-slate-50/80 p-5">
+        <form onSubmit={onSubmit} className="max-h-[calc(90vh-9rem)] space-y-6 overflow-y-auto px-6 py-6">
+          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-5">
             <div className="mb-4 flex items-start gap-3">
               <div className="mt-1 flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 text-blue-700">
                 <KeyRound className="h-5 w-5" />
@@ -77,7 +77,7 @@ export function AccountRedeemAccessDialog({
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="hidden">
             <div className="rounded-[24px] border border-slate-100 bg-slate-50/80 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-900">
                 <Users className="h-4 w-4 text-blue-600" />
@@ -111,14 +111,13 @@ export function AccountRedeemAccessDialog({
             <Button
               type="button"
               variant="outline"
-              className="rounded-full"
               onClick={() => onOpenChange(false)}
             >
               Chiudi
             </Button>
             <Button
               type="submit"
-              className="rounded-full bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700"
               disabled={loading}
             >
               {loading ? (

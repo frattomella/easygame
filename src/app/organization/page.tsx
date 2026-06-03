@@ -4,6 +4,11 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +31,7 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  Check,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -54,6 +60,7 @@ import {
   normalizeClubSeasons,
   type ClubSeason,
 } from "@/lib/club-seasons";
+import { cn } from "@/lib/utils";
 
 // Tipologie club (selezione multipla)
 const CLUB_TYPES_LIST = ["Dilettante", "Professionista", "Altro"];
@@ -164,6 +171,8 @@ export default function OrganizationPage() {
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
   const [customSport, setCustomSport] = useState("");
   const [showCustomSportInput, setShowCustomSportInput] = useState(false);
+  const [sportComboboxOpen, setSportComboboxOpen] = useState(false);
+  const [sportSearchQuery, setSportSearchQuery] = useState("");
 
   const [selectedTypes, setSelectedTypes] = useState<string[]>(["Dilettante"]);
   const [customType, setCustomType] = useState("");
@@ -547,13 +556,21 @@ const [federations, setFederations] = useState<any[]>([]);
     setOrganizationData((prev) => ({ ...prev, taxRegime: value }));
   };
   const handleSportToggle = (sport: string) => {
-    if (sport === "Altro") {
-      setShowCustomSportInput(!showCustomSportInput);
+    const normalizedSport = sport.trim();
+
+    if (!normalizedSport) {
+      return;
+    }
+
+    if (normalizedSport === "Altro") {
+      setShowCustomSportInput((previous) => !previous);
       return;
     }
 
     setSelectedSports((prev) =>
-      prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport],
+      prev.includes(normalizedSport)
+        ? prev.filter((s) => s !== normalizedSport)
+        : [...prev, normalizedSport],
     );
   };
 
@@ -568,6 +585,10 @@ const [federations, setFederations] = useState<any[]>([]);
   const removeSport = (sport: string) => {
     setSelectedSports(selectedSports.filter((s) => s !== sport));
   };
+
+  const filteredSportsList = SPORTS_LIST.filter((sport) =>
+    sport.toLowerCase().includes(sportSearchQuery.trim().toLowerCase()),
+  );
 
   const handleLogoChange = (logoData: string | null) => {
     setLogoPreview(logoData);
@@ -773,7 +794,7 @@ const [federations, setFederations] = useState<any[]>([]);
       }
 
       if (!organizationData.name.trim()) {
-        showToast("error", "Il nome dell'organizzazione è obbligatorio");
+        showToast("error", "Il nome del club è obbligatorio");
         return;
       }
 
@@ -871,10 +892,7 @@ const [federations, setFederations] = useState<any[]>([]);
       });
       window.dispatchEvent(event);
 
-      showToast(
-        "success",
-        "Informazioni organizzazione aggiornate con successo",
-      );
+      showToast("success", "Informazioni club aggiornate con successo");
 
       setTimeout(() => {
         window.location.reload();
@@ -912,16 +930,12 @@ const [federations, setFederations] = useState<any[]>([]);
   }
 
   const renderOrganizationMainContent = () => (
-    <main className="flex-1 overflow-y-auto p-4 md:p-6">
-      <div className="mx-auto max-w-9xl space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Gestione Organizzazione
-          </h1>
-          <p className="text-gray-600 mt-2">
-            Gestisci struttura, ruoli e informazioni del tuo club.
-          </p>
-        </div>
+    <main className={dashboardMainClassName}>
+      <DashboardPageContainer>
+        <SharedPageHeader
+          title="Club"
+          subtitle="Gestisci struttura, ruoli e informazioni del tuo club."
+        />
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           {/* Mobile carousel for tabs */}
           <div className="flex items-center gap-2 mb-4 md:hidden">
@@ -1066,18 +1080,69 @@ const [federations, setFederations] = useState<any[]>([]);
                       </Badge>
                     ))}
                   </div>
-                  <Select onValueChange={handleSportToggle}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleziona uno sport" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SPORTS_LIST.map((sport) => (
-                        <SelectItem key={sport} value={sport}>
-                          {sport}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="relative">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between"
+                      aria-expanded={sportComboboxOpen}
+                      onClick={() => {
+                        setSportComboboxOpen((open) => !open);
+                        setSportSearchQuery("");
+                      }}
+                    >
+                      Aggiungi sport
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 opacity-60 transition-transform",
+                          sportComboboxOpen && "rotate-180",
+                        )}
+                      />
+                    </Button>
+                    {sportComboboxOpen ? (
+                      <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                        <Input
+                          value={sportSearchQuery}
+                          onChange={(event) =>
+                            setSportSearchQuery(event.target.value)
+                          }
+                          placeholder="Cerca sport..."
+                          className="mb-2 h-9"
+                          autoFocus
+                        />
+                        <div className="max-h-72 overflow-y-auto">
+                          {filteredSportsList.length > 0 ? (
+                            filteredSportsList.map((sport) => (
+                              <button
+                                key={sport}
+                                type="button"
+                                className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                                onClick={() => {
+                                  handleSportToggle(sport);
+                                  setSportComboboxOpen(false);
+                                  setSportSearchQuery("");
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4 text-blue-600",
+                                    selectedSports.includes(sport)
+                                      ? "opacity-100"
+                                      : "opacity-0",
+                                  )}
+                                />
+                                {sport}
+                              </button>
+                            ))
+                          ) : (
+                            <p className="px-3 py-4 text-sm text-slate-500">
+                              Nessuno sport trovato
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                   {showCustomSportInput && (
                     <div className="flex gap-2 mt-2">
                       <Input
@@ -1907,7 +1972,7 @@ const [federations, setFederations] = useState<any[]>([]);
             Salva Modifiche
           </Button>
         </div>
-      </div>
+      </DashboardPageContainer>
     </main>
   );
 
@@ -1917,7 +1982,7 @@ const [federations, setFederations] = useState<any[]>([]);
       <div className="hidden lg:flex w-full">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Gestione Organizzazione" />
+          <Header title="Club" />
           {renderOrganizationMainContent()}
         </div>
       </div>

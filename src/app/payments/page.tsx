@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -355,7 +360,11 @@ export default function PaymentsPage() {
   };
 
   const paymentBadge = (status: string) =>
-    status === "paid" ? (
+    status === "cancelled" ? (
+      <Badge variant="outline" className="border-slate-300 text-slate-600">
+        Annullato
+      </Badge>
+    ) : status === "paid" ? (
       <Badge className="bg-green-500 text-white">Pagato</Badge>
     ) : (
       <Badge variant="outline" className="border-amber-500 text-amber-600">
@@ -369,26 +378,21 @@ export default function PaymentsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Pagamenti" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-9xl space-y-6">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
-                    Pagamenti
-                  </h1>
-                  <p className="text-gray-600 mt-2">
-                    Gestisci in un unico punto pagamenti, fatture, ricevute e
-                    metodi di incasso.
-                  </p>
-                </div>
-                <Button
-                  onClick={() => setShowAddPayment(true)}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nuovo pagamento
-                </Button>
-              </div>
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer>
+              <SharedPageHeader
+                title="Pagamenti"
+                subtitle="Gestisci in un unico punto pagamenti, fatture, ricevute e metodi di incasso."
+                actions={
+                  <Button
+                    onClick={() => setShowAddPayment(true)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuovo pagamento
+                  </Button>
+                }
+              />
 
               <div className="grid gap-4 md:grid-cols-4">
                 <Card>
@@ -482,6 +486,7 @@ export default function PaymentsPage() {
                                   athletePaymentIds.has(String((payment.raw as any)?.id))
                                     ? (payment.raw as any)
                                     : null;
+                                const isCancelled = payment.status === "cancelled";
                                 const linkedInvoice = rawPayment
                                   ? invoiceByPaymentId.get(rawPayment.id)
                                   : null;
@@ -530,7 +535,7 @@ export default function PaymentsPage() {
                                     <TableCell>
                                       {rawPayment ? (
                                         <div className="flex flex-wrap gap-2">
-                                          {!linkedInvoice && (
+                                          {!isCancelled && !linkedInvoice && (
                                           <Button
                                             size="sm"
                                             variant="outline"
@@ -540,7 +545,7 @@ export default function PaymentsPage() {
                                             Fattura
                                           </Button>
                                           )}
-                                          {!linkedReceipt && (
+                                          {!isCancelled && !linkedReceipt && (
                                           <Button
                                             size="sm"
                                             variant="outline"
@@ -677,21 +682,20 @@ export default function PaymentsPage() {
                   </Card>
                 </TabsContent>
               </Tabs>
-            </div>
+            </DashboardPageContainer>
           </main>
         </div>
       </div>
 
       <div className="flex flex-1 flex-col lg:hidden">
         <MobileTopBar />
-        <main className="flex-1 overflow-y-auto p-4">
-          <div className="space-y-4">
-            <h1 className="text-3xl font-bold text-blue-700">Pagamenti</h1>
-            <p className="text-sm text-muted-foreground">
-              Usa la versione desktop per la gestione completa di pagamenti,
-              fatture e ricevute.
-            </p>
-          </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Pagamenti"
+              subtitle="Usa la versione desktop per la gestione completa di pagamenti, fatture e ricevute."
+            />
+          </DashboardPageContainer>
         </main>
       </div>
 

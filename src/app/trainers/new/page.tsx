@@ -4,6 +4,11 @@ import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -227,8 +232,8 @@ function NewTrainerPageContent() {
       <div className="flex-1 flex flex-col">
         <Header title="Nuovo Allenatore" />
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-5xl space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-5xl">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <Button
@@ -241,14 +246,11 @@ function NewTrainerPageContent() {
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
-                <div>
-                  <h1 className="text-3xl font-bold text-slate-900">
-                    Nuovo Allenatore
-                  </h1>
-                  <p className="text-slate-500">
-                    Crea una nuova anagrafica allenatore per il club selezionato.
-                  </p>
-                </div>
+                <SharedPageHeader
+                  title="Nuovo Allenatore"
+                  subtitle="Crea una nuova anagrafica allenatore per il club selezionato."
+                  className="flex-1"
+                />
               </div>
 
               <Button
@@ -506,7 +508,7 @@ function NewTrainerPageContent() {
                 </CardContent>
               </Card>
             </form>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

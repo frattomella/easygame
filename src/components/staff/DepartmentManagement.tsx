@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +28,7 @@ interface DepartmentManagementProps {
   onSave: (department: Department) => void;
   departments: Department[];
   onDelete: (id: string) => void;
+  staffCountsByDepartment?: Record<string, number>;
 }
 
 export function DepartmentManagement({
@@ -36,6 +37,7 @@ export function DepartmentManagement({
   onSave,
   departments,
   onDelete,
+  staffCountsByDepartment = {},
 }: DepartmentManagementProps) {
   const { showToast } = useToast();
   const [newDepartment, setNewDepartment] = useState<Department>({
@@ -44,7 +46,6 @@ export function DepartmentManagement({
     description: "",
     color: "blue",
   });
-  const [quickAddName, setQuickAddName] = useState("");
 
   const colors = [
     { name: "blue", class: "bg-blue-500" },
@@ -65,26 +66,9 @@ export function DepartmentManagement({
     setNewDepartment({ ...newDepartment, color });
   };
 
-  const handleQuickAdd = () => {
-    if (!quickAddName.trim()) {
-      showToast("error", "Inserisci un nome per il dipartimento");
-      return;
-    }
-
-    const newDept: Department = {
-      id: `dept-${Date.now()}`,
-      name: quickAddName,
-      color: "blue",
-    };
-
-    onSave(newDept);
-    setQuickAddName("");
-    showToast("success", `Dipartimento ${quickAddName} aggiunto con successo`);
-  };
-
   const handleCreateDepartment = () => {
     if (!newDepartment.name.trim()) {
-      showToast("error", "Inserisci un nome per il dipartimento");
+      showToast("error", "Inserisci un nome per il reparto");
       return;
     }
 
@@ -94,7 +78,7 @@ export function DepartmentManagement({
     );
 
     if (existingDept && !newDepartment.id) {
-      showToast("error", `Il dipartimento ${newDepartment.name} esiste già`);
+      showToast("error", `Il reparto ${newDepartment.name} esiste già`);
       return;
     }
 
@@ -107,7 +91,7 @@ export function DepartmentManagement({
     resetForm();
     showToast(
       "success",
-      `Dipartimento ${newDepartment.name} creato con successo`,
+      `Reparto ${newDepartment.name} creato con successo`,
     );
   };
 
@@ -127,15 +111,15 @@ export function DepartmentManagement({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Gestione Dipartimenti</DialogTitle>
+          <DialogTitle>Gestione Reparti</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div>
+        <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_280px]">
+          <section className="min-w-0">
             <div className="flex justify-between items-center mb-2">
               <Label className="text-sm font-medium">
-                Dipartimenti Esistenti
+                Reparti esistenti
               </Label>
               <Button
                 size="sm"
@@ -153,96 +137,85 @@ export function DepartmentManagement({
                 <Plus className="h-4 w-4 mr-1" /> Nuovo
               </Button>
             </div>
-            <div className="mt-2 space-y-2 max-h-60 overflow-y-auto border rounded-md p-2">
+            <div className="mt-2 space-y-2 max-h-80 overflow-y-auto rounded-md border p-2">
               {departments.length > 0 ? (
-                departments.map((dept) => (
-                  <div
-                    key={dept.id}
-                    className="flex items-center justify-between p-2 border rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`h-4 w-4 rounded-full ${colors.find((c) => c.name === dept.color)?.class || "bg-blue-500"}`}
-                      ></div>
-                      <span>{dept.name}</span>
-                      {dept.description && (
-                        <span className="text-xs text-gray-500 italic truncate max-w-[150px]">
-                          {dept.description}
-                        </span>
-                      )}
+                departments.map((dept) => {
+                  const assignedCount =
+                    staffCountsByDepartment[dept.name.toLowerCase()] || 0;
+
+                  return (
+                    <div
+                      key={dept.id}
+                      className="flex items-start justify-between gap-3 rounded-md border p-3 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`h-4 w-4 rounded-full ${colors.find((c) => c.name === dept.color)?.class || "bg-blue-500"}`}
+                          ></div>
+                          <span className="font-medium">{dept.name}</span>
+                        </div>
+                        {dept.description ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-gray-500">
+                            {dept.description}
+                          </p>
+                        ) : null}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {assignedCount} staff assegnati
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800"
+                          onClick={() => {
+                            setNewDepartment({
+                              id: dept.id,
+                              name: dept.name,
+                              description: dept.description || "",
+                              color: dept.color || "blue",
+                            });
+                          }}
+                          title="Modifica"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
+                          onClick={() => onDelete(dept.id)}
+                          title="Elimina"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800"
-                        onClick={() => {
-                          setNewDepartment({
-                            id: dept.id,
-                            name: dept.name,
-                            description: dept.description || "",
-                            color: dept.color || "blue",
-                          });
-                        }}
-                        title="Modifica"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
-                        onClick={() => onDelete(dept.id)}
-                        title="Elimina"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center text-sm text-muted-foreground py-2">
-                  Nessun dipartimento creato
+                  Nessun reparto creato
                 </div>
               )}
             </div>
-          </div>
+          </section>
 
-          <div>
+          <section className="rounded-md border p-3">
             <Label className="text-sm font-medium">
-              Aggiungi Nuovo Dipartimento
+              {newDepartment.id ? "Modifica reparto" : "Crea nuovo reparto"}
             </Label>
-            <div className="flex mt-1">
-              <Input
-                id="quick-add-department"
-                value={quickAddName}
-                onChange={(e) => setQuickAddName(e.target.value)}
-                className="flex-1 rounded-l-md"
-                placeholder="Nome dipartimento"
-              />
-              <Button
-                className="rounded-l-none bg-blue-600 hover:bg-blue-700"
-                onClick={handleQuickAdd}
-              >
-                Aggiungi
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-4 border-t">
-            <Label className="text-sm font-medium">
-              Crea Nuovo Dipartimento
-            </Label>
-            <div className="mt-2 space-y-3 p-3 border rounded-md">
+            <div className="mt-3 space-y-3">
               <div>
-                <Label className="text-xs font-medium">Nome Dipartimento</Label>
+                <Label className="text-xs font-medium">Nome reparto</Label>
                 <Input
                   id="department-name"
                   name="name"
                   value={newDepartment.name}
                   onChange={handleChange}
                   className="w-full mt-1"
-                  placeholder="Nome dipartimento"
+                  placeholder="Nome reparto"
                 />
               </div>
               <div>
@@ -254,7 +227,7 @@ export function DepartmentManagement({
                   onChange={handleChange}
                   className="w-full mt-1"
                   rows={2}
-                  placeholder="Descrizione del dipartimento"
+                  placeholder="Descrizione del reparto"
                 />
               </div>
               <div>
@@ -273,10 +246,15 @@ export function DepartmentManagement({
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                 onClick={handleCreateDepartment}
               >
-                Crea Dipartimento
+                {newDepartment.id ? "Salva reparto" : "Crea reparto"}
               </Button>
+              {newDepartment.id ? (
+                <Button variant="outline" className="w-full" onClick={resetForm}>
+                  Annulla modifica
+                </Button>
+              ) : null}
             </div>
-          </div>
+          </section>
         </div>
         <DialogFooter className="mt-4">
           <Button variant="outline" onClick={onClose}>

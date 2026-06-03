@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ListChecks, Search, Trophy } from "lucide-react";
+import { AlertTriangle, CalendarDays, ListChecks, Search, Trophy } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
+import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
+import { ResponsiveMatchesCalendar } from "@/components/trainer/ResponsiveMatchesCalendar";
 import { updateClubDataItem } from "@/lib/simplified-db";
 import { useToast } from "@/components/ui/toast-notification";
 import {
@@ -28,6 +30,7 @@ import {
   getMatchConvocationLabel,
   getMatchConvocationStatus,
 } from "@/lib/trainer-operational-alerts";
+import { getInvalidCertificatesForConvocatedAthletes } from "@/lib/match-certificate-warnings";
 
 const getMatchNotes = (match: any) =>
   String(
@@ -54,6 +57,7 @@ export default function TrainerMatchesDashboardPage() {
   const { showToast } = useToast();
   const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const focusedMatchId = searchParams.get("focus");
 
   if (!permissions.navigation.matches) {
@@ -170,6 +174,10 @@ export default function TrainerMatchesDashboardPage() {
           const matchCategory =
             match.displayCategory || match.category || "Categoria";
           const matchNotes = getMatchNotes(match);
+          const certificateWarning = getInvalidCertificatesForConvocatedAthletes(
+            match,
+            assignedAthletes,
+          );
           const hasSavedConvocations =
             convocationStatus.convocated > 0 ||
             String(match?.convocationsStatus || "").toLowerCase() ===
@@ -206,9 +214,15 @@ export default function TrainerMatchesDashboardPage() {
                     ? formatMatchLocationLabel(match)
                     : "Dettagli luogo non visibili"}
                 </span>,
-                <span key="convocations" className="font-medium text-slate-700">
-                  {convocationStatus.convocated}/{convocationStatus.total} ·{" "}
-                  {getMatchConvocationLabel(convocationStatus.state)}
+                <span
+                  key="convocations"
+                  className="flex flex-wrap items-center gap-2 font-medium text-slate-700"
+                >
+                  <span>
+                    {convocationStatus.convocated}/{convocationStatus.total} ·{" "}
+                    {getMatchConvocationLabel(convocationStatus.state)}
+                  </span>
+                  <MatchCertificateWarningBadge warning={certificateWarning} />
                 </span>,
                 ...(matchNotes
                   ? [
@@ -251,21 +265,56 @@ export default function TrainerMatchesDashboardPage() {
   };
 
   return (
-    <div className="space-y-6 pb-2">
+    <div className="min-h-0 space-y-6 pb-2">
       <PageHeading
         eyebrow="Dashboard trainer"
         title="Gare"
         subtitle="Programma, storico e convocazioni."
       />
 
-      <div className="relative w-full md:w-[420px]">
-        <Input
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Cerca gara, categoria, avversario, data..."
-          className="rounded-2xl pl-10"
-        />
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative w-full md:w-[420px]">
+          <Input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Cerca gara, categoria, avversario, data..."
+            className="rounded-2xl pl-10"
+          />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        </div>
+
+        <div className="inline-flex w-full rounded-2xl border border-slate-200 bg-slate-50 p-1 sm:w-auto">
+          <Button
+            type="button"
+            size="sm"
+            variant={viewMode === "list" ? "default" : "ghost"}
+            aria-pressed={viewMode === "list"}
+            className={
+              viewMode === "list"
+                ? "flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 sm:flex-none"
+                : "flex-1 rounded-xl sm:flex-none"
+            }
+            onClick={() => setViewMode("list")}
+          >
+            <ListChecks className="mr-2 h-4 w-4" />
+            Lista/Card
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={viewMode === "calendar" ? "default" : "ghost"}
+            aria-pressed={viewMode === "calendar"}
+            className={
+              viewMode === "calendar"
+                ? "flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 sm:flex-none"
+                : "flex-1 rounded-xl sm:flex-none"
+            }
+            onClick={() => setViewMode("calendar")}
+          >
+            <CalendarDays className="mr-2 h-4 w-4" />
+            Calendario/Agenda
+          </Button>
+        </div>
       </div>
 
       {visibleMatches.length === 0 ? (
@@ -273,6 +322,20 @@ export default function TrainerMatchesDashboardPage() {
           title="Nessuna gara disponibile"
           description="Calendario gare vuoto."
         />
+      ) : viewMode === "calendar" ? (
+        <SurfacePanel
+          title="Calendario e agenda gare"
+          description="Desktop in calendario mensile, mobile in agenda per data."
+          icon={CalendarDays}
+        >
+          <ResponsiveMatchesCalendar
+            matches={filteredMatches}
+            athletes={assignedAthletes}
+            getMatchAthletes={getMatchAthletes}
+            deadlineDays={matchConvocationDeadlineDays}
+            onSelectMatch={setSelectedMatch}
+          />
+        </SurfacePanel>
       ) : (
         <div className="space-y-6">
           <SurfacePanel title="Gare programmate" icon={Trophy}>

@@ -3,14 +3,18 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ClubPersonDetailHeader } from "@/components/club/ClubPersonDetailHeader";
 import {
   Calendar,
   Mail,
@@ -275,7 +279,7 @@ export default function MemberDetailsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Dettaglio Socio" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex justify-center items-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
             </div>
@@ -292,7 +296,7 @@ export default function MemberDetailsPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Socio Non Trovato" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex flex-col items-center justify-center py-8">
               <h2 className="text-xl font-semibold mb-4">
                 Socio non trovato
@@ -312,56 +316,40 @@ export default function MemberDetailsPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Dettaglio Socio" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
-            {/* Header with avatar and actions */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div className="flex items-center gap-4">
-                <AvatarUpload
-                  currentImage={member.avatar}
-                  onImageChange={async (imageData) => {
-                    const newAvatar = imageData || null;
-                    setMember({ ...member, avatar: newAvatar });
-                    
-                    // Save to database immediately
-                    if (clubId && memberId) {
-                      try {
-                        const { updateClubDataItem } = await import("@/lib/simplified-db");
-                        await updateClubDataItem(clubId, "members", memberId, { avatar: newAvatar });
-                        showToast("success", "Foto profilo aggiornata");
-                      } catch (error) {
-                        console.error("Error saving avatar:", error);
-                        showToast("error", "Errore nel salvataggio della foto");
-                      }
-                    }
-                  }}
-                  name={member.name}
-                  size="lg"
-                  type="member"
-                />
-                <div>
-                  <h1 className="text-2xl font-bold">{member.name}</h1>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge className="bg-blue-500 text-white">
-                      {member.type}
-                    </Badge>
-                    <Badge className={member.status === "active" ? "bg-green-500" : "bg-gray-500"}>
-                      {member.status === "active" ? "Attivo" : "Inattivo"}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2 w-full md:w-auto">
-                <Button variant="outline" className="flex-1 md:flex-none" onClick={handleShareCredentials}>
-                  <Share2 className="h-4 w-4 mr-2" />
-                  Invia Credenziali
-                </Button>
-                <Button variant="destructive" className="flex-1 md:flex-none" onClick={handleDeleteMember}>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Elimina
-                </Button>
-              </div>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-7xl">
+            <ClubPersonDetailHeader
+              title={member.name}
+              iconType="member"
+              badges={[
+                { label: member.type, className: "bg-blue-500 text-white" },
+                {
+                  label: member.status === "active" ? "Attivo" : "Inattivo",
+                  className:
+                    member.status === "active" ? "bg-green-500" : "bg-gray-500",
+                },
+              ]}
+              actions={
+                <>
+                  <Button
+                    variant="outline"
+                    className="flex-1 md:flex-none"
+                    onClick={handleShareCredentials}
+                  >
+                    <Share2 className="h-4 w-4 mr-2" />
+                    Invia Credenziali
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1 md:flex-none"
+                    onClick={handleDeleteMember}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Elimina
+                  </Button>
+                </>
+              }
+            />
 
             {/* Tabs for different sections */}
             <Tabs defaultValue="anagrafica">
@@ -476,7 +464,7 @@ export default function MemberDetailsPage() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

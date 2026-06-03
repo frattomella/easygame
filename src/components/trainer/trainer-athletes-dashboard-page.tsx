@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  BarChart3,
   ChevronDown,
   ChevronRight,
   Eye,
@@ -14,7 +15,7 @@ import { PageHeading } from "@/components/dashboard/page-heading";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
@@ -26,6 +27,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
@@ -41,6 +49,8 @@ import {
   compareAthletesByLastName,
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
+import { calculateCategoryAthleteStats } from "@/lib/category-athlete-stats";
+import { normalizeAthleteCategoryMemberships } from "@/lib/athlete-category-memberships";
 
 type TrainerAthleteRow = {
   id: string;
@@ -48,6 +58,7 @@ type TrainerAthleteRow = {
   avatar: string | null;
   categoryId: string;
   categoryLabel: string;
+  membershipType: "primary" | "secondary";
   birthYear: string;
   birthDate: string | null;
   status: string;
@@ -100,12 +111,23 @@ const isCertificateExpired = (value: unknown) => {
 
 export default function TrainerAthletesDashboardPage() {
   const router = useRouter();
-  const { assignedAthletes, assignedCategories, categories, permissions } =
-    useTrainerDashboard();
+  const {
+    assignedAthletes,
+    assignedCategories,
+    categories,
+    permissions,
+    visibleMatches,
+    visibleTrainings,
+  } = useTrainerDashboard();
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),
   );
+  const [selectedReportCategory, setSelectedReportCategory] = useState<{
+    id: string;
+    name: string;
+    athletes: TrainerAthleteRow[];
+  } | null>(null);
 
   const canOpenAthleteProfile =
     permissions.actions.viewAthleteDetails ||
@@ -114,47 +136,105 @@ export default function TrainerAthletesDashboardPage() {
     permissions.actions.viewAthleteTechnicalSheet;
 
   const athleteRows = useMemo<TrainerAthleteRow[]>(
-    () =>
-      [...assignedAthletes]
+    () => {
+      const assignedCategoryTokens = new Set(
+        assignedCategories
+          .flatMap((category: any) => [
+            category?.id,
+            category?.name,
+            resolveCategoryId(category?.id || category?.name, categories),
+          ])
+          .map(normalizeValue)
+          .filter(Boolean),
+      );
+
+      return [...assignedAthletes]
         .filter((athlete: any) => isActiveStatus(resolveAthleteStatus(athlete)))
         .sort(compareAthletesByLastName)
-        .map((athlete: any) => {
-        const categoryLabel = getRecordDisplayCategory(athlete, categories);
-        const categoryId =
-          resolveCategoryId(
-            athlete?.category_id ||
-              athlete?.data?.categoryId ||
-              athlete?.categoryId ||
-              athlete?.category_name ||
-              athlete?.data?.categoryName ||
-              athlete?.categoryName ||
-              categoryLabel,
+        .flatMap((athlete: any) => {
+          const birthDate = resolveBirthDate(athlete);
+          const memberships = normalizeAthleteCategoryMemberships(
+            athlete,
             categories,
-          ) ||
-          `trainer-category-${categoryLabel
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-+|-+$/g, "")}`;
-        const birthDate = resolveBirthDate(athlete);
+          );
+          const fallbackCategoryLabel = getRecordDisplayCategory(
+            athlete,
+            categories,
+          );
+          const fallbackCategoryId =
+            resolveCategoryId(
+              athlete?.category_id ||
+                athlete?.data?.categoryId ||
+                athlete?.categoryId ||
+                athlete?.category_name ||
+                athlete?.data?.categoryName ||
+                athlete?.categoryName ||
+                fallbackCategoryLabel,
+              categories,
+            ) ||
+            `trainer-category-${fallbackCategoryLabel
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-+|-+$/g, "")}`;
+          const categoryMemberships =
+            memberships.length > 0
+              ? memberships
+              : [
+                  {
+                    categoryId: fallbackCategoryId,
+                    categoryName: fallbackCategoryLabel,
+                    isPrimary: true,
+                  },
+                ];
+          const assignedMemberships = categoryMemberships.filter((membership) => {
+            if (assignedCategoryTokens.size === 0) {
+              return true;
+            }
 
-        return {
-          id: String(athlete?.id || "").trim(),
-          displayName: getAthleteDisplayName(athlete),
-          avatar:
-            athlete?.avatar_url ||
-            athlete?.data?.avatar ||
-            athlete?.avatar ||
-            null,
-          categoryId,
-          categoryLabel,
-          birthYear: resolveBirthYear(birthDate),
-          birthDate: birthDate ? String(birthDate) : null,
-          status: resolveAthleteStatus(athlete),
-          medicalCertExpiry: getAthleteMedicalExpiry(athlete),
-          raw: athlete,
-        };
-      }),
-    [assignedAthletes, categories],
+            const resolvedId = resolveCategoryId(
+              membership.categoryId || membership.categoryName,
+              categories,
+            );
+
+            return [membership.categoryId, membership.categoryName, resolvedId]
+              .map(normalizeValue)
+              .filter(Boolean)
+              .some((token) => assignedCategoryTokens.has(token));
+          });
+          const dedupedMemberships = new Map<string, any>();
+
+          assignedMemberships.forEach((membership) => {
+            const key =
+              normalizeValue(membership.categoryId) ||
+              normalizeValue(membership.categoryName);
+
+            if (key && !dedupedMemberships.has(key)) {
+              dedupedMemberships.set(key, membership);
+            }
+          });
+
+          return Array.from(dedupedMemberships.values()).map((membership) => ({
+            id: String(athlete?.id || "").trim(),
+            displayName: getAthleteDisplayName(athlete),
+            avatar:
+              athlete?.avatar_url ||
+              athlete?.data?.avatar ||
+              athlete?.avatar ||
+              null,
+            categoryId: String(membership.categoryId || fallbackCategoryId),
+            categoryLabel: String(
+              membership.categoryName || fallbackCategoryLabel,
+            ),
+            membershipType: membership.isPrimary ? "primary" : "secondary",
+            birthYear: resolveBirthYear(birthDate),
+            birthDate: birthDate ? String(birthDate) : null,
+            status: resolveAthleteStatus(athlete),
+            medicalCertExpiry: getAthleteMedicalExpiry(athlete),
+            raw: athlete,
+          }));
+        });
+    },
+    [assignedAthletes, assignedCategories, categories],
   );
 
   const filteredAthletes = useMemo(() => {
@@ -204,7 +284,10 @@ export default function TrainerAthletesDashboardPage() {
         });
       }
 
-      groups.get(athlete.categoryId)?.athletes.push(athlete);
+      const group = groups.get(athlete.categoryId);
+      if (group && !group.athletes.some((entry) => entry.id === athlete.id)) {
+        group.athletes.push(athlete);
+      }
     });
 
     return Array.from(groups.values())
@@ -268,20 +351,35 @@ export default function TrainerAthletesDashboardPage() {
                         </AvatarFallback>
                       )}
                     </Avatar>
-                    {canOpenAthleteProfile ? (
-                      <button
-                        onClick={() =>
-                          router.push(
-                            `/trainer-dashboard/athletes/${athlete.id}`,
-                          )
-                        }
-                        className="cursor-pointer text-left hover:text-blue-600 hover:underline"
-                      >
-                        {athlete.displayName}
-                      </button>
-                    ) : (
-                      <span>{athlete.displayName}</span>
-                    )}
+                    <div className="min-w-0">
+                      {canOpenAthleteProfile ? (
+                        <button
+                          onClick={() =>
+                            router.push(
+                              `/trainer-dashboard/athletes/${athlete.id}`,
+                            )
+                          }
+                          className="cursor-pointer text-left hover:text-blue-600 hover:underline"
+                        >
+                          {athlete.displayName}
+                        </button>
+                      ) : (
+                        <span>{athlete.displayName}</span>
+                      )}
+                      <div className="mt-1">
+                        <Badge
+                          className={
+                            athlete.membershipType === "secondary"
+                              ? "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
+                              : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
+                          }
+                        >
+                          {athlete.membershipType === "secondary"
+                            ? "Secondaria"
+                            : "Primaria"}
+                        </Badge>
+                      </div>
+                    </div>
                   </div>
                 </td>
                 <td className="px-4 py-3">{athlete.birthYear}</td>
@@ -340,6 +438,21 @@ export default function TrainerAthletesDashboardPage() {
     </div>
   );
 
+  const reportRows = useMemo(() => {
+    if (!selectedReportCategory) {
+      return [];
+    }
+
+    return calculateCategoryAthleteStats(
+      selectedReportCategory.name || selectedReportCategory.id,
+      selectedReportCategory.athletes.map((athlete) => athlete.raw),
+      visibleTrainings,
+      [],
+      visibleMatches,
+      categories,
+    );
+  }, [categories, selectedReportCategory, visibleMatches, visibleTrainings]);
+
   return !permissions.navigation.athletes ? (
     <SectionBlockedState section="athletes" />
   ) : (
@@ -353,7 +466,8 @@ export default function TrainerAthletesDashboardPage() {
 
         <div className="flex flex-wrap gap-2">
           <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
-            {athleteRows.length} atleti visibili
+            {new Set(athleteRows.map((athlete) => athlete.id)).size} atleti
+            visibili
           </Badge>
           <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
             {assignedCategories.length || groupedCategories.length} categorie
@@ -390,26 +504,41 @@ export default function TrainerAthletesDashboardPage() {
                   open={!isCollapsed}
                   onOpenChange={() => toggleCategoryCollapse(categoryGroup.id)}
                 >
-                  <CollapsibleTrigger asChild>
-                    <CardHeader className="cursor-pointer pb-2 transition-colors hover:bg-gray-50">
-                      <CardTitle className="flex items-center gap-2">
-                        {isCollapsed ? (
-                          <ChevronRight className="h-5 w-5 text-gray-500" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5 text-gray-500" />
-                        )}
-                        <span className="inline-block h-3 w-3 rounded-full bg-blue-500" />
-                        <span>
-                          {categoryGroup.name} ({categoryGroup.athletes.length})
-                        </span>
-                        {categoryGroup.birthYearsLabel ? (
-                          <span className="text-sm font-normal text-gray-500">
-                            {categoryGroup.birthYearsLabel}
+                  <CardHeader className="pb-2">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left transition-colors hover:text-blue-700"
+                        >
+                          {isCollapsed ? (
+                            <ChevronRight className="h-5 w-5 text-gray-500" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-gray-500" />
+                          )}
+                          <span className="inline-block h-3 w-3 rounded-full bg-blue-500" />
+                          <span>
+                            {categoryGroup.name} ({categoryGroup.athletes.length})
                           </span>
-                        ) : null}
-                      </CardTitle>
-                    </CardHeader>
-                  </CollapsibleTrigger>
+                          {categoryGroup.birthYearsLabel ? (
+                            <span className="text-sm font-normal text-gray-500">
+                              {categoryGroup.birthYearsLabel}
+                            </span>
+                          ) : null}
+                        </button>
+                      </CollapsibleTrigger>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-full rounded-xl sm:w-auto"
+                        onClick={() => setSelectedReportCategory(categoryGroup)}
+                      >
+                        <BarChart3 className="mr-2 h-4 w-4" />
+                        Report
+                      </Button>
+                    </div>
+                  </CardHeader>
                   <CollapsibleContent>
                     <CardContent>
                       {renderAthleteTable(categoryGroup.athletes)}
@@ -421,6 +550,75 @@ export default function TrainerAthletesDashboardPage() {
           })}
         </div>
       )}
+
+      <Dialog
+        open={Boolean(selectedReportCategory)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedReportCategory(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>
+              Report categoria {selectedReportCategory?.name || ""}
+            </DialogTitle>
+            <DialogDescription>
+              Convocazioni, gare, presenze e allenamenti filtrati per categoria.
+            </DialogDescription>
+          </DialogHeader>
+          {reportRows.length === 0 ? (
+            <SectionEmptyState
+              title="Nessun dato per il report"
+              description="La categoria non contiene atleti o eventi registrati."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="px-4 py-3 text-left font-medium">Atleta</th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      Convocazioni/Gare
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      Presenze/Allenamenti
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      % Convocazione
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      % Presenza
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.map((row) => (
+                    <tr key={row.athleteId} className="border-b">
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {row.athleteName}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.convocations}/{row.totalMatches}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.presences}/{row.totalTrainings}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.totalMatches ? `${row.convocationRate}%` : "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.totalTrainings ? `${row.presenceRate}%` : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

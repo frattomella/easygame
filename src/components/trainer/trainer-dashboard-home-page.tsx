@@ -32,6 +32,7 @@ import {
   isSameTrainerDay,
 } from "@/lib/trainer-dashboard-helpers";
 import { getTrainingStableKey } from "@/lib/training-utils";
+import { PageHeading } from "@/components/dashboard/page-heading";
 
 export default function TrainerDashboardHomePage() {
   const router = useRouter();
@@ -96,16 +97,11 @@ export default function TrainerDashboardHomePage() {
 
   return (
     <div className="space-y-6 pb-2">
-      <div className="space-y-2">
-        <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-4xl font-bold text-transparent">
-          Dashboard
-        </h1>
-        <p className="text-gray-600">
-          Benvenuto nella tua area tecnica, {trainerProfile?.name || "Allenatore"}.
-          Qui trovi solo le attivita consentite dal club e collegate alle tue
-          categorie.
-        </p>
-      </div>
+      <PageHeading
+        title="Dashboard"
+        subtitle={`Benvenuto nella tua area tecnica, ${trainerProfile?.name || "Allenatore"}. Qui trovi solo le attivita consentite dal club e collegate alle tue categorie.`}
+        variant="home"
+      />
 
       {permissions.widgets.summary ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

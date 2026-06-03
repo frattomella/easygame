@@ -7,10 +7,15 @@ import clubLogoDefault from "@/../public/images/club_logo.png";
 import MetricsOverview from "@/components/dashboard/MetricsOverview";
 import UpcomingTrainings from "@/components/dashboard/UpcomingTrainings";
 import CertificationAlerts from "@/components/dashboard/CertificationAlerts";
+import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
-import { getClubData } from "@/lib/simplified-db";
+import { getClubAthletes, getClubData } from "@/lib/simplified-db";
+import {
+  getInvalidCertificatesForConvocatedAthletes,
+  type MatchCertificateWarningResult,
+} from "@/lib/match-certificate-warnings";
 import {
   ArrowRight,
   Calendar,
@@ -52,6 +57,7 @@ interface Match {
   category: string;
   categoryColor?: string;
   status: string;
+  [key: string]: any;
 }
 
 type DashboardSideCardItem = {
@@ -59,6 +65,7 @@ type DashboardSideCardItem = {
   title: string;
   meta?: string;
   detail?: string;
+  certificateWarning?: MatchCertificateWarningResult;
 };
 
 type DashboardSideCardProps = {
@@ -117,12 +124,25 @@ const DashboardSideCard = ({
             key={item.id}
             className="rounded-md bg-white/15 px-3 py-2 text-white shadow-sm ring-1 ring-white/15 backdrop-blur"
           >
-            <p className="line-clamp-1 text-sm font-semibold">{item.title}</p>
-            {item.meta || item.detail ? (
-              <p className="line-clamp-1 text-xs text-white/80">
-                {[item.meta, item.detail].filter(Boolean).join(" - ")}
-              </p>
-            ) : null}
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-1 text-sm font-semibold">
+                  {item.title}
+                </p>
+                {item.meta || item.detail ? (
+                  <p className="line-clamp-1 text-xs text-white/80">
+                    {[item.meta, item.detail].filter(Boolean).join(" - ")}
+                  </p>
+                ) : null}
+              </div>
+              {item.certificateWarning?.hasInvalidCertificates ? (
+                <MatchCertificateWarningBadge
+                  warning={item.certificateWarning}
+                  compact
+                  className="shrink-0 border-amber-100 bg-amber-100 text-amber-900"
+                />
+              ) : null}
+            </div>
           </div>
         ))
       ) : (
@@ -149,6 +169,7 @@ export default function DashboardPage() {
   const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [todayNotes, setTodayNotes] = useState<Note[]>([]);
   const [todayMatches, setTodayMatches] = useState<Match[]>([]);
+  const [clubAthletes, setClubAthletes] = useState<any[]>([]);
 
   useEffect(() => {
     // Get club ID from URL query parameter or active organization
@@ -324,6 +345,9 @@ export default function DashboardPage() {
             });
           setTodayMatches(todayMatchesList);
         }
+
+        const athletesData = await getClubAthletes(orgId);
+        setClubAthletes(Array.isArray(athletesData) ? athletesData : []);
       } catch (error) {
         console.warn("Error loading today's data:", error);
       }
@@ -339,6 +363,10 @@ export default function DashboardPage() {
       title: match.opponent ? `vs ${match.opponent}` : match.title,
       meta: `${formatDashboardDate(match.date)} - ${match.time || "Orario da definire"}`,
       detail: match.category,
+      certificateWarning: getInvalidCertificatesForConvocatedAthletes(
+        match,
+        clubAthletes,
+      ),
     }));
 
   const appointmentItems: DashboardSideCardItem[] = todayAppointments

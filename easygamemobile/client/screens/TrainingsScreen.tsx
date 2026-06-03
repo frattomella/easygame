@@ -12,13 +12,7 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import {
-  format,
-  addDays,
-  startOfWeek,
-  isSameDay,
-  parseISO,
-} from "date-fns";
+import { format, addDays, startOfWeek, isSameDay, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
 
 import { ThemedText } from "@/components/ThemedText";
@@ -82,12 +76,15 @@ export default function TrainingsScreen() {
     setSelectedDate(date);
   };
 
-  const renderTrainingItem = ({ item, index }: { item: Training; index: number }) => (
+  const renderTrainingItem = ({
+    item,
+    index,
+  }: {
+    item: Training;
+    index: number;
+  }) => (
     <Animated.View entering={FadeInDown.delay(index * 100).duration(400)}>
-      <Card
-        leftBorderColor={theme.primary}
-        style={styles.trainingCard}
-      >
+      <Card leftBorderColor={theme.primary} style={styles.trainingCard}>
         <View style={styles.trainingHeader}>
           <ThemedText type="h4">{item.title}</ThemedText>
           <Badge label={item.category} variant="primary" small />
@@ -95,19 +92,31 @@ export default function TrainingsScreen() {
 
         <View style={styles.trainingDetails}>
           <View style={styles.detailRow}>
-            <Ionicons name="time-outline" size={16} color={theme.textSecondary} />
+            <Ionicons
+              name="time-outline"
+              size={16}
+              color={theme.textSecondary}
+            />
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {item.time}
             </ThemedText>
           </View>
           <View style={styles.detailRow}>
-            <Ionicons name="calendar-outline" size={16} color={theme.textSecondary} />
+            <Ionicons
+              name="calendar-outline"
+              size={16}
+              color={theme.textSecondary}
+            />
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {format(parseISO(item.date), "d MMMM yyyy", { locale: it })}
             </ThemedText>
           </View>
           <View style={styles.detailRow}>
-            <Ionicons name="location-outline" size={16} color={theme.textSecondary} />
+            <Ionicons
+              name="location-outline"
+              size={16}
+              color={theme.textSecondary}
+            />
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {item.location}
             </ThemedText>
@@ -116,7 +125,11 @@ export default function TrainingsScreen() {
 
         <View style={styles.trainingFooter}>
           <View style={styles.attendanceInfo}>
-            <Ionicons name="people-outline" size={16} color={theme.textSecondary} />
+            <Ionicons
+              name="people-outline"
+              size={16}
+              color={theme.textSecondary}
+            />
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {item.presentCount ?? 0}/{item.totalCount ?? 0} presenti
             </ThemedText>
@@ -124,7 +137,9 @@ export default function TrainingsScreen() {
           <Button
             variant="primary"
             size="sm"
-            onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+            onPress={() =>
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            }
           >
             Registra Presenze
           </Button>
@@ -147,9 +162,7 @@ export default function TrainingsScreen() {
               style={[
                 styles.dayButton,
                 {
-                  backgroundColor: isSelected
-                    ? theme.primary
-                    : "transparent",
+                  backgroundColor: isSelected ? theme.primary : "transparent",
                 },
               ]}
             >
@@ -158,9 +171,7 @@ export default function TrainingsScreen() {
                 style={[
                   styles.dayLabel,
                   {
-                    color: isSelected
-                      ? "#FFFFFF"
-                      : theme.textSecondary,
+                    color: isSelected ? "#FFFFFF" : theme.textSecondary,
                   },
                 ]}
               >
@@ -171,9 +182,7 @@ export default function TrainingsScreen() {
                 style={[
                   styles.dayNumber,
                   {
-                    color: isSelected
-                      ? "#FFFFFF"
-                      : theme.text,
+                    color: isSelected ? "#FFFFFF" : theme.text,
                     fontWeight: isToday ? "700" : "500",
                   },
                 ]}
@@ -181,7 +190,9 @@ export default function TrainingsScreen() {
                 {format(day, "d")}
               </ThemedText>
               {isToday && !isSelected ? (
-                <View style={[styles.todayDot, { backgroundColor: theme.primary }]} />
+                <View
+                  style={[styles.todayDot, { backgroundColor: theme.primary }]}
+                />
               ) : null}
             </Pressable>
           );

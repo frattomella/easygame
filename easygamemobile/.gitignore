@@ -8,6 +8,12 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
+.codex-*
+.git/
+.git-mobile/
+.agents/
+.config/
+.local/
 
 # Native
 .kotlin/

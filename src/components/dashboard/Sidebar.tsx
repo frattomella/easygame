@@ -257,7 +257,7 @@ const Sidebar = memo(() => {
             )}
           >
             <Shield size={18} />
-            {!collapsed && <span>Organizzazione</span>}
+            {!collapsed && <span>Club</span>}
           </Link>
 
           <Link

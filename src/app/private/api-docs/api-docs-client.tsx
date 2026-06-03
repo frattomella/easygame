@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/dashboard/Header";
 import Sidebar from "@/components/dashboard/Sidebar";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +19,7 @@ import {
   internalApiAreas,
   internalApiRegistry,
 } from "@/lib/api-docs/internal-api-registry";
-import { BookOpen, Download, Loader2, LockKeyhole, Search } from "lucide-react";
+import { Download, Loader2, LockKeyhole, Search } from "lucide-react";
 
 const getStatusClassName = (status: string) => {
   if (status === "Pronta") {
@@ -293,23 +298,16 @@ export function ApiDocsClient() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="API interne EasyGame" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-5">
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer className="max-w-7xl">
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                      <BookOpen className="h-3.5 w-3.5" />
-                      Pagina riservata piattaforma
-                    </div>
-                    <h1 className="text-2xl font-semibold text-slate-950">
-                      API interne EasyGame
-                    </h1>
-                    <p className="mt-1 max-w-3xl text-sm text-slate-600">
-                      Registro operativo degli endpoint esistenti, pensato per
-                      futura integrazione mobile e manutenzione interna.
-                    </p>
-                  </div>
+                  <SharedPageHeader
+                    eyebrow="Pagina riservata piattaforma"
+                    title="API interne EasyGame"
+                    subtitle="Registro operativo degli endpoint esistenti, pensato per futura integrazione mobile e manutenzione interna."
+                    className="flex-1"
+                  />
                   <div className="flex flex-col gap-2 sm:items-start lg:items-end">
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                       {filteredEntries.length} endpoint visibili su{" "}
@@ -433,7 +431,7 @@ export function ApiDocsClient() {
                   </section>
                 ))}
               </div>
-            </div>
+            </DashboardPageContainer>
           </main>
         </div>
       </div>

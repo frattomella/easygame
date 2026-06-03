@@ -29,7 +29,11 @@ export function useAuth() {
   });
 
   const checkAuth = useCallback(async () => {
-    const withTimeout = async <T,>(promise: Promise<T>, fallback: T, ms = 3500) => {
+    const withTimeout = async <T>(
+      promise: Promise<T>,
+      fallback: T,
+      ms = 3500,
+    ) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
       try {
         return await Promise.race<T>([
@@ -86,7 +90,11 @@ export function useAuth() {
       return;
     }
 
-    const context = await withTimeout(mobileBackendStorage.getContext(), null, 2500);
+    const context = await withTimeout(
+      mobileBackendStorage.getContext(),
+      null,
+      2500,
+    );
     const hasContext = Boolean(context?.clubId && context?.role);
 
     if (!hasContext) {

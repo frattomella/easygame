@@ -38,7 +38,6 @@ import { TrainingScheduleAutomationPanel } from "@/components/trainer/TrainingSc
 import {
   Pencil,
   Plus,
-  Save,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -639,15 +638,10 @@ export function WeeklyTrainingSchedule({
           </Button>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={() => persistSchedule(schedule, true)}
-            disabled={saving}
-          >
-            <Save className="mr-2 h-4 w-4" />
-            {saving ? "Salvataggio..." : "Salva"}
-          </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border bg-white px-3 py-2 text-xs text-slate-500">
+            {saving ? "Salvataggio..." : "Salvato automaticamente"}
+          </span>
           <Button
             onClick={() => setShowAddDialog(true)}
             className="bg-blue-600 hover:bg-blue-700"

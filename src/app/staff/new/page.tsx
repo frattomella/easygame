@@ -3,6 +3,11 @@
 import React, { Suspense, useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,7 +175,7 @@ function NewStaffMemberPageContent() {
       try {
         const { data: clubData, error } = await supabase
           .from("clubs")
-          .select("departments")
+          .select("settings")
           .eq("id", clubId)
           .single();
         
@@ -179,8 +184,17 @@ function NewStaffMemberPageContent() {
           return;
         }
         
-        if (clubData?.departments && Array.isArray(clubData.departments)) {
-          setDepartments(clubData.departments as Department[]);
+        const settings =
+          clubData?.settings && typeof clubData.settings === "object"
+            ? clubData.settings
+            : {};
+        if (
+          Array.isArray((settings as Record<string, any>).staffDepartments)
+        ) {
+          setDepartments(
+            (settings as Record<string, any>)
+              .staffDepartments as Department[],
+          );
         }
       } catch (error) {
         console.error("Error fetching departments:", error);
@@ -258,8 +272,8 @@ function NewStaffMemberPageContent() {
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-4xl">
             {/* Header */}
             <div className="flex items-center gap-4 mb-6">
               <Button
@@ -270,14 +284,11 @@ function NewStaffMemberPageContent() {
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Nuovo Membro dello Staff
-                </h1>
-                <p className="text-gray-500 dark:text-gray-400">
-                  Compila i dati per aggiungere un nuovo membro
-                </p>
-              </div>
+              <SharedPageHeader
+                title="Nuovo Membro dello Staff"
+                subtitle="Compila i dati per aggiungere un nuovo membro"
+                className="flex-1"
+              />
             </div>
 
             <form onSubmit={handleSubmit}>
@@ -622,7 +633,7 @@ function NewStaffMemberPageContent() {
                 </Button>
               </div>
             </form>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

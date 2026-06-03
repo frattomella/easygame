@@ -3,6 +3,11 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -865,9 +870,13 @@ export default function SecretariatPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Segreteria" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-9xl space-y-6">
-              <div className="space-y-2">
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer>
+              <SharedPageHeader
+                title="Segreteria"
+                subtitle="Gestisci comunicazioni, documenti e attivita di segreteria."
+              />
+              <div className="hidden">
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                   Segreteria
                 </h1>
@@ -879,7 +888,7 @@ export default function SecretariatPage() {
               <div className="flex justify-center items-center h-64">
                 <div className="text-lg">Caricamento dati segreteria...</div>
               </div>
-            </div>
+            </DashboardPageContainer>
           </main>
         </div>
       </div>
@@ -891,12 +900,13 @@ export default function SecretariatPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Segreteria" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div className="space-y-2">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Segreteria
-              </h1>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Segreteria"
+              subtitle="Gestisci comunicazioni, documenti e attività di segreteria."
+            />
+            <div className="hidden">
               <p className="text-gray-600 mt-2">
                 Gestisci comunicazioni, documenti e attività di segreteria.
               </p>
@@ -1926,7 +1936,7 @@ export default function SecretariatPage() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

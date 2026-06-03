@@ -6,7 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Shield, User, UserPlus, UserX, Copy, Check } from "lucide-react";
+import { User, UserPlus, UserX, Copy, Check } from "lucide-react";
+import { DashboardPageContainer } from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 
 export default function AccessManagementPage() {
   const { showToast } = useToast();
@@ -75,17 +77,12 @@ export default function AccessManagementPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 md:p-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Shield className="h-8 w-8 text-blue-600" />
-          Gestione Accessi
-        </h1>
-        <p className="text-muted-foreground">
-          Gestisci gli accessi alla dashboard e al database del tuo club
-          sportivo.
-        </p>
-      </div>
+    <DashboardPageContainer>
+      <SharedPageHeader
+        title="Gestione Accessi"
+        subtitle="Gestisci gli accessi alla dashboard e al database del tuo club sportivo."
+        eyebrow="Sicurezza"
+      />
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
@@ -226,6 +223,6 @@ export default function AccessManagementPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </DashboardPageContainer>
   );
 }

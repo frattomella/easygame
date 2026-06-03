@@ -10,19 +10,22 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
+  Archive,
   Download,
   Edit,
   Plus,
   FileText,
   Search,
   MoreVertical,
+  RotateCcw,
   Trash2,
-  Sparkles,
 } from "lucide-react";
 import DocumentEditor, {
   DOCUMENT_TEMPLATE_TOKENS,
 } from "@/components/forms/DocumentEditor";
 import LayoutWithMobileNav from "@/app/layout-with-mobile-nav";
+import { DashboardPageContainer } from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import {
   Dialog,
   DialogContent,
@@ -45,7 +48,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { OnlineFormsDashboard } from "@/components/forms/OnlineFormsDashboard";
 import {
   getClubAthletes,
   getClub,
@@ -54,6 +58,7 @@ import {
   updateDocumentTemplate,
   deleteDocumentTemplate,
 } from "@/lib/simplified-db";
+import { getDocumentTemplatesFromClub } from "@/lib/online-forms";
 import { useToast } from "@/components/ui/use-toast";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 
@@ -62,6 +67,8 @@ type DocumentTemplate = {
   title: string;
   description: string;
   content: string;
+  archived?: boolean;
+  archivedAt?: string | null;
 };
 
 type Athlete = {
@@ -69,9 +76,14 @@ type Athlete = {
   first_name: string;
   last_name: string;
   birth_date: string;
+  category_name?: string;
   data?: {
+    [key: string]: any;
     category?: string;
+    categoryName?: string;
+    category_name?: string;
     fiscalCode?: string;
+    fiscal_code?: string;
     address?: string;
     email?: string;
     phone?: string;
@@ -210,17 +222,54 @@ const normalizeAthletes = (athletesData: any[]): Athlete[] =>
     );
 
 const normalizeTemplates = (value: any): DocumentTemplate[] =>
-  (Array.isArray(value) ? value : [])
+  getDocumentTemplatesFromClub(value)
     .map((item) => ({
       id: String(item?.id || item?.template_id || `template-${Date.now()}`),
       title: String(item?.title || item?.name || "Documento"),
       description: String(item?.description || item?.summary || ""),
       content: String(item?.content || item?.html || "<p></p>"),
+      archived: Boolean(item?.archived || item?.status === "archived"),
+      archivedAt: item?.archivedAt || item?.archived_at || null,
     }))
     .filter((template) => template.id && template.title);
 
 const escapeRegExp = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const escapeHtmlText = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const firstNonEmptyString = (...values: unknown[]) => {
+  for (const value of values) {
+    const candidate = String(value || "").trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return "";
+};
+
+const signatureBlockHtml = (label: string) =>
+  `<div style="margin: 28px 0 18px; padding: 18px; border: 1px dashed #94a3b8; border-radius: 8px; color: #475569; background-color: #f8fafc;"><strong>${label}</strong></div>`;
+
+const renderBlankTemplateForPdf = (content: string) =>
+  String(content || "")
+    .replace(
+      /<span[^>]*data-template-placeholder=["'][^"']+["'][^>]*>.*?<\/span>/gis,
+      '<span class="blank-field"></span>',
+    )
+    .replace(
+      /<div[^>]*data-signature-placeholder=["'][^"']+["'][^>]*>.*?<\/div>/gis,
+      signatureBlockHtml("Firma"),
+    )
+    .replace(/{{\s*signature\.[^}]+}}/g, signatureBlockHtml("Firma"))
+    .replace(/{{\s*[^}]+}}/g, '<span class="blank-field"></span>');
 
 function ModulisticaPage() {
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
@@ -234,6 +283,9 @@ function ModulisticaPage() {
   const [activeView, setActiveView] = useState<"list" | "editor" | "compile">(
     "list",
   );
+  const [activeTab, setActiveTab] = useState<
+    "documents" | "online-forms" | "archive"
+  >("documents");
   const [activeTemplate, setActiveTemplate] = useState<DocumentTemplate | null>(
     null,
   );
@@ -245,9 +297,9 @@ function ModulisticaPage() {
   const [newDocumentTitle, setNewDocumentTitle] = useState<string>("");
   const [newDocumentDescription, setNewDocumentDescription] =
     useState<string>("");
-  const [aiGeneratorDialog, setAiGeneratorDialog] = useState<boolean>(false);
   const [aiDescription, setAiDescription] = useState<string>("");
-  const [aiGenerating, setAiGenerating] = useState<boolean>(false);
+  const [, setAiGeneratorDialog] = useState<boolean>(false);
+  const [, setAiGenerating] = useState<boolean>(false);
   const [clubId, setClubId] = useState<string>("");
 
   const resolveCurrentClub = () => {
@@ -280,10 +332,6 @@ function ModulisticaPage() {
 
     if (action === "new") {
       setNewDocumentDialog(true);
-    }
-
-    if (action === "ai") {
-      setAiGeneratorDialog(true);
     }
 
     params.delete("action");
@@ -361,20 +409,7 @@ function ModulisticaPage() {
         await getDocumentTemplates(resolvedClubId),
       );
 
-      if (existingTemplates.length === 0) {
-        const generatedTemplates = generateDocumentTemplates(normalizedClub);
-        setTemplates(generatedTemplates);
-
-        for (const template of generatedTemplates) {
-          try {
-            await saveDocumentTemplate(resolvedClubId, template);
-          } catch (error) {
-            console.error("Error saving template:", error);
-          }
-        }
-      } else {
-        setTemplates(existingTemplates);
-      }
+      setTemplates(existingTemplates);
     } catch (error) {
       console.error("Error loading data:", error);
       showToast("error", "Errore nel caricamento dei dati");
@@ -614,12 +649,15 @@ function ModulisticaPage() {
     }
 
     const newTemplate: DocumentTemplate = {
-      id: `template-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `template-${Date.now()}`,
       title: newDocumentTitle.trim(),
       description: newDocumentDescription.trim(),
       content:
         "<h1>" +
-        newDocumentTitle.trim() +
+        escapeHtmlText(newDocumentTitle.trim()) +
         "</h1><p>Inserisci il contenuto qui.</p>",
     };
 
@@ -666,39 +704,121 @@ function ModulisticaPage() {
     if (!athlete) return;
 
     let compiledText = activeTemplate.content;
-    const guardianName =
-      [
-        athlete.data?.parentName,
-        athlete.data?.guardianName,
-        athlete.data?.parent_name,
-        athlete.data?.guardian_name,
-      ]
-        .map((value) => String(value || "").trim())
-        .find(Boolean) || "";
+    const guardianName = firstNonEmptyString(
+      athlete.data?.parentName,
+      athlete.data?.guardianName,
+      athlete.data?.parent_name,
+      athlete.data?.guardian_name,
+    );
+    const parentFirstName = firstNonEmptyString(
+      athlete.data?.parentFirstName,
+      athlete.data?.parent_first_name,
+      athlete.data?.guardianFirstName,
+      athlete.data?.guardian_first_name,
+      guardianName.split(" ")[0],
+    );
+    const parentLastName = firstNonEmptyString(
+      athlete.data?.parentLastName,
+      athlete.data?.parent_last_name,
+      athlete.data?.guardianLastName,
+      athlete.data?.guardian_last_name,
+      guardianName.split(" ").slice(1).join(" "),
+    );
+    const parentPhone = firstNonEmptyString(
+      athlete.data?.parentPhone,
+      athlete.data?.parent_phone,
+      athlete.data?.guardianPhone,
+      athlete.data?.guardian_phone,
+    );
+    const parentEmail = firstNonEmptyString(
+      athlete.data?.parentEmail,
+      athlete.data?.parent_email,
+      athlete.data?.guardianEmail,
+      athlete.data?.guardian_email,
+    );
+    const categoryName = firstNonEmptyString(
+      athlete.category_name,
+      athlete.data?.categoryName,
+      athlete.data?.category_name,
+      athlete.data?.category,
+    );
+    const fiscalCode = firstNonEmptyString(
+      athlete.data?.fiscalCode,
+      athlete.data?.fiscal_code,
+    );
+    const medicalExpiry = firstNonEmptyString(
+      athlete.data?.medicalCertExpiry,
+      athlete.data?.medical_certificate_expiry_date,
+      athlete.data?.medicalCertificateExpiryDate,
+    );
+    const medicalStatus = medicalExpiry ? "Presente" : "";
 
     // Replace placeholders with athlete data
     const replacements = {
       "athlete.first_name": athlete.first_name || "",
       "athlete.last_name": athlete.last_name || "",
       "athlete.birth_date": athlete.birth_date || "",
-      "athlete.fiscal_code": athlete.data?.fiscalCode || "",
+      "athlete.fiscal_code": fiscalCode,
       "athlete.address": athlete.data?.address || "",
       "athlete.email": athlete.data?.email || "",
       "athlete.phone": athlete.data?.phone || "",
-      "athlete.category": athlete.data?.category || "",
-      "medical_certificate.expiry_date":
-        athlete.data?.medicalCertExpiry || "",
+      "athlete.category": categoryName,
+      "athlete.category_name": categoryName,
+      "parent.first_name": parentFirstName,
+      "parent.last_name": parentLastName,
+      "parent.phone": parentPhone,
+      "parent.email": parentEmail,
+      "parent.1.first_name": parentFirstName,
+      "parent.1.last_name": parentLastName,
+      "parent.1.phone": parentPhone,
+      "parent.1.email": parentEmail,
+      "parent.2.first_name": firstNonEmptyString(
+        athlete.data?.parent2FirstName,
+        athlete.data?.parent_2_first_name,
+        athlete.data?.secondGuardianFirstName,
+      ),
+      "parent.2.last_name": firstNonEmptyString(
+        athlete.data?.parent2LastName,
+        athlete.data?.parent_2_last_name,
+        athlete.data?.secondGuardianLastName,
+      ),
+      "parent.2.phone": firstNonEmptyString(
+        athlete.data?.parent2Phone,
+        athlete.data?.parent_2_phone,
+        athlete.data?.secondGuardianPhone,
+      ),
+      "parent.2.email": firstNonEmptyString(
+        athlete.data?.parent2Email,
+        athlete.data?.parent_2_email,
+        athlete.data?.secondGuardianEmail,
+      ),
+      "medical_certificate.status": medicalStatus,
+      "medical_certificate.expiry_date": medicalExpiry,
       "club.name": clubData?.name || "",
+      "club.address": clubData?.address || "",
+      "club.city": clubData?.city || "",
+      "club.email": clubData?.email || clubData?.contact_email || "",
+      "club.phone": clubData?.phone || clubData?.contact_phone || "",
+      "club.fiscal_code": clubData?.fiscal_code || "",
+      "club.vat_number": clubData?.vat_number || "",
+      "club.website": clubData?.website || "",
       current_date: new Date().toLocaleDateString("it-IT"),
+      "season.year": readStoredActiveClub()?.activeSeasonLabel || "",
       "guardian.name": guardianName,
+      "signature.parent": signatureBlockHtml("Firma genitore"),
+      "signature.athlete": signatureBlockHtml("Firma atleta"),
+      "signature.club_representative": signatureBlockHtml(
+        "Firma presidente/club",
+      ),
+      "signature.trainer": signatureBlockHtml("Firma allenatore"),
       first_name: athlete.first_name || "",
       last_name: athlete.last_name || "",
       birth_date: athlete.birth_date || "",
-      fiscalCode: athlete.data?.fiscalCode || "",
+      fiscalCode,
       address: athlete.data?.address || "",
       email: athlete.data?.email || "",
       phone: athlete.data?.phone || "",
-      category: athlete.data?.category || "",
+      category: categoryName,
       "image.placeholder": "Immagine",
     };
 
@@ -717,8 +837,7 @@ function ModulisticaPage() {
   const generatePdf = () => {
     if (!activeTemplate) return;
 
-    // In a real application, you would use a library like jsPDF or call a backend API
-    // For now, we'll simulate PDF generation by opening the content in a new window
+    const pdfContent = renderBlankTemplateForPdf(activeTemplate.content);
     const printWindow = window.open("", "_blank");
     if (printWindow) {
       printWindow.document.write(`
@@ -726,13 +845,17 @@ function ModulisticaPage() {
           <head>
             <title>${activeTemplate.title}</title>
             <style>
-              body { font-family: Arial, sans-serif; padding: 20px; }
-              .pdf-container { max-width: 800px; margin: 0 auto; }
+              @page { size: A4; margin: 18mm; }
+              body { font-family: Arial, sans-serif; background: #fff; color: #111827; }
+              .pdf-container { max-width: 794px; margin: 0 auto; font-size: 14px; line-height: 1.65; }
+              .blank-field { display: inline-block; min-width: 160px; height: 1.2em; border-bottom: 1px solid #94a3b8; vertical-align: baseline; }
+              .easygame-page-break { break-before: page; page-break-before: always; height: 0; overflow: hidden; }
+              img { max-width: 100%; height: auto; }
             </style>
           </head>
           <body>
             <div class="pdf-container">
-              ${activeTemplate.content}
+              ${pdfContent}
             </div>
           </body>
         </html>
@@ -756,6 +879,58 @@ function ModulisticaPage() {
     } catch (error) {
       console.error("Error deleting template:", error);
       showToast("error", "Errore nell'eliminazione del documento");
+    }
+  };
+
+  const handleArchiveTemplate = async (template: DocumentTemplate) => {
+    if (!clubId) {
+      showToast("error", "ID club non disponibile");
+      return;
+    }
+
+    const archivedAt = new Date().toISOString();
+
+    try {
+      await updateDocumentTemplate(clubId, template.id, {
+        archived: true,
+        archivedAt,
+      });
+      setTemplates((currentTemplates) =>
+        currentTemplates.map((currentTemplate) =>
+          currentTemplate.id === template.id
+            ? { ...currentTemplate, archived: true, archivedAt }
+            : currentTemplate,
+        ),
+      );
+      showToast("success", "Documento archiviato");
+    } catch (error) {
+      console.error("Error archiving template:", error);
+      showToast("error", "Errore nell'archiviazione del documento");
+    }
+  };
+
+  const handleRestoreTemplate = async (template: DocumentTemplate) => {
+    if (!clubId) {
+      showToast("error", "ID club non disponibile");
+      return;
+    }
+
+    try {
+      await updateDocumentTemplate(clubId, template.id, {
+        archived: false,
+        archivedAt: null,
+      });
+      setTemplates((currentTemplates) =>
+        currentTemplates.map((currentTemplate) =>
+          currentTemplate.id === template.id
+            ? { ...currentTemplate, archived: false, archivedAt: null }
+            : currentTemplate,
+        ),
+      );
+      showToast("success", "Documento ripristinato");
+    } catch (error) {
+      console.error("Error restoring template:", error);
+      showToast("error", "Errore nel ripristino del documento");
     }
   };
 
@@ -874,97 +1049,204 @@ function ModulisticaPage() {
     );
   }
 
+  const activeTemplates = templates.filter((template) => !template.archived);
+  const archivedTemplates = templates.filter((template) => template.archived);
+
   return (
-    <div className="mx-auto max-w-9xl space-y-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Modulistica
-          </h1>
-          <p className="text-gray-600 mt-2">
-            Gestisci documenti, moduli e file condivisi del club.
-          </p>
-        </div>
-        {activeView === "list" ? (
-          <div className="flex gap-2">
-            <Button onClick={handleCreateNew}>
-              <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
-            </Button>
-            <Button
-              onClick={() => setAiGeneratorDialog(true)}
-              variant="outline"
-            >
-              <Sparkles className="mr-2 h-4 w-4" /> Genera con IA
-            </Button>
-          </div>
-        ) : (
+    <DashboardPageContainer>
+      <SharedPageHeader
+        title="Modulistica"
+        subtitle="Gestisci documenti, moduli e file condivisi del club."
+        actions={
+          activeView === "list" && activeTab === "documents" ? (
+            <div className="flex gap-2">
+              <Button onClick={handleCreateNew}>
+                <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
+              </Button>
+            </div>
+          ) : activeView === "list" ? null : (
           <Button variant="outline" onClick={handleBackToList}>
             Torna alla lista
           </Button>
-        )}
-      </div>
+          )
+        }
+      />
 
       {activeView === "list" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {templates.map((template) => (
-            <Card key={template.id} className="h-fit">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle>{template.title}</CardTitle>
-                    <CardDescription>{template.description}</CardDescription>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => handleDeleteTemplate(template.id)}
-                        className="text-red-600"
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) =>
+            setActiveTab(value as "documents" | "online-forms" | "archive")
+          }
+          className="space-y-5"
+        >
+          <TabsList className="h-auto flex-wrap justify-start">
+            <TabsTrigger value="documents">Documenti / Template</TabsTrigger>
+            <TabsTrigger value="online-forms">Moduli online</TabsTrigger>
+            <TabsTrigger value="archive">Archivio</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="documents" className="space-y-4">
+            {activeTemplates.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {activeTemplates.map((template) => (
+                  <Card key={template.id} className="h-fit">
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle>{template.title}</CardTitle>
+                        <CardDescription>{template.description}</CardDescription>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleArchiveTemplate(template)}
+                          >
+                            <Archive className="mr-2 h-4 w-4" />
+                            Archivia
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteTemplate(template.id)}
+                            className="text-red-600"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Elimina
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="mb-4">
+                      Documento {template.title.toLowerCase()}.
+                    </p>
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex space-x-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => handleEditTemplate(template)}
+                        >
+                          <Edit className="mr-2 h-4 w-4" /> Modifica
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => handleCompileDocument(template)}
+                        >
+                          <FileText className="mr-2 h-4 w-4" /> Compila
+                        </Button>
+                      </div>
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => handleExportPdf(template)}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Elimina
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                        <Download className="mr-2 h-4 w-4" /> Esporta PDF
+                      </Button>
+                    </div>
+                  </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card className="border-dashed">
+                <CardContent className="flex min-h-[280px] flex-col items-center justify-center text-center">
+                  <FileText className="mb-4 h-12 w-12 text-slate-400" />
+                  <h2 className="text-xl font-semibold text-slate-900">
+                    Nessun modello salvato
+                  </h2>
+                  <p className="mt-2 max-w-xl text-sm text-slate-500">
+                    Crea un nuovo documento e modificalo direttamente nel foglio
+                    visuale, senza scrivere HTML.
+                  </p>
+                  <Button className="mt-5" onClick={handleCreateNew}>
+                    <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="online-forms">
+            <OnlineFormsDashboard
+              clubId={clubId}
+              athletes={athletes}
+              mode="forms"
+            />
+          </TabsContent>
+
+          <TabsContent value="archive" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Documenti e template archiviati</CardTitle>
+                <CardDescription>
+                  Documenti nascosti dalla lista attiva ma ancora ripristinabili.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="mb-4">
-                  Documento {template.title.toLowerCase()}.
-                </p>
-                <div className="flex flex-col space-y-2">
-                  <div className="flex space-x-2">
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => handleEditTemplate(template)}
-                    >
-                      <Edit className="mr-2 h-4 w-4" /> Modifica
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => handleCompileDocument(template)}
-                    >
-                      <FileText className="mr-2 h-4 w-4" /> Compila
-                    </Button>
+                {archivedTemplates.length > 0 ? (
+                  <div className="space-y-3">
+                    {archivedTemplates.map((template) => (
+                      <div
+                        key={template.id}
+                        className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            {template.title}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            Documento/template
+                            {template.archivedAt
+                              ? ` - archiviato il ${new Date(
+                                  template.archivedAt,
+                                ).toLocaleDateString("it-IT")}`
+                              : ""}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRestoreTemplate(template)}
+                          >
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                            Ripristina
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleDeleteTemplate(template.id)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Elimina
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => handleExportPdf(template)}
-                  >
-                    <Download className="mr-2 h-4 w-4" /> Esporta PDF
-                  </Button>
-                </div>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Nessun documento archiviato.
+                  </p>
+                )}
               </CardContent>
             </Card>
-          ))}
-        </div>
+
+            <OnlineFormsDashboard
+              clubId={clubId}
+              athletes={athletes}
+              mode="archive"
+            />
+          </TabsContent>
+        </Tabs>
       ) : activeView === "editor" ? (
         activeTemplate && (
           <div>
@@ -977,6 +1259,7 @@ function ModulisticaPage() {
             <DocumentEditor
               initialContent={activeTemplate.content}
               onSave={handleSaveTemplate}
+              onCancel={handleBackToList}
               tokens={DOCUMENT_TEMPLATE_TOKENS}
             />
           </div>
@@ -1175,56 +1458,7 @@ function ModulisticaPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* AI Document Generator Dialog */}
-      <Dialog open={aiGeneratorDialog} onOpenChange={setAiGeneratorDialog}>
-        <DialogContent className="max-w-9xl">
-          <DialogHeader>
-            <DialogTitle>Genera Documento con IA</DialogTitle>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Descrivi dettagliatamente il tipo di documento che vuoi generare:
-            </p>
-            <Textarea
-              placeholder="Es: Crea un modulo di consenso per l'utilizzo di immagini degli atleti sui social media, includendo sezioni per i dati personali, il tipo di utilizzo consentito, e la durata del consenso..."
-              value={aiDescription}
-              onChange={(e) => setAiDescription(e.target.value)}
-              rows={6}
-              className="min-h-[120px]"
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setAiGeneratorDialog(false);
-                setAiDescription("");
-              }}
-              disabled={aiGenerating}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={generateAIDocument}
-              disabled={!aiDescription.trim() || aiGenerating}
-            >
-              {aiGenerating ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Generando...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Genera Documento
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+    </DashboardPageContainer>
   );
 }
 

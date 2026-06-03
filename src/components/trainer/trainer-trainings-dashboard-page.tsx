@@ -1,21 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   RotateCcw,
   Search,
   XCircle,
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
-import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
+import { TrainerWeeklySchedulePanel } from "@/components/trainer/trainer-weekly-schedule-panel";
 import {
   ConfirmDialog,
   Dialog,
@@ -36,6 +39,7 @@ import {
 } from "@/components/trainer/trainer-dashboard-shared";
 import {
   compareTrainerRecordsByStart,
+  getTrainerStartOfWeek,
   getTrainerEndOfWeek,
   isSameTrainerDay,
   recordMatchesCategory,
@@ -51,9 +55,16 @@ import {
   isTrainingMissingAttendance,
 } from "@/lib/trainer-operational-alerts";
 import {
+  getClubStructures,
+  getClubTrainers,
+  getClubWeeklySchedule,
   saveTrainingAttendance,
   updateClubDataItem,
 } from "@/lib/simplified-db";
+import {
+  buildTrainingLocationOptions,
+  type TrainingLocationOption,
+} from "@/lib/training-location-options";
 import { useToast } from "@/components/ui/toast-notification";
 
 export default function TrainerTrainingsDashboardPage() {
@@ -69,6 +80,12 @@ export default function TrainerTrainingsDashboardPage() {
   } = useTrainerDashboard();
   const { showToast } = useToast();
   const [selectedTraining, setSelectedTraining] = useState<any | null>(null);
+  const [weeklySchedule, setWeeklySchedule] = useState<any[]>([]);
+  const [weeklyScheduleLoading, setWeeklyScheduleLoading] = useState(false);
+  const [weeklyScheduleTrainers, setWeeklyScheduleTrainers] = useState<any[]>([]);
+  const [weeklyScheduleLocations, setWeeklyScheduleLocations] = useState<
+    TrainingLocationOption[]
+  >([]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     new Date(),
   );
@@ -84,6 +101,55 @@ export default function TrainerTrainingsDashboardPage() {
     description: "",
     onConfirm: null,
   });
+
+  useEffect(() => {
+    if (!activeClub?.id) {
+      setWeeklySchedule([]);
+      setWeeklyScheduleTrainers([]);
+      setWeeklyScheduleLocations([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadWeeklySchedule = async () => {
+      setWeeklyScheduleLoading(true);
+      try {
+        const [schedule, trainers, structures] = await Promise.all([
+          getClubWeeklySchedule(activeClub.id),
+          getClubTrainers(activeClub.id),
+          getClubStructures(activeClub.id),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setWeeklySchedule(Array.isArray(schedule) ? schedule : []);
+        setWeeklyScheduleTrainers(Array.isArray(trainers) ? trainers : []);
+        setWeeklyScheduleLocations(
+          buildTrainingLocationOptions(Array.isArray(structures) ? structures : []),
+        );
+      } catch (error) {
+        console.error("Error loading trainer weekly schedule:", error);
+        if (!cancelled) {
+          setWeeklySchedule([]);
+          setWeeklyScheduleTrainers([]);
+          setWeeklyScheduleLocations([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setWeeklyScheduleLoading(false);
+        }
+      }
+    };
+
+    void loadWeeklySchedule();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClub?.id]);
 
   if (!permissions.navigation.trainings) {
     return <SectionBlockedState section="trainings" />;
@@ -132,6 +198,28 @@ export default function TrainerTrainingsDashboardPage() {
   const selectedDateTrainings = uniqueVisibleTrainings.filter((training) =>
     selectedDate ? isSameTrainerDay(training?.startsAt, selectedDate) : false,
   ).sort(compareTrainerRecordsByStart);
+  const calendarReferenceDate = selectedDate || now;
+  const selectedWeekStart = getTrainerStartOfWeek(calendarReferenceDate);
+  const selectedWeekEnd = new Date(selectedWeekStart);
+  selectedWeekEnd.setDate(selectedWeekStart.getDate() + 6);
+  const weeklyCalendarDays = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(selectedWeekStart);
+    day.setDate(selectedWeekStart.getDate() + index);
+    return day;
+  });
+  const selectedDayTitle = selectedDate
+    ? isSameTrainerDay(selectedDate, now)
+      ? "Allenamenti di oggi"
+      : `Allenamenti del ${selectedDate.toLocaleDateString("it-IT", {
+          day: "2-digit",
+          month: "long",
+        })}`
+    : "Seleziona un giorno";
+  const shiftSelectedWeek = (weekOffset: number) => {
+    const next = new Date(selectedDate || now);
+    next.setDate(next.getDate() + weekOffset * 7);
+    setSelectedDate(next);
+  };
 
   const getTrainingAthletes = (training: any) => {
     const trainingCategories = assignedCategories.filter((category) =>
@@ -372,32 +460,136 @@ export default function TrainerTrainingsDashboardPage() {
       ) : (
         <div className="space-y-6">
           <SurfacePanel title="Calendario allenamenti" icon={CalendarDays}>
-            <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={setSelectedDate}
-                  className="mx-auto"
-                  modifiers={{
-                    scheduled: uniqueVisibleTrainings
-                      .map((training) => training?.startsAt)
-                      .filter(Boolean) as Date[],
-                  }}
-                  modifiersClassNames={{
-                    scheduled:
-                      "bg-blue-100 text-blue-700 font-semibold rounded-full",
-                  }}
-                />
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">
+                    Settimana{" "}
+                    {selectedWeekStart.toLocaleDateString("it-IT", {
+                      day: "2-digit",
+                      month: "short",
+                    })}{" "}
+                    -{" "}
+                    {selectedWeekEnd.toLocaleDateString("it-IT", {
+                      day: "2-digit",
+                      month: "short",
+                    })}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Seleziona un giorno per gestire le presenze.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 rounded-xl"
+                    onClick={() => shiftSelectedWeek(-1)}
+                    aria-label="Settimana precedente"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-xl px-3 text-xs"
+                    onClick={() => setSelectedDate(new Date())}
+                  >
+                    Oggi
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 rounded-xl"
+                    onClick={() => shiftSelectedWeek(1)}
+                    aria-label="Settimana successiva"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+                {weeklyCalendarDays.map((day) => {
+                  const dayTrainings = uniqueVisibleTrainings
+                    .filter((training) =>
+                      isSameTrainerDay(training?.startsAt, day),
+                    )
+                    .sort(compareTrainerRecordsByStart);
+                  const isSelected = selectedDate
+                    ? isSameTrainerDay(day, selectedDate)
+                    : false;
+                  const isToday = isSameTrainerDay(day, now);
+
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      type="button"
+                      onClick={() => setSelectedDate(day)}
+                      className={`min-h-[132px] rounded-2xl border p-3 text-left transition ${
+                        isSelected
+                          ? "border-blue-300 bg-blue-50 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            {day.toLocaleDateString("it-IT", {
+                              weekday: "short",
+                            })}
+                          </p>
+                          <p className="text-lg font-bold text-slate-950">
+                            {day.toLocaleDateString("it-IT", { day: "2-digit" })}
+                          </p>
+                        </div>
+                        {isToday ? (
+                          <Badge className="border-blue-200 bg-blue-600 text-white hover:bg-blue-600">
+                            Oggi
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {dayTrainings.length > 0 ? (
+                          dayTrainings.slice(0, 3).map((training) => (
+                            <div
+                              key={getTrainingStableKey(training)}
+                              className="rounded-xl border border-blue-100 bg-white px-2 py-1.5 text-xs text-slate-700"
+                            >
+                              <span className="font-semibold text-slate-950">
+                                {formatTimeRange(
+                                  training.time,
+                                  training.endTime,
+                                )}
+                              </span>
+                              <span className="mt-0.5 block truncate">
+                                {training.displayCategory ||
+                                  training.category ||
+                                  "Categoria"}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="rounded-xl border border-dashed border-slate-200 px-2 py-3 text-center text-xs text-slate-400">
+                            Libero
+                          </p>
+                        )}
+                        {dayTrainings.length > 3 ? (
+                          <p className="text-xs font-medium text-blue-700">
+                            +{dayTrainings.length - 3} allenamenti
+                          </p>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4">
                 <p className="text-sm font-semibold text-slate-900">
-                  {selectedDate
-                    ? isSameTrainerDay(selectedDate, now)
-                      ? "Allenamenti di oggi"
-                      : `Allenamenti del ${selectedDate.toLocaleDateString("it-IT")}`
-                    : "Seleziona un giorno"}
+                  {selectedDayTitle}
                 </p>
                 {renderTrainingList(
                   selectedDateTrainings,
@@ -452,6 +644,30 @@ export default function TrainerTrainingsDashboardPage() {
 
         </div>
       )}
+
+      <details className="group rounded-[30px] border border-slate-200 bg-white/95 shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
+          <span>
+            <span className="block text-base font-semibold text-slate-950">
+              Programma settimanale
+            </span>
+            <span className="mt-1 block text-sm text-slate-500">
+              Consulta il programma fisso delle categorie.
+            </span>
+          </span>
+          <ChevronDown className="h-5 w-5 text-slate-500 transition group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-slate-100 p-4 md:p-5">
+          <TrainerWeeklySchedulePanel
+            weeklySchedule={weeklySchedule}
+            categories={categories}
+            assignedCategories={assignedCategories}
+            trainers={weeklyScheduleTrainers}
+            locations={weeklyScheduleLocations}
+            loading={weeklyScheduleLoading}
+          />
+        </div>
+      </details>
 
       {selectedTraining ? (
         <Dialog

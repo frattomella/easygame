@@ -118,6 +118,40 @@ const collectCategoryOptions = (
     return nestedCandidates.flatMap((entry) => collectCategoryOptions(entry));
   }
 
+  const mappedCategories = Object.entries(source).flatMap(([key, value]) => {
+    const fallbackId = String(key || "").trim();
+
+    if (!fallbackId) {
+      return [];
+    }
+
+    if (isRecord(value)) {
+      return collectCategoryOptions({
+        ...value,
+        id: value.id || value.categoryId || value.category_id || fallbackId,
+      });
+    }
+
+    if (typeof value === "string") {
+      const name = value.trim();
+      return name
+        ? [
+            {
+              id: fallbackId,
+              name,
+              color: null,
+            },
+          ]
+        : [];
+    }
+
+    return [];
+  });
+
+  if (mappedCategories.length > 0) {
+    return mappedCategories;
+  }
+
   return [];
 };
 

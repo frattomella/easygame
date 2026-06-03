@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getParentDashboardData } from "@/lib/server/parent-dashboard";
+import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
 
 type Context = {
   params: {
@@ -37,10 +38,26 @@ export async function GET(request: Request, context: Context) {
       );
     }
 
+    const document = getSharedDocumentsFromAthlete({
+      id: dashboard.athlete.id,
+      organization_id: dashboard.club.id,
+      data: dashboard.athlete.data,
+    }).find((item) => item.assetId === context.params.assetId);
+
+    if (!document?.visibleToParent) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Documento non visibile" },
+        },
+        { status: 403 },
+      );
+    }
+
     const asset = await prisma.asset.findFirst({
       where: {
         id: context.params.assetId,
-        bucket: "parent-documents",
+        bucket: { in: ["parent-documents", "shared-documents"] },
         path: {
           startsWith: `${dashboard.club.id}/${dashboard.athlete.id}/`,
         },

@@ -4,6 +4,11 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -322,7 +327,8 @@ export default function TrainerContractsUploadPage({
       <Sidebar />
       <div className="flex-1">
         <Header />
-        <main className="p-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
           <div className="flex items-center mb-6">
             <Button
               variant="outline"
@@ -332,9 +338,10 @@ export default function TrainerContractsUploadPage({
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-2xl font-bold">
-              Documenti di {trainer?.name || "Allenatore"}
-            </h1>
+            <SharedPageHeader
+              title={`Documenti di ${trainer?.name || "Allenatore"}`}
+              className="flex-1"
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-6 mb-6">
@@ -615,6 +622,7 @@ export default function TrainerContractsUploadPage({
               )}
             </DialogContent>
           </Dialog>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

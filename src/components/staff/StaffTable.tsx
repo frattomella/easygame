@@ -4,6 +4,13 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -30,15 +37,24 @@ interface StaffMember {
   avatar: string;
 }
 
+interface Department {
+  id: string;
+  name: string;
+  color?: string;
+}
+
 interface StaffTableProps {
   staffMembers: StaffMember[];
+  departments?: Department[];
   onEdit: (member: StaffMember) => void;
   onDelete: (id: string) => void;
+  onAssignDepartment?: (id: string, department: string) => void;
   onToggleStatus: (id: string) => void;
   formatDate: (date: string | null) => string;
   visibleColumns?: {
     name: boolean;
     role: boolean;
+    department?: boolean;
     email: boolean;
     phone: boolean;
     status: boolean;
@@ -51,15 +67,35 @@ const getStaffDisplayName = (member: StaffMember) =>
   [member.name, member.surname].filter(Boolean).join(" ").trim() ||
   member.name;
 
+const DEPARTMENT_COLOR_CLASSES: Record<string, string> = {
+  blue: "border-blue-200 bg-blue-50 text-blue-700",
+  green: "border-green-200 bg-green-50 text-green-700",
+  red: "border-red-200 bg-red-50 text-red-700",
+  yellow: "border-yellow-200 bg-yellow-50 text-yellow-700",
+  purple: "border-purple-200 bg-purple-50 text-purple-700",
+};
+
+const normalizeDepartmentName = (value?: string | null) =>
+  String(value || "").trim();
+
+const getDepartmentBadgeClassName = (department?: Department) =>
+  department?.color
+    ? DEPARTMENT_COLOR_CLASSES[department.color] ||
+      "border-slate-200 bg-slate-50 text-slate-700"
+    : "border-slate-200 bg-slate-50 text-slate-700";
+
 export function StaffTable({
   staffMembers,
+  departments = [],
   onEdit,
   onDelete,
+  onAssignDepartment,
   onToggleStatus,
   formatDate,
   visibleColumns = {
     name: true,
     role: true,
+    department: true,
     email: true,
     phone: true,
     status: true,
@@ -89,6 +125,9 @@ export function StaffTable({
           <TableRow>
             {visibleColumns.name && <TableHead>Nome</TableHead>}
             {visibleColumns.role && <TableHead>Ruolo</TableHead>}
+            {visibleColumns.department && (
+              <TableHead className="hidden lg:table-cell">Reparto</TableHead>
+            )}
             {visibleColumns.email && (
               <TableHead className="hidden md:table-cell">Email</TableHead>
             )}
@@ -126,6 +165,49 @@ export function StaffTable({
               )}
               {visibleColumns.role && (
                 <TableCell>{member.role || "N/A"}</TableCell>
+              )}
+              {visibleColumns.department && (
+                <TableCell className="hidden lg:table-cell">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={getDepartmentBadgeClassName(
+                        departments.find(
+                          (department) =>
+                            normalizeDepartmentName(department.name).toLowerCase() ===
+                            normalizeDepartmentName(member.department).toLowerCase(),
+                        ),
+                      )}
+                    >
+                      {member.department || "Non assegnato"}
+                    </Badge>
+                    {onAssignDepartment ? (
+                      <Select
+                        value={member.department || "__none__"}
+                        onValueChange={(value) =>
+                          onAssignDepartment(member.id, value)
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-[150px]">
+                          <SelectValue placeholder="Reparto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">
+                            Non assegnato
+                          </SelectItem>
+                          {departments.map((department) => (
+                            <SelectItem
+                              key={department.id}
+                              value={department.name}
+                            >
+                              {department.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : null}
+                  </div>
+                </TableCell>
               )}
               {visibleColumns.email && (
                 <TableCell className="hidden md:table-cell">

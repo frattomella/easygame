@@ -12,17 +12,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  RouteProp,
-  useFocusEffect,
-  useRoute,
-} from "@react-navigation/native";
+import { RouteProp, useFocusEffect, useRoute } from "@react-navigation/native";
 import { addDays, format } from "date-fns";
 
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { Input } from "@/components/Input";
 import { ThemedText } from "@/components/ThemedText";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -54,7 +51,9 @@ const normalizeText = (value: unknown) =>
 const getTodayKey = () => format(new Date(), "yyyy-MM-dd");
 const getWeekEndKey = () => format(addDays(new Date(), 6), "yyyy-MM-dd");
 const isCancelledTraining = (training: Training) =>
-  ["cancelled", "annullato"].includes(String(training.status || "").toLowerCase());
+  ["cancelled", "annullato"].includes(
+    String(training.status || "").toLowerCase(),
+  );
 
 export default function TrainerTrainingsDashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -65,8 +64,13 @@ export default function TrainerTrainingsDashboardScreen() {
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedTraining, setSelectedTraining] = useState<Training | null>(null);
-  const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraftEntry[]>([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [selectedTraining, setSelectedTraining] = useState<Training | null>(
+    null,
+  );
+  const [attendanceDraft, setAttendanceDraft] = useState<
+    AttendanceDraftEntry[]
+  >([]);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [statusSavingId, setStatusSavingId] = useState<string | null>(null);
 
@@ -114,6 +118,35 @@ export default function TrainerTrainingsDashboardScreen() {
     () => trainings.filter((training) => training.date > weekEnd),
     [trainings, weekEnd],
   );
+  const historyTrainings = useMemo(
+    () =>
+      trainings
+        .filter((training) => training.date < today)
+        .sort((a, b) =>
+          `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`),
+        ),
+    [today, trainings],
+  );
+  const filteredHistoryTrainings = useMemo(() => {
+    const normalizedQuery = historySearch.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return historyTrainings;
+    }
+
+    return historyTrainings.filter((training) =>
+      [
+        training.title,
+        training.category,
+        training.date,
+        training.time,
+        training.location,
+        training.status,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [historySearch, historyTrainings]);
 
   const updateAttendanceNotes = (athleteId: string, notes: string) => {
     setAttendanceDraft((current) =>
@@ -126,10 +159,15 @@ export default function TrainerTrainingsDashboardScreen() {
   const openAttendanceSheet = (training: Training) => {
     const relevantAthletes = athletes.filter((athlete) => {
       if (training.categoryId && athlete.categoryId) {
-        return normalizeText(training.categoryId) === normalizeText(athlete.categoryId);
+        return (
+          normalizeText(training.categoryId) ===
+          normalizeText(athlete.categoryId)
+        );
       }
 
-      return normalizeText(training.category) === normalizeText(athlete.category);
+      return (
+        normalizeText(training.category) === normalizeText(athlete.category)
+      );
     });
 
     const existingAttendance = new Map(
@@ -189,7 +227,9 @@ export default function TrainerTrainingsDashboardScreen() {
   };
 
   const handleToggleStatus = (training: Training) => {
-    const nextStatus = isCancelledTraining(training) ? "scheduled" : "cancelled";
+    const nextStatus = isCancelledTraining(training)
+      ? "scheduled"
+      : "cancelled";
 
     Alert.alert(
       isCancelledTraining(training)
@@ -255,7 +295,11 @@ export default function TrainerTrainingsDashboardScreen() {
           </ThemedText>
         </View>
         <View style={styles.metaRow}>
-          <Ionicons name="people-outline" size={16} color={theme.textSecondary} />
+          <Ionicons
+            name="people-outline"
+            size={16}
+            color={theme.textSecondary}
+          />
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
             {training.presentCount ?? 0}/{training.totalCount ?? 0} presenti
           </ThemedText>
@@ -285,8 +329,7 @@ export default function TrainerTrainingsDashboardScreen() {
 
         {!canTakeAttendance && canManageAttendance ? (
           <ThemedText type="small" style={styles.infoHint}>
-            Le presenze sono disponibili solo per allenamenti di oggi o
-            passati.
+            Le presenze sono disponibili solo per allenamenti di oggi o passati.
           </ThemedText>
         ) : null}
 
@@ -368,6 +411,29 @@ export default function TrainerTrainingsDashboardScreen() {
             </Card>
           )}
         </View>
+
+        <View style={styles.section}>
+          <ThemedText type="h4" style={styles.sectionTitle}>
+            Storico allenamenti
+          </ThemedText>
+          <Input
+            placeholder="Cerca per data, categoria, titolo o stato..."
+            value={historySearch}
+            onChangeText={setHistorySearch}
+            leftIcon="search-outline"
+            rightIcon={historySearch ? "close-circle" : undefined}
+            onRightIconPress={() => setHistorySearch("")}
+          />
+          {filteredHistoryTrainings.length > 0 ? (
+            filteredHistoryTrainings.map(renderTrainingCard)
+          ) : (
+            <Card>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Nessun allenamento in archivio.
+              </ThemedText>
+            </Card>
+          )}
+        </View>
       </ScrollView>
 
       <Modal
@@ -381,7 +447,10 @@ export default function TrainerTrainingsDashboardScreen() {
           onPress={() => setSelectedTraining(null)}
         >
           <Pressable
-            style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.backgroundDefault },
+            ]}
             onPress={(event) => event.stopPropagation()}
           >
             <ThemedText type="h4" style={styles.modalTitle}>
@@ -393,7 +462,10 @@ export default function TrainerTrainingsDashboardScreen() {
             >
               {selectedTraining?.title} ·{" "}
               {selectedTraining
-                ? formatTimeRange(selectedTraining.time, selectedTraining.endTime)
+                ? formatTimeRange(
+                    selectedTraining.time,
+                    selectedTraining.endTime,
+                  )
                 : ""}
             </ThemedText>
 
@@ -427,7 +499,10 @@ export default function TrainerTrainingsDashboardScreen() {
                           />
                           <View style={{ marginLeft: Spacing.md, flex: 1 }}>
                             <View style={styles.nameWithWarning}>
-                              <ThemedText type="body" style={styles.attendanceName}>
+                              <ThemedText
+                                type="body"
+                                style={styles.attendanceName}
+                              >
                                 {entry.name}
                               </ThemedText>
                               {getMobileMedicalCertificateAvailability(
@@ -440,13 +515,19 @@ export default function TrainerTrainingsDashboardScreen() {
                                 />
                               ) : null}
                             </View>
-                            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                            <ThemedText
+                              type="small"
+                              style={{ color: theme.textSecondary }}
+                            >
                               {entry.present ? "Presente" : "Assente"}
                             </ThemedText>
                             {getMobileMedicalCertificateAvailability(
                               entry.medicalCertExpiry,
                             ) !== "valid" ? (
-                              <ThemedText type="small" style={styles.medicalHint}>
+                              <ThemedText
+                                type="small"
+                                style={styles.medicalHint}
+                              >
                                 {getMobileMedicalCertificateAvailabilityLabel(
                                   getMobileMedicalCertificateAvailability(
                                     entry.medicalCertExpiry,
@@ -457,10 +538,16 @@ export default function TrainerTrainingsDashboardScreen() {
                           </View>
                         </View>
                         <Ionicons
-                          name={entry.present ? "checkmark-circle" : "ellipse-outline"}
+                          name={
+                            entry.present
+                              ? "checkmark-circle"
+                              : "ellipse-outline"
+                          }
                           size={24}
                           color={
-                            entry.present ? Colors.light.success : theme.textSecondary
+                            entry.present
+                              ? Colors.light.success
+                              : theme.textSecondary
                           }
                         />
                       </View>
@@ -485,7 +572,10 @@ export default function TrainerTrainingsDashboardScreen() {
                 ))
               ) : (
                 <Card>
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  <ThemedText
+                    type="small"
+                    style={{ color: theme.textSecondary }}
+                  >
                     Nessun atleta collegato a questa categoria.
                   </ThemedText>
                 </Card>

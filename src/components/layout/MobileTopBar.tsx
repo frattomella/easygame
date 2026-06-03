@@ -64,7 +64,7 @@ const navSections = [
     label: "CLUB",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: Home },
-      { href: "/organization", label: "Organizzazione", icon: Building },
+      { href: "/organization", label: "Club", icon: Building },
       { href: "/staff", label: "Staff", icon: Users },
       { href: "/soci", label: "Soci", icon: Users },
       { href: "/sponsors", label: "Sponsor", icon: Building },

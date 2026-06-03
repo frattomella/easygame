@@ -4,6 +4,11 @@ import React, { useState } from "react";
 import { CategoryAthletesDialog } from "@/components/dialogs/CategoryAthletesDialog";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +20,6 @@ import {
   Users,
   Calendar,
   MoreVertical,
-  ChevronDown,
 } from "lucide-react";
 import { CategoryEditorDialog } from "@/components/forms/CategoryEditorDialog";
 import { CategoryDetailsDialog } from "@/components/categories/CategoryDetailsDialog";
@@ -478,16 +482,12 @@ const buildDialogAthletesForCategory = (category: Category) =>
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Categorie" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Categorie
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Organizza le categorie e i gruppi sportivi del club.
-              </p>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Categorie"
+              subtitle="Organizza le categorie e i gruppi sportivi del club."
+            />
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div className="relative w-full sm:w-auto">
                 <Input
@@ -499,7 +499,8 @@ const buildDialogAthletesForCategory = (category: Category) =>
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
-                <DropdownMenu>
+                {false ? (
+                  <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="flex-1 sm:flex-none">
                       <Filter className="h-4 w-4 mr-2" />
@@ -535,7 +536,8 @@ const buildDialogAthletesForCategory = (category: Category) =>
                       Resetta Filtri
                     </DropdownMenuItem>
                   </DropdownMenuContent>
-                </DropdownMenu>
+                  </DropdownMenu>
+                ) : null}
                 <Button
                   className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700"
                   onClick={() => setShowAddCategoryModal(true)}
@@ -629,33 +631,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
                             {category.trainingsPerWeek} allenamenti a settimana
                           </span>
                         </div>
-                        <div className="flex justify-between pt-2">
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedCategory(category);
-                                setCategoryAthletes(
-                                  buildDialogAthletesForCategory(category),
-                                );
-                                setShowAthletesDialog(true);
-                              }}
-                            >
-                              Visualizza Atleti
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-blue-600 border-blue-600"
-                              onClick={() => {
-                                setSelectedCategory(category);
-                                setShowCategoryDetails(true);
-                              }}
-                            >
-                              Info
-                            </Button>
-                          </div>
+                        <div className="flex justify-end pt-2">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon">
@@ -666,13 +642,20 @@ const buildDialogAthletesForCategory = (category: Category) =>
                               <DropdownMenuItem
                                 onClick={() => {
                                   setSelectedCategory(category);
+                                  setEditingCategory(true);
+                                  setShowAddCategoryModal(true);
+                                }}
+                              >
+                                Modifica
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedCategory(category);
                                   setShowCategoryDetails(true);
                                 }}
                               >
-                                Visualizza Dettagli
+                                Info
                               </DropdownMenuItem>
-
-                              <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-red-600"
                                 onClick={() => {
@@ -691,7 +674,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
                 ))
               )}
             </div>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

@@ -8,6 +8,7 @@ import {
   SectionBlockedState,
   SectionEmptyState,
 } from "@/components/trainer/trainer-dashboard-shared";
+import { PageHeading } from "@/components/dashboard/page-heading";
 
 export default function TrainerCategoriesPage() {
   const {
@@ -33,14 +34,10 @@ export default function TrainerCategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-          Categorie
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Panoramica delle categorie assegnate al trainer con relativi atleti, allenamenti e gare.
-        </p>
-      </div>
+      <PageHeading
+        title="Categorie"
+        subtitle="Panoramica delle categorie assegnate al trainer con relativi atleti, allenamenti e gare."
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-white shadow-md border-0 overflow-hidden">

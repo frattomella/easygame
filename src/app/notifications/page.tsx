@@ -3,6 +3,11 @@
 import React from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -245,16 +250,12 @@ export default function NotificationsPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Notifiche" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Notifiche
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Consulta e gestisci le notifiche del tuo club.
-              </p>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Notifiche"
+              subtitle="Consulta e gestisci le notifiche del tuo club."
+            />
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div className="relative w-full sm:w-auto">
                 <Input
@@ -354,7 +355,7 @@ export default function NotificationsPage() {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

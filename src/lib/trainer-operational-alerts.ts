@@ -1,4 +1,5 @@
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
+import { getConvocatedAthleteIdsFromMatch } from "@/lib/match-certificate-warnings";
 
 export type TrainingAttendanceState = "complete" | "partial" | "missing";
 
@@ -200,44 +201,7 @@ export const getTrainingAttendanceLabel = (
 };
 
 export const getConvocatedAthleteIds = (match: any) => {
-  const sources = [
-    match?.convocatedAthletes,
-    match?.convocated_athletes,
-    match?.selectedAthletes,
-    match?.selected_athletes,
-    match?.calledAthletes,
-    match?.called_athletes,
-    match?.participants,
-    match?.athletes,
-  ];
-
-  const ids = sources.flatMap((source) => {
-    if (!Array.isArray(source)) {
-      return [];
-    }
-
-    return source
-      .map((entry) =>
-        typeof entry === "object" && entry
-          ? String(entry.athleteId || entry.athlete_id || entry.id || "").trim()
-          : String(entry || "").trim(),
-      )
-      .filter(Boolean);
-  });
-
-  const entries = Array.isArray(match?.convocationEntries)
-    ? match.convocationEntries
-    : Array.isArray(match?.convocation_entries)
-      ? match.convocation_entries
-      : [];
-
-  const entryIds = entries
-    .map((entry: any) =>
-      String(entry?.athleteId || entry?.athlete_id || entry?.id || "").trim(),
-    )
-    .filter(Boolean);
-
-  return Array.from(new Set([...ids, ...entryIds]));
+  return getConvocatedAthleteIdsFromMatch(match);
 };
 
 export const getMatchConvocationStatus = ({

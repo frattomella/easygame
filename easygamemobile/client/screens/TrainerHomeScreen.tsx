@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { format } from "date-fns";
 
+import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
@@ -32,8 +33,13 @@ export default function TrainerHomeScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation();
   const { theme } = useTheme();
-  const { currentClub, currentRole, trainerPermissions, assignedCategories } =
-    useAuthContext();
+  const {
+    user,
+    currentClub,
+    currentRole,
+    trainerPermissions,
+    assignedCategories,
+  } = useAuthContext();
 
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -119,7 +125,7 @@ export default function TrainerHomeScreen() {
       icon: "people-outline" as const,
     },
     {
-      label: "Categorie Attive",
+      label: "Gruppi",
       value:
         assignedCategories.length || currentClub?.categoryItems?.length || 0,
       color: "#10B981",

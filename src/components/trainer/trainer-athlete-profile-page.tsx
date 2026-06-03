@@ -20,6 +20,7 @@ import {
   User,
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
+import { AthleteCategoryAnalyticsSection } from "@/components/athletes/AthleteCategoryAnalyticsSection";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,11 +35,13 @@ import {
   getAthleteMedicalExpiry,
 } from "@/components/trainer/trainer-dashboard-shared";
 import { downloadClientFileUrl, openClientFileUrl } from "@/lib/client-files";
-import {
-  getRecordDisplayCategory,
-  recordMatchesCategory,
-} from "@/lib/trainer-dashboard-helpers";
+import { getRecordDisplayCategory } from "@/lib/trainer-dashboard-helpers";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import { calculateAthleteCategoryAnalytics } from "@/lib/athlete-category-analytics";
+import {
+  getPrimaryAthleteCategoryMembership,
+  normalizeAthleteCategoryMemberships,
+} from "@/lib/athlete-category-memberships";
 
 type ReadOnlyAttachment = {
   id?: string | null;
@@ -217,20 +220,31 @@ export default function TrainerAthleteProfilePage() {
   const router = useRouter();
   const {
     assignedAthletes,
+    assignedCategories,
     categories,
     permissions,
     visibleMatches,
     visibleTrainings,
   } = useTrainerDashboard();
   const athleteId = String(params?.id || "").trim();
+  const athlete = assignedAthletes.find(
+    (entry: any) => String(entry?.id || "").trim() === athleteId,
+  );
+  const athleteCategoryAnalytics = React.useMemo(
+    () =>
+      calculateAthleteCategoryAnalytics({
+        athlete,
+        trainings: visibleTrainings,
+        matches: visibleMatches,
+        categories,
+        allowedCategories: assignedCategories,
+      }),
+    [assignedCategories, athlete, categories, visibleMatches, visibleTrainings],
+  );
 
   if (!permissions.navigation.athletes) {
     return <SectionBlockedState section="athletes" />;
   }
-
-  const athlete = assignedAthletes.find(
-    (entry: any) => String(entry?.id || "").trim() === athleteId,
-  );
 
   if (!athlete) {
     return (
@@ -285,65 +299,31 @@ export default function TrainerAthleteProfilePage() {
           shoeSize: data?.shoeSize || "",
         };
 
-  const rawCategories = Array.isArray(data?.categories) ? data.categories : [];
-  const normalizedCategoryBadges = rawCategories
-    .map((entry: any) =>
-      typeof entry === "string" ? entry : getTextValue(entry?.name, entry?.id),
-    )
-    .filter(Boolean);
+  const categoryMemberships = normalizeAthleteCategoryMemberships(
+    athlete,
+    categories,
+  );
+  const primaryCategory =
+    getPrimaryAthleteCategoryMembership(athlete, categories) ||
+    categoryMemberships[0] ||
+    null;
+  const secondaryCategories = categoryMemberships.filter(
+    (membership) =>
+      !membership.isPrimary &&
+      membership.categoryName !== primaryCategory?.categoryName,
+  );
   const categoryBadges =
-    normalizedCategoryBadges.length > 0
-      ? normalizedCategoryBadges
-      : [categoryLabel];
+    categoryMemberships.length > 0
+      ? categoryMemberships
+      : [
+          {
+            categoryId: categoryLabel,
+            categoryName: categoryLabel,
+            isPrimary: true,
+          },
+        ];
   const showTrainerEnrollmentSections = false;
   const showTrainerClothingSections = false;
-  const athleteVisibleTrainings = visibleTrainings.filter((training: any) => {
-    const attendance = Array.isArray(training?.attendance)
-      ? training.attendance
-      : [];
-
-    return (
-      attendance.some(
-        (entry: any) =>
-          String(entry?.athleteId || entry?.athlete_id || "").trim() ===
-          athleteId,
-      ) || recordMatchesCategory(training, athlete, categories)
-    );
-  });
-  const attendanceRows = athleteVisibleTrainings.flatMap((training: any) =>
-    Array.isArray(training?.attendance)
-      ? training.attendance
-          .filter(
-            (entry: any) =>
-              String(entry?.athleteId || entry?.athlete_id || "").trim() ===
-              athleteId,
-          )
-          .map((entry: any) => ({ ...entry, training }))
-      : [],
-  );
-  const presentCount = attendanceRows.filter(
-    (entry: any) => entry.present || entry.status === "present",
-  ).length;
-  const absenceCount = attendanceRows.filter(
-    (entry: any) =>
-      entry.present === false ||
-      ["absent", "assente", "giustificato", "ritardo"].includes(
-        String(entry.status || "").toLowerCase(),
-      ),
-  ).length;
-  const attendanceRate = attendanceRows.length
-    ? Math.round((presentCount / attendanceRows.length) * 100)
-    : 0;
-  const athleteVisibleMatches = visibleMatches.filter((match: any) => {
-    const convocatedAthletes = Array.isArray(match?.convocatedAthletes)
-      ? match.convocatedAthletes
-      : [];
-
-    return (
-      convocatedAthletes.map(String).includes(athleteId) ||
-      recordMatchesCategory(match, athlete, categories)
-    );
-  });
 
   const visibleTabs = [
     { value: "generale", label: "Generale", icon: User, visible: true },
@@ -432,12 +412,17 @@ export default function TrainerAthleteProfilePage() {
           <div>
             <h1 className="text-2xl font-bold">{displayName}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              {categoryBadges.map((badgeLabel) => (
+              {categoryBadges.map((membership) => (
                 <Badge
-                  key={badgeLabel}
-                  className="bg-blue-500 text-white hover:bg-blue-500"
+                  key={`${membership.categoryId}-${membership.isPrimary ? "primary" : "secondary"}`}
+                  className={
+                    membership.isPrimary
+                      ? "bg-blue-500 text-white hover:bg-blue-500"
+                      : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
+                  }
                 >
-                  {badgeLabel}
+                  {membership.categoryName}{" "}
+                  {membership.isPrimary ? "Primaria" : "Secondaria"}
                 </Badge>
               ))}
               {medicalCertExpiry && permissions.actions.viewMedicalStatus ? (
@@ -486,8 +471,32 @@ export default function TrainerAthleteProfilePage() {
                   <DetailField label="Nome" value={firstName || "-"} />
                   <DetailField label="Cognome" value={lastName || "-"} />
                   <DetailField
-                    label="Categoria"
-                    value={categoryLabel || "Senza categoria"}
+                    label="Categoria primaria"
+                    value={
+                      primaryCategory?.categoryName ||
+                      categoryLabel ||
+                      "Senza categoria"
+                    }
+                    icon={Award}
+                  />
+                  <DetailField
+                    label="Categorie secondarie"
+                    value={
+                      secondaryCategories.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {secondaryCategories.map((membership) => (
+                            <Badge
+                              key={membership.categoryId}
+                              className="border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
+                            >
+                              {membership.categoryName}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        "-"
+                      )
+                    }
                     icon={Award}
                   />
                   <DetailField
@@ -978,89 +987,7 @@ export default function TrainerAthleteProfilePage() {
         {permissions.actions.viewAthleteTechnicalSheet ||
         permissions.actions.viewAthleteDetails ? (
           <TabsContent value="analitiche" className="mt-4 space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">Presenze</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {presentCount}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">Assenze</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {absenceCount}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">Percentuale</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {attendanceRows.length ? `${attendanceRate}%` : "-"}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <p className="text-sm text-muted-foreground">
-                    Gare correlate
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-900">
-                    {athleteVisibleMatches.length}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-            <Card>
-              <CardHeader>
-                <CardTitle>Ultime presenze</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {attendanceRows.length > 0 ? (
-                  <div className="space-y-3">
-                    {attendanceRows
-                      .slice(0, 6)
-                      .map((entry: any, index: number) => {
-                        const training = entry.training || {};
-                        const status =
-                          entry.present || entry.status === "present"
-                            ? "Presente"
-                            : getTextValue(entry.status) || "Assente";
-
-                        return (
-                          <div
-                            key={`${training.id || "training"}-${index}`}
-                            className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between"
-                          >
-                            <div>
-                              <p className="font-medium text-slate-900">
-                                {getTextValue(training.title) || "Allenamento"}
-                              </p>
-                              <p className="mt-1 text-sm text-slate-500">
-                                {training.date
-                                  ? formatDate(training.date)
-                                  : "-"}{" "}
-                                -{" "}
-                                {getRecordDisplayCategory(training, categories)}
-                              </p>
-                            </div>
-                            <Badge className="w-fit border-slate-200 bg-white text-slate-700 hover:bg-white">
-                              {status}
-                            </Badge>
-                          </div>
-                        );
-                      })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    Nessuna presenza registrata per questo atleta.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <AthleteCategoryAnalyticsSection analytics={athleteCategoryAnalytics} />
           </TabsContent>
         ) : null}
       </Tabs>

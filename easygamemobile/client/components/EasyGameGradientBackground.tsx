@@ -20,7 +20,13 @@ export function EasyGameGradientBackground({
     >
       <Svg width="100%" height="100%" preserveAspectRatio="none">
         <Defs>
-          <LinearGradient id="easygame-surface-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <LinearGradient
+            id="easygame-surface-gradient"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#2563EB" />
             <Stop offset="55%" stopColor="#1D4ED8" />
             <Stop offset="100%" stopColor="#1E3A8A" />

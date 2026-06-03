@@ -1,8 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Search,
-  Filter,
   FileHeart,
   AlertCircle,
   CheckCircle,
@@ -23,17 +28,13 @@ import {
 } from "lucide-react";
 import { AddCertificateForm } from "@/components/forms/AddCertificateForm";
 import { useToast } from "@/components/ui/toast-notification";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { apiRequest } from "@/lib/api/client";
 import { getMedicalCertificateStatus } from "@/lib/medical-certificates";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
+import { athleteMatchesAnyCategory } from "@/lib/category-utils";
+import { getClubCategories } from "@/lib/simplified-db";
 import {
   downloadClientFileUrl,
   openClientFileUrl,
@@ -47,7 +48,7 @@ interface Certificate {
   certificateType: string;
   issueDate: string;
   expiryDate: string;
-  status: "valid" | "expiring" | "expired";
+  status: "valid" | "expiring" | "expired" | "missing";
   fileUrl?: string;
   avatar?: string;
 }
@@ -81,6 +82,13 @@ export default function MedicalPage() {
   const [showAddCertificateModal, setShowAddCertificateModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [athletes, setAthletes] = useState<any[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [remindingAthleteId, setRemindingAthleteId] = useState<string | null>(
+    null,
+  );
   const [clubId, setClubId] = useState<string | null>(null);
   const { showToast } = useToast();
   const { activeClub } = useAuth();
@@ -176,6 +184,8 @@ export default function MedicalPage() {
 
         if (athletesError) throw athletesError;
         setAthletes(athletesData || []);
+        const categoriesData = await getClubCategories(clubId);
+        setCategoryOptions(categoriesData);
 
         // Fetch medical certificates - only if we have athletes
         let certificatesData = null;
@@ -232,7 +242,7 @@ export default function MedicalPage() {
           }
         }
 
-        // Add athletes without certificates as expired
+        // Add athletes without certificates as missing
         if (athletesData) {
           const athletesWithCertificates = new Set(
             certificatesData?.map((cert) => cert.athlete_id) || [],
@@ -251,8 +261,8 @@ export default function MedicalPage() {
               athleteName,
               certificateType: "Certificato Medico Mancante",
               issueDate: "",
-              expiryDate: new Date().toISOString().split("T")[0], // Today's date
-              status: "expired",
+              expiryDate: "",
+              status: "missing",
               avatar:
                 athlete.profile_image ||
                 athlete.data?.avatar ||
@@ -411,6 +421,8 @@ export default function MedicalPage() {
         return <Clock className="h-5 w-5 text-amber-500" />;
       case "expired":
         return <AlertCircle className="h-5 w-5 text-destructive" />;
+      case "missing":
+        return <AlertCircle className="h-5 w-5 text-gray-500" />;
       default:
         return null;
     }
@@ -424,18 +436,76 @@ export default function MedicalPage() {
         return <Badge className="bg-amber-500 text-white">In Scadenza</Badge>;
       case "expired":
         return <Badge variant="destructive">Scaduto</Badge>;
+      case "missing":
+        return <Badge variant="secondary">Mancante</Badge>;
       default:
         return null;
     }
   };
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return "N/D";
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "N/D";
     return date.toLocaleDateString("it-IT", {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
+  };
+
+  const athletesById = React.useMemo(() => {
+    return new Map(athletes.map((athlete) => [athlete.id, athlete]));
+  }, [athletes]);
+
+  const selectedCategoryOption = React.useMemo(
+    () =>
+      categoryOptions.find((category) => category.id === categoryFilter) ||
+      null,
+    [categoryFilter, categoryOptions],
+  );
+
+  const handleSendReminder = async (certificate: Certificate) => {
+    if (!clubId) {
+      showToast("error", "Club non selezionato");
+      return;
+    }
+
+    setRemindingAthleteId(certificate.athleteId);
+    try {
+      const response = await apiRequest<{
+        created: number;
+        skipped: number;
+        recipients: number;
+      }>("/api/medical-certificate-reminders", {
+        method: "POST",
+        body: {
+          athleteId: certificate.athleteId,
+          certificateId: certificate.id.startsWith("missing-")
+            ? undefined
+            : certificate.id,
+          organizationId: clubId,
+        },
+      });
+
+      if (response.error) {
+        showToast("error", response.error.message);
+        return;
+      }
+
+      const created = response.data?.created || 0;
+      const skipped = response.data?.skipped || 0;
+      showToast(
+        created > 0 ? "success" : "info",
+        created > 0
+          ? `Promemoria inviato a ${certificate.athleteName}`
+          : skipped > 0
+            ? "Promemoria gia presente per questo certificato"
+            : "Nessun parent collegato a questo atleta",
+      );
+    } finally {
+      setRemindingAthleteId(null);
+    }
   };
 
   const filteredCertificates = certificates
@@ -445,6 +515,11 @@ export default function MedicalPage() {
     .filter((certificate) => {
       if (activeTab === "all") return true;
       return certificate.status === activeTab;
+    })
+    .filter((certificate) => {
+      if (!selectedCategoryOption) return true;
+      const athlete = athletesById.get(certificate.athleteId);
+      return athleteMatchesAnyCategory(athlete, [selectedCategoryOption]);
     });
 
   return (
@@ -452,17 +527,12 @@ export default function MedicalPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Certificati Medici" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Certificati medici
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Controlla e aggiorna lo stato dei certificati medici degli
-                atleti.
-              </p>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Certificati medici"
+              subtitle="Controlla e aggiorna lo stato dei certificati medici degli atleti."
+            />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="bg-white">
                 <CardContent className="p-6 flex flex-col items-center justify-center text-center">
@@ -509,47 +579,19 @@ export default function MedicalPage() {
                 />
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               </div>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="flex-1 sm:flex-none">
-                      <Filter className="h-4 w-4 mr-2" />
-                      Filtri
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        showToast("info", "Filtro per stato applicato")
-                      }
-                    >
-                      Per Stato
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        showToast(
-                          "info",
-                          "Filtro per tipo certificato applicato",
-                        )
-                      }
-                    >
-                      Per Tipo Certificato
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        showToast("info", "Filtro per data scadenza applicato")
-                      }
-                    >
-                      Per Data Scadenza
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => showToast("info", "Filtri resettati")}
-                    >
-                      Resetta Filtri
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row">
+                <select
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm sm:w-56"
+                >
+                  <option value="all">Tutte le categorie</option>
+                  {categoryOptions.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
                 <Button
                   className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700"
                   onClick={() => setShowAddCertificateModal(true)}
@@ -568,6 +610,7 @@ export default function MedicalPage() {
                     <TabsTrigger value="valid">Validi</TabsTrigger>
                     <TabsTrigger value="expiring">In Scadenza</TabsTrigger>
                     <TabsTrigger value="expired">Scaduti</TabsTrigger>
+                    <TabsTrigger value="missing">Mancanti</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </CardHeader>
@@ -601,7 +644,12 @@ export default function MedicalPage() {
                           </Avatar>
                           <div>
                             <h4 className="font-medium">
+                              <Link
+                                href={`/athletes/${certificate.athleteId}${clubId ? `?clubId=${encodeURIComponent(clubId)}&tab=sanitari` : "?tab=sanitari"}#sanitari`}
+                                className="text-blue-700 hover:underline"
+                              >
                               {certificate.athleteName}
+                              </Link>
                             </h4>
                             <p className="text-sm text-muted-foreground">
                               {certificate.certificateType}
@@ -667,13 +715,20 @@ export default function MedicalPage() {
                             </Button>
                           </div>
                           {(certificate.status === "expiring" ||
-                            certificate.status === "expired") && (
+                            certificate.status === "expired" ||
+                            certificate.status === "missing") && (
                             <Button
                               size="sm"
                               className="bg-blue-600 hover:bg-blue-700"
+                              disabled={
+                                remindingAthleteId === certificate.athleteId
+                              }
+                              onClick={() => handleSendReminder(certificate)}
                             >
                               <Send className="h-3.5 w-3.5 mr-1" />
-                              Invia Promemoria
+                              {remindingAthleteId === certificate.athleteId
+                                ? "Invio..."
+                                : "Invia Promemoria"}
                             </Button>
                           )}
                         </div>
@@ -695,7 +750,7 @@ export default function MedicalPage() {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

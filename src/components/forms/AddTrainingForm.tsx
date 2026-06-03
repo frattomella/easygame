@@ -309,6 +309,7 @@ export function AddTrainingForm({
       }
       isOpen={isOpen}
       onClose={onClose}
+      contentClassName="w-[calc(100vw-2rem)] max-w-4xl"
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>

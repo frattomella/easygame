@@ -12,6 +12,10 @@ import {
   UserCircle,
 } from "lucide-react";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import type { MobileNavSection } from "@/components/layout/MobileTopBar";
 import ParentSidebar from "./ParentSidebar";
 import { useParentDashboard } from "./parent-dashboard-context";
@@ -82,8 +86,8 @@ export default function ParentDashboardShell({
           mobileNavSections={mobileNavSections}
         />
 
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-8 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
             {isBlockingLoad ? (
               <div className="flex min-h-[55vh] items-center justify-center">
                 <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-center text-slate-600 shadow-sm">
@@ -113,7 +117,7 @@ export default function ParentDashboardShell({
             ) : (
               children
             )}
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

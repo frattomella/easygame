@@ -3,6 +3,11 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -42,10 +47,13 @@ import {
   Filter,
   Home,
   Search,
+  LayoutGrid,
+  Table2,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
 import { AddMatchForm } from "@/components/forms/AddMatchForm";
 import { MultipleAddMatchForm } from "@/components/forms/MultipleAddMatchForm";
+import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { MatchConvocationsList } from "@/components/matches/MatchConvocationsList";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
 import { Switch } from "@/components/ui/switch";
@@ -73,6 +81,10 @@ import {
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import { formatMatchLocationLabel } from "@/lib/match-location";
+import {
+  getConvocatedAthleteIdsFromMatch,
+  getInvalidCertificatesForConvocatedAthletes,
+} from "@/lib/match-certificate-warnings";
 import { normalizeMatchConvocationEntries } from "@/lib/athlete-participation-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 
@@ -250,6 +262,9 @@ export default function MatchesPage() {
   const [showEditMatchModal, setShowEditMatchModal] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [matchesViewMode, setMatchesViewMode] = useState<"cards" | "table">(
+    "cards",
+  );
   const [scheduleConflictsEnabled, setScheduleConflictsEnabled] =
     useState(true);
   const [homeFields, setHomeFields] = useState<{ id: string; name: string }[]>(
@@ -785,6 +800,19 @@ export default function MatchesPage() {
     }
   };
 
+  const matchMatchesSelectedCategory = (match: Match) => {
+    if (selectedCategory === "all") {
+      return true;
+    }
+
+    const category = categories.find((item) => item.id === selectedCategory);
+    return (
+      match.categoryId === selectedCategory ||
+      category?.name === match.category ||
+      category?.id === match.category
+    );
+  };
+
   // Filter matches for the selected date
   const filteredMatches = matches.filter((match) => {
     if (!date || !(match.date instanceof Date)) return false;
@@ -795,14 +823,28 @@ export default function MatchesPage() {
       matchDate.getMonth() === date.getMonth() &&
       matchDate.getFullYear() === date.getFullYear();
 
-    // Apply category filter
-    const categoryMatches =
-      selectedCategory === "all" ||
-      categories.find((c) => c.id === selectedCategory)?.name ===
-        match.category;
-
-    return dateMatches && categoryMatches;
+    return dateMatches && matchMatchesSelectedCategory(match);
   });
+
+  const tableMatches = matches
+    .filter(matchMatchesSelectedCategory)
+    .slice()
+    .sort((a, b) => {
+      if (!(a.date instanceof Date) || !(b.date instanceof Date)) return 0;
+
+      const aStatus = getEffectiveMatchStatus(a);
+      const bStatus = getEffectiveMatchStatus(b);
+
+      if (aStatus === "upcoming" && bStatus !== "upcoming") return -1;
+      if (aStatus !== "upcoming" && bStatus === "upcoming") return 1;
+
+      const leftDate = new Date(a.date).getTime();
+      const rightDate = new Date(b.date).getTime();
+
+      return aStatus === "upcoming"
+        ? leftDate - rightDate
+        : rightDate - leftDate;
+    });
 
   // Function to get dates with matches for calendar highlighting
   const getMatchDates = () => {
@@ -854,6 +896,132 @@ export default function MatchesPage() {
         return null;
     }
   };
+
+  const renderMatchesDataGrid = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>Tutte le gare</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {tableMatches.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="px-4 py-3 font-medium">N. gara</th>
+                  <th className="px-4 py-3 font-medium">Data</th>
+                  <th className="px-4 py-3 font-medium">Orario</th>
+                  <th className="px-4 py-3 font-medium">Avversario</th>
+                  <th className="px-4 py-3 font-medium">Luogo</th>
+                  <th className="px-4 py-3 font-medium">Categoria</th>
+                  <th className="px-4 py-3 font-medium">Stato</th>
+                  <th className="px-4 py-3 font-medium">Convocazioni</th>
+                  <th className="px-4 py-3 font-medium">Certificati</th>
+                  <th className="px-4 py-3 font-medium">Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tableMatches.map((match, index) => {
+                  const certificateWarning =
+                    getInvalidCertificatesForConvocatedAthletes(match, athletes);
+                  const convocatedCount =
+                    getConvocatedAthleteIdsFromMatch(match).length;
+                  const canManageMatch =
+                    getEffectiveMatchStatus(match) === "upcoming";
+
+                  return (
+                    <tr
+                      key={match.id}
+                      className="cursor-pointer border-b hover:bg-gray-50 dark:hover:bg-gray-800"
+                      onClick={() => handleOpenEditMatch(match)}
+                    >
+                      <td className="px-4 py-3 font-medium">
+                        {match.matchNumber || index + 1}
+                      </td>
+                      <td className="px-4 py-3">
+                        {match.date instanceof Date
+                          ? new Date(match.date).toLocaleDateString("it-IT")
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">{match.time || "-"}</td>
+                      <td className="px-4 py-3">{match.opponent || "-"}</td>
+                      <td className="px-4 py-3">
+                        {formatMatchLocationLabel(match)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge className={cn("text-xs", match.categoryColor)}>
+                          {match.category || "Categoria"}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">{getStatusBadge(match)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <span>
+                            {convocatedCount} convocati
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {match.convocationsStatus === "completed"
+                              ? "Completate"
+                              : match.convocationsStatus === "pending"
+                                ? "In corso"
+                                : "Mancanti"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <MatchCertificateWarningBadge
+                          warning={certificateWarning}
+                          compact
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          {canManageMatch && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleOpenConvocations(match);
+                              }}
+                            >
+                              <UserCheck className="h-4 w-4 mr-1" />
+                              Convoca
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleOpenEditMatch(match);
+                            }}
+                          >
+                            <Edit className="h-4 w-4 mr-1" />
+                            Apri
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-12 text-center text-gray-500">
+            <Table2 className="h-12 w-12 mb-3 opacity-50" />
+            <p>Nessuna gara trovata</p>
+            <p className="text-sm">
+              Cambia filtro categoria o aggiungi una nuova gara.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 
   // Function to get the start of the week (Monday) for the current date
   const getStartOfWeek = (d: Date) => {
@@ -908,23 +1076,33 @@ export default function MatchesPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Gare e Partite" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-9xl space-y-6">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Gare e Partite
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Organizza e monitora gare, partite e convocazioni.
-              </p>
-              {loading ? (
-                <p className="mt-2 text-sm text-gray-500">
-                  Caricamento calendario gare...
-                </p>
-              ) : null}
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <SharedPageHeader
+              title="Gare e Partite"
+              subtitle={
+                loading
+                  ? "Caricamento calendario gare..."
+                  : "Organizza e monitora gare, partite e convocazioni."
+              }
+            />
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-              <h2 className="text-xl font-semibold">Calendario Gare</h2>
+              <Select
+                value={selectedCategory}
+                onValueChange={setSelectedCategory}
+              >
+                <SelectTrigger className="w-full sm:w-[240px]">
+                  <SelectValue placeholder="Tutte le categorie" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tutte le categorie</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                 <Button
                   className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
@@ -943,7 +1121,7 @@ export default function MatchesPage() {
               </div>
             </div>
 
-            <div className="flex justify-end">
+            <div className="hidden justify-end">
               <Select
                 value={selectedCategory}
                 onValueChange={setSelectedCategory}
@@ -962,7 +1140,7 @@ export default function MatchesPage() {
               </Select>
             </div>
 
-            <Card className="border-blue-100 bg-blue-50/60">
+            <Card className="hidden border-blue-100 bg-blue-50/60">
               <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-blue-950">
@@ -1066,7 +1244,8 @@ export default function MatchesPage() {
                             const matchDate = new Date(match.date);
                             return (
                               matchDate.toDateString() ===
-                              currentDate.toDateString()
+                                currentDate.toDateString() &&
+                              matchMatchesSelectedCategory(match)
                             );
                           });
 
@@ -1099,28 +1278,43 @@ export default function MatchesPage() {
                                     Nessuna gara
                                   </div>
                                 ) : (
-                                  dayMatches.map((match, idx) => (
-                                    <div
-                                      key={idx}
-                                      className="text-xs p-1.5 bg-blue-100 dark:bg-blue-800 rounded mb-1"
-                                    >
-                                      <div className="font-medium truncate">
-                                        {match.time.split(" - ")[0]} -{" "}
-                                        {match.opponent}
-                                      </div>
-                                      <div className="flex justify-between items-center mt-0.5">
-                                        <span className="text-[10px] text-gray-600 dark:text-gray-300">
-                                          {match.category}
-                                        </span>
-                                        {match.convocationsStatus ===
-                                          "completed" && (
-                                          <span title="Convocazioni completate">
-                                            <FileCheck className="h-3 w-3 text-green-600" />
+                                  dayMatches.map((match, idx) => {
+                                    const certificateWarning =
+                                      getInvalidCertificatesForConvocatedAthletes(
+                                        match,
+                                        athletes,
+                                      );
+
+                                    return (
+                                      <div
+                                        key={idx}
+                                        className="text-xs p-1.5 bg-blue-100 dark:bg-blue-800 rounded mb-1"
+                                      >
+                                        <div className="font-medium truncate">
+                                          {match.time.split(" - ")[0]} -{" "}
+                                          {match.opponent}
+                                        </div>
+                                        <div className="flex justify-between items-center gap-1 mt-0.5">
+                                          <span className="text-[10px] text-gray-600 dark:text-gray-300">
+                                            {match.category}
                                           </span>
-                                        )}
+                                          <span className="flex items-center gap-1">
+                                            <MatchCertificateWarningBadge
+                                              warning={certificateWarning}
+                                              compact
+                                              className="px-1"
+                                            />
+                                            {match.convocationsStatus ===
+                                              "completed" && (
+                                              <span title="Convocazioni completate">
+                                                <FileCheck className="h-3 w-3 text-green-600" />
+                                              </span>
+                                            )}
+                                          </span>
+                                        </div>
                                       </div>
-                                    </div>
-                                  ))
+                                    );
+                                  })
                                 )}
                               </div>
                             </div>
@@ -1138,6 +1332,39 @@ export default function MatchesPage() {
                 </TabsList>
 
                 <TabsContent value="matches">
+                  <div className="mb-4 flex justify-end">
+                    <div className="inline-flex rounded-lg border bg-white p-1 dark:bg-gray-800">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={
+                          matchesViewMode === "cards" ? "default" : "ghost"
+                        }
+                        onClick={() => setMatchesViewMode("cards")}
+                        className="gap-2"
+                      >
+                        <LayoutGrid className="h-4 w-4" />
+                        Card
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={
+                          matchesViewMode === "table" ? "default" : "ghost"
+                        }
+                        onClick={() => setMatchesViewMode("table")}
+                        className="gap-2"
+                      >
+                        <Table2 className="h-4 w-4" />
+                        Tabella
+                      </Button>
+                    </div>
+                  </div>
+
+                  {matchesViewMode === "table" ? (
+                    renderMatchesDataGrid()
+                  ) : (
+                    <>
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                       <CardTitle>
@@ -1156,6 +1383,11 @@ export default function MatchesPage() {
                             const effectiveStatus =
                               getEffectiveMatchStatus(match);
                             const canManageMatch = effectiveStatus === "upcoming";
+                            const certificateWarning =
+                              getInvalidCertificatesForConvocatedAthletes(
+                                match,
+                                athletes,
+                              );
 
                             return (
                             <div
@@ -1197,6 +1429,9 @@ export default function MatchesPage() {
                                 {getConvocationStatusIcon(
                                   match.convocationsStatus,
                                 )}
+                                <MatchCertificateWarningBadge
+                                  warning={certificateWarning}
+                                />
                               </div>
                               <div className="flex justify-between items-center mt-4">
                                 <div className="flex items-center gap-4">
@@ -1315,6 +1550,9 @@ export default function MatchesPage() {
                             if (getEffectiveMatchStatus(match) !== "upcoming") {
                               return false;
                             }
+                            if (!matchMatchesSelectedCategory(match)) {
+                              return false;
+                            }
                             if (!(match.date instanceof Date)) return false;
                             const matchDate = new Date(match.date);
                             const today = new Date();
@@ -1382,11 +1620,20 @@ export default function MatchesPage() {
                                 {getConvocationStatusIcon(
                                   match.convocationsStatus,
                                 )}
+                                <MatchCertificateWarningBadge
+                                  warning={getInvalidCertificatesForConvocatedAthletes(
+                                    match,
+                                    athletes,
+                                  )}
+                                />
                               </div>
                             </div>
                           ))}
                         {matches.filter((match) => {
                           if (getEffectiveMatchStatus(match) !== "upcoming") {
+                            return false;
+                          }
+                          if (!matchMatchesSelectedCategory(match)) {
                             return false;
                           }
                           if (!(match.date instanceof Date)) return false;
@@ -1462,6 +1709,7 @@ export default function MatchesPage() {
                             // Apply category filter
                             const categoryMatches =
                               historySelectedCategory === "all" ||
+                              match.categoryId === historySelectedCategory ||
                               categories.find(
                                 (c) => c.id === historySelectedCategory,
                               )?.name === match.category;
@@ -1531,6 +1779,12 @@ export default function MatchesPage() {
                                   <MapPin className="h-3.5 w-3.5" />
                                   <span>{formatMatchLocationLabel(match)}</span>
                                 </div>
+                                <MatchCertificateWarningBadge
+                                  warning={getInvalidCertificatesForConvocatedAthletes(
+                                    match,
+                                    athletes,
+                                  )}
+                                />
                               </div>
                             </div>
                           ))}
@@ -1553,6 +1807,7 @@ export default function MatchesPage() {
 
                           const categoryMatches =
                             historySelectedCategory === "all" ||
+                            match.categoryId === historySelectedCategory ||
                             categories.find(
                               (c) => c.id === historySelectedCategory,
                             )?.name === match.category;
@@ -1566,6 +1821,8 @@ export default function MatchesPage() {
                       </div>
                     </CardContent>
                   </Card>
+                    </>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="convocations">
@@ -1789,7 +2046,54 @@ export default function MatchesPage() {
               </CardContent>
             </Card>
             )}
-          </div>
+
+            <Card className="border-blue-100 bg-blue-50/60">
+              <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-blue-950">
+                    Scadenza convocazioni
+                  </p>
+                  <p className="mt-1 text-sm text-blue-700">
+                    Avvisa gli allenatori quando una gara si avvicina e mancano
+                    le convocazioni.
+                  </p>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-blue-800">
+                      Convocare entro
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={matchConvocationDeadlineDays}
+                      onChange={(event) =>
+                        setMatchConvocationDeadlineDays(
+                          Math.max(
+                            0,
+                            Math.min(Number(event.target.value) || 0, 30),
+                          ),
+                        )
+                      }
+                      className="h-10 w-20 rounded-xl border-blue-200 bg-white"
+                    />
+                    <span className="text-sm text-blue-800">
+                      giorni prima
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="border-blue-300 bg-white text-blue-700 hover:bg-blue-100"
+                    disabled={savingMatchSettings}
+                    onClick={handleSaveMatchSettings}
+                  >
+                    {savingMatchSettings ? "Salvataggio..." : "Salva"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </DashboardPageContainer>
         </main>
       </div>
 

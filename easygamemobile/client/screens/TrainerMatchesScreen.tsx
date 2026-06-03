@@ -52,9 +52,9 @@ export default function TrainerMatchesScreen() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-  const [convocationDraft, setConvocationDraft] = useState<ConvocationDraftEntry[]>(
-    [],
-  );
+  const [convocationDraft, setConvocationDraft] = useState<
+    ConvocationDraftEntry[]
+  >([]);
   const [convocationSaving, setConvocationSaving] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -93,10 +93,14 @@ export default function TrainerMatchesScreen() {
     const athletes = await mobileBackendStorage.getAthletes();
     const relevantAthletes = athletes.filter((athlete) => {
       if (match.categoryId && athlete.categoryId) {
-        return normalizeText(match.categoryId) === normalizeText(athlete.categoryId);
+        return (
+          normalizeText(match.categoryId) === normalizeText(athlete.categoryId)
+        );
       }
 
-      return normalizeText(match.category || "") === normalizeText(athlete.category);
+      return (
+        normalizeText(match.category || "") === normalizeText(athlete.category)
+      );
     });
 
     const selectedIds = new Set(match.convocatedAthletes || []);
@@ -166,11 +170,7 @@ export default function TrainerMatchesScreen() {
         </ThemedText>
       </View>
       <View style={styles.metaRow}>
-        <Ionicons
-          name="people-outline"
-          size={16}
-          color={theme.textSecondary}
-        />
+        <Ionicons name="people-outline" size={16} color={theme.textSecondary} />
         <ThemedText type="small" style={{ color: theme.textSecondary }}>
           {match.convokedCount ?? 0} convocati
         </ThemedText>
@@ -210,8 +210,8 @@ export default function TrainerMatchesScreen() {
               : "Nessuna gara prevista oggi"}
           </ThemedText>
           <ThemedText type="small" style={styles.heroSubtitle}>
-            In alto la giornata corrente, sotto la programmazione settimanale
-            in ordine cronologico.
+            In alto la giornata corrente, sotto la programmazione settimanale in
+            ordine cronologico.
           </ThemedText>
         </View>
 
@@ -312,12 +312,12 @@ export default function TrainerMatchesScreen() {
                     </View>
                     <Ionicons
                       name={
-                        entry.selected
-                          ? "checkmark-circle"
-                          : "ellipse-outline"
+                        entry.selected ? "checkmark-circle" : "ellipse-outline"
                       }
                       size={24}
-                      color={entry.selected ? theme.primary : theme.textSecondary}
+                      color={
+                        entry.selected ? theme.primary : theme.textSecondary
+                      }
                     />
                   </Pressable>
                 ))}

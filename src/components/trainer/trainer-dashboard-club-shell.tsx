@@ -4,6 +4,10 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { CalendarDays, Home, Trophy, Users } from "lucide-react";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import TrainerSidebar from "@/components/trainer/TrainerSidebar";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
@@ -109,7 +113,7 @@ export default function TrainerDashboardClubShell({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="flex h-dvh max-h-dvh overflow-hidden bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="hidden md:block">
         <TrainerSidebar />
       </div>
@@ -123,8 +127,8 @@ export default function TrainerDashboardClubShell({
           mobileNavSections={trainerMobileNavSections}
         />
 
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-6 pb-8">
-          <div className="mx-auto max-w-9xl space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
             {!trainerProfile ? (
               <div className="rounded-3xl border border-amber-200 bg-white p-10 text-center shadow-sm">
                 <h2 className="text-3xl font-bold text-slate-900">
@@ -140,7 +144,7 @@ export default function TrainerDashboardClubShell({
             ) : (
               children
             )}
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

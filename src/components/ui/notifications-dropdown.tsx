@@ -20,11 +20,13 @@ interface Notification {
 interface NotificationsDropdownProps {
   notificationCount?: number;
   allNotificationsHref?: string;
+  buttonClassName?: string;
 }
 
 export function NotificationsDropdown({
   notificationCount = 0,
   allNotificationsHref = "/notifications",
+  buttonClassName = "relative",
 }: NotificationsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -140,7 +142,7 @@ export function NotificationsDropdown({
       <Button
         variant="ghost"
         size="icon"
-        className="relative"
+        className={buttonClassName}
         onClick={() => setIsOpen(!isOpen)}
         aria-label="Notifiche"
         title="Visualizza notifiche"

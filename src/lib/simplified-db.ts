@@ -41,6 +41,10 @@ import {
   isSeasonScopedDataType,
   normalizeClubSeasons,
 } from "./club-seasons";
+import {
+  isPaymentExcludedFromTotals,
+  isPaymentPaidLike,
+} from "./payments/payment-status-utils";
 
 const CLUB_DIRECT_UPDATE_FIELDS = [
   "categories",
@@ -935,6 +939,173 @@ export async function getAthletePayments(athleteId: string) {
   }
 
   return data;
+}
+
+export async function syncAthleteEnrollmentInstallmentPayments({
+  clubId,
+  athleteId,
+  planId,
+  planName,
+  installments,
+  selectedOptionalServiceIds = [],
+  enrollmentDate = null,
+  enrollmentStartDate = null,
+  subscriptionStartDate = null,
+  manualEnrollmentAmount = null,
+  originalAmount = null,
+  prorationApplied = false,
+  manualOverrideApplied = false,
+}: {
+  clubId: string;
+  athleteId: string;
+  planId: string;
+  planName: string;
+  installments: Array<{
+    id: string;
+    label: string;
+    amount: number;
+    dueDate?: string | null;
+  }>;
+  selectedOptionalServiceIds?: string[];
+  enrollmentDate?: string | null;
+  enrollmentStartDate?: string | null;
+  subscriptionStartDate?: string | null;
+  manualEnrollmentAmount?: number | string | null;
+  originalAmount?: number | string | null;
+  prorationApplied?: boolean;
+  manualOverrideApplied?: boolean;
+}) {
+  if (!clubId || !athleteId || !planId) {
+    return getAthletePayments(athleteId);
+  }
+
+  const existingPayments = await getAthletePayments(athleteId);
+  const currentInstallmentIds = new Set(
+    installments.map((installment) => String(installment.id || "").trim()),
+  );
+
+  for (const payment of existingPayments || []) {
+    const data = isRecord(payment?.data) ? payment.data : {};
+    const isEnrollmentPayment =
+      data.source === "enrollment_plan" ||
+      data.generatedBy === "enrollment_plan" ||
+      Boolean(data.enrollmentPlanId || data.planId || data.installmentId);
+
+    if (!isEnrollmentPayment || isPaymentPaidLike(payment)) {
+      continue;
+    }
+
+    const paymentPlanId = String(data.enrollmentPlanId || data.planId || "").trim();
+    const installmentId = String(data.installmentId || "").trim();
+    const storedStartDate = String(
+      data.subscriptionStartDate || data.enrollmentStartDate || "",
+    ).trim();
+    const nextStartDate = String(
+      subscriptionStartDate || enrollmentStartDate || "",
+    ).trim();
+    const shouldReplace =
+      paymentPlanId !== planId ||
+      (Boolean(storedStartDate || nextStartDate) &&
+        storedStartDate !== nextStartDate) ||
+      installments.length === 0 ||
+      !currentInstallmentIds.has(installmentId);
+
+    if (shouldReplace) {
+      await supabase
+        .from("simplified_payments")
+        .update({
+          status: "cancelled",
+          data: {
+            ...data,
+            replacedByEnrollmentPlanId: planId,
+            replacedAt: new Date().toISOString(),
+            originalStatus: payment.status || null,
+            originalPaidAt: payment.paid_at || null,
+            originalAmount: payment.amount || null,
+            excludedFromTotals: true,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", payment.id);
+    }
+  }
+
+  if (installments.length === 0) {
+    return getAthletePayments(athleteId);
+  }
+
+  const refreshedPayments = await getAthletePayments(athleteId);
+
+  for (const installment of installments) {
+    const installmentId = String(installment.id || "").trim();
+    const effectiveSubscriptionStartDate =
+      subscriptionStartDate || enrollmentStartDate || null;
+    const generationKey = `enrollment_plan:${athleteId}:${planId}:${effectiveSubscriptionStartDate || "no-date"}:${installmentId}`;
+    const existing = (refreshedPayments || []).find((payment: any) => {
+      const data = isRecord(payment?.data) ? payment.data : {};
+      return (
+        !isPaymentExcludedFromTotals(payment) &&
+        (String(payment?.reference || "") === generationKey ||
+          String(data.generationKey || "") === generationKey ||
+          (String(data.enrollmentPlanId || data.planId || "") === planId &&
+            String(data.installmentId || "") === installmentId &&
+            String(
+              data.subscriptionStartDate || data.enrollmentStartDate || "",
+            ) === String(effectiveSubscriptionStartDate || "")))
+      );
+    });
+
+    if (existing && isPaymentPaidLike(existing)) {
+      continue;
+    }
+
+    const payload = {
+      organization_id: clubId,
+      athlete_id: athleteId,
+      description: `${planName || "Piano iscrizione"} - ${installment.label}`,
+      amount: Number(Number(installment.amount || 0).toFixed(2)),
+      due_date: installment.dueDate || null,
+      status: "pending",
+      paid_at: null,
+      reference: generationKey,
+      data: {
+        generatedBy: "enrollment_plan",
+        source: "enrollment_plan",
+        planId,
+        planName,
+        enrollmentPlanId: planId,
+        installmentId,
+        installmentLabel: installment.label,
+        subscriptionStartDate: effectiveSubscriptionStartDate,
+        enrollmentDate,
+        selectedOptionalServiceIds,
+        enrollmentStartDate,
+        generationKey,
+        originalAmount:
+          originalAmount === null || originalAmount === undefined
+            ? Number(Number(installment.amount || 0).toFixed(2))
+            : Number(Number(originalAmount || 0).toFixed(2)),
+        prorationApplied,
+        manualOverrideApplied,
+        manualEnrollmentAmount,
+      },
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existing?.id) {
+      await supabase
+        .from("simplified_payments")
+        .update(payload)
+        .eq("id", existing.id);
+    } else {
+      await supabase.from("simplified_payments").insert({
+        ...payload,
+        created_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  return getAthletePayments(athleteId);
 }
 
 /**

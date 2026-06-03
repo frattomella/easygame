@@ -4,6 +4,7 @@ import React from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import { dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import MobileNavigation from "@/components/ui/mobile-navigation";
 
 interface LayoutWithMobileNavProps {
@@ -30,7 +31,7 @@ const LayoutWithMobileNav = ({ children }: LayoutWithMobileNavProps) => {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
+        <main className={dashboardMainClassName}>{children}</main>
       </div>
     </div>
   );

@@ -10,9 +10,6 @@ const KEYS = {
 const API_PREFIX = "/api/v1";
 const REQUEST_TIMEOUT_MS = 6000;
 const RETRYABLE_STATUSES = new Set([408, 429, 502, 503, 504]);
-const STATIC_FALLBACK_BASE_URLS = [
-  "https://easygame-staging.vercel.app",
-];
 
 type ApiError = {
   message?: string;
@@ -271,25 +268,6 @@ const normalizeBaseUrl = (value: string) => {
   return withProtocol.replace(/\/+$/, "");
 };
 
-const isEphemeralTunnelUrl = (value: string | null | undefined) => {
-  const normalized = normalizeBaseUrl(value || "");
-  if (!normalized) {
-    return false;
-  }
-
-  try {
-    const { hostname } = new URL(normalized);
-    return (
-      hostname.endsWith(".lhr.life") ||
-      hostname.endsWith(".localhost.run") ||
-      hostname === "localhost.run" ||
-      hostname.endsWith(".loca.lt")
-    );
-  } catch {
-    return false;
-  }
-};
-
 const getConfiguredDefaultBaseUrl = () => {
   const publicEnvUrl = normalizeBaseUrl(
     process.env.EXPO_PUBLIC_EASYGAME_API_URL || "",
@@ -339,7 +317,9 @@ export const mapAuthUser = (rawUser: any): User => {
 
   return {
     id: String(rawUser?.id || "").trim(),
-    email: String(rawUser?.email || "").trim().toLowerCase(),
+    email: String(rawUser?.email || "")
+      .trim()
+      .toLowerCase(),
     name,
     firstName: firstName || undefined,
     lastName: lastName || undefined,
@@ -365,11 +345,7 @@ class EasyGameApiService {
   private getCandidateBaseUrls() {
     return Array.from(
       new Set(
-        [
-          this.baseUrl,
-          this.getConfiguredBaseUrl(),
-          ...STATIC_FALLBACK_BASE_URLS,
-        ]
+        [this.baseUrl, this.getConfiguredBaseUrl()]
           .map((value) => normalizeBaseUrl(value || ""))
           .filter(Boolean),
       ),
@@ -525,7 +501,10 @@ class EasyGameApiService {
       const response = await this.fetchWithTimeout(url.toString(), {
         method,
         headers: requestHeaders,
-        body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+        body:
+          body !== undefined && body !== null
+            ? JSON.stringify(body)
+            : undefined,
       });
 
       const rawText = await response.text();
@@ -576,7 +555,8 @@ class EasyGameApiService {
     if (!this.baseUrl) {
       throw new Error("Configura prima l'URL del backend EasyGame.");
     }
-    let lastFailure: { status: number; payload: any; rawText: string } | null = null;
+    let lastFailure: { status: number; payload: any; rawText: string } | null =
+      null;
 
     for (const baseUrl of this.getCandidateBaseUrls()) {
       for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -632,7 +612,10 @@ class EasyGameApiService {
       throw new Error("Backend EasyGame non configurato.");
     }
 
-    let lastResult: { status: number; payload: ApiEnvelope<AuthResponseData> | null } = {
+    let lastResult: {
+      status: number;
+      payload: ApiEnvelope<AuthResponseData> | null;
+    } = {
       status: 503,
       payload: null,
     };
@@ -681,23 +664,32 @@ class EasyGameApiService {
   }
 
   private async confirmEmailVerification(userId: string, code: string) {
-    return this.request<AuthResponseData>(`${API_PREFIX}/auth/verify/email/confirm`, {
-      method: "POST",
-      body: { userId, code },
-    });
+    return this.request<AuthResponseData>(
+      `${API_PREFIX}/auth/verify/email/confirm`,
+      {
+        method: "POST",
+        body: { userId, code },
+      },
+    );
   }
 
   private async confirmPhoneVerification(userId: string, code: string) {
-    return this.request<AuthResponseData>(`${API_PREFIX}/auth/verify/phone/confirm`, {
-      method: "POST",
-      body: { userId, code },
-    });
+    return this.request<AuthResponseData>(
+      `${API_PREFIX}/auth/verify/phone/confirm`,
+      {
+        method: "POST",
+        body: { userId, code },
+      },
+    );
   }
 
   private async finalizeVerification(data: AuthResponseData) {
     let current = data;
 
-    if (current.verification?.emailRequired && current.verification?.emailPreviewCode) {
+    if (
+      current.verification?.emailRequired &&
+      current.verification?.emailPreviewCode
+    ) {
       current =
         (await this.confirmEmailVerification(
           current.verification.userId,
@@ -709,7 +701,10 @@ class EasyGameApiService {
       return this.hydrateSession(current);
     }
 
-    if (current.verification?.phoneRequired && current.verification?.phonePreviewCode) {
+    if (
+      current.verification?.phoneRequired &&
+      current.verification?.phonePreviewCode
+    ) {
       current =
         (await this.confirmPhoneVerification(
           current.verification.userId,
@@ -777,7 +772,9 @@ class EasyGameApiService {
     );
 
     if (status !== 201 || !payload?.data) {
-      throw new Error(payload?.error?.message || "Errore durante la registrazione");
+      throw new Error(
+        payload?.error?.message || "Errore durante la registrazione",
+      );
     }
 
     const finalized = await this.finalizeVerification(payload.data);
@@ -824,12 +821,15 @@ class EasyGameApiService {
   }
 
   async activateMembership(organizationId: string) {
-    return this.request<MembershipRecord>(`${API_PREFIX}/auth/memberships/activate`, {
-      method: "POST",
-      body: {
-        organization_id: organizationId,
+    return this.request<MembershipRecord>(
+      `${API_PREFIX}/auth/memberships/activate`,
+      {
+        method: "POST",
+        body: {
+          organization_id: organizationId,
+        },
       },
-    });
+    );
   }
 
   async redeemAccessToken(token: string) {
@@ -863,10 +863,13 @@ class EasyGameApiService {
     id: string,
     clubId?: string | null,
   ) {
-    return this.request<T>(`${API_PREFIX}/${resource}/${encodeURIComponent(id)}`, {
-      method: "GET",
-      clubId,
-    });
+    return this.request<T>(
+      `${API_PREFIX}/${resource}/${encodeURIComponent(id)}`,
+      {
+        method: "GET",
+        clubId,
+      },
+    );
   }
 
   async createResource<T>(
@@ -893,13 +896,16 @@ class EasyGameApiService {
     data: Record<string, any>,
     clubId?: string | null,
   ) {
-    return this.request<T>(`${API_PREFIX}/${resource}/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      clubId,
-      body: {
-        data,
+    return this.request<T>(
+      `${API_PREFIX}/${resource}/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        clubId,
+        body: {
+          data,
+        },
       },
-    });
+    );
   }
 }
 

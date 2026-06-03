@@ -54,7 +54,7 @@ function CardPanel({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-[28px] border border-slate-100 bg-slate-50/70 p-5">
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-5">
       <p className="text-base font-semibold text-slate-900">{title}</p>
       <div className="mt-5">{children}</div>
     </div>
@@ -79,13 +79,13 @@ export function AccountCreateClubDialog({
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[1180px] rounded-[34px] border-white/70 bg-white/90 p-0 shadow-[0_32px_120px_-42px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-        <div className="rounded-t-[34px] bg-gradient-to-r from-blue-700 via-blue-600 to-sky-500 px-8 py-7 text-white">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-hidden">
+        <div className="border-b px-6 py-4">
           <DialogHeader>
-            <DialogTitle className="text-2xl">
+            <DialogTitle className="text-lg">
               Configura un nuovo club
             </DialogTitle>
-            <DialogDescription className="max-w-3xl text-blue-100">
+            <DialogDescription className="max-w-3xl text-muted-foreground">
               Questo pannello riprende la stessa logica della pagina Organizzazione:
               inserisci subito i dati essenziali e, se vuoi, anticipa gia anche
               fiscali, bancari, contatti, federazioni, social e logo.
@@ -93,8 +93,8 @@ export function AccountCreateClubDialog({
           </DialogHeader>
         </div>
 
-        <form onSubmit={onSubmit} className="grid gap-0 lg:grid-cols-[320px_1fr]">
-          <div className="space-y-5 border-b border-slate-100 bg-slate-50/80 px-8 py-7 lg:border-b-0 lg:border-r">
+        <form onSubmit={onSubmit} className="max-h-[calc(90vh-9rem)] overflow-y-auto px-6 py-6">
+          <div className="hidden">
             <div className="space-y-4 rounded-[28px] bg-white p-5 shadow-sm">
               <div className="flex justify-center">
                 <LogoUpload
@@ -158,7 +158,7 @@ export function AccountCreateClubDialog({
             </div>
           </div>
 
-          <div className="px-8 py-7">
+          <div className="space-y-6">
             <Tabs
               value={tab}
               onValueChange={(value) =>
@@ -178,7 +178,7 @@ export function AccountCreateClubDialog({
                 ))}
               </TabsList>
 
-              <div className="max-h-[58vh] overflow-y-auto pr-2">
+              <div>
                 <TabsContent value="general" className="mt-0">
                   <CardPanel title="Informazioni generali del club">
                     <div className="grid gap-4 md:grid-cols-2">
@@ -476,14 +476,13 @@ export function AccountCreateClubDialog({
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-full"
                 onClick={() => onOpenChange(false)}
               >
                 Chiudi
               </Button>
               <Button
                 type="submit"
-                className="rounded-full bg-blue-600 hover:bg-blue-700"
+                className="bg-blue-600 hover:bg-blue-700"
                 disabled={creating}
               >
                 {creating ? (

@@ -1,5 +1,9 @@
 import { getClubData } from "@/lib/simplified-db";
 import { supabase } from "@/lib/supabase";
+import {
+  isPaymentExcludedFromTotals,
+  normalizePaymentAccountingStatus,
+} from "@/lib/payments/payment-status-utils";
 
 export type ClubMovementSource =
   | "athlete"
@@ -65,7 +69,11 @@ const normalizeStatus = (value: unknown) => {
   if (["paid", "completed", "complete", "saldato", "pagato"].includes(status)) {
     return "paid";
   }
-  if (["cancelled", "canceled", "annullato", "annullata"].includes(status)) {
+  if (
+    ["cancelled", "canceled", "voided", "deleted", "annullato", "annullata"].includes(
+      status,
+    )
+  ) {
     return "cancelled";
   }
   if (["overdue", "scaduto", "scaduta"].includes(status)) {
@@ -131,7 +139,9 @@ const normalizePayment = (
     return null;
   }
 
-  const status = normalizeStatus(item?.status || item?.payment_status);
+  const status = isPaymentExcludedFromTotals(item)
+    ? "cancelled"
+    : normalizePaymentAccountingStatus(item);
   return {
     id: buildId(source, item, index),
     source,

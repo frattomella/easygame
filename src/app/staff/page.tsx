@@ -12,6 +12,7 @@ import {
   Mail,
   Phone,
   Calendar,
+  Building,
   Edit,
   Trash2,
   LayoutGrid,
@@ -26,10 +27,23 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { StaffTable } from "@/components/staff/StaffTable";
+import { DepartmentManagement } from "@/components/staff/DepartmentManagement";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
@@ -48,10 +62,63 @@ interface StaffMember {
   avatar: string;
 }
 
+interface Department {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+}
+
+const DEPARTMENT_COLOR_CLASSES: Record<string, string> = {
+  blue: "border-blue-200 bg-blue-50 text-blue-700",
+  green: "border-green-200 bg-green-50 text-green-700",
+  red: "border-red-200 bg-red-50 text-red-700",
+  yellow: "border-yellow-200 bg-yellow-50 text-yellow-700",
+  purple: "border-purple-200 bg-purple-50 text-purple-700",
+};
+
 const getStaffDisplayName = (member: StaffMember) =>
   member.fullName ||
   [member.name, member.surname].filter(Boolean).join(" ").trim() ||
   member.name;
+
+const normalizeDepartmentName = (value?: string | null) =>
+  String(value || "").trim();
+
+const makeDepartmentFromName = (name: string): Department => ({
+  id: `dept-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || Date.now()}`,
+  name,
+  color: "blue",
+});
+
+const mergeDepartments = (
+  savedDepartments: Department[],
+  staffMembers: StaffMember[],
+) => {
+  const byName = new Map<string, Department>();
+
+  savedDepartments.forEach((department) => {
+    const name = normalizeDepartmentName(department.name);
+    if (name) byName.set(name.toLowerCase(), { ...department, name });
+  });
+
+  staffMembers.forEach((member) => {
+    const name = normalizeDepartmentName(member.department);
+    if (name && !byName.has(name.toLowerCase())) {
+      byName.set(name.toLowerCase(), makeDepartmentFromName(name));
+    }
+  });
+
+  return Array.from(byName.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, "it", { sensitivity: "base" }),
+  );
+};
+
+const getDepartmentBadgeClassName = (department?: Department) =>
+  department?.color
+    ? DEPARTMENT_COLOR_CLASSES[department.color] ||
+      "border-slate-200 bg-slate-50 text-slate-700"
+    : "border-slate-200 bg-slate-50 text-slate-700";
 
 export default function StaffPage() {
   const router = useRouter();
@@ -59,10 +126,16 @@ export default function StaffPage() {
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [clubId, setClubId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "table">("table");
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [clubSettings, setClubSettings] = useState<Record<string, any>>({});
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [isDepartmentManagementOpen, setIsDepartmentManagementOpen] =
+    useState(false);
   const [visibleColumns, setVisibleColumns] = useState({
     name: true,
     role: true,
+    department: true,
     email: true,
     phone: true,
     status: true,
@@ -97,6 +170,7 @@ export default function StaffPage() {
       if (!clubId || clubId === "null" || clubId === "undefined") {
         setLoading(false);
         setStaffMembers([]);
+        setDepartments([]);
         return;
       }
 
@@ -104,7 +178,7 @@ export default function StaffPage() {
         // Get staff members from clubs.staff_members JSONB column
         const { data: clubData, error } = await supabase
           .from("clubs")
-          .select("staff_members")
+          .select("staff_members, settings")
           .eq("id", clubId)
           .single();
 
@@ -114,13 +188,25 @@ export default function StaffPage() {
           }
           setStaffMembers([]);
         } else {
-          setStaffMembers(clubData?.staff_members || []);
+          const members = clubData?.staff_members || [];
+          const settings =
+            clubData?.settings && typeof clubData.settings === "object"
+              ? clubData.settings
+              : {};
+          const savedDepartments = Array.isArray(settings.staffDepartments)
+            ? (settings.staffDepartments as Department[])
+            : [];
+
+          setClubSettings(settings);
+          setStaffMembers(members);
+          setDepartments(mergeDepartments(savedDepartments, members));
         }
       } catch (error) {
         if (process.env.NODE_ENV === "development") {
           console.error("Error loading staff:", error);
         }
-        setStaffMembers([]);
+      setStaffMembers([]);
+      setDepartments([]);
       } finally {
         setLoading(false);
       }
@@ -160,20 +246,153 @@ export default function StaffPage() {
     }
   };
 
+  const persistStaffState = async (
+    nextStaffMembers: StaffMember[],
+    nextDepartments = departments,
+  ) => {
+    if (!clubId) return;
+
+    const nextSettings = {
+      ...clubSettings,
+      staffDepartments: nextDepartments,
+    };
+
+    const { error } = await supabase
+      .from("clubs")
+      .update({
+        staff_members: nextStaffMembers,
+        settings: nextSettings,
+      })
+      .eq("id", clubId);
+
+    if (error) throw error;
+
+    setClubSettings(nextSettings);
+  };
+
+  const handleAssignDepartment = async (
+    memberId: string,
+    departmentName: string,
+  ) => {
+    const normalizedDepartment =
+      departmentName === "__none__" ? "" : departmentName;
+    const nextStaffMembers = staffMembers.map((member) =>
+      member.id === memberId
+        ? { ...member, department: normalizedDepartment }
+        : member,
+    );
+
+    setStaffMembers(nextStaffMembers);
+
+    try {
+      await persistStaffState(nextStaffMembers);
+    } catch (error) {
+      console.error("Error assigning department:", error);
+    }
+  };
+
+  const handleSaveDepartment = async (department: Department) => {
+    const normalizedDepartment = {
+      ...department,
+      name: normalizeDepartmentName(department.name),
+    };
+
+    if (!normalizedDepartment.name) return;
+
+    const nextDepartments = departments
+      .filter((item) => item.id !== normalizedDepartment.id)
+      .concat(normalizedDepartment)
+      .sort((left, right) =>
+        left.name.localeCompare(right.name, "it", { sensitivity: "base" }),
+      );
+
+    setDepartments(nextDepartments);
+
+    try {
+      await persistStaffState(staffMembers, nextDepartments);
+    } catch (error) {
+      console.error("Error saving department:", error);
+    }
+  };
+
+  const handleDeleteDepartment = async (departmentId: string) => {
+    const removedDepartment = departments.find(
+      (department) => department.id === departmentId,
+    );
+    const nextDepartments = departments.filter(
+      (department) => department.id !== departmentId,
+    );
+    const removedName = normalizeDepartmentName(removedDepartment?.name);
+    const nextStaffMembers = removedName
+      ? staffMembers.map((member) =>
+          normalizeDepartmentName(member.department).toLowerCase() ===
+          removedName.toLowerCase()
+            ? { ...member, department: "" }
+            : member,
+        )
+      : staffMembers;
+
+    setDepartments(nextDepartments);
+    setStaffMembers(nextStaffMembers);
+    if (departmentFilter === removedName) setDepartmentFilter("all");
+
+    try {
+      await persistStaffState(nextStaffMembers, nextDepartments);
+    } catch (error) {
+      console.error("Error deleting department:", error);
+    }
+  };
+
+  const filteredStaffMembers =
+    departmentFilter === "all"
+      ? staffMembers
+      : staffMembers.filter(
+          (member) =>
+            normalizeDepartmentName(member.department).toLowerCase() ===
+            departmentFilter.toLowerCase(),
+        );
+  const staffCountsByDepartment = staffMembers.reduce<Record<string, number>>(
+    (counts, member) => {
+      const key = normalizeDepartmentName(member.department).toLowerCase();
+      if (key) counts[key] = (counts[key] || 0) + 1;
+      return counts;
+    },
+    {},
+  );
+
   const renderStaffMainContent = () => (
-    <main className="flex-1 p-4 md:p-6">
-      <div className="max-w-9xl mx-auto space-y-6">
+    <main className={dashboardMainClassName}>
+      <DashboardPageContainer>
         {/* Header */}
         <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Staff
-            </h1>
-            <p className="text-gray-600 mt-2">
-              Gestisci il personale amministrativo e tecnico
-            </p>
-          </div>
-          <div className="flex gap-2">
+          <SharedPageHeader
+            title="Staff"
+            subtitle="Gestisci il personale amministrativo e tecnico"
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Select
+              value={departmentFilter}
+              onValueChange={setDepartmentFilter}
+            >
+              <SelectTrigger className="h-9 w-[170px]">
+                <SelectValue placeholder="Filtra reparto" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutti i reparti</SelectItem>
+                {departments.map((department) => (
+                  <SelectItem key={department.id} value={department.name}>
+                    {department.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => setIsDepartmentManagementOpen(true)}
+            >
+              <Building className="mr-2 h-4 w-4" />
+              Reparti
+            </Button>
             <Button
               variant={viewMode === "table" ? "default" : "outline"}
               size="icon"
@@ -226,6 +445,17 @@ export default function StaffPage() {
                     }
                   >
                     Ruolo
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={visibleColumns.department}
+                    onCheckedChange={(checked) =>
+                      setVisibleColumns((prev) => ({
+                        ...prev,
+                        department: checked,
+                      }))
+                    }
+                  >
+                    Reparto
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
                     checked={visibleColumns.email}
@@ -307,11 +537,13 @@ export default function StaffPage() {
           <Card>
             <CardContent className="p-6">
               <StaffTable
-                staffMembers={staffMembers}
+                staffMembers={filteredStaffMembers}
+                departments={departments}
                 onEdit={(member) =>
                   router.push(`/staff/${member.id}?clubId=${clubId}`)
                 }
                 onDelete={(id) => handleDelete(id)}
+                onAssignDepartment={handleAssignDepartment}
                 onToggleStatus={(id) => console.log("Toggle status:", id)}
                 formatDate={(date) => {
                   if (!date) return "N/A";
@@ -331,7 +563,14 @@ export default function StaffPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {staffMembers.map((member) => (
+            {filteredStaffMembers.map((member) => {
+              const department = departments.find(
+                (item) =>
+                  normalizeDepartmentName(item.name).toLowerCase() ===
+                  normalizeDepartmentName(member.department).toLowerCase(),
+              );
+
+              return (
               <Card
                 key={member.id}
                 className="hover:shadow-lg transition-shadow duration-200 cursor-pointer"
@@ -365,6 +604,35 @@ export default function StaffPage() {
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge
+                      variant="outline"
+                      className={getDepartmentBadgeClassName(department)}
+                    >
+                      {member.department || "Non assegnato"}
+                    </Badge>
+                    <Select
+                      value={member.department || "__none__"}
+                      onValueChange={(value) =>
+                        handleAssignDepartment(member.id, value)
+                      }
+                    >
+                      <SelectTrigger
+                        className="h-8 w-[150px]"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <SelectValue placeholder="Reparto" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Non assegnato</SelectItem>
+                        {departments.map((item) => (
+                          <SelectItem key={item.id} value={item.name}>
+                            {item.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="flex items-center text-sm text-gray-600">
                     <Mail className="h-4 w-4 mr-2" />
                     {member.email || "Email non disponibile"}
@@ -403,11 +671,12 @@ export default function StaffPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        {staffMembers.length === 0 && !loading && (
+        {filteredStaffMembers.length === 0 && !loading && (
           <Card className="text-center py-12">
             <CardContent>
               <Users className="h-16 w-16 mx-auto text-gray-400 mb-4" />
@@ -445,7 +714,15 @@ export default function StaffPage() {
             </CardContent>
           </Card>
         )}
-      </div>
+        <DepartmentManagement
+          isOpen={isDepartmentManagementOpen}
+          onClose={() => setIsDepartmentManagementOpen(false)}
+          onSave={handleSaveDepartment}
+          departments={departments}
+          onDelete={handleDeleteDepartment}
+          staffCountsByDepartment={staffCountsByDepartment}
+        />
+      </DashboardPageContainer>
     </main>
   );
 

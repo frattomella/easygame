@@ -2,13 +2,18 @@
 
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar as TrainingCalendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import {
   Plus,
@@ -346,6 +351,7 @@ const buildTrainingAttendanceAthlete = ({
 };
 
 export default function TrainingPage() {
+  const searchParams = useSearchParams();
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [activeTab, setActiveTab] = React.useState<"daily" | "calendar">(
     "daily",
@@ -365,6 +371,9 @@ export default function TrainingPage() {
     useState<TrainingSession | null>(null);
   const [attendanceModalState, setAttendanceModalState] =
     useState<AttendanceModalState | null>(null);
+  const [autoOpenedAttendanceId, setAutoOpenedAttendanceId] = useState<
+    string | null
+  >(null);
   const [calendarDate, setCalendarDate] = React.useState<Date | undefined>(
     undefined,
   );
@@ -375,12 +384,24 @@ export default function TrainingPage() {
   const scheduleSectionRef = React.useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const { activeClub } = useAuth();
+  const requestedTrainingId = searchParams.get("trainingId");
+  const requestedFocus = searchParams.get("focus");
+  const requestedDate = React.useMemo(() => {
+    const dateParam = searchParams.get("date");
+
+    if (!dateParam) {
+      return new Date();
+    }
+
+    const parsedDate = new Date(`${dateParam}T00:00:00`);
+    return Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  }, [searchParams]);
 
   // Initialize dates on client side to avoid hydration mismatch
   React.useEffect(() => {
-    if (!date) setDate(new Date());
-    if (!calendarDate) setCalendarDate(new Date());
-  }, []);
+    if (!date) setDate(requestedDate);
+    if (!calendarDate) setCalendarDate(requestedDate);
+  }, [calendarDate, date, requestedDate]);
 
   React.useEffect(() => {
     if (shouldRenderSchedule) {
@@ -846,6 +867,40 @@ export default function TrainingPage() {
     [categories, clubAthletes],
   );
 
+  React.useEffect(() => {
+    if (
+      requestedFocus !== "attendance" ||
+      !requestedTrainingId ||
+      autoOpenedAttendanceId === requestedTrainingId
+    ) {
+      return;
+    }
+
+    const requestedTraining = trainings.find(
+      (training) => training.id === requestedTrainingId,
+    );
+
+    if (!requestedTraining) {
+      return;
+    }
+
+    setActiveTab("daily");
+    setDate(requestedTraining.date);
+    setCalendarDate(requestedTraining.date);
+
+    if (canRecordTrainingAttendance(requestedTraining)) {
+      openAttendanceSheet(requestedTraining);
+    }
+
+    setAutoOpenedAttendanceId(requestedTrainingId);
+  }, [
+    autoOpenedAttendanceId,
+    openAttendanceSheet,
+    requestedFocus,
+    requestedTrainingId,
+    trainings,
+  ]);
+
   const handleSaveAttendanceSheet = React.useCallback(
     async (data: {
       trainingId: string;
@@ -950,6 +1005,21 @@ export default function TrainingPage() {
     return null;
   };
 
+  const getTrainingAttendanceSummary = (training: TrainingSession) => {
+    const present = Array.isArray(training.attendance)
+      ? training.attendance.filter((entry: any) => entry?.present).length
+      : typeof training.attendees === "number"
+        ? training.attendees
+        : 0;
+    const total =
+      typeof training.expectedAttendees === "number" &&
+      training.expectedAttendees > 0
+        ? training.expectedAttendees
+        : 0;
+
+    return { present, total };
+  };
+
   // Navigation functions for day switching
   const goToPreviousDay = () => {
     if (date) {
@@ -983,6 +1053,55 @@ export default function TrainingPage() {
     return getTrainingsForDate(targetDate).length > 0;
   };
 
+  const calendarMonthAnchor = React.useMemo(() => {
+    const sourceDate = calendarDate || date || new Date();
+    return new Date(sourceDate.getFullYear(), sourceDate.getMonth(), 1);
+  }, [calendarDate, date]);
+
+  const calendarMonthDays = React.useMemo(() => {
+    const firstWeekdayOffset = (calendarMonthAnchor.getDay() + 6) % 7;
+    const daysInMonth = new Date(
+      calendarMonthAnchor.getFullYear(),
+      calendarMonthAnchor.getMonth() + 1,
+      0,
+    ).getDate();
+    const days: Array<Date | null> = Array.from(
+      { length: firstWeekdayOffset },
+      () => null,
+    );
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      days.push(
+        new Date(
+          calendarMonthAnchor.getFullYear(),
+          calendarMonthAnchor.getMonth(),
+          day,
+        ),
+      );
+    }
+
+    while (days.length % 7 !== 0) {
+      days.push(null);
+    }
+
+    return days;
+  }, [calendarMonthAnchor]);
+
+  const calendarMonthLabel = calendarMonthAnchor.toLocaleDateString("it-IT", {
+    month: "long",
+    year: "numeric",
+  });
+
+  const goToCalendarMonth = (offset: number) => {
+    setCalendarDate(
+      new Date(
+        calendarMonthAnchor.getFullYear(),
+        calendarMonthAnchor.getMonth() + offset,
+        1,
+      ),
+    );
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
       <div className="shrink-0">
@@ -992,16 +1111,12 @@ export default function TrainingPage() {
         <div className="shrink-0">
           <Header title="Allenamenti" />
         </div>
-        <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 md:p-6">
-          <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col space-y-5 md:space-y-6">
-            <div>
-              <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold text-transparent md:text-4xl">
-                Allenamenti
-              </h1>
-              <p className="mt-2 text-sm text-gray-600 md:text-base">
-                Pianifica e gestisci il calendario degli allenamenti.
-              </p>
-            </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="min-w-0 max-w-7xl">
+            <SharedPageHeader
+              title="Allenamenti"
+              subtitle="Pianifica e gestisci il calendario degli allenamenti."
+            />
             <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
               <h2 className="text-xl font-semibold">Calendario Allenamenti</h2>
               <Button
@@ -1131,6 +1246,8 @@ export default function TrainingPage() {
                           const canManageAttendance =
                             derivedStatus !== "annullato" &&
                             canRecordTrainingAttendance(training);
+                          const attendanceSummary =
+                            getTrainingAttendanceSummary(training);
 
                           return (
                             <div
@@ -1138,17 +1255,19 @@ export default function TrainingPage() {
                               className="min-w-0 rounded-xl border p-4 transition-colors hover:bg-gray-50 dark:hover:bg-gray-900"
                             >
                               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <h4 className="min-w-0 pr-2 text-base font-medium break-words">
-                                  {training.title}
-                                </h4>
-                              <Badge
-                                className={cn(
-                                  "w-fit rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm ring-1 ring-black/5",
-                                  training.categoryColor,
-                                )}
-                              >
-                                {training.category}
-                              </Badge>
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                  <Badge
+                                    className={cn(
+                                      "w-fit rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm ring-1 ring-black/5",
+                                      training.categoryColor,
+                                    )}
+                                  >
+                                    {training.category}
+                                  </Badge>
+                                  <h4 className="min-w-0 pr-2 text-base font-medium break-words">
+                                    {training.title}
+                                  </h4>
+                                </div>
                               </div>
                               <div className="min-w-0 space-y-2 text-sm text-gray-600 dark:text-gray-400">
                                 <div className="flex min-w-0 items-center gap-2">
@@ -1168,7 +1287,8 @@ export default function TrainingPage() {
                                 <Users className="h-3.5 w-3.5 shrink-0" />
                                 <span className="min-w-0 break-words">
                                   {training.trainer} ·{" "}
-                                  {training.expectedAttendees || 0} atleti
+                                  {attendanceSummary.present}/
+                                  {attendanceSummary.total} Atleti
                                 </span>
                               </div>
                               </div>
@@ -1888,36 +2008,116 @@ export default function TrainingPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="min-w-0">
-                    <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
-                      {/* Calendar */}
-                      <div className="min-w-0">
-                        {activeTab === "calendar" ? (
-                          <TrainingCalendar
-                            mode="single"
-                            selected={calendarDate}
-                            onSelect={setCalendarDate}
-                            className="rounded-md border"
-                            modifiers={{
-                              hasTraining: (date) => hasTrainings(date),
-                            }}
-                            modifiersStyles={{
-                              hasTraining: {
-                                backgroundColor: "#dbeafe",
-                                color: "#1e40af",
-                                fontWeight: "bold",
-                              },
-                            }}
-                          />
-                        ) : null}
-                        <div className="mt-4 text-sm text-gray-600">
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="w-3 h-3 bg-blue-100 border border-blue-300 rounded" />
-                            <span>Giorni con allenamenti</span>
+                    <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+                      <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 rounded-full text-slate-600 hover:bg-slate-100"
+                            onClick={() => goToCalendarMonth(-1)}
+                            aria-label="Mese precedente"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <div className="min-w-0 text-center">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Calendario
+                            </p>
+                            <h3 className="truncate text-base font-semibold capitalize text-slate-900">
+                              {calendarMonthLabel}
+                            </h3>
                           </div>
-                          <p>
-                            Clicca su una data per vedere i dettagli degli
-                            allenamenti.
-                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 rounded-full text-slate-600 hover:bg-slate-100"
+                            onClick={() => goToCalendarMonth(1)}
+                            aria-label="Mese successivo"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-slate-500">
+                          {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map(
+                            (weekday) => (
+                              <div key={weekday}>{weekday}</div>
+                            ),
+                          )}
+                        </div>
+                        <div className="mt-2 grid grid-cols-7 gap-1.5">
+                          {calendarMonthDays.map((day, index) => {
+                            if (!day) {
+                              return (
+                                <div
+                                  key={`empty-${index}`}
+                                  className="h-14 rounded-xl border border-slate-100 bg-slate-50"
+                                />
+                              );
+                            }
+
+                            const dayTrainings = getTrainingsForDate(day);
+                            const isSelected =
+                              calendarDate &&
+                              day.getDate() === calendarDate.getDate() &&
+                              day.getMonth() === calendarDate.getMonth() &&
+                              day.getFullYear() ===
+                                calendarDate.getFullYear();
+                            const isToday = (() => {
+                              const today = new Date();
+                              return (
+                                day.getDate() === today.getDate() &&
+                                day.getMonth() === today.getMonth() &&
+                                day.getFullYear() === today.getFullYear()
+                              );
+                            })();
+
+                            return (
+                              <button
+                                key={day.toISOString()}
+                                type="button"
+                                onClick={() => setCalendarDate(day)}
+                                className={cn(
+                                  "h-14 rounded-xl border p-1.5 text-left transition hover:border-blue-300 hover:bg-blue-50",
+                                  dayTrainings.length > 0
+                                    ? "border-blue-200 bg-blue-50"
+                                    : "border-slate-100 bg-white",
+                                  isSelected
+                                    ? "border-blue-600 bg-blue-600 text-white shadow-sm"
+                                    : "text-slate-800",
+                                )}
+                              >
+                                <span className="flex items-center justify-between gap-1">
+                                  <span className="text-sm font-semibold">
+                                    {day.getDate()}
+                                  </span>
+                                  {isToday ? (
+                                    <span
+                                      className={cn(
+                                        "h-2 w-2 rounded-full",
+                                        isSelected ? "bg-white" : "bg-blue-500",
+                                      )}
+                                    />
+                                  ) : null}
+                                </span>
+                                {dayTrainings.length > 0 ? (
+                                  <span
+                                    className={cn(
+                                      "mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                      isSelected
+                                        ? "bg-white/20 text-white"
+                                        : "bg-blue-100 text-blue-700",
+                                    )}
+                                  >
+                                    {dayTrainings.length}
+                                  </span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -1945,16 +2145,52 @@ export default function TrainingPage() {
                                       getDerivedStatus(training) !==
                                         "annullato" &&
                                       canRecordTrainingAttendance(training);
+                                    const attendanceSummary =
+                                      getTrainingAttendanceSummary(training);
+                                    const attendanceTotalLabel =
+                                      attendanceSummary.total > 0
+                                        ? attendanceSummary.total
+                                        : "-";
 
                                     return (
                                     <div
                                       key={getTrainingStableKey(training)}
-                                      className="rounded-lg border bg-gray-50 p-3 dark:bg-gray-800"
+                                      role={canManageAttendance ? "button" : undefined}
+                                      tabIndex={canManageAttendance ? 0 : undefined}
+                                      onClick={() => {
+                                        if (canManageAttendance) {
+                                          openAttendanceSheet(training);
+                                        }
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (
+                                          canManageAttendance &&
+                                          (event.key === "Enter" ||
+                                            event.key === " ")
+                                        ) {
+                                          event.preventDefault();
+                                          openAttendanceSheet(training);
+                                        }
+                                      }}
+                                      className={cn(
+                                        "rounded-xl border bg-white p-3 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40 dark:bg-gray-800",
+                                        canManageAttendance && "cursor-pointer",
+                                      )}
                                     >
-                                      <div className="flex justify-between items-start mb-2">
-                                        <h4 className="font-medium text-sm">
-                                          {training.title}
-                                        </h4>
+                                      <div className="flex justify-between items-start gap-2 mb-2">
+                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                          <Badge
+                                            className={cn(
+                                              "rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm ring-1 ring-black/5",
+                                              training.categoryColor,
+                                            )}
+                                          >
+                                            {training.category}
+                                          </Badge>
+                                          <h4 className="font-medium text-sm">
+                                            {training.title}
+                                          </h4>
+                                        </div>
                                         {getStatusBadge(
                                           getDerivedStatus(training),
                                         )}
@@ -1977,20 +2213,12 @@ export default function TrainingPage() {
                                           <Users className="h-3 w-3" />
                                           <span>
                                             {training.trainer} •{" "}
-                                            {training.expectedAttendees || 0}{" "}
-                                            atleti
+                                            {attendanceSummary.present}/
+                                            {attendanceTotalLabel} Atleti
                                           </span>
                                         </div>
                                       </div>
-                                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                                        <Badge
-                                          className={cn(
-                                            "rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm ring-1 ring-black/5",
-                                            training.categoryColor,
-                                          )}
-                                        >
-                                          {training.category}
-                                        </Badge>
+                                      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                                         {attendanceStatus ? (
                                           <Badge
                                             variant="outline"
@@ -2008,9 +2236,10 @@ export default function TrainingPage() {
                                             size="sm"
                                             variant="outline"
                                             className="h-8"
-                                            onClick={() =>
-                                              openAttendanceSheet(training)
-                                            }
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              openAttendanceSheet(training);
+                                            }}
                                           >
                                             {attendanceStatus?.tone === "saved"
                                               ? "Modifica Presenze"
@@ -2116,7 +2345,7 @@ export default function TrainingPage() {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 

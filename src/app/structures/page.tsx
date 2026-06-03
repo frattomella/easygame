@@ -3,6 +3,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -704,16 +709,14 @@ export default function StrutturePage() {
         <Sidebar />
         <div className="flex-1 flex flex-col min-h-screen">
           <Header title="Strutture" />
-          <main className="flex-1 p-4 md:p-6 space-y-6 overflow-y-auto">
+          <main className={dashboardMainClassName}>
+            <DashboardPageContainer>
             <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Strutture
-                </h1>
-                <p className="text-gray-600 mt-2">
-                  Registra strutture, gestisci pagamenti e configura i campi.
-                </p>
-              </div>
+              <SharedPageHeader
+                title="Strutture"
+                subtitle="Registra strutture, gestisci pagamenti e configura i campi."
+                className="flex-1"
+              />
 
               <Dialog
                 open={isStructureModalOpen}
@@ -1487,6 +1490,7 @@ export default function StrutturePage() {
                 )}
               </div>
             )}
+            </DashboardPageContainer>
           </main>
         </div>
       </div>

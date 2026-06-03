@@ -28,7 +28,7 @@ export const getMobileMedicalCertificateStatus = (
 ): MobileMedicalCertificateStatus => {
   const expiryDate = toDate(
     typeof source === "object" && source !== null && !(source instanceof Date)
-      ? source.expiryDate ?? source.expiry_date
+      ? (source.expiryDate ?? source.expiry_date)
       : source,
   );
 
@@ -57,7 +57,7 @@ export const getMobileMedicalCertificateAvailability = (
 ): MobileMedicalCertificateAvailability => {
   const expiryDate = toDate(
     typeof source === "object" && source !== null && !(source instanceof Date)
-      ? source.expiryDate ?? source.expiry_date
+      ? (source.expiryDate ?? source.expiry_date)
       : source,
   );
 

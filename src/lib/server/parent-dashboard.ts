@@ -7,6 +7,7 @@ import {
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
 import { dedupeTrainings } from "@/lib/training-utils";
+import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
@@ -504,31 +505,36 @@ const resolveDocumentTemplates = (club: any, uploadedDocuments: any[]) =>
       id: templateId,
       title: firstText(template?.title, template?.name) || "Documento",
       description: firstText(template?.description, template?.notes),
-      status: uploaded?.status || (uploaded ? "in_verifica" : "richiesto"),
+      status: uploaded?.status || (uploaded ? "under_review" : "required"),
       uploadedDocumentId: uploaded?.id || null,
+      assetId: uploaded?.assetId || null,
+      fileName: uploaded?.fileName || "",
+      dueDate: uploaded?.dueDate || "",
+      rejectionReason: uploaded?.rejectionReason || "",
       fileUrl: firstText(template?.fileUrl, template?.file_url, template?.url),
+      required: true,
+      documentType: uploaded?.documentType || "other",
     };
   });
 
 const normalizeUploadedDocuments = (athlete: any) => {
-  const data = asRecord(athlete?.data);
-  return [
-    ...asArray(data.parentDocuments),
-    ...asArray(data.parent_documents),
-    ...asArray(data.documents).filter((document) =>
-      ["parent", "guardian", "athlete"].includes(
-        normalizeToken(document?.source || document?.scope),
-      ),
-    ),
-  ].map((document, index) => ({
-    id: firstText(document?.id) || `parent-document-${index}`,
-    templateId: firstText(document?.templateId, document?.template_id),
-    title: firstText(document?.title, document?.name) || "Documento caricato",
-    fileName: firstText(document?.fileName, document?.file_name),
-    status: firstText(document?.status) || "in_verifica",
-    uploadedAt: toIso(document?.uploadedAt || document?.uploaded_at),
-    assetId: firstText(document?.assetId, document?.asset_id),
-  }));
+  return getSharedDocumentsFromAthlete(athlete)
+    .filter((document) => document.visibleToParent)
+    .map((document) => ({
+      id: document.id,
+      templateId: firstText(document.data?.templateId, document.data?.template_id),
+      title: document.title || "Documento caricato",
+      description: document.description || "",
+      documentType: document.documentType,
+      fileName: document.fileName || "",
+      status: document.status,
+      uploadedAt: toIso(document.uploadedAt),
+      assetId: document.assetId || "",
+      dueDate: document.dueDate || "",
+      rejectionReason: document.rejectionReason || "",
+      required: document.required,
+      uploadedByRole: document.uploadedByRole,
+    }));
 };
 
 const serializeAthleteCard = (athlete: any) => {
@@ -754,7 +760,19 @@ export const getParentDashboardData = async (
   ).length;
   const attendanceTotal = presentCount + absentCount;
   const uploadedDocuments = normalizeUploadedDocuments(selectedAthlete);
-  const requiredDocuments = resolveDocumentTemplates(club, uploadedDocuments);
+  const templateRequiredDocuments = resolveDocumentTemplates(club, uploadedDocuments);
+  const requiredDocuments = [
+    ...templateRequiredDocuments,
+    ...uploadedDocuments.filter(
+      (document) =>
+        document.required &&
+        !templateRequiredDocuments.some(
+          (template) =>
+            sameId(template.id, document.id) ||
+            sameId(template.id, document.templateId),
+        ),
+    ),
+  ];
   const certificates = medicalCertificates.map((certificate) => ({
     ...certificate,
     issue_date: toIso(certificate.issue_date),
@@ -788,7 +806,7 @@ export const getParentDashboardData = async (
     statusKey: payment.statusKey,
   }));
   const pendingPayments = normalizedPayments.filter(
-    (payment) => payment.statusKey !== "paid",
+    (payment) => payment.statusKey === "pending",
   );
   const paidPayments = normalizedPayments.filter(
     (payment) => payment.statusKey === "paid",

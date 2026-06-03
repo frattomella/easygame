@@ -67,96 +67,90 @@ export default function TrainerAthletesScreen() {
 
   return (
     <ScrollView
-        style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-        contentContainerStyle={{
-          paddingTop: Spacing.lg,
-          paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
-          paddingHorizontal: Spacing.lg,
-        }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        <Card style={styles.searchCard}>
-          <ThemedText type="h4" style={{ marginBottom: Spacing.sm }}>
-            Rosa atleta
-          </ThemedText>
-          <ThemedText
-            type="small"
-            style={{ color: theme.textSecondary, marginBottom: Spacing.md }}
+      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
+      contentContainerStyle={{
+        paddingTop: Spacing.lg,
+        paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
+        paddingHorizontal: Spacing.lg,
+      }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      <Card style={styles.searchCard}>
+        <ThemedText type="h4" style={{ marginBottom: Spacing.sm }}>
+          I tuoi atleti
+        </ThemedText>
+        <Input
+          placeholder="Cerca atleta, categoria o numero..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          leftIcon="search-outline"
+          rightIcon={searchQuery ? "close-circle" : undefined}
+          onRightIconPress={() => setSearchQuery("")}
+          style={{ marginBottom: 0 }}
+        />
+        <View style={styles.badgeWrap}>
+          {assignedCategories.length > 0 ? (
+            assignedCategories.map((category) => (
+              <Badge key={category.id} label={category.name} small />
+            ))
+          ) : (
+            <Badge
+              label="Nessuna categoria assegnata"
+              variant="warning"
+              small
+            />
+          )}
+        </View>
+      </Card>
+
+      {filteredAthletes.length > 0 ? (
+        filteredAthletes.map((athlete) => (
+          <Card
+            key={athlete.id}
+            style={styles.athleteCard}
+            onPress={() =>
+              navigation.navigate("AthleteProfile", { athleteId: athlete.id })
+            }
           >
-            Vedi solo gli atleti delle categorie assegnate e apri la scheda
-            completa in una pagina dedicata.
-          </ThemedText>
-          <Input
-            placeholder="Cerca atleta, categoria o numero..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            leftIcon="search-outline"
-            rightIcon={searchQuery ? "close-circle" : undefined}
-            onRightIconPress={() => setSearchQuery("")}
-            style={{ marginBottom: 0 }}
-          />
-          <View style={styles.badgeWrap}>
-            {assignedCategories.length > 0 ? (
-              assignedCategories.map((category) => (
-                <Badge key={category.id} label={category.name} small />
-              ))
-            ) : (
-              <Badge label="Nessuna categoria assegnata" variant="warning" small />
-            )}
-          </View>
-        </Card>
-
-        {filteredAthletes.length > 0 ? (
-          filteredAthletes.map((athlete) => (
-            <Card
-              key={athlete.id}
-              style={styles.athleteCard}
-              onPress={() =>
-                navigation.navigate("AthleteProfile", { athleteId: athlete.id })
-              }
-            >
-              <View style={styles.athleteRow}>
-                <Avatar
-                  name={athlete.name}
-                  size={48}
-                  showNumber
-                  number={athlete.number}
-                />
-                <View style={styles.athleteInfo}>
-                  <ThemedText type="body" style={styles.athleteName}>
-                    {athlete.name}
-                  </ThemedText>
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                    {athlete.category} · {athlete.position || "Ruolo da definire"}
-                  </ThemedText>
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                    Tocca per aprire la scheda atleta completa
-                  </ThemedText>
-                </View>
-                <Badge
-                  label={getAthleteStatusLabel(athlete.status)}
-                  variant={getAthleteStatusVariant(athlete.status)}
-                  small
-                />
+            <View style={styles.athleteRow}>
+              <Avatar
+                name={athlete.name}
+                size={48}
+                showNumber
+                number={athlete.number}
+              />
+              <View style={styles.athleteInfo}>
+                <ThemedText type="body" style={styles.athleteName}>
+                  {athlete.name}
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  {athlete.category} · {athlete.position || "Ruolo da definire"}
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Apri scheda atleta
+                </ThemedText>
               </View>
-            </Card>
-          ))
-        ) : (
-          <Card>
-            <ThemedText type="body" style={{ marginBottom: Spacing.xs }}>
-              Nessun atleta trovato
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Prova a cambiare ricerca oppure verifica che il trainer abbia
-              categorie e atleti associati.
-            </ThemedText>
+              <Badge
+                label={getAthleteStatusLabel(athlete.status)}
+                variant={getAthleteStatusVariant(athlete.status)}
+                small
+              />
+            </View>
           </Card>
-        )}
-      </ScrollView>
-
-
+        ))
+      ) : (
+        <Card>
+          <ThemedText type="body" style={{ marginBottom: Spacing.xs }}>
+            Nessun atleta trovato
+          </ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Prova a cambiare ricerca.
+          </ThemedText>
+        </Card>
+      )}
+    </ScrollView>
   );
 }
 

@@ -11,11 +11,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  RouteProp,
-  useFocusEffect,
-  useRoute,
-} from "@react-navigation/native";
+import { RouteProp, useFocusEffect, useRoute } from "@react-navigation/native";
 import { addDays, format } from "date-fns";
 
 import { Avatar } from "@/components/Avatar";
@@ -64,9 +60,9 @@ export default function TrainerMatchesDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-  const [convocationDraft, setConvocationDraft] = useState<ConvocationDraftEntry[]>(
-    [],
-  );
+  const [convocationDraft, setConvocationDraft] = useState<
+    ConvocationDraftEntry[]
+  >([]);
   const [convocationSaving, setConvocationSaving] = useState(false);
 
   const focusedMatchId = route.params?.focusMatchId || null;
@@ -109,6 +105,11 @@ export default function TrainerMatchesDashboardScreen() {
         match.awayTeam,
         match.category,
         match.id,
+        match.date,
+        match.time,
+        match.location,
+        match.result ? "conclusa" : "in programma",
+        formatMobileMatchLocationLabel(match),
       ]
         .join(" ")
         .toLowerCase()
@@ -130,14 +131,27 @@ export default function TrainerMatchesDashboardScreen() {
     () => filteredMatches.filter((match) => match.date > weekEnd),
     [filteredMatches, weekEnd],
   );
+  const historyMatches = useMemo(
+    () =>
+      filteredMatches
+        .filter((match) => match.date < today)
+        .sort((a, b) =>
+          `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`),
+        ),
+    [filteredMatches, today],
+  );
 
   const openConvocationsSheet = (match: Match) => {
     const relevantAthletes = athletes.filter((athlete) => {
       if (match.categoryId && athlete.categoryId) {
-        return normalizeText(match.categoryId) === normalizeText(athlete.categoryId);
+        return (
+          normalizeText(match.categoryId) === normalizeText(athlete.categoryId)
+        );
       }
 
-      return normalizeText(match.category || "") === normalizeText(athlete.category);
+      return (
+        normalizeText(match.category || "") === normalizeText(athlete.category)
+      );
     });
 
     const selectedIds = new Set(match.convocatedAthletes || []);
@@ -170,7 +184,9 @@ export default function TrainerMatchesDashboardScreen() {
 
     setConvocationSaving(true);
     try {
-      const selectedAthletes = convocationDraft.filter((entry) => entry.selected);
+      const selectedAthletes = convocationDraft.filter(
+        (entry) => entry.selected,
+      );
       await mobileBackendStorage.saveMatchConvocations(
         selectedMatch.id,
         selectedAthletes.map((entry) => entry.athleteId),
@@ -185,7 +201,11 @@ export default function TrainerMatchesDashboardScreen() {
             entry.medicalCertExpiry,
           ),
         }))
-        .filter((entry) => entry.availability === "missing" || entry.availability === "expired");
+        .filter(
+          (entry) =>
+            entry.availability === "missing" ||
+            entry.availability === "expired",
+        );
 
       if (flaggedAthletes.length > 0) {
         Alert.alert(
@@ -209,7 +229,10 @@ export default function TrainerMatchesDashboardScreen() {
   const renderMatchCard = (match: Match) => (
     <Card
       key={match.id}
-      style={[styles.matchCard, focusedMatchId === match.id ? styles.focusedCard : null]}
+      style={[
+        styles.matchCard,
+        focusedMatchId === match.id ? styles.focusedCard : null,
+      ]}
     >
       <View style={styles.topRow}>
         <View style={{ flex: 1 }}>
@@ -267,7 +290,7 @@ export default function TrainerMatchesDashboardScreen() {
       >
         <View style={styles.sectionFirst}>
           <Input
-            placeholder="Cerca gara per avversario o numero gara..."
+            placeholder="Cerca gara, categoria, data o luogo..."
             value={searchQuery}
             onChangeText={setSearchQuery}
             leftIcon="search-outline"
@@ -308,7 +331,7 @@ export default function TrainerMatchesDashboardScreen() {
 
         <View style={styles.section}>
           <ThemedText type="h4" style={styles.sectionTitle}>
-            Gare successive
+            Gare programmate
           </ThemedText>
           {futureMatches.length > 0 ? (
             futureMatches.map(renderMatchCard)
@@ -316,6 +339,21 @@ export default function TrainerMatchesDashboardScreen() {
             <Card>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Nessuna gara nelle settimane successive.
+              </ThemedText>
+            </Card>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <ThemedText type="h4" style={styles.sectionTitle}>
+            Storico gare
+          </ThemedText>
+          {historyMatches.length > 0 ? (
+            historyMatches.map(renderMatchCard)
+          ) : (
+            <Card>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Nessuna gara in archivio.
               </ThemedText>
             </Card>
           )}
@@ -333,7 +371,10 @@ export default function TrainerMatchesDashboardScreen() {
           onPress={() => setSelectedMatch(null)}
         >
           <Pressable
-            style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.backgroundDefault },
+            ]}
             onPress={(event) => event.stopPropagation()}
           >
             <ThemedText type="h4" style={styles.modalTitle}>
@@ -358,7 +399,9 @@ export default function TrainerMatchesDashboardScreen() {
                     style={[
                       styles.convocationRow,
                       {
-                        borderColor: entry.selected ? theme.primary : theme.border,
+                        borderColor: entry.selected
+                          ? theme.primary
+                          : theme.border,
                       },
                     ]}
                     onPress={() => toggleConvocation(entry.athleteId)}
@@ -385,7 +428,10 @@ export default function TrainerMatchesDashboardScreen() {
                             />
                           ) : null}
                         </View>
-                        <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                        <ThemedText
+                          type="small"
+                          style={{ color: theme.textSecondary }}
+                        >
                           {entry.selected ? "Convocato" : "Non convocato"}
                         </ThemedText>
                         {getMobileMedicalCertificateAvailability(
@@ -402,15 +448,22 @@ export default function TrainerMatchesDashboardScreen() {
                       </View>
                     </View>
                     <Ionicons
-                      name={entry.selected ? "checkmark-circle" : "ellipse-outline"}
+                      name={
+                        entry.selected ? "checkmark-circle" : "ellipse-outline"
+                      }
                       size={24}
-                      color={entry.selected ? theme.primary : theme.textSecondary}
+                      color={
+                        entry.selected ? theme.primary : theme.textSecondary
+                      }
                     />
                   </Pressable>
                 ))
               ) : (
                 <Card>
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  <ThemedText
+                    type="small"
+                    style={{ color: theme.textSecondary }}
+                  >
                     Nessun atleta collegato a questa categoria.
                   </ThemedText>
                 </Card>

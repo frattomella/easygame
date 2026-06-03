@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -12,14 +12,12 @@ import {
   Users,
   Mail,
   Phone,
-  Calendar,
   Edit,
   Trash2,
   Search,
   Settings2,
   Eye,
   EyeOff,
-  UserCheck,
   UserX,
 } from "lucide-react";
 import {
@@ -40,6 +38,11 @@ import {
 } from "@/components/ui/table";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
@@ -176,17 +179,14 @@ export default function TrainersPage() {
       <div className="flex-1 flex flex-col">
         <Header title="Allenatori" />
 
-        <main className="flex-1 p-6">
-          <div className="max-w-9xl mx-auto space-y-6">
-            <div className="flex flex-col gap-4 rounded-3xl border border-blue-100 bg-white/80 p-6 shadow-sm backdrop-blur-sm xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Allenatori
-                </h1>
-                <p className="text-gray-600 mt-2">
-                  Gestisci staff tecnico, categorie assegnate e stato operativo degli allenatori del club.
-                </p>
-              </div>
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <SharedPageHeader
+                title="Allenatori"
+                subtitle="Gestisci staff tecnico, categorie assegnate e stato operativo degli allenatori del club."
+                className="xl:flex-1"
+              />
 
               <div className="flex flex-1 flex-col gap-3 xl:max-w-4xl xl:flex-row xl:items-center xl:justify-end">
                 <div className="relative flex-1 xl:max-w-sm">
@@ -309,57 +309,6 @@ export default function TrainersPage() {
                   Nuovo Allenatore
                 </Button>
               </div>
-            </div>
-
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-                <CardHeader className="flex flex-col items-center text-center">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-3">
-                    <Users className="h-6 w-6" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">
-                    {trainers.length}
-                  </CardTitle>
-                  <p className="text-blue-100">Allenatori</p>
-                </CardHeader>
-              </Card>
-
-              <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
-                <CardHeader className="flex flex-col items-center text-center">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-3">
-                    <UserCheck className="h-6 w-6" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">
-                    {trainers.filter((t) => t.status === "active").length}
-                  </CardTitle>
-                  <p className="text-green-100">Attivi</p>
-                </CardHeader>
-              </Card>
-
-              <Card className="bg-gradient-to-br from-yellow-500 to-yellow-600 text-white">
-                <CardHeader className="flex flex-col items-center text-center">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-3">
-                    <UserX className="h-6 w-6" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">
-                    {trainers.filter((t) => t.status === "suspended").length}
-                  </CardTitle>
-                  <p className="text-yellow-100">Sospesi</p>
-                </CardHeader>
-              </Card>
-
-              <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-                <CardHeader className="flex flex-col items-center text-center">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-3">
-                    <Calendar className="h-6 w-6" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">
-                    {trainers.length}
-                  </CardTitle>
-                  <p className="text-purple-100">Allenamenti</p>
-                </CardHeader>
-              </Card>
             </div>
 
             <Card className="overflow-hidden border-blue-100 bg-white/90 shadow-sm">
@@ -537,7 +486,7 @@ export default function TrainersPage() {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

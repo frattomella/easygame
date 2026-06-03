@@ -3,6 +3,10 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -222,7 +226,7 @@ export default function EditTrainerPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Modifica Allenatore" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex justify-center items-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
             </div>
@@ -239,7 +243,7 @@ export default function EditTrainerPage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Allenatore Non Trovato" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex flex-col items-center justify-center py-8">
               <h2 className="text-xl font-semibold mb-4">
                 Allenatore non trovato
@@ -259,8 +263,8 @@ export default function EditTrainerPage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Modifica Allenatore" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-7xl">
             <div className="flex justify-between items-center">
               <Button
                 variant="outline"
@@ -532,7 +536,7 @@ export default function EditTrainerPage() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>

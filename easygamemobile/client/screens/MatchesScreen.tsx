@@ -62,14 +62,21 @@ export default function MatchesScreen() {
   const upcomingMatches = matches.filter((m) => !m.result);
   const resultsMatches = matches.filter((m) => m.result);
 
-  const displayedMatches = activeTab === "upcoming" ? upcomingMatches : resultsMatches;
+  const displayedMatches =
+    activeTab === "upcoming" ? upcomingMatches : resultsMatches;
 
   const handleTabChange = (tab: TabType) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setActiveTab(tab);
   };
 
-  const renderUpcomingMatch = ({ item, index }: { item: Match; index: number }) => (
+  const renderUpcomingMatch = ({
+    item,
+    index,
+  }: {
+    item: Match;
+    index: number;
+  }) => (
     <Animated.View entering={FadeInDown.delay(index * 100).duration(400)}>
       <Card style={styles.matchCard} noPadding>
         <View style={[styles.matchHeader, { backgroundColor: theme.primary }]}>
@@ -96,7 +103,10 @@ export default function MatchesScreen() {
                 </ThemedText>
                 {item.isHome ? (
                   <View
-                    style={[styles.homeBadge, { backgroundColor: theme.primary }]}
+                    style={[
+                      styles.homeBadge,
+                      { backgroundColor: theme.primary },
+                    ]}
                   >
                     <ThemedText style={styles.homeBadgeText}>CASA</ThemedText>
                   </View>
@@ -122,7 +132,10 @@ export default function MatchesScreen() {
                 </ThemedText>
                 {!item.isHome ? (
                   <View
-                    style={[styles.homeBadge, { backgroundColor: theme.textSecondary }]}
+                    style={[
+                      styles.homeBadge,
+                      { backgroundColor: theme.textSecondary },
+                    ]}
                   >
                     <ThemedText style={styles.homeBadgeText}>TRASF</ThemedText>
                   </View>
@@ -159,7 +172,9 @@ export default function MatchesScreen() {
           <Button
             variant="primary"
             fullWidth
-            onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+            onPress={() =>
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            }
           >
             Gestisci Convocazioni
           </Button>
@@ -168,7 +183,13 @@ export default function MatchesScreen() {
     </Animated.View>
   );
 
-  const renderResultMatch = ({ item, index }: { item: Match; index: number }) => {
+  const renderResultMatch = ({
+    item,
+    index,
+  }: {
+    item: Match;
+    index: number;
+  }) => {
     const isWin =
       (item.isHome && item.result!.homeScore > item.result!.awayScore) ||
       (!item.isHome && item.result!.awayScore > item.result!.homeScore);
@@ -201,9 +222,15 @@ export default function MatchesScreen() {
 
           <View style={styles.resultTeams}>
             <ThemedText type="body" style={styles.resultTeamName}>
-              {item.isHome ? "vs " : ""}{item.isHome ? item.awayTeam : item.homeTeam}
+              {item.isHome ? "vs " : ""}
+              {item.isHome ? item.awayTeam : item.homeTeam}
             </ThemedText>
-            <View style={[styles.scoreBox, { backgroundColor: theme.backgroundSecondary }]}>
+            <View
+              style={[
+                styles.scoreBox,
+                { backgroundColor: theme.backgroundSecondary },
+              ]}
+            >
               <ThemedText type="h3" style={styles.scoreText}>
                 {item.result!.homeScore} - {item.result!.awayScore}
               </ThemedText>
@@ -264,7 +291,9 @@ export default function MatchesScreen() {
       <FlatList
         data={displayedMatches}
         keyExtractor={(item) => item.id}
-        renderItem={activeTab === "upcoming" ? renderUpcomingMatch : renderResultMatch}
+        renderItem={
+          activeTab === "upcoming" ? renderUpcomingMatch : renderResultMatch
+        }
         contentContainerStyle={[
           styles.listContent,
           { paddingBottom: tabBarHeight + Spacing["2xl"] },
@@ -276,7 +305,11 @@ export default function MatchesScreen() {
         ListEmptyComponent={
           <EmptyState
             illustration={require("../../assets/images/illustrations/empty_matches_illustration.png")}
-            title={activeTab === "upcoming" ? "Nessuna gara in arrivo" : "Nessun risultato"}
+            title={
+              activeTab === "upcoming"
+                ? "Nessuna gara in arrivo"
+                : "Nessun risultato"
+            }
             message={
               activeTab === "upcoming"
                 ? "Non ci sono partite programmate"

@@ -25,6 +25,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
+import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,8 +76,11 @@ const getStatusLabel = (status: unknown) => {
   if (["paid", "pagato", "saldato"].includes(normalized)) {
     return "Saldato";
   }
-  if (["requested", "richiesto"].includes(normalized)) {
+  if (["requested", "required", "richiesto"].includes(normalized)) {
     return "Richiesto";
+  }
+  if (["uploaded", "caricato"].includes(normalized)) {
+    return "Caricato";
   }
   if (["pending", "in_attesa"].includes(normalized)) {
     return "In attesa";
@@ -90,7 +94,7 @@ const getStatusLabel = (status: unknown) => {
   if (["rejected", "rifiutato"].includes(normalized)) {
     return "Rifiutato";
   }
-  if (["in_verifica", "review", "pending_review"].includes(normalized)) {
+  if (["under_review", "in_verifica", "review", "pending_review"].includes(normalized)) {
     return "In verifica";
   }
   if (["valid"].includes(normalized)) {
@@ -124,9 +128,11 @@ const getStatusClassName = (status: unknown) => {
   if (
     [
       "requested",
+      "required",
       "richiesto",
       "pending",
       "in_attesa",
+      "under_review",
       "in_verifica",
       "review",
       "pending_review",
@@ -256,43 +262,6 @@ function EventList({
               className={cn("border", getStatusClassName(item.status))}
             >
               {getStatusLabel(item.status)}
-            </Badge>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PaymentList({ items }: { items: Array<Record<string, any>> }) {
-  if (items.length === 0) {
-    return <EmptyState text="Nessun pagamento registrato." />;
-  }
-
-  return (
-    <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      {items.map((payment) => (
-        <div
-          key={payment.id}
-          className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div>
-            <p className="font-semibold text-slate-950">
-              {payment.description || "Pagamento"}
-            </p>
-            <p className="mt-1 text-sm text-slate-500">
-              Scadenza {formatDate(payment.due_date)}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="font-semibold text-slate-950">
-              {formatCurrency(payment.amount)}
-            </span>
-            <Badge
-              variant="outline"
-              className={cn("border", getStatusClassName(payment.status))}
-            >
-              {payment.paid_at ? "Saldato" : getStatusLabel(payment.status)}
             </Badge>
           </div>
         </div>
@@ -911,41 +880,12 @@ export function ParentAthletePage() {
             />
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Piano pagamento</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {paymentSummary.planName || enrollment.selectedPlan || "-"}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Sconti</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {formatCurrency(paymentSummary.totalDiscounts || 0)}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Totale registrato</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {formatCurrency(paymentSummary.recordedTotal || 0)}
-              </p>
-            </div>
-          </div>
-
-          {Array.isArray(paymentSummary.appliedDiscounts) &&
-          paymentSummary.appliedDiscounts.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {paymentSummary.appliedDiscounts.map((discount: any) => (
-                <Badge
-                  key={discount.id}
-                  variant="secondary"
-                  className="bg-amber-100 text-amber-900"
-                >
-                  {discount.label}: -{formatCurrency(discount.amount)}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
+          <EnrollmentPaymentBreakdown
+            summary={paymentSummary}
+            payments={data.payments.items}
+            mode="parent"
+            showPayNow
+          />
 
           {enrollment.notes ? (
             <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
@@ -953,13 +893,7 @@ export function ParentAthletePage() {
             </div>
           ) : null}
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div>
-              <p className="mb-3 text-sm font-semibold text-slate-700">
-                Storico pagamenti
-              </p>
-              <PaymentList items={data.payments.items} />
-            </div>
+          <div className="grid gap-6">
             <div>
               <p className="mb-3 text-sm font-semibold text-slate-700">
                 Documenti iscrizione
@@ -1142,10 +1076,15 @@ export function ParentPaymentsPage() {
       </div>
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle>Pagamenti</CardTitle>
+          <CardTitle>Dettaglio piano e pagamenti</CardTitle>
         </CardHeader>
         <CardContent>
-          <PaymentList items={data.payments.items} />
+          <EnrollmentPaymentBreakdown
+            summary={data.payments.summary}
+            payments={data.payments.items}
+            mode="parent"
+            showPayNow
+          />
         </CardContent>
       </Card>
       <Card className="border-slate-200 shadow-sm">
@@ -1245,6 +1184,16 @@ export function ParentDocumentsPage() {
                         {document.description}
                       </p>
                     ) : null}
+                    {document.dueDate ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Scadenza: {formatDate(document.dueDate)}
+                      </p>
+                    ) : null}
+                    {document.rejectionReason ? (
+                      <p className="mt-1 text-xs font-medium text-red-600">
+                        Motivo rifiuto: {document.rejectionReason}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge
@@ -1259,6 +1208,18 @@ export function ParentDocumentsPage() {
                           <Download className="mr-2 h-4 w-4" />
                           Scarica
                         </a>
+                      </Button>
+                    ) : null}
+                    {["required", "rejected"].includes(String(document.status || "")) ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedTemplateId(document.id)}
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
+                        {String(document.status || "") === "rejected"
+                          ? "Sostituisci"
+                          : "Carica"}
                       </Button>
                     ) : null}
                   </div>
@@ -1293,7 +1254,7 @@ export function ParentDocumentsPage() {
                 File
                 <Input
                   type="file"
-                  accept=".pdf,image/*,.doc,.docx"
+                  accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
                   className="mt-2"
                   onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     setSelectedFile(event.target.files?.[0] || null)

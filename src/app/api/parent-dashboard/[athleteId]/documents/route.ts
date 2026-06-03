@@ -3,6 +3,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getParentDashboardData } from "@/lib/server/parent-dashboard";
+import {
+  getSharedDocumentsFromAthlete,
+  normalizeSharedDocument,
+  normalizeSharedDocumentType,
+  serializeSharedDocument,
+  upsertSharedDocument,
+} from "@/lib/shared-documents";
 
 type Context = {
   params: {
@@ -14,9 +21,6 @@ const asRecord = (value: unknown): Record<string, any> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
     : {};
-
-const asArray = <T = any>(value: unknown): T[] =>
-  Array.isArray(value) ? (value as T[]) : [];
 
 const firstText = (...values: unknown[]) => {
   for (const value of values) {
@@ -34,6 +38,21 @@ const sanitizePathPart = (value: string) =>
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 120);
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/heic",
+  "image/heif",
+]);
+
+const estimateDataUrlBytes = (value: string) => {
+  const base64 = value.includes(",") ? value.split(",").pop() || "" : value;
+  return Buffer.byteLength(base64, "base64");
+};
 
 export async function POST(request: Request, context: Context) {
   try {
@@ -80,13 +99,33 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
+    if (mimeType && !ALLOWED_MIME_TYPES.has(mimeType.toLowerCase())) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Formato file non supportato. Usa PDF, JPG, PNG o HEIC." },
+        },
+        { status: 400 },
+      );
+    }
+
+    if (estimateDataUrlBytes(dataBase64) > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "File troppo grande. Limite massimo 10MB." },
+        },
+        { status: 400 },
+      );
+    }
+
     const assetId = randomUUID();
     const path = `${dashboard.club.id}/${dashboard.athlete.id}/${assetId}-${sanitizePathPart(fileName) || "documento"}`;
     const publicUrl = `/api/parent-dashboard/${dashboard.athlete.id}/documents/${assetId}`;
     const asset = await prisma.asset.create({
       data: {
         id: assetId,
-        bucket: "parent-documents",
+        bucket: "shared-documents",
         path,
         public_url: publicUrl,
         file_name: fileName,
@@ -97,42 +136,89 @@ export async function POST(request: Request, context: Context) {
 
     const athlete = await prisma.athlete.findUnique({
       where: { id: dashboard.athlete.id },
-      select: { data: true },
+      select: { id: true, organization_id: true, data: true },
     });
     const currentData = asRecord(athlete?.data);
-    const currentDocuments = [
-      ...asArray(currentData.parentDocuments),
-      ...asArray(currentData.parent_documents),
-    ];
+    const currentDocuments = getSharedDocumentsFromAthlete({
+      id: athlete?.id || dashboard.athlete.id,
+      organization_id: athlete?.organization_id || dashboard.club.id,
+      data: currentData,
+    }, { includeArchived: true });
     const nowIso = new Date().toISOString();
-    const documentRecord = {
-      id: asset.id,
+    const requestedDocumentId = firstText(body?.documentId, body?.document_id);
+    const existingDocument = currentDocuments.find(
+      (document) =>
+        (requestedDocumentId && document.id === requestedDocumentId) ||
+        (templateId && document.id === templateId) ||
+        (templateId && document.data?.templateId === templateId),
+    );
+    const documentRecord = normalizeSharedDocument({
+      ...(existingDocument || {}),
+      id: existingDocument?.id || requestedDocumentId || asset.id,
+      organizationId: dashboard.club.id,
+      athleteId: dashboard.athlete.id,
+      parentUserId: session.db.user_id,
+      uploadedByUserId: session.db.user_id,
+      uploadedByRole: "parent",
       templateId,
       template_id: templateId,
       title,
+      documentType: normalizeSharedDocumentType(
+        body?.documentType || body?.document_type || existingDocument?.documentType,
+      ),
       fileName,
       file_name: fileName,
       mimeType: asset.mime_type,
       mime_type: asset.mime_type,
-      status: "in_verifica",
+      size: Number(body?.size) || estimateDataUrlBytes(dataBase64),
+      status: "under_review",
+      required: Boolean(existingDocument?.required ?? templateId),
+      visibleToParent: true,
       assetId: asset.id,
       asset_id: asset.id,
+      fileUrl: publicUrl,
       uploadedAt: nowIso,
       uploaded_at: nowIso,
       source: "parent_dashboard",
-    };
+      createdAt: existingDocument?.createdAt || nowIso,
+      updatedAt: nowIso,
+      data: {
+        ...(existingDocument?.data || {}),
+        templateId,
+      },
+    }, currentDocuments.length);
+    const nextDocuments = upsertSharedDocument(currentDocuments, documentRecord);
 
     await prisma.athlete.update({
       where: { id: dashboard.athlete.id },
       data: {
         data: {
           ...currentData,
-          parentDocuments: [...currentDocuments, documentRecord],
+          sharedDocuments: nextDocuments.map(serializeSharedDocument),
+          shared_documents: nextDocuments.map(serializeSharedDocument),
         },
       },
     });
 
-    return NextResponse.json({ data: documentRecord, error: null });
+    await prisma.notification.create({
+      data: {
+        organization_id: dashboard.club.id,
+        user_id: null,
+        title: "Documento parent caricato",
+        message: `${dashboard.athlete.name} ha caricato: ${documentRecord.title}`,
+        type: "document_uploaded",
+        data: {
+          athleteId: dashboard.athlete.id,
+          documentId: documentRecord.id,
+          source: "shared_documents",
+        },
+      },
+    });
+
+    return NextResponse.json({
+      data: serializeSharedDocument(documentRecord),
+      error: null,
+    });
   } catch (error: any) {
     return NextResponse.json(
       {

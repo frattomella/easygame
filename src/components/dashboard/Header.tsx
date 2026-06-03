@@ -43,10 +43,15 @@ import { EntityIcon } from "@/components/ui/entity-icon";
 // Import default club logo
 import clubLogoDefault from "@/../public/images/club_logo.png";
 
-const ChatButton = dynamic(
+const ChatButton = dynamic<{ className?: string }>(
   () => import("../ui/chat").then((module) => module.ChatButton),
   { ssr: false },
 );
+
+const topBarButtonClassName =
+  "relative h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-white p-0 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900";
+const quickActionClubButtonClassName =
+  "relative h-10 shrink-0 rounded-full border border-blue-400/40 bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 px-4 text-white shadow-md shadow-blue-500/20 hover:from-blue-700 hover:via-indigo-700 hover:to-sky-600 focus-visible:ring-blue-500";
 
 interface HeaderProps {
   title?: string;
@@ -373,6 +378,26 @@ const Header = memo(
       router.back();
     }, [router]);
 
+    const isTrainerHeaderContext =
+      pathname?.startsWith("/trainer-dashboard") ||
+      isTrainer ||
+      String(activeClub?.role || "").toLowerCase() === "trainer";
+    const backButtonClassName = isTrainerHeaderContext
+      ? "shrink-0 rounded-full border border-border/70 text-foreground hover:bg-muted"
+      : topBarButtonClassName;
+    const quickActionButtonClassName = isTrainerHeaderContext
+      ? "relative bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600"
+      : quickActionClubButtonClassName;
+    const helpButtonClassName = isTrainerHeaderContext
+      ? "text-muted-foreground hover:text-foreground"
+      : topBarButtonClassName;
+    const accountButtonClassName = isTrainerHeaderContext
+      ? "h-10 w-10 rounded-full border border-slate-200 bg-white p-0 hover:bg-slate-50"
+      : topBarButtonClassName;
+    const sharedActionButtonClassName = isTrainerHeaderContext
+      ? "relative"
+      : topBarButtonClassName;
+
     return (
       <>
         <div className="lg:hidden">
@@ -393,7 +418,7 @@ const Header = memo(
                   variant="ghost"
                   size="icon"
                   onClick={handleBackNavigation}
-                  className="shrink-0 rounded-full border border-border/70 text-foreground hover:bg-muted"
+                  className={backButtonClassName}
                   aria-label={`Torna indietro da ${title}`}
                 >
                   <ArrowLeft className="h-5 w-5" />
@@ -443,11 +468,14 @@ const Header = memo(
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="relative bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600"
+                      size={isTrainerHeaderContext ? "icon" : "default"}
+                      className={quickActionButtonClassName}
                       onClick={() => setQuickActionsOpen(true)}
                     >
                       <Zap className="h-5 w-5" />
+                      {!isTrainerHeaderContext ? (
+                        <span className="ml-2 hidden xl:inline">Azioni rapide</span>
+                      ) : null}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -491,7 +519,7 @@ const Header = memo(
                   variant="ghost"
                   size="icon"
                   onClick={handleHelpClick}
-                  className="text-muted-foreground hover:text-foreground"
+                  className={helpButtonClassName}
                 >
                   <HelpCircle className="h-5 w-5" />
                 </Button>
@@ -502,9 +530,10 @@ const Header = memo(
             </Tooltip>
           </TooltipProvider>
 
-          <ChatButton />
+          <ChatButton className={sharedActionButtonClassName} />
 
           <NotificationsDropdown
+            buttonClassName={sharedActionButtonClassName}
             notificationCount={notificationCount}
             allNotificationsHref={
               pathname?.startsWith("/trainer-dashboard")
@@ -518,7 +547,7 @@ const Header = memo(
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-full border border-slate-200 bg-white p-0 hover:bg-slate-50"
+                className={accountButtonClassName}
                 aria-label={`Account ${userName}`}
                 title={userName}
               >

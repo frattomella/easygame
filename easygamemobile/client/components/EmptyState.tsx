@@ -27,7 +27,11 @@ export function EmptyState({
 
   return (
     <View style={[styles.container, style]}>
-      <Image source={illustration} style={styles.illustration} resizeMode="contain" />
+      <Image
+        source={illustration}
+        style={styles.illustration}
+        resizeMode="contain"
+      />
       <ThemedText type="h4" style={styles.title}>
         {title}
       </ThemedText>

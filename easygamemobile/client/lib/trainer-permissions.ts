@@ -37,13 +37,13 @@ export const DEFAULT_TRAINER_DASHBOARD_PERMISSIONS: TrainerDashboardPermissions 
       trainings: true,
       matches: true,
       athletes: true,
-      categories: true,
+      categories: false,
     },
-  widgets: {
-    summary: true,
-    todayTrainings: true,
-    todayMatches: true,
-    assignedAthletes: true,
+    widgets: {
+      summary: true,
+      todayTrainings: true,
+      todayMatches: true,
+      assignedAthletes: true,
       assignedCategories: true,
     },
     actions: {
@@ -102,10 +102,7 @@ export const resolveTrainerDashboardPermissions = (
       : undefined;
   const normalizedNavigation = {
     ...navigation,
-    categories:
-      typeof navigation?.categories === "boolean"
-        ? navigation.categories
-        : true,
+    categories: false,
   };
   const normalizedWidgets = {
     ...widgets,

@@ -42,6 +42,9 @@ export const extractCategoryTokens = (
     record?.category_ids,
     record?.selectedCategories,
     record?.selectedCategoryIds,
+    record?.memberships,
+    record?.categoryMemberships,
+    record?.category_memberships,
     source?.id,
     source?.name,
     source?.category,
@@ -53,6 +56,9 @@ export const extractCategoryTokens = (
     source?.category_ids,
     source?.selectedCategories,
     source?.selectedCategoryIds,
+    source?.memberships,
+    source?.categoryMemberships,
+    source?.category_memberships,
     record?.categories,
     source?.categories,
   ]
@@ -60,16 +66,16 @@ export const extractCategoryTokens = (
     .map((value) =>
       typeof value === "object" && value
         ? String(
-            value.id ||
-              value.value ||
-              value.categoryId ||
+            value.categoryId ||
               value.category_id ||
               value.category ||
-              value.name ||
-              value.label ||
               value.categoryName ||
               value.category_name ||
+              value.name ||
+              value.label ||
               value.title ||
+              value.id ||
+              value.value ||
               "",
           ).trim()
         : String(value || "").trim(),

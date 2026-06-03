@@ -4,6 +4,10 @@ import React, { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { PinInput } from "@/components/ui/pin-input";
 import {
   Dialog,
   DialogContent,
@@ -82,6 +87,16 @@ import {
   normalizeKitRecord,
 } from "@/lib/clothing-kit-utils";
 import {
+  assignmentStatusLabels,
+  canAssignNumber,
+  normalizeClubClothingState,
+  serializeClothingAssignment,
+  serializeInventoryStock,
+  updateClothingAssignmentStatus,
+  type ClothingAssignment,
+  type ClothingAssignmentStatus,
+} from "@/lib/clothing-inventory-utils";
+import {
   parseScannedDocument,
   type DocumentScanResult,
 } from "@/lib/document-scan";
@@ -89,13 +104,13 @@ import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
 } from "@/lib/athlete-category-memberships";
-import { buildAthleteParticipationAnalytics } from "@/lib/athlete-participation-utils";
+import { AthleteCategoryAnalyticsSection } from "@/components/athletes/AthleteCategoryAnalyticsSection";
+import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import {
-  type AthleteAnalyticsView,
-  EMPTY_ATHLETE_ANALYTICS,
-  filterAthleteAnalytics,
-  groupAthleteAnalyticsByType,
-  normalizeAthleteAnalytics,
+  calculateAthleteCategoryAnalytics,
+  type AthleteCategoryAnalyticsResult,
+} from "@/lib/athlete-category-analytics";
+import {
   normalizeAthleteProfileCollections,
   normalizeCollection,
   normalizeNullableTextValue,
@@ -107,6 +122,20 @@ import {
   calculateAthleteExpectedIncome,
   mergeAthletePayments,
 } from "@/lib/athlete-payment-utils";
+import {
+  calculatePlanTotal,
+  generateInstallmentPreview,
+  findPaymentPlan,
+  getPlanServicesForAthlete,
+  normalizePaymentPlans,
+} from "@/lib/payment-plan-utils";
+import {
+  SHARED_DOCUMENT_TYPES,
+  getSharedDocumentStatusClassName,
+  getSharedDocumentStatusLabel,
+  getSharedDocumentTypeLabel,
+} from "@/lib/shared-documents";
+import type { OnlineForm } from "@/lib/online-forms";
 import { apiRequest } from "@/lib/api/client";
 
 const CustomKitComponentsBuilder = dynamic(
@@ -127,6 +156,11 @@ const DEFAULT_CLOTHING_SIZES = {
   shirtSize: "",
   pantsSize: "",
   shoeSize: "",
+};
+
+const EMPTY_ATHLETE_CATEGORY_ANALYTICS: AthleteCategoryAnalyticsResult = {
+  categories: [],
+  unclassifiedEvents: [],
 };
 
 const CLOTHING_SIZE_OPTIONS = {
@@ -249,6 +283,8 @@ const coerceBooleanField = (value: unknown) => {
     normalized,
   );
 };
+
+const getTodayDateString = () => new Date().toISOString().slice(0, 10);
 
 const PARENT_TOKEN_EXPIRY_HOURS = 72;
 
@@ -421,32 +457,25 @@ export default function AthleteProfilePage() {
   const { showToast } = useToast();
   const athleteId = params?.id as string;
   const clubId = searchParams?.get("clubId");
+  const requestedTab = searchParams?.get("tab");
+  const initialTab =
+    requestedTab &&
+    [
+      "generale",
+      "contatti",
+      "sanitari",
+      "pagamenti",
+      "abbigliamento",
+      "documenti",
+      "analitiche",
+    ].includes(requestedTab)
+      ? requestedTab
+      : "generale";
   const [isLoading, setIsLoading] = useState(true);
   const [athlete, setAthlete] = useState<any>(null);
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
-  const [athleteAnalytics, setAthleteAnalytics] = useState<{
-    presenceCount: number;
-    convocationCount: number;
-    playedMatchesCount: number;
-    extraCategoryCount: number;
-    events: Array<{
-      id: string;
-      type: "training" | "match";
-      title: string;
-      date: string | null;
-      categoryLabel: string;
-      statusLabel: string;
-      context: "primary" | "secondary" | "extra";
-      contextLabel: string;
-      notes?: string;
-    }>;
-  }>(EMPTY_ATHLETE_ANALYTICS);
-  const [analyticsView, setAnalyticsView] = useState<AthleteAnalyticsView>("all");
-  const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState("");
-  const [analyticsCategoryFilter, setAnalyticsCategoryFilter] = useState("all");
-  const [analyticsContextFilter, setAnalyticsContextFilter] = useState<
-    "all" | "primary" | "secondary" | "extra"
-  >("all");
+  const [athleteCategoryAnalytics, setAthleteCategoryAnalytics] =
+    useState<AthleteCategoryAnalyticsResult>(EMPTY_ATHLETE_CATEGORY_ANALYTICS);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [guardians, setGuardians] = useState<any[]>([]);
@@ -460,6 +489,11 @@ export default function AthleteProfilePage() {
   const [identityDocuments, setIdentityDocuments] = useState<any[]>([]);
   const [enrollmentDocuments, setEnrollmentDocuments] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
+  const [sharedDocuments, setSharedDocuments] = useState<any[]>([]);
+  const [sharedDocumentBusy, setSharedDocumentBusy] = useState(false);
+  const [onlineForms, setOnlineForms] = useState<OnlineForm[]>([]);
+  const [selectedOnlineFormId, setSelectedOnlineFormId] = useState("");
+  const [onlineFormsBusy, setOnlineFormsBusy] = useState(false);
   const [payments, setPayments] = useState<any[]>([]);
   const [athletePaymentRecords, setAthletePaymentRecords] = useState<any[]>([]);
   const [expectedIncomeEntries, setExpectedIncomeEntries] = useState<any[]>([]);
@@ -468,7 +502,11 @@ export default function AthleteProfilePage() {
   const [isJerseyNumberDialogOpen, setIsJerseyNumberDialogOpen] =
     useState(false);
   const [jerseyNumberDraft, setJerseyNumberDraft] = useState<string>("");
+  const [jerseyGroupDraft, setJerseyGroupDraft] = useState<string>("");
   const [jerseyAssignments, setJerseyAssignments] = useState<any[]>([]);
+  const [jerseyGroups, setJerseyGroups] = useState<any[]>([]);
+  const [clothingProducts, setClothingProducts] = useState<any[]>([]);
+  const [clothingInventory, setClothingInventory] = useState<any[]>([]);
   const [clothingKits, setClothingKits] = useState<any[]>([]);
   const [kitAssignments, setKitAssignments] = useState<any[]>([]);
   const [isNewKitAssignmentOpen, setIsNewKitAssignmentOpen] = useState(false);
@@ -498,6 +536,18 @@ export default function AthleteProfilePage() {
     type: "",
     file: null as File | null,
   });
+  const [requiredSharedDocument, setRequiredSharedDocument] = useState({
+    title: "",
+    documentType: "other",
+    description: "",
+    dueDate: "",
+  });
+  const [clubSharedDocumentUpload, setClubSharedDocumentUpload] = useState({
+    title: "",
+    documentType: "other",
+    description: "",
+    file: null as File | null,
+  });
   const [newGuardian, setNewGuardian] = useState({
     id: "",
     name: "",
@@ -522,6 +572,31 @@ export default function AthleteProfilePage() {
     [key: string]: string;
   }>({});
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
+  const [showPlanConfirmDialog, setShowPlanConfirmDialog] = useState(false);
+  const [showCreatePaymentsDialog, setShowCreatePaymentsDialog] =
+    useState(false);
+  const [planConfirmationDraft, setPlanConfirmationDraft] = useState<{
+    planId: string;
+    subscriptionStartDate: string;
+    selectedOptionalServiceIds: string[];
+    manualEnrollmentAmount: string;
+  } | null>(null);
+  const [editingPayment, setEditingPayment] = useState<any | null>(null);
+  const [paymentEditForm, setPaymentEditForm] = useState({
+    description: "",
+    amount: "",
+    dueDate: "",
+    status: "pending",
+    method: "",
+    notes: "",
+  });
+  const [paymentPinAction, setPaymentPinAction] = useState<{
+    action: "update" | "delete" | "cancel";
+    payment: any;
+    updates?: Record<string, any>;
+    reason?: string;
+  } | null>(null);
+  const [isPaymentActionSaving, setIsPaymentActionSaving] = useState(false);
   const [newPayment, setNewPayment] = useState({
     date: "",
     description: "",
@@ -645,6 +720,38 @@ export default function AthleteProfilePage() {
   const blsdFileRef = useRef<HTMLInputElement>(null);
   const firstAidFileRef = useRef<HTMLInputElement>(null);
   const fireSafetyFileRef = useRef<HTMLInputElement>(null);
+
+  const refreshSharedDocuments = React.useCallback(async () => {
+    if (!athleteId) return [];
+    const response = await apiRequest<any[]>(
+      `/api/athletes/${athleteId}/documents`,
+    );
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const nextDocuments = Array.isArray(response.data) ? response.data : [];
+    setSharedDocuments(nextDocuments);
+    return nextDocuments;
+  }, [athleteId]);
+
+  const refreshOnlineForms = React.useCallback(async () => {
+    if (!clubId) return [];
+    setOnlineFormsBusy(true);
+    const response = await apiRequest<{ forms: OnlineForm[] }>(
+      `/api/online-forms?clubId=${encodeURIComponent(clubId)}`,
+    );
+    setOnlineFormsBusy(false);
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+
+    const publishedForms = Array.isArray(response.data?.forms)
+      ? response.data.forms.filter((form) => form.status === "published")
+      : [];
+    setOnlineForms(publishedForms);
+    setSelectedOnlineFormId((current) => current || publishedForms[0]?.id || "");
+    return publishedForms;
+  }, [clubId]);
 
   // Fetch athlete data from database
   useEffect(() => {
@@ -778,15 +885,13 @@ export default function AthleteProfilePage() {
           normalizedMemberships.length > 0
             ? normalizedMemberships.map((membership) => membership.categoryName)
             : normalizeStringList(athleteData.categories);
-        const participationAnalytics = normalizeAthleteAnalytics(
-          buildAthleteParticipationAnalytics({
-          athleteId: athleteRecord.id,
+        const categoryAnalytics = calculateAthleteCategoryAnalytics({
           athlete: athleteRecord,
+          categoryMemberships: normalizedMemberships,
           trainings: normalizedTrainingRecords,
           matches: normalizedMatchRecords,
           categories: normalizedCategoryOptions,
-        }),
-        );
+        });
 
         setAthlete({
           id: athleteData.id,
@@ -833,8 +938,48 @@ export default function AthleteProfilePage() {
               athleteData.registered ??
               athleteData.enrolled,
           ),
+          enrollmentDate: normalizeTextValue(
+            athleteData.enrollmentDate || athleteData.enrollment_date,
+          ),
           enrollmentNotes: normalizeTextValue(athleteData.enrollmentNotes),
-          selectedPlan: normalizeTextValue(athleteData.selectedPlan),
+          selectedPlan: normalizeTextValue(
+            athleteData.selectedPlanId ||
+              athleteData.selected_plan_id ||
+              athleteData.selectedPlan,
+          ),
+          enrollmentStartDate: normalizeTextValue(
+            athleteData.subscriptionStartDate ||
+              athleteData.subscription_start_date ||
+              athleteData.enrollmentStartDate ||
+              athleteData.enrollment_start_date ||
+              athleteData.selectedPlanStartDate ||
+              athleteData.selected_plan_start_date ||
+              athleteData.enrollmentPaymentConfig?.subscriptionStartDate,
+          ),
+          subscriptionStartDate: normalizeTextValue(
+            athleteData.subscriptionStartDate ||
+              athleteData.subscription_start_date ||
+              athleteData.enrollmentStartDate ||
+              athleteData.enrollment_start_date ||
+              athleteData.enrollmentPaymentConfig?.subscriptionStartDate,
+          ),
+          manualEnrollmentAmount:
+            athleteData.manualEnrollmentAmount ??
+            athleteData.manual_enrollment_amount ??
+            athleteData.selectedPlanManualAmount ??
+            athleteData.selected_plan_manual_amount ??
+            "",
+          selectedOptionalServiceIds: Array.isArray(
+            athleteData.selectedOptionalServiceIds ||
+              athleteData.selected_optional_service_ids ||
+              athleteData.enrollmentSelectedOptionalServiceIds,
+          )
+            ? (
+                athleteData.selectedOptionalServiceIds ||
+                athleteData.selected_optional_service_ids ||
+                athleteData.enrollmentSelectedOptionalServiceIds
+              ).map((value: any) => String(value || "").trim()).filter(Boolean)
+            : [],
           discount: normalizeTextValue(athleteData.discount),
           documentType: normalizeTextValue(athleteData.documentType),
           documentNumber: normalizeTextValue(athleteData.documentNumber),
@@ -847,7 +992,7 @@ export default function AthleteProfilePage() {
           enrollmentDocuments: normalizedCollections.enrollmentDocuments,
         });
         setClubCategoryOptions(normalizedCategoryOptions);
-        setAthleteAnalytics(participationAnalytics);
+        setAthleteCategoryAnalytics(categoryAnalytics);
 
         // Draft per dialog numero maglia
         setJerseyNumberDraft(
@@ -865,6 +1010,14 @@ export default function AthleteProfilePage() {
         setIdentityDocuments(normalizedCollections.identityDocuments);
         setEnrollmentDocuments(normalizedCollections.enrollmentDocuments);
         setDocuments(normalizedCollections.documents);
+        await refreshSharedDocuments().catch((error) => {
+          console.warn("Error loading shared documents:", error);
+          setSharedDocuments([]);
+        });
+        await refreshOnlineForms().catch((error) => {
+          console.warn("Error loading online forms:", error);
+          setOnlineForms([]);
+        });
         setPayments(normalizedCollections.payments);
         setAthletePaymentRecords(
           Array.isArray(athletePaymentRows) ? athletePaymentRows : [],
@@ -881,27 +1034,33 @@ export default function AthleteProfilePage() {
           const effectiveClubId = athleteRecord.club_id || clubId;
 
           if (effectiveClubId) {
-            const plans = await getClubData(effectiveClubId, "payment_plans");
-            const clubDiscounts = await getClubData(
-              effectiveClubId,
-              "discounts",
-            );
-            const expectedIncome = await getClubData(
-              effectiveClubId,
-              "expected_income",
-            );
-            const kits = await getClubData(effectiveClubId, "clothing_kits");
-            const assignments = await getClubData(
-              effectiveClubId,
-              "kit_assignments",
-            );
-            const jersey = await getClubData(
-              effectiveClubId,
-              "jersey_assignments",
-            );
+            const [
+              plans,
+              clubDiscounts,
+              expectedIncome,
+              products,
+              kits,
+              inventory,
+              groups,
+              assignments,
+              jersey,
+            ] = await Promise.all([
+              getClubData(effectiveClubId, "payment_plans"),
+              getClubData(effectiveClubId, "discounts"),
+              getClubData(effectiveClubId, "expected_income"),
+              getClubData(effectiveClubId, "clothing_products"),
+              getClubData(effectiveClubId, "clothing_kits"),
+              getClubData(effectiveClubId, "clothing_inventory"),
+              getClubData(effectiveClubId, "jersey_groups"),
+              getClubData(effectiveClubId, "kit_assignments"),
+              getClubData(effectiveClubId, "jersey_assignments"),
+            ]);
+            setClothingProducts(Array.isArray(products) ? products : []);
             setClothingKits(
               Array.isArray(kits) ? kits.map(normalizeKitRecord) : [],
             );
+            setClothingInventory(Array.isArray(inventory) ? inventory : []);
+            setJerseyGroups(Array.isArray(groups) ? groups : []);
             setKitAssignments(
               Array.isArray(assignments)
                 ? assignments.map(normalizeKitAssignmentRecord)
@@ -930,7 +1089,7 @@ export default function AthleteProfilePage() {
     };
 
     fetchAthleteData();
-  }, [clubId, athleteId, showToast]);
+  }, [clubId, athleteId, refreshSharedDocuments, refreshOnlineForms, showToast]);
 
   const handleEditSection = (section: string) => {
     setEditingSection(section);
@@ -1007,46 +1166,6 @@ export default function AthleteProfilePage() {
     athlete,
     clubCategoryOptions,
   );
-  const analyticsGroups = React.useMemo(
-    () => groupAthleteAnalyticsByType(athleteAnalytics.events),
-    [athleteAnalytics.events],
-  );
-  const analyticsCategoryOptions = React.useMemo(
-    () =>
-      Array.from(
-        new Set(
-          athleteAnalytics.events
-            .map((event) => String(event.categoryLabel || "").trim())
-            .filter(Boolean),
-        ),
-      ).sort((left, right) =>
-        left.localeCompare(right, "it", { sensitivity: "base" }),
-      ),
-    [athleteAnalytics.events],
-  );
-  const filteredAnalyticsEvents = React.useMemo(
-    () =>
-      filterAthleteAnalytics({
-        events: athleteAnalytics.events,
-        view: analyticsView,
-        search: analyticsSearchQuery,
-        category: analyticsCategoryFilter,
-        context: analyticsContextFilter,
-      }),
-    [
-      athleteAnalytics.events,
-      analyticsCategoryFilter,
-      analyticsContextFilter,
-      analyticsSearchQuery,
-      analyticsView,
-    ],
-  );
-  React.useEffect(() => {
-    setAnalyticsView("all");
-    setAnalyticsSearchQuery("");
-    setAnalyticsCategoryFilter("all");
-    setAnalyticsContextFilter("all");
-  }, [athleteId]);
   const editCategoryMemberships = normalizeAthleteCategoryMemberships(
     editFormData,
     clubCategoryOptions,
@@ -1511,13 +1630,162 @@ export default function AthleteProfilePage() {
     ],
   );
 
+  const normalizedPaymentPlans = React.useMemo(
+    () => normalizePaymentPlans(paymentPlans),
+    [paymentPlans],
+  );
+
+  const selectedAthletePlan = React.useMemo(
+    () => findPaymentPlan(athlete?.selectedPlan, paymentPlans),
+    [athlete?.selectedPlan, paymentPlans],
+  );
+
+  const selectedPlanValue =
+    selectedAthletePlan?.id ||
+    (athlete?.selectedPlan ? String(athlete.selectedPlan) : "none");
+  const selectedOptionalServiceIds = React.useMemo(
+    () =>
+      Array.isArray(athlete?.selectedOptionalServiceIds)
+        ? athlete.selectedOptionalServiceIds.map((value: any) =>
+            String(value || "").trim(),
+          )
+        : [],
+    [athlete?.selectedOptionalServiceIds],
+  );
+  const selectedOptionalServiceIdSet = React.useMemo(
+    () => new Set(selectedOptionalServiceIds),
+    [selectedOptionalServiceIds],
+  );
+  const requiredPlanServices = selectedAthletePlan
+    ? selectedAthletePlan.services.filter((service) => !service.optional)
+    : [];
+  const optionalPlanServices = selectedAthletePlan
+    ? selectedAthletePlan.services.filter((service) => service.optional)
+    : [];
+  const openPlanConfirmationDialog = React.useCallback(
+    (planId: string) => {
+      const plan = findPaymentPlan(planId, paymentPlans);
+      if (!plan) {
+        showToast("error", "Piano di pagamento non trovato");
+        return;
+      }
+
+      const isCurrentPlan =
+        String(athlete?.selectedPlan || "").trim() === String(plan.id).trim();
+      setPlanConfirmationDraft({
+        planId: plan.id,
+        subscriptionStartDate:
+          (isCurrentPlan &&
+            (athlete?.subscriptionStartDate || athlete?.enrollmentStartDate)) ||
+          athlete?.enrollmentDate ||
+          getTodayDateString(),
+        selectedOptionalServiceIds: isCurrentPlan
+          ? selectedOptionalServiceIds
+          : [],
+        manualEnrollmentAmount: isCurrentPlan
+          ? String(athlete?.manualEnrollmentAmount || "")
+          : "",
+      });
+      setShowPlanConfirmDialog(true);
+    },
+    [
+      athlete?.enrollmentDate,
+      athlete?.enrollmentStartDate,
+      athlete?.manualEnrollmentAmount,
+      athlete?.selectedPlan,
+      athlete?.subscriptionStartDate,
+      paymentPlans,
+      selectedOptionalServiceIds,
+      showToast,
+    ],
+  );
+  const planConfirmationPlan = React.useMemo(
+    () => findPaymentPlan(planConfirmationDraft?.planId, paymentPlans),
+    [paymentPlans, planConfirmationDraft?.planId],
+  );
+  const planConfirmationSummary = React.useMemo(() => {
+    if (!planConfirmationPlan || !planConfirmationDraft) {
+      return null;
+    }
+
+    return calculateAthleteExpectedIncome({
+      athlete: {
+        ...athlete,
+        selectedPlan: planConfirmationPlan.id,
+        selectedPlanId: planConfirmationPlan.id,
+        enrollmentDate: athlete?.enrollmentDate || "",
+        enrollmentStartDate: planConfirmationDraft.subscriptionStartDate,
+        subscriptionStartDate: planConfirmationDraft.subscriptionStartDate,
+        selectedOptionalServiceIds:
+          planConfirmationDraft.selectedOptionalServiceIds,
+        manualEnrollmentAmount: planConfirmationDraft.manualEnrollmentAmount,
+      },
+      athleteId,
+      paymentPlans,
+      discounts,
+      payments: mergedPaymentRecords,
+      expectedIncomeEntries,
+    });
+  }, [
+    athlete,
+    athleteId,
+    discounts,
+    expectedIncomeEntries,
+    mergedPaymentRecords,
+    paymentPlans,
+    planConfirmationDraft,
+    planConfirmationPlan,
+  ]);
+  const planConfirmationInstallmentPreview = React.useMemo(() => {
+    if (!planConfirmationPlan || !planConfirmationDraft || !planConfirmationSummary) {
+      return { installments: [], warnings: [] as string[] };
+    }
+
+    return generateInstallmentPreview(
+      planConfirmationPlan,
+      planConfirmationSummary.expectedTotal,
+      { startDate: planConfirmationDraft.subscriptionStartDate },
+    );
+  }, [
+    planConfirmationDraft,
+    planConfirmationPlan,
+    planConfirmationSummary,
+  ]);
+  const planConfirmationRequiredServices = planConfirmationPlan
+    ? planConfirmationPlan.services.filter((service) => !service.optional)
+    : [];
+  const planConfirmationOptionalServices = planConfirmationPlan
+    ? planConfirmationPlan.services.filter((service) => service.optional)
+    : [];
+  const planConfirmationIncludedServices = planConfirmationPlan
+    ? getPlanServicesForAthlete(
+        planConfirmationPlan,
+        planConfirmationDraft?.selectedOptionalServiceIds || [],
+      )
+    : [];
+  const planConfirmationBaseTotal = planConfirmationPlan
+    ? calculatePlanTotal(planConfirmationPlan, {
+        selectedOptionalServiceIds:
+          planConfirmationDraft?.selectedOptionalServiceIds || [],
+      })
+    : 0;
+
   const saveEnrollmentProfile = React.useCallback(
     async (overrides: Record<string, any>, successMessage?: string) => {
       await persistAthleteCollections({
         athleteOverrides: {
           enrollmentStatus: athlete?.enrollmentStatus ?? false,
+          enrollmentDate: athlete?.enrollmentDate || "",
           enrollmentNotes: athlete?.enrollmentNotes || "",
           selectedPlan: athlete?.selectedPlan || "",
+          selectedPlanId: athlete?.selectedPlan || "",
+          subscriptionStartDate:
+            athlete?.subscriptionStartDate || athlete?.enrollmentStartDate || "",
+          enrollmentStartDate: athlete?.enrollmentStartDate || "",
+          manualEnrollmentAmount: athlete?.manualEnrollmentAmount || "",
+          selectedOptionalServiceIds: athlete?.selectedOptionalServiceIds || [],
+          enrollmentSelectedOptionalServiceIds:
+            athlete?.selectedOptionalServiceIds || [],
           discount: athlete?.discount || "",
           ...overrides,
         },
@@ -1537,11 +1805,17 @@ export default function AthleteProfilePage() {
       }
 
       const previousStatus = coerceBooleanField(athlete.enrollmentStatus);
+      const previousEnrollmentDate = athlete.enrollmentDate || "";
+      const nextEnrollmentDate =
+        checked && !previousEnrollmentDate
+          ? getTodayDateString()
+          : previousEnrollmentDate;
       setAthlete((current: any) =>
         current
           ? {
               ...current,
               enrollmentStatus: checked,
+              enrollmentDate: nextEnrollmentDate,
             }
           : current,
       );
@@ -1551,6 +1825,7 @@ export default function AthleteProfilePage() {
         await saveEnrollmentProfile(
           {
             enrollmentStatus: checked,
+            enrollmentDate: nextEnrollmentDate,
           },
           checked
             ? "Iscrizione attivata correttamente"
@@ -1563,6 +1838,7 @@ export default function AthleteProfilePage() {
             ? {
                 ...current,
                 enrollmentStatus: previousStatus,
+                enrollmentDate: previousEnrollmentDate,
               }
             : current,
         );
@@ -1573,6 +1849,274 @@ export default function AthleteProfilePage() {
     },
     [athlete, saveEnrollmentProfile, showToast],
   );
+
+  const handleEnrollmentDateBlur = React.useCallback(async () => {
+    if (!athlete) {
+      return;
+    }
+
+    try {
+      await saveEnrollmentProfile({
+        enrollmentDate: athlete.enrollmentDate || "",
+      });
+    } catch (error) {
+      console.error("Error updating enrollment date:", error);
+      showToast("error", "Impossibile salvare la data iscrizione");
+    }
+  }, [athlete, saveEnrollmentProfile, showToast]);
+
+  const handleContinuePlanConfirmation = React.useCallback(() => {
+    if (!planConfirmationPlan || !planConfirmationDraft) {
+      showToast("error", "Seleziona un piano valido");
+      return;
+    }
+
+    if (!planConfirmationDraft.subscriptionStartDate) {
+      showToast("error", "Seleziona la data inizio abbonamento");
+      return;
+    }
+
+    if (planConfirmationInstallmentPreview.warnings.length > 0) {
+      showToast("error", planConfirmationInstallmentPreview.warnings[0]);
+      return;
+    }
+
+    setShowPlanConfirmDialog(false);
+    setShowCreatePaymentsDialog(true);
+  }, [
+    planConfirmationDraft,
+    planConfirmationInstallmentPreview.warnings,
+    planConfirmationPlan,
+    showToast,
+  ]);
+
+  const confirmEnrollmentPlanAssignment = React.useCallback(async () => {
+    if (
+      !athlete ||
+      !planConfirmationPlan ||
+      !planConfirmationDraft ||
+      !planConfirmationSummary
+    ) {
+      showToast("error", "Dati piano non disponibili");
+      return;
+    }
+
+    const effectiveClubId = athlete.club_id || clubId;
+    if (!effectiveClubId) {
+      showToast("error", "Club non disponibile");
+      return;
+    }
+
+    const installments = planConfirmationInstallmentPreview.installments;
+    if (installments.length === 0) {
+      showToast("error", "Configura almeno una rata per questo piano");
+      return;
+    }
+
+    try {
+      setIsEnrollmentSaving(true);
+      const selectedOptionalIds =
+        planConfirmationDraft.selectedOptionalServiceIds;
+      const manualAmount = planConfirmationDraft.manualEnrollmentAmount || "";
+      const manualOverrideApplied =
+        planConfirmationSummary.prorationResult?.method === "manual";
+
+      await saveEnrollmentProfile(
+        {
+          selectedPlan: planConfirmationPlan.id,
+          selectedPlanId: planConfirmationPlan.id,
+          subscriptionStartDate: planConfirmationDraft.subscriptionStartDate,
+          enrollmentStartDate: planConfirmationDraft.subscriptionStartDate,
+          selectedOptionalServiceIds: selectedOptionalIds,
+          enrollmentSelectedOptionalServiceIds: selectedOptionalIds,
+          manualEnrollmentAmount: manualAmount,
+          enrollmentPaymentConfig: {
+            planId: planConfirmationPlan.id,
+            planName: planConfirmationPlan.name,
+            subscriptionStartDate: planConfirmationDraft.subscriptionStartDate,
+            enrollmentDate: athlete.enrollmentDate || null,
+            selectedOptionalServiceIds: selectedOptionalIds,
+            includedServices: planConfirmationIncludedServices,
+            baseTotal: planConfirmationBaseTotal,
+            grossAmount: planConfirmationSummary.grossAmount,
+            totalDiscounts: planConfirmationSummary.totalDiscounts,
+            finalTotal: planConfirmationSummary.expectedTotal,
+            prorationApplied:
+              planConfirmationSummary.prorationResult?.applied || false,
+            manualOverrideApplied,
+            installments,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      );
+
+      const { syncAthleteEnrollmentInstallmentPayments } = await import(
+        "@/lib/simplified-db"
+      );
+      const syncedPayments = await syncAthleteEnrollmentInstallmentPayments({
+        clubId: effectiveClubId,
+        athleteId,
+        planId: planConfirmationPlan.id,
+        planName: planConfirmationPlan.name,
+        installments,
+        selectedOptionalServiceIds: selectedOptionalIds,
+        enrollmentDate: athlete.enrollmentDate || null,
+        enrollmentStartDate: planConfirmationDraft.subscriptionStartDate,
+        subscriptionStartDate: planConfirmationDraft.subscriptionStartDate,
+        manualEnrollmentAmount: manualAmount || null,
+        originalAmount: planConfirmationSummary.grossAmount,
+        prorationApplied:
+          planConfirmationSummary.prorationResult?.applied || false,
+        manualOverrideApplied,
+      });
+      setAthletePaymentRecords(
+        Array.isArray(syncedPayments) ? syncedPayments : [],
+      );
+      setShowCreatePaymentsDialog(false);
+      setPlanConfirmationDraft(null);
+      showToast(
+        "success",
+        "Piano assegnato e pagamenti in attesa creati correttamente",
+      );
+    } catch (error) {
+      console.error("Error confirming enrollment plan:", error);
+      showToast("error", "Impossibile confermare piano e pagamenti");
+    } finally {
+      setIsEnrollmentSaving(false);
+    }
+  }, [
+    athlete,
+    athleteId,
+    clubId,
+    planConfirmationBaseTotal,
+    planConfirmationDraft,
+    planConfirmationIncludedServices,
+    planConfirmationInstallmentPreview.installments,
+    planConfirmationPlan,
+    planConfirmationSummary,
+    saveEnrollmentProfile,
+    showToast,
+  ]);
+
+  const isEditableAthletePayment = (payment: any) =>
+    payment?.source === "athlete_payment" &&
+    payment?.statusKey !== "cancelled" &&
+    payment?.data?.excludedFromTotals !== true;
+
+  const openPaymentEditDialog = (payment: any) => {
+    if (!isEditableAthletePayment(payment) || payment.statusKey === "paid") {
+      showToast("error", "Solo i pagamenti in attesa possono essere modificati");
+      return;
+    }
+
+    setEditingPayment(payment);
+    setPaymentEditForm({
+      description: payment.description || "",
+      amount: String(payment.amount || ""),
+      dueDate: payment.dueDate
+        ? new Date(payment.dueDate).toISOString().slice(0, 10)
+        : "",
+      status: payment.statusKey === "paid" ? "paid" : "pending",
+      method: payment.method || "",
+      notes: payment.notes || payment.raw?.notes || "",
+    });
+  };
+
+  const requestPaymentUpdate = () => {
+    if (!editingPayment) {
+      return;
+    }
+
+    const amount = Number.parseFloat(String(paymentEditForm.amount || ""));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showToast("error", "Inserisci un importo valido");
+      return;
+    }
+
+    setPaymentPinAction({
+      action: "update",
+      payment: editingPayment,
+      updates: {
+        ...paymentEditForm,
+        amount,
+      },
+    });
+  };
+
+  const requestPaymentDelete = (payment: any) => {
+    if (!isEditableAthletePayment(payment)) {
+      return;
+    }
+
+    if (payment.statusKey === "paid") {
+      showToast("error", "Un pagamento saldato va annullato, non eliminato");
+      return;
+    }
+
+    setPaymentPinAction({
+      action: "delete",
+      payment,
+      reason: "Pagamento eliminato dallo storico atleta",
+    });
+  };
+
+  const requestPaymentCancel = (payment: any) => {
+    if (!isEditableAthletePayment(payment)) {
+      return;
+    }
+
+    setPaymentPinAction({
+      action: "cancel",
+      payment,
+      reason: "Pagamento annullato dallo storico atleta",
+    });
+  };
+
+  const executePaymentPinAction = async (pin: string) => {
+    if (!paymentPinAction) {
+      return;
+    }
+
+    try {
+      setIsPaymentActionSaving(true);
+      const response = await apiRequest(
+        `/api/athlete-payments/${paymentPinAction.payment.id}`,
+        {
+          method: "PATCH",
+          body: {
+            action: paymentPinAction.action,
+            pin,
+            updates: paymentPinAction.updates,
+            reason: paymentPinAction.reason,
+          },
+        },
+      );
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      const { getAthletePayments } = await import("@/lib/simplified-db");
+      const refreshedPayments = await getAthletePayments(athleteId);
+      setAthletePaymentRecords(
+        Array.isArray(refreshedPayments) ? refreshedPayments : [],
+      );
+      setPaymentPinAction(null);
+      setEditingPayment(null);
+      showToast(
+        "success",
+        paymentPinAction.action === "update"
+          ? "Pagamento aggiornato"
+          : paymentPinAction.action === "delete"
+            ? "Pagamento eliminato dallo storico"
+            : "Pagamento annullato",
+      );
+    } catch (error: any) {
+      showToast("error", error?.message || "PIN non valido o azione non riuscita");
+    } finally {
+      setIsPaymentActionSaving(false);
+    }
+  };
 
   // Handle add document
   const handleAddDocument = async () => {
@@ -1683,6 +2227,147 @@ export default function AthleteProfilePage() {
       console.error("Error deleting document:", error);
       showToast("error", "Impossibile eliminare il documento");
     }
+  };
+
+  const handleRequestSharedDocument = async () => {
+    if (!requiredSharedDocument.title.trim()) {
+      showToast("error", "Inserisci il titolo del documento richiesto");
+      return;
+    }
+
+    try {
+      setSharedDocumentBusy(true);
+      const response = await apiRequest<any[]>(
+        `/api/athletes/${athleteId}/documents`,
+        {
+          method: "POST",
+          body: {
+            action: "require",
+            title: requiredSharedDocument.title,
+            documentType: requiredSharedDocument.documentType,
+            description: requiredSharedDocument.description,
+            dueDate: requiredSharedDocument.dueDate,
+          },
+        },
+      );
+      if (response.error) throw new Error(response.error.message);
+      setSharedDocuments(Array.isArray(response.data) ? response.data : []);
+      setRequiredSharedDocument({
+        title: "",
+        documentType: "other",
+        description: "",
+        dueDate: "",
+      });
+      showToast("success", "Documento richiesto al parent");
+    } catch (error: any) {
+      showToast("error", error?.message || "Impossibile richiedere documento");
+    } finally {
+      setSharedDocumentBusy(false);
+    }
+  };
+
+  const handleUploadClubSharedDocument = async () => {
+    if (!clubSharedDocumentUpload.file) {
+      showToast("error", "Seleziona un file da condividere");
+      return;
+    }
+
+    try {
+      setSharedDocumentBusy(true);
+      const response = await apiRequest<any[]>(
+        `/api/athletes/${athleteId}/documents`,
+        {
+          method: "POST",
+          body: {
+            action: "upload",
+            title:
+              clubSharedDocumentUpload.title ||
+              clubSharedDocumentUpload.file.name,
+            documentType: clubSharedDocumentUpload.documentType,
+            description: clubSharedDocumentUpload.description,
+            fileName: clubSharedDocumentUpload.file.name,
+            mimeType: clubSharedDocumentUpload.file.type,
+            size: clubSharedDocumentUpload.file.size,
+            dataBase64: await fileToDataUrl(clubSharedDocumentUpload.file),
+            visibleToParent: true,
+          },
+        },
+      );
+      if (response.error) throw new Error(response.error.message);
+      setSharedDocuments(Array.isArray(response.data) ? response.data : []);
+      setClubSharedDocumentUpload({
+        title: "",
+        documentType: "other",
+        description: "",
+        file: null,
+      });
+      showToast("success", "Documento condiviso con il parent");
+    } catch (error: any) {
+      showToast("error", error?.message || "Impossibile caricare documento");
+    } finally {
+      setSharedDocumentBusy(false);
+    }
+  };
+
+  const handleSharedDocumentAction = async (
+    documentId: string,
+    action: "approve" | "reject" | "remind" | "delete",
+  ) => {
+    const rejectionReason =
+      action === "reject"
+        ? window.prompt("Motivo del rifiuto del documento") || ""
+        : "";
+    if (action === "reject" && !rejectionReason.trim()) {
+      showToast("error", "Il motivo del rifiuto e obbligatorio");
+      return;
+    }
+
+    try {
+      setSharedDocumentBusy(true);
+      const response =
+        action === "delete"
+          ? await apiRequest<any[]>(`/api/athletes/${athleteId}/documents`, {
+              method: "DELETE",
+              body: { documentId },
+            })
+          : await apiRequest<any[]>(`/api/athletes/${athleteId}/documents`, {
+              method: "PATCH",
+              body: {
+                documentId,
+                action,
+                rejectionReason,
+              },
+            });
+
+      if (response.error) throw new Error(response.error.message);
+      setSharedDocuments(Array.isArray(response.data) ? response.data : []);
+      showToast(
+        "success",
+        action === "approve"
+          ? "Documento approvato"
+          : action === "reject"
+            ? "Documento rifiutato"
+            : action === "remind"
+              ? "Sollecito inviato"
+              : "Documento archiviato",
+      );
+    } catch (error: any) {
+      showToast("error", error?.message || "Azione documento non riuscita");
+    } finally {
+      setSharedDocumentBusy(false);
+    }
+  };
+
+  const handleCopyOnlineFormLink = async () => {
+    const form = onlineForms.find((item) => item.id === selectedOnlineFormId);
+    if (!form) {
+      showToast("error", "Seleziona un modulo pubblicato");
+      return;
+    }
+
+    const link = `${window.location.origin}/forms/${form.publicSlug}`;
+    await navigator.clipboard.writeText(link);
+    showToast("success", "Link modulo copiato");
   };
 
   const formatDate = (dateString: string) => {
@@ -2093,31 +2778,45 @@ export default function AthleteProfilePage() {
     }
 
     try {
-      const paymentData = {
-        id:
-          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-            ? crypto.randomUUID()
-            : `payment-${Date.now()}`,
-        date: newPayment.date,
-        description: newPayment.description,
-        type: newPayment.type,
-        amount: Number(amount.toFixed(2)),
-        status: newPayment.status,
-        createdAt: new Date().toISOString(),
-      };
-      const updatedPayments = [...payments, paymentData];
+      const effectiveClubId = athlete?.club_id || clubId;
+      if (!effectiveClubId) {
+        throw new Error("Club non disponibile");
+      }
 
-      await persistAthleteCollections({
-        paymentsOverride: updatedPayments,
-        athleteOverrides: {
-          payments: updatedPayments,
+      const normalizedStatus =
+        newPayment.status === "Pagato" ? "paid" : "pending";
+      const response = await apiRequest("/api/v1/simplified_payments", {
+        method: "POST",
+        body: {
+          organization_id: effectiveClubId,
+          athlete_id: athleteId,
+          description: newPayment.description,
+          amount: Number(amount.toFixed(2)),
+          due_date: newPayment.date,
+          paid_at: normalizedStatus === "paid" ? newPayment.date : null,
+          status: normalizedStatus,
+          method: newPayment.type,
+          data: {
+            source: "manual_athlete_payment",
+            type: newPayment.type,
+            athleteId,
+            excludedFromTotals: false,
+          },
         },
       });
 
-      setPayments(updatedPayments);
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      const { getAthletePayments } = await import("@/lib/simplified-db");
+      const refreshedPayments = await getAthletePayments(athleteId);
+      setAthletePaymentRecords(
+        Array.isArray(refreshedPayments) ? refreshedPayments : [],
+      );
       setShowAddPaymentModal(false);
       setNewPayment({
-        date: new Date().toISOString().split("T")[0],
+        date: getTodayDateString(),
         description: "",
         type: "Quota",
         amount: "",
@@ -2167,24 +2866,71 @@ export default function AthleteProfilePage() {
   };
 
   // ---- Abbigliamento helpers ----
-  const normalizeAssignments = React.useCallback((assignments: any[]) => {
-    return (assignments || []).map((a: any) => {
-      const assigneeId = a.assigneeId || a.athleteId || a.memberId || "";
-      const assigneeType =
-        a.assigneeType || (a.athleteId ? "athlete" : "member");
-      const createdAt =
-        a.createdAt || a.date || a.created_at || new Date().toISOString();
-      const items = normalizeKitAssignmentItems(
-        Array.isArray(a.items) && a.items.length > 0 ? a.items : a,
-      );
-      return { ...a, assigneeId, assigneeType, createdAt, items };
-    });
-  }, []);
+  const clothingState = React.useMemo(
+    () =>
+      normalizeClubClothingState({
+        products: clothingProducts,
+        kits: clothingKits,
+        inventory: clothingInventory,
+        assignments: kitAssignments,
+        jerseyGroups,
+        jerseyAssignments,
+      }),
+    [
+      clothingInventory,
+      clothingKits,
+      clothingProducts,
+      jerseyAssignments,
+      jerseyGroups,
+      kitAssignments,
+    ],
+  );
 
-  const athleteAssignments = React.useMemo(() => {
-    const all = normalizeAssignments(kitAssignments);
-    return all.filter((a: any) => a.assigneeId === athleteId);
-  }, [kitAssignments, athleteId, normalizeAssignments]);
+  const athleteAssignments = React.useMemo(
+    () =>
+      clothingState.assignments
+        .filter((assignment) => assignment.assigneeId === athleteId)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [athleteId, clothingState.assignments],
+  );
+
+  const athleteJerseyAssignments = React.useMemo(
+    () =>
+      clothingState.jerseyAssignments.filter(
+        (entry) => entry.athleteId === athleteId && entry.number !== null,
+      ),
+    [athleteId, clothingState.jerseyAssignments],
+  );
+
+  const jerseyGroupById = React.useMemo(
+    () =>
+      new Map(
+        clothingState.numberingGroups.map((group) => [group.id, group]),
+      ),
+    [clothingState.numberingGroups],
+  );
+
+  const defaultJerseyGroupId =
+    athleteJerseyAssignments[0]?.groupId ||
+    clothingState.numberingGroups[0]?.id ||
+    "";
+  const jerseyNumberSummary = athleteJerseyAssignments.length
+    ? athleteJerseyAssignments
+        .map((entry) => {
+          const groupName =
+            (entry.groupId && jerseyGroupById.get(entry.groupId)?.name) ||
+            "Senza gruppo";
+          return `${groupName}: ${entry.number}`;
+        })
+        .join(" / ")
+    : athlete?.jerseyNumber !== null && athlete?.jerseyNumber !== undefined
+      ? `Numero storico: ${athlete.jerseyNumber}`
+      : "Nessun numero assegnato";
+  const jerseyNumberTileValue =
+    athleteJerseyAssignments[0]?.number ??
+    (athlete?.jerseyNumber === null || athlete?.jerseyNumber === undefined
+      ? null
+      : athlete.jerseyNumber);
   const activeClothingProfile =
     clothingSizes.profile ||
     deriveClothingProfile(athlete?.gender, athlete?.birthDate);
@@ -2236,6 +2982,19 @@ export default function AthleteProfilePage() {
     return digitsOnly.slice(0, 3);
   };
 
+  const clothingStatusBadgeClass = (status: string) => {
+    if (status === "delivered" || status === "received") {
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    }
+    if (status === "to_order" || status === "ordered" || status === "in_production") {
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    }
+    if (status === "cancelled") {
+      return "border-red-200 bg-red-50 text-red-700";
+    }
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  };
+
   const saveJerseyNumber = async () => {
     try {
       const effectiveClubId = athlete?.club_id || clubId;
@@ -2243,6 +3002,7 @@ export default function AthleteProfilePage() {
 
       const cleaned = sanitizeJerseyDraft(jerseyNumberDraft);
       const nextNumber = cleaned === "" ? null : Number(cleaned);
+      const groupId = jerseyGroupDraft || defaultJerseyGroupId || "";
 
       if (
         nextNumber !== null &&
@@ -2251,17 +3011,18 @@ export default function AthleteProfilePage() {
         throw new Error("Numero non valido");
       }
 
-      // Unicità: controlla sia le assegnazioni (pagina Abbigliamento) sia i dati atleti.
-      const {
-        getClubAthletes,
-        getClubData,
-        updateClubData,
-        updateClubAthlete,
-      } = await import("@/lib/simplified-db");
+      if (nextNumber !== null && !groupId) {
+        throw new Error("Seleziona un gruppo numerazione");
+      }
 
-      const [clubAthletes, currentAssignments] = await Promise.all([
-        getClubAthletes(effectiveClubId),
+      // Unicità: controlla sia le assegnazioni (pagina Abbigliamento) sia i dati atleti.
+      const { getClubData, updateClubData, updateClubAthlete } = await import(
+        "@/lib/simplified-db"
+      );
+
+      const [currentAssignments, currentKitAssignments] = await Promise.all([
         getClubData(effectiveClubId, "jersey_assignments"),
+        getClubData(effectiveClubId, "kit_assignments"),
       ]);
 
       const assignments = Array.isArray(currentAssignments)
@@ -2269,27 +3030,27 @@ export default function AthleteProfilePage() {
         : [];
 
       if (nextNumber !== null) {
-        const dupInAssignments = assignments.some(
-          (x: any) =>
-            x?.athleteId !== athleteId &&
-            x?.number !== null &&
-            x?.number !== undefined &&
-            Number(x.number) === nextNumber,
-        );
+        const latestState = normalizeClubClothingState({
+          products: clothingProducts,
+          kits: clothingKits,
+          inventory: clothingInventory,
+          assignments: Array.isArray(currentKitAssignments)
+            ? currentKitAssignments
+            : [],
+          jerseyGroups,
+          jerseyAssignments: assignments,
+        });
+        const result = canAssignNumber({
+          athleteId,
+          groupId,
+          number: nextNumber,
+          state: latestState,
+        });
 
-        const dupInAthletes = (Array.isArray(clubAthletes) ? clubAthletes : [])
-          .filter((a: any) => a?.id !== athleteId)
-          .some((a: any) => {
-            const raw = a?.data?.jerseyNumber;
-            if (raw === null || raw === undefined || raw === "") return false;
-            const n = Number(raw);
-            return !Number.isNaN(n) && n === nextNumber;
-          });
-
-        if (dupInAssignments || dupInAthletes) {
+        if (!result.ok) {
           showToast({
-            title: "Numero già in uso",
-            description: "Scegli un numero univoco per l'atleta.",
+            title: "Numero non disponibile",
+            description: result.reason,
             variant: "destructive",
           });
           return;
@@ -2300,16 +3061,18 @@ export default function AthleteProfilePage() {
       const now = new Date().toISOString();
       const nextAssignments = [...assignments];
       const idx = nextAssignments.findIndex(
-        (x: any) => x?.athleteId === athleteId,
+        (x: any) => x?.athleteId === athleteId && (x?.groupId || "") === groupId,
       );
       const entry = {
+        id: nextAssignments[idx]?.id || `jersey:${athleteId}:${groupId}`,
         athleteId,
-        groupId: null,
+        groupId,
         number: nextNumber,
         updatedAt: now,
       };
-      if (idx >= 0) nextAssignments[idx] = entry;
-      else nextAssignments.push(entry);
+      if (nextNumber === null && idx >= 0) nextAssignments.splice(idx, 1);
+      else if (idx >= 0) nextAssignments[idx] = entry;
+      else if (nextNumber !== null) nextAssignments.push(entry);
       await updateClubData(
         effectiveClubId,
         "jersey_assignments",
@@ -2324,6 +3087,7 @@ export default function AthleteProfilePage() {
       setAthlete((prev: any) => ({ ...prev, jerseyNumber: nextNumber }));
 
       setJerseyNumberDraft(nextNumber === null ? "" : String(nextNumber));
+      setJerseyGroupDraft(groupId);
       setIsJerseyNumberDialogOpen(false);
       showToast({ title: "Salvato", description: "Numero maglia aggiornato." });
     } catch (e: any) {
@@ -2353,6 +3117,7 @@ export default function AthleteProfilePage() {
 
       const assignment = {
         id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()),
+        athleteId,
         assigneeId: athleteId,
         assigneeType: "athlete",
         kitId:
@@ -2361,6 +3126,8 @@ export default function AthleteProfilePage() {
             : null,
         kitName: kit?.name || null,
         assignmentType: newKitAssignment.assignmentType,
+        source: "manual",
+        status: "assigned",
         notes: newKitAssignment.notes || "",
         createdAt: new Date().toISOString(),
         items: normalizeKitAssignmentItems(components),
@@ -2386,13 +3153,49 @@ export default function AthleteProfilePage() {
     }
   };
 
+  const updateAthleteClothingAssignmentStatus = async (
+    assignment: ClothingAssignment,
+    nextStatus: ClothingAssignmentStatus,
+  ) => {
+    try {
+      const effectiveClubId = athlete?.club_id || clubId;
+      if (!effectiveClubId) throw new Error("Club non trovato");
+      const { updateClubData } = await import("@/lib/simplified-db");
+      const result = updateClothingAssignmentStatus({
+        assignmentId: assignment.id,
+        nextStatus,
+        state: clothingState,
+      });
+      const serializedAssignments = result.assignments.map(
+        serializeClothingAssignment,
+      );
+      const serializedInventory = result.inventory.map(serializeInventoryStock);
+      await Promise.all([
+        updateClubData(effectiveClubId, "kit_assignments", serializedAssignments),
+        updateClubData(effectiveClubId, "clothing_inventory", serializedInventory),
+      ]);
+      setKitAssignments(serializedAssignments);
+      setClothingInventory(serializedInventory);
+      showToast({
+        title: "Aggiornato",
+        description: "Stato abbigliamento aggiornato.",
+      });
+    } catch (e: any) {
+      showToast({
+        title: "Errore",
+        description: e?.message || "Impossibile aggiornare lo stato",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Profilo Atleta" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex justify-center items-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
             </div>
@@ -2408,7 +3211,7 @@ export default function AthleteProfilePage() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Atleta Non Trovato" />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <main className={dashboardMainClassName}>
             <div className="flex flex-col items-center justify-center py-8">
               <h2 className="text-xl font-semibold mb-4">Atleta non trovato</h2>
               <Button onClick={() => router.push(`/athletes?clubId=${clubId}`)}>
@@ -2426,8 +3229,8 @@ export default function AthleteProfilePage() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Profilo Atleta" />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer className="max-w-7xl">
             {/* Header with avatar and actions */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="flex items-center gap-4">
@@ -2440,7 +3243,7 @@ export default function AthleteProfilePage() {
                   type="athlete"
                 />
                 <div>
-                  <h1 className="text-2xl font-bold">
+                  <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">
                     {athlete.name} {athlete.surname}
                   </h1>
                   <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -2489,7 +3292,7 @@ export default function AthleteProfilePage() {
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="generale" className="min-w-0">
+            <Tabs defaultValue={initialTab} className="min-w-0">
               <div className="-mx-4 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
               <TabsList className="inline-flex h-auto min-w-max flex-nowrap items-stretch gap-1 rounded-xl bg-muted/80 p-1">
                 <TabsTrigger value="generale" className="shrink-0 gap-2 whitespace-nowrap">
@@ -3087,7 +3890,11 @@ export default function AthleteProfilePage() {
               </TabsContent>
 
               {/* DATI SANITARI TAB */}
-              <TabsContent value="sanitari" className="mt-4 space-y-6">
+              <TabsContent
+                id="sanitari"
+                value="sanitari"
+                className="mt-4 space-y-6"
+              >
                 <Card>
                   <CardHeader>
                     <CardTitle>Certificati Medici</CardTitle>
@@ -3689,6 +4496,25 @@ export default function AthleteProfilePage() {
                             onCheckedChange={handleEnrollmentToggle}
                           />
                         </div>
+                        <div className="mt-4 max-w-xs">
+                          <Label htmlFor="enrollment-date">
+                            Data iscrizione
+                          </Label>
+                          <Input
+                            id="enrollment-date"
+                            type="date"
+                            value={athlete.enrollmentDate || ""}
+                            disabled={isEnrollmentSaving}
+                            onChange={(event) =>
+                              setAthlete({
+                                ...athlete,
+                                enrollmentDate: event.target.value,
+                              })
+                            }
+                            onBlur={handleEnrollmentDateBlur}
+                            className="mt-2 bg-white dark:bg-slate-950"
+                          />
+                        </div>
                       </div>
                       <div>
                         <Label>Note Iscrizione</Label>
@@ -3707,32 +4533,212 @@ export default function AthleteProfilePage() {
                       <div>
                         <Label>Piano di Pagamento Selezionato</Label>
                         <Select
-                          value={athlete.selectedPlan || "none"}
-                          onValueChange={(value) =>
-                            setAthlete({
-                              ...athlete,
-                              selectedPlan: value === "none" ? "" : value,
-                            })
-                          }
+                          value={selectedPlanValue}
+                          onValueChange={(value) => {
+                            if (value === "none") {
+                              setAthlete({
+                                ...athlete,
+                                selectedPlan: "",
+                                selectedPlanId: "",
+                                subscriptionStartDate: "",
+                                enrollmentStartDate: "",
+                                manualEnrollmentAmount: "",
+                                selectedOptionalServiceIds: [],
+                              });
+                              return;
+                            }
+
+                            openPlanConfirmationDialog(value);
+                          }}
                         >
                           <SelectTrigger className="mt-2">
                             <SelectValue placeholder="Seleziona un piano di pagamento" />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">Nessun piano</SelectItem>
-                            {paymentPlans
-                              .filter((plan: any) => plan.active !== false)
-                              .map((plan: any) => (
+                            {normalizedPaymentPlans
+                              .filter((plan) => plan.active)
+                              .map((plan) => (
                                 <SelectItem
                                   key={plan.id}
-                                  value={plan.name || plan.id}
+                                  value={plan.id}
                                 >
-                                  {plan.name}{" "}
-                                  {plan.amount ? `- €${plan.amount}` : ""}
+                                  {plan.name} -{" "}
+                                  {formatCurrency(plan.totalAmount)}
                                 </SelectItem>
                               ))}
                           </SelectContent>
                         </Select>
+                        {selectedAthletePlan ? (
+                          <div className="mt-3 space-y-3 rounded-lg border bg-slate-50 p-3 text-sm dark:bg-slate-900/40">
+                            <div>
+                              <p className="font-medium">Servizi inclusi</p>
+                              <p className="text-xs text-muted-foreground">
+                                Gli obbligatori sono sempre inclusi. Gli
+                                opzionali valgono solo per questo atleta.
+                              </p>
+                            </div>
+
+                            <div className="grid gap-3 rounded-md border bg-white p-3 md:grid-cols-2">
+                              <div>
+                                <Label>Data inizio abbonamento</Label>
+                                <Input
+                                  type="date"
+                                  value={
+                                    athlete.subscriptionStartDate ||
+                                    athlete.enrollmentStartDate ||
+                                    ""
+                                  }
+                                  disabled
+                                />
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Pro-rata
+                                </p>
+                                {expectedIncomeSummary.proration?.enabled ? (
+                                  <div className="mt-2 space-y-1 text-sm">
+                                    <p>
+                                      Metodo:{" "}
+                                      {expectedIncomeSummary.proration.method ===
+                                      "months"
+                                        ? "per mesi"
+                                        : "per giorni"}
+                                    </p>
+                                    <p>
+                                      Totale ricalcolato:{" "}
+                                      <span className="font-semibold">
+                                        {formatCurrency(
+                                          expectedIncomeSummary.grossAmount,
+                                        )}
+                                      </span>
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="mt-2 text-sm text-muted-foreground">
+                                    Non attivo per questo piano.
+                                  </p>
+                                )}
+                              </div>
+                              {expectedIncomeSummary.proration
+                                ?.allowManualOverride ? (
+                                <div className="md:col-span-2">
+                                  <Label>Importo manuale opzionale</Label>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={athlete.manualEnrollmentAmount || ""}
+                                    disabled
+                                    placeholder="Lascia vuoto per calcolo automatico"
+                                  />
+                                </div>
+                              ) : null}
+                              {expectedIncomeSummary.prorationResult?.warning ? (
+                                <p className="md:col-span-2 text-sm text-amber-700">
+                                  {
+                                    expectedIncomeSummary.prorationResult
+                                      .warning
+                                  }
+                                </p>
+                              ) : null}
+                            </div>
+
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Obbligatori
+                              </p>
+                              {requiredPlanServices.length > 0 ? (
+                                requiredPlanServices.map((service) => (
+                                  <div
+                                    key={service.id}
+                                    className="flex justify-between gap-3 rounded-md bg-white px-3 py-2"
+                                  >
+                                    <span className="text-slate-700">
+                                      {service.name}
+                                    </span>
+                                    <span className="font-medium">
+                                      {formatCurrency(service.price)}
+                                    </span>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  Nessun servizio obbligatorio.
+                                </p>
+                              )}
+                            </div>
+
+                            {optionalPlanServices.length > 0 ? (
+                              <div className="space-y-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Opzionali
+                                </p>
+                                {optionalPlanServices.map((service) => (
+                                  <label
+                                    key={service.id}
+                                    className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2"
+                                  >
+                                    <span className="flex min-w-0 items-center gap-2">
+                                      <Checkbox
+                                        checked={selectedOptionalServiceIdSet.has(
+                                          service.id,
+                                        )}
+                                        disabled
+                                      />
+                                      <span className="min-w-0">
+                                        <span className="block truncate font-medium text-slate-800">
+                                          {service.name}
+                                        </span>
+                                        {service.description ? (
+                                          <span className="block truncate text-xs text-muted-foreground">
+                                            {service.description}
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                    </span>
+                                    <span className="shrink-0 font-medium">
+                                      {formatCurrency(service.price)}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            <div className="grid gap-2 rounded-md border bg-white p-3 sm:grid-cols-3">
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Obbligatori
+                                </p>
+                                <p className="font-semibold">
+                                  {formatCurrency(
+                                    expectedIncomeSummary.requiredServicesTotal,
+                                  )}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Opzionali selezionati
+                                </p>
+                                <p className="font-semibold">
+                                  {formatCurrency(
+                                    expectedIncomeSummary.selectedOptionalServicesTotal,
+                                  )}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Totale finale
+                                </p>
+                                <p className="font-semibold text-blue-700">
+                                  {formatCurrency(
+                                    expectedIncomeSummary.expectedTotal,
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                       <div>
                         <Label>Sconto Applicato</Label>
@@ -3778,8 +4784,20 @@ export default function AthleteProfilePage() {
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-3">
                         <p className="text-sm text-slate-600">
-                          Salva note, piano e sconto per mantenere stabile il calcolo dell&apos;incasso dopo il refresh.
+                          Salva note, data iscrizione e sconto. Per assegnare o modificare il piano con rate usa la conferma dedicata.
                         </p>
+                        {selectedAthletePlan ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              openPlanConfirmationDialog(selectedAthletePlan.id)
+                            }
+                          >
+                            <CalendarDays className="mr-2 h-4 w-4" />
+                            Modifica piano e rate
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           onClick={async () => {
@@ -3787,7 +4805,7 @@ export default function AthleteProfilePage() {
                               setIsEnrollmentSaving(true);
                               await saveEnrollmentProfile(
                                 {},
-                                "Dati iscrizione e pagamenti salvati",
+                                "Dati iscrizione salvati",
                               );
                             } catch (error) {
                               console.error(
@@ -3931,146 +4949,12 @@ export default function AthleteProfilePage() {
                     <CardTitle>Riepilogo Incasso</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                      <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-900/40">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Previsto / Dovuto
-                        </h3>
-                        <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
-                          {formatCurrency(expectedIncomeSummary.expectedTotal)}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Fonte:{" "}
-                          {expectedIncomeSummary.source === "payment_plan"
-                            ? expectedIncomeSummary.planName || "Piano di pagamento"
-                            : expectedIncomeSummary.source === "expected_income"
-                              ? "Expected income club"
-                              : "Calcolo manuale"}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-green-50 p-4 dark:bg-green-900/20">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Incassato
-                        </h3>
-                        <p className="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">
-                          {formatCurrency(expectedIncomeSummary.recordedPaid)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-yellow-50 p-4 dark:bg-yellow-900/20">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Residuo
-                        </h3>
-                        <p className="mt-1 text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-                          {formatCurrency(expectedIncomeSummary.residual)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Totale Registrato
-                        </h3>
-                        <p className="mt-1 text-2xl font-bold text-blue-600 dark:text-blue-400">
-                          {formatCurrency(expectedIncomeSummary.recordedTotal)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="hidden">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Incassato
-                        </h3>
-                        <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-                          € 0,00
-                        </p>
-                      </div>
-                      <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Da Incassare
-                        </h3>
-                        <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
-                          € 0,00
-                        </p>
-                      </div>
-                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Totale
-                        </h3>
-                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-                          € 0,00
-                        </p>
-                      </div>
-                      </div>
-                    </div>
-                    <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                      <summary className="cursor-pointer list-none font-medium text-slate-900 dark:text-slate-100">
-                        Dettagli incasso
-                      </summary>
-                      <div className="mt-4 space-y-4 text-sm">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/60">
-                            <p className="text-xs uppercase tracking-wide text-slate-500">
-                              Lordo piano
-                            </p>
-                            <p className="mt-1 font-semibold">
-                              {formatCurrency(expectedIncomeSummary.grossAmount)}
-                            </p>
-                          </div>
-                          <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/60">
-                            <p className="text-xs uppercase tracking-wide text-slate-500">
-                              Totale sconti
-                            </p>
-                            <p className="mt-1 font-semibold">
-                              {formatCurrency(expectedIncomeSummary.totalDiscounts)}
-                            </p>
-                          </div>
-                        </div>
-                        {expectedIncomeSummary.appliedDiscounts.length > 0 ? (
-                          <div className="space-y-2">
-                            <p className="font-medium">Sconti applicati</p>
-                            <div className="flex flex-wrap gap-2">
-                              {expectedIncomeSummary.appliedDiscounts.map((discount) => (
-                                <Badge
-                                  key={discount.id}
-                                  variant="secondary"
-                                  className="bg-amber-100 text-amber-900"
-                                >
-                                  {discount.label}: -{formatCurrency(discount.amount)}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-slate-500">
-                            Nessuno sconto applicato.
-                          </p>
-                        )}
-                        {expectedIncomeSummary.installments.length > 0 ? (
-                          <div className="space-y-2">
-                            <p className="font-medium">Rate previste</p>
-                            <div className="space-y-2">
-                              {expectedIncomeSummary.installments.map((installment) => (
-                                <div
-                                  key={installment.id}
-                                  className="flex flex-col justify-between gap-1 rounded-lg border border-slate-200 px-3 py-2 sm:flex-row sm:items-center dark:border-slate-800"
-                                >
-                                  <div>
-                                    <p className="font-medium">{installment.label}</p>
-                                    <p className="text-xs text-slate-500">
-                                      {installment.dueDate
-                                        ? `Scadenza ${formatDate(installment.dueDate)}`
-                                        : "Scadenza non definita"}
-                                    </p>
-                                  </div>
-                                  <p className="font-semibold">
-                                    {formatCurrency(installment.amount)}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </details>
+                    <EnrollmentPaymentBreakdown
+                      summary={expectedIncomeSummary}
+                      payments={mergedPaymentRecords}
+                      mode="club"
+                      showPaymentHistory={false}
+                    />
                   </CardContent>
                 </Card>
 
@@ -4103,37 +4987,104 @@ export default function AthleteProfilePage() {
                             <th className="text-left p-2">Tipo</th>
                             <th className="text-left p-2">Importo</th>
                             <th className="text-left p-2">Stato</th>
+                            <th className="text-left p-2">Azioni</th>
                           </tr>
                         </thead>
                         <tbody>
                           {mergedPaymentRecords.length > 0 ? (
-                            mergedPaymentRecords.map((payment) => (
-                              <tr key={payment.id} className="border-b">
-                                <td className="p-2">
-                                  {formatDate(payment.date)}
-                                </td>
-                                <td className="p-2">{payment.description}</td>
-                                <td className="p-2">{payment.type}</td>
-                                <td className="p-2">
-                                  {formatCurrency(Number(payment.amount || 0))}
-                                </td>
-                                <td className="p-2">
-                                  <Badge
-                                    className={
-                                      payment.status === "Pagato"
-                                        ? "bg-green-500"
-                                        : "bg-yellow-500"
-                                    }
-                                  >
-                                    {payment.status}
-                                  </Badge>
-                                </td>
-                              </tr>
-                            ))
+                            mergedPaymentRecords.map((payment) => {
+                              const isCancelled =
+                                payment.statusKey === "cancelled" ||
+                                payment.data?.excludedFromTotals === true;
+                              const isPaid = payment.statusKey === "paid";
+                              const canManage =
+                                payment.source === "athlete_payment" &&
+                                !isCancelled;
+
+                              return (
+                                <tr key={payment.id} className="border-b">
+                                  <td className="p-2">
+                                    {formatDate(payment.date)}
+                                  </td>
+                                  <td className="p-2">{payment.description}</td>
+                                  <td className="p-2">{payment.type}</td>
+                                  <td className="p-2">
+                                    {formatCurrency(Number(payment.amount || 0))}
+                                  </td>
+                                  <td className="p-2">
+                                    <Badge
+                                      className={
+                                        isCancelled
+                                          ? "bg-slate-500"
+                                          : isPaid
+                                            ? "bg-green-500"
+                                            : "bg-yellow-500"
+                                      }
+                                    >
+                                      {isCancelled
+                                        ? "Annullato"
+                                        : isPaid
+                                          ? "Pagato"
+                                          : payment.status}
+                                    </Badge>
+                                  </td>
+                                  <td className="p-2">
+                                    {canManage ? (
+                                      <div className="flex flex-wrap gap-2">
+                                        {!isPaid ? (
+                                          <>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() =>
+                                                openPaymentEditDialog(payment)
+                                              }
+                                            >
+                                              <Edit className="mr-1 h-3.5 w-3.5" />
+                                              Modifica
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              className="border-red-200 text-red-700 hover:bg-red-50"
+                                              onClick={() =>
+                                                requestPaymentDelete(payment)
+                                              }
+                                            >
+                                              <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                              Elimina
+                                            </Button>
+                                          </>
+                                        ) : (
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="border-red-200 text-red-700 hover:bg-red-50"
+                                            onClick={() =>
+                                              requestPaymentCancel(payment)
+                                            }
+                                          >
+                                            <XCircle className="mr-1 h-3.5 w-3.5" />
+                                            Annulla
+                                          </Button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <span className="text-sm text-muted-foreground">
+                                        {isCancelled ? "Escluso" : "Legacy"}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
                               <td
-                                colSpan={5}
+                                colSpan={6}
                                 className="p-4 text-center text-muted-foreground"
                               >
                                 Nessun pagamento registrato
@@ -4267,11 +5218,22 @@ export default function AthleteProfilePage() {
                         <button
                           type="button"
                           onClick={() => {
+                            const selectedEntry =
+                              athleteJerseyAssignments.find(
+                                (entry) => entry.groupId === defaultJerseyGroupId,
+                              ) || athleteJerseyAssignments[0];
+                            setJerseyGroupDraft(
+                              selectedEntry?.groupId ||
+                                defaultJerseyGroupId ||
+                                "",
+                            );
                             setJerseyNumberDraft(
-                              athlete?.jerseyNumber === null ||
-                                athlete?.jerseyNumber === undefined
-                                ? ""
-                                : String(athlete.jerseyNumber),
+                              selectedEntry?.number === null ||
+                                selectedEntry?.number === undefined
+                                ? jerseyNumberTileValue === null
+                                  ? ""
+                                  : String(jerseyNumberTileValue)
+                                : String(selectedEntry.number),
                             );
                             setIsJerseyNumberDialogOpen(true);
                           }}
@@ -4289,10 +5251,10 @@ export default function AthleteProfilePage() {
                                 <Shirt className="h-20 w-20 text-white/30" />
                                 <div className="absolute inset-0 flex items-center justify-center">
                                   <span className="text-4xl font-extrabold tracking-tight text-white drop-shadow-sm">
-                                    {athlete?.jerseyNumber === null ||
-                                    athlete?.jerseyNumber === undefined
+                                    {jerseyNumberTileValue === null ||
+                                    jerseyNumberTileValue === undefined
                                       ? "—"
-                                      : String(athlete.jerseyNumber).slice(
+                                      : String(jerseyNumberTileValue).slice(
                                           0,
                                           3,
                                         )}
@@ -4303,7 +5265,7 @@ export default function AthleteProfilePage() {
                           </div>
                           <div className="p-3 text-left">
                             <p className="text-xs text-muted-foreground">
-                              Clicca sulla canotta per personalizzare
+                              {jerseyNumberSummary}
                             </p>
                           </div>
                         </button>
@@ -4318,6 +5280,43 @@ export default function AthleteProfilePage() {
                         Salva taglie
                       </Button>
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Numeri assegnati</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {athleteJerseyAssignments.length ? (
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {athleteJerseyAssignments.map((entry) => {
+                          const group = entry.groupId
+                            ? jerseyGroupById.get(entry.groupId)
+                            : null;
+                          return (
+                            <div
+                              key={entry.id || `${entry.groupId}:${entry.number}`}
+                              className="rounded-lg border bg-white p-4"
+                            >
+                              <p className="text-sm text-muted-foreground">
+                                {group?.name || "Senza gruppo"}
+                              </p>
+                              <p className="mt-1 text-3xl font-semibold">
+                                {entry.number}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {group?.season || "Numero legato al gruppo"}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        Nessun numero assegnato a gruppi numerazione.
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -4342,46 +5341,117 @@ export default function AthleteProfilePage() {
                         <thead className="bg-muted/50">
                           <tr className="border-b">
                             <th className="text-left p-2">Data</th>
-                            <th className="text-left p-2">Kit/Prodotto</th>
-                            <th className="text-left p-2">Componenti</th>
-                            <th className="text-left p-2">Note</th>
+                            <th className="text-left p-2">Kit/Articoli</th>
+                            <th className="text-left p-2">Dettagli</th>
+                            <th className="text-left p-2">Origine</th>
+                            <th className="text-left p-2">Stato</th>
+                            <th className="text-left p-2">Azioni</th>
                           </tr>
                         </thead>
                         <tbody>
                           {athleteAssignments.length ? (
-                            athleteAssignments.map((a: any) => (
+                            athleteAssignments.map((a: ClothingAssignment) => (
                               <tr key={a.id} className="border-b align-top">
                                 <td className="p-2">
                                   {formatDate(a.createdAt)}
                                 </td>
                                 <td className="p-2">
-                                  {a.kitName ||
-                                    (a.assignmentType === "components"
-                                      ? "Componenti"
-                                      : "-")}
+                                  <div className="font-medium">
+                                    {a.kitName || "Articoli"}
+                                  </div>
+                                  {a.notes ? (
+                                    <div className="mt-1 text-xs text-muted-foreground">
+                                      {a.notes}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="p-2">
+                                  <div className="space-y-2">
+                                    {(a.items || []).map((it) => (
+                                      <div
+                                        key={it.id}
+                                        className="rounded-md border bg-white p-2"
+                                      >
+                                        <div className="font-medium">
+                                          {it.name}
+                                        </div>
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                          {[it.size, it.color, it.variant]
+                                            .filter(Boolean)
+                                            .map((value) => (
+                                              <Badge
+                                                key={String(value)}
+                                                variant="secondary"
+                                                className="text-xs"
+                                              >
+                                                {value}
+                                              </Badge>
+                                            ))}
+                                          {it.number !== null &&
+                                          it.number !== undefined ? (
+                                            <Badge className="border-blue-200 bg-blue-50 text-blue-700">
+                                              n.{it.number}
+                                            </Badge>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="p-2">
+                                  {a.source === "inventory"
+                                    ? "Magazzino"
+                                    : a.source === "supplier_order"
+                                      ? "Fornitore"
+                                      : "Manuale"}
+                                </td>
+                                <td className="p-2">
+                                  <Badge
+                                    variant="outline"
+                                    className={clothingStatusBadgeClass(a.status)}
+                                  >
+                                    {assignmentStatusLabels[a.status]}
+                                  </Badge>
                                 </td>
                                 <td className="p-2">
                                   <div className="flex flex-wrap gap-2">
-                                    {(a.items || []).map(
-                                      (it: any, i: number) => (
-                                        <Badge
-                                          key={i}
-                                          variant="secondary"
-                                          className="text-xs"
-                                        >
-                                          {it.name}
-                                        </Badge>
-                                      ),
-                                    )}
+                                    {a.status !== "delivered" &&
+                                    a.status !== "cancelled" ? (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          updateAthleteClothingAssignmentStatus(
+                                            a,
+                                            "delivered",
+                                          )
+                                        }
+                                      >
+                                        Consegnato
+                                      </Button>
+                                    ) : null}
+                                    {a.status !== "cancelled" ? (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          updateAthleteClothingAssignmentStatus(
+                                            a,
+                                            "cancelled",
+                                          )
+                                        }
+                                      >
+                                        Annulla
+                                      </Button>
+                                    ) : null}
                                   </div>
                                 </td>
-                                <td className="p-2">{a.notes || "-"}</td>
                               </tr>
                             ))
                           ) : (
                             <tr>
                               <td
-                                colSpan={4}
+                                colSpan={6}
                                 className="p-4 text-center text-muted-foreground"
                               >
                                 Nessuna assegnazione registrata
@@ -4561,6 +5631,332 @@ export default function AthleteProfilePage() {
 
               {/* DOCUMENTI TAB */}
               <TabsContent value="documenti" className="mt-4 space-y-6">
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <CardTitle>Documenti condivisi con parent</CardTitle>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Richiedi, condividi, approva o rifiuta i documenti visibili alla famiglia.
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void refreshSharedDocuments()}
+                        disabled={sharedDocumentBusy}
+                      >
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Aggiorna
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="grid gap-4 xl:grid-cols-3">
+                      <div className="rounded-lg border p-4">
+                        <h3 className="font-semibold text-slate-900">Richiedi documento</h3>
+                        <div className="mt-4 grid gap-3">
+                          <Input
+                            placeholder="Titolo documento"
+                            value={requiredSharedDocument.title}
+                            onChange={(event) =>
+                              setRequiredSharedDocument((current) => ({
+                                ...current,
+                                title: event.target.value,
+                              }))
+                            }
+                          />
+                          <Select
+                            value={requiredSharedDocument.documentType}
+                            onValueChange={(value) =>
+                              setRequiredSharedDocument((current) => ({
+                                ...current,
+                                documentType: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Tipo documento" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {SHARED_DOCUMENT_TYPES.map((type) => (
+                                <SelectItem key={type.value} value={type.value}>
+                                  {type.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            type="date"
+                            value={requiredSharedDocument.dueDate}
+                            onChange={(event) =>
+                              setRequiredSharedDocument((current) => ({
+                                ...current,
+                                dueDate: event.target.value,
+                              }))
+                            }
+                          />
+                          <Textarea
+                            placeholder="Note per il parent"
+                            value={requiredSharedDocument.description}
+                            onChange={(event) =>
+                              setRequiredSharedDocument((current) => ({
+                                ...current,
+                                description: event.target.value,
+                              }))
+                            }
+                          />
+                          <Button onClick={handleRequestSharedDocument} disabled={sharedDocumentBusy}>
+                            <FileText className="mr-2 h-4 w-4" />
+                            Richiedi al parent
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border p-4">
+                        <h3 className="font-semibold text-slate-900">Carica documento club</h3>
+                        <div className="mt-4 grid gap-3">
+                          <Input
+                            placeholder="Titolo documento"
+                            value={clubSharedDocumentUpload.title}
+                            onChange={(event) =>
+                              setClubSharedDocumentUpload((current) => ({
+                                ...current,
+                                title: event.target.value,
+                              }))
+                            }
+                          />
+                          <Select
+                            value={clubSharedDocumentUpload.documentType}
+                            onValueChange={(value) =>
+                              setClubSharedDocumentUpload((current) => ({
+                                ...current,
+                                documentType: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Tipo documento" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {SHARED_DOCUMENT_TYPES.map((type) => (
+                                <SelectItem key={type.value} value={type.value}>
+                                  {type.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            type="file"
+                            accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
+                            onChange={(event) =>
+                              setClubSharedDocumentUpload((current) => ({
+                                ...current,
+                                file: event.target.files?.[0] || null,
+                              }))
+                            }
+                          />
+                          <Textarea
+                            placeholder="Descrizione"
+                            value={clubSharedDocumentUpload.description}
+                            onChange={(event) =>
+                              setClubSharedDocumentUpload((current) => ({
+                                ...current,
+                                description: event.target.value,
+                              }))
+                            }
+                          />
+                          <Button onClick={handleUploadClubSharedDocument} disabled={sharedDocumentBusy}>
+                            <Upload className="mr-2 h-4 w-4" />
+                            Condividi con parent
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border p-4">
+                        <h3 className="font-semibold text-slate-900">Condividi modulo online</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Copia un link pubblico pubblicato in Modulistica.
+                        </p>
+                        <div className="mt-4 grid gap-3">
+                          <Select
+                            value={selectedOnlineFormId}
+                            onValueChange={setSelectedOnlineFormId}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleziona modulo" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {onlineForms.length === 0 ? (
+                                <SelectItem value="no-online-forms" disabled>
+                                  Nessun modulo pubblicato
+                                </SelectItem>
+                              ) : (
+                                onlineForms.map((form) => (
+                                  <SelectItem key={form.id} value={form.id}>
+                                    {form.title}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              className="flex-1"
+                              onClick={() => void refreshOnlineForms()}
+                              disabled={onlineFormsBusy}
+                            >
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Aggiorna
+                            </Button>
+                            <Button
+                              className="flex-1"
+                              onClick={handleCopyOnlineFormLink}
+                              disabled={
+                                onlineFormsBusy ||
+                                !selectedOnlineFormId ||
+                                selectedOnlineFormId === "no-online-forms"
+                              }
+                            >
+                              <Copy className="mr-2 h-4 w-4" />
+                              Copia link
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Il link e generico e non contiene dati sensibili
+                            dell'atleta.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {sharedDocuments.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        Nessun documento condiviso o richiesto.
+                      </div>
+                    ) : (
+                      <div className="grid gap-3">
+                        {sharedDocuments.map((document) => (
+                          <div key={document.id} className="rounded-lg border bg-white p-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-semibold text-slate-900">{document.title}</p>
+                                  <Badge
+                                    variant="outline"
+                                    className={getSharedDocumentStatusClassName(document.status)}
+                                  >
+                                    {getSharedDocumentStatusLabel(document.status)}
+                                  </Badge>
+                                  <Badge variant="secondary">
+                                    {getSharedDocumentTypeLabel(document.documentType)}
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  {document.uploadedByRole === "parent"
+                                    ? "Caricato dal parent"
+                                    : "Creato dal club"}
+                                  {document.fileName ? ` - ${document.fileName}` : ""}
+                                </p>
+                                {document.description ? (
+                                  <p className="mt-2 text-sm">{document.description}</p>
+                                ) : null}
+                                {document.dueDate ? (
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Scadenza: {formatDate(document.dueDate)}
+                                  </p>
+                                ) : null}
+                                {document.rejectionReason ? (
+                                  <p className="mt-1 text-xs font-medium text-red-600">
+                                    Motivo rifiuto: {document.rejectionReason}
+                                  </p>
+                                ) : null}
+                              </div>
+
+                              <div className="flex flex-wrap gap-2 md:justify-end">
+                                {document.assetId ? (
+                                  <>
+                                    <Button variant="outline" size="sm" asChild>
+                                      <a
+                                        href={`/api/athletes/${athleteId}/documents/${document.id}/file`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        Visualizza
+                                      </a>
+                                    </Button>
+                                    <Button variant="outline" size="sm" asChild>
+                                      <a
+                                        href={`/api/athletes/${athleteId}/documents/${document.id}/file`}
+                                        download={document.fileName || document.title}
+                                      >
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Scarica
+                                      </a>
+                                    </Button>
+                                  </>
+                                ) : null}
+                                {document.uploadedByRole === "parent" &&
+                                ["under_review", "uploaded", "rejected"].includes(
+                                  String(document.status || ""),
+                                ) ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() =>
+                                        handleSharedDocumentAction(document.id, "approve")
+                                      }
+                                      disabled={sharedDocumentBusy}
+                                    >
+                                      Approva
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleSharedDocumentAction(document.id, "reject")
+                                      }
+                                      disabled={sharedDocumentBusy}
+                                    >
+                                      Rifiuta
+                                    </Button>
+                                  </>
+                                ) : null}
+                                {["required", "rejected"].includes(
+                                  String(document.status || ""),
+                                ) ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleSharedDocumentAction(document.id, "remind")
+                                    }
+                                    disabled={sharedDocumentBusy}
+                                  >
+                                    Sollecita
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    handleSharedDocumentAction(document.id, "delete")
+                                  }
+                                  disabled={sharedDocumentBusy}
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle>Documento di Identità</CardTitle>
@@ -4827,205 +6223,12 @@ export default function AthleteProfilePage() {
 
               {/* ANALITICHE TAB */}
               <TabsContent value="analitiche" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Report e Statistiche</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Presenze
-                        </h3>
-                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-                          {athleteAnalytics.presenceCount}
-                        </p>
-                      </div>
-                      <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Convocazioni
-                        </h3>
-                        <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-                          {athleteAnalytics.convocationCount}
-                        </p>
-                      </div>
-                      <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Partite Giocate
-                        </h3>
-                        <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">
-                          {athleteAnalytics.playedMatchesCount}
-                        </p>
-                      </div>
-                      <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Eventi Fuori Categoria
-                        </h3>
-                        <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">
-                          {athleteAnalytics.extraCategoryCount}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-6 space-y-4">
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">
-                          Cronologia presenze e convocazioni
-                        </h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Include anche gli eventi in cui l’atleta è stato inserito fuori dalla categoria primaria.
-                        </p>
-                      </div>
-
-                      {athleteAnalytics.events.length > 0 ? (
-                        <div className="space-y-3">
-                          <Tabs
-                            value={analyticsView}
-                            onValueChange={(value) =>
-                              setAnalyticsView(value as AthleteAnalyticsView)
-                            }
-                            className="min-w-0"
-                          >
-                            <div className="-mx-1 overflow-x-auto px-1 pb-1">
-                              <TabsList className="inline-flex h-auto min-w-max flex-nowrap gap-1 rounded-xl bg-slate-100 p-1">
-                                <TabsTrigger value="all" className="shrink-0 whitespace-nowrap">
-                                  Tutto ({analyticsGroups.all.length})
-                                </TabsTrigger>
-                                <TabsTrigger value="trainings" className="shrink-0 whitespace-nowrap">
-                                  Allenamenti ({analyticsGroups.trainings.length})
-                                </TabsTrigger>
-                                <TabsTrigger value="matches" className="shrink-0 whitespace-nowrap">
-                                  Partite ({analyticsGroups.matches.length})
-                                </TabsTrigger>
-                                <TabsTrigger value="presences" className="shrink-0 whitespace-nowrap">
-                                  Presenze ({analyticsGroups.presences.length})
-                                </TabsTrigger>
-                                <TabsTrigger value="absences" className="shrink-0 whitespace-nowrap">
-                                  Assenze ({analyticsGroups.absences.length})
-                                </TabsTrigger>
-                                <TabsTrigger value="convocations" className="shrink-0 whitespace-nowrap">
-                                  Convocazioni ({analyticsGroups.convocations.length})
-                                </TabsTrigger>
-                              </TabsList>
-                            </div>
-                          </Tabs>
-
-                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
-                            <Input
-                              value={analyticsSearchQuery}
-                              onChange={(event) =>
-                                setAnalyticsSearchQuery(event.target.value)
-                              }
-                              placeholder="Cerca evento, avversario, categoria o nota..."
-                            />
-                            <Select
-                              value={analyticsCategoryFilter}
-                              onValueChange={setAnalyticsCategoryFilter}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Tutte le categorie" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">Tutte le categorie</SelectItem>
-                                {analyticsCategoryOptions.map((categoryLabel) => (
-                                  <SelectItem
-                                    key={`analytics-category-${categoryLabel}`}
-                                    value={categoryLabel}
-                                  >
-                                    {categoryLabel}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Select
-                              value={analyticsContextFilter}
-                              onValueChange={(value) =>
-                                setAnalyticsContextFilter(
-                                  value as "all" | "primary" | "secondary" | "extra",
-                                )
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Tutti i contesti" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">Tutti i contesti</SelectItem>
-                                <SelectItem value="primary">Categoria primaria</SelectItem>
-                                <SelectItem value="secondary">Categoria secondaria</SelectItem>
-                                <SelectItem value="extra">Extra categoria</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <p className="text-xs text-muted-foreground">
-                            {filteredAnalyticsEvents.length} eventi trovati.
-                          </p>
-
-                          {filteredAnalyticsEvents.length > 0 ? (
-                          filteredAnalyticsEvents.map((event) => (
-                            <div
-                              key={event.id}
-                              className="rounded-xl border border-slate-200 bg-white p-4"
-                            >
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="font-medium text-slate-900">
-                                      {event.title}
-                                    </p>
-                                    <Badge
-                                      variant="outline"
-                                      className={
-                                        event.context === "extra"
-                                          ? "border-amber-200 bg-amber-50 text-amber-800"
-                                          : event.context === "secondary"
-                                            ? "border-sky-200 bg-sky-50 text-sky-800"
-                                            : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                      }
-                                    >
-                                      {event.contextLabel}
-                                    </Badge>
-                                  </div>
-                                  <p className="mt-1 text-sm text-muted-foreground">
-                                    {event.type === "training" ? "Allenamento" : "Partita"} • {event.categoryLabel}
-                                  </p>
-                                  {event.notes ? (
-                                    <p className="mt-2 text-sm text-slate-600">
-                                      Note: {event.notes}
-                                    </p>
-                                  ) : null}
-                                </div>
-                                <div className="text-sm text-slate-500 sm:text-right">
-                                  <p>{event.statusLabel}</p>
-                                  <p>
-                                    {event.date
-                                      ? new Date(event.date).toLocaleDateString("it-IT", {
-                                          year: "numeric",
-                                          month: "short",
-                                          day: "numeric",
-                                        })
-                                      : "Data non disponibile"}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          ))
-                          ) : (
-                            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-muted-foreground">
-                              Nessun evento corrisponde ai filtri selezionati.
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-muted-foreground">
-                          Nessuna presenza o convocazione registrata per questo atleta.
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                <AthleteCategoryAnalyticsSection
+                  analytics={athleteCategoryAnalytics}
+                />
               </TabsContent>
             </Tabs>
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
 
@@ -5537,11 +6740,20 @@ export default function AthleteProfilePage() {
         onOpenChange={(open) => {
           setIsJerseyNumberDialogOpen(open);
           if (open) {
+            const selectedEntry =
+              athleteJerseyAssignments.find(
+                (entry) => entry.groupId === defaultJerseyGroupId,
+              ) || athleteJerseyAssignments[0];
+            setJerseyGroupDraft(
+              selectedEntry?.groupId || defaultJerseyGroupId || "",
+            );
             setJerseyNumberDraft(
-              athlete?.jerseyNumber === null ||
-                athlete?.jerseyNumber === undefined
-                ? ""
-                : String(athlete.jerseyNumber),
+              selectedEntry?.number === null ||
+                selectedEntry?.number === undefined
+                ? jerseyNumberTileValue === null
+                  ? ""
+                  : String(jerseyNumberTileValue)
+                : String(selectedEntry.number),
             );
           }
         }}
@@ -5551,6 +6763,40 @@ export default function AthleteProfilePage() {
             <DialogTitle>Numero maglia</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            <div>
+              <Label>Gruppo numerazione</Label>
+              <Select
+                value={jerseyGroupDraft}
+                onValueChange={(value) => {
+                  const existing = athleteJerseyAssignments.find(
+                    (entry) => entry.groupId === value,
+                  );
+                  setJerseyGroupDraft(value);
+                  setJerseyNumberDraft(
+                    existing?.number === null || existing?.number === undefined
+                      ? ""
+                      : String(existing.number),
+                  );
+                }}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Seleziona gruppo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clothingState.numberingGroups.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      {group.name}
+                      {group.season ? ` - ${group.season}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!clothingState.numberingGroups.length ? (
+                <p className="mt-2 text-xs text-amber-700">
+                  Crea prima un gruppo numerazione dalla pagina Abbigliamento.
+                </p>
+              ) : null}
+            </div>
             <div>
               <Label>Numero (max 3 cifre)</Label>
               <Input
@@ -5567,7 +6813,7 @@ export default function AthleteProfilePage() {
               />
               <p className="mt-2 text-xs text-muted-foreground">
                 Il numero viene sincronizzato con la pagina Abbigliamento e deve
-                essere univoco.
+                essere univoco dentro il gruppo selezionato.
               </p>
             </div>
           </div>
@@ -5580,6 +6826,7 @@ export default function AthleteProfilePage() {
             </Button>
             <Button
               onClick={saveJerseyNumber}
+              disabled={!jerseyGroupDraft && clothingState.numberingGroups.length > 0}
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Save className="h-4 w-4 mr-2" />
@@ -5588,6 +6835,446 @@ export default function AthleteProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={showPlanConfirmDialog}
+        onOpenChange={setShowPlanConfirmDialog}
+      >
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Conferma piano / abbonamento</DialogTitle>
+          </DialogHeader>
+          {planConfirmationPlan && planConfirmationDraft ? (
+            <div className="space-y-5 py-2">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label>Data inizio abbonamento</Label>
+                  <Input
+                    type="date"
+                    value={planConfirmationDraft.subscriptionStartDate}
+                    onChange={(event) =>
+                      setPlanConfirmationDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              subscriptionStartDate: event.target.value,
+                            }
+                          : current,
+                      )
+                    }
+                    className="mt-2"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Default da Data iscrizione atleta, modificabile per questo piano.
+                  </p>
+                </div>
+                {planConfirmationPlan.proration.allowManualOverride ? (
+                  <div>
+                    <Label>Importo personalizzato</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={planConfirmationDraft.manualEnrollmentAmount}
+                      onChange={(event) =>
+                        setPlanConfirmationDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                manualEnrollmentAmount: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      placeholder="Lascia vuoto per calcolo automatico"
+                      className="mt-2"
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-lg border p-4">
+                  <p className="font-semibold">Servizi obbligatori</p>
+                  <div className="mt-3 space-y-2">
+                    {planConfirmationRequiredServices.length > 0 ? (
+                      planConfirmationRequiredServices.map((service) => (
+                        <div
+                          key={service.id}
+                          className="flex items-start justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"
+                        >
+                          <div>
+                            <p className="font-medium">{service.name}</p>
+                            {service.description ? (
+                              <p className="text-xs text-muted-foreground">
+                                {service.description}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="font-semibold">
+                            {formatCurrency(service.price)}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Nessun servizio obbligatorio.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <p className="font-semibold">Servizi opzionali</p>
+                  <div className="mt-3 space-y-2">
+                    {planConfirmationOptionalServices.length > 0 ? (
+                      planConfirmationOptionalServices.map((service) => (
+                        <label
+                          key={service.id}
+                          className="flex items-start justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"
+                        >
+                          <span className="flex min-w-0 items-start gap-2">
+                            <Checkbox
+                              checked={planConfirmationDraft.selectedOptionalServiceIds.includes(
+                                service.id,
+                              )}
+                              onCheckedChange={(checked) =>
+                                setPlanConfirmationDraft((current) => {
+                                  if (!current) return current;
+                                  const nextIds = new Set(
+                                    current.selectedOptionalServiceIds,
+                                  );
+                                  if (checked === true) {
+                                    nextIds.add(service.id);
+                                  } else {
+                                    nextIds.delete(service.id);
+                                  }
+                                  return {
+                                    ...current,
+                                    selectedOptionalServiceIds:
+                                      Array.from(nextIds),
+                                  };
+                                })
+                              }
+                            />
+                            <span>
+                              <span className="block font-medium">
+                                {service.name}
+                              </span>
+                              {service.description ? (
+                                <span className="block text-xs text-muted-foreground">
+                                  {service.description}
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                          <span className="font-semibold">
+                            {formatCurrency(service.price)}
+                          </span>
+                        </label>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Nessun servizio opzionale.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs text-muted-foreground">Servizi</p>
+                  <p className="text-lg font-semibold">
+                    {formatCurrency(planConfirmationBaseTotal)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-blue-50 p-3">
+                  <p className="text-xs text-muted-foreground">Pro-rata</p>
+                  <p className="text-lg font-semibold text-blue-700">
+                    {planConfirmationSummary?.prorationResult?.applied
+                      ? formatCurrency(planConfirmationSummary.grossAmount)
+                      : "Non applicato"}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-amber-50 p-3">
+                  <p className="text-xs text-muted-foreground">Sconti</p>
+                  <p className="text-lg font-semibold text-amber-700">
+                    -{formatCurrency(planConfirmationSummary?.totalDiscounts || 0)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-green-50 p-3">
+                  <p className="text-xs text-muted-foreground">Totale finale</p>
+                  <p className="text-lg font-semibold text-green-700">
+                    {formatCurrency(planConfirmationSummary?.expectedTotal || 0)}
+                  </p>
+                </div>
+              </div>
+
+              {planConfirmationSummary?.prorationResult?.warning ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  {planConfirmationSummary.prorationResult.warning}
+                </div>
+              ) : null}
+              {planConfirmationInstallmentPreview.warnings.length > 0 ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {planConfirmationInstallmentPreview.warnings[0]}
+                </div>
+              ) : null}
+
+              <div className="rounded-lg border p-4">
+                <p className="font-semibold">Anteprima pagamenti</p>
+                <div className="mt-3 space-y-2">
+                  {planConfirmationInstallmentPreview.installments.map(
+                    (installment) => (
+                      <div
+                        key={installment.id}
+                        className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[1fr_auto_auto]"
+                      >
+                        <span className="font-medium">{installment.label}</span>
+                        <span>
+                          Scadenza {formatDate(installment.dueDate || "")}
+                        </span>
+                        <span className="font-semibold">
+                          {formatCurrency(installment.amount)}
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPlanConfirmDialog(false);
+                setPlanConfirmationDraft(null);
+              }}
+            >
+              Annulla
+            </Button>
+            <Button
+              onClick={handleContinuePlanConfirmation}
+              disabled={
+                isEnrollmentSaving ||
+                planConfirmationInstallmentPreview.warnings.length > 0
+              }
+            >
+              Continua
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showCreatePaymentsDialog}
+        onOpenChange={setShowCreatePaymentsDialog}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Creare i pagamenti?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Verranno creati{" "}
+              {planConfirmationInstallmentPreview.installments.length} pagamenti
+              in attesa nello storico dell&apos;atleta.
+            </p>
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-slate-50">
+                    <th className="p-2 text-left">Rata</th>
+                    <th className="p-2 text-left">Descrizione</th>
+                    <th className="p-2 text-left">Importo</th>
+                    <th className="p-2 text-left">Scadenza</th>
+                    <th className="p-2 text-left">Stato iniziale</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planConfirmationInstallmentPreview.installments.map(
+                    (installment, index) => (
+                      <tr key={installment.id} className="border-b">
+                        <td className="p-2">{index + 1}</td>
+                        <td className="p-2">
+                          {planConfirmationPlan?.name || "Piano"} -{" "}
+                          {installment.label}
+                        </td>
+                        <td className="p-2">
+                          {formatCurrency(installment.amount)}
+                        </td>
+                        <td className="p-2">
+                          {formatDate(installment.dueDate || "")}
+                        </td>
+                        <td className="p-2">
+                          <Badge className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50">
+                            In attesa
+                          </Badge>
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCreatePaymentsDialog(false)}
+            >
+              Annulla
+            </Button>
+            <Button
+              onClick={confirmEnrollmentPlanAssignment}
+              disabled={isEnrollmentSaving}
+            >
+              {isEnrollmentSaving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Conferma e crea pagamenti
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(editingPayment)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingPayment(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Modifica pagamento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Descrizione</Label>
+              <Input
+                value={paymentEditForm.description}
+                onChange={(event) =>
+                  setPaymentEditForm((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                className="mt-2"
+              />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <Label>Importo</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={paymentEditForm.amount}
+                  onChange={(event) =>
+                    setPaymentEditForm((current) => ({
+                      ...current,
+                      amount: event.target.value,
+                    }))
+                  }
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label>Scadenza</Label>
+                <Input
+                  type="date"
+                  value={paymentEditForm.dueDate}
+                  onChange={(event) =>
+                    setPaymentEditForm((current) => ({
+                      ...current,
+                      dueDate: event.target.value,
+                    }))
+                  }
+                  className="mt-2"
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <Label>Stato</Label>
+                <Select
+                  value={paymentEditForm.status}
+                  onValueChange={(value) =>
+                    setPaymentEditForm((current) => ({
+                      ...current,
+                      status: value,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">In attesa</SelectItem>
+                    <SelectItem value="paid">Pagato</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Metodo</Label>
+                <Input
+                  value={paymentEditForm.method}
+                  onChange={(event) =>
+                    setPaymentEditForm((current) => ({
+                      ...current,
+                      method: event.target.value,
+                    }))
+                  }
+                  className="mt-2"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Note</Label>
+              <Textarea
+                value={paymentEditForm.notes}
+                onChange={(event) =>
+                  setPaymentEditForm((current) => ({
+                    ...current,
+                    notes: event.target.value,
+                  }))
+                }
+                className="mt-2"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingPayment(null)}>
+              Annulla
+            </Button>
+            <Button onClick={requestPaymentUpdate}>Richiedi PIN</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <PinInput
+        isOpen={Boolean(paymentPinAction)}
+        onClose={() => {
+          if (!isPaymentActionSaving) {
+            setPaymentPinAction(null);
+          }
+        }}
+        onSubmit={(pin) => {
+          void executePaymentPinAction(pin);
+        }}
+        title="Conferma con PIN club"
+        description={
+          paymentPinAction?.action === "update"
+            ? "Inserisci il PIN numerico del club per modificare il pagamento."
+            : paymentPinAction?.action === "delete"
+              ? "Inserisci il PIN numerico del club per eliminare il pagamento in attesa."
+              : "Inserisci il PIN numerico del club per annullare il pagamento saldato."
+        }
+      />
 
       {/* Add Payment Modal */}
       <Dialog open={showAddPaymentModal} onOpenChange={setShowAddPaymentModal}>

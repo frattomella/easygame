@@ -1,21 +1,21 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Sidebar from "@/components/dashboard/Sidebar";
+import React, { useEffect, useMemo, useState } from "react";
 import Header from "@/components/dashboard/Header";
+import Sidebar from "@/components/dashboard/Sidebar";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -30,2282 +32,2556 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/use-toast";
+import { apiRequest } from "@/lib/api/client";
 import {
-  Plus,
-  Edit,
-  Trash2,
-  Shirt,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  ChevronsUpDown,
-  Pencil,
-} from "lucide-react";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+  assignmentStatusLabels,
+  canAssignNumber,
+  getAthleteClothingProfile,
+  getAvailableNumbersForGroup,
+  getCompatibleClothingItemsForAthlete,
+  getCompatibleInventoryForAthlete,
+  getCompatibleKitsForAthlete,
+  inventoryStatusLabels,
+  normalizeClubClothingState,
+  serializeClothingAssignment,
+  serializeClothingItem,
+  serializeClothingKit,
+  serializeInventoryStock,
+  serializeJerseyNumberAssignment,
+  serializeNumberingGroup,
+  supplierOrderStatuses,
+  updateClothingAssignmentStatus,
+  type ClothingAssignment,
+  type ClothingAssignmentComponentRequest,
+  type ClothingAssignmentSource,
+  type ClothingAssignmentStatus,
+  type ClothingCatalogItem,
+  type ClothingKit,
+  type ClothingKitComponent,
+  type ClothingNumberMode,
+  type ClothingStockMode,
+  type ClothingState,
+  type InventoryStock,
+  type InventoryUnitStatus,
+  type NumberingGroup,
+} from "@/lib/clothing-inventory-utils";
 import {
   compareAthletesByLastName,
   getAthleteDisplayName,
-  getAthleteFirstName,
-  getAthleteLastName,
 } from "@/lib/athlete-name-utils";
+import { buildClubCategoryOptions } from "@/lib/category-utils";
+import {
+  AlertCircle,
+  Boxes,
+  PackagePlus,
+  Plus,
+  Shirt,
+  Truck,
+} from "lucide-react";
 
-function formatDate(dateString?: string) {
-  if (!dateString) return "-";
-  try {
-    return new Date(dateString).toLocaleDateString("it-IT");
-  } catch (e) {
-    return "-";
-  }
-}
-
-type Product = {
-  id: string;
-  title: string;
-  description?: string;
+type ItemForm = {
+  id?: string;
+  name: string;
+  type: string;
+  description: string;
   code: string;
+  sizes: string;
+  colors: string;
+  variants: string;
+  compatibleCategoryIds: string[];
+  requiresSize: boolean;
+  requiresColor: boolean;
+  requiresNumber: boolean;
+  numberMode: ClothingNumberMode;
+  stockMode: ClothingStockMode;
 };
 
-type InventoryRow = {
-  productId: string;
-  qty: number;
+type KitForm = {
+  id?: string;
+  name: string;
+  description: string;
+  season: string;
+  compatibleCategoryIds: string[];
+  numberingGroupId: string;
+  numberMode: ClothingNumberMode;
+  components: ClothingKitComponent[];
 };
 
-const normalizeKitComponentName = (component: any) => {
-  if (typeof component === "string") {
-    return component.trim();
+type StockForm = {
+  id?: string;
+  stockType: "single_unit" | "bulk_quantity";
+  itemId: string;
+  size: string;
+  color: string;
+  variant: string;
+  number: string;
+  numberingGroupId: string;
+  status: InventoryUnitStatus;
+  quantityAvailable: string;
+  notes: string;
+};
+
+type AssignmentForm = {
+  athleteId: string;
+  targetType: "kit" | "item";
+  kitId: string;
+  itemId: string;
+  source: ClothingAssignmentSource;
+  status: ClothingAssignmentStatus;
+  numberingGroupId: string;
+  sharedNumber: string;
+  components: Record<string, ClothingAssignmentComponentRequest>;
+  notes: string;
+};
+
+const emptyItemForm: ItemForm = {
+  name: "",
+  type: "articolo",
+  description: "",
+  code: "",
+  sizes: "",
+  colors: "",
+  variants: "",
+  compatibleCategoryIds: [],
+  requiresSize: true,
+  requiresColor: false,
+  requiresNumber: false,
+  numberMode: "none",
+  stockMode: "both",
+};
+
+const emptyKitForm: KitForm = {
+  name: "",
+  description: "",
+  season: "",
+  compatibleCategoryIds: [],
+  numberingGroupId: "",
+  numberMode: "shared_by_kit",
+  components: [],
+};
+
+const emptyStockForm: StockForm = {
+  stockType: "single_unit",
+  itemId: "",
+  size: "",
+  color: "",
+  variant: "",
+  number: "",
+  numberingGroupId: "",
+  status: "available",
+  quantityAvailable: "1",
+  notes: "",
+};
+
+const emptyAssignmentForm: AssignmentForm = {
+  athleteId: "",
+  targetType: "kit",
+  kitId: "",
+  itemId: "",
+  source: "inventory",
+  status: "reserved",
+  numberingGroupId: "",
+  sharedNumber: "",
+  components: {},
+  notes: "",
+};
+
+const splitCsv = (value: string) =>
+  value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const newId = (prefix: string) =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}`;
+
+const formatDate = (value?: string) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("it-IT");
+};
+
+const statusBadgeClass = (status: string) => {
+  if (status === "delivered" || status === "received") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
-
-  if (component && typeof component === "object") {
-    return String(
-      component.name ||
-        component.title ||
-        component.component ||
-        component.label ||
-        "",
-    ).trim();
+  if (status === "to_order" || status === "ordered" || status === "in_production") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
   }
-
-  return "";
+  if (status === "cancelled" || status === "damaged" || status === "lost") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+  return "border-blue-200 bg-blue-50 text-blue-700";
 };
 
-const normalizeKitComponents = (components: any) =>
-  Array.isArray(components)
-    ? components
-        .map((component) => normalizeKitComponentName(component))
-        .filter(Boolean)
-    : [];
+const athleteLabel = (athlete: any) => getAthleteDisplayName(athlete) || athlete?.id;
 
-const normalizeKitRecord = (kit: any) => ({
-  ...kit,
-  components: normalizeKitComponents(kit?.components),
-});
+const getAthleteCategoryLabel = (athlete: any) =>
+  athlete?.category_name ||
+  athlete?.data?.categoryName ||
+  athlete?.data?.category ||
+  athlete?.category ||
+  "Senza categoria";
+
+const stockLabel = (stock: InventoryStock) => {
+  const details = [stock.size, stock.color, stock.variant]
+    .filter(Boolean)
+    .join(" / ");
+  if (stock.stockType === "single_unit") {
+    return `${details || "Unità"}${stock.number !== null && stock.number !== undefined ? ` - n.${stock.number}` : ""}`;
+  }
+  return `${details || "Quantità"} - disp. ${stock.quantityAvailable || 0}`;
+};
+
+function MetricCard({
+  title,
+  value,
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Card className="border-slate-200 shadow-sm">
+      <CardContent className="flex items-center gap-4 p-5">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+          {icon}
+        </div>
+        <div>
+          <p className="text-sm text-slate-500">{title}</p>
+          <p className="text-2xl font-semibold text-slate-950">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function ClothingPage() {
   const { activeClub, user } = useAuth();
   const { toast } = useToast();
-
   const [loading, setLoading] = useState(true);
-
-  // Kits
-  const [clothingKits, setClothingKits] = useState<any[]>([]);
-  const [kitAssignments, setKitAssignments] = useState<any[]>([]);
-
-  // People
+  const [state, setState] = useState<ClothingState>(() =>
+    normalizeClubClothingState({}),
+  );
   const [athletes, setAthletes] = useState<any[]>([]);
-  const [staff, setStaff] = useState<any[]>([]);
-
-  // Categories registry
-  const [registeredCategories, setRegisteredCategories] = useState<string[]>(
-    [],
-  );
-
-  // Products + inventory
-  const [products, setProducts] = useState<Product[]>([]);
-  const [inventory, setInventory] = useState<InventoryRow[]>([]);
-
-  // Kit dialog
-  const [isKitDialogOpen, setIsKitDialogOpen] = useState(false);
-  const [editingKit, setEditingKit] = useState<any>(null);
-  const [newKit, setNewKit] = useState<any>({
-    name: "",
-    description: "",
-    price: 0,
-    components: [],
-  });
-
-  // Assignment dialog
-  const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false);
-  const [newAssignment, setNewAssignment] = useState<any>({
-    assigneeId: "",
-    assigneeType: "athlete", // athlete | staff
-    assignmentType: "kit", // kit | components
-    kitId: "",
-    components: [],
-    notes: "",
-  });
-  const [assignmentComboboxOpen, setAssignmentComboboxOpen] = useState(false);
-
-  // Product add
-  const [newProduct, setNewProduct] = useState<any>({
-    title: "",
-    description: "",
-    code: "",
-  });
-  const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
-
-  const [isMissingOpen, setIsMissingOpen] = useState(true);
-  const [isDeliveredOpen, setIsDeliveredOpen] = useState(true);
-  const [jerseyGroups, setJerseyGroups] = useState<
-    { id: string; name: string; categories: string[] }[]
+  const [categoryOptions, setCategoryOptions] = useState<
+    Array<{ id: string; name: string }>
   >([]);
-  const [jerseyAssignments, setJerseyAssignments] = useState<
-    {
-      athleteId: string;
-      groupId: string | null;
-      number: number | null;
-      updatedAt: string;
-    }[]
-  >([]);
-  const [jerseyGroupFilterId, setJerseyGroupFilterId] = useState<string | null>(
-    null,
-  );
-  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
-  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<
-    string | null
-  >(null);
-  const dupWarnRef = useRef<Record<string, number>>({});
-  const [shortcutGroupId, setShortcutGroupId] = useState<string | null>(null);
-  const [groupDraft, setGroupDraft] = useState<{
-    name: string;
-    categories: string[];
-  }>({
+  const [itemDialogOpen, setItemDialogOpen] = useState(false);
+  const [kitDialogOpen, setKitDialogOpen] = useState(false);
+  const [stockDialogOpen, setStockDialogOpen] = useState(false);
+  const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
+  const [kitForm, setKitForm] = useState<KitForm>(emptyKitForm);
+  const [stockForm, setStockForm] = useState<StockForm>(emptyStockForm);
+  const [assignmentForm, setAssignmentForm] =
+    useState<AssignmentForm>(emptyAssignmentForm);
+  const [groupForm, setGroupForm] = useState<NumberingGroup>({
+    id: "",
     name: "",
-    categories: [],
+    categoryIds: [],
+    season: "",
+    minNumber: 0,
+    maxNumber: 99,
+    reservedNumbers: [],
+    assignedNumbers: [],
   });
+  const [inventoryFilter, setInventoryFilter] = useState("all");
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+
+  const loadData = React.useCallback(async () => {
+    if (!activeClub?.id || !user) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { getClubData, getClubAthletes } = await import("@/lib/simplified-db");
+      const [
+        products,
+        kits,
+        inventory,
+        assignments,
+        groups,
+        jerseyAssignments,
+        categories,
+        clubAthletes,
+      ] = await Promise.all([
+        getClubData(activeClub.id, "clothing_products"),
+        getClubData(activeClub.id, "clothing_kits"),
+        getClubData(activeClub.id, "clothing_inventory"),
+        getClubData(activeClub.id, "kit_assignments"),
+        getClubData(activeClub.id, "jersey_groups"),
+        getClubData(activeClub.id, "jersey_assignments"),
+        getClubData(activeClub.id, "categories"),
+        getClubAthletes(activeClub.id),
+      ]);
+
+      const sortedAthletes = Array.isArray(clubAthletes)
+        ? [...clubAthletes].sort(compareAthletesByLastName)
+        : [];
+      setAthletes(sortedAthletes);
+      setCategoryOptions(
+        buildClubCategoryOptions({
+          clubCategories: categories,
+          athletes: sortedAthletes,
+        }),
+      );
+      setState(
+        normalizeClubClothingState({
+          products,
+          kits,
+          inventory,
+          assignments,
+          jerseyGroups: groups,
+          jerseyAssignments,
+        }),
+      );
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error?.message || "Impossibile caricare abbigliamento",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [activeClub?.id, toast, user]);
 
   useEffect(() => {
-    const load = async () => {
-      if (!activeClub?.id || !user) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      try {
-        const { getClubData, getClubAthletes, getClubStaff } = await import(
-          "@/lib/simplified-db"
-        );
+    loadData();
+  }, [loadData]);
 
-        // kits + assignments
-        const kitsData = await getClubData(activeClub.id, "clothing_kits");
-        const assignmentsData = await getClubData(
-          activeClub.id,
-          "kit_assignments",
-        );
+  const athletesById = useMemo(
+    () => new Map(athletes.map((athlete) => [String(athlete.id), athlete])),
+    [athletes],
+  );
 
-        setClothingKits(
-          Array.isArray(kitsData) ? kitsData.map(normalizeKitRecord) : [],
-        );
-        setKitAssignments(
-          Array.isArray(assignmentsData) ? assignmentsData : [],
-        );
+  const itemById = useMemo(
+    () => new Map(state.items.map((item) => [item.id, item])),
+    [state.items],
+  );
 
-        // products + inventory
-        const productsData = await getClubData(
-          activeClub.id,
-          "clothing_products",
-        );
-        const inventoryData = await getClubData(
-          activeClub.id,
-          "clothing_inventory",
-        );
-        setProducts(Array.isArray(productsData) ? productsData : []);
-        setInventory(Array.isArray(inventoryData) ? inventoryData : []);
+  const selectedAssignmentAthlete = athletesById.get(assignmentForm.athleteId);
+  const compatibleKitOptions = useMemo(() => {
+    if (!selectedAssignmentAthlete) {
+      return state.kits
+        .filter((kit) => kit.active)
+        .map((kit) => ({ kit, compatible: true, reason: "" }));
+    }
 
-        // jersey numbers
-        const jerseyGroupsData = await getClubData(
-          activeClub.id,
-          "jersey_groups",
-        );
-        setJerseyGroups(
-          Array.isArray(jerseyGroupsData) ? jerseyGroupsData : [],
-        );
-        const jerseyAssignmentsData = await getClubData(
-          activeClub.id,
-          "jersey_assignments",
-        );
-        setJerseyAssignments(
-          Array.isArray(jerseyAssignmentsData) ? jerseyAssignmentsData : [],
-        );
+    return getCompatibleKitsForAthlete({
+      athlete: selectedAssignmentAthlete,
+      kits: state.kits,
+      categories: categoryOptions,
+    });
+  }, [categoryOptions, selectedAssignmentAthlete, state.kits]);
+  const compatibleItemOptions = useMemo(() => {
+    if (!selectedAssignmentAthlete) {
+      return state.items
+        .filter((item) => item.active)
+        .map((item) => ({ item, compatible: true, reason: "" }));
+    }
 
-        // people
-        try {
-          const ath = await getClubAthletes(activeClub.id);
-          setAthletes(
-            Array.isArray(ath) ? [...ath].sort(compareAthletesByLastName) : [],
-          );
-        } catch (e) {
-          setAthletes([]);
-        }
-        try {
-          const st = await getClubStaff(activeClub.id);
-          setStaff(Array.isArray(st) ? st : []);
-        } catch (e) {
-          setStaff([]);
-        }
-      } catch (e: any) {
-        toast({
-          title: "Errore",
-          description: e?.message || "Impossibile caricare",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [activeClub?.id, user]);
+    return getCompatibleClothingItemsForAthlete({
+      athlete: selectedAssignmentAthlete,
+      items: state.items,
+      categories: categoryOptions,
+    });
+  }, [categoryOptions, selectedAssignmentAthlete, state.items]);
+  const selectedAssignmentKit = state.kits.find(
+    (kit) => kit.id === assignmentForm.kitId,
+  );
+  const selectedAssignmentItem = state.items.find(
+    (item) => item.id === assignmentForm.itemId,
+  );
+  const assignmentTargetComponents = useMemo(() => {
+    if (assignmentForm.targetType === "kit" && selectedAssignmentKit) {
+      return selectedAssignmentKit.components
+        .map((component) => itemById.get(component.itemId))
+        .filter(Boolean) as ClothingCatalogItem[];
+    }
 
-  const peopleOptions = useMemo(() => {
-    const a = [...athletes].sort(compareAthletesByLastName).map((x: any) => ({
-      id: String(x.id || x.athlete_id || x.user_id || "").trim(),
-      type: "athlete",
-      label: getAthleteDisplayName(x) || x.id,
-      firstName: getAthleteFirstName(x),
-      lastName: getAthleteLastName(x),
-      category:
-        x?.category_name ||
-        x?.data?.categoryName ||
-        x?.data?.category ||
-        x?.category ||
-        "Senza categoria",
-      jerseyNumber:
-        x?.jersey_number ||
-        x?.data?.jerseyNumber ||
-        x?.data?.jersey_number ||
-        "",
-    }));
-    const s = staff.map((x: any) => ({
-      id: String(x.id || x.user_id || "").trim(),
-      type: "staff",
-      label: `${x.name || ""} ${x.surname || ""}`.trim() || x.id,
-      firstName: String(x.name || "").trim(),
-      lastName: String(x.surname || x.last_name || "").trim(),
-      category: "Staff",
-      jerseyNumber: "",
-    }));
-    return [...a, ...s]
-      .filter((person: any) => person.id)
-      .map((person: any) => ({
-        ...person,
-        searchValue: [
-          person.firstName,
-          person.lastName,
-          person.label,
-          [person.lastName, person.firstName].filter(Boolean).join(" "),
-          [person.firstName, person.lastName].filter(Boolean).join(" "),
-          person.category,
-          person.jerseyNumber,
-          person.type === "staff" ? "staff" : "atleta",
+    return selectedAssignmentItem ? [selectedAssignmentItem] : [];
+  }, [
+    assignmentForm.targetType,
+    itemById,
+    selectedAssignmentItem,
+    selectedAssignmentKit,
+  ]);
+
+  const filteredAssignments = useMemo(() => {
+    const query = assignmentSearch.trim().toLowerCase();
+    return state.assignments
+      .filter((assignment) => assignment.assigneeType === "athlete")
+      .filter((assignment) => {
+        if (!query) return true;
+        const athlete = athletesById.get(assignment.athleteId);
+        return [
+          athleteLabel(athlete),
+          getAthleteCategoryLabel(athlete),
+          assignment.kitName,
+          assignment.items.map((item) => item.name).join(" "),
+          assignment.status,
         ]
           .filter(Boolean)
-          .join(" "),
-      }))
-      .sort((p, q) => p.label.localeCompare(q.label));
-  }, [athletes, staff]);
-
-  const selectedAssignee = peopleOptions.find(
-    (person) => person.id === newAssignment.assigneeId,
-  );
-
-  const selectAssignmentAssignee = (person: any) => {
-    setNewAssignment({
-      ...newAssignment,
-      assigneeId: person.id,
-      assigneeType: person.type === "staff" ? "staff" : "athlete",
-    });
-    setAssignmentComboboxOpen(false);
-  };
-
-  const normalizeAssignments = (arr: any[]) => {
-    return (arr || []).map((a: any) => {
-      const assigneeId = a.assigneeId || a.athleteId || a.memberId || "";
-      const assigneeType =
-        a.assigneeType ||
-        (a.athleteId ? "athlete" : a.staffId ? "staff" : "member");
-      const createdAt =
-        a.createdAt || a.date || a.created_at || new Date().toISOString();
-      const items =
-        Array.isArray(a.items) && a.items.length
-          ? a.items
-          : (Array.isArray(a.components) ? a.components : []).map((c: any) => ({
-              name: typeof c === "string" ? c : c?.name || "",
-              delivered:
-                a.status === "delivered" || a.status === "completed" || false,
-              deliveredAt: a.deliveredAt || null,
-            }));
-      return { ...a, assigneeId, assigneeType, createdAt, items };
-    });
-  };
-
-  const effectiveAssignment = useMemo(() => {
-    const byAthlete = new Map<
-      string,
-      { groupId: string | null; number: number | null }
-    >();
-    for (const a of athletes) {
-      const athleteId = a.id;
-      const category = a?.data?.category || "Senza Categoria";
-      const existing =
-        jerseyAssignments.find((x: any) => x.athleteId === athleteId) || null;
-      const defaultGroup =
-        jerseyGroups.find((g: any) =>
-          (g.categories || []).includes(category),
-        ) || null;
-      const groupId = existing?.groupId ?? defaultGroup?.id ?? null;
-      const rawNumber = existing?.number ?? a?.data?.jerseyNumber ?? null;
-      const number =
-        rawNumber === null || rawNumber === undefined || rawNumber === ""
-          ? null
-          : Number(rawNumber);
-      byAthlete.set(athleteId, {
-        groupId,
-        number: Number.isNaN(number as any) ? null : (number as any),
-      });
-    }
-    return byAthlete;
-  }, [athletes, jerseyAssignments, jerseyGroups]);
-
-  const athletesForNumbers = useMemo(() => {
-    if (!jerseyGroupFilterId) {
-      return [...athletes].sort(compareAthletesByLastName);
-    }
-    const group = jerseyGroups.find((g: any) => g.id === jerseyGroupFilterId);
-    if (!group) {
-      return [...athletes].sort(compareAthletesByLastName);
-    }
-    const cats = Array.isArray(group.categories) ? group.categories : [];
-    return athletes
-      .filter((a: any) => {
-        const athleteId = a.id;
-        const category = a?.data?.category || "Senza Categoria";
-        const assigned = effectiveAssignment.get(athleteId);
-        if (assigned?.groupId === group.id) return true;
-        return cats.includes(category);
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
       })
-      .sort(compareAthletesByLastName);
-  }, [athletes, jerseyGroups, jerseyGroupFilterId, effectiveAssignment]);
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }, [assignmentSearch, athletesById, state.assignments]);
 
-  const duplicateNumberMap = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const [, v] of Array.from(effectiveAssignment.entries())) {
-      if (!v.groupId || v.number === null || Number.isNaN(v.number)) continue;
-      const key = `${v.groupId}:${v.number}`;
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    return counts;
-  }, [effectiveAssignment]);
-
-  const normalizedAssignments = useMemo(
-    () => normalizeAssignments(kitAssignments),
-    [kitAssignments],
+  const supplierAssignments = useMemo(
+    () =>
+      state.assignments
+        .filter(
+          (assignment) =>
+            assignment.source === "supplier_order" ||
+            supplierOrderStatuses.includes(assignment.status),
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [state.assignments],
   );
 
-  const inventoryQtyByTitle = useMemo(() => {
-    const byId = new Map<string, number>();
-    inventory.forEach((r) => byId.set(r.productId, Number(r.qty || 0)));
-    const byTitle = new Map<string, number>();
-    products.forEach((p) =>
-      byTitle.set(p.title.trim().toLowerCase(), byId.get(p.id) || 0),
-    );
-    return { byId, byTitle };
-  }, [products, inventory]);
-
-  const missingRows = useMemo(() => {
-    const rows: any[] = [];
-    normalizedAssignments.forEach((a: any) => {
-      (a.items || []).forEach((it: any, idx: number) => {
-        if (it.delivered) return;
-        const titleKey = String(it.name || "")
-          .trim()
-          .toLowerCase();
-        const qty = inventoryQtyByTitle.byTitle.get(titleKey) ?? 0;
-        rows.push({
-          assignmentId: a.id,
-          assigneeId: a.assigneeId,
-          assigneeType: a.assigneeType,
-          kitName:
-            a.kitName ||
-            (a.assignmentType === "components" ? "Componenti" : "-"),
-          componentName: it.name,
-          hasStock: qty > 0,
-          createdAt: a.createdAt,
-          notes: a.notes || "",
-          itemIndex: idx,
-        });
-      });
-    });
-    return rows.sort((x, y) =>
-      String(y.createdAt).localeCompare(String(x.createdAt)),
-    );
-  }, [normalizedAssignments, inventoryQtyByTitle]);
-
-  const deliveredRows = useMemo(() => {
-    const rows: any[] = [];
-    normalizedAssignments.forEach((a: any) => {
-      (a.items || []).forEach((it: any) => {
-        if (!it.delivered) return;
-        rows.push({
-          assignmentId: a.id,
-          assigneeId: a.assigneeId,
-          assigneeType: a.assigneeType,
-          kitName:
-            a.kitName ||
-            (a.assignmentType === "components" ? "Componenti" : "-"),
-          componentName: it.name,
-          deliveredAt:
-            it.deliveredAt || a.updatedAt || a.updated_at || a.createdAt,
-          notes: a.notes || "",
-        });
-      });
-    });
-    return rows.sort((x, y) =>
-      String(y.deliveredAt).localeCompare(String(x.deliveredAt)),
-    );
-  }, [normalizedAssignments]);
-
-  const getPersonLabel = (id: string) =>
-    peopleOptions.find((p) => p.id === id)?.label || id;
-
-  const resetKitForm = () => {
-    setEditingKit(null);
-    setNewKit({ name: "", description: "", price: 0, components: [] });
+  const saveClubJson = async (field: string, value: any[]) => {
+    if (!activeClub?.id) throw new Error("Club non trovato");
+    const { updateClubData } = await import("@/lib/simplified-db");
+    await updateClubData(activeClub.id, field, value);
   };
 
-  const toggleKitComponent = (productTitle: string) => {
-    const title = String(productTitle || "").trim();
-    if (!title) return;
-    const current = normalizeKitComponents(newKit.components);
-    const exists = current.some((x: string) => x === title);
-    const next = exists
-      ? current.filter((x: string) => x !== title)
-      : [...current, title];
-    setNewKit({ ...newKit, components: next });
+  const saveItem = async () => {
+    try {
+      if (!itemForm.name.trim()) throw new Error("Nome articolo obbligatorio");
+      const nextItem = {
+        id: itemForm.id || newId("item"),
+        name: itemForm.name.trim(),
+        type: itemForm.type.trim() || "articolo",
+        description: itemForm.description.trim(),
+        code: itemForm.code.trim(),
+        sizes: splitCsv(itemForm.sizes),
+        colors: splitCsv(itemForm.colors),
+        variants: splitCsv(itemForm.variants),
+        compatibleCategoryIds: itemForm.compatibleCategoryIds,
+        requiresSize: itemForm.requiresSize,
+        requiresColor: itemForm.requiresColor,
+        requiresNumber: itemForm.requiresNumber,
+        numberMode: itemForm.requiresNumber ? itemForm.numberMode : "none",
+        stockMode: itemForm.stockMode,
+        active: true,
+      } as ClothingCatalogItem;
+      const next = itemForm.id
+        ? state.items.map((item) => (item.id === itemForm.id ? nextItem : item))
+        : [...state.items, nextItem];
+      await saveClubJson("clothing_products", next.map(serializeClothingItem));
+      setState((current) => ({ ...current, items: next }));
+      setItemDialogOpen(false);
+      setItemForm(emptyItemForm);
+      toast({ title: "Salvato", description: "Articolo aggiornato." });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error?.message || "Impossibile salvare articolo",
+        variant: "destructive",
+      });
+    }
   };
 
   const saveKit = async () => {
     try {
-      if (!activeClub?.id) throw new Error("Club non trovato");
-      const { addClubData, updateClubDataItem } = await import(
-        "@/lib/simplified-db"
-      );
-
-      const payload = {
-        ...newKit,
-        id:
-          editingKit?.id ||
-          (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now())),
-        components: normalizeKitComponents(newKit.components),
+      if (!kitForm.name.trim()) throw new Error("Nome kit obbligatorio");
+      if (!kitForm.components.length)
+        throw new Error("Seleziona almeno un componente");
+      const nextKit: ClothingKit = {
+        id: kitForm.id || newId("kit"),
+        name: kitForm.name.trim(),
+        description: kitForm.description.trim(),
+        season: kitForm.season.trim(),
+        compatibleCategoryIds: kitForm.compatibleCategoryIds,
+        numberingGroupId: kitForm.numberingGroupId || null,
+        numberMode: kitForm.numberMode,
+        components: kitForm.components,
+        active: true,
       };
-
-      if (editingKit) {
-        await updateClubDataItem(
-          activeClub.id,
-          "clothing_kits",
-          payload.id,
-          payload,
-        );
-        setClothingKits((prev) =>
-          prev.map((k) => (k.id === payload.id ? payload : k)),
-        );
-      } else {
-        await addClubData(activeClub.id, "clothing_kits", payload);
-        setClothingKits((prev) => [...prev, payload]);
-      }
-
-      setIsKitDialogOpen(false);
-      resetKitForm();
+      const next = kitForm.id
+        ? state.kits.map((kit) => (kit.id === kitForm.id ? nextKit : kit))
+        : [...state.kits, nextKit];
+      await saveClubJson("clothing_kits", next.map(serializeClothingKit));
+      setState((current) => ({ ...current, kits: next }));
+      setKitDialogOpen(false);
+      setKitForm(emptyKitForm);
       toast({ title: "Salvato", description: "Kit aggiornato." });
-    } catch (e: any) {
+    } catch (error: any) {
       toast({
         title: "Errore",
-        description: e?.message || "Impossibile salvare",
+        description: error?.message || "Impossibile salvare kit",
         variant: "destructive",
       });
     }
   };
 
-  const deleteKit = async (kitId: string) => {
+  const saveStock = async () => {
     try {
-      if (!activeClub?.id) throw new Error("Club non trovato");
-      const { deleteClubDataItem } = await import("@/lib/simplified-db");
-      await deleteClubDataItem(activeClub.id, "clothing_kits", kitId);
-      setClothingKits((prev) => prev.filter((k) => k.id !== kitId));
-      toast({ title: "Eliminato", description: "Kit rimosso." });
-    } catch (e: any) {
+      if (!stockForm.itemId) throw new Error("Seleziona un articolo");
+      const existing = stockForm.id
+        ? state.inventory.find((stock) => stock.id === stockForm.id)
+        : null;
+      const nextStock: InventoryStock = {
+        id: stockForm.id || newId(stockForm.stockType === "single_unit" ? "unit" : "bulk"),
+        stockType: stockForm.stockType,
+        itemId: stockForm.itemId,
+        size: stockForm.size.trim(),
+        color: stockForm.color.trim(),
+        variant: stockForm.variant.trim(),
+        number:
+          stockForm.stockType === "single_unit" && stockForm.number !== ""
+            ? Number(stockForm.number)
+            : null,
+        numberingGroupId: stockForm.numberingGroupId || null,
+        status:
+          stockForm.stockType === "single_unit" ? stockForm.status : "available",
+        quantityAvailable:
+          stockForm.stockType === "bulk_quantity"
+            ? Math.max(0, Number(stockForm.quantityAvailable || 0))
+            : 0,
+        quantityReserved: existing?.quantityReserved || 0,
+        quantityAssigned: existing?.quantityAssigned || 0,
+        athleteId: existing?.athleteId || null,
+        assignmentId: existing?.assignmentId || null,
+        notes: stockForm.notes.trim(),
+      };
+      const next = stockForm.id
+        ? state.inventory.map((stock) =>
+            stock.id === stockForm.id ? nextStock : stock,
+          )
+        : [...state.inventory, nextStock];
+      await saveClubJson("clothing_inventory", next.map(serializeInventoryStock));
+      setState((current) => ({ ...current, inventory: next }));
+      setStockDialogOpen(false);
+      setStockForm(emptyStockForm);
+      toast({ title: "Salvato", description: "Magazzino aggiornato." });
+    } catch (error: any) {
       toast({
         title: "Errore",
-        description: e?.message || "Impossibile eliminare",
+        description: error?.message || "Impossibile salvare stock",
         variant: "destructive",
       });
     }
   };
 
-  const resetAssignmentForm = () => {
-    setNewAssignment({
-      assigneeId: "",
-      assigneeType: "athlete",
-      assignmentType: "kit",
-      kitId: "",
-      components: [],
-      notes: "",
-    });
+  const saveGroup = async () => {
+    try {
+      if (!groupForm.name.trim()) throw new Error("Nome gruppo obbligatorio");
+      if (groupForm.minNumber > groupForm.maxNumber)
+        throw new Error("Intervallo numeri non valido");
+      const nextGroup: NumberingGroup = {
+        ...groupForm,
+        id: groupForm.id || newId("group"),
+        name: groupForm.name.trim(),
+        categoryIds: groupForm.categoryIds,
+        minNumber: Number(groupForm.minNumber),
+        maxNumber: Number(groupForm.maxNumber),
+      };
+      const next = groupForm.id
+        ? state.numberingGroups.map((group) =>
+            group.id === groupForm.id ? nextGroup : group,
+          )
+        : [...state.numberingGroups, nextGroup];
+      await saveClubJson("jersey_groups", next.map(serializeNumberingGroup));
+      setState((current) => ({ ...current, numberingGroups: next }));
+      setGroupDialogOpen(false);
+      setGroupForm({
+        id: "",
+        name: "",
+        categoryIds: [],
+        season: "",
+        minNumber: 0,
+        maxNumber: 99,
+        reservedNumbers: [],
+        assignedNumbers: [],
+      });
+      toast({ title: "Salvato", description: "Gruppo numerazione aggiornato." });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error?.message || "Impossibile salvare gruppo",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const setComponentDraft = (
+    itemId: string,
+    updates: Partial<ClothingAssignmentComponentRequest>,
+  ) => {
+    setAssignmentForm((current) => ({
+      ...current,
+      components: {
+        ...current.components,
+        [itemId]: {
+          itemId,
+          ...(current.components[itemId] || {}),
+          ...updates,
+        },
+      },
+    }));
   };
 
   const createAssignment = async () => {
     try {
       if (!activeClub?.id) throw new Error("Club non trovato");
-      const { addClubData } = await import("@/lib/simplified-db");
+      const components = assignmentTargetComponents.map((item) => ({
+        itemId: item.id,
+        ...(assignmentForm.components[item.id] || {}),
+      }));
 
-      const kit = clothingKits.find((k) => k.id === newAssignment.kitId);
-      const components =
-        newAssignment.assignmentType === "kit"
-          ? normalizeKitComponents(kit?.components)
-          : normalizeKitComponents(newAssignment.components);
+      if (!assignmentForm.athleteId) throw new Error("Seleziona un atleta");
+      if (!components.length) throw new Error("Seleziona kit o articolo");
 
-      const assignment = {
-        id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()),
-        assigneeId: newAssignment.assigneeId,
-        assigneeType: newAssignment.assigneeType,
-        kitId:
-          newAssignment.assignmentType === "kit" ? newAssignment.kitId : null,
-        kitName: kit?.name || null,
-        assignmentType: newAssignment.assignmentType,
-        notes: newAssignment.notes || "",
-        createdAt: new Date().toISOString(),
-        items: (components || []).map((c: any) => ({
-          name: typeof c === "string" ? c : c?.name || "",
-          delivered: false,
-          deliveredAt: null,
-        })),
-      };
+      const response = await apiRequest<{
+        assignment: any;
+        inventory: any[];
+        assignments: any[];
+        jerseyAssignments: any[];
+      }>("/api/clothing/assignments", {
+        method: "POST",
+        body: {
+          organizationId: activeClub.id,
+          athleteId: assignmentForm.athleteId,
+          kitId:
+            assignmentForm.targetType === "kit" ? assignmentForm.kitId : null,
+          itemId:
+            assignmentForm.targetType === "item" ? assignmentForm.itemId : null,
+          source: assignmentForm.source,
+          status: assignmentForm.status,
+          numberingGroupId: assignmentForm.numberingGroupId || null,
+          sharedNumber: assignmentForm.sharedNumber || null,
+          components,
+          notes: assignmentForm.notes,
+        },
+      });
 
-      await addClubData(activeClub.id, "kit_assignments", assignment);
-      setKitAssignments((prev) => [...prev, assignment]);
+      if (response.error) throw new Error(response.error.message);
 
-      setIsAssignmentDialogOpen(false);
-      resetAssignmentForm();
+      setState((current) =>
+        normalizeClubClothingState({
+          products: current.items.map(serializeClothingItem),
+          kits: current.kits.map(serializeClothingKit),
+          inventory: response.data?.inventory || [],
+          assignments: response.data?.assignments || [],
+          jerseyGroups: current.numberingGroups.map(serializeNumberingGroup),
+          jerseyAssignments: response.data?.jerseyAssignments || [],
+        }),
+      );
+      setAssignmentDialogOpen(false);
+      setAssignmentForm(emptyAssignmentForm);
       toast({
         title: "Assegnazione creata",
-        description: "Registrata correttamente.",
+        description: "Stock, numeri e ordini aggiornati.",
       });
-    } catch (e: any) {
+    } catch (error: any) {
       toast({
         title: "Errore",
-        description: e?.message || "Impossibile creare",
+        description: error?.message || "Impossibile creare assegnazione",
         variant: "destructive",
       });
     }
   };
 
-  const addProduct = async () => {
+  const updateAssignmentStatus = async (
+    assignment: ClothingAssignment,
+    nextStatus: ClothingAssignmentStatus,
+  ) => {
     try {
-      if (!activeClub?.id) throw new Error("Club non trovato");
-      const { addClubData } = await import("@/lib/simplified-db");
-      if (!newProduct.title || !newProduct.code)
-        throw new Error("Titolo e codice prodotto sono obbligatori");
-
-      const p: Product = {
-        id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()),
-        title: newProduct.title,
-        description: newProduct.description || "",
-        code: newProduct.code,
-      };
-
-      await addClubData(activeClub.id, "clothing_products", p);
-      setProducts((prev) => [...prev, p]);
-      setNewProduct({ title: "", description: "", code: "" });
-      setIsProductDialogOpen(false);
-      toast({
-        title: "Prodotto aggiunto",
-        description: "Registrato correttamente.",
+      const result = updateClothingAssignmentStatus({
+        assignmentId: assignment.id,
+        nextStatus,
+        state,
       });
-    } catch (e: any) {
-      toast({
-        title: "Errore",
-        description: e?.message || "Impossibile aggiungere",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const updateInventoryQty = async (productId: string, delta: number) => {
-    try {
-      if (!activeClub?.id) throw new Error("Club non trovato");
-      const { updateClubData } = await import("@/lib/simplified-db");
-
-      const next = [...inventory];
-      const idx = next.findIndex((r) => r.productId === productId);
-      if (idx >= 0)
-        next[idx] = {
-          ...next[idx],
-          qty: Math.max(0, (next[idx].qty || 0) + delta),
-        };
-      else next.push({ productId, qty: Math.max(0, delta) });
-
-      await updateClubData(activeClub.id, "clothing_inventory", next);
-      setInventory(next);
-    } catch (e: any) {
-      toast({
-        title: "Errore",
-        description: e?.message || "Impossibile aggiornare magazzino",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const upsertJerseyNumber = async (params: {
-    athlete: any;
-    athleteId: string;
-    groupId: string | null;
-    nextNumber: number | null;
-  }) => {
-    try {
-      if (!activeClub?.id) throw new Error("Club non trovato");
-
-      const { athlete, athleteId, groupId, nextNumber } = params;
-
-      if (
-        nextNumber !== null &&
-        (Number.isNaN(nextNumber) || nextNumber < 0 || nextNumber > 99)
-      ) {
-        return;
-      }
-
-      const shouldWarnDuplicate =
-        nextNumber !== null &&
-        groupId &&
-        jerseyAssignments.some(
-          (x) =>
-            x.athleteId !== athleteId &&
-            x.groupId === groupId &&
-            x.number === nextNumber,
-        );
-
-      const { updateClubData, updateAthlete } = await import(
-        "@/lib/simplified-db"
+      await saveClubJson(
+        "kit_assignments",
+        result.assignments.map(serializeClothingAssignment),
       );
-      const now = new Date().toISOString();
-      const next = [...jerseyAssignments];
-      const idx = next.findIndex((x) => x.athleteId === athleteId);
-
-      const entry = {
-        athleteId,
-        groupId: groupId ?? null,
-        number: nextNumber,
-        updatedAt: now,
-      };
-
-      if (idx >= 0) next[idx] = entry;
-      else next.push(entry);
-
-      await updateClubData(activeClub.id, "jersey_assignments", next);
-      setJerseyAssignments(next);
-
-      if (shouldWarnDuplicate && groupId && nextNumber !== null) {
-        const key = `${groupId}:${nextNumber}`;
-        const now = Date.now();
-        const last = dupWarnRef.current[key] || 0;
-        dupWarnRef.current[key] = now;
-        // avoid toast spam while typing
-        if (now - last > 1200) {
-          setTimeout(() => {
-            toast({
-              title: "Attenzione: doppione",
-              description:
-                "Hai inserito un numero già presente nello stesso gruppo.",
-            });
-          }, 1000);
-        }
-      }
-
-      // sync on athlete data (best-effort)
-      try {
-        await updateAthlete(athleteId, {
-          data: {
-            ...(athlete?.data || {}),
-            jerseyNumber: nextNumber,
-          },
-        });
-      } catch (e) {
-        // ignore: still stored on club
-      }
-    } catch (e: any) {
+      await saveClubJson(
+        "clothing_inventory",
+        result.inventory.map(serializeInventoryStock),
+      );
+      setState((current) => ({
+        ...current,
+        assignments: result.assignments,
+        inventory: result.inventory,
+      }));
+      toast({ title: "Aggiornato", description: "Stato ordine aggiornato." });
+    } catch (error: any) {
       toast({
         title: "Errore",
-        description: e?.message || "Impossibile aggiornare",
+        description: error?.message || "Impossibile aggiornare stato",
         variant: "destructive",
       });
     }
   };
 
-  const assignRandomJerseyNumber = async (params: {
-    athlete: any;
-    athleteId: string;
-    groupId: string;
-  }) => {
-    const { athlete, athleteId, groupId } = params;
+  const inventorySummary = useMemo(() => {
+    const singleAvailable = state.inventory.filter(
+      (stock) =>
+        stock.stockType === "single_unit" && stock.status === "available",
+    ).length;
+    const bulkAvailable = state.inventory.reduce(
+      (total, stock) => total + (stock.quantityAvailable || 0),
+      0,
+    );
+    return { singleAvailable, bulkAvailable };
+  }, [state.inventory]);
 
-    // Numbers in use in this group (excluding current athlete)
-    const used = new Set<number>();
-    jerseyAssignments
-      .filter(
-        (x) =>
-          x.groupId === groupId &&
-          x.athleteId !== athleteId &&
-          x.number !== null,
-      )
-      .forEach((x) => {
-        if (typeof x.number === "number") used.add(x.number);
-      });
+  const renderCategoryCheckboxes = (
+    values: string[],
+    onChange: (next: string[]) => void,
+  ) => (
+    <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
+      {categoryOptions.length ? (
+        categoryOptions.map((category) => {
+          const checked = values.includes(category.id);
+          return (
+            <label key={category.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() =>
+                  onChange(
+                    checked
+                      ? values.filter((value) => value !== category.id)
+                      : [...values, category.id],
+                  )
+                }
+              />
+              {category.name}
+            </label>
+          );
+        })
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Nessuna categoria configurata.
+        </p>
+      )}
+    </div>
+  );
 
-    const available: number[] = [];
-    for (let n = 0; n <= 99; n++) {
-      if (!used.has(n)) available.push(n);
-    }
+  const renderAssignmentComponent = (item: ClothingCatalogItem) => {
+    const draft = assignmentForm.components[item.id] || { itemId: item.id };
+    const athlete = selectedAssignmentAthlete;
+    const compatibleInventory = athlete
+      ? getCompatibleInventoryForAthlete({
+          athlete,
+          item,
+          inventory: state.inventory,
+          size: draft.size,
+          color: draft.color,
+          variant: draft.variant,
+          categories: categoryOptions,
+        })
+      : [];
+    const groupId =
+      String(draft.numberingGroupId || assignmentForm.numberingGroupId || "");
+    const numbers =
+      item.requiresNumber && groupId
+        ? getAvailableNumbersForGroup({
+            groupId,
+            state,
+            athleteId: assignmentForm.athleteId,
+          })
+        : [];
+    const numberCheck =
+      item.requiresNumber && groupId && (draft.number || assignmentForm.sharedNumber)
+        ? canAssignNumber({
+            athleteId: assignmentForm.athleteId,
+            groupId,
+            number:
+              selectedAssignmentKit?.numberMode === "shared_by_kit"
+                ? assignmentForm.sharedNumber
+                : draft.number,
+            state,
+          })
+        : { ok: true, reason: "" };
 
-    if (!available.length) {
-      toast({
-        title: "Nessun numero disponibile",
-        description:
-          "Nel gruppo selezionato sono già occupati tutti i numeri 0-99.",
-        variant: "destructive",
-      });
-      return;
-    }
+    return (
+      <div key={item.id} className="rounded-lg border bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="font-medium text-slate-900">{item.name}</p>
+            <p className="text-xs text-slate-500">
+              {item.requiresNumber ? "Numero richiesto" : "Senza numero"}
+            </p>
+          </div>
+          {!numberCheck.ok ? (
+            <Badge className="border-red-200 bg-red-50 text-red-700">
+              {numberCheck.reason}
+            </Badge>
+          ) : null}
+        </div>
 
-    const picked = available[Math.floor(Math.random() * available.length)];
-    await upsertJerseyNumber({
-      athlete,
-      athleteId,
-      groupId,
-      nextNumber: picked,
-    });
+        {assignmentForm.source === "inventory" ? (
+          <div>
+            <Label>Stock compatibile</Label>
+            <Select
+              value={String(draft.inventoryStockId || "")}
+              onValueChange={(value) => {
+                const stock = compatibleInventory.find(
+                  (entry) => entry.id === value,
+                );
+                setComponentDraft(item.id, {
+                  inventoryStockId: value,
+                  size: stock?.size || draft.size || "",
+                  color: stock?.color || draft.color || "",
+                  variant: stock?.variant || draft.variant || "",
+                  number: stock?.number ?? draft.number ?? null,
+                  numberingGroupId:
+                    stock?.numberingGroupId ||
+                    draft.numberingGroupId ||
+                    assignmentForm.numberingGroupId ||
+                    "",
+                });
+              }}
+            >
+              <SelectTrigger className="mt-2">
+                <SelectValue placeholder="Seleziona stock disponibile" />
+              </SelectTrigger>
+              <SelectContent>
+                {compatibleInventory.map((stock) => (
+                  <SelectItem key={stock.id} value={stock.id}>
+                    {stockLabel(stock)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!compatibleInventory.length ? (
+              <p className="mt-2 text-xs text-amber-700">
+                Nessuno stock disponibile compatibile. Usa “Da ordinare” per
+                creare una richiesta fornitore.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-4">
+            <div>
+              <Label>Taglia</Label>
+              <Select
+                value={String(draft.size || "")}
+                onValueChange={(value) => setComponentDraft(item.id, { size: value })}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Taglia" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(item.sizes.length ? item.sizes : ["Unica"]).map((size) => (
+                    <SelectItem key={size} value={size}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Colore</Label>
+              <Select
+                value={String(draft.color || "")}
+                onValueChange={(value) => setComponentDraft(item.id, { color: value })}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Colore" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(item.colors.length ? item.colors : ["Standard"]).map((color) => (
+                    <SelectItem key={color} value={color}>
+                      {color}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Variante</Label>
+              <Select
+                value={String(draft.variant || "")}
+                onValueChange={(value) =>
+                  setComponentDraft(item.id, { variant: value })
+                }
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Variante" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(item.variants.length ? item.variants : ["Standard"]).map(
+                    (variant) => (
+                      <SelectItem key={variant} value={variant}>
+                        {variant}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            {item.requiresNumber &&
+            selectedAssignmentKit?.numberMode !== "shared_by_kit" ? (
+              <div>
+                <Label>Numero</Label>
+                <Select
+                  value={draft.number === undefined ? "" : String(draft.number)}
+                  onValueChange={(value) =>
+                    setComponentDraft(item.id, { number: value })
+                  }
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Numero" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {numbers.map((option) => {
+                      const occupiedBy = option.occupiedByAthleteId
+                        ? athletesById.get(option.occupiedByAthleteId)
+                        : null;
+                      return (
+                        <SelectItem
+                          key={option.number}
+                          value={String(option.number)}
+                          disabled={!option.available}
+                        >
+                          {option.number}
+                          {!option.available
+                            ? ` occupato${
+                                occupiedBy ? ` da ${athleteLabel(occupiedBy)}` : ""
+                              }`
+                            : ""}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-slate-50">
       <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Abbigliamento" />
-
-        <div className="flex-1 overflow-y-auto p-6">
-          <Tabs defaultValue="assegnazioni" className="space-y-6">
-            <TabsList className="grid grid-cols-3 w-full max-w-[640px]">
-              <TabsTrigger
-                value="assegnazioni"
-                className="flex items-center gap-2"
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">
+                  Abbigliamento e magazzino
+                </h1>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
+                  Gestisci kit, unità fisiche, quantità generiche, numeri e
+                  richieste al fornitore.
+                </p>
+              </div>
+              <Dialog
+                open={assignmentDialogOpen}
+                onOpenChange={setAssignmentDialogOpen}
               >
-                <Shirt className="h-4 w-4" /> Assegnazioni
-              </TabsTrigger>
-              <TabsTrigger
-                value="magazzino"
-                className="flex items-center gap-2"
-              >
-                Magazzino
-              </TabsTrigger>
-              <TabsTrigger value="numeri">Numeri di gioco</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="assegnazioni" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Kit Abbigliamento</CardTitle>
-                      <CardDescription>
-                        Crea e gestisci i kit del club
-                      </CardDescription>
+                <DialogTrigger asChild>
+                  <Button
+                    onClick={() => setAssignmentForm(emptyAssignmentForm)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuova assegnazione
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Nuova assegnazione</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-5">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <Label>Atleta</Label>
+                        <Select
+                          value={assignmentForm.athleteId}
+                          onValueChange={(value) =>
+                            setAssignmentForm((current) => ({
+                              ...current,
+                              athleteId: value,
+                              kitId: "",
+                              itemId: "",
+                              sharedNumber: "",
+                              components: {},
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="mt-2">
+                            <SelectValue placeholder="Seleziona atleta" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {athletes.map((athlete) => (
+                              <SelectItem key={athlete.id} value={athlete.id}>
+                                {athleteLabel(athlete)} -{" "}
+                                {getAthleteCategoryLabel(athlete)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {selectedAssignmentAthlete ? (
+                          <p className="mt-2 text-xs text-slate-500">
+                            Taglie suggerite:{" "}
+                            {Object.values(
+                              getAthleteClothingProfile(selectedAssignmentAthlete).sizes,
+                            )
+                              .filter(Boolean)
+                              .join(" / ") || "nessuna taglia salvata"}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div>
+                        <Label>Origine</Label>
+                        <Select
+                          value={assignmentForm.source}
+                          onValueChange={(value) =>
+                            setAssignmentForm((current) => ({
+                              ...current,
+                              source: value as ClothingAssignmentSource,
+                              status:
+                                value === "supplier_order"
+                                  ? "to_order"
+                                  : current.status,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="mt-2">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="inventory">Da magazzino</SelectItem>
+                            <SelectItem value="supplier_order">
+                              Da ordinare/personalizzare
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <Dialog
-                      open={isKitDialogOpen}
-                      onOpenChange={setIsKitDialogOpen}
-                    >
-                      <>
-                        <DialogTrigger asChild>
-                          <Button
-                            className="bg-blue-600 hover:bg-blue-700"
-                            onClick={resetKitForm}
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div>
+                        <Label>Tipo</Label>
+                        <Select
+                          value={assignmentForm.targetType}
+                          onValueChange={(value) =>
+                            setAssignmentForm((current) => ({
+                              ...current,
+                              targetType: value as "kit" | "item",
+                              kitId: "",
+                              itemId: "",
+                              components: {},
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="mt-2">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="kit">Kit completo</SelectItem>
+                            <SelectItem value="item">Singolo articolo</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {assignmentForm.targetType === "kit" ? (
+                        <div>
+                          <Label>Kit</Label>
+                          <Select
+                            value={assignmentForm.kitId}
+                            onValueChange={(value) =>
+                              setAssignmentForm((current) => {
+                                const kit = state.kits.find((entry) => entry.id === value);
+                                return {
+                                  ...current,
+                                  kitId: value,
+                                  numberingGroupId:
+                                    kit?.numberingGroupId ||
+                                    current.numberingGroupId,
+                                  components: {},
+                                };
+                              })
+                            }
                           >
-                            <Plus className="h-4 w-4 mr-2" /> Nuovo kit
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-                          <DialogHeader>
-                            <DialogTitle>
-                              {editingKit ? "Modifica kit" : "Nuovo kit"}
-                            </DialogTitle>
-                          </DialogHeader>
-
-                          <div className="space-y-4 py-2">
-                            <div>
-                              <Label>Nome</Label>
-                              <Input
-                                className="mt-2"
-                                value={newKit.name}
-                                onChange={(e) =>
-                                  setNewKit({ ...newKit, name: e.target.value })
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Descrizione</Label>
-                              <Textarea
-                                className="mt-2"
-                                value={newKit.description}
-                                onChange={(e) =>
-                                  setNewKit({
-                                    ...newKit,
-                                    description: e.target.value,
-                                  })
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Componenti del kit</Label>
-                              <div className="mt-2 rounded-md border p-3 max-h-64 overflow-y-auto">
-                                {products.length ? (
-                                  <div className="space-y-2">
-                                    {products
-                                      .slice()
-                                      .sort((a, b) =>
-                                        a.title.localeCompare(b.title),
-                                      )
-                                      .map((p) => {
-                                        const checked = (
-                                          newKit.components || []
-                                        ).some(
-                                          (x: any) =>
-                                            String(x).trim().toLowerCase() ===
-                                            p.title.trim().toLowerCase(),
-                                        );
-                                        return (
-                                          <label
-                                            key={p.id}
-                                            className="flex items-center gap-2 text-sm cursor-pointer"
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              checked={checked}
-                                              onChange={() =>
-                                                toggleKitComponent(p.title)
-                                              }
-                                            />
-                                            <span>{p.title}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                              ({p.code})
-                                            </span>
-                                          </label>
-                                        );
-                                      })}
-                                  </div>
-                                ) : (
-                                  <div className="text-sm text-muted-foreground">
-                                    Nessun prodotto in magazzino. Crea prima i
-                                    prodotti nella tab “Magazzino”.
-                                  </div>
-                                )}
-                              </div>
-                              <div className="mt-2 text-xs text-muted-foreground">
-                                Mostra solo i prodotti registrati nel magazzino
-                                del club.
-                              </div>
-                            </div>
-
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                onClick={() => setIsKitDialogOpen(false)}
-                              >
-                                Annulla
-                              </Button>
-                              <Button
-                                className="bg-blue-600 hover:bg-blue-700"
-                                onClick={saveKit}
-                                disabled={!newKit.name}
-                              >
-                                Salva
-                              </Button>
-                            </div>
-                          </div>
-                        </DialogContent>
-                      </>
-                    </Dialog>
-                  </div>
-                </CardHeader>
-
-                <CardContent>
-                  {loading ? (
-                    <div className="text-muted-foreground">Caricamento...</div>
-                  ) : clothingKits.length ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {clothingKits.map((kit) => (
-                        <div key={kit.id} className="p-4 border rounded-lg">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <div className="font-medium">{kit.name}</div>
-                              <div className="text-sm text-muted-foreground">
-                                {kit.description}
-                              </div>
-                            </div>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setEditingKit(kit);
-                                  setNewKit({
-                                    name: kit.name || "",
-                                    description: kit.description || "",
-                                    price: kit.price || 0,
-                                    components: normalizeKitComponents(
-                                      kit.components,
-                                    ),
-                                  });
-                                  setIsKitDialogOpen(true);
-                                }}
-                              >
-                                <Edit className="h-4 w-4 text-blue-600" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => deleteKit(kit.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-600" />
-                              </Button>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            {normalizeKitComponents(kit.components)
-                              .slice(0, 6)
-                              .map((c: string, i: number) => (
-                                <Badge
-                                  key={i}
-                                  variant="secondary"
-                                  className="text-xs"
+                            <SelectTrigger className="mt-2">
+                              <SelectValue placeholder="Seleziona kit" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {compatibleKitOptions.map(({ kit, compatible, reason }) => (
+                                <SelectItem
+                                  key={kit.id}
+                                  value={kit.id}
+                                  disabled={!compatible}
                                 >
-                                  {c}
-                                </Badge>
+                                  {kit.name}
+                                  {!compatible ? ` - ${reason}` : ""}
+                                </SelectItem>
                               ))}
-                            {normalizeKitComponents(kit.components).length > 6 && (
-                              <Badge variant="secondary" className="text-xs">
-                                +{normalizeKitComponents(kit.components).length - 6}
-                              </Badge>
-                            )}
-                          </div>
+                            </SelectContent>
+                          </Select>
                         </div>
-                      ))}
+                      ) : (
+                        <div>
+                          <Label>Articolo</Label>
+                          <Select
+                            value={assignmentForm.itemId}
+                            onValueChange={(value) =>
+                              setAssignmentForm((current) => ({
+                                ...current,
+                                itemId: value,
+                                components: {},
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="mt-2">
+                              <SelectValue placeholder="Seleziona articolo" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {compatibleItemOptions.map(({ item, compatible, reason }) => (
+                                <SelectItem
+                                  key={item.id}
+                                  value={item.id}
+                                  disabled={!compatible}
+                                >
+                                  {item.name}
+                                  {!compatible ? ` - ${reason}` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      <div>
+                        <Label>Stato iniziale</Label>
+                        <Select
+                          value={assignmentForm.status}
+                          disabled={assignmentForm.source === "supplier_order"}
+                          onValueChange={(value) =>
+                            setAssignmentForm((current) => ({
+                              ...current,
+                              status: value as ClothingAssignmentStatus,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="mt-2">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="reserved">Riservato</SelectItem>
+                            <SelectItem value="assigned">Assegnato</SelectItem>
+                            <SelectItem value="delivered">Consegnato</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="text-muted-foreground">
-                      Nessun kit presente
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <CardTitle>Consegne mancanti</CardTitle>
-                      <CardDescription>
-                        Mostra solo articoli non ancora consegnati
-                      </CardDescription>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div>
+                        <Label>Gruppo numerazione</Label>
+                        <Select
+                          value={assignmentForm.numberingGroupId}
+                          onValueChange={(value) =>
+                            setAssignmentForm((current) => ({
+                              ...current,
+                              numberingGroupId: value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="mt-2">
+                            <SelectValue placeholder="Seleziona gruppo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {state.numberingGroups.map((group) => (
+                              <SelectItem key={group.id} value={group.id}>
+                                {group.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {selectedAssignmentKit?.numberMode === "shared_by_kit" ? (
+                        <div>
+                          <Label>Numero condiviso kit</Label>
+                          <Select
+                            value={assignmentForm.sharedNumber}
+                            onValueChange={(value) =>
+                              setAssignmentForm((current) => ({
+                                ...current,
+                                sharedNumber: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="mt-2">
+                              <SelectValue placeholder="Numero" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getAvailableNumbersForGroup({
+                                groupId: assignmentForm.numberingGroupId,
+                                state,
+                                athleteId: assignmentForm.athleteId,
+                              }).map((option) => {
+                                const occupiedBy = option.occupiedByAthleteId
+                                  ? athletesById.get(option.occupiedByAthleteId)
+                                  : null;
+                                return (
+                                  <SelectItem
+                                    key={option.number}
+                                    value={String(option.number)}
+                                    disabled={!option.available}
+                                  >
+                                    {option.number}
+                                    {!option.available
+                                      ? ` occupato${
+                                          occupiedBy
+                                            ? ` da ${athleteLabel(occupiedBy)}`
+                                            : ""
+                                        }`
+                                      : ""}
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
+                      <div>
+                        <Label>Note</Label>
+                        <Input
+                          className="mt-2"
+                          value={assignmentForm.notes}
+                          onChange={(event) =>
+                            setAssignmentForm((current) => ({
+                              ...current,
+                              notes: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <PackagePlus className="h-4 w-4" />
+                        Componenti
+                      </div>
+                      {assignmentTargetComponents.length ? (
+                        assignmentTargetComponents.map(renderAssignmentComponent)
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-500">
+                          Seleziona un kit o un articolo.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border bg-slate-50 p-4 text-sm">
+                      <p className="font-medium">Riepilogo</p>
+                      <p className="mt-1 text-slate-600">
+                        {selectedAssignmentAthlete
+                          ? athleteLabel(selectedAssignmentAthlete)
+                          : "Nessun atleta"}{" "}
+                        -{" "}
+                        {selectedAssignmentKit?.name ||
+                          selectedAssignmentItem?.name ||
+                          "nessun articolo"}{" "}
+                        -{" "}
+                        {assignmentForm.source === "inventory"
+                          ? "da magazzino"
+                          : "da ordinare"}
+                      </p>
+                    </div>
+
+                    <div className="flex justify-end gap-2">
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setIsMissingOpen((v) => !v)}
-                        aria-label={isMissingOpen ? "Chiudi" : "Apri"}
+                        variant="outline"
+                        onClick={() => setAssignmentDialogOpen(false)}
                       >
-                        {isMissingOpen ? (
-                          <ChevronUp className="h-5 w-5" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5" />
-                        )}
+                        Annulla
                       </Button>
-
-                      <Dialog
-                        open={isAssignmentDialogOpen}
-                        onOpenChange={setIsAssignmentDialogOpen}
+                      <Button
+                        onClick={createAssignment}
+                        className="bg-blue-600 hover:bg-blue-700"
                       >
-                        <>
-                          <DialogTrigger asChild>
-                            <Button
-                              className="bg-blue-600 hover:bg-blue-700"
-                              onClick={resetAssignmentForm}
-                            >
-                              <Plus className="h-4 w-4 mr-2" /> Nuova
-                              assegnazione
-                            </Button>
-                          </DialogTrigger>
+                        Conferma assegnazione
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-4">
+              <MetricCard
+                title="Articoli"
+                value={state.items.length}
+                icon={<Shirt className="h-5 w-5" />}
+              />
+              <MetricCard
+                title="Unità disponibili"
+                value={inventorySummary.singleAvailable}
+                icon={<Boxes className="h-5 w-5" />}
+              />
+              <MetricCard
+                title="Quantità disponibili"
+                value={inventorySummary.bulkAvailable}
+                icon={<PackagePlus className="h-5 w-5" />}
+              />
+              <MetricCard
+                title="Ordini fornitore"
+                value={supplierAssignments.length}
+                icon={<Truck className="h-5 w-5" />}
+              />
+            </div>
+
+            <Tabs defaultValue="assegnazioni" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
+                <TabsTrigger value="assegnazioni">Assegnazioni</TabsTrigger>
+                <TabsTrigger value="magazzino">Magazzino</TabsTrigger>
+                <TabsTrigger value="catalogo">Kit e articoli</TabsTrigger>
+                <TabsTrigger value="numerazioni">Numerazioni</TabsTrigger>
+                <TabsTrigger value="ordini">Ordini fornitore</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="assegnazioni" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <CardTitle>Assegnazioni</CardTitle>
+                        <CardDescription>
+                          Kit e articoli assegnati, riservati o da ordinare.
+                        </CardDescription>
+                      </div>
+                      <Input
+                        className="md:w-80"
+                        placeholder="Cerca atleta, categoria, articolo..."
+                        value={assignmentSearch}
+                        onChange={(event) => setAssignmentSearch(event.target.value)}
+                      />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full min-w-[920px] text-sm">
+                        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2">Data</th>
+                            <th className="px-3 py-2">Atleta</th>
+                            <th className="px-3 py-2">Categoria</th>
+                            <th className="px-3 py-2">Kit/Articoli</th>
+                            <th className="px-3 py-2">Origine</th>
+                            <th className="px-3 py-2">Stato</th>
+                            <th className="px-3 py-2">Numeri</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {filteredAssignments.length ? (
+                            filteredAssignments.map((assignment) => {
+                              const athlete = athletesById.get(assignment.athleteId);
+                              return (
+                                <tr key={assignment.id}>
+                                  <td className="px-3 py-3">
+                                    {formatDate(assignment.createdAt)}
+                                  </td>
+                                  <td className="px-3 py-3 font-medium">
+                                    {athleteLabel(athlete)}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {getAthleteCategoryLabel(athlete)}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <div className="font-medium">
+                                      {assignment.kitName || "Articoli"}
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      {assignment.items.map((item) => (
+                                        <Badge key={item.id} variant="secondary">
+                                          {item.name}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {assignment.source === "inventory"
+                                      ? "Magazzino"
+                                      : assignment.source === "supplier_order"
+                                        ? "Fornitore"
+                                        : "Manuale"}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <Badge
+                                      variant="outline"
+                                      className={statusBadgeClass(assignment.status)}
+                                    >
+                                      {assignmentStatusLabels[assignment.status]}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {assignment.items
+                                      .filter((item) => item.number !== null)
+                                      .map((item) => `n.${item.number}`)
+                                      .join(", ") || "-"}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={7}
+                                className="px-3 py-8 text-center text-slate-500"
+                              >
+                                Nessuna assegnazione reale salvata.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="magazzino" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <CardTitle>Magazzino</CardTitle>
+                        <CardDescription>
+                          Unità fisiche numerate e quantità generiche.
+                        </CardDescription>
+                      </div>
+                      <div className="flex gap-2">
+                        <Select
+                          value={inventoryFilter}
+                          onValueChange={setInventoryFilter}
+                        >
+                          <SelectTrigger className="w-44 bg-white">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tutto</SelectItem>
+                            <SelectItem value="single_unit">Unità singole</SelectItem>
+                            <SelectItem value="bulk_quantity">Quantità</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setStockForm({
+                              ...emptyStockForm,
+                              stockType: "single_unit",
+                            });
+                            setStockDialogOpen(true);
+                          }}
+                        >
+                          <Plus className="mr-2 h-4 w-4" /> Unità
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setStockForm({
+                              ...emptyStockForm,
+                              stockType: "bulk_quantity",
+                            });
+                            setStockDialogOpen(true);
+                          }}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          <Plus className="mr-2 h-4 w-4" /> Quantità
+                        </Button>
+                        <Dialog
+                          open={stockDialogOpen}
+                          onOpenChange={setStockDialogOpen}
+                        >
                           <DialogContent>
                             <DialogHeader>
-                              <DialogTitle>Nuova assegnazione</DialogTitle>
+                              <DialogTitle>
+                                {stockForm.id ? "Modifica magazzino" : "Aggiungi magazzino"}
+                              </DialogTitle>
                             </DialogHeader>
-
-                            <div className="space-y-4 py-2">
+                            <div className="grid gap-4">
                               <div>
-                                <Label>Tesserato</Label>
-                                <Popover
-                                  open={assignmentComboboxOpen}
-                                  onOpenChange={setAssignmentComboboxOpen}
-                                >
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      role="combobox"
-                                      aria-expanded={assignmentComboboxOpen}
-                                      className="mt-2 w-full justify-between"
-                                    >
-                                      {selectedAssignee ? (
-                                        <span className="min-w-0 truncate text-left">
-                                          {selectedAssignee.label}
-                                        </span>
-                                      ) : (
-                                        <span className="text-muted-foreground">
-                                          Cerca tesserato...
-                                        </span>
-                                      )}
-                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent
-                                    className="w-[--radix-popover-trigger-width] p-0"
-                                    align="start"
-                                  >
-                                    <Command>
-                                      <CommandInput placeholder="Cerca per nome, cognome, categoria o numero maglia..." />
-                                      <CommandList>
-                                        <CommandEmpty>
-                                          Nessun atleta trovato
-                                        </CommandEmpty>
-                                        <CommandGroup>
-                                          {peopleOptions.map((person) => (
-                                            <CommandItem
-                                              key={`${person.type}-${person.id}`}
-                                              value={`${person.id} ${person.searchValue}`}
-                                              onMouseDown={(event) => {
-                                                event.preventDefault();
-                                                selectAssignmentAssignee(person);
-                                              }}
-                                              onSelect={() =>
-                                                selectAssignmentAssignee(person)
-                                              }
-                                              className="cursor-pointer items-start gap-3 py-3"
-                                            >
-                                              <Check
-                                                className={cn(
-                                                  "mt-1 h-4 w-4",
-                                                  newAssignment.assigneeId ===
-                                                    person.id
-                                                    ? "opacity-100"
-                                                    : "opacity-0",
-                                                )}
-                                              />
-                                              <div className="min-w-0 flex-1">
-                                                <p className="truncate font-medium">
-                                                  {person.label}
-                                                </p>
-                                                <p className="truncate text-xs text-muted-foreground">
-                                                  {person.type === "staff"
-                                                    ? "Staff"
-                                                    : person.category}
-                                                </p>
-                                              </div>
-                                              {person.type === "staff" ? (
-                                                <Badge
-                                                  variant="outline"
-                                                  className="shrink-0"
-                                                >
-                                                  Staff
-                                                </Badge>
-                                              ) : null}
-                                            </CommandItem>
-                                          ))}
-                                        </CommandGroup>
-                                      </CommandList>
-                                    </Command>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
-
-                              <div>
-                                <Label>Tipo assegnazione</Label>
-                                <div className="flex gap-4 mt-2">
-                                  <div className="flex items-center space-x-2">
-                                    <input
-                                      type="radio"
-                                      id="a-kit"
-                                      name="atype"
-                                      value="kit"
-                                      checked={
-                                        newAssignment.assignmentType === "kit"
-                                      }
-                                      onChange={(e) =>
-                                        setNewAssignment({
-                                          ...newAssignment,
-                                          assignmentType: e.target.value,
-                                        })
-                                      }
-                                    />
-                                    <Label htmlFor="a-kit">Kit completo</Label>
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                    <input
-                                      type="radio"
-                                      id="a-comp"
-                                      name="atype"
-                                      value="components"
-                                      checked={
-                                        newAssignment.assignmentType ===
-                                        "components"
-                                      }
-                                      onChange={(e) =>
-                                        setNewAssignment({
-                                          ...newAssignment,
-                                          assignmentType: e.target.value,
-                                        })
-                                      }
-                                    />
-                                    <Label htmlFor="a-comp">
-                                      Componenti singoli
-                                    </Label>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {newAssignment.assignmentType === "kit" ? (
-                                <div>
-                                  <Label>Seleziona kit</Label>
-                                  <Select
-                                    value={newAssignment.kitId}
-                                    onValueChange={(val) =>
-                                      setNewAssignment({
-                                        ...newAssignment,
-                                        kitId: val,
-                                      })
-                                    }
-                                  >
-                                    <SelectTrigger className="mt-2">
-                                      <SelectValue placeholder="Seleziona kit" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {clothingKits.map((k) => (
-                                        <SelectItem key={k.id} value={k.id}>
-                                          {k.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              ) : (
-                                <div>
-                                  <Label>
-                                    Componenti (separati da virgola)
-                                  </Label>
-                                  <Input
-                                    className="mt-2"
-                                    value={(
-                                      newAssignment.components || []
-                                    ).join(", ")}
-                                    onChange={(e) =>
-                                      setNewAssignment({
-                                        ...newAssignment,
-                                        components: e.target.value
-                                          .split(",")
-                                          .map((s) => s.trim())
-                                          .filter(Boolean),
-                                      })
-                                    }
-                                  />
-                                </div>
-                              )}
-
-                              <div>
-                                <Label>Note</Label>
-                                <Textarea
-                                  className="mt-2"
-                                  value={newAssignment.notes}
-                                  onChange={(e) =>
-                                    setNewAssignment({
-                                      ...newAssignment,
-                                      notes: e.target.value,
-                                    })
-                                  }
-                                />
-                              </div>
-
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  onClick={() =>
-                                    setIsAssignmentDialogOpen(false)
-                                  }
-                                >
-                                  Annulla
-                                </Button>
-                                <Button
-                                  className="bg-blue-600 hover:bg-blue-700"
-                                  onClick={createAssignment}
-                                  disabled={
-                                    !newAssignment.assigneeId ||
-                                    (newAssignment.assignmentType === "kit"
-                                      ? !newAssignment.kitId
-                                      : !(newAssignment.components || [])
-                                          .length)
-                                  }
-                                >
-                                  Conferma
-                                </Button>
-                              </div>
-                            </div>
-                          </DialogContent>
-                        </>
-                      </Dialog>
-                    </div>
-                  </div>
-                </CardHeader>
-
-                {isMissingOpen && (
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b">
-                            <th className="text-left p-2">Data</th>
-                            <th className="text-left p-2">Tesserato</th>
-                            <th className="text-left p-2">Kit/Prodotto</th>
-                            <th className="text-left p-2">Articolo</th>
-                            <th className="text-left p-2">Magazzino</th>
-                            <th className="text-left p-2">Note</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {missingRows.length ? (
-                            missingRows.map((r, i) => (
-                              <tr
-                                key={`${r.assignmentId}-${r.itemIndex}-${i}`}
-                                className="border-b"
-                              >
-                                <td className="p-2">
-                                  {formatDate(r.createdAt)}
-                                </td>
-                                <td className="p-2">
-                                  {getPersonLabel(r.assigneeId)}
-                                </td>
-                                <td className="p-2">{r.kitName}</td>
-                                <td className="p-2">{r.componentName}</td>
-                                <td className="p-2">
-                                  <span
-                                    className={`inline-block h-3 w-3 rounded-full ${r.hasStock ? "bg-green-500" : "bg-red-500"}`}
-                                  />
-                                </td>
-                                <td className="p-2">{r.notes || "-"}</td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={6}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessuna consegna mancante
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <CardTitle>Riepilogo consegne effettuate</CardTitle>
-                      <CardDescription>
-                        Storico di tutte le consegne registrate
-                      </CardDescription>
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setIsDeliveredOpen((v) => !v)}
-                      aria-label={isDeliveredOpen ? "Chiudi" : "Apri"}
-                    >
-                      {isDeliveredOpen ? (
-                        <ChevronUp className="h-5 w-5" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5" />
-                      )}
-                    </Button>
-                  </div>
-                </CardHeader>
-
-                {isDeliveredOpen && (
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b">
-                            <th className="text-left p-2">Data consegna</th>
-                            <th className="text-left p-2">Tesserato</th>
-                            <th className="text-left p-2">Kit/Prodotto</th>
-                            <th className="text-left p-2">Articolo</th>
-                            <th className="text-left p-2">Note</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {deliveredRows.length ? (
-                            deliveredRows.map((r, i) => (
-                              <tr
-                                key={`${r.assignmentId}-${i}`}
-                                className="border-b"
-                              >
-                                <td className="p-2">
-                                  {formatDate(r.deliveredAt)}
-                                </td>
-                                <td className="p-2">
-                                  {getPersonLabel(r.assigneeId)}
-                                </td>
-                                <td className="p-2">{r.kitName}</td>
-                                <td className="p-2">{r.componentName}</td>
-                                <td className="p-2">{r.notes || "-"}</td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={5}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessuna consegna registrata
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Scorciatoie</CardTitle>
-                  <CardDescription>
-                    Azioni rapide sul gruppo selezionato.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <div className="w-full sm:w-[320px]">
-                      <Label>Gruppo</Label>
-                      <Select
-                        value={shortcutGroupId || "none"}
-                        onValueChange={(v) =>
-                          setShortcutGroupId(v === "none" ? null : v)
-                        }
-                      >
-                        <SelectTrigger className="mt-2 h-9">
-                          <SelectValue placeholder="Seleziona gruppo" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Seleziona gruppo</SelectItem>
-                          {jerseyGroups.map((g) => (
-                            <SelectItem key={g.id} value={g.id}>
-                              {g.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 sm:mt-7">
-                      <Button
-                        variant="outline"
-                        disabled={!shortcutGroupId}
-                        onClick={async () => {
-                          try {
-                            if (!activeClub?.id)
-                              throw new Error("Club non trovato");
-                            if (!shortcutGroupId) return;
-
-                            const { updateClubData, updateAthlete } =
-                              await import("@/lib/simplified-db");
-
-                            // collect athletes that are effectively in the selected group
-                            const inGroup = athletes.filter((a: any) => {
-                              const v = effectiveAssignment.get(a.id);
-                              return v?.groupId === shortcutGroupId;
-                            });
-
-                            // numbers already used in the group
-                            const used = new Set<number>();
-                            for (const a of inGroup) {
-                              const v = effectiveAssignment.get(a.id);
-                              if (
-                                v?.number !== null &&
-                                typeof v?.number === "number"
-                              ) {
-                                used.add(v.number);
-                              }
-                            }
-
-                            const next = [...jerseyAssignments];
-                            const now = new Date().toISOString();
-
-                            const available: number[] = [];
-                            for (let n = 0; n <= 99; n++)
-                              if (!used.has(n)) available.push(n);
-
-                            // assign to athletes without number
-                            for (const a of inGroup) {
-                              const athleteId = a.id;
-                              const v = effectiveAssignment.get(athleteId);
-                              if (!v || v.number !== null) continue;
-                              if (!available.length) break;
-
-                              const pickIndex = Math.floor(
-                                Math.random() * available.length,
-                              );
-                              const picked = available.splice(pickIndex, 1)[0];
-
-                              const idx = next.findIndex(
-                                (x) => x.athleteId === athleteId,
-                              );
-                              const entry = {
-                                athleteId,
-                                groupId: shortcutGroupId,
-                                number: picked,
-                                updatedAt: now,
-                              };
-
-                              if (idx >= 0) next[idx] = entry;
-                              else next.push(entry);
-
-                              // best-effort sync on athlete data
-                              try {
-                                await updateAthlete(athleteId, {
-                                  data: {
-                                    ...(a?.data || {}),
-                                    jerseyNumber: picked,
-                                  },
-                                });
-                              } catch {}
-                            }
-
-                            await updateClubData(
-                              activeClub.id,
-                              "jersey_assignments",
-                              next,
-                            );
-                            setJerseyAssignments(next);
-
-                            toast({
-                              title: "Numeri assegnati",
-                              description:
-                                "Assegnazione casuale completata (senza doppioni).",
-                            });
-                          } catch (e: any) {
-                            toast({
-                              title: "Errore",
-                              description:
-                                e?.message || "Operazione non riuscita",
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                      >
-                        Random (no doppioni)
-                      </Button>
-
-                      <Button
-                        variant="outline"
-                        disabled={!shortcutGroupId}
-                        onClick={async () => {
-                          try {
-                            if (!activeClub?.id)
-                              throw new Error("Club non trovato");
-                            if (!shortcutGroupId) return;
-
-                            const { updateClubData, updateAthlete } =
-                              await import("@/lib/simplified-db");
-
-                            const next = jerseyAssignments.map((x) =>
-                              x.groupId === shortcutGroupId
-                                ? {
-                                    ...x,
-                                    number: null,
-                                    updatedAt: new Date().toISOString(),
-                                  }
-                                : x,
-                            );
-
-                            await updateClubData(
-                              activeClub.id,
-                              "jersey_assignments",
-                              next,
-                            );
-                            setJerseyAssignments(next);
-
-                            // best-effort: also clear jerseyNumber on athletes in that group
-                            const inGroup = athletes.filter((a: any) => {
-                              const v = effectiveAssignment.get(a.id);
-                              return v?.groupId === shortcutGroupId;
-                            });
-                            await Promise.all(
-                              inGroup.map((a: any) =>
-                                updateAthlete(a.id, {
-                                  data: {
-                                    ...(a?.data || {}),
-                                    jerseyNumber: null,
-                                  },
-                                }).catch(() => null),
-                              ),
-                            );
-
-                            toast({
-                              title: "Numeri rimossi",
-                              description:
-                                "Tutti i numeri del gruppo selezionato sono stati rimossi.",
-                            });
-                          } catch (e: any) {
-                            toast({
-                              title: "Errore",
-                              description:
-                                e?.message || "Operazione non riuscita",
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                      >
-                        Rimuovi tutti i numeri
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-muted-foreground">
-                    Suggerimento: puoi usare questi pulsanti dopo aver definito
-                    i gruppi e collegato gli atleti al gruppo corretto.
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="magazzino" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Prodotti</CardTitle>
-                  <CardDescription>
-                    Aggiungi articoli e gestisci le quantità
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex justify-end">
-                    <Dialog
-                      open={isProductDialogOpen}
-                      onOpenChange={setIsProductDialogOpen}
-                    >
-                      <>
-                        <DialogTrigger asChild>
-                          <Button className="bg-blue-600 hover:bg-blue-700">
-                            <Plus className="h-4 w-4 mr-2" /> Nuovo prodotto
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Nuovo prodotto</DialogTitle>
-                          </DialogHeader>
-
-                          <div className="grid grid-cols-1 gap-4 py-2">
-                            <div>
-                              <Label>Titolo</Label>
-                              <Input
-                                className="mt-2"
-                                value={newProduct.title}
-                                onChange={(e) =>
-                                  setNewProduct({
-                                    ...newProduct,
-                                    title: e.target.value,
-                                  })
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Codice prodotto</Label>
-                              <Input
-                                className="mt-2"
-                                value={newProduct.code}
-                                onChange={(e) =>
-                                  setNewProduct({
-                                    ...newProduct,
-                                    code: e.target.value,
-                                  })
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Descrizione</Label>
-                              <Input
-                                className="mt-2"
-                                value={newProduct.description}
-                                onChange={(e) =>
-                                  setNewProduct({
-                                    ...newProduct,
-                                    description: e.target.value,
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              onClick={() => setIsProductDialogOpen(false)}
-                            >
-                              Annulla
-                            </Button>
-                            <Button
-                              className="bg-blue-600 hover:bg-blue-700"
-                              onClick={addProduct}
-                            >
-                              Salva
-                            </Button>
-                          </div>
-                        </DialogContent>
-                      </>
-                    </Dialog>
-                  </div>
-
-                  <div className="mt-6 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/50">
-                        <tr className="border-b">
-                          <th className="text-left p-2">Titolo</th>
-                          <th className="text-left p-2">Codice</th>
-                          <th className="text-left p-2">Quantità</th>
-                          <th className="text-left p-2">Azioni</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {products.length ? (
-                          products.map((p) => {
-                            const qty =
-                              inventory.find((r) => r.productId === p.id)
-                                ?.qty || 0;
-                            return (
-                              <tr key={p.id} className="border-b">
-                                <td className="p-2">{p.title}</td>
-                                <td className="p-2">{p.code}</td>
-                                <td className="p-2">{qty}</td>
-                                <td className="p-2">
-                                  <div className="flex gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() =>
-                                        updateInventoryQty(p.id, -1)
-                                      }
-                                    >
-                                      -1
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() =>
-                                        updateInventoryQty(p.id, 1)
-                                      }
-                                    >
-                                      +1
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() =>
-                                        updateInventoryQty(p.id, 5)
-                                      }
-                                    >
-                                      +5
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        ) : (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="p-4 text-center text-muted-foreground"
-                            >
-                              Nessun prodotto presente
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="numeri" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <CardTitle>Gruppi</CardTitle>
-                      <CardDescription>
-                        Crea gruppi che collegano più categorie:
-                        all&apos;interno di ogni gruppo puoi gestire le
-                        assegnazioni dei numeri (eventuali doppioni vengono
-                        segnalati).
-                      </CardDescription>
-                    </div>
-                    <Dialog
-                      open={isGroupDialogOpen}
-                      onOpenChange={setIsGroupDialogOpen}
-                    >
-                      <>
-                        <DialogTrigger asChild>
-                          <Button
-                            className="bg-blue-600 hover:bg-blue-700"
-                            onClick={() => {
-                              setEditingGroupId(null);
-                              setGroupDraft({ name: "", categories: [] });
-                            }}
-                          >
-                            <Plus className="h-4 w-4 mr-2" /> Nuovo gruppo
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-xl">
-                          <DialogHeader>
-                            <DialogTitle>
-                              {editingGroupId
-                                ? "Modifica gruppo"
-                                : "Nuovo gruppo"}
-                            </DialogTitle>
-                          </DialogHeader>
-
-                          <div className="space-y-4">
-                            <div>
-                              <Label>Nome gruppo</Label>
-                              <Input
-                                value={groupDraft.name}
-                                onChange={(e) =>
-                                  setGroupDraft((d) => ({
-                                    ...d,
-                                    name: e.target.value,
-                                  }))
-                                }
-                                placeholder="Es. Under17 + Under19"
-                              />
-                            </div>
-
-                            <div>
-                              <Label>Categorie incluse</Label>
-                              <div className="mt-2 max-h-64 overflow-y-auto rounded-md border p-3 space-y-2">
-                                {(registeredCategories.length
-                                  ? registeredCategories
-                                  : Array.from(
-                                      new Set(
-                                        athletes
-                                          .map(
-                                            (a: any) =>
-                                              a?.data?.category ||
-                                              "Senza Categoria",
-                                          )
-                                          .filter(Boolean),
-                                      ),
-                                    )
-                                )
-                                  .slice()
-                                  .sort()
-                                  .map((cat) => {
-                                    const checked =
-                                      groupDraft.categories.includes(cat);
-                                    return (
-                                      <label
-                                        key={cat}
-                                        className="flex items-center gap-2 text-sm cursor-pointer"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          className="h-4 w-4"
-                                          checked={checked}
-                                          onChange={() =>
-                                            setGroupDraft((d) => ({
-                                              ...d,
-                                              categories: checked
-                                                ? d.categories.filter(
-                                                    (x) => x !== cat,
-                                                  )
-                                                : [...d.categories, cat],
-                                            }))
-                                          }
-                                        />
-                                        <span>{cat}</span>
-                                      </label>
-                                    );
-                                  })}
-                                {!athletes?.length && (
-                                  <div className="text-sm text-muted-foreground">
-                                    Nessuna categoria trovata (aggiungi prima
-                                    degli atleti)
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex justify-end gap-2 mt-4">
-                            <Button
-                              variant="outline"
-                              onClick={() => setIsGroupDialogOpen(false)}
-                            >
-                              Annulla
-                            </Button>
-                            <Button
-                              onClick={async () => {
-                                try {
-                                  if (!activeClub?.id)
-                                    throw new Error("Club non trovato");
-                                  if (!groupDraft.name.trim())
-                                    throw new Error("Inserisci un nome gruppo");
-                                  if (groupDraft.categories.length < 1)
-                                    throw new Error(
-                                      "Seleziona almeno una categoria",
-                                    );
-
-                                  const { updateClubData } = await import(
-                                    "@/lib/simplified-db"
-                                  );
-                                  const now = new Date().toISOString();
-                                  const next = [...jerseyGroups];
-
-                                  if (editingGroupId) {
-                                    const idx = next.findIndex(
-                                      (g) => g.id === editingGroupId,
-                                    );
-                                    if (idx >= 0)
-                                      next[idx] = {
-                                        ...next[idx],
-                                        name: groupDraft.name.trim(),
-                                        categories: Array.from(
-                                          new Set(groupDraft.categories),
-                                        ),
-                                      };
-                                  } else {
-                                    next.push({
-                                      id: crypto?.randomUUID
-                                        ? crypto.randomUUID()
-                                        : String(Date.now()),
-                                      name: groupDraft.name.trim(),
-                                      categories: Array.from(
-                                        new Set(groupDraft.categories),
-                                      ),
-                                    });
-                                  }
-
-                                  await updateClubData(
-                                    activeClub.id,
-                                    "jersey_groups",
-                                    next,
-                                  );
-                                  setJerseyGroups(next);
-                                  setIsGroupDialogOpen(false);
-                                  setEditingGroupId(null);
-                                  toast({
-                                    title: "Salvato",
-                                    description: "Gruppo aggiornato",
-                                  });
-                                } catch (e: any) {
-                                  toast({
-                                    title: "Errore",
-                                    description:
-                                      e?.message || "Impossibile salvare",
-                                    variant: "destructive",
-                                  });
-                                }
-                              }}
-                            >
-                              {editingGroupId ? "Aggiorna" : "Salva"}
-                            </Button>
-                          </div>
-                        </DialogContent>
-                      </>
-                    </Dialog>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="space-y-4">
-                  {jerseyGroups.length ? (
-                    <div className="space-y-3">
-                      {jerseyGroups.map((g) => (
-                        <div
-                          key={g.id}
-                          className="rounded-md border p-3 flex items-start justify-between gap-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-medium">{g.name}</div>
-                            <div className="text-sm text-muted-foreground mt-1 flex flex-wrap gap-1">
-                              {g.categories?.map((c: string) => (
-                                <Badge
-                                  key={c}
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  {c}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setConfirmDeleteGroupId(null);
-                                setEditingGroupId(g.id);
-                                setGroupDraft({
-                                  name: g.name,
-                                  categories: g.categories || [],
-                                });
-                                setIsGroupDialogOpen(true);
-                              }}
-                              aria-label="Modifica gruppo"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            {confirmDeleteGroupId === g.id ? (
-                              <>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={async () => {
-                                    try {
-                                      if (!activeClub?.id)
-                                        throw new Error("Club non trovato");
-                                      const { updateClubData } = await import(
-                                        "@/lib/simplified-db"
-                                      );
-                                      const nextGroups = jerseyGroups.filter(
-                                        (x) => x.id !== g.id,
-                                      );
-                                      const nextAssignments =
-                                        jerseyAssignments.map((a) =>
-                                          a.groupId === g.id
-                                            ? { ...a, groupId: null }
-                                            : a,
-                                        );
-                                      await updateClubData(
-                                        activeClub.id,
-                                        "jersey_groups",
-                                        nextGroups,
-                                      );
-                                      await updateClubData(
-                                        activeClub.id,
-                                        "jersey_assignments",
-                                        nextAssignments,
-                                      );
-                                      setJerseyGroups(nextGroups);
-                                      setJerseyAssignments(nextAssignments);
-                                      setConfirmDeleteGroupId(null);
-                                      toast({
-                                        title: "Eliminato",
-                                        description: "Gruppo rimosso",
-                                      });
-                                    } catch (e: any) {
-                                      toast({
-                                        title: "Errore",
-                                        description:
-                                          e?.message || "Impossibile eliminare",
-                                        variant: "destructive",
-                                      });
-                                    }
-                                  }}
-                                >
-                                  Conferma
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setConfirmDeleteGroupId(null)}
-                                >
-                                  Annulla
-                                </Button>
-                              </>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setConfirmDeleteGroupId(g.id)}
-                                aria-label="Elimina gruppo"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">
-                      Nessun gruppo creato. Crea un gruppo per iniziare.
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Assegnazione numeri</CardTitle>
-                  <CardDescription>
-                    Assegna un numero a ogni atleta. I doppioni sono consentiti,
-                    ma vengono segnalati.
-                  </CardDescription>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <div className="text-sm text-muted-foreground">
-                      Visualizzazione
-                    </div>
-                    <Select
-                      value={jerseyGroupFilterId ?? "all"}
-                      onValueChange={(v) =>
-                        setJerseyGroupFilterId(v === "all" ? null : v)
-                      }
-                    >
-                      <SelectTrigger className="w-[260px]">
-                        <SelectValue placeholder="Tutti i gruppi" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Tutti i gruppi</SelectItem>
-                        {jerseyGroups.map((g: any) => (
-                          <SelectItem key={g.id} value={g.id}>
-                            {g.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-
-                    {jerseyGroupFilterId && (
-                      <div className="text-xs text-muted-foreground">
-                        Mostro solo gli atleti appartenenti al gruppo (per
-                        categoria) o già assegnati a quel gruppo.
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left border-b">
-                          <th className="py-2 pr-3">Atleta</th>
-                          <th className="py-2 pr-3">Categoria</th>
-                          <th className="py-2 pr-3">Gruppo</th>
-                          <th className="py-2 pr-3 w-[160px]">Numero</th>
-                          <th className="py-2 pr-3 w-[160px]">Azioni</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {athletesForNumbers.map((a: any) => {
-                          const athleteId = a.id;
-                          const category =
-                            a?.data?.category || "Senza Categoria";
-                          const existing =
-                            jerseyAssignments.find(
-                              (x) => x.athleteId === athleteId,
-                            ) || null;
-
-                          const defaultGroup =
-                            jerseyGroups.find((g) =>
-                              (g.categories || []).includes(category),
-                            ) || null;
-
-                          const groupId =
-                            existing?.groupId ?? defaultGroup?.id ?? null;
-                          const number =
-                            existing?.number ?? a?.data?.jerseyNumber ?? null;
-
-                          return (
-                            <tr key={athleteId} className="border-b">
-                              <td className="py-2 pr-3 whitespace-nowrap">
-                                {getAthleteDisplayName(a)}
-                                {(() => {
-                                  const v = effectiveAssignment.get(athleteId);
-                                  const key =
-                                    v?.groupId && v?.number !== null
-                                      ? `${v.groupId}:${v.number}`
-                                      : "";
-                                  const isDup =
-                                    key &&
-                                    (duplicateNumberMap.get(key) || 0) > 1;
-                                  return isDup ? (
-                                    <span
-                                      title="Numero doppione nel gruppo"
-                                      className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-[11px] font-semibold text-white"
-                                    >
-                                      D
-                                    </span>
-                                  ) : null;
-                                })()}
-                              </td>
-                              <td className="py-2 pr-3">{category}</td>
-                              <td className="py-2 pr-3">
+                                <Label>Tipo magazzino</Label>
                                 <Select
-                                  value={groupId || "none"}
-                                  onValueChange={async (val) => {
-                                    try {
-                                      if (!activeClub?.id)
-                                        throw new Error("Club non trovato");
-                                      const { updateClubData } = await import(
-                                        "@/lib/simplified-db"
-                                      );
-                                      const next = [...jerseyAssignments];
-                                      const idx = next.findIndex(
-                                        (x) => x.athleteId === athleteId,
-                                      );
-                                      const now = new Date().toISOString();
-                                      const nextGroupId =
-                                        val === "none" ? null : val;
-
-                                      if (idx >= 0) {
-                                        next[idx] = {
-                                          ...next[idx],
-                                          groupId: nextGroupId,
-                                          updatedAt: now,
-                                        };
-                                      } else {
-                                        next.push({
-                                          athleteId,
-                                          groupId: nextGroupId,
-                                          number: number
-                                            ? Number(number)
-                                            : null,
-                                          updatedAt: now,
-                                        });
-                                      }
-
-                                      await updateClubData(
-                                        activeClub.id,
-                                        "jersey_assignments",
-                                        next,
-                                      );
-                                      setJerseyAssignments(next);
-                                    } catch (e: any) {
-                                      toast({
-                                        title: "Errore",
-                                        description:
-                                          e?.message ||
-                                          "Impossibile aggiornare",
-                                        variant: "destructive",
-                                      });
-                                    }
-                                  }}
+                                  value={stockForm.stockType}
+                                  onValueChange={(value) =>
+                                    setStockForm((current) => ({
+                                      ...current,
+                                      stockType: value as "single_unit" | "bulk_quantity",
+                                    }))
+                                  }
                                 >
-                                  <SelectTrigger className="h-9 w-[240px]">
-                                    <SelectValue placeholder="Seleziona gruppo" />
+                                  <SelectTrigger className="mt-2">
+                                    <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="none">
-                                      Nessun gruppo
+                                    <SelectItem value="single_unit">
+                                      Unità singola
                                     </SelectItem>
-                                    {jerseyGroups.map((g) => (
-                                      <SelectItem key={g.id} value={g.id}>
-                                        {g.name}
+                                    <SelectItem value="bulk_quantity">
+                                      Quantità generica
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label>Articolo</Label>
+                                <Select
+                                  value={stockForm.itemId}
+                                  onValueChange={(value) =>
+                                    setStockForm((current) => ({
+                                      ...current,
+                                      itemId: value,
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger className="mt-2">
+                                    <SelectValue placeholder="Seleziona articolo" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {state.items.map((item) => (
+                                      <SelectItem key={item.id} value={item.id}>
+                                        {item.name}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
                                 </Select>
-                              </td>
-                              <td className="py-2 pr-3">
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-3">
                                 <Input
-                                  type="number"
-                                  min={0}
-                                  max={99}
-                                  className="h-9 w-[120px]"
-                                  value={number ?? ""}
-                                  onChange={async (e) => {
-                                    const raw = e.target.value;
-                                    const nextNumber =
-                                      raw === "" ? null : Number(raw);
-                                    await upsertJerseyNumber({
-                                      athlete: a,
-                                      athleteId,
-                                      groupId: groupId ?? null,
-                                      nextNumber,
-                                    });
-                                  }}
-                                  placeholder="0-99"
+                                  placeholder="Taglia"
+                                  value={stockForm.size}
+                                  onChange={(event) =>
+                                    setStockForm((current) => ({
+                                      ...current,
+                                      size: event.target.value,
+                                    }))
+                                  }
                                 />
-                              </td>
-                              <td className="py-2 pr-3">
-                                {groupId &&
-                                (number === null ||
-                                  number === undefined ||
-                                  number === "") ? (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      assignRandomJerseyNumber({
-                                        athlete: a,
-                                        athleteId,
-                                        groupId,
-                                      })
+                                <Input
+                                  placeholder="Colore"
+                                  value={stockForm.color}
+                                  onChange={(event) =>
+                                    setStockForm((current) => ({
+                                      ...current,
+                                      color: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <Input
+                                  placeholder="Variante"
+                                  value={stockForm.variant}
+                                  onChange={(event) =>
+                                    setStockForm((current) => ({
+                                      ...current,
+                                      variant: event.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                              {stockForm.stockType === "single_unit" ? (
+                                <div className="grid gap-3 md:grid-cols-3">
+                                  <Input
+                                    type="number"
+                                    placeholder="Numero"
+                                    value={stockForm.number}
+                                    onChange={(event) =>
+                                      setStockForm((current) => ({
+                                        ...current,
+                                        number: event.target.value,
+                                      }))
+                                    }
+                                  />
+                                  <Select
+                                    value={stockForm.numberingGroupId}
+                                    onValueChange={(value) =>
+                                      setStockForm((current) => ({
+                                        ...current,
+                                        numberingGroupId: value,
+                                      }))
                                     }
                                   >
-                                    Casuale
-                                  </Button>
-                                ) : null}
-                              </td>
-                            </tr>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Gruppo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {state.numberingGroups.map((group) => (
+                                        <SelectItem key={group.id} value={group.id}>
+                                          {group.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Select
+                                    value={stockForm.status}
+                                    onValueChange={(value) =>
+                                      setStockForm((current) => ({
+                                        ...current,
+                                        status: value as InventoryUnitStatus,
+                                      }))
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {Object.entries(inventoryStatusLabels).map(
+                                        ([value, label]) => (
+                                          <SelectItem key={value} value={value}>
+                                            {label}
+                                          </SelectItem>
+                                        ),
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              ) : (
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  placeholder="Quantità disponibile"
+                                  value={stockForm.quantityAvailable}
+                                  onChange={(event) =>
+                                    setStockForm((current) => ({
+                                      ...current,
+                                      quantityAvailable: event.target.value,
+                                    }))
+                                  }
+                                />
+                              )}
+                              <Textarea
+                                placeholder="Note"
+                                value={stockForm.notes}
+                                onChange={(event) =>
+                                  setStockForm((current) => ({
+                                    ...current,
+                                    notes: event.target.value,
+                                  }))
+                                }
+                              />
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setStockDialogOpen(false)}
+                                >
+                                  Annulla
+                                </Button>
+                                <Button onClick={saveStock}>Salva</Button>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {state.inventory
+                        .filter(
+                          (stock) =>
+                            inventoryFilter === "all" ||
+                            stock.stockType === inventoryFilter,
+                        )
+                        .map((stock) => {
+                          const item = itemById.get(stock.itemId);
+                          return (
+                            <div
+                              key={stock.id}
+                              className="rounded-lg border bg-white p-4"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="font-medium">
+                                    {item?.name || stock.itemId}
+                                  </p>
+                                  <p className="text-sm text-slate-500">
+                                    {stockLabel(stock)}
+                                  </p>
+                                </div>
+                                <Badge
+                                  variant="outline"
+                                  className={statusBadgeClass(stock.status || "available")}
+                                >
+                                  {stock.stockType === "bulk_quantity"
+                                    ? "Quantità"
+                                    : inventoryStatusLabels[
+                                        stock.status || "available"
+                                      ]}
+                                </Badge>
+                              </div>
+                              <p className="mt-3 text-xs text-slate-500">
+                                {stock.notes || "Nessuna nota"}
+                              </p>
+                              <div className="mt-4 flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={
+                                    stock.stockType === "single_unit"
+                                      ? stock.status !== "available"
+                                      : (stock.quantityAvailable || 0) <= 0
+                                  }
+                                  onClick={() => {
+                                    setAssignmentForm({
+                                      ...emptyAssignmentForm,
+                                      targetType: "item",
+                                      itemId: stock.itemId,
+                                      source: "inventory",
+                                      status: "reserved",
+                                      numberingGroupId:
+                                        stock.numberingGroupId || "",
+                                      components: {
+                                        [stock.itemId]: {
+                                          itemId: stock.itemId,
+                                          inventoryStockId: stock.id,
+                                          size: stock.size || "",
+                                          color: stock.color || "",
+                                          variant: stock.variant || "",
+                                          number: stock.number ?? null,
+                                          numberingGroupId:
+                                            stock.numberingGroupId || "",
+                                        },
+                                      },
+                                    });
+                                    setAssignmentDialogOpen(true);
+                                  }}
+                                >
+                                  Assegna
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setStockForm({
+                                      id: stock.id,
+                                      stockType: stock.stockType,
+                                      itemId: stock.itemId,
+                                      size: stock.size || "",
+                                      color: stock.color || "",
+                                      variant: stock.variant || "",
+                                      number:
+                                        stock.number === null ||
+                                        stock.number === undefined
+                                          ? ""
+                                          : String(stock.number),
+                                      numberingGroupId:
+                                        stock.numberingGroupId || "",
+                                      status: stock.status || "available",
+                                      quantityAvailable: String(
+                                        stock.quantityAvailable || 0,
+                                      ),
+                                      notes: stock.notes || "",
+                                    });
+                                    setStockDialogOpen(true);
+                                  }}
+                                >
+                                  Modifica
+                                </Button>
+                              </div>
+                            </div>
                           );
                         })}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
+                      {!state.inventory.length ? (
+                        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
+                          Nessun magazzino registrato.
+                        </div>
+                      ) : null}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="catalogo" className="space-y-4">
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>Articoli</CardTitle>
+                          <CardDescription>
+                            Catalogo configurabile con taglie, colori e numeri.
+                          </CardDescription>
+                        </div>
+                        <Dialog
+                          open={itemDialogOpen}
+                          onOpenChange={setItemDialogOpen}
+                        >
+                          <DialogTrigger asChild>
+                            <Button onClick={() => setItemForm(emptyItemForm)}>
+                              <Plus className="mr-2 h-4 w-4" /> Articolo
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>Articolo</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <Input
+                                placeholder="Nome"
+                                value={itemForm.name}
+                                onChange={(event) =>
+                                  setItemForm((current) => ({
+                                    ...current,
+                                    name: event.target.value,
+                                  }))
+                                }
+                              />
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <Input
+                                  placeholder="Tipo"
+                                  value={itemForm.type}
+                                  onChange={(event) =>
+                                    setItemForm((current) => ({
+                                      ...current,
+                                      type: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <Input
+                                  placeholder="Codice"
+                                  value={itemForm.code}
+                                  onChange={(event) =>
+                                    setItemForm((current) => ({
+                                      ...current,
+                                      code: event.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <Textarea
+                                placeholder="Descrizione"
+                                value={itemForm.description}
+                                onChange={(event) =>
+                                  setItemForm((current) => ({
+                                    ...current,
+                                    description: event.target.value,
+                                  }))
+                                }
+                              />
+                              <Input
+                                placeholder="Taglie separate da virgola"
+                                value={itemForm.sizes}
+                                onChange={(event) =>
+                                  setItemForm((current) => ({
+                                    ...current,
+                                    sizes: event.target.value,
+                                  }))
+                                }
+                              />
+                              <Input
+                                placeholder="Colori separati da virgola"
+                                value={itemForm.colors}
+                                onChange={(event) =>
+                                  setItemForm((current) => ({
+                                    ...current,
+                                    colors: event.target.value,
+                                  }))
+                                }
+                              />
+                              <Input
+                                placeholder="Varianti separate da virgola"
+                                value={itemForm.variants}
+                                onChange={(event) =>
+                                  setItemForm((current) => ({
+                                    ...current,
+                                    variants: event.target.value,
+                                  }))
+                                }
+                              />
+                              <div>
+                                <Label>Categorie compatibili</Label>
+                                <div className="mt-2">
+                                  {renderCategoryCheckboxes(
+                                    itemForm.compatibleCategoryIds,
+                                    (next) =>
+                                      setItemForm((current) => ({
+                                        ...current,
+                                        compatibleCategoryIds: next,
+                                      })),
+                                  )}
+                                </div>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <label className="flex items-center gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={itemForm.requiresSize}
+                                    onChange={(event) =>
+                                      setItemForm((current) => ({
+                                        ...current,
+                                        requiresSize: event.target.checked,
+                                      }))
+                                    }
+                                  />
+                                  Richiede taglia
+                                </label>
+                                <label className="flex items-center gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={itemForm.requiresColor}
+                                    onChange={(event) =>
+                                      setItemForm((current) => ({
+                                        ...current,
+                                        requiresColor: event.target.checked,
+                                      }))
+                                    }
+                                  />
+                                  Richiede colore
+                                </label>
+                                <label className="flex items-center gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={itemForm.requiresNumber}
+                                    onChange={(event) =>
+                                      setItemForm((current) => ({
+                                        ...current,
+                                        requiresNumber: event.target.checked,
+                                        numberMode: event.target.checked
+                                          ? "per_item"
+                                          : "none",
+                                      }))
+                                    }
+                                  />
+                                  Richiede numero
+                                </label>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <Select
+                                  value={itemForm.numberMode}
+                                  onValueChange={(value) =>
+                                    setItemForm((current) => ({
+                                      ...current,
+                                      numberMode: value as ClothingNumberMode,
+                                      requiresNumber: value !== "none",
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">Nessun numero</SelectItem>
+                                    <SelectItem value="shared_by_kit">
+                                      Condiviso nel kit
+                                    </SelectItem>
+                                    <SelectItem value="per_item">
+                                      Numero per articolo
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Select
+                                  value={itemForm.stockMode}
+                                  onValueChange={(value) =>
+                                    setItemForm((current) => ({
+                                      ...current,
+                                      stockMode: value as ClothingStockMode,
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="single_unit">
+                                      Unità singola
+                                    </SelectItem>
+                                    <SelectItem value="bulk_quantity">
+                                      Quantità generica
+                                    </SelectItem>
+                                    <SelectItem value="both">Entrambi</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setItemDialogOpen(false)}
+                                >
+                                  Annulla
+                                </Button>
+                                <Button onClick={saveItem}>Salva</Button>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {state.items.map((item) => (
+                        <div key={item.id} className="rounded-lg border p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-sm text-slate-500">
+                                {item.type} {item.code ? `- ${item.code}` : ""}
+                              </p>
+                            </div>
+                            <Badge variant="outline">{item.stockMode}</Badge>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {item.sizes.map((size) => (
+                              <Badge key={size} variant="secondary">
+                                {size}
+                              </Badge>
+                            ))}
+                            {item.requiresNumber ? (
+                              <Badge className="border-blue-200 bg-blue-50 text-blue-700">
+                                numero
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <div className="mt-4 flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setItemForm({
+                                  id: item.id,
+                                  name: item.name,
+                                  type: item.type,
+                                  description: item.description || "",
+                                  code: item.code || "",
+                                  sizes: item.sizes.join(", "),
+                                  colors: item.colors.join(", "),
+                                  variants: item.variants.join(", "),
+                                  compatibleCategoryIds:
+                                    item.compatibleCategoryIds,
+                                  requiresSize: item.requiresSize,
+                                  requiresColor: item.requiresColor,
+                                  requiresNumber: item.requiresNumber,
+                                  numberMode: item.numberMode,
+                                  stockMode: item.stockMode,
+                                });
+                                setItemDialogOpen(true);
+                              }}
+                            >
+                              Modifica
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      {!state.items.length ? (
+                        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
+                          Nessun articolo configurato.
+                        </p>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>Kit</CardTitle>
+                          <CardDescription>
+                            Kit composti da più componenti.
+                          </CardDescription>
+                        </div>
+                        <Dialog open={kitDialogOpen} onOpenChange={setKitDialogOpen}>
+                          <DialogTrigger asChild>
+                            <Button onClick={() => setKitForm(emptyKitForm)}>
+                              <Plus className="mr-2 h-4 w-4" /> Kit
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>Kit</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <Input
+                                placeholder="Nome kit"
+                                value={kitForm.name}
+                                onChange={(event) =>
+                                  setKitForm((current) => ({
+                                    ...current,
+                                    name: event.target.value,
+                                  }))
+                                }
+                              />
+                              <Textarea
+                                placeholder="Descrizione"
+                                value={kitForm.description}
+                                onChange={(event) =>
+                                  setKitForm((current) => ({
+                                    ...current,
+                                    description: event.target.value,
+                                  }))
+                                }
+                              />
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <Input
+                                  placeholder="Stagione"
+                                  value={kitForm.season}
+                                  onChange={(event) =>
+                                    setKitForm((current) => ({
+                                      ...current,
+                                      season: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <Select
+                                  value={kitForm.numberMode}
+                                  onValueChange={(value) =>
+                                    setKitForm((current) => ({
+                                      ...current,
+                                      numberMode: value as ClothingNumberMode,
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">Nessun numero</SelectItem>
+                                    <SelectItem value="shared_by_kit">
+                                      Numero condiviso
+                                    </SelectItem>
+                                    <SelectItem value="per_item">
+                                      Numero per articolo
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <Select
+                                value={kitForm.numberingGroupId}
+                                onValueChange={(value) =>
+                                  setKitForm((current) => ({
+                                    ...current,
+                                    numberingGroupId: value,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Gruppo numerazione" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {state.numberingGroups.map((group) => (
+                                    <SelectItem key={group.id} value={group.id}>
+                                      {group.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <div>
+                                <Label>Categorie compatibili</Label>
+                                <div className="mt-2">
+                                  {renderCategoryCheckboxes(
+                                    kitForm.compatibleCategoryIds,
+                                    (next) =>
+                                      setKitForm((current) => ({
+                                        ...current,
+                                        compatibleCategoryIds: next,
+                                      })),
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <Label>Componenti</Label>
+                                <div className="mt-2 space-y-2 rounded-md border p-3">
+                                  {state.items.map((item) => {
+                                    const existing = kitForm.components.find(
+                                      (component) => component.itemId === item.id,
+                                    );
+                                    return (
+                                      <label
+                                        key={item.id}
+                                        className="flex items-center justify-between gap-3 text-sm"
+                                      >
+                                        <span className="flex items-center gap-2">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(existing)}
+                                            onChange={() =>
+                                              setKitForm((current) => ({
+                                                ...current,
+                                                components: existing
+                                                  ? current.components.filter(
+                                                      (component) =>
+                                                        component.itemId !== item.id,
+                                                    )
+                                                  : [
+                                                      ...current.components,
+                                                      {
+                                                        itemId: item.id,
+                                                        name: item.name,
+                                                        required: true,
+                                                        defaultSizeSource:
+                                                          "athlete",
+                                                        requiresNumberOverride:
+                                                          null,
+                                                        sharedKitNumber: true,
+                                                      },
+                                                    ],
+                                              }))
+                                            }
+                                          />
+                                          {item.name}
+                                        </span>
+                                        {existing ? (
+                                          <Badge variant="secondary">
+                                            incluso
+                                          </Badge>
+                                        ) : null}
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setKitDialogOpen(false)}
+                                >
+                                  Annulla
+                                </Button>
+                                <Button onClick={saveKit}>Salva</Button>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {state.kits.map((kit) => (
+                        <div key={kit.id} className="rounded-lg border p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">{kit.name}</p>
+                              <p className="text-sm text-slate-500">
+                                {kit.description || "Nessuna descrizione"}
+                              </p>
+                            </div>
+                            <Badge variant="outline">
+                              {kit.numberMode === "shared_by_kit"
+                                ? "numero condiviso"
+                                : kit.numberMode === "per_item"
+                                  ? "numero per articolo"
+                                  : "senza numero"}
+                            </Badge>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {kit.components.map((component) => (
+                              <Badge key={component.itemId} variant="secondary">
+                                {component.name ||
+                                  itemById.get(component.itemId)?.name ||
+                                component.itemId}
+                              </Badge>
+                            ))}
+                          </div>
+                          <div className="mt-4 flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setKitForm({
+                                  id: kit.id,
+                                  name: kit.name,
+                                  description: kit.description || "",
+                                  season: kit.season || "",
+                                  compatibleCategoryIds:
+                                    kit.compatibleCategoryIds,
+                                  numberingGroupId:
+                                    kit.numberingGroupId || "",
+                                  numberMode: kit.numberMode,
+                                  components: kit.components,
+                                });
+                                setKitDialogOpen(true);
+                              }}
+                            >
+                              Modifica
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      {!state.kits.length ? (
+                        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
+                          Nessun kit configurato.
+                        </p>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="numerazioni" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>Gruppi numerazione</CardTitle>
+                        <CardDescription>
+                          I numeri sono unici solo dentro il gruppo.
+                        </CardDescription>
+                      </div>
+                      <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button
+                            onClick={() =>
+                              setGroupForm({
+                                id: "",
+                                name: "",
+                                categoryIds: [],
+                                season: "",
+                                minNumber: 0,
+                                maxNumber: 99,
+                                reservedNumbers: [],
+                                assignedNumbers: [],
+                              })
+                            }
+                          >
+                            <Plus className="mr-2 h-4 w-4" /> Gruppo
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Gruppo numerazione</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <Input
+                              placeholder="Nome gruppo"
+                              value={groupForm.name}
+                              onChange={(event) =>
+                                setGroupForm((current) => ({
+                                  ...current,
+                                  name: event.target.value,
+                                }))
+                              }
+                            />
+                            <Input
+                              placeholder="Stagione"
+                              value={groupForm.season || ""}
+                              onChange={(event) =>
+                                setGroupForm((current) => ({
+                                  ...current,
+                                  season: event.target.value,
+                                }))
+                              }
+                            />
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <Input
+                                type="number"
+                                value={groupForm.minNumber}
+                                onChange={(event) =>
+                                  setGroupForm((current) => ({
+                                    ...current,
+                                    minNumber: Number(event.target.value),
+                                  }))
+                                }
+                              />
+                              <Input
+                                type="number"
+                                value={groupForm.maxNumber}
+                                onChange={(event) =>
+                                  setGroupForm((current) => ({
+                                    ...current,
+                                    maxNumber: Number(event.target.value),
+                                  }))
+                                }
+                              />
+                            </div>
+                            {renderCategoryCheckboxes(
+                              groupForm.categoryIds,
+                              (next) =>
+                                setGroupForm((current) => ({
+                                  ...current,
+                                  categoryIds: next,
+                                })),
+                            )}
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                onClick={() => setGroupDialogOpen(false)}
+                              >
+                                Annulla
+                              </Button>
+                              <Button onClick={saveGroup}>Salva</Button>
+                            </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 md:grid-cols-2">
+                    {state.numberingGroups.map((group) => {
+                      const used = state.jerseyAssignments.filter(
+                        (entry) =>
+                          entry.groupId === group.id && entry.number !== null,
+                      );
+                      return (
+                        <div key={group.id} className="rounded-lg border p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">{group.name}</p>
+                              <p className="text-sm text-slate-500">
+                                {group.minNumber}-{group.maxNumber}
+                                {group.season ? ` - ${group.season}` : ""}
+                              </p>
+                            </div>
+                            <Badge variant="outline">{used.length} numeri</Badge>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {group.categoryIds.map((categoryId) => (
+                              <Badge key={categoryId} variant="secondary">
+                                {categoryOptions.find((cat) => cat.id === categoryId)
+                                  ?.name || categoryId}
+                              </Badge>
+                            ))}
+                          </div>
+                          <div className="mt-4 flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setGroupForm(group);
+                                setGroupDialogOpen(true);
+                              }}
+                            >
+                              Modifica
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!state.numberingGroups.length ? (
+                      <p className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
+                        Nessun gruppo numerazione configurato.
+                      </p>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="ordini" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Ordini fornitore</CardTitle>
+                    <CardDescription>
+                      Richieste da produrre o personalizzare, derivate dalle
+                      assegnazioni da ordinare.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full min-w-[980px] text-sm">
+                        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2">Atleta</th>
+                            <th className="px-3 py-2">Categoria</th>
+                            <th className="px-3 py-2">Articoli</th>
+                            <th className="px-3 py-2">Taglie</th>
+                            <th className="px-3 py-2">Numeri</th>
+                            <th className="px-3 py-2">Stato</th>
+                            <th className="px-3 py-2">Aggiorna</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {supplierAssignments.length ? (
+                            supplierAssignments.map((assignment) => {
+                              const athlete = athletesById.get(assignment.athleteId);
+                              return (
+                                <tr key={assignment.id}>
+                                  <td className="px-3 py-3 font-medium">
+                                    {athleteLabel(athlete)}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {getAthleteCategoryLabel(athlete)}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {assignment.items
+                                      .map((item) => item.name)
+                                      .join(", ")}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {assignment.items
+                                      .map((item) => item.size)
+                                      .filter(Boolean)
+                                      .join(", ") || "-"}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {assignment.items
+                                      .map((item) =>
+                                        item.number !== null &&
+                                        item.number !== undefined
+                                          ? `n.${item.number}`
+                                          : "",
+                                      )
+                                      .filter(Boolean)
+                                      .join(", ") || "-"}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <Badge
+                                      variant="outline"
+                                      className={statusBadgeClass(assignment.status)}
+                                    >
+                                      {assignmentStatusLabels[assignment.status]}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <Select
+                                      value={assignment.status}
+                                      onValueChange={(value) =>
+                                        updateAssignmentStatus(
+                                          assignment,
+                                          value as ClothingAssignmentStatus,
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="w-44">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {supplierOrderStatuses.map((status) => (
+                                          <SelectItem key={status} value={status}>
+                                            {assignmentStatusLabels[status]}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={7}
+                                className="px-3 py-8 text-center text-slate-500"
+                              >
+                                Nessun ordine fornitore reale.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+
+            {loading ? (
+              <div className="fixed inset-x-0 bottom-4 mx-auto flex w-fit items-center gap-2 rounded-full border bg-white px-4 py-2 text-sm shadow">
+                <AlertCircle className="h-4 w-4 text-blue-600" />
+                Caricamento magazzino...
+              </div>
+            ) : null}
+          </DashboardPageContainer>
+        </main>
       </div>
     </div>
   );

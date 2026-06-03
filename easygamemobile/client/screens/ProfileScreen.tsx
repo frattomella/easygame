@@ -19,7 +19,8 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { user, currentClub, currentRole, logout, clearContext } = useAuthContext();
+  const { user, currentClub, currentRole, logout, clearContext } =
+    useAuthContext();
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
@@ -75,7 +76,10 @@ export default function ProfileScreen() {
                   {currentClub?.name || "Nessun club"}
                 </ThemedText>
                 {currentClub?.categories ? (
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  <ThemedText
+                    type="small"
+                    style={{ color: theme.textSecondary }}
+                  >
                     {currentClub.categories.join(", ")}
                   </ThemedText>
                 ) : null}
@@ -98,10 +102,15 @@ export default function ProfileScreen() {
             IMPOSTAZIONI
           </ThemedText>
           <Card style={styles.settingsCard} noPadding>
-            <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
+            <View
+              style={[styles.settingRow, { borderBottomColor: theme.border }]}
+            >
               <View style={styles.settingLeft}>
                 <View
-                  style={[styles.settingIcon, { backgroundColor: Colors.light.primary }]}
+                  style={[
+                    styles.settingIcon,
+                    { backgroundColor: Colors.light.primary },
+                  ]}
                 >
                   <Ionicons name="notifications" size={18} color="#FFFFFF" />
                 </View>
@@ -110,18 +119,26 @@ export default function ProfileScreen() {
               <Switch
                 value={notificationsEnabled}
                 onValueChange={handleToggleNotifications}
-                trackColor={{ false: theme.backgroundSecondary, true: theme.primary }}
+                trackColor={{
+                  false: theme.backgroundSecondary,
+                  true: theme.primary,
+                }}
                 thumbColor="#FFFFFF"
               />
             </View>
 
             <Pressable
               style={[styles.settingRow, { borderBottomColor: theme.border }]}
-              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+              onPress={() =>
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              }
             >
               <View style={styles.settingLeft}>
                 <View
-                  style={[styles.settingIcon, { backgroundColor: Colors.light.success }]}
+                  style={[
+                    styles.settingIcon,
+                    { backgroundColor: Colors.light.success },
+                  ]}
                 >
                   <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
                 </View>
@@ -136,11 +153,16 @@ export default function ProfileScreen() {
 
             <Pressable
               style={styles.settingRow}
-              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+              onPress={() =>
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              }
             >
               <View style={styles.settingLeft}>
                 <View
-                  style={[styles.settingIcon, { backgroundColor: Colors.light.warning }]}
+                  style={[
+                    styles.settingIcon,
+                    { backgroundColor: Colors.light.warning },
+                  ]}
                 >
                   <Ionicons name="help-circle" size={18} color="#FFFFFF" />
                 </View>

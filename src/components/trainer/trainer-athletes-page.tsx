@@ -21,6 +21,7 @@ import {
   SectionEmptyState,
   formatDate,
 } from "@/components/trainer/trainer-dashboard-shared";
+import { PageHeading } from "@/components/dashboard/page-heading";
 
 export default function TrainerAthletesPage() {
   const { assignedAthletes, permissions } = useTrainerDashboard();
@@ -41,12 +42,7 @@ export default function TrainerAthletesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-          Atleti
-        </h1>
-        <p className="text-gray-600 mt-2">I tuoi atleti.</p>
-      </div>
+      <PageHeading title="Atleti" subtitle="I tuoi atleti." />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-white shadow-md border-0 overflow-hidden">

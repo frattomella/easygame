@@ -307,7 +307,7 @@ export default function TrainerDashboardShell() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_42%),linear-gradient(180deg,#f7fbff_0%,#eef4ff_45%,#f8fafc_100%)] px-4 py-6">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto flex w-full max-w-9xl flex-col gap-6">
         <div className="overflow-hidden rounded-[34px] border border-white/70 bg-white/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] backdrop-blur-xl">
           <div className="flex flex-col gap-5 border-b border-slate-100 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
@@ -319,7 +319,7 @@ export default function TrainerDashboardShell() {
                   <ShieldCheck className="h-3.5 w-3.5" />
                   Dashboard Allenatore
                 </div>
-                <h1 className="text-2xl font-semibold text-slate-900">
+                <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">
                   Bentornato, {trainerProfile?.name || user.user_metadata?.name || "Allenatore"}
                 </h1>
                 <p className="text-sm text-slate-500">

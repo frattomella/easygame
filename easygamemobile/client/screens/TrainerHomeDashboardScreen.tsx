@@ -32,13 +32,7 @@ export default function TrainerHomeDashboardScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation();
   const { theme } = useTheme();
-  const {
-    currentAccess,
-    currentClub,
-    currentRole,
-    trainerPermissions,
-    assignedCategories,
-  } = useAuthContext();
+  const { currentClub, currentRole, trainerPermissions } = useAuthContext();
 
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -84,14 +78,12 @@ export default function TrainerHomeDashboardScreen() {
       icon: "people-outline" as const,
     },
     {
-      label: "Categorie Attive",
-      value:
-        assignedCategories.length || currentClub?.categoryItems?.length || 0,
+      label: "Allenamenti",
+      value: trainings.length,
       color: "#10B981",
-      icon: "layers-outline" as const,
+      icon: "barbell-outline" as const,
     },
   ];
-  const effectiveRole = currentAccess?.role || currentRole;
 
   const openTab = (tabName: string) => {
     const parent = navigation.getParent() as any;
@@ -150,14 +142,6 @@ export default function TrainerHomeDashboardScreen() {
         </View>
       </View>
 
-      <ThemedText
-        type="small"
-        style={{ color: theme.textSecondary, marginBottom: Spacing.lg }}
-      >
-        La tua home mostra solo gli spazi e le azioni abilitate dal club per il
-        ruolo {` ${getRoleLabel(effectiveRole)}`}.
-      </ThemedText>
-
       <View style={styles.highlightStack}>
         {trainerPermissions?.widgets.todayTrainings !== false ? (
           <View style={[styles.highlightCard, { backgroundColor: "#7C3AED" }]}>
@@ -165,7 +149,11 @@ export default function TrainerHomeDashboardScreen() {
               <ThemedText type="body" style={styles.highlightTitle}>
                 Allenamenti di Oggi
               </ThemedText>
-              <Badge label={`${todayTrainings.length}`} variant="default" small />
+              <Badge
+                label={`${todayTrainings.length}`}
+                variant="default"
+                small
+              />
             </View>
             {todayTrainings.length > 0 ? (
               todayTrainings.slice(0, 2).map((training) => (
@@ -215,7 +203,9 @@ export default function TrainerHomeDashboardScreen() {
                   onPress={() => openMatch(match.id)}
                 >
                   <ThemedText type="body" style={styles.highlightItemTitle}>
-                    vs {match.opponent || (match.isHome ? match.awayTeam : match.homeTeam)}
+                    vs{" "}
+                    {match.opponent ||
+                      (match.isHome ? match.awayTeam : match.homeTeam)}
                   </ThemedText>
                   <ThemedText type="small" style={styles.highlightMeta}>
                     {match.time} · {match.location}

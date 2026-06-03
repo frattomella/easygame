@@ -1,13 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  User,
-  Club,
-  Access,
-  Athlete,
-  Training,
-  Match,
-  Task,
-} from "./api";
+import { User, Club, Access, Athlete, Training, Match, Task } from "./api";
 
 const KEYS = {
   USER: "@easygame/user",
@@ -241,7 +233,10 @@ class StorageService {
       await AsyncStorage.setItem(KEYS.CLUBS, JSON.stringify(MOCK_CLUBS));
       await AsyncStorage.setItem(KEYS.ACCESSES, JSON.stringify(MOCK_ACCESSES));
       await AsyncStorage.setItem(KEYS.ATHLETES, JSON.stringify(MOCK_ATHLETES));
-      await AsyncStorage.setItem(KEYS.TRAININGS, JSON.stringify(MOCK_TRAININGS));
+      await AsyncStorage.setItem(
+        KEYS.TRAININGS,
+        JSON.stringify(MOCK_TRAININGS),
+      );
       await AsyncStorage.setItem(KEYS.MATCHES, JSON.stringify(MOCK_MATCHES));
       await AsyncStorage.setItem(KEYS.TASKS, JSON.stringify(MOCK_TASKS));
       await AsyncStorage.setItem("@easygame/initialized", "true");
@@ -275,7 +270,7 @@ class StorageService {
   async setContext(clubId: string, role: string) {
     await AsyncStorage.setItem(
       KEYS.CURRENT_CONTEXT,
-      JSON.stringify({ clubId, role })
+      JSON.stringify({ clubId, role }),
     );
   }
 
@@ -327,7 +322,7 @@ class StorageService {
       athletes = athletes.filter(
         (a) =>
           a.name.toLowerCase().includes(lowerQuery) ||
-          a.position.toLowerCase().includes(lowerQuery)
+          a.position.toLowerCase().includes(lowerQuery),
       );
     }
     return athletes;

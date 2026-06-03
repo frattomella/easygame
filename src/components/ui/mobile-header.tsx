@@ -116,7 +116,7 @@ const MobileHeader = ({ className }: MobileHeaderProps) => {
         {
           href: "/organization",
           icon: <Building size={18} />,
-          label: "Organizzazione",
+          label: "Club",
         },
         { href: "/staff", icon: <Users size={18} />, label: "Staff" },
         { href: "/soci", icon: <Users size={18} />, label: "Soci" },

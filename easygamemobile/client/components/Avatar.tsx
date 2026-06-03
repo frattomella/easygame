@@ -76,12 +76,13 @@ export function Avatar({
       ]}
     >
       <ThemedText
-        style={[
-          styles.initials,
-          { color: "#FFFFFF", fontSize: size * 0.35 },
-        ]}
+        style={[styles.initials, { color: "#FFFFFF", fontSize: size * 0.35 }]}
       >
-        {name ? getInitials(name) : showNumber && number !== undefined ? number.toString() : "?"}
+        {name
+          ? getInitials(name)
+          : showNumber && number !== undefined
+            ? number.toString()
+            : "?"}
       </ThemedText>
     </View>
   );

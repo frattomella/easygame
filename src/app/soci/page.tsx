@@ -16,8 +16,6 @@ import {
   Trash2,
   LayoutGrid,
   Table as TableIcon,
-  CheckCircle,
-  X,
   Settings2,
 } from "lucide-react";
 import {
@@ -38,6 +36,12 @@ import {
 } from "@/components/ui/table";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import { MobileTopBar } from "@/components/layout/MobileTopBar";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
+import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
@@ -104,7 +108,7 @@ export default function SociPage() {
   const [soci, setSoci] = useState<Socio[]>([]);
   const [loading, setLoading] = useState(true);
   const [clubId, setClubId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "table">("table");
   const [visibleColumns, setVisibleColumns] = useState({
     name: true,
     email: true,
@@ -248,28 +252,28 @@ export default function SociPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar */}
-      <div className="hidden md:block">
+      <div className="hidden lg:block">
         <Sidebar />
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col">
-        <Header title="Soci" />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="hidden lg:block">
+          <Header title="Soci" />
+        </div>
+        <div className="lg:hidden">
+          <MobileTopBar />
+        </div>
 
-        <main className="flex-1 p-6">
-          <div className="max-w-9xl mx-auto space-y-6">
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
             {/* Header */}
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Soci
-                </h1>
-                <p className="text-gray-600 mt-2">
-                  Gestisci i soci dell'associazione
-                </p>
-              </div>
+            <SharedPageHeader
+              title="Soci"
+              subtitle="Gestisci i soci dell'associazione"
+              actions={
               <div className="flex gap-2">
                 <Button
                   variant={viewMode === "table" ? "default" : "outline"}
@@ -386,52 +390,8 @@ export default function SociPage() {
                   Aggiungi Socio
                 </Button>
               </div>
-            </div>
-
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card>
-                <CardHeader className="flex flex-col items-center text-center space-y-2">
-                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                    <Users className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">
-                    {soci.length}
-                  </CardTitle>
-                  <p className="text-sm text-gray-600">Totale Soci</p>
-                </CardHeader>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-col items-center text-center space-y-2">
-                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                    <CheckCircle className="h-6 w-6 text-green-600" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">
-                    {
-                      soci.filter((s) => s.is_active || s.status === "active")
-                        .length
-                    }
-                  </CardTitle>
-                  <p className="text-sm text-gray-600">Attivi</p>
-                </CardHeader>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-col items-center text-center space-y-2">
-                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                    <X className="h-6 w-6 text-red-600" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">
-                    {
-                      soci.filter((s) => !s.is_active && s.status !== "active")
-                        .length
-                    }
-                  </CardTitle>
-                  <p className="text-sm text-gray-600">Inattivi</p>
-                </CardHeader>
-              </Card>
-            </div>
+              }
+            />
 
             {/* Content */}
             {loading ? (
@@ -725,7 +685,7 @@ export default function SociPage() {
                 </CardContent>
               </Card>
             )}
-          </div>
+          </DashboardPageContainer>
         </main>
       </div>
     </div>
