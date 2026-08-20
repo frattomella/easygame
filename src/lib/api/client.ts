@@ -152,6 +152,16 @@ export async function apiRequest<T = any>(
         : null,
     };
   } catch (error: any) {
+    if (error?.name === "AbortError") {
+      return {
+        data: null as T,
+        error: {
+          message: "Richiesta annullata",
+          code: "REQUEST_ABORTED",
+        },
+      };
+    }
+
     // Errore di trasporto: non possiamo dedurre nulla sulla sessione.
     return {
       data: null as T,

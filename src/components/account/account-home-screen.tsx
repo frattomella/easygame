@@ -15,6 +15,7 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import { fetchMemberships } from "@/lib/auth/memberships-client";
+import { classifyMembershipResponse } from "@/lib/auth/membership-load-result";
 import {
   isAthleteAccessRole,
   isManagementAccessRole,
@@ -533,6 +534,7 @@ export default function AccountHomeScreen() {
   >("loading");
   const [membershipsError, setMembershipsError] = useState<string | null>(null);
   const [hasLoadedMemberships, setHasLoadedMemberships] = useState(false);
+  const [membershipsLoading, setMembershipsLoading] = useState(false);
 
   const clubSlotLimit = useMemo(() => {
     const rawLimit = Number(user?.user_metadata?.clubSlotLimit);
@@ -605,57 +607,65 @@ export default function AccountHomeScreen() {
       setAccessClubs([]);
       setHasLoadedMemberships(false);
       setMembershipsStatus("loading");
+      setMembershipsLoading(false);
       setPageLoading(false);
       return;
     }
 
+    setMembershipsLoading(true);
     if (!silent) {
       setPageLoading(true);
     }
+    if (!hasLoadedMemberships) {
+      setMembershipsStatus("loading");
+    }
     setMembershipsError(null);
 
-    const response = await fetchMemberships<MembershipRecord>();
+    try {
+      const response = await fetchMemberships<MembershipRecord>(user.id);
+      const result = classifyMembershipResponse(response);
 
-    if (response.error) {
-      const message = response.error.message || "Errore caricamento club";
-      showToast("error", message);
-      // Un errore temporaneo non equivale ad avere zero club: manteniamo i dati
-      // già caricati e distinguiamo lo stato "error" da "loaded-empty".
-      setMembershipsError(message);
-      setMembershipsStatus("error");
+      if (result.kind === "aborted" || result.kind === "unauthorized") {
+        return;
+      }
+
+      if (result.kind === "error") {
+        showToast("error", result.message);
+        // Un errore temporaneo non equivale ad avere zero club: manteniamo i dati
+        // già caricati e distinguiamo lo stato "error" da "loaded-empty".
+        setMembershipsError(result.message);
+        setMembershipsStatus("error");
+        return;
+      }
+
+      const mappedClubs = sortClubs(
+        result.memberships.map((membership) =>
+          mapMembershipToClub(membership, user.id),
+        ),
+      );
+
+      setOwnedClubs(
+        mappedClubs
+          .filter((club) => club.accessKind === "ownership")
+          .map(({ ownerId, ...club }) => club),
+      );
+      setAccessClubs(
+        mappedClubs
+          .filter(
+            (club) =>
+              club.accessKind !== "ownership" &&
+              !(club.role === "owner" && club.ownerId === user.id),
+          )
+          .map(({ ownerId, ...club }) => club),
+      );
+
+      setMembershipsStatus("loaded");
+      setHasLoadedMemberships(true);
+    } finally {
+      setMembershipsLoading(false);
       if (!silent) {
         setPageLoading(false);
       }
-      return;
-    }
-
-    const memberships = Array.isArray(response.data)
-      ? (response.data as MembershipRecord[])
-      : [];
-    const mappedClubs = sortClubs(
-      memberships.map((membership) => mapMembershipToClub(membership, user.id)),
-    );
-
-    setOwnedClubs(
-      mappedClubs
-        .filter((club) => club.accessKind === "ownership")
-        .map(({ ownerId, ...club }) => club),
-    );
-    setAccessClubs(
-      mappedClubs
-        .filter(
-          (club) =>
-            club.accessKind !== "ownership" &&
-            !(club.role === "owner" && club.ownerId === user.id),
-        )
-        .map(({ ownerId, ...club }) => club),
-    );
-
-    setMembershipsStatus("loaded");
-    setHasLoadedMemberships(true);
-
-    if (!silent) {
-      setPageLoading(false);
     }
   };
 
@@ -1110,10 +1120,14 @@ export default function AccountHomeScreen() {
               <Button
                 type="button"
                 className="mt-6 h-12 rounded-full bg-[#075eee] px-7 text-[15px] font-black text-white hover:bg-[#0052db]"
+                disabled={membershipsLoading}
                 onClick={() => {
                   void loadMemberships();
                 }}
               >
+                {membershipsLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
                 Riprova
               </Button>
             </section>
@@ -1129,10 +1143,14 @@ export default function AccountHomeScreen() {
                 type="button"
                 variant="outline"
                 className="h-10 rounded-full border-[#f0c2c2] bg-white px-5 text-sm font-black text-[#b42318] hover:bg-[#fff1f1]"
+                disabled={membershipsLoading}
                 onClick={() => {
                   void loadMemberships(true);
                 }}
               >
+                {membershipsLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
                 Riprova
               </Button>
             </div>

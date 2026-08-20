@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { clearClientAuthCache } from "@/lib/auth/session-sync";
 import { fetchMemberships } from "@/lib/auth/memberships-client";
+import { findStoredAccessMembership } from "@/lib/auth/active-club-access";
 import {
   getAccessRoleLabel,
   normalizeAccessRole,
@@ -190,24 +191,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setActiveClub(userSpecificClub);
       }
 
-      const response = await fetchMemberships<MembershipRecord>();
+      const response = await fetchMemberships<MembershipRecord>(user.id);
 
       if (cancelled) {
         return;
       }
 
       if (response.error || !Array.isArray(response.data)) {
-        if (!userSpecificClub) {
-          setActiveClub(storedClub || null);
-        }
+        // Una cache generica può appartenere all'account precedente. In caso
+        // di errore conserviamo solo il club esplicitamente legato all'utente.
+        setActiveClub(userSpecificClub || null);
         return;
       }
 
       const memberships = response.data;
       const matchingStoredMembership = storedClub
-        ? memberships.find(
-            (membership) => membership.organization_id === storedClub.id,
-          )
+        ? findStoredAccessMembership(memberships, storedClub)
         : null;
       const nextMembership =
         matchingStoredMembership ||
@@ -319,6 +318,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: { session },
           error: sessionError,
         } = await supabase.auth.getSession();
+
+        if (sessionError?.code === "REQUEST_ABORTED") {
+          return;
+        }
 
         if (sessionError) {
           // Handle specific Supabase Auth errors gracefully

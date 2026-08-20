@@ -1,10 +1,12 @@
-import { apiRequest } from "./api/client";
+import { apiRequest, type ApiEnvelope } from "./api/client";
 import {
   SESSION_CACHE_KEY,
   clearClientAuthCache,
   markSessionValidated,
   registerUnauthorizedHandler,
 } from "./auth/session-sync";
+import { resetMembershipRequests } from "./auth/memberships-client";
+import { createScopedRequestDeduper } from "./auth/request-deduper";
 
 type AuthMetadata = Record<string, any>;
 
@@ -57,6 +59,14 @@ const authListeners = new Set<
 >();
 const realtimeHandlers = new Map<string, RealtimeHandler[]>();
 const uploadedAssetUrls = new Map<string, string>();
+const sessionValidationRequests = createScopedRequestDeduper<
+  ApiEnvelope<{ session: MockSession | null }>
+>();
+
+const resetSessionBoundRequests = () => {
+  sessionValidationRequests.reset();
+  resetMembershipRequests();
+};
 
 const clone = <T>(value: T): T => {
   if (value === undefined || value === null) {
@@ -784,6 +794,7 @@ const createApiSupabaseClient = () => ({
       email: string;
       password: string;
     }) {
+      resetSessionBoundRequests();
       const response = await apiRequest<{
         user: MockUser | null;
         session: MockSession | null;
@@ -810,6 +821,7 @@ const createApiSupabaseClient = () => ({
       password: string;
       options?: { data?: AuthMetadata };
     }) {
+      resetSessionBoundRequests();
       const response = await apiRequest<{
         user: MockUser | null;
         session: MockSession | null;
@@ -828,6 +840,7 @@ const createApiSupabaseClient = () => ({
     },
 
     async signOut() {
+      resetSessionBoundRequests();
       const response = await apiRequest("/api/v1/auth/logout", {
         method: "POST",
       });
@@ -838,38 +851,48 @@ const createApiSupabaseClient = () => ({
     },
 
     async getSession() {
-      const response = await apiRequest<{ session: MockSession | null }>(
-        "/api/v1/auth/session",
-      );
+      return sessionValidationRequests.run("server-session", async (signal) => {
+        const response = await apiRequest<{ session: MockSession | null }>(
+          "/api/v1/auth/session",
+          { signal },
+        );
 
-      if (response.data?.session) {
-        // Sessione confermata dal server (cookie easygame_session + record
-        // Prisma Session): questa è l'unica prova valida di autenticazione.
-        saveSessionCache(response.data.session);
-        markSessionValidated();
-        return response;
-      }
+        if (response.data?.session) {
+          // Sessione confermata dal server (cookie easygame_session + record
+          // Prisma Session): questa è l'unica prova valida di autenticazione.
+          saveSessionCache(response.data.session);
+          markSessionValidated();
+          return response;
+        }
 
-      const isTransportError = response.error?.code === "NETWORK_ERROR";
+        if (response.error?.code === "REQUEST_ABORTED") {
+          return {
+            data: { session: null as MockSession | null },
+            error: response.error,
+          };
+        }
 
-      if (!isTransportError) {
-        // Il server ha risposto e non riconosce alcuna sessione: la cache
-        // client è stale e non può essere usata come prova di login.
-        clearClientAuthCache();
+        const isTransportError = response.error?.code === "NETWORK_ERROR";
+
+        if (!isTransportError) {
+          // Il server ha risposto e non riconosce alcuna sessione: la cache
+          // client è stale e non può essere usata come prova di login.
+          clearClientAuthCache();
+          return {
+            data: { session: null as MockSession | null },
+            error: response.error,
+          };
+        }
+
+        // Server irraggiungibile: non possiamo concludere che la sessione sia
+        // terminata, quindi restituiamo la cache segnalando comunque l'errore.
         return {
-          data: { session: null as MockSession | null },
+          data: {
+            session: getSessionCache(),
+          },
           error: response.error,
         };
-      }
-
-      // Server irraggiungibile: non possiamo concludere che la sessione sia
-      // terminata, quindi restituiamo la cache segnalando comunque l'errore.
-      return {
-        data: {
-          session: getSessionCache(),
-        },
-        error: response.error,
-      };
+      });
     },
 
     async getUser() {
@@ -1037,6 +1060,7 @@ export const supabase = createApiSupabaseClient();
 // Quando una qualsiasi API autenticata risponde 401 la sessione EasyGame non è
 // più valida lato server: allineiamo lo stato client emettendo SIGNED_OUT.
 registerUnauthorizedHandler(() => {
+  resetSessionBoundRequests();
   saveSessionCache(null);
   emitAuthState("SIGNED_OUT", null);
 });

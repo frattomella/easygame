@@ -1,8 +1,9 @@
 import { apiRequest, type ApiEnvelope } from "@/lib/api/client";
+import { createScopedRequestDeduper } from "@/lib/auth/request-deduper";
 
 export const MEMBERSHIPS_ENDPOINT = "/api/v1/auth/memberships";
 
-let inFlightRequest: Promise<ApiEnvelope<any[]>> | null = null;
+const membershipRequests = createScopedRequestDeduper<ApiEnvelope<any[]>>();
 
 /**
  * AuthProvider e AccountHomeScreen richiedono le membership nello stesso
@@ -10,21 +11,14 @@ let inFlightRequest: Promise<ApiEnvelope<any[]>> | null = null;
  * server viene interrogato una sola volta, mantenendo comunque la sessione come
  * unica fonte autorevole (nessun dato viene memorizzato tra un load e l'altro).
  */
-export const fetchMemberships = <T = any>(): Promise<ApiEnvelope<T[]>> => {
-  if (inFlightRequest) {
-    return inFlightRequest as Promise<ApiEnvelope<T[]>>;
-  }
+export const fetchMemberships = <T = any>(
+  sessionScope: string,
+): Promise<ApiEnvelope<T[]>> =>
+  membershipRequests.run(sessionScope, (signal) =>
+    apiRequest<T[]>(MEMBERSHIPS_ENDPOINT, { signal }),
+  ) as Promise<ApiEnvelope<T[]>>;
 
-  const request = apiRequest<T[]>(MEMBERSHIPS_ENDPOINT) as Promise<
-    ApiEnvelope<any[]>
-  >;
-  inFlightRequest = request;
-
-  void request.finally(() => {
-    if (inFlightRequest === request) {
-      inFlightRequest = null;
-    }
-  });
-
-  return request as Promise<ApiEnvelope<T[]>>;
+/** Annulla richieste appartenenti alla sessione precedente. */
+export const resetMembershipRequests = (sessionScope?: string) => {
+  membershipRequests.reset(sessionScope);
 };

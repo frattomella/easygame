@@ -1,118 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
-import { apiRequest } from "@/lib/api/client";
-import { normalizeClubSeasons } from "@/lib/club-seasons";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, ShieldCheck } from "lucide-react";
 
-type OrganizationMembership = {
-  organization_id: string;
-  role: string;
-  is_primary?: boolean;
-  organizations?: {
-    name?: string | null;
-    logo_url?: string | null;
-    contact_email?: string | null;
-    contact_phone?: string | null;
-    settings?: Record<string, any> | null;
-  } | null;
-};
-
-const getRoleLabel = (role: string) => {
-  switch (role) {
-    case "owner":
-      return "Gestore";
-    case "admin":
-      return "Amministratore";
-    case "trainer":
-      return "Allenatore";
-    case "athlete":
-      return "Atleta";
-    case "parent":
-      return "Genitore";
-    default:
-      return "Utente";
-  }
-};
-
 export default function AuthCompletePage() {
   const [message, setMessage] = useState("Verifica sessione in corso...");
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    let active = true;
+    if (loading) {
+      return;
+    }
 
-    const completeAccess = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    if (!user?.id) {
+      window.location.replace("/login");
+      return;
+    }
 
-      if (!active) {
-        return;
-      }
-
-      if (!session?.user) {
-        window.location.replace("/login");
-        return;
-      }
-
-      const user = session.user;
-      const role = String(user.user_metadata?.role || "user");
-
-      const membershipsResponse = await apiRequest<OrganizationMembership[]>(
-        "/api/v1/auth/memberships",
-      );
-
-      const memberships = Array.isArray(membershipsResponse.data)
-        ? (membershipsResponse.data as OrganizationMembership[])
-        : [];
-
-      const primaryMembership =
-        memberships.find((membership) => membership.is_primary) ||
-        memberships.find((membership) => membership.role === "owner") ||
-        memberships[0] ||
-        null;
-
-      if (primaryMembership) {
-        const seasonState = normalizeClubSeasons(
-          primaryMembership.organizations?.settings || {},
-        );
-        const activeClub = {
-          id: primaryMembership.organization_id,
-          role: primaryMembership.role,
-          roleLabel: getRoleLabel(primaryMembership.role),
-          name: primaryMembership.organizations?.name || "Club",
-          logo_url: primaryMembership.organizations?.logo_url || null,
-          email: primaryMembership.organizations?.contact_email || null,
-          phone: primaryMembership.organizations?.contact_phone || null,
-          activeSeasonId: seasonState.activeSeasonId,
-          activeSeasonLabel: seasonState.activeSeason?.label || null,
-        };
-
-        window.localStorage.setItem("activeClub", JSON.stringify(activeClub));
-        window.localStorage.setItem(
-          `activeClub_${user.id}`,
-          JSON.stringify(activeClub),
-        );
-      }
-
-      if (user.user_metadata?.isClubCreator || role === "club_creator") {
-        setMessage("Accesso confermato. Apertura home account...");
-        window.location.replace("/account");
-        return;
-      }
-
-      setMessage("Accesso confermato. Apertura home account...");
-      window.location.replace("/account");
-    };
-
-    completeAccess();
-
-    return () => {
-      active = false;
-    };
-  }, []);
+    // AuthProvider è l'unico responsabile della verifica server. La pagina di
+    // completamento non duplica più sessione e membership prima del redirect.
+    setMessage("Accesso confermato. Apertura home account...");
+    window.location.replace("/account");
+  }, [loading, user?.id]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_40%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_45%,#f8fafc_100%)] px-4 py-10">
