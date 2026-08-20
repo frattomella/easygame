@@ -8,6 +8,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { assertClubResourceAccess } from "@/lib/access-roles";
 
 type Context = {
   params: {
@@ -57,7 +58,9 @@ export async function GET(request: Request, context: Context) {
       url.searchParams.get("organization_id") ||
         url.searchParams.get("club_id") ||
         request.headers.get("x-active-club-id"),
+      request.headers.get("x-active-access-role"),
     );
+    assertClubResourceAccess(scope.activeRole, resource, "read");
     const data = await listResource(resource, url.searchParams, scope);
 
     return NextResponse.json({ data, error: null });
@@ -96,7 +99,9 @@ export async function POST(request: Request, context: Context) {
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
       request.headers.get("x-active-club-id"),
+      request.headers.get("x-active-access-role"),
     );
+    assertClubResourceAccess(scope.activeRole, resource, "create");
 
     const items = Array.isArray(payload) ? payload : [payload];
     const created = [];

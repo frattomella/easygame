@@ -40,6 +40,11 @@ import {
   type MobileNavSection,
 } from "@/components/layout/MobileTopBar";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import {
+  canAccessPath,
+  getAccessRedirectPath,
+  getPathAccessArea,
+} from "@/lib/access-roles";
 
 // Import default club logo
 import clubLogoDefault from "@/../public/images/club_logo.png";
@@ -118,13 +123,23 @@ const Header = memo(
     const router = useRouter();
     const pathname = usePathname();
     const [orgName, setOrgName] = React.useState("EasyGame");
-    const [activeSeasonLabel, setActiveSeasonLabel] = React.useState<string | null>(
-      null,
-    );
+    const [activeSeasonLabel, setActiveSeasonLabel] = React.useState<
+      string | null
+    >(null);
     const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
-    const { activeClub, isTrainer, user } = useAuth();
-    const fullName = [user?.user_metadata?.firstName, user?.user_metadata?.lastName]
+    const {
+      activeClub,
+      accessLoading,
+      isTrainer,
+      loading: authLoading,
+      user,
+      userRole,
+    } = useAuth();
+    const fullName = [
+      user?.user_metadata?.firstName,
+      user?.user_metadata?.lastName,
+    ]
       .filter(Boolean)
       .join(" ");
     const userName =
@@ -197,7 +212,8 @@ const Header = memo(
         // Listen for custom events to update immediately
         const handleClubUpdate = (event: CustomEvent) => {
           if (event.detail?.clubData) {
-            const { name, activeSeasonLabel: nextSeasonLabel } = event.detail.clubData;
+            const { name, activeSeasonLabel: nextSeasonLabel } =
+              event.detail.clubData;
             if (name) setOrgName(name);
             setActiveSeasonLabel(nextSeasonLabel || null);
           }
@@ -316,29 +332,35 @@ const Header = memo(
     }, []);
 
     React.useEffect(() => {
-      const isTrainerContext =
-        isTrainer || String(activeClub?.role || "").toLowerCase() === "trainer";
-
-      if (!isTrainerContext || !pathname) {
+      if (
+        authLoading ||
+        accessLoading ||
+        !pathname ||
+        getPathAccessArea(pathname) !== "management"
+      ) {
         return;
       }
 
-      const trainerAllowedPaths = [
-        "/trainer-dashboard",
-        "/private",
-        "/account",
-        "/profile",
-        "/login",
-        "/token-verification",
-      ];
-      const isAllowedPath = trainerAllowedPaths.some((path) =>
-        pathname === path || pathname.startsWith(`${path}/`),
-      );
-
-      if (!isAllowedPath) {
-        router.replace("/trainer-dashboard");
+      const role = activeClub?.role || userRole || user?.user_metadata?.role;
+      if (!canAccessPath(role, pathname)) {
+        router.replace(
+          getAccessRedirectPath(role, {
+            organizationId: activeClub?.id,
+            linkedAthleteId: activeClub?.linkedAthleteId,
+          }),
+        );
       }
-    }, [activeClub?.id, activeClub?.role, isTrainer, pathname, router]);
+    }, [
+      accessLoading,
+      activeClub?.id,
+      activeClub?.linkedAthleteId,
+      activeClub?.role,
+      authLoading,
+      pathname,
+      router,
+      user?.user_metadata?.role,
+      userRole,
+    ]);
 
     const handleNotificationClick = useCallback(() => {
       const notificationsHref = pathname?.startsWith("/trainer-dashboard")
@@ -408,197 +430,202 @@ const Header = memo(
         </div>
 
         <header className="sticky top-0 z-10 hidden h-20 w-full items-center justify-between border-b border-border bg-background px-4 py-4 md:px-6 lg:flex">
-        <div className="flex min-w-0 items-center gap-3 mr-auto">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleBackNavigation}
-                  className={backButtonClassName}
-                  aria-label={`Torna indietro da ${title}`}
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Torna indietro</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <div className="flex min-w-0 items-center gap-3 mr-auto">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleBackNavigation}
+                    className={backButtonClassName}
+                    aria-label={`Torna indietro da ${title}`}
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Torna indietro</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
-          <span className="truncate text-sm font-semibold text-foreground md:hidden">
-            {title}
-          </span>
+            <span className="truncate text-sm font-semibold text-foreground md:hidden">
+              {title}
+            </span>
 
-          <div className="hidden md:flex items-center gap-2">
-          <div className="flex items-center gap-2">
-            <div className="h-12 w-12 relative header-org-logo">
-              <Image
-                src={clubLogo || clubLogoDefault}
-                alt={`${orgName || "EasyGame"} Logo`}
-                fill
-                className="object-contain rounded"
-                unoptimized={!!clubLogo}
-              />
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="font-semibold text-xl header-org-name">
-                {orgName || "EasyGame"}
-              </span>
-              {activeSeasonLabel ? (
-                <button
-                  type="button"
-                  title="Gestisci stagione sportiva"
-                  aria-label="Gestisci stagione sportiva"
-                  onClick={() => router.push("/organization?tab=stagioni")}
-                  className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                >
-                  Stagione {activeSeasonLabel}
-                </button>
-              ) : null}
+            <div className="hidden md:flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <div className="h-12 w-12 relative header-org-logo">
+                  <Image
+                    src={clubLogo || clubLogoDefault}
+                    alt={`${orgName || "EasyGame"} Logo`}
+                    fill
+                    className="object-contain rounded"
+                    unoptimized={!!clubLogo}
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold text-xl header-org-name">
+                    {orgName || "EasyGame"}
+                  </span>
+                  {activeSeasonLabel ? (
+                    <button
+                      type="button"
+                      title="Gestisci stagione sportiva"
+                      aria-label="Gestisci stagione sportiva"
+                      onClick={() => router.push("/organization?tab=stagioni")}
+                      className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                    >
+                      Stagione {activeSeasonLabel}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-        </div>
 
-        <div className="flex items-center space-x-2 md:space-x-4 ml-auto">
-          {/* Quick Actions Button */}
-          {showQuickActions ? (
-            <>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size={isTrainerHeaderContext ? "icon" : "default"}
-                      className={quickActionButtonClassName}
-                      onClick={() => setQuickActionsOpen(true)}
-                    >
-                      <Zap className="h-5 w-5" />
-                      {!isTrainerHeaderContext ? (
-                        <span className="ml-2 hidden xl:inline">Azioni rapide</span>
-                      ) : null}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Azioni Rapide</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-
-              <Sheet open={quickActionsOpen} onOpenChange={setQuickActionsOpen}>
-                <SheetContent side="right" className="w-80">
-                  <SheetHeader>
-                    <SheetTitle className="flex items-center gap-2">
-                      <Zap className="h-5 w-5 text-blue-500" />
-                      Azioni Rapide
-                    </SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-6 space-y-3">
-                    {quickActions.map((action) => (
-                      <button
-                        key={action.id}
-                        onClick={() => handleQuickAction(action.href)}
-                        className="w-full flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left text-slate-900 transition-colors hover:bg-slate-50 hover:text-slate-900"
+          <div className="flex items-center space-x-2 md:space-x-4 ml-auto">
+            {/* Quick Actions Button */}
+            {showQuickActions ? (
+              <>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size={isTrainerHeaderContext ? "icon" : "default"}
+                        className={quickActionButtonClassName}
+                        onClick={() => setQuickActionsOpen(true)}
                       >
-                        <div className={`p-2 rounded-lg ${action.color}`}>
-                          <action.icon className="h-5 w-5 text-white" />
-                        </div>
-                        <span className="font-medium">{action.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </>
-          ) : null}
+                        <Zap className="h-5 w-5" />
+                        {!isTrainerHeaderContext ? (
+                          <span className="ml-2 hidden xl:inline">
+                            Azioni rapide
+                          </span>
+                        ) : null}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Azioni Rapide</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
 
-          {/* Help Button */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
+                <Sheet
+                  open={quickActionsOpen}
+                  onOpenChange={setQuickActionsOpen}
+                >
+                  <SheetContent side="right" className="w-80">
+                    <SheetHeader>
+                      <SheetTitle className="flex items-center gap-2">
+                        <Zap className="h-5 w-5 text-blue-500" />
+                        Azioni Rapide
+                      </SheetTitle>
+                    </SheetHeader>
+                    <div className="mt-6 space-y-3">
+                      {quickActions.map((action) => (
+                        <button
+                          key={action.id}
+                          onClick={() => handleQuickAction(action.href)}
+                          className="w-full flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left text-slate-900 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                        >
+                          <div className={`p-2 rounded-lg ${action.color}`}>
+                            <action.icon className="h-5 w-5 text-white" />
+                          </div>
+                          <span className="font-medium">{action.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </>
+            ) : null}
+
+            {/* Help Button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleHelpClick}
+                    className={helpButtonClassName}
+                  >
+                    <HelpCircle className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Assistenza - Contattaci</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <ChatButton className={sharedActionButtonClassName} />
+
+            <NotificationsDropdown
+              buttonClassName={sharedActionButtonClassName}
+              notificationCount={notificationCount}
+              allNotificationsHref={
+                pathname?.startsWith("/trainer-dashboard")
+                  ? "/trainer-dashboard/notifications"
+                  : "/notifications"
+              }
+            />
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={handleHelpClick}
-                  className={helpButtonClassName}
+                  className={accountButtonClassName}
+                  aria-label={`Account ${userName}`}
+                  title={userName}
                 >
-                  <HelpCircle className="h-5 w-5" />
+                  <Avatar className="h-8 w-8">
+                    {accountAvatar ? (
+                      <AvatarImage src={accountAvatar} alt={userName} />
+                    ) : null}
+                    <AvatarFallback className="bg-transparent p-0">
+                      <EntityIcon
+                        type="user"
+                        label={accountInitials || userName}
+                        className="h-full w-full border-0"
+                      />
+                    </AvatarFallback>
+                  </Avatar>
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Assistenza - Contattaci</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-          <ChatButton className={sharedActionButtonClassName} />
-
-          <NotificationsDropdown
-            buttonClassName={sharedActionButtonClassName}
-            notificationCount={notificationCount}
-            allNotificationsHref={
-              pathname?.startsWith("/trainer-dashboard")
-                ? "/trainer-dashboard/notifications"
-                : "/notifications"
-            }
-          />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={accountButtonClassName}
-                aria-label={`Account ${userName}`}
-                title={userName}
-              >
-                <Avatar className="h-8 w-8">
-                  {accountAvatar ? (
-                    <AvatarImage src={accountAvatar} alt={userName} />
-                  ) : null}
-                  <AvatarFallback className="bg-transparent p-0">
-                    <EntityIcon
-                      type="user"
-                      label={accountInitials || userName}
-                      className="h-full w-full border-0"
-                    />
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel className="flex flex-col">
-                <span className="font-semibold text-slate-900">
-                  {userName}
-                </span>
-                {user?.email ? (
-                  <span className="text-xs font-normal text-slate-500">
-                    {user.email}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="flex flex-col">
+                  <span className="font-semibold text-slate-900">
+                    {userName}
                   </span>
-                ) : null}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() =>
-                  router.push(user?.id ? `/profile/${user.id}` : "/account")
-                }
-              >
-                <UserCircle className="mr-2 h-4 w-4" />
-                Profilo
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleReturnToAccount}
-                className="text-red-600 focus:bg-red-50 focus:text-red-700"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Esci
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                  {user?.email ? (
+                    <span className="text-xs font-normal text-slate-500">
+                      {user.email}
+                    </span>
+                  ) : null}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() =>
+                    router.push(user?.id ? `/profile/${user.id}` : "/account")
+                  }
+                >
+                  <UserCircle className="mr-2 h-4 w-4" />
+                  Profilo
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleReturnToAccount}
+                  className="text-red-600 focus:bg-red-50 focus:text-red-700"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Esci
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </header>
       </>
     );

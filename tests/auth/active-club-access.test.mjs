@@ -4,6 +4,7 @@ import {
   findStoredAccessMembership,
   getMembershipAccessKey,
 } from "../../src/lib/auth/active-club-access.ts";
+import { normalizeAccessRole } from "../../src/lib/access-roles.ts";
 
 const memberships = [
   {
@@ -81,6 +82,7 @@ test("normalizza i ruoli legacy in italiano", () => {
       },
     ],
     { id: "club-b", role: "collaboratore", accessKind: "membership" },
+    normalizeAccessRole,
   );
 
   assert.equal(selected?.id, "membership-collaborator");

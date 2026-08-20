@@ -29,6 +29,7 @@ import {
   getMedicalCertificateStatus,
 } from "@/lib/medical-certificates";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import { apiRequest } from "@/lib/api/client";
 
 export default function AthleteProfilePage() {
   const params = useParams<{ id: string }>();
@@ -74,15 +75,13 @@ export default function AthleteProfilePage() {
       }
 
       try {
-        const { getAthlete, getAthleteCertificates } = await import(
-          "@/lib/simplified-db"
+        const response = await apiRequest<any>(
+          `/api/v1/auth/athlete-profile/${athleteId}`,
         );
-        const [athleteRecord, certificateRecords] = await Promise.all([
-          getAthlete(athleteId),
-          getAthleteCertificates(athleteId).catch(() => []),
-        ]);
+        const athleteRecord = response.data?.athlete;
+        const certificateRecords = response.data?.certificates || [];
 
-        if (!athleteRecord) {
+        if (response.error || !athleteRecord) {
           return;
         }
 
@@ -93,13 +92,23 @@ export default function AthleteProfilePage() {
           birthDate: athleteRecord.birth_date,
           ...(athleteRecord.data || {}),
         };
-        const categoryValues = Array.isArray(athleteData.categories)
-          ? athleteData.categories
-          : athleteRecord.category_name
-            ? [athleteRecord.category_name]
-            : athleteData.categoryName
-              ? [athleteData.categoryName]
-              : [];
+        const categoryMemberships = Array.isArray(
+          response.data?.categoryMemberships,
+        )
+          ? response.data.categoryMemberships
+          : [];
+        const categoryValues = categoryMemberships.length
+          ? categoryMemberships.map(
+              (membership: any) =>
+                membership.category_name || membership.category_id,
+            )
+          : Array.isArray(athleteData.categories)
+            ? athleteData.categories
+            : athleteRecord.category_name
+              ? [athleteRecord.category_name]
+              : athleteData.categoryName
+                ? [athleteData.categoryName]
+                : [];
         const normalizedCertificates = (certificateRecords || [])
           .map((certificate: any) => ({
             id: certificate.id,
@@ -125,22 +134,24 @@ export default function AthleteProfilePage() {
 
         setAthlete({
           jerseyNumber:
-            athleteRecord.jersey_number ?? athleteData.jerseyNumber ?? undefined,
+            athleteRecord.jersey_number ??
+            athleteData.jerseyNumber ??
+            undefined,
           id: athleteRecord.id,
           name: `${athleteRecord.first_name || ""} ${athleteRecord.last_name || ""}`.trim(),
           categories: categoryValues,
           age: calculateAge(String(athleteRecord.birth_date || "")),
           status: athleteRecord.status || athleteData.status || "active",
           medicalCertExpiry: latestExpiry,
-          avatar:
-            athleteRecord.avatar_url ||
-            athleteData.avatar ||
-            "",
+          avatar: athleteRecord.avatar_url || athleteData.avatar || "",
           email: athleteData.email || "",
           phone: athleteData.phone || "",
-          address: [athleteData.address, athleteData.city].filter(Boolean).join(", "),
+          address: [athleteData.address, athleteData.city]
+            .filter(Boolean)
+            .join(", "),
           birthDate: athleteRecord.birth_date || "",
-          registrationDate: athleteData.registrationDate || athleteRecord.created_at || "",
+          registrationDate:
+            athleteData.registrationDate || athleteRecord.created_at || "",
           notes: athleteData.notes || "",
         });
         setCertificates(normalizedCertificates);

@@ -6,7 +6,7 @@
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); fs.rmSync('.next', { recursive: true, force: true });\"",
     "test": "npm run test:auth",
-    "test:auth": "node --experimental-strip-types --experimental-test-isolation=none --test tests/auth/session-sync.test.mjs tests/auth/request-deduper.test.mjs tests/auth/active-club-access.test.mjs tests/auth/membership-load-result.test.mjs",
+    "test:auth": "node --experimental-strip-types --experimental-test-isolation=none --test tests/auth/session-sync.test.mjs tests/auth/request-deduper.test.mjs tests/auth/active-club-access.test.mjs tests/auth/membership-load-result.test.mjs tests/auth/role-authorization.test.mjs",
     "local": "node scripts/start-local.mjs",
     "local:dev": "next dev",
     "setup:local": "npm install && prisma generate",

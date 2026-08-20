@@ -3,6 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import {
   runDueTrainingAutomationForAllClubs,
   runTrainingAutomationForClub,
@@ -27,7 +28,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
-      request.headers.get("x-active-club-id") || body?.organizationId || body?.clubId,
+      request.headers.get("x-active-club-id") ||
+        body?.organizationId ||
+        body?.clubId,
+      request.headers.get("x-active-access-role"),
     );
 
     if (!scope.activeOrganizationId) {
@@ -37,6 +41,16 @@ export async function POST(request: NextRequest) {
           error: { message: "Nessun club attivo disponibile" },
         },
         { status: 400 },
+      );
+    }
+
+    if (!canManageClubConfiguration(scope.activeRole)) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Ruolo non autorizzato alla configurazione" },
+        },
+        { status: 403 },
       );
     }
 
@@ -59,7 +73,8 @@ export async function POST(request: NextRequest) {
         data: null,
         error: {
           message:
-            error?.message || "Errore durante la generazione automatica degli allenamenti",
+            error?.message ||
+            "Errore durante la generazione automatica degli allenamenti",
         },
       },
       { status: 500 },
@@ -104,7 +119,8 @@ export async function GET(request: NextRequest) {
         data: null,
         error: {
           message:
-            error?.message || "Errore durante l'esecuzione del cron allenamenti",
+            error?.message ||
+            "Errore durante l'esecuzione del cron allenamenti",
         },
       },
       { status: 500 },

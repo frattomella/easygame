@@ -5,16 +5,14 @@ import { supabase } from "@/lib/supabase";
 import { clearClientAuthCache } from "@/lib/auth/session-sync";
 import { fetchMemberships } from "@/lib/auth/memberships-client";
 import { findStoredAccessMembership } from "@/lib/auth/active-club-access";
-import {
-  getAccessRoleLabel,
-  normalizeAccessRole,
-} from "@/lib/access-roles";
+import { getAccessRoleLabel, normalizeAccessRole } from "@/lib/access-roles";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { useRouter } from "next/navigation";
 
 type AuthContextType = {
   user: any | null;
   loading: boolean;
+  accessLoading: boolean;
   signOut: () => Promise<void>;
   error: string | null;
   userRole: string;
@@ -40,6 +38,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  accessLoading: true,
   error: null,
   signOut: async () => {},
   userRole: "",
@@ -84,7 +83,8 @@ const parseStoredActiveClub = (rawValue: string | null) => {
 };
 
 const buildActiveClubFromMembership = (membership: MembershipRecord) => {
-  const organization = membership.organization || membership.organizations || {};
+  const organization =
+    membership.organization || membership.organizations || {};
   const role = normalizeAccessRole(membership.role);
   const seasonState = normalizeClubSeasons(organization.settings || {});
   const accessKind =
@@ -134,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessCode, setAccessCode] = useState<string | null>(null);
   const [accessCodeExpiry, setAccessCodeExpiry] = useState<Date | null>(null);
   const [activeClub, setActiveClub] = useState<any | null>(null);
+  const [accessLoading, setAccessLoading] = useState(true);
   const [athleteProfile, setAthleteProfile] = useState<{
     id: string;
     name: string;
@@ -143,16 +144,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   // Role-based flags
-  const isClubCreator =
-    user?.user_metadata?.isClubCreator === true ||
-    user?.user_metadata?.role === "club_creator" ||
-    user?.user_metadata?.role === "club_manager" ||
-    user?.user_metadata?.role === "admin";
-  const isClubManager =
-    userRole === "club_manager" || user?.user_metadata?.role === "club_manager";
-  const isTrainer = userRole === "trainer";
-  const isAthlete = userRole === "athlete";
-  const isParent = userRole === "parent";
+  const effectiveRole = normalizeAccessRole(
+    activeClub?.role || userRole || user?.user_metadata?.role,
+  );
+  const isClubCreator = effectiveRole === "owner";
+  const isClubManager = effectiveRole === "club_manager";
+  const isTrainer = effectiveRole === "trainer";
+  const isAthlete = effectiveRole === "athlete";
+  const isParent = effectiveRole === "parent";
   const isGenericUser = userRole === "generic_user" || userRole === "user";
 
   // Generate a random access code for club managers
@@ -176,57 +175,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Load and validate active club when user changes
   useEffect(() => {
-    if (typeof window === "undefined" || !user?.id || loading) return;
+    if (typeof window === "undefined" || loading) return;
+
+    if (!user?.id) {
+      setAccessLoading(false);
+      return;
+    }
 
     let cancelled = false;
+    setAccessLoading(true);
 
     const loadActiveClub = async () => {
       const userSpecificClub = parseStoredActiveClub(
         localStorage.getItem(`activeClub_${user.id}`),
       );
-      const genericClub = parseStoredActiveClub(localStorage.getItem("activeClub"));
+      const genericClub = parseStoredActiveClub(
+        localStorage.getItem("activeClub"),
+      );
       const storedClub = userSpecificClub || genericClub;
 
       if (userSpecificClub) {
         setActiveClub(userSpecificClub);
       }
 
-      const response = await fetchMemberships<MembershipRecord>(user.id);
+      try {
+        const response = await fetchMemberships<MembershipRecord>(user.id);
 
-      if (cancelled) {
-        return;
+        if (cancelled) {
+          return;
+        }
+
+        if (response.error || !Array.isArray(response.data)) {
+          // Una cache generica può appartenere all'account precedente. In caso
+          // di errore conserviamo solo il club esplicitamente legato all'utente.
+          setActiveClub(userSpecificClub || null);
+          return;
+        }
+
+        const memberships = response.data;
+        const matchingStoredMembership = storedClub
+          ? findStoredAccessMembership(
+              memberships,
+              storedClub,
+              normalizeAccessRole,
+            )
+          : null;
+        const nextMembership =
+          matchingStoredMembership ||
+          memberships.find((membership) => membership.is_primary) ||
+          memberships.find(
+            (membership) => membership.access_kind === "ownership",
+          ) ||
+          memberships[0] ||
+          null;
+
+        if (!nextMembership) {
+          storeActiveClubForUser(user.id, null);
+          setActiveClub(null);
+          return;
+        }
+
+        const nextClubCandidate = matchingStoredMembership
+          ? {
+              ...buildActiveClubFromMembership(matchingStoredMembership),
+              ...storedClub,
+            }
+          : buildActiveClubFromMembership(nextMembership);
+        const nextRole = normalizeAccessRole(nextClubCandidate.role);
+        const nextClub = {
+          ...nextClubCandidate,
+          role: nextRole,
+          roleLabel: getAccessRoleLabel(nextRole),
+        };
+
+        storeActiveClubForUser(user.id, nextClub);
+        setActiveClub(nextClub);
+      } finally {
+        if (!cancelled) {
+          setAccessLoading(false);
+        }
       }
-
-      if (response.error || !Array.isArray(response.data)) {
-        // Una cache generica può appartenere all'account precedente. In caso
-        // di errore conserviamo solo il club esplicitamente legato all'utente.
-        setActiveClub(userSpecificClub || null);
-        return;
-      }
-
-      const memberships = response.data;
-      const matchingStoredMembership = storedClub
-        ? findStoredAccessMembership(memberships, storedClub)
-        : null;
-      const nextMembership =
-        matchingStoredMembership ||
-        memberships.find((membership) => membership.is_primary) ||
-        memberships.find((membership) => membership.access_kind === "ownership") ||
-        memberships[0] ||
-        null;
-
-      if (!nextMembership) {
-        storeActiveClubForUser(user.id, null);
-        setActiveClub(null);
-        return;
-      }
-
-      const nextClub = matchingStoredMembership
-        ? { ...buildActiveClubFromMembership(matchingStoredMembership), ...storedClub }
-        : buildActiveClubFromMembership(nextMembership);
-
-      storeActiveClubForUser(user.id, nextClub);
-      setActiveClub(nextClub);
     };
 
     void loadActiveClub();
@@ -276,10 +304,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const applySessionUser = (sessionUser: any) => {
       setUser(sessionUser);
       // Use metadata first for faster loading
-      if (sessionUser.user_metadata?.isClubCreator) {
-        setUserRole("club_creator");
-      } else if (sessionUser.user_metadata?.role) {
+      if (sessionUser.user_metadata?.role) {
         setUserRole(normalizeAccessRole(sessionUser.user_metadata.role));
+      } else if (sessionUser.user_metadata?.isClubCreator) {
+        setUserRole("owner");
       } else {
         setUserRole("user");
       }
@@ -326,10 +354,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (sessionError) {
           // Handle specific Supabase Auth errors gracefully
           const errorMessage = sessionError.message || "";
-          if (errorMessage.includes("refresh_token_hmac_key") || 
-              errorMessage.includes("missing destination name")) {
+          if (
+            errorMessage.includes("refresh_token_hmac_key") ||
+            errorMessage.includes("missing destination name")
+          ) {
             // This is a temporary Supabase Auth server issue - clear session and continue
-            console.warn("Supabase Auth temporary issue, clearing session:", sessionError);
+            console.warn(
+              "Supabase Auth temporary issue, clearing session:",
+              sessionError,
+            );
             sessionStorage.removeItem("supabase_session");
             sessionStorage.removeItem("supabase_session_timestamp");
             // Don't show error to user, just proceed without session
@@ -357,6 +390,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setUserRole("");
           setActiveClub(null);
+          setAccessLoading(false);
 
           if (isProtectedPage) {
             window.location.href = "/";
@@ -388,9 +422,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Handle specific Supabase Auth errors gracefully
           if (authChangeError) {
             const errorMessage = authChangeError.message || "";
-            if (errorMessage.includes("refresh_token_hmac_key") || 
-                errorMessage.includes("missing destination name")) {
-              console.warn("Supabase Auth temporary issue in auth state change:", authChangeError);
+            if (
+              errorMessage.includes("refresh_token_hmac_key") ||
+              errorMessage.includes("missing destination name")
+            ) {
+              console.warn(
+                "Supabase Auth temporary issue in auth state change:",
+                authChangeError,
+              );
               // Don't show error to user for temporary server issues
             } else {
               console.error("Auth state change error:", authChangeError);
@@ -404,10 +443,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (session?.user) {
             setUser(session.user);
             // Use metadata first for faster loading
-            if (session.user.user_metadata?.isClubCreator) {
-              setUserRole("club_creator");
-            } else if (session.user.user_metadata?.role) {
+            if (session.user.user_metadata?.role) {
               setUserRole(normalizeAccessRole(session.user.user_metadata.role));
+            } else if (session.user.user_metadata?.isClubCreator) {
+              setUserRole("owner");
             } else {
               setUserRole("user");
             }
@@ -415,6 +454,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else {
             setUser(null);
             setUserRole("");
+            setAccessLoading(false);
             if (event === "SIGNED_OUT") {
               // Clear localStorage on sign out
               const keysToRemove = [
@@ -477,6 +517,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error: signOutError } = await supabase.auth.signOut();
       clearClientAuthCache();
       setActiveClub(null);
+      setAccessLoading(false);
       if (signOutError) {
         console.error("Error signing out:", signOutError);
         setError("Errore durante il logout. Riprova più tardi.");
@@ -540,6 +581,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         loading,
+        accessLoading,
         error,
         signOut,
         userRole,

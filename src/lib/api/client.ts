@@ -113,6 +113,10 @@ export async function apiRequest<T = any>(
         headers.set("x-active-club-id", String(activeClub.id));
       }
 
+      if (activeClub?.role && !headers.has("x-active-access-role")) {
+        headers.set("x-active-access-role", String(activeClub.role));
+      }
+
       if (activeClub?.activeSeasonId && !headers.has("x-active-season-id")) {
         headers.set("x-active-season-id", String(activeClub.activeSeasonId));
       }

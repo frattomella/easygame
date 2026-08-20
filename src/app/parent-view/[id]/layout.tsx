@@ -1,5 +1,6 @@
 import { ParentDashboardProvider } from "@/components/parent-dashboard/parent-dashboard-context";
 import ParentDashboardShell from "@/components/parent-dashboard/parent-dashboard-shell";
+import { AccessAreaGuard } from "@/components/auth/access-area-guard";
 
 export default function ParentViewLayout({
   children,
@@ -7,8 +8,10 @@ export default function ParentViewLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ParentDashboardProvider>
-      <ParentDashboardShell>{children}</ParentDashboardShell>
-    </ParentDashboardProvider>
+    <AccessAreaGuard>
+      <ParentDashboardProvider>
+        <ParentDashboardShell>{children}</ParentDashboardShell>
+      </ParentDashboardProvider>
+    </AccessAreaGuard>
   );
 }

@@ -16,12 +16,7 @@ import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import { fetchMemberships } from "@/lib/auth/memberships-client";
 import { classifyMembershipResponse } from "@/lib/auth/membership-load-result";
-import {
-  isAthleteAccessRole,
-  isManagementAccessRole,
-  isParentAccessRole,
-  isTrainerAccessRole,
-} from "@/lib/access-roles";
+import { getAccessRedirectPath, getAccessRoleLabel } from "@/lib/access-roles";
 import { supabase } from "@/lib/supabase";
 import {
   ArrowRight,
@@ -64,9 +59,7 @@ const getAccountFirstName = (displayName: string) =>
   displayName.split(" ").filter(Boolean)[0] || "EasyGamer";
 
 const getAccessBadgeClassName = (ownerMode: boolean) =>
-  ownerMode
-    ? "bg-[#fff1d8] text-[#d97800]"
-    : "bg-[#e9f1ff] text-[#075eee]";
+  ownerMode ? "bg-[#fff1d8] text-[#d97800]" : "bg-[#e9f1ff] text-[#075eee]";
 
 type HeaderActionsProps = {
   accountDisplayName: string;
@@ -262,7 +255,8 @@ function ClubAccessRow({
   onDelete,
 }: ClubAccessRowProps) {
   const isSwitching = switchingClubId === club.id;
-  const isDeleting = deletingAccessKey === (club.accessKey || club.membershipId);
+  const isDeleting =
+    deletingAccessKey === (club.accessKey || club.membershipId);
 
   return (
     <div className="group flex w-full items-center gap-3 rounded-[20px] border border-[#dce6f4] bg-white px-4 py-4 text-left shadow-[0_12px_36px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)] md:gap-4 md:rounded-[18px] md:px-5 md:py-5">
@@ -271,28 +265,28 @@ function ClubAccessRow({
         className="flex min-w-0 flex-1 items-center gap-4 text-left md:gap-5"
         onClick={onOpen}
       >
-      <ClubLogo club={club} />
+        <ClubLogo club={club} />
 
-      <span className="min-w-0 flex-1">
-        <span className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-          <span className="truncate text-[22px] font-black leading-tight text-[#07112f] md:text-[20px] xl:text-[22px]">
-            {club.name}
-          </span>
-          <span
-            className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-sm font-black ${getAccessBadgeClassName(ownerMode)}`}
-          >
-            {ownerMode ? "Proprietà" : club.roleLabel}
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+            <span className="truncate text-[22px] font-black leading-tight text-[#07112f] md:text-[20px] xl:text-[22px]">
+              {club.name}
+            </span>
+            <span
+              className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-sm font-black ${getAccessBadgeClassName(ownerMode)}`}
+            >
+              {ownerMode ? "Proprietà" : club.roleLabel}
+            </span>
           </span>
         </span>
-      </span>
 
-      <span className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center text-[#596781] transition group-hover:translate-x-1 group-hover:text-[#075eee]">
-        {isSwitching ? (
-          <Loader2 className="h-5 w-5 animate-spin" />
-        ) : (
-          <ChevronRight className="h-8 w-8 stroke-[2.4]" />
-        )}
-      </span>
+        <span className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center text-[#596781] transition group-hover:translate-x-1 group-hover:text-[#075eee]">
+          {isSwitching ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <ChevronRight className="h-8 w-8 stroke-[2.4]" />
+          )}
+        </span>
       </button>
 
       {!ownerMode && onDelete ? (
@@ -375,7 +369,11 @@ function AccountAccessPanel({
             <span
               className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-black ${getAccessBadgeClassName(ownerMode)}`}
             >
-              {ownerMode ? <Crown className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+              {ownerMode ? (
+                <Crown className="h-3.5 w-3.5" />
+              ) : (
+                <Users className="h-3.5 w-3.5" />
+              )}
               {countLabel}
             </span>
           </div>
@@ -543,7 +541,9 @@ export default function AccountHomeScreen() {
 
   const activeClubId = activeClub?.id || null;
   const availableClubSlots =
-    clubSlotLimit === null ? null : Math.max(clubSlotLimit - ownedClubs.length, 0);
+    clubSlotLimit === null
+      ? null
+      : Math.max(clubSlotLimit - ownedClubs.length, 0);
   const emailVerified = Boolean(user?.user_metadata?.emailVerified);
   const phoneVerified = Boolean(user?.user_metadata?.phoneVerified);
   const accountDisplayName =
@@ -570,6 +570,8 @@ export default function AccountHomeScreen() {
       accessKey: club.accessKey || null,
       activeSeasonId: club.activeSeasonId || null,
       activeSeasonLabel: club.activeSeasonLabel || null,
+      linkedAthleteId: club.linkedAthleteId || null,
+      redirectPath: club.redirectPath || null,
     };
 
     if (typeof window !== "undefined") {
@@ -750,7 +752,9 @@ export default function AccountHomeScreen() {
   const removeFederation = (federationId: string) => {
     setCreateClubForm((current) => ({
       ...current,
-      federations: current.federations.filter((item) => item.id !== federationId),
+      federations: current.federations.filter(
+        (item) => item.id !== federationId,
+      ),
     }));
   };
 
@@ -780,52 +784,43 @@ export default function AccountHomeScreen() {
       );
     }
 
-    syncActiveClubLocally(club);
+    const activatedRole = String(
+      response.data?.resolved_role || response.data?.role || club.role,
+    );
+    const activatedClub: AccountClub = {
+      ...club,
+      role: activatedRole,
+      roleLabel: getAccessRoleLabel(activatedRole),
+      linkedAthleteId: response.data?.linked_athlete_id || null,
+      redirectPath: response.data?.redirect_path || null,
+    };
+
+    syncActiveClubLocally(activatedClub);
     setSwitchingClubId(null);
 
-    return response.data;
+    return { ...response.data, activatedClub };
   };
 
   const openClubArea = async (club: AccountClub) => {
     try {
       const activatedAccess = await persistActiveClub(club);
-      const redirectPath = String(activatedAccess?.redirect_path || "").trim();
-
-      if (redirectPath) {
-        router.push(redirectPath);
-        return;
-      }
-
-      if (isTrainerAccessRole(club.role)) {
-        router.push("/trainer-dashboard");
-        return;
-      }
-
-      if (isManagementAccessRole(club.role)) {
-        router.push(`/dashboard?clubId=${club.id}`);
-        return;
-      }
-
-      if (
-        (isAthleteAccessRole(club.role) || isParentAccessRole(club.role)) &&
-        user?.id
-      ) {
-        const athleteResponse = await supabase
-          .from("athletes")
-          .select("id")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (athleteResponse.data?.id) {
-          router.push(`/parent-view/${athleteResponse.data.id}`);
-          return;
-        }
-      }
-
-      showToast(
-        "success",
-        `Accesso ${club.roleLabel.toLowerCase()} attivato su ${club.name}`,
+      const redirectPath = getAccessRedirectPath(
+        activatedAccess?.resolved_role || activatedAccess?.role || club.role,
+        {
+          organizationId: club.id,
+          linkedAthleteId: activatedAccess?.linked_athlete_id,
+        },
       );
+
+      if (redirectPath === "/account") {
+        showToast(
+          "error",
+          "Accesso attivato, ma il profilo collegato non è disponibile",
+        );
+        return;
+      }
+
+      router.push(redirectPath);
     } catch (error: any) {
       showToast("error", error?.message || "Errore cambio club attivo");
     }
@@ -859,7 +854,10 @@ export default function AccountHomeScreen() {
     });
 
     if (response.error) {
-      showToast("error", response.error.message || "Errore aggiornamento profilo");
+      showToast(
+        "error",
+        response.error.message || "Errore aggiornamento profilo",
+      );
       setSavingProfile(false);
       return;
     }
@@ -983,7 +981,10 @@ export default function AccountHomeScreen() {
     );
 
     if (response.error) {
-      showToast("error", response.error.message || "Errore collegamento al club");
+      showToast(
+        "error",
+        response.error.message || "Errore collegamento al club",
+      );
       setRedeemingAccess(false);
       return;
     }
@@ -1056,7 +1057,11 @@ export default function AccountHomeScreen() {
   };
 
   const handleSupport = () => {
-    window.open("https://www.cedisoft.it/contatti/", "_blank", "noopener,noreferrer");
+    window.open(
+      "https://www.cedisoft.it/contatti/",
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   if (loading || pageLoading) {
@@ -1132,77 +1137,77 @@ export default function AccountHomeScreen() {
               </Button>
             </section>
           ) : (
-          <>
-          {membershipsStatus === "error" ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-[#f2d4d4] bg-[#fff7f7] px-5 py-4 text-[15px] font-semibold text-[#b42318]">
-              <span>
-                {membershipsError ||
-                  "Aggiornamento dei club non riuscito. I dati mostrati potrebbero non essere aggiornati."}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 rounded-full border-[#f0c2c2] bg-white px-5 text-sm font-black text-[#b42318] hover:bg-[#fff1f1]"
-                disabled={membershipsLoading}
-                onClick={() => {
-                  void loadMemberships(true);
-                }}
-              >
-                {membershipsLoading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
-                Riprova
-              </Button>
-            </div>
-          ) : null}
+            <>
+              {membershipsStatus === "error" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-[#f2d4d4] bg-[#fff7f7] px-5 py-4 text-[15px] font-semibold text-[#b42318]">
+                  <span>
+                    {membershipsError ||
+                      "Aggiornamento dei club non riuscito. I dati mostrati potrebbero non essere aggiornati."}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 rounded-full border-[#f0c2c2] bg-white px-5 text-sm font-black text-[#b42318] hover:bg-[#fff1f1]"
+                    disabled={membershipsLoading}
+                    onClick={() => {
+                      void loadMemberships(true);
+                    }}
+                  >
+                    {membershipsLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Riprova
+                  </Button>
+                </div>
+              ) : null}
 
-          <div className="grid gap-7 xl:grid-cols-2">
-            <AccountAccessPanel
-              ownerMode
-              title="I tuoi club di proprietà"
-              description="Qui trovi tutti i club che hai creato e che puoi amministrare come proprietario."
-              mobileDescription="Qui trovi i club che hai creato."
-              countLabel={`${ownedClubs.length} club`}
-              slotLabel={
-                clubSlotLimit === null
-                  ? "Slot illimitati"
-                  : `${availableClubSlots} slot disponibili`
-              }
-              actionLabel="Crea nuovo club"
-              footerLabel="Vai alla gestione club"
-              clubs={ownedClubs}
-              switchingClubId={switchingClubId}
-              onAction={() => setCreateClubOpen(true)}
-              onOpenClub={(club) => {
-                void openClubArea(club);
-              }}
-              onFooter={ownedFooterAction}
-            />
+              <div className="grid gap-7 xl:grid-cols-2">
+                <AccountAccessPanel
+                  ownerMode
+                  title="I tuoi club di proprietà"
+                  description="Qui trovi tutti i club che hai creato e che puoi amministrare come proprietario."
+                  mobileDescription="Qui trovi i club che hai creato."
+                  countLabel={`${ownedClubs.length} club`}
+                  slotLabel={
+                    clubSlotLimit === null
+                      ? "Slot illimitati"
+                      : `${availableClubSlots} slot disponibili`
+                  }
+                  actionLabel="Crea nuovo club"
+                  footerLabel="Vai alla gestione club"
+                  clubs={ownedClubs}
+                  switchingClubId={switchingClubId}
+                  onAction={() => setCreateClubOpen(true)}
+                  onOpenClub={(club) => {
+                    void openClubArea(club);
+                  }}
+                  onFooter={ownedFooterAction}
+                />
 
-            <AccountAccessPanel
-              ownerMode={false}
-              title="Club con accesso assegnato"
-              description="Qui trovi i club ai quali hai accesso con il ruolo assegnato."
-              mobileDescription="Qui trovi i club ai quali hai accesso."
-              countLabel={`${accessClubs.length} accessi`}
-              actionLabel="Aggiungi accesso"
-              footerLabel="Vai a tutti i club"
-              clubs={accessClubs}
-              switchingClubId={switchingClubId}
-              deletingAccessKey={deletingAccessKey}
-              onAction={() => setRedeemAccessOpen(true)}
-              onOpenClub={(club) => {
-                void openClubArea(club);
-              }}
-              onDeleteClub={(club) => {
-                void deleteAssignedAccess(club);
-              }}
-              onFooter={accessFooterAction}
-            />
-          </div>
+                <AccountAccessPanel
+                  ownerMode={false}
+                  title="Club con accesso assegnato"
+                  description="Qui trovi i club ai quali hai accesso con il ruolo assegnato."
+                  mobileDescription="Qui trovi i club ai quali hai accesso."
+                  countLabel={`${accessClubs.length} accessi`}
+                  actionLabel="Aggiungi accesso"
+                  footerLabel="Vai a tutti i club"
+                  clubs={accessClubs}
+                  switchingClubId={switchingClubId}
+                  deletingAccessKey={deletingAccessKey}
+                  onAction={() => setRedeemAccessOpen(true)}
+                  onOpenClub={(club) => {
+                    void openClubArea(club);
+                  }}
+                  onDeleteClub={(club) => {
+                    void deleteAssignedAccess(club);
+                  }}
+                  onFooter={accessFooterAction}
+                />
+              </div>
 
-          <AccountBottomCTA onAddAccess={() => setRedeemAccessOpen(true)} />
-          </>
+              <AccountBottomCTA onAddAccess={() => setRedeemAccessOpen(true)} />
+            </>
           )}
         </main>
       </div>

@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { isTrainerAccessRole } from "@/lib/access-roles";
 
 const TRAINER_OPERATIONAL_NOTIFICATION_TYPES = [
   "missing_attendance",
@@ -59,11 +60,12 @@ export async function POST(request: Request) {
   const scope = await resolveOrganizationScopeForUser(
     session.db.user.id,
     requestedOrganizationId,
+    request.headers.get("x-active-access-role"),
   );
 
-  if (!scope.activeOrganizationId) {
+  if (!scope.activeOrganizationId || !isTrainerAccessRole(scope.activeRole)) {
     return NextResponse.json(
-      { data: null, error: { message: "Club non disponibile" } },
+      { data: null, error: { message: "Accesso allenatore non autorizzato" } },
       { status: 403 },
     );
   }
@@ -71,9 +73,8 @@ export async function POST(request: Request) {
   const payload = await request.json().catch(() => ({}));
   const alerts = (Array.isArray(payload?.alerts) ? payload.alerts : [])
     .map(normalizeAlert)
-    .filter(
-      (alert): alert is NonNullable<ReturnType<typeof normalizeAlert>> =>
-        Boolean(alert),
+    .filter((alert): alert is NonNullable<ReturnType<typeof normalizeAlert>> =>
+      Boolean(alert),
     );
   const activeKeys = new Set(alerts.map((alert) => alert.key));
 
@@ -86,7 +87,10 @@ export async function POST(request: Request) {
     orderBy: { created_at: "asc" },
   });
 
-  const existingByKey = new Map<string, (typeof existingNotifications)[number]>();
+  const existingByKey = new Map<
+    string,
+    (typeof existingNotifications)[number]
+  >();
 
   for (const notification of existingNotifications) {
     const key = getNotificationKey(notification);

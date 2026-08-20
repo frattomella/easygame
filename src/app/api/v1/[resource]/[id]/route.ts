@@ -9,6 +9,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { assertClubResourceAccess } from "@/lib/access-roles";
 
 type Context = {
   params: {
@@ -40,7 +41,9 @@ export async function GET(request: Request, context: Context) {
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
       request.headers.get("x-active-club-id"),
+      request.headers.get("x-active-access-role"),
     );
+    assertClubResourceAccess(scope.activeRole, resource, "read");
 
     const data = await getResourceById(resource, id, scope);
     return NextResponse.json({
@@ -78,7 +81,9 @@ export async function PATCH(request: Request, context: Context) {
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
       request.headers.get("x-active-club-id"),
+      request.headers.get("x-active-access-role"),
     );
+    assertClubResourceAccess(scope.activeRole, resource, "update");
 
     const body = await request.json();
     const payload = body?.data ?? body;
@@ -119,7 +124,9 @@ export async function DELETE(request: Request, context: Context) {
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
       request.headers.get("x-active-club-id"),
+      request.headers.get("x-active-access-role"),
     );
+    assertClubResourceAccess(scope.activeRole, resource, "delete");
 
     const data = await deleteResource(resource, id, scope);
     return NextResponse.json({

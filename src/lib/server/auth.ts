@@ -6,6 +6,7 @@ import {
   getPlatformAdminEmails,
   isPlatformAdminEmail,
 } from "@/lib/platform-admin";
+import { normalizeAccessRole } from "@/lib/access-roles";
 
 export const SESSION_COOKIE_NAME = "easygame_session";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 14;
@@ -32,6 +33,8 @@ export type AuthSessionPayload = {
 export type OrganizationAccessScope = {
   userId: string;
   activeOrganizationId: string | null;
+  activeRole: string | null;
+  activeMembershipId: string | null;
   allowedOrganizationIds: string[];
 };
 
@@ -104,14 +107,15 @@ export const buildSessionPayload = (
   user: serializeAuthUser(user),
 });
 
-export const hashPassword = async (password: string) => bcrypt.hash(password, 10);
+export const hashPassword = async (password: string) =>
+  bcrypt.hash(password, 10);
 
-export const verifyPassword = async (
-  password: string,
-  password_hash: string,
-) => bcrypt.compare(password, password_hash);
+export const verifyPassword = async (password: string, password_hash: string) =>
+  bcrypt.compare(password, password_hash);
 
-export const createSessionForUser = async (user: Parameters<typeof serializeAuthUser>[0]) => {
+export const createSessionForUser = async (
+  user: Parameters<typeof serializeAuthUser>[0],
+) => {
   const token = `${randomUUID()}-${randomBytes(16).toString("hex")}`;
   const expires_at = new Date(Date.now() + SESSION_DURATION_SECONDS * 1000);
 
@@ -180,7 +184,9 @@ export const getSessionFromRequest = async (request: Request | NextRequest) => {
   };
 };
 
-export const requireAuthenticatedUser = async (request: Request | NextRequest) => {
+export const requireAuthenticatedUser = async (
+  request: Request | NextRequest,
+) => {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return null;
@@ -220,11 +226,14 @@ export const requirePlatformAdmin = async (request: Request | NextRequest) => {
 export const resolveOrganizationScopeForUser = async (
   userId: string,
   preferredOrganizationId?: string | null,
+  preferredRole?: string | null,
 ): Promise<OrganizationAccessScope> => {
   const memberships = await prisma.organizationUser.findMany({
     where: { user_id: userId },
     select: {
+      id: true,
       organization_id: true,
+      role: true,
       is_primary: true,
     },
     orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
@@ -254,9 +263,40 @@ export const resolveOrganizationScopeForUser = async (
     allowedOrganizationIds[0] ||
     null;
 
+  const normalizedPreferredRole = normalizeAccessRole(preferredRole);
+  const ownsActiveOrganization = ownedClubs.some(
+    (club) => club.id === activeOrganizationId,
+  );
+  const membershipsForActiveOrganization = memberships.filter(
+    (membership) => membership.organization_id === activeOrganizationId,
+  );
+  const preferredMembership = normalizedPreferredRole
+    ? membershipsForActiveOrganization.find(
+        (membership) =>
+          normalizeAccessRole(membership.role) === normalizedPreferredRole,
+      )
+    : null;
+  const primaryMembership = membershipsForActiveOrganization.find(
+    (membership) => membership.is_primary,
+  );
+  const selectedMembership =
+    preferredMembership ||
+    primaryMembership ||
+    membershipsForActiveOrganization[0] ||
+    null;
+  const activeRole =
+    normalizedPreferredRole === "owner" && ownsActiveOrganization
+      ? "owner"
+      : preferredRole && !preferredMembership
+        ? null
+        : normalizeAccessRole(selectedMembership?.role) ||
+          (ownsActiveOrganization ? "owner" : null);
+
   return {
     userId,
     activeOrganizationId,
+    activeRole,
+    activeMembershipId: selectedMembership?.id || null,
     allowedOrganizationIds,
   };
 };

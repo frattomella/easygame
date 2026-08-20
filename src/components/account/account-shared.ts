@@ -1,8 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  getAccessRoleLabel,
-  normalizeAccessRole,
-} from "@/lib/access-roles";
+import { getAccessRoleLabel, normalizeAccessRole } from "@/lib/access-roles";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 
 export const EASYGAME_LOGO =
@@ -79,6 +76,8 @@ export type AccountClub = {
   accessKey?: string;
   activeSeasonId?: string | null;
   activeSeasonLabel?: string | null;
+  linkedAthleteId?: string | null;
+  redirectPath?: string | null;
 };
 
 export type FederationItem = {
@@ -246,7 +245,8 @@ export const mapMembershipToClub = (
   membership: MembershipRecord,
   _currentUserId?: string | null,
 ): AccountClub => {
-  const organization = membership.organization || membership.organizations || {};
+  const organization =
+    membership.organization || membership.organizations || {};
   const role = normalizeAccessRole(membership.role);
   const seasonState = normalizeClubSeasons(organization.settings || {});
   const accessKind =

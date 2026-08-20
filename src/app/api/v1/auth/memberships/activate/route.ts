@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  isAthleteAccessRole,
-  isManagementAccessRole,
-  isParentAccessRole,
-  isTrainerAccessRole,
+  getAccessRedirectPath,
+  isKnownAccessRole,
   normalizeAccessRole,
 } from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
@@ -18,7 +16,8 @@ const normalizeUuidLike = (value: unknown) =>
     .replace(/^ownership:/i, "")
     .replace(/^urn:uuid:/i, "");
 
-const isUuid = (value: unknown) => UUID_PATTERN.test(String(value || "").trim());
+const isUuid = (value: unknown) =>
+  UUID_PATTERN.test(String(value || "").trim());
 
 const getLinkedUserId = (value: any) =>
   String(
@@ -26,7 +25,7 @@ const getLinkedUserId = (value: any) =>
       value?.linked_user_id ||
       value?.userId ||
       value?.user_id ||
-    "",
+      "",
   ).trim();
 
 const findDirectAthleteIdForUser = async (
@@ -65,7 +64,9 @@ const findParentAthleteIdForUser = async (
         : {};
     const guardians = Array.isArray(data.guardians) ? data.guardians : [];
 
-    return guardians.some((guardian: any) => getLinkedUserId(guardian) === userId);
+    return guardians.some(
+      (guardian: any) => getLinkedUserId(guardian) === userId,
+    );
   });
 
   return linkedAthlete?.id || null;
@@ -81,50 +82,20 @@ const resolveActivatedAccessTarget = async ({
   role: string;
 }) => {
   const normalizedRole = normalizeAccessRole(role);
-
-  if (isTrainerAccessRole(normalizedRole)) {
-    return {
-      redirectPath: "/trainer-dashboard",
-      resolvedRole: "trainer",
-      linkedAthleteId: null,
-    };
-  }
-
-  if (isManagementAccessRole(normalizedRole)) {
-    return {
-      redirectPath: `/dashboard?clubId=${organizationId}`,
-      resolvedRole: normalizedRole,
-      linkedAthleteId: null,
-    };
-  }
-
-  if (isAthleteAccessRole(normalizedRole)) {
-    const athleteId = await findDirectAthleteIdForUser(organizationId, userId);
-
-    return {
-      redirectPath: athleteId ? `/athletes/${athleteId}/profile` : null,
-      resolvedRole: "athlete",
-      linkedAthleteId: athleteId,
-    };
-  }
-
-  if (isParentAccessRole(normalizedRole)) {
-    const parentAthleteId = await findParentAthleteIdForUser(
-      organizationId,
-      userId,
-    );
-
-    return {
-      redirectPath: parentAthleteId ? `/parent-view/${parentAthleteId}` : null,
-      resolvedRole: "parent",
-      linkedAthleteId: parentAthleteId,
-    };
-  }
+  const linkedAthleteId =
+    normalizedRole === "athlete"
+      ? await findDirectAthleteIdForUser(organizationId, userId)
+      : normalizedRole === "parent"
+        ? await findParentAthleteIdForUser(organizationId, userId)
+        : null;
 
   return {
-    redirectPath: `/dashboard?clubId=${organizationId}`,
-    resolvedRole: normalizedRole || "member",
-    linkedAthleteId: null,
+    redirectPath: getAccessRedirectPath(normalizedRole, {
+      organizationId,
+      linkedAthleteId,
+    }),
+    resolvedRole: normalizedRole,
+    linkedAthleteId,
   };
 };
 
@@ -145,7 +116,8 @@ export async function POST(request: Request) {
     const organizationId = normalizeUuidLike(
       body?.organization_id || body?.club_id || "",
     );
-    const role = normalizeAccessRole(body?.role);
+    const rawRole = String(body?.role || "").trim();
+    const role = normalizeAccessRole(rawRole);
     const membershipId = String(
       body?.membership_id || body?.membershipId || "",
     ).trim();
@@ -158,6 +130,16 @@ export async function POST(request: Request) {
         {
           data: null,
           error: { message: "Club da attivare non valido" },
+        },
+        { status: 400 },
+      );
+    }
+
+    if (rawRole && !isKnownAccessRole(rawRole)) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Ruolo di accesso non supportato" },
         },
         { status: 400 },
       );
@@ -181,38 +163,32 @@ export async function POST(request: Request) {
       },
     };
 
-    let membership =
-      membershipId && accessKind !== "ownership" && isUuid(membershipId)
-      ? await prisma.organizationUser.findFirst({
-          where: {
-            id: membershipId,
-            organization_id: organizationId,
-            user_id: session.db.user_id,
-          },
-          include: includeOrganization,
-        })
+    const membershipCandidates =
+      accessKind !== "ownership"
+        ? await prisma.organizationUser.findMany({
+            where: {
+              organization_id: organizationId,
+              user_id: session.db.user_id,
+            },
+            include: includeOrganization,
+            orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
+          })
+        : [];
+    let membership = membershipId
+      ? membershipCandidates.find(
+          (candidate) => candidate.id === membershipId,
+        ) || null
       : null;
 
-    if (!membership && role && accessKind !== "ownership") {
-      membership = await prisma.organizationUser.findFirst({
-        where: {
-          organization_id: organizationId,
-          user_id: session.db.user_id,
-          role,
-        },
-        include: includeOrganization,
-      });
-    }
-
-    if (!membership && accessKind !== "ownership") {
-      membership = await prisma.organizationUser.findFirst({
-        where: {
-          organization_id: organizationId,
-          user_id: session.db.user_id,
-        },
-        include: includeOrganization,
-        orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
-      });
+    if (membership && role && normalizeAccessRole(membership.role) !== role) {
+      membership = null;
+    } else if (!membershipId && role) {
+      membership =
+        membershipCandidates.find(
+          (candidate) => normalizeAccessRole(candidate.role) === role,
+        ) || null;
+    } else if (!membershipId && !role) {
+      membership = membershipCandidates[0] || null;
     }
 
     const ownedClub =
@@ -231,6 +207,16 @@ export async function POST(request: Request) {
         {
           data: null,
           error: { message: "Non hai accesso a questo club" },
+        },
+        { status: 403 },
+      );
+    }
+
+    if (membership && !isKnownAccessRole(membership.role)) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Ruolo della membership non supportato" },
         },
         { status: 403 },
       );
