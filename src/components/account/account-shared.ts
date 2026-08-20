@@ -1,4 +1,8 @@
 import type { ReactNode } from "react";
+import {
+  getAccessRoleLabel,
+  normalizeAccessRole,
+} from "@/lib/access-roles";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 
 export const EASYGAME_LOGO =
@@ -147,22 +151,7 @@ export type EmptyStateProps = {
   icon: ReactNode;
 };
 
-export const getRoleLabel = (role: string) => {
-  switch (role) {
-    case "owner":
-      return "Proprietario";
-    case "admin":
-      return "Amministratore";
-    case "trainer":
-      return "Allenatore";
-    case "athlete":
-      return "Atleta";
-    case "parent":
-      return "Genitore";
-    default:
-      return "Collaboratore";
-  }
-};
+export const getRoleLabel = (role: string) => getAccessRoleLabel(role);
 
 export const formatDate = (value?: string | null) => {
   if (!value) {
@@ -258,6 +247,7 @@ export const mapMembershipToClub = (
   _currentUserId?: string | null,
 ): AccountClub => {
   const organization = membership.organization || membership.organizations || {};
+  const role = normalizeAccessRole(membership.role);
   const seasonState = normalizeClubSeasons(organization.settings || {});
   const accessKind =
     membership.access_kind ||
@@ -266,8 +256,8 @@ export const mapMembershipToClub = (
   return {
     id: membership.organization_id,
     name: organization.name || "Club",
-    role: membership.role,
-    roleLabel: getRoleLabel(membership.role),
+    role,
+    roleLabel: getRoleLabel(role),
     isPrimary: Boolean(membership.is_primary),
     logoUrl: organization.logo_url || null,
     city: organization.city || null,
@@ -281,7 +271,7 @@ export const mapMembershipToClub = (
     accessKey:
       accessKind === "ownership"
         ? `ownership:${membership.organization_id}`
-        : `membership:${membership.id || `${membership.organization_id}:${membership.role}`}`,
+        : `membership:${membership.id || `${membership.organization_id}:${role}`}`,
     activeSeasonId: seasonState.activeSeasonId,
     activeSeasonLabel: seasonState.activeSeason?.label || null,
   };

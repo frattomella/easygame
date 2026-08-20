@@ -8,6 +8,10 @@ import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
 import { dedupeTrainings } from "@/lib/training-utils";
 import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
+import {
+  getVisibleBookableStructures,
+  type ClubStructure,
+} from "@/lib/structures-utils";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
@@ -564,6 +568,46 @@ const serializeAthleteCard = (athlete: any) => {
   };
 };
 
+const serializeParentStructure = (structure: ClubStructure) => ({
+  id: structure.id,
+  name: structure.name,
+  address: structure.address,
+  city: structure.city || "",
+  type: structure.type || "",
+  isPublic: structure.isPublic,
+  isVisibleToMembers: structure.isVisibleToMembers,
+  fields: structure.fields.map((field) => ({
+    id: field.id,
+    name: field.name,
+    ownership: field.ownership,
+    isBookable: field.isBookable,
+    isVisible: field.isVisible,
+    availability: field.availability,
+    pricing: field.pricing,
+  })),
+});
+
+const serializeParentStructureBooking = (
+  booking: any,
+  structure: ClubStructure,
+) => ({
+  id: booking.id,
+  structureId: structure.id,
+  structureName: structure.name,
+  fieldId: booking.fieldId || "",
+  fieldName:
+    booking.fieldName ||
+    structure.fields.find((field) => sameId(field.id, booking.fieldId))?.name ||
+    "",
+  title: booking.title || "Prenotazione",
+  start: booking.start,
+  end: booking.end,
+  status: booking.status || "pending",
+  notes: booking.notes || "",
+  amount: booking.amount,
+  paymentStatus: booking.paymentStatus,
+});
+
 export const getParentLinkedAthletes = async (userId: string) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -811,6 +855,17 @@ export const getParentDashboardData = async (
   const paidPayments = normalizedPayments.filter(
     (payment) => payment.statusKey === "paid",
   );
+  const visibleStructures = getVisibleBookableStructures(asArray(club.structures));
+  const parentStructureBookings = visibleStructures.flatMap((structure) =>
+    asArray(structure.bookings)
+      .filter(
+        (booking) =>
+          sameId(booking?.athleteId, selectedAthlete.id) ||
+          sameId(booking?.parentId, userId) ||
+          sameId(booking?.bookedById, userId),
+      )
+      .map((booking) => serializeParentStructureBooking(booking, structure)),
+  );
 
   return {
     user: {
@@ -927,6 +982,10 @@ export const getParentDashboardData = async (
           updated_at: toIso(appointment?.updated_at),
         })),
       openingHours: club.opening_hours,
+    },
+    structures: {
+      items: visibleStructures.map(serializeParentStructure),
+      bookings: parentStructureBookings,
     },
     notifications: notifications.map((notification) => ({
       ...notification,

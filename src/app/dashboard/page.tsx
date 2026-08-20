@@ -425,25 +425,25 @@ export default function DashboardPage() {
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="rounded-lg border border-slate-200 bg-slate-100/80 p-3 md:p-4">
                 <div className="grid gap-4">
-                  <div className="h-[360px] rounded-lg bg-white p-3 shadow-sm">
+                  <div className="h-[420px] rounded-lg bg-white p-3 shadow-sm xl:h-[440px]">
                     <UpcomingTrainings
                       isLoading={isLoading}
                       trainings={[]}
                       organizationId={clubId}
                       showEmptyState={false}
-                      maxHeight="285px"
+                      maxHeight="390px"
                       variant="embedded"
                     />
                   </div>
 
-                  <div className="h-[360px] rounded-lg bg-white p-3 shadow-sm">
+                  <div className="flex h-[320px] min-h-0 overflow-hidden rounded-lg bg-white p-3 shadow-sm">
                     <CertificationAlerts
                       isLoading={isLoading}
                       alerts={[]}
                       organizationId={clubId}
                       showEmptyState={false}
                       variant="embedded"
-                      maxHeight="285px"
+                      maxHeight="290px"
                     />
                   </div>
                 </div>

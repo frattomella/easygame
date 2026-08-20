@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Building2,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -67,6 +68,7 @@ const ParentSidebar = memo(() => {
           label: "Allenamenti",
           icon: CalendarDays,
         },
+        { href: `${basePath}/structures`, label: "Strutture", icon: Building2 },
         { href: `${basePath}/matches`, label: "Gare", icon: Trophy },
       ],
     },

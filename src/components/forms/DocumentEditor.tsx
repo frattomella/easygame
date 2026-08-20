@@ -500,6 +500,7 @@ export default function DocumentEditor({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
+  const lastInitialContentRef = useRef<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [hasSelectedImage, setHasSelectedImage] = useState(false);
@@ -508,6 +509,7 @@ export default function DocumentEditor({
     () => buildTokenLookup(tokens, SIGNATURE_TOKENS),
     [tokens],
   );
+  const tokenLookupRef = useRef(tokenLookup);
   const tokensByGroup = useMemo(
     () =>
       tokens.reduce<Record<string, DocumentTemplateToken[]>>((groups, token) => {
@@ -579,6 +581,45 @@ export default function DocumentEditor({
     syncContentState();
   };
 
+  const placeSelectionAtPoint = (clientX: number, clientY: number) => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    const docWithCaret = document as Document & {
+      caretPositionFromPoint?: (
+        x: number,
+        y: number,
+      ) => { offsetNode: Node; offset: number } | null;
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    };
+    let range: Range | null = null;
+    const caretPosition = docWithCaret.caretPositionFromPoint?.(
+      clientX,
+      clientY,
+    );
+
+    if (caretPosition) {
+      range = document.createRange();
+      range.setStart(caretPosition.offsetNode, caretPosition.offset);
+      range.collapse(true);
+    } else {
+      range = docWithCaret.caretRangeFromPoint?.(clientX, clientY) || null;
+    }
+
+    if (!range || !editor.contains(range.commonAncestorContainer)) {
+      return;
+    }
+
+    savedRangeRef.current = range.cloneRange();
+    const selection = window.getSelection();
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  };
+
   const executeCommand = (command: string, value?: string) => {
     if (readOnly) {
       return;
@@ -621,7 +662,7 @@ export default function DocumentEditor({
       }
 
       insertHtml(
-        `<img src="${escapeHtml(dataUrl)}" alt="Immagine documento" style="max-width: 100%; height: auto; margin: 16px 0; border-radius: 6px;" />`,
+        `<img src="${escapeHtml(dataUrl)}" alt="Immagine documento" style="display: block; max-width: 100%; height: auto; margin: 16px 0; border-radius: 6px;" />`,
       );
     };
     reader.readAsDataURL(file);
@@ -657,6 +698,9 @@ export default function DocumentEditor({
         image.style[property as any] = value;
       }
     });
+    image.style.display = "block";
+    image.style.height = "auto";
+    selectImage(image);
     syncContentState();
   };
 
@@ -684,6 +728,7 @@ export default function DocumentEditor({
     }
 
     event.preventDefault();
+    placeSelectionAtPoint(event.clientX, event.clientY);
 
     if (imageFile) {
       insertImageFile(imageFile);
@@ -724,16 +769,27 @@ export default function DocumentEditor({
   };
 
   useEffect(() => {
+    tokenLookupRef.current = tokenLookup;
+  }, [tokenLookup]);
+
+  useEffect(() => {
     if (!editorRef.current) {
       return;
     }
 
+    if (lastInitialContentRef.current === initialContent) {
+      syncContentState();
+      return;
+    }
+
+    lastInitialContentRef.current = initialContent;
+    clearSelectedImage();
     editorRef.current.innerHTML = convertPlaceholdersToVisualNodes(
       ensureBaseContent(initialContent),
-      tokenLookup,
+      tokenLookupRef.current,
     );
     syncContentState();
-  }, [initialContent, tokenLookup]);
+  }, [initialContent]);
 
   return (
     <div

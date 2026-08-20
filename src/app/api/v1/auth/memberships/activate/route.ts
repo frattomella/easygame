@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import {
+  isAthleteAccessRole,
+  isManagementAccessRole,
+  isParentAccessRole,
+  isTrainerAccessRole,
+  normalizeAccessRole,
+} from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 
@@ -19,10 +26,10 @@ const getLinkedUserId = (value: any) =>
       value?.linked_user_id ||
       value?.userId ||
       value?.user_id ||
-      "",
+    "",
   ).trim();
 
-const findParentAthleteIdForUser = async (
+const findDirectAthleteIdForUser = async (
   organizationId: string,
   userId: string,
 ) => {
@@ -34,10 +41,13 @@ const findParentAthleteIdForUser = async (
     select: { id: true },
   });
 
-  if (directAthlete?.id) {
-    return directAthlete.id;
-  }
+  return directAthlete?.id || null;
+};
 
+const findParentAthleteIdForUser = async (
+  organizationId: string,
+  userId: string,
+) => {
   const athletes = await prisma.athlete.findMany({
     where: {
       organization_id: organizationId,
@@ -70,9 +80,9 @@ const resolveActivatedAccessTarget = async ({
   userId: string;
   role: string;
 }) => {
-  const normalizedRole = String(role || "").trim().toLowerCase();
+  const normalizedRole = normalizeAccessRole(role);
 
-  if (normalizedRole === "trainer") {
+  if (isTrainerAccessRole(normalizedRole)) {
     return {
       redirectPath: "/trainer-dashboard",
       resolvedRole: "trainer",
@@ -80,7 +90,7 @@ const resolveActivatedAccessTarget = async ({
     };
   }
 
-  if (normalizedRole === "owner" || normalizedRole === "admin") {
+  if (isManagementAccessRole(normalizedRole)) {
     return {
       redirectPath: `/dashboard?clubId=${organizationId}`,
       resolvedRole: normalizedRole,
@@ -88,20 +98,26 @@ const resolveActivatedAccessTarget = async ({
     };
   }
 
-  const parentAthleteId = await findParentAthleteIdForUser(organizationId, userId);
-  if (parentAthleteId) {
+  if (isAthleteAccessRole(normalizedRole)) {
+    const athleteId = await findDirectAthleteIdForUser(organizationId, userId);
+
     return {
-      redirectPath: `/parent-view/${parentAthleteId}`,
-      resolvedRole: "parent",
-      linkedAthleteId: parentAthleteId,
+      redirectPath: athleteId ? `/athletes/${athleteId}/profile` : null,
+      resolvedRole: "athlete",
+      linkedAthleteId: athleteId,
     };
   }
 
-  if (normalizedRole === "parent" || normalizedRole === "athlete") {
+  if (isParentAccessRole(normalizedRole)) {
+    const parentAthleteId = await findParentAthleteIdForUser(
+      organizationId,
+      userId,
+    );
+
     return {
-      redirectPath: null,
-      resolvedRole: normalizedRole,
-      linkedAthleteId: null,
+      redirectPath: parentAthleteId ? `/parent-view/${parentAthleteId}` : null,
+      resolvedRole: "parent",
+      linkedAthleteId: parentAthleteId,
     };
   }
 
@@ -129,7 +145,7 @@ export async function POST(request: Request) {
     const organizationId = normalizeUuidLike(
       body?.organization_id || body?.club_id || "",
     );
-    const role = String(body?.role || "").trim();
+    const role = normalizeAccessRole(body?.role);
     const membershipId = String(
       body?.membership_id || body?.membershipId || "",
     ).trim();
@@ -287,6 +303,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       data: {
         ...updatedMembership,
+        role: accessTarget.resolvedRole,
         access_kind: "membership",
         is_ownership_record: false,
         redirect_path: accessTarget.redirectPath,

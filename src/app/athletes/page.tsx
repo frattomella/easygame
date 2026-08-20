@@ -31,6 +31,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  Download,
   Upload,
   BarChart3,
 } from "lucide-react";
@@ -81,6 +82,7 @@ import {
   updateClubAthlete,
   deleteClubAthlete,
 } from "@/lib/simplified-db";
+import { printAthletesPdf } from "@/lib/athletes-pdf-export";
 import { supabase } from "@/lib/supabase";
 import {
   Collapsible,
@@ -830,6 +832,107 @@ export default function AthletesPage() {
 
   const selectedAthletesCount = selectedAthleteIds.size;
 
+  const getAthleteStatusLabel = (status: Athlete["status"]) => {
+    if (status === "active") return "Attivo";
+    if (status === "inactive") return "In Prestito";
+    return "Sospeso";
+  };
+
+  const getVisibleAthleteExportColumns = () =>
+    [
+      { key: "name", label: "Atleta", enabled: true },
+      {
+        key: "category",
+        label: "Categoria",
+        enabled: visibleColumns.category,
+      },
+      { key: "age", label: "Eta", enabled: visibleColumns.age },
+      {
+        key: "birthYear",
+        label: "Anno di Nascita",
+        enabled: visibleColumns.birthYear,
+      },
+      { key: "status", label: "Stato", enabled: visibleColumns.status },
+      {
+        key: "medicalCert",
+        label: "Certificato Medico",
+        enabled: visibleColumns.medicalCert,
+      },
+      {
+        key: "registrationComplete",
+        label: "Iscrizione",
+        enabled: visibleColumns.registrationComplete,
+      },
+      {
+        key: "jerseyNumber",
+        label: "Numero Maglia",
+        enabled: visibleColumns.jerseyNumber,
+      },
+    ].filter((column) => column.enabled);
+
+  const getAthleteExportValue = (athlete: Athlete, key: string) => {
+    if (key === "name") return athlete.name;
+    if (key === "category") {
+      return athlete.membershipType === "secondary"
+        ? `${athlete.categoryLabel} (secondaria)`
+        : athlete.categoryLabel;
+    }
+    if (key === "age") return `${athlete.age} anni`;
+    if (key === "birthYear") {
+      return athlete.birthDate ? String(new Date(athlete.birthDate).getFullYear()) : "-";
+    }
+    if (key === "status") return getAthleteStatusLabel(athlete.status);
+    if (key === "medicalCert") {
+      return athlete.medicalCertExpiry
+        ? `${formatDate(athlete.medicalCertExpiry)}${
+            isCertificateExpired(athlete.medicalCertExpiry) ? " (scaduto)" : ""
+          }`
+        : "-";
+    }
+    if (key === "registrationComplete") {
+      return athlete.registrationComplete ? "Completa" : "Da completare";
+    }
+    if (key === "jerseyNumber") return athlete.jerseyNumber || "-";
+    return "-";
+  };
+
+  const exportAthletesPdf = () => {
+    const exportAthletes = selectedAthleteIds.size
+      ? athletes.filter((athlete) => selectedAthleteIds.has(athlete.id))
+      : filteredAthletes;
+    const columns = getVisibleAthleteExportColumns();
+
+    if (!exportAthletes.length) {
+      showToast("error", "Nessun atleta da esportare");
+      return;
+    }
+
+    const success = printAthletesPdf({
+      clubName: activeClub?.name || activeClub?.clubName || "EasyGame",
+      title: "Elenco Atleti",
+      columns,
+      rows: exportAthletes.map((athlete) => ({
+        id: athlete.id,
+        values: Object.fromEntries(
+          columns.map((column) => [
+            column.key,
+            getAthleteExportValue(athlete, column.key),
+          ]),
+        ),
+      })),
+      scopeLabel: selectedAthleteIds.size
+        ? `${exportAthletes.length} atleti selezionati`
+        : `${exportAthletes.length} atleti filtrati`,
+    });
+
+    if (!success) {
+      showToast("error", "Consenti i popup per generare il PDF");
+      return;
+    }
+
+    showToast("success", "PDF pronto: si apre la finestra di stampa");
+  };
+
   const getBulkActionLabel = (action: BulkActionType) => {
     if (action === "activate") {
       return "rendere attivi";
@@ -1342,6 +1445,15 @@ export default function AthletesPage() {
                 >
                   <BarChart3 className="h-4 w-4 mr-2" />
                   Report categorie
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={exportAthletesPdf}
+                  disabled={!filteredAthletes.length && !selectedAthleteIds.size}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Esporta PDF
                 </Button>
                 <Button
                   variant="outline"

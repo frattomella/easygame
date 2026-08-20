@@ -14,7 +14,7 @@ if not exist "node_modules" (
 )
 
 echo Il server di sviluppo sta per partire.
-echo Se la porta 3000 e occupata, Next.js usera una porta diversa.
+echo EasyGame sara disponibile su http://localhost:3001
 echo Quando compare la riga "Local:", apri quell'indirizzo nel browser.
 echo Per fermare l'app premi Ctrl + C in questa finestra.
 echo.

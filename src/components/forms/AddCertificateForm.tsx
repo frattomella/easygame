@@ -18,7 +18,30 @@ interface AddCertificateFormProps {
   onSubmit: (data: any) => Promise<boolean | void> | boolean | void;
   athletes: { id: string; name: string }[];
   clubId?: string | null;
+  athleteId?: string | null;
+  athleteName?: string | null;
+  lockAthleteSelection?: boolean;
 }
+
+const todayDate = () => new Date().toISOString().split("T")[0];
+
+function addOneYear(dateString: string) {
+  if (!dateString) return "";
+  const date = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setFullYear(date.getFullYear() + 1);
+  return date.toISOString().split("T")[0];
+}
+
+const initialCertificateForm = () => {
+  const issueDate = todayDate();
+  return {
+    athleteId: "",
+    certificateType: "Agonistico",
+    issueDate,
+    expiryDate: addOneYear(issueDate),
+  };
+};
 
 export function AddCertificateForm({
   isOpen,
@@ -26,14 +49,14 @@ export function AddCertificateForm({
   onSubmit,
   athletes = [],
   clubId,
+  athleteId,
+  athleteName,
+  lockAthleteSelection = false,
 }: AddCertificateFormProps) {
   const { showToast } = useToast();
-  const [formData, setFormData] = useState({
-    athleteId: "",
-    certificateType: "Agonistico",
-    issueDate: new Date().toISOString().split("T")[0],
-    expiryDate: "",
-  });
+  const isAthleteLocked = Boolean(lockAthleteSelection && athleteId);
+  const [formData, setFormData] = useState(initialCertificateForm);
+  const [expiryManuallyEdited, setExpiryManuallyEdited] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredAthletes, setFilteredAthletes] = useState(athletes);
   const [localAthletes, setLocalAthletes] = useState(athletes);
@@ -49,10 +72,50 @@ export function AddCertificateForm({
     },
   ];
 
+  const buildInitialForm = () => ({
+    ...initialCertificateForm(),
+    athleteId: isAthleteLocked ? athleteId || "" : "",
+  });
+
+  const ensureLockedAthlete = (
+    items: { id: string; name: string }[],
+  ): { id: string; name: string }[] => {
+    if (!isAthleteLocked || !athleteId) {
+      return items;
+    }
+
+    if (items.some((athlete) => athlete.id === athleteId)) {
+      return items;
+    }
+
+    return [
+      {
+        id: athleteId,
+        name: athleteName || "Atleta",
+      },
+      ...items,
+    ];
+  };
+
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
+    if (name === "issueDate") {
+      setFormData((prev) => ({
+        ...prev,
+        issueDate: value,
+        expiryDate: expiryManuallyEdited ? prev.expiryDate : addOneYear(value),
+      }));
+      return;
+    }
+
+    if (name === "expiryDate") {
+      setExpiryManuallyEdited(true);
+      setFormData((prev) => ({ ...prev, expiryDate: value }));
+      return;
+    }
+
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -80,11 +143,28 @@ export function AddCertificateForm({
 
   // Update filtered athletes when athletes prop changes
   React.useEffect(() => {
-    if (athletes.length > 0) {
-      setLocalAthletes(athletes);
-      setFilteredAthletes(athletes);
+    const nextAthletes = ensureLockedAthlete(athletes);
+
+    if (nextAthletes.length > 0) {
+      setLocalAthletes(nextAthletes);
+      setFilteredAthletes(nextAthletes);
     }
-  }, [athletes]);
+  }, [athletes, athleteId, athleteName, isAthleteLocked]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+
+    setFormData((prev) => {
+      const next = isAthleteLocked ? { ...prev, athleteId: athleteId || "" } : prev;
+
+      if (next.expiryDate || !next.issueDate) return next;
+      return { ...next, expiryDate: addOneYear(next.issueDate) };
+    });
+    setExpiryManuallyEdited(false);
+    if (isAthleteLocked) {
+      setSearchQuery(athleteName || "");
+    }
+  }, [isOpen, athleteId, athleteName, isAthleteLocked]);
 
   // Fetch athletes if not provided and clubId is available
   React.useEffect(() => {
@@ -110,8 +190,9 @@ export function AddCertificateForm({
               name: getAthleteDisplayName(athlete) || "Atleta",
             }));
           console.log("Fetched athletes:", fetchedAthletes);
-          setLocalAthletes(fetchedAthletes);
-          setFilteredAthletes(fetchedAthletes);
+          const nextAthletes = ensureLockedAthlete(fetchedAthletes);
+          setLocalAthletes(nextAthletes);
+          setFilteredAthletes(nextAthletes);
         } catch (error) {
           console.error("Error fetching athletes:", error);
           showToast("error", "Errore nel caricamento degli atleti");
@@ -120,7 +201,7 @@ export function AddCertificateForm({
     };
 
     fetchAthletes();
-  }, [clubId, isOpen, showToast]);
+  }, [clubId, isOpen, showToast, athleteId, athleteName, isAthleteLocked]);
 
   const handleSubmit = async (
     e?: React.FormEvent<HTMLFormElement> | React.MouseEvent<HTMLButtonElement>,
@@ -203,12 +284,8 @@ export function AddCertificateForm({
         return;
       }
 
-      setFormData({
-        athleteId: "",
-        certificateType: "Agonistico",
-        issueDate: new Date().toISOString().split("T")[0],
-        expiryDate: "",
-      });
+      setFormData(buildInitialForm());
+      setExpiryManuallyEdited(false);
       setSelectedFile(null);
       setSearchQuery("");
       setFilteredAthletes(localAthletes);
@@ -246,33 +323,43 @@ export function AddCertificateForm({
         <div className="space-y-2">
           <Label htmlFor="athleteId">Atleta</Label>
           <div className="relative">
-            <Input
-              id="athleteSearch"
-              type="text"
-              placeholder="Cerca atleta..."
-              className="w-full mb-2"
-              value={searchQuery}
-              onChange={handleSearchChange}
-            />
-            <select
-              id="athleteId"
-              name="athleteId"
-              value={formData.athleteId}
-              onChange={handleChange}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-              required
-            >
-              <option value="" disabled>
-                {filteredAthletes.length === 0
-                  ? "Nessun atleta trovato"
-                  : "Seleziona un atleta"}
-              </option>
-              {filteredAthletes.map((athlete) => (
-                <option key={athlete.id} value={athlete.id}>
-                  {athlete.name}
-                </option>
-              ))}
-            </select>
+            {isAthleteLocked ? (
+              <div className="h-10 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+                {athleteName ||
+                  localAthletes.find((item) => item.id === athleteId)?.name ||
+                  "Atleta selezionato"}
+              </div>
+            ) : (
+              <>
+                <Input
+                  id="athleteSearch"
+                  type="text"
+                  placeholder="Cerca atleta..."
+                  className="w-full mb-2"
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                />
+                <select
+                  id="athleteId"
+                  name="athleteId"
+                  value={formData.athleteId}
+                  onChange={handleChange}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                  required
+                >
+                  <option value="" disabled>
+                    {filteredAthletes.length === 0
+                      ? "Nessun atleta trovato"
+                      : "Seleziona un atleta"}
+                  </option>
+                  {filteredAthletes.map((athlete) => (
+                    <option key={athlete.id} value={athlete.id}>
+                      {athlete.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             {localAthletes.length === 0 && isOpen && (
               <p className="text-sm text-muted-foreground mt-1">
                 Caricamento atleti...
@@ -327,6 +414,29 @@ export function AddCertificateForm({
               onChange={handleChange}
               required
             />
+            <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+              <p>
+                {expiryManuallyEdited
+                  ? "Scadenza modificata manualmente."
+                  : "Impostata automaticamente a un anno dalla data di emissione. Puoi modificarla manualmente."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-fit"
+                onClick={() => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    expiryDate: addOneYear(prev.issueDate),
+                  }));
+                  setExpiryManuallyEdited(false);
+                }}
+                disabled={!formData.issueDate}
+              >
+                Ricalcola da emissione
+              </Button>
+            </div>
           </div>
         </div>
 

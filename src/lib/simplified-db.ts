@@ -45,6 +45,11 @@ import {
   isPaymentExcludedFromTotals,
   isPaymentPaidLike,
 } from "./payments/payment-status-utils";
+import { calculatePlatformFee } from "./payments/platform-fees";
+import {
+  getAvailableRegistrationPaymentMethods,
+  normalizePaymentSettings,
+} from "./payments/payment-config-utils";
 
 const CLUB_DIRECT_UPDATE_FIELDS = [
   "categories",
@@ -979,6 +984,39 @@ export async function syncAthleteEnrollmentInstallmentPayments({
     return getAthletePayments(athleteId);
   }
 
+  const clubSettings = await getClubSettings(clubId);
+  const paymentSettings = normalizePaymentSettings(
+    clubSettings?.paymentSettings,
+  );
+  const onlineRegistrationMethods =
+    getAvailableRegistrationPaymentMethods(paymentSettings);
+  const manualRegistrationMethods = Object.entries(
+    paymentSettings.manualMethods || {},
+  )
+    .filter(([, enabled]) => Boolean(enabled))
+    .map(([key]) => ({
+      key,
+      label:
+        key === "bankTransfer"
+          ? "Bonifico"
+          : key === "cash"
+            ? "Contanti"
+            : "Altro metodo manuale",
+      type: "manual",
+    }));
+  const availablePaymentMethods = [
+    ...onlineRegistrationMethods.map((method) => ({
+      key: method.key,
+      label: method.label,
+      provider: method.provider,
+      type: "online",
+      checkoutReady: method.checkoutReady,
+    })),
+    ...manualRegistrationMethods,
+  ];
+  const preferredPaymentProvider =
+    onlineRegistrationMethods[0]?.provider || null;
+
   const existingPayments = await getAthletePayments(athleteId);
   const currentInstallmentIds = new Set(
     installments.map((installment) => String(installment.id || "").trim()),
@@ -1041,6 +1079,22 @@ export async function syncAthleteEnrollmentInstallmentPayments({
     const effectiveSubscriptionStartDate =
       subscriptionStartDate || enrollmentStartDate || null;
     const generationKey = `enrollment_plan:${athleteId}:${planId}:${effectiveSubscriptionStartDate || "no-date"}:${installmentId}`;
+    const amountCents = Math.max(
+      0,
+      Math.round(Number(installment.amount || 0) * 100),
+    );
+    const feeResult =
+      onlineRegistrationMethods.length > 0
+        ? calculatePlatformFee({
+            amountCents,
+            percent: paymentSettings.platformFeePercent,
+            fixedCents: paymentSettings.platformFeeFixedCents,
+          })
+        : {
+            grossAmountCents: amountCents,
+            platformFeeCents: 0,
+            clubNetAmountCents: amountCents,
+          };
     const existing = (refreshedPayments || []).find((payment: any) => {
       const data = isRecord(payment?.data) ? payment.data : {};
       return (
@@ -1088,6 +1142,17 @@ export async function syncAthleteEnrollmentInstallmentPayments({
         prorationApplied,
         manualOverrideApplied,
         manualEnrollmentAmount,
+        availablePaymentMethods,
+        preferredPaymentProvider,
+        platformFeePercent: paymentSettings.platformFeePercent,
+        platformFeeFixedCents: paymentSettings.platformFeeFixedCents || 0,
+        platformFeePaidBy: paymentSettings.platformFeePaidBy,
+        grossAmountCents: feeResult.grossAmountCents,
+        platformFeeAmountCents: feeResult.platformFeeCents,
+        netAmountCents: feeResult.clubNetAmountCents,
+        grossAmount: Number((feeResult.grossAmountCents / 100).toFixed(2)),
+        platformFeeAmount: Number((feeResult.platformFeeCents / 100).toFixed(2)),
+        netAmount: Number((feeResult.clubNetAmountCents / 100).toFixed(2)),
       },
       updated_at: new Date().toISOString(),
     };
@@ -1180,6 +1245,18 @@ export async function updateClub(clubId: string, updates: any) {
           : undefined,
       activeSeasonId:
         updates.activeSeasonId || existingSettings?.activeSeasonId || undefined,
+      paymentSettings:
+        updates.paymentSettings !== undefined
+          ? updates.paymentSettings
+          : existingSettings?.paymentSettings,
+      subscription:
+        updates.subscription !== undefined
+          ? updates.subscription
+          : existingSettings?.subscription,
+      extraServices:
+        updates.extraServices !== undefined
+          ? updates.extraServices
+          : existingSettings?.extraServices,
     };
 
     const clubUpdates = {
@@ -2286,6 +2363,13 @@ export async function getClubData(clubId: string, dataType: string) {
           "transfers",
           "expected_expenses",
           "expected_income",
+          "payments",
+          "simplified_payments",
+          "trainer_payments",
+          "supplier_payments",
+          "sponsor_payments",
+          "structures",
+          "procure",
           "transactions",
           "clothing_products",
           "clothing_inventory",

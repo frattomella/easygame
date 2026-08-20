@@ -1,4 +1,10 @@
 import { apiRequest } from "./api/client";
+import {
+  SESSION_CACHE_KEY,
+  clearClientAuthCache,
+  markSessionValidated,
+  registerUnauthorizedHandler,
+} from "./auth/session-sync";
 
 type AuthMetadata = Record<string, any>;
 
@@ -43,7 +49,7 @@ type SelectToken =
   | { type: "field"; value: string }
   | { type: "relation"; relation: string; columns: string };
 
-const SESSION_KEY = "easygame.api-session.v1";
+const SESSION_KEY = SESSION_CACHE_KEY;
 const isBrowser = () => typeof window !== "undefined";
 
 const authListeners = new Set<
@@ -788,6 +794,7 @@ const createApiSupabaseClient = () => ({
 
       if (response.data?.session) {
         saveSessionCache(response.data.session);
+        markSessionValidated();
         emitAuthState("SIGNED_IN", response.data.session);
       }
 
@@ -813,6 +820,7 @@ const createApiSupabaseClient = () => ({
 
       if (response.data?.session) {
         saveSessionCache(response.data.session);
+        markSessionValidated();
         emitAuthState("SIGNED_IN", response.data.session);
       }
 
@@ -823,6 +831,7 @@ const createApiSupabaseClient = () => ({
       const response = await apiRequest("/api/v1/auth/logout", {
         method: "POST",
       });
+      clearClientAuthCache();
       saveSessionCache(null);
       emitAuthState("SIGNED_OUT", null);
       return response;
@@ -834,13 +843,30 @@ const createApiSupabaseClient = () => ({
       );
 
       if (response.data?.session) {
+        // Sessione confermata dal server (cookie easygame_session + record
+        // Prisma Session): questa è l'unica prova valida di autenticazione.
         saveSessionCache(response.data.session);
+        markSessionValidated();
         return response;
       }
 
+      const isTransportError = response.error?.code === "NETWORK_ERROR";
+
+      if (!isTransportError) {
+        // Il server ha risposto e non riconosce alcuna sessione: la cache
+        // client è stale e non può essere usata come prova di login.
+        clearClientAuthCache();
+        return {
+          data: { session: null as MockSession | null },
+          error: response.error,
+        };
+      }
+
+      // Server irraggiungibile: non possiamo concludere che la sessione sia
+      // terminata, quindi restituiamo la cache segnalando comunque l'errore.
       return {
         data: {
-          session: response.data?.session ?? getSessionCache(),
+          session: getSessionCache(),
         },
         error: response.error,
       };
@@ -1007,6 +1033,13 @@ const createApiSupabaseClient = () => ({
 });
 
 export const supabase = createApiSupabaseClient();
+
+// Quando una qualsiasi API autenticata risponde 401 la sessione EasyGame non è
+// più valida lato server: allineiamo lo stato client emettendo SIGNED_OUT.
+registerUnauthorizedHandler(() => {
+  saveSessionCache(null);
+  emitAuthState("SIGNED_OUT", null);
+});
 
 let queryCache: Map<string, { data: any; timestamp: number }> = new Map();
 const CACHE_TTL = 5 * 60 * 1000;

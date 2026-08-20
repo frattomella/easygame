@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import {
+  Building2,
   CalendarDays,
   CreditCard,
   FileText,
@@ -23,6 +24,7 @@ import { useParentDashboard } from "./parent-dashboard-context";
 const resolvePageTitle = (pathname: string) => {
   if (pathname.includes("/athlete")) return "Atleta";
   if (pathname.includes("/trainings")) return "Allenamenti";
+  if (pathname.includes("/structures")) return "Strutture";
   if (pathname.includes("/matches")) return "Gare";
   if (pathname.includes("/payments")) return "Pagamenti";
   if (pathname.includes("/documents")) return "Documenti";
@@ -53,6 +55,7 @@ export default function ParentDashboardShell({
           label: "Allenamenti",
           icon: CalendarDays,
         },
+        { href: `${basePath}/structures`, label: "Strutture", icon: Building2 },
         { href: `${basePath}/matches`, label: "Gare", icon: Trophy },
       ],
     },

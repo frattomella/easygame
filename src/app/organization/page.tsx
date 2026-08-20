@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
@@ -61,6 +62,20 @@ import {
   type ClubSeason,
 } from "@/lib/club-seasons";
 import { cn } from "@/lib/utils";
+import { ClubBillingSettings } from "@/components/payments/ClubBillingSettings";
+import { ClubPaymentSettings } from "@/components/payments/ClubPaymentSettings";
+import {
+  normalizeExtraServices,
+  normalizePaymentSettings,
+  normalizeSubscriptionSettings,
+  sanitizePaymentSettingsForStorage,
+  validatePaymentSettingsForSave,
+} from "@/lib/payments/payment-config-utils";
+import type {
+  ClubPaymentSettings as ClubPaymentSettingsType,
+  ClubSubscriptionSettings,
+  HubExtraService,
+} from "@/lib/payments/payment-types";
 
 // Tipologie club (selezione multipla)
 const CLUB_TYPES_LIST = ["Dilettante", "Professionista", "Altro"];
@@ -167,6 +182,7 @@ type SeasonCopyField = (typeof SEASON_COPYABLE_FIELDS)[number]["key"];
 
 export default function OrganizationPage() {
   const { showToast } = useToast();
+  const searchParams = useSearchParams();
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
   const [customSport, setCustomSport] = useState("");
@@ -187,6 +203,13 @@ export default function OrganizationPage() {
   const [companyEmail, setCompanyEmail] = useState("");
   const [companyPec, setCompanyPec] = useState("");
   const [clubSnapshot, setClubSnapshot] = useState<any | null>(null);
+  const [paymentSettings, setPaymentSettings] =
+    useState<ClubPaymentSettingsType>(() => normalizePaymentSettings(null));
+  const [subscriptionSettings, setSubscriptionSettings] =
+    useState<ClubSubscriptionSettings>(() => normalizeSubscriptionSettings(null));
+  const [extraServices, setExtraServices] = useState<HubExtraService[]>(() =>
+    normalizeExtraServices([]),
+  );
   const [seasons, setSeasons] = useState<ClubSeason[]>([]);
   const [activeSeasonId, setActiveSeasonId] = useState<string | null>(null);
   const [seasonForm, setSeasonForm] = useState({
@@ -216,8 +239,24 @@ export default function OrganizationPage() {
     { value: "contatti", label: "Contatti" },
     { value: "federazione", label: "Federazione" },
     { value: "stagioni", label: "Stagioni" },
+    { value: "pagamenti", label: "Pagamenti" },
+    { value: "fatturazione", label: "Account e Fatturazione" },
     { value: "social", label: "Social" },
   ];
+
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (requestedTab === "stagioni" || requestedTab === "stagione") {
+      setActiveTab("stagioni");
+    } else if (requestedTab === "pagamenti" || requestedTab === "payments") {
+      setActiveTab("pagamenti");
+    } else if (
+      requestedTab === "fatturazione" ||
+      requestedTab === "billing"
+    ) {
+      setActiveTab("fatturazione");
+    }
+  }, [searchParams]);
 
   const handlePrevTab = () => {
     setActiveTab((prev) => {
@@ -347,6 +386,11 @@ const [federations, setFederations] = useState<any[]>([]);
           const seasonState = normalizeClubSeasons(settings);
           setSeasons(seasonState.seasons);
           setActiveSeasonId(seasonState.activeSeasonId);
+          setPaymentSettings(normalizePaymentSettings(settings.paymentSettings));
+          setSubscriptionSettings(
+            normalizeSubscriptionSettings(settings.subscription),
+          );
+          setExtraServices(normalizeExtraServices(settings.extraServices));
           setSeasonForm({
             label: "",
             startDate: "",
@@ -798,7 +842,21 @@ const [federations, setFederations] = useState<any[]>([]);
         return;
       }
 
+      const paymentValidationError =
+        validatePaymentSettingsForSave(paymentSettings);
+      if (paymentValidationError) {
+        showToast("error", paymentValidationError);
+        return;
+      }
+
       const { updateClub } = await import("@/lib/simplified-db");
+      const normalizedPaymentSettings =
+        sanitizePaymentSettingsForStorage(paymentSettings);
+      const normalizedSubscriptionSettings = {
+        ...normalizeSubscriptionSettings(subscriptionSettings),
+        updatedAt: new Date().toISOString(),
+      };
+      const normalizedExtraServices = normalizeExtraServices(extraServices);
 
       const updateData = {
         name: organizationData.name.trim(),
@@ -848,11 +906,17 @@ const [federations, setFederations] = useState<any[]>([]);
         federations: federations,
         seasons,
         activeSeasonId,
+        paymentSettings: normalizedPaymentSettings,
+        subscription: normalizedSubscriptionSettings,
+        extraServices: normalizedExtraServices,
         updated_at: new Date().toISOString(),
       };
 
       const updatedClub = await updateClub(currentClubId, updateData);
       setClubSnapshot(updatedClub);
+      setPaymentSettings(normalizedPaymentSettings);
+      setSubscriptionSettings(normalizedSubscriptionSettings);
+      setExtraServices(normalizedExtraServices);
 
       if (logoPreview) {
         localStorage.setItem("organization-logo", logoPreview);
@@ -1897,6 +1961,21 @@ const [federations, setFederations] = useState<any[]>([]);
                 ))}
               </CardContent>
             </Card>
+          </TabsContent>
+          <TabsContent value="pagamenti" className="space-y-4 mt-4">
+            <ClubPaymentSettings
+              value={paymentSettings}
+              onChange={setPaymentSettings}
+            />
+          </TabsContent>
+
+          <TabsContent value="fatturazione" className="space-y-4 mt-4">
+            <ClubBillingSettings
+              subscription={subscriptionSettings}
+              extraServices={extraServices}
+              onSubscriptionChange={setSubscriptionSettings}
+              onExtraServicesChange={setExtraServices}
+            />
           </TabsContent>
 {/* SOCIAL */}
           <TabsContent value="social" className="space-y-4 mt-4">

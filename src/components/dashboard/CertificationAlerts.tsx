@@ -53,7 +53,7 @@ const CertificationAlerts = ({
   const [reminderLoadingIds, setReminderLoadingIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const MAX_VISIBLE_ALERTS = 6;
+  const MAX_VISIBLE_ALERTS = 8;
   const alertsRef = React.useRef(alerts);
   const alertsSignature = React.useMemo(
     () =>
@@ -256,13 +256,13 @@ const CertificationAlerts = ({
   const getStatusIcon = (status: CertificationAlert["status"]) => {
     switch (status) {
       case "expired":
-        return <AlertCircle className="h-5 w-5 text-destructive" />;
+        return <AlertCircle className="h-4 w-4 text-destructive" />;
       case "expiring":
-        return <Clock className="h-5 w-5 text-amber-500" />;
+        return <Clock className="h-4 w-4 text-amber-500" />;
       case "missing":
-        return <AlertCircle className="h-5 w-5 text-slate-500" />;
+        return <AlertCircle className="h-4 w-4 text-slate-500" />;
       case "valid":
-        return <CheckCircle className="h-5 w-5 text-gray-500" />;
+        return <CheckCircle className="h-4 w-4 text-gray-500" />;
       default:
         return null;
     }
@@ -386,7 +386,7 @@ const CertificationAlerts = ({
   const hiddenAlertsCount = Math.max(loadedAlerts.length - visibleAlerts.length, 0);
   const isEmbedded = variant === "embedded";
   const shellClassName = cn(
-    "w-full",
+    "flex h-full min-h-0 w-full flex-col overflow-hidden",
     isEmbedded
       ? "border-0 bg-transparent shadow-none"
       : "bg-white dark:bg-gray-800 shadow-md border-0",
@@ -397,32 +397,33 @@ const CertificationAlerts = ({
       ? "px-0 pb-3 pt-0"
       : "pb-2 border-b border-gray-100 dark:border-gray-700",
   );
-  const contentClassName = isEmbedded ? "px-0 pb-0 pt-0" : "pt-4";
+  const contentClassName = cn(
+    "min-h-0 flex-1 overflow-hidden",
+    isEmbedded ? "px-0 pb-0 pt-0" : "pt-4",
+  );
+  const listClassName = "h-full max-h-full space-y-3 overflow-y-auto pr-1 scrollbar-hide";
 
   if (loading) {
     return (
       <Card className={shellClassName}>
         <CardHeader className={headerClassName}>
-          <CardTitle className="text-xl font-bold flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100">
             <div className="h-8 w-8 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 flex items-center justify-center">
               <AlertCircle className="h-4 w-4 text-white" />
             </div>
-            Avvisi certificati
+            Avvisi Certificati
           </CardTitle>
           <Button variant="outline" size="sm" disabled>
             Vedi Tutti
           </Button>
         </CardHeader>
         <CardContent className={contentClassName}>
-          <div
-            className="space-y-4 overflow-y-auto pr-1 scrollbar-hide"
-            style={{ maxHeight }}
-          >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={listClassName} style={{ maxHeight }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {[1, 2, 3, 4].map((i) => (
                 <div
                   key={i}
-                  className="flex items-start space-x-4 p-4 rounded-lg border animate-pulse"
+                  className="flex items-start space-x-3 rounded-lg border p-3 animate-pulse"
                 >
                   <div className="w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 mt-1"></div>
                   <div className="flex-1 space-y-2">
@@ -446,62 +447,60 @@ const CertificationAlerts = ({
   return (
     <Card className={shellClassName}>
       <CardHeader className={headerClassName}>
-        <CardTitle className="text-xl font-bold flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100">
           <div className="h-8 w-8 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 flex items-center justify-center">
             <AlertCircle className="h-4 w-4 text-white" />
           </div>
-          Avvisi certificati
+          Avvisi Certificati
         </CardTitle>
         <Button
           variant="outline"
           size="sm"
           onClick={handleViewAllAlerts}
-          className="hover:bg-orange-50 hover:text-orange-600 hover:border-orange-300"
+          className="h-8 px-3 text-xs hover:bg-orange-50 hover:text-orange-600 hover:border-orange-300"
         >
           Vedi Tutti
         </Button>
       </CardHeader>
       <CardContent className={contentClassName}>
-        <div
-          className="space-y-4 overflow-y-auto pr-1 scrollbar-hide"
-          style={{ maxHeight }}
-        >
+        <div className={listClassName} style={{ maxHeight }}>
           {loadedAlerts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center text-gray-500">
-              <div className="h-16 w-16 rounded-full bg-gradient-to-r from-gray-100 to-gray-200 flex items-center justify-center mb-3">
-                <AlertCircle className="h-8 w-8 text-gray-500" />
+            <div className="flex flex-col items-center justify-center py-6 text-center text-gray-500">
+              <div className="h-12 w-12 rounded-full bg-gradient-to-r from-gray-100 to-gray-200 flex items-center justify-center mb-2">
+                <AlertCircle className="h-6 w-6 text-gray-500" />
               </div>
               <p className="font-medium">Nessun avviso sui certificati</p>
-              <p className="text-sm">
+              <p className="text-xs">
                 Gli avvisi sui certificati in scadenza appariranno qui
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {visibleAlerts.map((alert) => (
                 <div
                   key={alert.id}
-                  className="flex items-start space-x-4 p-4 rounded-lg border hover:shadow-md transition-shadow bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-750"
+                  className="flex items-start space-x-3 rounded-lg border bg-gradient-to-r from-white to-gray-50 p-3 transition-shadow hover:shadow-sm dark:from-gray-800 dark:to-gray-750"
                 >
-                  <div className="mt-1">{getStatusIcon(alert.status)}</div>
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-medium">{alert.athleteName}</h4>
+                  <div className="mt-0.5">{getStatusIcon(alert.status)}</div>
+                  <div className="flex-1 space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-sm font-medium">{alert.athleteName}</h4>
                       {getStatusBadge(alert.status)}
                     </div>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {alert.certificateType}
                     </p>
-                    <p className="text-sm">
+                    <p className="text-xs">
                       <span className="font-medium">Scadenza:</span>{" "}
                       {formatDate(alert.expiryDate)}
                     </p>
-                    <div className="flex space-x-2 pt-2">
+                    <div className="flex flex-wrap gap-1.5 pt-1.5">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => handleViewAthlete(alert)}
+                        className="h-7 px-2 text-xs"
                       >
                         Vedi
                       </Button>
@@ -513,6 +512,7 @@ const CertificationAlerts = ({
                           size="sm"
                           onClick={() => handleSendReminder(alert)}
                           disabled={reminderLoadingIds.has(alert.id)}
+                          className="h-7 px-2 text-xs"
                         >
                           {reminderLoadingIds.has(alert.id)
                             ? "Invio..."
@@ -528,7 +528,7 @@ const CertificationAlerts = ({
                 <button
                   type="button"
                   onClick={handleViewAllAlerts}
-                  className="w-full rounded-xl border border-dashed border-orange-300 bg-orange-50/80 px-4 py-3 text-sm font-medium text-orange-700 transition-colors hover:bg-orange-100"
+                  className="w-full rounded-xl border border-dashed border-orange-300 bg-orange-50/80 px-3 py-2 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-100"
                 >
                   +{hiddenAlertsCount} altri atleti con certificato scaduto, in scadenza o mancante.
                   Vai alla pagina certificati

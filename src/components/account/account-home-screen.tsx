@@ -14,6 +14,13 @@ import {
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
+import { fetchMemberships } from "@/lib/auth/memberships-client";
+import {
+  isAthleteAccessRole,
+  isManagementAccessRole,
+  isParentAccessRole,
+  isTrainerAccessRole,
+} from "@/lib/access-roles";
 import { supabase } from "@/lib/supabase";
 import {
   ArrowRight,
@@ -521,6 +528,11 @@ export default function AccountHomeScreen() {
   const [accessToken, setAccessToken] = useState("");
   const [ownedClubs, setOwnedClubs] = useState<AccountClub[]>([]);
   const [accessClubs, setAccessClubs] = useState<AccountClub[]>([]);
+  const [membershipsStatus, setMembershipsStatus] = useState<
+    "loading" | "error" | "loaded"
+  >("loading");
+  const [membershipsError, setMembershipsError] = useState<string | null>(null);
+  const [hasLoadedMemberships, setHasLoadedMemberships] = useState(false);
 
   const clubSlotLimit = useMemo(() => {
     const rawLimit = Number(user?.user_metadata?.clubSlotLimit);
@@ -591,6 +603,8 @@ export default function AccountHomeScreen() {
     if (!user?.id) {
       setOwnedClubs([]);
       setAccessClubs([]);
+      setHasLoadedMemberships(false);
+      setMembershipsStatus("loading");
       setPageLoading(false);
       return;
     }
@@ -598,13 +612,17 @@ export default function AccountHomeScreen() {
     if (!silent) {
       setPageLoading(true);
     }
+    setMembershipsError(null);
 
-    const response = await apiRequest<MembershipRecord[]>("/api/v1/auth/memberships");
+    const response = await fetchMemberships<MembershipRecord>();
 
     if (response.error) {
-      showToast("error", response.error.message || "Errore caricamento club");
-      setOwnedClubs([]);
-      setAccessClubs([]);
+      const message = response.error.message || "Errore caricamento club";
+      showToast("error", message);
+      // Un errore temporaneo non equivale ad avere zero club: manteniamo i dati
+      // già caricati e distinguiamo lo stato "error" da "loaded-empty".
+      setMembershipsError(message);
+      setMembershipsStatus("error");
       if (!silent) {
         setPageLoading(false);
       }
@@ -633,6 +651,9 @@ export default function AccountHomeScreen() {
         .map(({ ownerId, ...club }) => club),
     );
 
+    setMembershipsStatus("loaded");
+    setHasLoadedMemberships(true);
+
     if (!silent) {
       setPageLoading(false);
     }
@@ -653,12 +674,14 @@ export default function AccountHomeScreen() {
   }, [loading, router, user]);
 
   useEffect(() => {
-    if (!user?.id) {
+    // Attendiamo la validazione della sessione lato server: senza questo
+    // controllo partirebbe una richiesta protetta basata solo sulla cache.
+    if (loading || !user?.id) {
       return;
     }
 
     void loadMemberships();
-  }, [user?.id]);
+  }, [loading, user?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -763,17 +786,20 @@ export default function AccountHomeScreen() {
         return;
       }
 
-      if (club.role === "trainer") {
+      if (isTrainerAccessRole(club.role)) {
         router.push("/trainer-dashboard");
         return;
       }
 
-      if (club.role === "owner" || club.role === "admin") {
+      if (isManagementAccessRole(club.role)) {
         router.push(`/dashboard?clubId=${club.id}`);
         return;
       }
 
-      if ((club.role === "athlete" || club.role === "parent") && user?.id) {
+      if (
+        (isAthleteAccessRole(club.role) || isParentAccessRole(club.role)) &&
+        user?.id
+      ) {
         const athleteResponse = await supabase
           .from("athletes")
           .select("id")
@@ -1072,6 +1098,46 @@ export default function AccountHomeScreen() {
         />
 
         <main className="relative z-20 space-y-7 px-5 pb-9 md:-mt-2 md:px-12 md:pb-10">
+          {membershipsStatus === "error" && !hasLoadedMemberships ? (
+            <section className="rounded-[26px] border border-[#f2d4d4] bg-white/95 p-7 text-center shadow-[0_24px_70px_-42px_rgba(15,23,42,0.42)] md:p-9">
+              <h2 className="text-[22px] font-black text-[#07112f]">
+                Impossibile caricare i club
+              </h2>
+              <p className="mx-auto mt-3 max-w-[520px] text-[15px] font-medium leading-7 text-[#5f6b84]">
+                {membershipsError ||
+                  "Si è verificato un errore durante il caricamento dei tuoi club."}
+              </p>
+              <Button
+                type="button"
+                className="mt-6 h-12 rounded-full bg-[#075eee] px-7 text-[15px] font-black text-white hover:bg-[#0052db]"
+                onClick={() => {
+                  void loadMemberships();
+                }}
+              >
+                Riprova
+              </Button>
+            </section>
+          ) : (
+          <>
+          {membershipsStatus === "error" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-[#f2d4d4] bg-[#fff7f7] px-5 py-4 text-[15px] font-semibold text-[#b42318]">
+              <span>
+                {membershipsError ||
+                  "Aggiornamento dei club non riuscito. I dati mostrati potrebbero non essere aggiornati."}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-full border-[#f0c2c2] bg-white px-5 text-sm font-black text-[#b42318] hover:bg-[#fff1f1]"
+                onClick={() => {
+                  void loadMemberships(true);
+                }}
+              >
+                Riprova
+              </Button>
+            </div>
+          ) : null}
+
           <div className="grid gap-7 xl:grid-cols-2">
             <AccountAccessPanel
               ownerMode
@@ -1118,6 +1184,8 @@ export default function AccountHomeScreen() {
           </div>
 
           <AccountBottomCTA onAddAccess={() => setRedeemAccessOpen(true)} />
+          </>
+          )}
         </main>
       </div>
 

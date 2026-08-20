@@ -181,25 +181,23 @@ export default function TrainersPage() {
 
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <SharedPageHeader
-                title="Allenatori"
-                subtitle="Gestisci staff tecnico, categorie assegnate e stato operativo degli allenatori del club."
-                className="xl:flex-1"
-              />
+            <SharedPageHeader
+              title="Allenatori"
+              subtitle="Gestisci staff tecnico, categorie assegnate e stato operativo degli allenatori del club."
+            />
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="relative w-full sm:w-auto">
+                <Input
+                  placeholder="Cerca allenatori..."
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="pl-10 w-full sm:w-80"
+                />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              </div>
 
-              <div className="flex flex-1 flex-col gap-3 xl:max-w-4xl xl:flex-row xl:items-center xl:justify-end">
-                <div className="relative flex-1 xl:max-w-sm">
-                  <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <Input
-                    placeholder="Cerca per nome, email, telefono o categoria..."
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    className="h-11 rounded-xl border-blue-200 bg-white pl-11"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                <div className="flex gap-1 border rounded-lg p-1 bg-white dark:bg-gray-800">
                   <Button
                     variant={statusFilter === "active" ? "default" : "ghost"}
                     size="sm"
@@ -231,7 +229,7 @@ export default function TrainersPage() {
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="h-11 rounded-xl">
+                    <Button variant="outline" className="flex-1 sm:flex-none">
                       <Settings2 className="h-4 w-4 mr-2" />
                       Personalizza Colonne
                     </Button>
@@ -303,7 +301,7 @@ export default function TrainersPage() {
                       clubId ? `/trainers/new?clubId=${clubId}` : "/trainers/new",
                     )
                   }
-                  className="h-11 rounded-xl bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Nuovo Allenatore

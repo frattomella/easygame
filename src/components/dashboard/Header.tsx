@@ -7,9 +7,10 @@ import {
   Calendar,
   CreditCard,
   FileHeart,
-  FileText,
   HelpCircle,
+  LogOut,
   Trophy,
+  UserCircle,
   UserPlus,
   Zap,
 } from "lucide-react";
@@ -51,7 +52,7 @@ const ChatButton = dynamic<{ className?: string }>(
 const topBarButtonClassName =
   "relative h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-white p-0 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900";
 const quickActionClubButtonClassName =
-  "relative h-10 shrink-0 rounded-full border border-blue-400/40 bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 px-4 text-white shadow-md shadow-blue-500/20 hover:from-blue-700 hover:via-indigo-700 hover:to-sky-600 focus-visible:ring-blue-500";
+  "relative h-10 shrink-0 rounded-full border border-blue-400/40 bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 bg-[length:200%_200%] bg-[position:0%_50%] px-4 text-white shadow-md shadow-blue-500/20 transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:bg-[position:100%_50%] hover:text-white hover:shadow-lg hover:shadow-blue-500/25 focus-visible:ring-blue-500";
 
 interface HeaderProps {
   title?: string;
@@ -100,13 +101,6 @@ const quickActions = [
     icon: CreditCard,
     href: "/movements?action=new",
     color: "bg-purple-500",
-  },
-  {
-    id: "new-document",
-    label: "Nuovo Documento",
-    icon: FileText,
-    href: "/modulistica?action=new",
-    color: "bg-teal-500",
   },
 ];
 
@@ -366,6 +360,10 @@ const Header = memo(
       router.push(href);
     };
 
+    const handleReturnToAccount = () => {
+      router.push("/account");
+    };
+
     const handleHelpClick = () => {
       window.open("https://www.cedisoft.it/contatti/", "_blank");
     };
@@ -386,7 +384,7 @@ const Header = memo(
       ? "shrink-0 rounded-full border border-border/70 text-foreground hover:bg-muted"
       : topBarButtonClassName;
     const quickActionButtonClassName = isTrainerHeaderContext
-      ? "relative bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600"
+      ? "relative bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 bg-[length:200%_200%] bg-[position:0%_50%] text-white transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:bg-[position:100%_50%] hover:text-white hover:shadow-lg hover:shadow-blue-500/25"
       : quickActionClubButtonClassName;
     const helpButtonClassName = isTrainerHeaderContext
       ? "text-muted-foreground hover:text-foreground"
@@ -450,9 +448,15 @@ const Header = memo(
                 {orgName || "EasyGame"}
               </span>
               {activeSeasonLabel ? (
-                <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                <button
+                  type="button"
+                  title="Gestisci stagione sportiva"
+                  aria-label="Gestisci stagione sportiva"
+                  onClick={() => router.push("/organization?tab=stagioni")}
+                  className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                >
                   Stagione {activeSeasonLabel}
-                </span>
+                </button>
               ) : null}
             </div>
           </div>
@@ -497,7 +501,7 @@ const Header = memo(
                       <button
                         key={action.id}
                         onClick={() => handleQuickAction(action.href)}
-                        className="w-full flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition-colors hover:bg-slate-50"
+                        className="w-full flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left text-slate-900 transition-colors hover:bg-slate-50 hover:text-slate-900"
                       >
                         <div className={`p-2 rounded-lg ${action.color}`}>
                           <action.icon className="h-5 w-5 text-white" />
@@ -577,8 +581,20 @@ const Header = memo(
                 ) : null}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => router.push("/account")}>
-                Apri account
+              <DropdownMenuItem
+                onClick={() =>
+                  router.push(user?.id ? `/profile/${user.id}` : "/account")
+                }
+              >
+                <UserCircle className="mr-2 h-4 w-4" />
+                Profilo
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleReturnToAccount}
+                className="text-red-600 focus:bg-red-50 focus:text-red-700"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Esci
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -13,8 +13,10 @@ import {
   Link as LinkIcon,
   ListChecks,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Plus,
+  QrCode,
   RotateCcw,
   Save,
   Send,
@@ -31,6 +33,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -41,8 +50,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
+import { FormShareDialog } from "@/components/forms/FormShareDialog";
 import { apiRequest } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import {
@@ -118,6 +136,29 @@ const getPublicLink = (form: OnlineForm) => {
   return `${window.location.origin}/forms/${form.publicSlug}`;
 };
 
+const formatFormDate = (value?: string) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("it-IT");
+};
+
+const writeClipboardText = async (value: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+};
+
 export function OnlineFormsDashboard({
   clubId,
   athletes = [],
@@ -134,6 +175,7 @@ export function OnlineFormsDashboard({
   const [responseStatusFilter, setResponseStatusFilter] = useState("all");
   const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
   const [selectedResponsesFormId, setSelectedResponsesFormId] = useState("");
+  const [sharingForm, setSharingForm] = useState<OnlineForm | null>(null);
 
   const forms = bundle.forms;
   const submissions = bundle.submissions;
@@ -155,6 +197,14 @@ export function OnlineFormsDashboard({
   const archivedForms = useMemo(
     () => sortedForms.filter((form) => form.status === "archived"),
     [sortedForms],
+  );
+  const submissionCountByFormId = useMemo(
+    () =>
+      submissions.reduce<Record<string, number>>((counts, submission) => {
+        counts[submission.formId] = (counts[submission.formId] || 0) + 1;
+        return counts;
+      }, {}),
+    [submissions],
   );
 
   const filteredSubmissions = useMemo(
@@ -357,8 +407,13 @@ export function OnlineFormsDashboard({
       return;
     }
 
-    await navigator.clipboard.writeText(getPublicLink(form));
-    showToast("success", "Link pubblico copiato");
+    try {
+      await writeClipboardText(getPublicLink(form));
+      showToast("success", "Link pubblico copiato");
+    } catch (error) {
+      console.error("Copy public link error:", error);
+      showToast("error", "Impossibile copiare il link pubblico");
+    }
   };
 
   const updateEditingField = (
@@ -517,35 +572,111 @@ export function OnlineFormsDashboard({
         </CardHeader>
         <CardContent>
           {archivedForms.length > 0 ? (
-            <div className="space-y-3">
-              {archivedForms.map((form) => (
-                <div
-                  key={form.id}
-                  className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="font-semibold text-slate-900">{form.title}</p>
-                    <p className="text-sm text-slate-500">
-                      Modulo online - aggiornato il{" "}
-                      {new Date(form.updatedAt).toLocaleDateString("it-IT")}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => updateFormStatus(form, "unpublish")}
-                    disabled={saving}
-                  >
-                    <RotateCcw className="mr-2 h-4 w-4" />
-                    Ripristina
-                  </Button>
-                </div>
-              ))}
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[260px]">Nome modulo</TableHead>
+                    <TableHead>Data archivio</TableHead>
+                    <TableHead>Ultima modifica</TableHead>
+                    <TableHead>Risposte</TableHead>
+                    <TableHead>Stato</TableHead>
+                    <TableHead className="text-right">Azioni</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {archivedForms.map((form) => (
+                    <TableRow key={form.id}>
+                      <TableCell>
+                        <div className="font-medium text-slate-900">
+                          {form.title}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {form.description || "Modulo online"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {formatFormDate(
+                          (form as any).archivedAt ||
+                            (form as any).archived_at ||
+                            form.updatedAt,
+                        )}
+                      </TableCell>
+                      <TableCell>{formatFormDate(form.updatedAt)}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="px-0"
+                          onClick={() => {
+                            setSelectedResponsesFormId(form.id);
+                            setSelectedSubmissionId("");
+                          }}
+                        >
+                          <ListChecks className="mr-2 h-4 w-4" />
+                          {submissionCountByFormId[form.id] || 0}
+                        </Button>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={getStatusBadgeClassName(form.status)}
+                        >
+                          {ONLINE_FORM_STATUS_LABELS[form.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Azioni ${form.title}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => updateFormStatus(form, "unpublish")}
+                              disabled={saving}
+                            >
+                              <RotateCcw className="mr-2 h-4 w-4" />
+                              Ripristina
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => duplicateForm(form)}
+                              disabled={saving}
+                            >
+                              <Copy className="mr-2 h-4 w-4" />
+                              Duplica
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedResponsesFormId(form.id);
+                                setSelectedSubmissionId("");
+                              }}
+                            >
+                              <ListChecks className="mr-2 h-4 w-4" />
+                              Risposte
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled>
+                              <QrCode className="mr-2 h-4 w-4" />
+                              Condivisione disabilitata
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
-            <p className="text-sm text-slate-500">
-              Nessun modulo online archiviato.
-            </p>
+            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
+              Nessun modulo archiviato.
+            </div>
           )}
         </CardContent>
       </Card>
@@ -1341,127 +1472,191 @@ export function OnlineFormsDashboard({
       </div>
 
       {activeForms.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="flex min-h-[280px] flex-col items-center justify-center text-center">
-            <FileText className="mb-4 h-12 w-12 text-slate-400" />
-            <h3 className="font-semibold text-slate-900">
-              Nessun modulo online
-            </h3>
-            <p className="mt-2 max-w-xl text-sm text-slate-500">
-              Crea un modulo per iscrizioni, privacy, questionari o richieste
-              documenti.
-            </p>
-            <Button className="mt-5" onClick={() => createNewForm(false)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Crea modulo
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-dashed p-10 text-center">
+          <FileText className="mx-auto mb-4 h-12 w-12 text-slate-400" />
+          <h3 className="font-semibold text-slate-900">
+            Nessun modulo online attivo.
+          </h3>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
+            Crea un modulo per iscrizioni, privacy, questionari o richieste
+            documenti.
+          </p>
+          <Button className="mt-5" onClick={() => createNewForm(false)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Crea modulo
+          </Button>
+        </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {activeForms.map((form) => {
-            const responseCount = submissions.filter(
-              (submission) => submission.formId === form.id,
-            ).length;
-            return (
-              <Card key={form.id}>
-                <CardHeader>
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <CardTitle>{form.title}</CardTitle>
-                      <CardDescription>
+        <div className="overflow-x-auto rounded-lg border bg-white">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-[280px]">Nome modulo</TableHead>
+                <TableHead>Stato</TableHead>
+                <TableHead>Visibilità / Pubblicazione</TableHead>
+                <TableHead>Risposte</TableHead>
+                <TableHead>Ultima modifica</TableHead>
+                <TableHead>Link / Condivisione</TableHead>
+                <TableHead className="text-right">Azioni</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {activeForms.map((form) => {
+                const isPublished = form.status === "published";
+                const responseCount = submissionCountByFormId[form.id] || 0;
+
+                return (
+                  <TableRow key={form.id}>
+                    <TableCell>
+                      <div className="font-medium text-slate-900">
+                        {form.title}
+                      </div>
+                      <div className="max-w-md truncate text-xs text-slate-500">
                         {form.description || "Modulo online"}
-                      </CardDescription>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className={getStatusBadgeClassName(form.status)}
-                    >
-                      {ONLINE_FORM_STATUS_LABELS[form.status]}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-slate-500">Risposte</p>
-                      <p className="mt-1 text-lg font-semibold">
-                        {responseCount}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-slate-500">Ultimo aggiornamento</p>
-                      <p className="mt-1 font-medium">
-                        {new Date(form.updatedAt).toLocaleDateString("it-IT")}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setEditingForm(form)}
-                      aria-label={`Modifica ${form.title}`}
-                      title="Modifica"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => duplicateForm(form)}
-                      aria-label={`Duplica ${form.title}`}
-                      title="Duplica"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        updateFormStatus(
-                          form,
-                          form.status === "published" ? "unpublish" : "publish",
-                        )
-                      }
-                    >
-                      {form.status === "published" ? "Non pubblicare" : "Pubblica"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => copyPublicLink(form)}
-                      disabled={form.status !== "published"}
-                      aria-label={`Copia link ${form.title}`}
-                      title="Copia link"
-                    >
-                      <LinkIcon className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setSelectedResponsesFormId(form.id);
-                        setSelectedSubmissionId("");
-                      }}
-                    >
-                      <ListChecks className="mr-2 h-4 w-4" />
-                      Risposte
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => updateFormStatus(form, "archive")}
-                      aria-label={`Archivia ${form.title}`}
-                      title="Archivia"
-                    >
-                      <Archive className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                      </div>
+                      <div className="mt-2">
+                        <Badge
+                          variant="outline"
+                          className={getStatusBadgeClassName(form.status)}
+                        >
+                          {ONLINE_FORM_STATUS_LABELS[form.status]}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={getStatusBadgeClassName(form.status)}
+                      >
+                        {ONLINE_FORM_STATUS_LABELS[form.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant={isPublished ? "default" : "outline"}
+                        onClick={() =>
+                          updateFormStatus(
+                            form,
+                            isPublished ? "unpublish" : "publish",
+                          )
+                        }
+                        disabled={saving || form.status === "archived"}
+                        className={
+                          isPublished
+                            ? "bg-green-600 text-white hover:bg-green-700"
+                            : "border-blue-200 text-blue-700 hover:bg-blue-50"
+                        }
+                      >
+                        {isPublished ? "Non pubblicare" : "Pubblica"}
+                      </Button>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="px-0"
+                        onClick={() => {
+                          setSelectedResponsesFormId(form.id);
+                          setSelectedSubmissionId("");
+                        }}
+                      >
+                        <ListChecks className="mr-2 h-4 w-4" />
+                        {responseCount} Risposte
+                      </Button>
+                    </TableCell>
+                    <TableCell>{formatFormDate(form.updatedAt)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => copyPublicLink(form)}
+                          disabled={!isPublished}
+                          aria-label={`Copia link ${form.title}`}
+                          title={
+                            isPublished
+                              ? "Copia link"
+                              : "Pubblica il modulo per condividerlo"
+                          }
+                        >
+                          <LinkIcon className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setSharingForm(form)}
+                          disabled={!isPublished}
+                          aria-label={`Condividi ${form.title}`}
+                          title={
+                            isPublished
+                              ? "Condividi modulo"
+                              : "Pubblica il modulo per condividerlo"
+                          }
+                        >
+                          <QrCode className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Azioni ${form.title}`}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setEditingForm(form)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Modifica
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => duplicateForm(form)}
+                            disabled={saving}
+                          >
+                            <Copy className="mr-2 h-4 w-4" />
+                            Duplica
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedResponsesFormId(form.id);
+                              setSelectedSubmissionId("");
+                            }}
+                          >
+                            <ListChecks className="mr-2 h-4 w-4" />
+                            Risposte
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => updateFormStatus(form, "archive")}
+                            disabled={saving}
+                          >
+                            <Archive className="mr-2 h-4 w-4" />
+                            Archivia
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
       )}
+
+      <FormShareDialog
+        open={Boolean(sharingForm)}
+        onOpenChange={(open) => {
+          if (!open) setSharingForm(null);
+        }}
+        form={sharingForm}
+        publicUrl={sharingForm ? getPublicLink(sharingForm) : ""}
+      />
     </div>
   );
 }

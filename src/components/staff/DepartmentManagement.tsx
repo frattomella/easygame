@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Edit, Trash2, Plus } from "lucide-react";
+import { Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
 
 interface Department {
@@ -117,25 +117,10 @@ export function DepartmentManagement({
         </DialogHeader>
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_280px]">
           <section className="min-w-0">
-            <div className="flex justify-between items-center mb-2">
+            <div className="mb-2">
               <Label className="text-sm font-medium">
                 Reparti esistenti
               </Label>
-              <Button
-                size="sm"
-                className="bg-blue-600 hover:bg-blue-700"
-                onClick={() => {
-                  setNewDepartment({
-                    id: "",
-                    name: "",
-                    description: "",
-                    color: "blue",
-                  });
-                  document.getElementById("department-name")?.focus();
-                }}
-              >
-                <Plus className="h-4 w-4 mr-1" /> Nuovo
-              </Button>
             </div>
             <div className="mt-2 space-y-2 max-h-80 overflow-y-auto rounded-md border p-2">
               {departments.length > 0 ? (

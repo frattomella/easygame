@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeAccessRole } from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
@@ -210,7 +211,7 @@ export async function POST(request: Request) {
     }
 
     const tokenType = String(payload.token_type || payload.tokenType || "").trim();
-    let role = String(payload.role || "member").trim() || "member";
+    let role = normalizeAccessRole(payload.role || "member") || "member";
     const trainerId = String(payload.trainer_id || "").trim();
     const athleteId = String(payload.athlete_id || "").trim();
     const guardianId = String(payload.guardian_id || "").trim();

@@ -28,6 +28,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -70,7 +80,9 @@ import {
   Unlink2,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { AddCertificateForm } from "@/components/forms/AddCertificateForm";
 import { useToast } from "@/components/ui/toast-notification";
+import { supabase } from "@/lib/supabase";
 import {
   getLatestMedicalCertificateExpiry,
   getMedicalCertificateStatus,
@@ -96,6 +108,10 @@ import {
   type ClothingAssignment,
   type ClothingAssignmentStatus,
 } from "@/lib/clothing-inventory-utils";
+import {
+  getAthleteJerseyNumberSummary,
+  getJerseyGroupSummary,
+} from "@/lib/jersey-numbering-utils";
 import {
   parseScannedDocument,
   type DocumentScanResult,
@@ -523,6 +539,20 @@ export default function AthleteProfilePage() {
     useState(false);
   const [showAddMedicalVisitModal, setShowAddMedicalVisitModal] =
     useState(false);
+  const [showAddMedicalCertificateModal, setShowAddMedicalCertificateModal] =
+    useState(false);
+  const [certificateToDelete, setCertificateToDelete] = useState<any | null>(
+    null,
+  );
+  const [deletingCertificateId, setDeletingCertificateId] = useState<
+    string | null
+  >(null);
+  const [medicalVisitToDelete, setMedicalVisitToDelete] = useState<any | null>(
+    null,
+  );
+  const [deletingMedicalVisitId, setDeletingMedicalVisitId] = useState<
+    string | null
+  >(null);
   const [showAddIdentityDocumentModal, setShowAddIdentityDocumentModal] =
     useState(false);
   const [showAddEnrollmentDocumentModal, setShowAddEnrollmentDocumentModal] =
@@ -2414,17 +2444,179 @@ export default function AthleteProfilePage() {
     setShowAddMedicalVisitModal(true);
   };
 
+  const getAthleteFullName = () =>
+    [athlete?.name, athlete?.surname].filter(Boolean).join(" ") || "Atleta";
+
+  const resolveLatestExpiry = (
+    certificates: any[],
+    fallbackExpiry?: string | null,
+  ) => getLatestMedicalCertificateExpiry(certificates) || fallbackExpiry || "";
+
+  const handleAddMedicalCertificate = async (certificateData: any) => {
+    try {
+      if (!athleteId || !clubId) {
+        showToast("error", "Dati atleta o club mancanti");
+        return false;
+      }
+
+      if (!certificateData.fileUrl || !certificateData.fileUrl.trim()) {
+        showToast("error", "Il caricamento del file e obbligatorio");
+        return false;
+      }
+
+      const { data, error } = await supabase
+        .from("medical_certificates")
+        .insert({
+          organization_id: clubId,
+          athlete_id: athleteId,
+          type: certificateData.certificateType,
+          issue_date: certificateData.issueDate,
+          expiry_date: certificateData.expiryDate,
+          file_url: certificateData.fileUrl || null,
+          status: getMedicalCertificateStatus(certificateData.expiryDate),
+          notes: certificateData.certificateType,
+          data: {
+            source: "athlete-profile",
+            uploaded_file_name: certificateData.fileName || null,
+          },
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      const nextCertificate = {
+        id: data?.id || `certificate-${Date.now()}`,
+        type:
+          data?.type ||
+          certificateData.certificateType ||
+          "Certificato Medico",
+        issueDate: data?.issue_date || certificateData.issueDate,
+        expiryDate: data?.expiry_date || certificateData.expiryDate,
+        status: getMedicalCertificateStatus(
+          data?.expiry_date || certificateData.expiryDate,
+        ),
+        fileUrl: data?.file_url || certificateData.fileUrl || "",
+      };
+
+      const nextCertificates = [nextCertificate, ...medicalCertificates].sort(
+        (left: any, right: any) => {
+          const leftTime = left.expiryDate
+            ? new Date(left.expiryDate).getTime()
+            : 0;
+          const rightTime = right.expiryDate
+            ? new Date(right.expiryDate).getTime()
+            : 0;
+          return rightTime - leftTime;
+        },
+      );
+      const nextExpiry = resolveLatestExpiry(
+        nextCertificates,
+        athlete?.medicalCertExpiry,
+      );
+
+      setMedicalCertificates(nextCertificates);
+      setAthlete((current: any) =>
+        current ? { ...current, medicalCertExpiry: nextExpiry } : current,
+      );
+
+      try {
+        const { updateAthlete } = await import("@/lib/simplified-db");
+        await updateAthlete(athleteId, {
+          data: {
+            medicalCertExpiry: nextExpiry,
+          },
+        });
+      } catch (syncError) {
+        console.warn(
+          "Unable to sync athlete medical certificate summary:",
+          syncError,
+        );
+      }
+
+      showToast("success", "Certificato medico aggiunto");
+      return true;
+    } catch (error) {
+      console.error("Error adding athlete medical certificate:", error);
+      showToast("error", "Impossibile aggiungere il certificato medico");
+      return false;
+    }
+  };
+
+  const deleteMedicalCertificate = async () => {
+    if (!certificateToDelete?.id) {
+      return;
+    }
+
+    try {
+      setDeletingCertificateId(certificateToDelete.id);
+      const response = await apiRequest(
+        `/api/v1/medical_certificates/${certificateToDelete.id}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (response.error) {
+        throw new Error(
+          response.error.message || "Eliminazione certificato non riuscita",
+        );
+      }
+
+      const nextCertificates = medicalCertificates.filter(
+        (certificate) => certificate.id !== certificateToDelete.id,
+      );
+      const nextExpiry = resolveLatestExpiry(nextCertificates);
+
+      setMedicalCertificates(nextCertificates);
+      setAthlete((current: any) =>
+        current ? { ...current, medicalCertExpiry: nextExpiry } : current,
+      );
+
+      try {
+        const { updateAthlete } = await import("@/lib/simplified-db");
+        await updateAthlete(athleteId, {
+          data: {
+            medicalCertExpiry: nextExpiry,
+          },
+        });
+      } catch (syncError) {
+        console.warn(
+          "Unable to sync athlete medical certificate summary:",
+          syncError,
+        );
+      }
+
+      showToast("success", "Certificato medico eliminato");
+      setCertificateToDelete(null);
+    } catch (error: any) {
+      console.error("Error deleting medical certificate:", error);
+      showToast(
+        "error",
+        error?.message || "Impossibile eliminare il certificato medico",
+      );
+    } finally {
+      setDeletingCertificateId(null);
+    }
+  };
+
   const removeMedicalVisit = async (id: string) => {
     try {
+      setDeletingMedicalVisitId(id);
       const nextMedicalVisits = medicalVisits.filter((v) => v.id !== id);
       await persistAthleteCollections({
         medicalVisitsOverride: nextMedicalVisits,
       });
       setMedicalVisits(nextMedicalVisits);
       showToast("success", "Visita medica eliminata");
+      setMedicalVisitToDelete(null);
     } catch (error) {
       console.error("Error deleting medical visit:", error);
       showToast("error", "Impossibile eliminare la visita medica");
+    } finally {
+      setDeletingMedicalVisitId(null);
     }
   };
 
@@ -2902,6 +3094,16 @@ export default function AthleteProfilePage() {
     [athleteId, clothingState.jerseyAssignments],
   );
 
+  const athleteJerseyNumberDetails = React.useMemo(
+    () =>
+      getAthleteJerseyNumberSummary({
+        athleteId,
+        state: clothingState,
+        groups: clothingState.numberingGroups,
+      }),
+    [athleteId, clothingState],
+  );
+
   const jerseyGroupById = React.useMemo(
     () =>
       new Map(
@@ -2911,26 +3113,66 @@ export default function AthleteProfilePage() {
   );
 
   const defaultJerseyGroupId =
+    athleteJerseyNumberDetails.primaryRecord?.groupId ||
     athleteJerseyAssignments[0]?.groupId ||
     clothingState.numberingGroups[0]?.id ||
     "";
-  const jerseyNumberSummary = athleteJerseyAssignments.length
-    ? athleteJerseyAssignments
-        .map((entry) => {
-          const groupName =
-            (entry.groupId && jerseyGroupById.get(entry.groupId)?.name) ||
-            "Senza gruppo";
-          return `${groupName}: ${entry.number}`;
-        })
+  const jerseyNumberSummary = athleteJerseyNumberDetails.records.length
+    ? athleteJerseyNumberDetails.records
+        .filter((entry) => entry.number !== null)
+        .map(
+          (entry) =>
+            `${athleteJerseyNumberDetails.groupNameForRecord(entry)}: ${entry.number}`,
+        )
         .join(" / ")
     : athlete?.jerseyNumber !== null && athlete?.jerseyNumber !== undefined
       ? `Numero storico: ${athlete.jerseyNumber}`
       : "Nessun numero assegnato";
   const jerseyNumberTileValue =
-    athleteJerseyAssignments[0]?.number ??
+    athleteJerseyNumberDetails.primaryRecord?.number ??
     (athlete?.jerseyNumber === null || athlete?.jerseyNumber === undefined
       ? null
       : athlete.jerseyNumber);
+  const primaryJerseyGroupName =
+    athleteJerseyNumberDetails.primaryRecord
+      ? athleteJerseyNumberDetails.groupNameForRecord(
+          athleteJerseyNumberDetails.primaryRecord,
+        )
+      : defaultJerseyGroupId
+        ? jerseyGroupById.get(defaultJerseyGroupId)?.name || "Gruppo numerazione"
+        : "Senza gruppo";
+  const hasDuplicateJerseyNumber =
+    athleteJerseyNumberDetails.duplicateRecords.length > 0;
+  const randomJerseyNumberSuggestion = React.useMemo(() => {
+    if (jerseyNumberTileValue !== null && jerseyNumberTileValue !== undefined) {
+      return null;
+    }
+
+    const group = defaultJerseyGroupId
+      ? jerseyGroupById.get(defaultJerseyGroupId)
+      : clothingState.numberingGroups[0];
+    if (!group) return null;
+
+    const summary = getJerseyGroupSummary({
+      group,
+      state: clothingState,
+      athletes: athlete ? [athlete] : [],
+      categories: clubCategoryOptions,
+    });
+
+    if (!summary.availableNumbers.length) return null;
+
+    return summary.availableNumbers[
+      Math.floor(Math.random() * summary.availableNumbers.length)
+    ];
+  }, [
+    athlete,
+    clubCategoryOptions,
+    clothingState,
+    defaultJerseyGroupId,
+    jerseyGroupById,
+    jerseyNumberTileValue,
+  ]);
   const activeClothingProfile =
     clothingSizes.profile ||
     deriveClothingProfile(athlete?.gender, athlete?.birthDate);
@@ -2980,6 +3222,45 @@ export default function AthleteProfilePage() {
   const sanitizeJerseyDraft = (value: string) => {
     const digitsOnly = (value || "").replace(/\D/g, "");
     return digitsOnly.slice(0, 3);
+  };
+
+  const fillRandomJerseyDraft = () => {
+    const groupId = jerseyGroupDraft || defaultJerseyGroupId;
+    const group = groupId
+      ? jerseyGroupById.get(groupId)
+      : clothingState.numberingGroups[0];
+
+    if (!group) {
+      showToast({
+        title: "Gruppo mancante",
+        description: "Configura un gruppo numerazione prima di assegnare.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const summary = getJerseyGroupSummary({
+      group,
+      state: clothingState,
+      athletes: athlete ? [athlete] : [],
+      categories: clubCategoryOptions,
+    });
+
+    if (!summary.availableNumbers.length) {
+      showToast({
+        title: "Nessun numero disponibile",
+        description: "Tutti i numeri del gruppo sono gia utilizzati o riservati.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const number =
+      summary.availableNumbers[
+        Math.floor(Math.random() * summary.availableNumbers.length)
+      ];
+    setJerseyGroupDraft(group.id);
+    setJerseyNumberDraft(String(number));
   };
 
   const clothingStatusBadgeClass = (status: string) => {
@@ -3896,8 +4177,15 @@ export default function AthleteProfilePage() {
                 className="mt-4 space-y-6"
               >
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle>Certificati Medici</CardTitle>
+                    <Button
+                      size="sm"
+                      onClick={() => setShowAddMedicalCertificateModal(true)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Aggiungi certificato medico
+                    </Button>
                   </CardHeader>
                   <CardContent>
                     <div className="overflow-x-auto">
@@ -3913,83 +4201,119 @@ export default function AthleteProfilePage() {
                         </thead>
                         <tbody>
                           {medicalCertificates.length > 0 ? (
-                            medicalCertificates.map((certificate) => (
-                              <tr key={certificate.id} className="border-b">
-                                <td className="p-2">{certificate.type}</td>
-                                <td className="p-2">
-                                  {certificate.issueDate
-                                    ? formatDate(certificate.issueDate)
-                                    : "-"}
-                                </td>
-                                <td className="p-2">
-                                  {certificate.expiryDate
-                                    ? formatDate(certificate.expiryDate)
-                                    : "-"}
-                                </td>
-                                <td className="p-2">
-                                  <Badge
-                                    className={
-                                      certificate.status === "valid"
-                                        ? "bg-green-500 text-white"
+                            medicalCertificates.map((certificate) => {
+                              const isVirtualMissing =
+                                certificate.status === "missing" ||
+                                String(certificate.id || "").startsWith(
+                                  "missing-",
+                                );
+
+                              return (
+                                <tr key={certificate.id} className="border-b">
+                                  <td className="p-2">{certificate.type}</td>
+                                  <td className="p-2">
+                                    {certificate.issueDate
+                                      ? formatDate(certificate.issueDate)
+                                      : "-"}
+                                  </td>
+                                  <td className="p-2">
+                                    {certificate.expiryDate
+                                      ? formatDate(certificate.expiryDate)
+                                      : "-"}
+                                  </td>
+                                  <td className="p-2">
+                                    <Badge
+                                      className={
+                                        certificate.status === "valid"
+                                          ? "bg-green-500 text-white"
+                                          : certificate.status === "expiring"
+                                            ? "bg-amber-500 text-white"
+                                            : "bg-red-500 text-white"
+                                      }
+                                    >
+                                      {certificate.status === "valid"
+                                        ? "Valido"
                                         : certificate.status === "expiring"
-                                          ? "bg-amber-500 text-white"
-                                          : "bg-red-500 text-white"
-                                    }
-                                  >
-                                    {certificate.status === "valid"
-                                      ? "Valido"
-                                      : certificate.status === "expiring"
-                                        ? "In scadenza"
-                                        : "Scaduto"}
-                                  </Badge>
-                                </td>
-                                <td className="p-2">
-                                  {certificate.fileUrl ? (
+                                          ? "In scadenza"
+                                          : "Scaduto"}
+                                    </Badge>
+                                  </td>
+                                  <td className="p-2">
                                     <div className="flex flex-wrap gap-2">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          if (
-                                            !openClientFileUrl(certificate.fileUrl)
-                                          ) {
-                                            showToast(
-                                              "error",
-                                              "File del certificato non disponibile",
-                                            );
+                                      {certificate.fileUrl ? (
+                                        <>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                              if (
+                                                !openClientFileUrl(
+                                                  certificate.fileUrl,
+                                                )
+                                              ) {
+                                                showToast(
+                                                  "error",
+                                                  "File del certificato non disponibile",
+                                                );
+                                              }
+                                            }}
+                                          >
+                                            <Eye className="h-4 w-4 mr-2" />
+                                            Visualizza
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                              if (
+                                                !downloadClientFileUrl(
+                                                  certificate.fileUrl,
+                                                  `certificato-${athlete.name || athleteId}-${certificate.type}`,
+                                                )
+                                              ) {
+                                                showToast(
+                                                  "error",
+                                                  "File del certificato non disponibile",
+                                                );
+                                              }
+                                            }}
+                                          >
+                                            <Download className="h-4 w-4 mr-2" />
+                                            Scarica
+                                          </Button>
+                                        </>
+                                      ) : (
+                                        <span className="text-muted-foreground">
+                                          -
+                                        </span>
+                                      )}
+                                      {!isVirtualMissing ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-red-600 hover:text-red-700"
+                                          disabled={
+                                            deletingCertificateId ===
+                                            certificate.id
                                           }
-                                        }}
-                                      >
-                                        <Eye className="h-4 w-4 mr-2" />
-                                        Visualizza
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          if (
-                                            !downloadClientFileUrl(
-                                              certificate.fileUrl,
-                                              `certificato-${athlete.name || athleteId}-${certificate.type}`,
-                                            )
-                                          ) {
-                                            showToast(
-                                              "error",
-                                              "File del certificato non disponibile",
-                                            );
+                                          onClick={() =>
+                                            setCertificateToDelete(certificate)
                                           }
-                                        }}
-                                      >
-                                        <Download className="h-4 w-4 mr-2" />
-                                        Scarica
-                                      </Button>
+                                        >
+                                          {deletingCertificateId ===
+                                          certificate.id ? (
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                          ) : (
+                                            <Trash2 className="h-4 w-4 mr-2" />
+                                          )}
+                                          Elimina
+                                        </Button>
+                                      ) : null}
                                     </div>
-                                  ) : (
-                                    <span className="text-muted-foreground">-</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
+                                  </td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
                               <td
@@ -4084,9 +4408,16 @@ export default function AthleteProfilePage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      onClick={() => removeMedicalVisit(visit.id)}
+                                      disabled={
+                                        deletingMedicalVisitId === visit.id
+                                      }
+                                      onClick={() => setMedicalVisitToDelete(visit)}
                                     >
-                                      <Trash2 className="h-4 w-4" />
+                                      {deletingMedicalVisitId === visit.id ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="h-4 w-4" />
+                                      )}
                                     </Button>
                                   </div>
                                 </td>
@@ -5219,6 +5550,7 @@ export default function AthleteProfilePage() {
                           type="button"
                           onClick={() => {
                             const selectedEntry =
+                              athleteJerseyNumberDetails.primaryRecord ||
                               athleteJerseyAssignments.find(
                                 (entry) => entry.groupId === defaultJerseyGroupId,
                               ) || athleteJerseyAssignments[0];
@@ -5264,6 +5596,21 @@ export default function AthleteProfilePage() {
                             </div>
                           </div>
                           <div className="p-3 text-left">
+                            <div className="mb-2 flex flex-wrap gap-1">
+                              <Badge variant="secondary">
+                                {primaryJerseyGroupName}
+                              </Badge>
+                              {hasDuplicateJerseyNumber ? (
+                                <Badge className="bg-amber-100 text-amber-800">
+                                  Duplicato
+                                </Badge>
+                              ) : null}
+                              {randomJerseyNumberSuggestion !== null ? (
+                                <Badge className="bg-blue-100 text-blue-800">
+                                  Random: {randomJerseyNumberSuggestion}
+                                </Badge>
+                              ) : null}
+                            </div>
                             <p className="text-xs text-muted-foreground">
                               {jerseyNumberSummary}
                             </p>
@@ -5288,12 +5635,18 @@ export default function AthleteProfilePage() {
                     <CardTitle>Numeri assegnati</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {athleteJerseyAssignments.length ? (
+                    {athleteJerseyNumberDetails.records.length ? (
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {athleteJerseyAssignments.map((entry) => {
-                          const group = entry.groupId
-                            ? jerseyGroupById.get(entry.groupId)
-                            : null;
+                        {athleteJerseyNumberDetails.records
+                          .filter((entry) => entry.number !== null)
+                          .map((entry) => {
+                            const group = entry.groupId
+                              ? jerseyGroupById.get(entry.groupId)
+                              : null;
+                            const duplicated =
+                              athleteJerseyNumberDetails.duplicateRecords.some(
+                                (duplicate) => duplicate.id === entry.id,
+                              );
                           return (
                             <div
                               key={entry.id || `${entry.groupId}:${entry.number}`}
@@ -5305,7 +5658,19 @@ export default function AthleteProfilePage() {
                               <p className="mt-1 text-3xl font-semibold">
                                 {entry.number}
                               </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                <Badge variant="secondary">
+                                  {entry.source === "clothing_assignment"
+                                    ? "Da assegnazione kit"
+                                    : "Manuale"}
+                                </Badge>
+                                {duplicated ? (
+                                  <Badge className="bg-amber-100 text-amber-800">
+                                    Duplicato
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-2 text-xs text-muted-foreground">
                                 {group?.season || "Numero legato al gruppo"}
                               </p>
                             </div>
@@ -5315,6 +5680,12 @@ export default function AthleteProfilePage() {
                     ) : (
                       <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                         Nessun numero assegnato a gruppi numerazione.
+                        {randomJerseyNumberSuggestion !== null ? (
+                          <span className="mt-2 block">
+                            Numero random disponibile:{" "}
+                            <strong>{randomJerseyNumberSuggestion}</strong>
+                          </span>
+                        ) : null}
                       </div>
                     )}
                   </CardContent>
@@ -6741,6 +7112,7 @@ export default function AthleteProfilePage() {
           setIsJerseyNumberDialogOpen(open);
           if (open) {
             const selectedEntry =
+              athleteJerseyNumberDetails.primaryRecord ||
               athleteJerseyAssignments.find(
                 (entry) => entry.groupId === defaultJerseyGroupId,
               ) || athleteJerseyAssignments[0];
@@ -6768,8 +7140,8 @@ export default function AthleteProfilePage() {
               <Select
                 value={jerseyGroupDraft}
                 onValueChange={(value) => {
-                  const existing = athleteJerseyAssignments.find(
-                    (entry) => entry.groupId === value,
+                  const existing = athleteJerseyNumberDetails.records.find(
+                    (entry) => entry.groupId === value && entry.number !== null,
                   );
                   setJerseyGroupDraft(value);
                   setJerseyNumberDraft(
@@ -6799,21 +7171,30 @@ export default function AthleteProfilePage() {
             </div>
             <div>
               <Label>Numero (max 3 cifre)</Label>
-              <Input
-                inputMode="numeric"
-                placeholder="Es. 7, 23, 101"
-                value={jerseyNumberDraft}
-                onChange={(e) =>
-                  setJerseyNumberDraft(sanitizeJerseyDraft(e.target.value))
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveJerseyNumber();
-                }}
-                className="mt-2"
-              />
+              <div className="mt-2 flex gap-2">
+                <Input
+                  inputMode="numeric"
+                  placeholder="Es. 7, 23, 101"
+                  value={jerseyNumberDraft}
+                  onChange={(e) =>
+                    setJerseyNumberDraft(sanitizeJerseyDraft(e.target.value))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveJerseyNumber();
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={fillRandomJerseyDraft}
+                  disabled={!clothingState.numberingGroups.length}
+                >
+                  Random
+                </Button>
+              </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Il numero viene sincronizzato con la pagina Abbigliamento e deve
-                essere univoco dentro il gruppo selezionato.
+                Il numero viene sincronizzato con la pagina Abbigliamento.
+                Eventuali duplicati nel gruppo vengono segnalati nella scheda.
               </p>
             </div>
           </div>
@@ -7857,6 +8238,98 @@ export default function AthleteProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AddCertificateForm
+        isOpen={showAddMedicalCertificateModal}
+        onClose={() => setShowAddMedicalCertificateModal(false)}
+        onSubmit={handleAddMedicalCertificate}
+        athletes={[
+          {
+            id: athleteId,
+            name: getAthleteFullName(),
+          },
+        ]}
+        clubId={clubId}
+        athleteId={athleteId}
+        athleteName={getAthleteFullName()}
+        lockAthleteSelection
+      />
+
+      <AlertDialog
+        open={Boolean(certificateToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deletingCertificateId) {
+            setCertificateToDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare il certificato medico?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Il certificato verra rimosso dalla scheda sanitaria dell'atleta.
+              L'operazione non puo essere annullata.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingCertificateId)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={Boolean(deletingCertificateId)}
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteMedicalCertificate();
+              }}
+            >
+              {deletingCertificateId ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Elimina
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(medicalVisitToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deletingMedicalVisitId) {
+            setMedicalVisitToDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare la visita medica?</AlertDialogTitle>
+            <AlertDialogDescription>
+              La visita medica verra rimossa dalla scheda dell'atleta.
+              L'operazione non puo essere annullata.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingMedicalVisitId)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={Boolean(deletingMedicalVisitId)}
+              onClick={(event) => {
+                event.preventDefault();
+                if (medicalVisitToDelete?.id) {
+                  void removeMedicalVisit(medicalVisitToDelete.id);
+                }
+              }}
+            >
+              {deletingMedicalVisitId ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Elimina
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={showAddMedicalVisitModal}

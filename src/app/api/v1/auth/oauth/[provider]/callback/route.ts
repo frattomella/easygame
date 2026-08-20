@@ -23,7 +23,7 @@ export async function GET(request: Request, context: Context) {
 
     if (error) {
       return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/login?oauthError=${encodeURIComponent(error)}`,
+        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001"}/login?oauthError=${encodeURIComponent(error)}`,
       );
     }
 
@@ -62,7 +62,7 @@ export async function GET(request: Request, context: Context) {
 
     const session = await createSessionForOAuthUser(user.id);
     const response = NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/auth/complete`,
+      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001"}/auth/complete`,
     );
     attachSessionCookie(response, session);
     response.cookies.set(buildOAuthStateCookieName(provider), "", {
@@ -75,7 +75,7 @@ export async function GET(request: Request, context: Context) {
     return response;
   } catch (error: any) {
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/login?oauthError=${encodeURIComponent(
+      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001"}/login?oauthError=${encodeURIComponent(
         error?.message || "OAuth error",
       )}`,
     );

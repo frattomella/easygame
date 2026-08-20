@@ -4,13 +4,6 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -18,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trash2, Edit, Eye, Users } from "lucide-react";
+import { Trash2, Edit } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
@@ -48,7 +41,6 @@ interface StaffTableProps {
   departments?: Department[];
   onEdit: (member: StaffMember) => void;
   onDelete: (id: string) => void;
-  onAssignDepartment?: (id: string, department: string) => void;
   onToggleStatus: (id: string) => void;
   formatDate: (date: string | null) => string;
   visibleColumns?: {
@@ -89,7 +81,6 @@ export function StaffTable({
   departments = [],
   onEdit,
   onDelete,
-  onAssignDepartment,
   onToggleStatus,
   formatDate,
   visibleColumns = {
@@ -105,18 +96,10 @@ export function StaffTable({
   const router = useRouter();
   const searchParams = useSearchParams();
   const clubId = searchParams?.get("clubId");
+  const getMemberUrl = (memberId: string) =>
+    clubId ? `/staff/${memberId}?clubId=${clubId}` : `/staff/${memberId}`;
 
-  if (staffMembers.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <Users className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-4" />
-        <h3 className="text-lg font-medium">Nessun risultato trovato</h3>
-        <p className="text-muted-foreground">
-          Prova a modificare i filtri di ricerca
-        </p>
-      </div>
-    );
-  }
+  if (staffMembers.length === 0) return null;
 
   return (
     <div className="rounded-md border overflow-x-auto">
@@ -150,6 +133,7 @@ export function StaffTable({
             <TableRow
               key={member.id}
               className="cursor-pointer hover:bg-muted/50"
+              onClick={() => router.push(getMemberUrl(member.id))}
             >
               {visibleColumns.name && (
                 <TableCell className="font-medium">
@@ -181,31 +165,6 @@ export function StaffTable({
                     >
                       {member.department || "Non assegnato"}
                     </Badge>
-                    {onAssignDepartment ? (
-                      <Select
-                        value={member.department || "__none__"}
-                        onValueChange={(value) =>
-                          onAssignDepartment(member.id, value)
-                        }
-                      >
-                        <SelectTrigger className="h-8 w-[150px]">
-                          <SelectValue placeholder="Reparto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">
-                            Non assegnato
-                          </SelectItem>
-                          {departments.map((department) => (
-                            <SelectItem
-                              key={department.id}
-                              value={department.name}
-                            >
-                              {department.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : null}
                   </div>
                 </TableCell>
               )}
@@ -240,18 +199,6 @@ export function StaffTable({
               )}
               <TableCell className="text-right">
                 <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      router.push(`/staff/${member.id}?clubId=${clubId}`);
-                    }}
-                    title="Visualizza"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
                   <Button
                     variant="outline"
                     size="icon"

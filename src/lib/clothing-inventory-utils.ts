@@ -278,6 +278,102 @@ const toOptionalNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const firstNumberValue = (...values: unknown[]) => {
+  for (const value of values) {
+    if (value !== null && value !== undefined && value !== "") {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+export function getAssignmentNumberLabel(
+  assignment: any,
+  stock?: any,
+  item?: any,
+): string {
+  const assignmentData =
+    assignment?.data && typeof assignment.data === "object" ? assignment.data : {};
+  const assignmentRaw =
+    assignment?.raw && typeof assignment.raw === "object" ? assignment.raw : {};
+  const assignmentRawData =
+    assignmentRaw?.data && typeof assignmentRaw.data === "object"
+      ? assignmentRaw.data
+      : {};
+  const stockData = stock?.data && typeof stock.data === "object" ? stock.data : {};
+  const stockRaw = stock?.raw && typeof stock.raw === "object" ? stock.raw : {};
+  const stockRawData =
+    stockRaw?.data && typeof stockRaw.data === "object" ? stockRaw.data : {};
+  const itemData = item?.data && typeof item.data === "object" ? item.data : {};
+  const itemRaw = item?.raw && typeof item.raw === "object" ? item.raw : {};
+  const itemRawData =
+    itemRaw?.data && typeof itemRaw.data === "object" ? itemRaw.data : {};
+
+  const value = firstNumberValue(
+    assignment?.number,
+    assignment?.itemNumber,
+    assignment?.shirtNumber,
+    assignment?.jerseyNumber,
+    assignment?.assignedNumber,
+    assignment?.uniformNumber,
+    assignment?.numero,
+    assignmentData.number,
+    assignmentData.numero,
+    assignmentRaw.number,
+    assignmentRaw.itemNumber,
+    assignmentRaw.shirtNumber,
+    assignmentRaw.jerseyNumber,
+    assignmentRaw.assignedNumber,
+    assignmentRaw.uniformNumber,
+    assignmentRaw.numero,
+    assignmentRawData.number,
+    assignmentRawData.numero,
+    stock?.number,
+    stock?.itemNumber,
+    stock?.shirtNumber,
+    stock?.jerseyNumber,
+    stock?.assignedNumber,
+    stock?.uniformNumber,
+    stock?.numero,
+    stockData.number,
+    stockData.numero,
+    stockRaw.number,
+    stockRaw.itemNumber,
+    stockRaw.shirtNumber,
+    stockRaw.jerseyNumber,
+    stockRaw.assignedNumber,
+    stockRaw.uniformNumber,
+    stockRaw.numero,
+    stockRawData.number,
+    stockRawData.numero,
+    item?.number,
+    item?.itemNumber,
+    item?.shirtNumber,
+    item?.jerseyNumber,
+    item?.assignedNumber,
+    item?.uniformNumber,
+    item?.numero,
+    itemData.number,
+    itemData.numero,
+    itemRaw.number,
+    itemRaw.itemNumber,
+    itemRaw.shirtNumber,
+    itemRaw.jerseyNumber,
+    itemRaw.assignedNumber,
+    itemRaw.uniformNumber,
+    itemRaw.numero,
+    itemRawData.number,
+    itemRawData.numero,
+  );
+
+  if (value === null) {
+    return "Senza numero";
+  }
+
+  return String(value);
+}
+
 const normalizeNumberMode = (value: unknown, requiresNumber = false) => {
   const token = normalizeToken(value);
   if (["shared_by_kit", "shared", "kit"].includes(token)) {
@@ -491,7 +587,19 @@ export const normalizeInventoryStock = (stock: any): InventoryStock => {
     size: firstString(stock?.size, stock?.taglia),
     color: firstString(stock?.color, stock?.colore),
     variant: firstString(stock?.variant, stock?.variante),
-    number: toOptionalNumber(stock?.number ?? stock?.numero),
+    number: toOptionalNumber(
+      firstNumberValue(
+        stock?.number,
+        stock?.itemNumber,
+        stock?.shirtNumber,
+        stock?.jerseyNumber,
+        stock?.assignedNumber,
+        stock?.uniformNumber,
+        stock?.numero,
+        stock?.data?.number,
+        stock?.data?.numero,
+      ),
+    ),
     numberingGroupId:
       firstString(stock?.numberingGroupId, stock?.numbering_group_id, stock?.groupId) ||
       null,
@@ -535,7 +643,19 @@ export const normalizeJerseyNumberAssignment = (
     ].join(":"),
   athleteId: firstString(assignment?.athleteId, assignment?.athlete_id),
   groupId: firstString(assignment?.groupId, assignment?.group_id) || null,
-  number: toOptionalNumber(assignment?.number ?? assignment?.numero),
+  number: toOptionalNumber(
+    firstNumberValue(
+      assignment?.number,
+      assignment?.itemNumber,
+      assignment?.shirtNumber,
+      assignment?.jerseyNumber,
+      assignment?.assignedNumber,
+      assignment?.uniformNumber,
+      assignment?.numero,
+      assignment?.data?.number,
+      assignment?.data?.numero,
+    ),
+  ),
   assignmentId:
     firstString(assignment?.assignmentId, assignment?.assignment_id) || null,
   itemId: firstString(assignment?.itemId, assignment?.item_id) || null,
@@ -600,7 +720,19 @@ export const normalizeClothingAssignment = (
         size: firstString(entry?.size, entry?.taglia),
         color: firstString(entry?.color, entry?.colore),
         variant: firstString(entry?.variant, entry?.variante),
-        number: toOptionalNumber(entry?.number ?? entry?.jerseyNumber),
+        number: toOptionalNumber(
+          firstNumberValue(
+            entry?.number,
+            entry?.itemNumber,
+            entry?.shirtNumber,
+            entry?.jerseyNumber,
+            entry?.assignedNumber,
+            entry?.uniformNumber,
+            entry?.numero,
+            entry?.data?.number,
+            entry?.data?.numero,
+          ),
+        ),
         numberingGroupId:
           firstString(entry?.numberingGroupId, entry?.numbering_group_id, entry?.groupId) ||
           null,
@@ -632,7 +764,19 @@ export const normalizeClothingAssignment = (
     size: firstString(assignment?.size),
     color: firstString(assignment?.color),
     variant: firstString(assignment?.variant),
-    number: toOptionalNumber(assignment?.number),
+    number: toOptionalNumber(
+      firstNumberValue(
+        assignment?.number,
+        assignment?.itemNumber,
+        assignment?.shirtNumber,
+        assignment?.jerseyNumber,
+        assignment?.assignedNumber,
+        assignment?.uniformNumber,
+        assignment?.numero,
+        assignment?.data?.number,
+        assignment?.data?.numero,
+      ),
+    ),
     numberingGroupId:
       firstString(assignment?.numberingGroupId, assignment?.numbering_group_id, assignment?.groupId) ||
       null,

@@ -13,6 +13,8 @@ const birthYearOptions = Array.from({ length: 80 }, (_, index) =>
   String(currentYear - index),
 );
 
+export const CATEGORY_DESCRIPTION_MAX_LENGTH = 25;
+
 interface CategoryEditorDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -114,11 +116,20 @@ export function CategoryEditorDialog({
       return;
     }
 
+    const trimmedDescription = formData.description.trim();
+    if (trimmedDescription.length > CATEGORY_DESCRIPTION_MAX_LENGTH) {
+      showToast(
+        "error",
+        `La descrizione categoria deve essere al massimo ${CATEGORY_DESCRIPTION_MAX_LENGTH} caratteri`,
+      );
+      return;
+    }
+
     try {
       const result = await onSubmit({
         ...formData,
         name: formData.name.trim(),
-        description: formData.description.trim(),
+        description: trimmedDescription,
         birthYearFrom,
         birthYearTo,
         ageRange:
@@ -200,7 +211,16 @@ export function CategoryEditorDialog({
             value={formData.description}
             onChange={handleChange}
             placeholder="Es. Calcio a 5"
+            maxLength={CATEGORY_DESCRIPTION_MAX_LENGTH}
           />
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              Massimo 25 caratteri. La descrizione viene mostrata come badge.
+            </span>
+            <span>
+              {formData.description.length}/{CATEGORY_DESCRIPTION_MAX_LENGTH}
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

@@ -4,6 +4,7 @@ import { ChangeEvent, FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  Building2,
   CalendarDays,
   CheckCircle2,
   CreditCard,
@@ -30,6 +31,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast-notification";
@@ -1549,6 +1558,316 @@ export function ParentSecretariatPage() {
                       </Button>
                     ) : null}
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export function ParentStructuresPage() {
+  const { data, bookStructure } = useParentDashboard();
+  const { showToast } = useToast();
+  const structures = data?.structures?.items || [];
+  const bookings = data?.structures?.bookings || [];
+  const linkedAthletes = data?.athlete.linkedAthletes?.length
+    ? data.athlete.linkedAthletes
+    : data?.athlete
+      ? [data.athlete]
+      : [];
+  const [form, setForm] = useState({
+    structureId: "",
+    fieldId: "",
+    date: new Date().toISOString().split("T")[0],
+    startTime: "18:00",
+    endTime: "19:00",
+    athleteId: data?.athlete.id || "",
+    notes: "",
+  });
+  if (!data) return null;
+
+  const currentStructure = structures.find(
+    (structure) => String(structure.id) === form.structureId,
+  );
+  const currentFields = Array.isArray(currentStructure?.fields)
+    ? currentStructure.fields
+    : [];
+
+  const patchForm = (next: Partial<typeof form>) =>
+    setForm((current) => ({ ...current, ...next }));
+
+  const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!form.structureId || !form.fieldId) {
+      showToast("error", "Seleziona struttura e campo");
+      return;
+    }
+
+    const start = new Date(`${form.date}T${form.startTime}`);
+    const end = new Date(`${form.date}T${form.endTime}`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      showToast("error", "Inserisci data e orari validi");
+      return;
+    }
+    if (start.getTime() >= end.getTime()) {
+      showToast("error", "L'orario di fine deve essere successivo all'inizio");
+      return;
+    }
+
+    try {
+      await bookStructure({
+        structureId: form.structureId,
+        fieldId: form.fieldId,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        athleteId: form.athleteId || data.athlete.id,
+        notes: form.notes,
+      });
+      patchForm({ notes: "" });
+    } catch (error: any) {
+      showToast("error", error?.message || "Richiesta prenotazione fallita");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeading
+        title="Strutture"
+        subtitle="Consulta campi prenotabili e richiedi una prenotazione."
+      />
+
+      {structures.length === 0 ? (
+        <Card className="border-dashed border-slate-200 bg-white">
+          <CardContent className="flex min-h-[260px] flex-col items-center justify-center text-center">
+            <Building2 className="mb-4 h-12 w-12 text-slate-400" />
+            <h3 className="text-lg font-semibold text-slate-900">
+              Nessuna struttura prenotabile al momento.
+            </h3>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="space-y-4">
+            {structures.map((structure) => (
+              <Card key={structure.id} className="border-slate-200 bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-blue-600" />
+                    {structure.name}
+                  </CardTitle>
+                  <p className="text-sm text-slate-500">
+                    {[structure.address, structure.city].filter(Boolean).join(", ") ||
+                      "Indirizzo non disponibile"}
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {(structure.fields || []).map((field: any) => (
+                    <div key={field.id} className="rounded-lg border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-900">{field.name}</p>
+                        <Badge variant="outline">Prenotabile</Badge>
+                      </div>
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-slate-500">
+                            Disponibilita
+                          </p>
+                          <div className="mt-1 space-y-1 text-sm text-slate-600">
+                            {Object.entries(field.availability || {}).some(
+                              ([, slots]) => Array.isArray(slots) && slots.length,
+                            ) ? (
+                              Object.entries(field.availability || {}).map(
+                                ([day, slots]) =>
+                                  Array.isArray(slots) && slots.length ? (
+                                    <p key={day}>
+                                      <span className="font-medium">{day}:</span>{" "}
+                                      {slots
+                                        .map((slot: any) => `${slot.start}-${slot.end}`)
+                                        .join(", ")}
+                                    </p>
+                                  ) : null,
+                              )
+                            ) : (
+                              <p>Nessuna fascia pubblicata.</p>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-slate-500">
+                            Tariffe
+                          </p>
+                          <div className="mt-1 space-y-1 text-sm text-slate-600">
+                            {field.pricing?.length ? (
+                              field.pricing.map((price: any) => (
+                                <p key={price.id}>
+                                  {price.durationMinutes} min -{" "}
+                                  {formatCurrency(price.price)}
+                                </p>
+                              ))
+                            ) : (
+                              <p>Tariffe non pubblicate.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <Card className="border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Richiedi prenotazione</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="space-y-4" onSubmit={submitBooking}>
+                <div className="space-y-2">
+                  <Label>Struttura</Label>
+                  <Select
+                    value={form.structureId || undefined}
+                    onValueChange={(value) => {
+                      const selected = structures.find(
+                        (structure) => String(structure.id) === value,
+                      );
+                      patchForm({
+                        structureId: value,
+                        fieldId: selected?.fields?.[0]?.id || "",
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleziona struttura" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {structures.map((structure) => (
+                        <SelectItem key={structure.id} value={String(structure.id)}>
+                          {structure.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Campo</Label>
+                  <Select
+                    value={form.fieldId || undefined}
+                    onValueChange={(value) => patchForm({ fieldId: value })}
+                    disabled={!currentFields.length}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleziona campo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currentFields.map((field: any) => (
+                        <SelectItem key={field.id} value={String(field.id)}>
+                          {field.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {linkedAthletes.length > 1 ? (
+                  <div className="space-y-2">
+                    <Label>Atleta collegato</Label>
+                    <Select
+                      value={form.athleteId || data.athlete.id}
+                      onValueChange={(value) => patchForm({ athleteId: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {linkedAthletes.map((athlete) => (
+                          <SelectItem key={athlete.id} value={athlete.id}>
+                            {athlete.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+                <div className="space-y-2">
+                  <Label>Data</Label>
+                  <Input
+                    type="date"
+                    value={form.date}
+                    onChange={(event) => patchForm({ date: event.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Ora inizio</Label>
+                    <Input
+                      type="time"
+                      value={form.startTime}
+                      onChange={(event) =>
+                        patchForm({ startTime: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ora fine</Label>
+                    <Input
+                      type="time"
+                      value={form.endTime}
+                      onChange={(event) =>
+                        patchForm({ endTime: event.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Note</Label>
+                  <Textarea
+                    rows={3}
+                    value={form.notes}
+                    onChange={(event) => patchForm({ notes: event.target.value })}
+                  />
+                </div>
+                <Button type="submit" className="w-full">
+                  <Send className="mr-2 h-4 w-4" />
+                  Richiedi prenotazione
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Card className="border-slate-200 bg-white">
+        <CardHeader>
+          <CardTitle>Le tue prenotazioni</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {bookings.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              Non hai ancora richiesto prenotazioni.
+            </p>
+          ) : (
+            <div className="divide-y rounded-lg border">
+              {bookings.map((booking) => (
+                <div
+                  key={booking.id}
+                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      {booking.title}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {booking.structureName} - {booking.fieldName} -{" "}
+                      {new Date(booking.start).toLocaleString("it-IT")}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className={getStatusClassName(booking.status)}>
+                    {getStatusLabel(booking.status)}
+                  </Badge>
                 </div>
               ))}
             </div>

@@ -621,11 +621,17 @@ export default function MedicalPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {filteredCertificates.map((certificate) => (
-                      <div
-                        key={certificate.id}
-                        className="flex flex-col md:flex-row md:items-center justify-between p-4 border rounded-lg gap-4"
-                      >
+                    {filteredCertificates.map((certificate) => {
+                      const hasCertificateFile =
+                        certificate.status !== "missing" &&
+                        typeof certificate.fileUrl === "string" &&
+                        certificate.fileUrl.trim().length > 0;
+
+                      return (
+                        <div
+                          key={certificate.id}
+                          className="flex flex-col md:flex-row md:items-center justify-between p-4 border rounded-lg gap-4"
+                        >
                         <div className="flex items-center gap-4">
                           <Avatar>
                             {certificate.avatar ? (
@@ -675,45 +681,47 @@ export default function MedicalPage() {
                           </div>
                           <div>{getStatusBadge(certificate.status)}</div>
                         </div>
-                        <div className="flex gap-2 ml-auto">
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                if (!openClientFileUrl(certificate.fileUrl)) {
-                                  showToast(
-                                    "error",
-                                    "File del certificato non disponibile",
-                                  );
-                                }
-                              }}
-                            >
-                              <Eye className="h-4 w-4 mr-1" />
-                              Visualizza
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-green-600 border-green-600 hover:bg-green-50"
-                              onClick={() => {
-                                if (
-                                  !downloadClientFileUrl(
-                                    certificate.fileUrl,
-                                    `certificato-${certificate.athleteName}-${certificate.certificateType}`,
-                                  )
-                                ) {
-                                  showToast(
-                                    "error",
-                                    "File del certificato non disponibile",
-                                  );
-                                }
-                              }}
-                            >
-                              <Download className="h-4 w-4 mr-1" />
-                              Scarica
-                            </Button>
-                          </div>
+                          <div className="flex gap-2 ml-auto">
+                            {hasCertificateFile ? (
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (!openClientFileUrl(certificate.fileUrl)) {
+                                      showToast(
+                                        "error",
+                                        "File del certificato non disponibile",
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  Visualizza
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-green-600 border-green-600 hover:bg-green-50"
+                                  onClick={() => {
+                                    if (
+                                      !downloadClientFileUrl(
+                                        certificate.fileUrl,
+                                        `certificato-${certificate.athleteName}-${certificate.certificateType}`,
+                                      )
+                                    ) {
+                                      showToast(
+                                        "error",
+                                        "File del certificato non disponibile",
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <Download className="h-4 w-4 mr-1" />
+                                  Scarica
+                                </Button>
+                              </div>
+                            ) : null}
                           {(certificate.status === "expiring" ||
                             certificate.status === "expired" ||
                             certificate.status === "missing") && (
@@ -731,9 +739,10 @@ export default function MedicalPage() {
                                 : "Invia Promemoria"}
                             </Button>
                           )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     {filteredCertificates.length === 0 && !isLoading && (
                       <div className="text-center py-8">

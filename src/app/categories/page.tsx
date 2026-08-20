@@ -21,7 +21,10 @@ import {
   Calendar,
   MoreVertical,
 } from "lucide-react";
-import { CategoryEditorDialog } from "@/components/forms/CategoryEditorDialog";
+import {
+  CATEGORY_DESCRIPTION_MAX_LENGTH,
+  CategoryEditorDialog,
+} from "@/components/forms/CategoryEditorDialog";
 import { CategoryDetailsDialog } from "@/components/categories/CategoryDetailsDialog";
 import { useToast } from "@/components/ui/toast-notification";
 import { useRouter } from "next/navigation";
@@ -36,6 +39,10 @@ import {
   normalizeCategoryBirthYears,
 } from "@/lib/category-utils";
 import {
+  getPrimaryAthleteCategoryMembership,
+  normalizeAthleteCategoryMemberships,
+} from "@/lib/athlete-category-memberships";
+import {
   getTrainerCategoryIds,
   getTrainerDisplayName,
   trainerHasCategory,
@@ -47,7 +54,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ConfirmDialog } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
+import { updateClubAthlete } from "@/lib/simplified-db";
 
 interface Category {
   id: string;
@@ -77,38 +92,301 @@ type ClubTrainer = {
   [key: string]: any;
 };
 
-const normalizeCategoryReference = (value: unknown) =>
-  String(value || "")
+const firstNonEmptyText = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+
+  return "";
+};
+
+const isDevelopment = process.env.NODE_ENV !== "production";
+
+const debugDeleteCategory = (message: string, payload?: unknown) => {
+  if (isDevelopment) {
+    console.debug(`[delete-category] ${message}`, payload);
+  }
+};
+
+const normalizeCategoryToken = (value: unknown): string =>
+  String(value ?? "")
     .trim()
     .toLowerCase();
 
-const athleteBelongsToCategory = (athlete: any, category: any) => {
-  const athleteReferences = [
-    athlete.category_id,
-    athlete.category_name,
-    athlete.data?.category,
-    athlete.data?.category_id,
-    athlete.data?.categoryId,
-    athlete.data?.category_name,
-    athlete.data?.categoryName,
+const flattenCategoryValues = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap(flattenCategoryValues);
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, any>;
+    return [
+      record.id,
+      record.categoryId,
+      record.category_id,
+      record.name,
+      record.label,
+      record.categoryName,
+      record.category_name,
+    ].filter((entry) => entry !== undefined && entry !== null);
+  }
+
+  return value === undefined || value === null ? [] : [value];
+};
+
+const getCategoryTokens = (category: any): string[] =>
+  [
+    category?.id,
+    category?.name,
+    category?.label,
+    category?.title,
+    category?.slug,
+    category?.payload?.id,
+    category?.payload?.name,
+    category?.payload?.label,
+    category?.payload?.title,
+    category?.payload?.slug,
   ]
-    .map(normalizeCategoryReference)
+    .flatMap(flattenCategoryValues)
+    .map(normalizeCategoryToken)
     .filter(Boolean);
 
-  const categoryReferences = [category?.id, category?.name]
-    .map(normalizeCategoryReference)
+const matchesCategory = (value: unknown, category: any): boolean => {
+  const tokens = getCategoryTokens(category);
+  if (!tokens.length) return false;
+
+  if (Array.isArray(value)) {
+    return value.some((item) => matchesCategory(item, category));
+  }
+
+  if (value && typeof value === "object") {
+    return flattenCategoryValues(value).some((item) =>
+      matchesCategory(item, category),
+    );
+  }
+
+  const normalized = normalizeCategoryToken(value);
+  return Boolean(normalized && tokens.includes(normalized));
+};
+
+const getAthleteCategoryReferences = (athlete: any) =>
+  [
+    athlete?.categoryId,
+    athlete?.category_id,
+    athlete?.category,
+    athlete?.categoryName,
+    athlete?.category_name,
+    athlete?.categories,
+    athlete?.categoryIds,
+    athlete?.categoryNames,
+    athlete?.data?.categoryId,
+    athlete?.data?.category_id,
+    athlete?.data?.category,
+    athlete?.data?.categoryName,
+    athlete?.data?.category_name,
+    athlete?.data?.categories,
+    athlete?.data?.categoryIds,
+    athlete?.data?.categoryNames,
+  ]
+    .flatMap(flattenCategoryValues)
+    .map(normalizeCategoryToken)
     .filter(Boolean);
 
-  return athleteReferences.some((reference) =>
-    categoryReferences.includes(reference),
+const athleteBelongsToCategory = (athlete: any, category: any) => {
+  const categoryReferences = new Set(getCategoryTokens(category));
+  if (!categoryReferences.size) return false;
+
+  return getAthleteCategoryReferences(athlete).some((reference) =>
+    categoryReferences.has(reference),
   );
+};
+
+const getAthletesInCategory = (category: any, athletes: any[]) =>
+  athletes.filter((athlete) => athleteBelongsToCategory(athlete, category));
+
+const clearCategoryReferences = (value: any, category: any) => {
+  if (Array.isArray(value)) {
+    return value.filter((item) => !matchesCategory(item, category));
+  }
+
+  if (matchesCategory(value, category)) {
+    return "";
+  }
+
+  return value;
+};
+
+const buildAthleteCategoryClearPayload = (athlete: any, category: any) => {
+  const data =
+    athlete?.data && typeof athlete.data === "object" && !Array.isArray(athlete.data)
+      ? { ...athlete.data }
+      : {};
+  const remainingMemberships = normalizeAthleteCategoryMemberships(athlete)
+    .filter(
+      (membership) =>
+        !matchesCategory(membership.categoryId, category) &&
+        !matchesCategory(membership.categoryName, category),
+    )
+    .map((membership, index, memberships) => ({
+      category_id: membership.categoryId,
+      category_name: membership.categoryName,
+      is_primary:
+        membership.isPrimary ||
+        !memberships.some((candidate) => candidate.isPrimary) && index === 0,
+    }));
+  const primaryMembership = getPrimaryAthleteCategoryMembership(
+    normalizeAthleteCategoryMemberships(remainingMemberships),
+  );
+
+  if (matchesCategory(data.categoryId, category)) data.categoryId = null;
+  if (matchesCategory(data.category_id, category)) data.category_id = null;
+  if (matchesCategory(data.category, category)) data.category = "";
+  if (matchesCategory(data.categoryName, category)) data.categoryName = "";
+  if (matchesCategory(data.category_name, category)) data.category_name = "";
+  if (Array.isArray(data.categories)) {
+    data.categories = clearCategoryReferences(data.categories, category);
+  }
+  if (Array.isArray(data.categoryIds)) {
+    data.categoryIds = clearCategoryReferences(data.categoryIds, category);
+  }
+  if (Array.isArray(data.categoryNames)) {
+    data.categoryNames = clearCategoryReferences(data.categoryNames, category);
+  }
+  data.categoryMemberships = remainingMemberships;
+  data.categories = remainingMemberships.map((membership) => membership.category_name);
+  data.categoryIds = remainingMemberships.map((membership) => membership.category_id);
+  data.categoryNames = remainingMemberships.map(
+    (membership) => membership.category_name,
+  );
+  data.category = primaryMembership?.categoryId || "";
+  data.categoryId = primaryMembership?.categoryId || null;
+  data.category_id = primaryMembership?.categoryId || null;
+  data.categoryName = primaryMembership?.categoryName || "";
+  data.category_name = primaryMembership?.categoryName || "";
+
+  return {
+    category: primaryMembership?.categoryId || "",
+    category_id: primaryMembership?.categoryId || "",
+    categoryName: primaryMembership?.categoryName || "",
+    category_name: primaryMembership?.categoryName || "",
+    categories: remainingMemberships.map((membership) => membership.category_name),
+    categoryIds: remainingMemberships.map((membership) => membership.category_id),
+    categoryNames: remainingMemberships.map((membership) => membership.category_name),
+    categoryMemberships: remainingMemberships,
+    data,
+  };
+};
+
+const updateAthleteCategoryOnly = async ({
+  clubId,
+  athlete,
+  category,
+}: {
+  clubId: string;
+  athlete: any;
+  category: any;
+}) => {
+  const athleteId = firstNonEmptyText(athlete?.id, athlete?.athlete_id);
+  const payload = buildAthleteCategoryClearPayload(athlete, category);
+
+  if (!athleteId) {
+    console.error("[delete-category] atleta senza id", { athlete, payload });
+    throw new Error("Atleta senza ID: impossibile rimuovere la categoria");
+  }
+
+  try {
+    return await updateClubAthlete(clubId, athleteId, payload);
+  } catch (error: any) {
+    console.error("[delete-category] errore aggiornamento atleta", {
+      athleteId,
+      athleteName: getAthleteDisplayName(athlete),
+      payload,
+      error,
+    });
+    throw new Error(
+      `[athlete-update] Errore aggiornamento atleta ${athleteId}: ${
+        error?.message || JSON.stringify(error)
+      }`,
+    );
+  }
+};
+
+const getWeeklySlotCategoryReferences = (slot: any) =>
+  [
+    slot?.categoryId,
+    slot?.category_id,
+    slot?.category,
+    slot?.categoryName,
+    slot?.category_name,
+    slot?.categories,
+    slot?.categoryIds,
+    slot?.categoryNames,
+  ]
+    .flatMap(flattenCategoryValues)
+    .map(normalizeCategoryToken)
+    .filter(Boolean);
+
+const getWeeklySlotStableKey = (slot: any, index: number) =>
+  String(
+    slot?.id ||
+      [
+        slot?.day,
+        slot?.weekday,
+        slot?.startTime,
+        slot?.start,
+        slot?.endTime,
+        slot?.end,
+        getWeeklySlotCategoryReferences(slot).join(","),
+      ]
+        .filter(Boolean)
+        .join("|") ||
+      `slot-${index}`,
+  );
+
+const countWeeklyCategorySlots = (
+  rawCategory: any,
+  categoryName: string,
+  weeklySchedule: any[],
+  activeSeasonId?: string | null,
+) => {
+  const categoryReferenceSet = new Set(
+    [
+      rawCategory.id,
+      rawCategory.name,
+      rawCategory.title,
+      rawCategory.label,
+      rawCategory.payload?.name,
+      categoryName,
+    ]
+      .map(normalizeCategoryToken)
+      .filter(Boolean),
+  );
+  const matchedSlots = new Map<string, any>();
+
+  weeklySchedule.forEach((slot, index) => {
+    if (activeSeasonId && slot?.seasonId && slot.seasonId !== activeSeasonId) {
+      return;
+    }
+
+    const belongsToCategory = getWeeklySlotCategoryReferences(slot).some(
+      (reference) => categoryReferenceSet.has(reference),
+    );
+
+    if (belongsToCategory) {
+      matchedSlots.set(getWeeklySlotStableKey(slot, index), slot);
+    }
+  });
+
+  return matchedSlots.size;
 };
 
 const buildCategoryViewModel = (
   rawCategory: any,
   athletes: any[],
   trainers: any[],
-  trainings: any[],
+  weeklySchedule: any[],
+  activeSeasonId?: string | null,
 ): Category => {
   const { birthYearFrom, birthYearTo } = normalizeCategoryBirthYears(rawCategory);
   const categoryName =
@@ -126,14 +404,6 @@ const buildCategoryViewModel = (
     return trainerHasCategory(trainer, rawCategory);
   });
 
-  const categoryTrainings = trainings.filter((training: any) => {
-    return (
-      training.categoryId === rawCategory.id ||
-      (training.categories && training.categories.includes(rawCategory.id)) ||
-      (training.category && training.category.includes(categoryName))
-    );
-  });
-
   return {
     id: rawCategory.id || `category-${Date.now()}-${Math.random()}`,
     name: categoryName,
@@ -148,10 +418,12 @@ const buildCategoryViewModel = (
     }),
     athletesCount: categoryAthletes.length,
     trainersCount: categoryTrainers.length,
-    trainingsPerWeek:
-      categoryTrainings.length > 0
-        ? Math.max(1, Math.round(categoryTrainings.length / 4))
-        : 0,
+    trainingsPerWeek: countWeeklyCategorySlots(
+      rawCategory,
+      categoryName,
+      weeklySchedule,
+      activeSeasonId,
+    ),
     color: rawCategory.color || "bg-blue-500 text-white",
   };
 };
@@ -168,6 +440,7 @@ export default function CategoriesPage() {
   );
   const [editingCategory, setEditingCategory] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingCategory, setDeletingCategory] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(
     null,
   );
@@ -216,7 +489,7 @@ export default function CategoriesPage() {
               .eq("club_id", activeClub.id),
             supabase
               .from("clubs")
-              .select("trainers, trainings")
+              .select("trainers, weekly_schedule, settings")
               .eq("id", activeClub.id)
               .single(),
           ]);
@@ -232,9 +505,19 @@ export default function CategoriesPage() {
 
         const athletes = athletesData || [];
         const trainers = clubData?.trainers || [];
-        const trainings = clubData?.trainings || [];
+        const weeklySchedule = clubData?.weekly_schedule || [];
+        const activeSeasonId = normalizeClubSeasons(
+          clubData?.settings || {},
+        ).activeSeasonId;
         const transformedCategories: Category[] = (categoriesData || []).map(
-          (cat: any) => buildCategoryViewModel(cat, athletes, trainers, trainings),
+          (cat: any) =>
+            buildCategoryViewModel(
+              cat,
+              athletes,
+              trainers,
+              weeklySchedule,
+              activeSeasonId,
+            ),
         );
 
         setClubAthletes(athletes);
@@ -270,11 +553,11 @@ export default function CategoriesPage() {
           .from("simplified_athletes")
           .select("*")
           .eq("club_id", activeClub.id),
-        supabase
-          .from("clubs")
-          .select("trainers, trainings")
-          .eq("id", activeClub.id)
-          .single(),
+      supabase
+        .from("clubs")
+        .select("trainers, weekly_schedule, settings")
+        .eq("id", activeClub.id)
+        .single(),
       ]);
 
     if (categoriesError) {
@@ -283,13 +566,22 @@ export default function CategoriesPage() {
 
     const athletes = athletesData || [];
     const trainers = clubData?.trainers || [];
-    const trainings = clubData?.trainings || [];
+    const weeklySchedule = clubData?.weekly_schedule || [];
+    const activeSeasonId = normalizeClubSeasons(
+      clubData?.settings || {},
+    ).activeSeasonId;
 
     setClubAthletes(athletes);
     setClubTrainers(trainers);
     setCategories(
       (categoriesData || []).map((category: any) =>
-        buildCategoryViewModel(category, athletes, trainers, trainings),
+        buildCategoryViewModel(
+          category,
+          athletes,
+          trainers,
+          weeklySchedule,
+          activeSeasonId,
+        ),
       ),
     );
   };
@@ -351,6 +643,15 @@ const buildDialogAthletesForCategory = (category: Category) =>
         categoryData,
         activeClub: activeClub.id,
       });
+      const trimmedDescription = categoryData.description?.trim() || "Sport";
+      if (trimmedDescription.length > CATEGORY_DESCRIPTION_MAX_LENGTH) {
+        showToast(
+          "error",
+          `La descrizione categoria deve essere al massimo ${CATEGORY_DESCRIPTION_MAX_LENGTH} caratteri`,
+        );
+        return false;
+      }
+
       const payload = {
         id:
           editingCategory && selectedCategory
@@ -358,8 +659,8 @@ const buildDialogAthletesForCategory = (category: Category) =>
             : `category-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         club_id: activeClub.id,
         name: categoryData.name.trim(),
-        description: categoryData.description?.trim() || "Sport",
-        sport: categoryData.description?.trim() || "Sport",
+        description: trimmedDescription,
+        sport: trimmedDescription,
         ageRange: categoryData.ageRange.trim(),
         birthYearFrom: Number(categoryData.birthYearFrom),
         birthYearTo: Number(categoryData.birthYearTo),
@@ -447,27 +748,148 @@ const buildDialogAthletesForCategory = (category: Category) =>
     }
   };
 
+  const categoryToDeleteAthletes = React.useMemo(
+    () =>
+      categoryToDelete
+        ? getAthletesInCategory(categoryToDelete, clubAthletes)
+        : [],
+    [categoryToDelete, clubAthletes],
+  );
+
+  const detachAthletesFromCategory = async (
+    category: Category,
+    athletes: any[],
+  ) => {
+    const linkedAthletes = getAthletesInCategory(category, athletes);
+    debugDeleteCategory("fase 1 linked athletes", linkedAthletes);
+
+    if (linkedAthletes.length === 0) {
+      return {
+        linkedAthletes,
+        updatedAthletes: [],
+      };
+    }
+
+    const cleanedAthletePayloads = linkedAthletes.map((athlete) => ({
+      athleteId: firstNonEmptyText(athlete?.id, athlete?.athlete_id),
+      payload: buildAthleteCategoryClearPayload(athlete, category),
+    }));
+    debugDeleteCategory("fase 2 payload atleti puliti", cleanedAthletePayloads);
+
+    const updatedAthletes = [];
+    for (const athlete of linkedAthletes) {
+      const athleteId = firstNonEmptyText(athlete?.id, athlete?.athlete_id);
+      try {
+        const updatedAthlete = await updateAthleteCategoryOnly({
+          clubId: activeClub!.id,
+          athlete,
+          category,
+        });
+        updatedAthletes.push(updatedAthlete);
+      } catch (error) {
+        console.error("[delete-category] atleta non aggiornato", {
+          category,
+          athleteId,
+          athlete,
+          error,
+        });
+        throw error;
+      }
+    }
+
+    debugDeleteCategory("fase 3 salvataggio atleti completato", {
+      count: updatedAthletes.length,
+    });
+
+    return {
+      linkedAthletes,
+      updatedAthletes,
+    };
+  };
+
   const handleDeleteCategory = async () => {
     if (!categoryToDelete || !user || !activeClub) return;
 
-    try {
-      console.log("Deleting category:", categoryToDelete.id);
-      const { error } = await supabase
-        .from("categories")
-        .delete()
-        .eq("id", categoryToDelete.id);
+    setDeletingCategory(true);
+    let linkedAthletes: any[] = [];
 
-      if (error) {
-        throw error;
+    try {
+      if (!categoryToDelete.id) {
+        throw new Error("Categoria senza ID: impossibile eliminarla in modo sicuro");
       }
 
-      await refetchCategories();
-      showToast("success", "Categoria eliminata con successo");
+      const detachResult = await detachAthletesFromCategory(
+        categoryToDelete,
+        clubAthletes,
+      );
+      linkedAthletes = detachResult.linkedAthletes;
+
+      const { error: deleteError } = await supabase
+        .from("categories")
+        .delete()
+        .eq("id", categoryToDelete.id)
+        .eq("club_id", activeClub.id);
+
+      if (deleteError) {
+        console.error("[delete-category] errore delete categoria", {
+          category: categoryToDelete,
+          endpoint: "supabase.categories.delete",
+          payload: { id: categoryToDelete.id, club_id: activeClub.id },
+          error: deleteError,
+        });
+        throw deleteError;
+      }
+
+      debugDeleteCategory("fase 4 categoria eliminata", {
+        categoryId: categoryToDelete.id,
+      });
+
+      setCategories((current) =>
+        current.filter((category) => category.id !== categoryToDelete.id),
+      );
+      setClubAthletes((current) =>
+        current.map((athlete) => {
+          const updated = detachResult.updatedAthletes.find(
+            (entry: any) =>
+              firstNonEmptyText(entry?.id, entry?.athlete_id) ===
+              firstNonEmptyText(athlete?.id, athlete?.athlete_id),
+          );
+          return updated || athlete;
+        }),
+      );
+      showToast(
+        "success",
+        linkedAthletes.length > 0
+          ? `Categoria eliminata. ${linkedAthletes.length} atleti spostati in Senza categoria.`
+          : "Categoria eliminata.",
+      );
+      setSelectedCategory((current) =>
+        current?.id === categoryToDelete.id ? null : current,
+      );
       setCategoryToDelete(null);
       setShowDeleteConfirm(false);
-    } catch (error) {
-      console.error("Error deleting category:", error);
-      showToast("error", "Errore durante l'eliminazione della categoria");
+      void refetchCategories().catch((refreshError) => {
+        console.error("[delete-category] refresh post-delete non riuscito", {
+          category: categoryToDelete,
+          linkedAthletesCount: linkedAthletes.length,
+          error: refreshError,
+        });
+      });
+    } catch (error: any) {
+      console.error("[delete-category] errore eliminazione categoria", {
+        category: categoryToDelete,
+        linkedAthletesCount: linkedAthletes.length,
+        linkedAthletes,
+        error,
+      });
+      showToast(
+        "error",
+        String(error?.message || "").includes("[athlete-update]")
+          ? "Categoria non eliminata: non è stato possibile aggiornare gli atleti collegati."
+          : "Errore durante l'eliminazione della categoria. Verifica i dettagli in console.",
+      );
+    } finally {
+      setDeletingCategory(false);
     }
   };
 
@@ -601,7 +1023,10 @@ const buildDialogAthletesForCategory = (category: Category) =>
                         <CardTitle className="text-lg">
                           {category.name}
                         </CardTitle>
-                        <Badge className={category.color}>
+                        <Badge
+                          className={`${category.color} max-w-[180px] truncate`}
+                          title={category.sport}
+                        >
                           {category.sport}
                         </Badge>
                       </div>
@@ -628,7 +1053,10 @@ const buildDialogAthletesForCategory = (category: Category) =>
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-muted-foreground" />
                           <span className="text-sm">
-                            {category.trainingsPerWeek} allenamenti a settimana
+                              {category.trainingsPerWeek}{" "}
+                              {category.trainingsPerWeek === 1
+                                ? "allenamento settimanale"
+                                : "allenamenti settimanali"}
                           </span>
                         </div>
                         <div className="flex justify-end pt-2">
@@ -730,16 +1158,49 @@ const buildDialogAthletesForCategory = (category: Category) =>
         }}
       />
 
-      <ConfirmDialog
-        isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleDeleteCategory}
-        title="Conferma eliminazione"
-        description={`Sei sicuro di voler eliminare la categoria ${categoryToDelete?.name}?`}
-        confirmText="Elimina"
-        cancelText="Annulla"
-        type="warning"
-      />
+      <Dialog
+        open={showDeleteConfirm}
+        onOpenChange={(open) => {
+          if (!deletingCategory) setShowDeleteConfirm(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Conferma eliminazione</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-slate-600">
+            <p>
+              <strong className="text-slate-900">Categoria:</strong>{" "}
+              {categoryToDelete?.name || "Categoria"}
+            </p>
+            <p>
+              <strong className="text-slate-900">Atleti collegati:</strong>{" "}
+              {categoryToDeleteAthletes.length}
+            </p>
+            <p>
+              {categoryToDeleteAthletes.length > 0
+                ? `Questa categoria contiene ${categoryToDeleteAthletes.length} atleti. Eliminando la categoria, gli atleti verranno spostati in Senza categoria.`
+                : "Questa categoria non contiene atleti. Puoi eliminarla senza spostare tesserati."}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deletingCategory}
+            >
+              Annulla
+            </Button>
+            <Button
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={handleDeleteCategory}
+              disabled={deletingCategory}
+            >
+              {deletingCategory ? "Eliminazione..." : "Elimina categoria"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -2,7 +2,12 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { apiRequest } from "@/lib/api/client";
+import { clearClientAuthCache } from "@/lib/auth/session-sync";
+import { fetchMemberships } from "@/lib/auth/memberships-client";
+import {
+  getAccessRoleLabel,
+  normalizeAccessRole,
+} from "@/lib/access-roles";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { useRouter } from "next/navigation";
 
@@ -64,23 +69,6 @@ type MembershipRecord = {
   organizations?: Record<string, any> | null;
 };
 
-const getRoleLabel = (role: string) => {
-  switch (role) {
-    case "owner":
-      return "Proprietario";
-    case "admin":
-      return "Amministratore";
-    case "trainer":
-      return "Allenatore";
-    case "athlete":
-      return "Atleta";
-    case "parent":
-      return "Genitore";
-    default:
-      return "Collaboratore";
-  }
-};
-
 const parseStoredActiveClub = (rawValue: string | null) => {
   if (!rawValue) {
     return null;
@@ -96,6 +84,7 @@ const parseStoredActiveClub = (rawValue: string | null) => {
 
 const buildActiveClubFromMembership = (membership: MembershipRecord) => {
   const organization = membership.organization || membership.organizations || {};
+  const role = normalizeAccessRole(membership.role);
   const seasonState = normalizeClubSeasons(organization.settings || {});
   const accessKind =
     membership.access_kind ||
@@ -103,8 +92,8 @@ const buildActiveClubFromMembership = (membership: MembershipRecord) => {
 
   return {
     id: membership.organization_id,
-    role: membership.role,
-    roleLabel: getRoleLabel(membership.role),
+    role,
+    roleLabel: getAccessRoleLabel(role),
     name: organization.name || "Club",
     logo_url: organization.logo_url || null,
     email: organization.contact_email || null,
@@ -114,7 +103,7 @@ const buildActiveClubFromMembership = (membership: MembershipRecord) => {
     accessKey:
       accessKind === "ownership"
         ? `ownership:${membership.organization_id}`
-        : `membership:${membership.id || `${membership.organization_id}:${membership.role}`}`,
+        : `membership:${membership.id || `${membership.organization_id}:${role}`}`,
     activeSeasonId: seasonState.activeSeasonId,
     activeSeasonLabel: seasonState.activeSeason?.label || null,
   };
@@ -186,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Load and validate active club when user changes
   useEffect(() => {
-    if (typeof window === "undefined" || !user?.id) return;
+    if (typeof window === "undefined" || !user?.id || loading) return;
 
     let cancelled = false;
 
@@ -201,9 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setActiveClub(userSpecificClub);
       }
 
-      const response = await apiRequest<MembershipRecord[]>(
-        "/api/v1/auth/memberships",
-      );
+      const response = await fetchMemberships<MembershipRecord>();
 
       if (cancelled) {
         return;
@@ -248,7 +235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, loading]);
 
   // Optimized authentication check with caching
   useEffect(() => {
@@ -287,11 +274,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       currentPath.includes(path),
     );
 
+    const applySessionUser = (sessionUser: any) => {
+      setUser(sessionUser);
+      // Use metadata first for faster loading
+      if (sessionUser.user_metadata?.isClubCreator) {
+        setUserRole("club_creator");
+      } else if (sessionUser.user_metadata?.role) {
+        setUserRole(normalizeAccessRole(sessionUser.user_metadata.role));
+      } else {
+        setUserRole("user");
+      }
+    };
+
     const getUser = async () => {
       try {
         setError(null);
 
-        // Use cached session if available and recent
+        // La cache serve solo a dipingere subito l'interfaccia: NON conclude
+        // il caricamento e non sostituisce la verifica lato server.
         const cachedSession = sessionStorage.getItem("supabase_session");
         const cacheTimestamp = sessionStorage.getItem(
           "supabase_session_timestamp",
@@ -306,17 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             const session = JSON.parse(cachedSession);
             if (session?.user) {
-              setUser(session.user);
-              // Use metadata first for faster loading
-              if (session.user.user_metadata?.isClubCreator) {
-                setUserRole("club_creator");
-              } else if (session.user.user_metadata?.role) {
-                setUserRole(session.user.user_metadata.role);
-              } else {
-                setUserRole("user");
-              }
-              setLoading(false);
-              return;
+              applySessionUser(session.user);
             }
           } catch (e) {
             // Invalid cache, continue with fresh request
@@ -350,23 +340,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (session?.user) {
-          setUser(session.user);
+          applySessionUser(session.user);
           // Cache session for faster subsequent loads
           sessionStorage.setItem("supabase_session", JSON.stringify(session));
-          sessionStorage.setItem("supabase_session_timestamp", now.toString());
+          sessionStorage.setItem(
+            "supabase_session_timestamp",
+            Date.now().toString(),
+          );
+        } else {
+          // Il server non riconosce alcuna sessione: qualunque stato locale
+          // ottimistico va scartato, incluso il club attivo.
+          clearClientAuthCache();
+          setUser(null);
+          setUserRole("");
+          setActiveClub(null);
 
-          // Use metadata first for faster loading
-          if (session.user.user_metadata?.isClubCreator) {
-            setUserRole("club_creator");
-          } else if (session.user.user_metadata?.role) {
-            setUserRole(session.user.user_metadata.role);
-          } else {
-            setUserRole("user");
+          if (isProtectedPage) {
+            window.location.href = "/";
+            return;
           }
-        } else if (isProtectedPage) {
-          // If no session but on protected page, redirect to login
-          window.location.href = "/";
-          return;
         }
       } catch (error) {
         console.error("Error getting session:", error);
@@ -412,7 +404,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (session.user.user_metadata?.isClubCreator) {
               setUserRole("club_creator");
             } else if (session.user.user_metadata?.role) {
-              setUserRole(session.user.user_metadata.role);
+              setUserRole(normalizeAccessRole(session.user.user_metadata.role));
             } else {
               setUserRole("user");
             }
@@ -430,7 +422,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 "userClubs",
               ];
               keysToRemove.forEach((key) => localStorage.removeItem(key));
-              router.push("/");
+              clearClientAuthCache();
+              setActiveClub(null);
+
+              // Evita loop di redirect se siamo già sulle pagine pubbliche.
+              const currentPathname = window.location.pathname;
+              if (currentPathname !== "/" && currentPathname !== "/login") {
+                router.replace("/");
+              }
             }
           }
           setLoading(false);
@@ -473,6 +472,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const { error: signOutError } = await supabase.auth.signOut();
+      clearClientAuthCache();
+      setActiveClub(null);
       if (signOutError) {
         console.error("Error signing out:", signOutError);
         setError("Errore durante il logout. Riprova più tardi.");

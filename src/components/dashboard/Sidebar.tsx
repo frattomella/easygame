@@ -3,65 +3,168 @@
 import React, { memo, useCallback, useMemo } from "react";
 import "../../app/globals.css";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import Image from "next/image";
+import { usePathname } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useAuth } from "@/components/providers/AuthProvider";
-import { memoize } from "@/lib/performance";
-import {
-  LayoutDashboard,
-  Users,
-  FolderKanban,
-  Calendar,
-  FileHeart,
-  Bell,
-  BarChart3,
-  Settings,
-  LogOut,
+  Briefcase,
   Building,
-  ClipboardList,
-  CreditCard,
-  Shield,
+  CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Instagram,
-  Facebook,
-  Twitter,
-  Home,
-  Briefcase,
-  UserCog,
-  UsersRound,
-  Handshake,
-  UserCircle,
-  GraduationCap,
-  FolderOpen,
-  Stethoscope,
-  CalendarDays,
-  Trophy,
-  Receipt,
-  Wallet,
   FileText,
+  FileUp,
+  GraduationCap,
+  Handshake,
+  Home,
+  Lock,
   MessageSquare,
   PieChart,
-  Lock,
-  FileUp,
-  Shirt,
+  Receipt,
   Scale,
+  Settings,
+  Shield,
+  Shirt,
   Sparkles,
+  Stethoscope,
+  Trophy,
+  UserCircle,
+  UserCog,
+  UsersRound,
+  Wallet,
 } from "lucide-react";
-import Image from "next/image";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { memoize } from "@/lib/performance";
+
+type SidebarItem = {
+  id: string;
+  label: string;
+  href: string;
+  icon: LucideIcon;
+};
+
+type SidebarGroup = {
+  id: string;
+  label: string;
+  items: SidebarItem[];
+};
+
+const sidebarGroups: SidebarGroup[] = [
+  {
+    id: "overview",
+    label: "PANORAMICA",
+    items: [
+      { id: "dashboard", label: "Dashboard", href: "/dashboard", icon: Home },
+      { id: "reports", label: "Report", href: "/reports", icon: PieChart },
+    ],
+  },
+  {
+    id: "people",
+    label: "PERSONE",
+    items: [
+      { id: "athletes", label: "Atleti", href: "/athletes", icon: UserCircle },
+      { id: "trainers", label: "Allenatori", href: "/trainers", icon: UserCog },
+      { id: "staff", label: "Staff", href: "/staff", icon: Briefcase },
+      { id: "members", label: "Soci", href: "/soci", icon: UsersRound },
+      {
+        id: "categories",
+        label: "Categorie",
+        href: "/categories",
+        icon: GraduationCap,
+      },
+      {
+        id: "medical",
+        label: "Certificati Medici",
+        href: "/medical",
+        icon: Stethoscope,
+      },
+      { id: "procura", label: "Procure", href: "/procura", icon: Scale },
+    ],
+  },
+  {
+    id: "sport",
+    label: "ATTIVITÀ SPORTIVA",
+    items: [
+      {
+        id: "training",
+        label: "Allenamenti",
+        href: "/training",
+        icon: CalendarDays,
+      },
+      { id: "matches", label: "Gare", href: "/matches", icon: Trophy },
+      { id: "structures", label: "Strutture", href: "/structures", icon: Building },
+    ],
+  },
+  {
+    id: "office",
+    label: "SEGRETERIA",
+    items: [
+      {
+        id: "registrations",
+        label: "Gestione Iscrizioni",
+        href: "/registration-management",
+        icon: Receipt,
+      },
+      {
+        id: "forms",
+        label: "Modulistica",
+        href: "/modulistica",
+        icon: FileUp,
+      },
+      {
+        id: "secretariat",
+        label: "Segreteria",
+        href: "/secretariat",
+        icon: FileText,
+      },
+      {
+        id: "notifications",
+        label: "Notifiche",
+        href: "/notifications",
+        icon: MessageSquare,
+      },
+    ],
+  },
+  {
+    id: "accounting",
+    label: "CONTABILITÀ",
+    items: [
+      { id: "movements", label: "Movimenti", href: "/movements", icon: Wallet },
+      { id: "sponsors", label: "Sponsor", href: "/sponsors", icon: Handshake },
+    ],
+  },
+  {
+    id: "warehouse",
+    label: "MAGAZZINO",
+    items: [
+      { id: "clothing", label: "Abbigliamento", href: "/clothing", icon: Shirt },
+    ],
+  },
+  {
+    id: "configuration",
+    label: "CONFIGURAZIONE",
+    items: [
+      { id: "organization", label: "Club", href: "/organization", icon: Shield },
+      { id: "settings", label: "Impostazioni", href: "/settings", icon: Settings },
+      { id: "permissions", label: "Permessi", href: "/permissions", icon: Lock },
+    ],
+  },
+];
+
+const initialOpenGroups = Object.fromEntries(
+  sidebarGroups.map((group) => [group.id, true]),
+) as Record<string, boolean>;
 
 const Sidebar = memo(() => {
   const [collapsed, setCollapsed] = React.useState(false);
   const [clubId, setClubId] = React.useState<string | null>(null);
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(
+    () => ({ ...initialOpenGroups }),
+  );
   const pathname = usePathname();
-  const router = useRouter();
   const { user, isAthlete, activeClub } = useAuth();
 
   // Get club ID from URL or localStorage
@@ -127,16 +230,52 @@ const Sidebar = memo(() => {
     [clubId],
   );
 
-  // Memoized toggle function
   const toggleCollapsed = useCallback(() => {
     const newState = !collapsed;
     setCollapsed(newState);
-    // Save preference to localStorage
     localStorage.setItem("sidebar-collapsed", String(newState));
   }, [collapsed]);
 
+  const toggleGroup = useCallback((groupId: string) => {
+    setOpenGroups((current) => ({
+      ...current,
+      [groupId]: !current[groupId],
+    }));
+  }, []);
+
+  const getItemHref = useCallback(
+    (item: SidebarItem) => {
+      if (item.id === "athletes" && isAthlete && user?.id) {
+        return `/athletes/${user.id}/profile`;
+      }
+
+      return buildUrl(item.href);
+    },
+    [buildUrl, isAthlete, user?.id],
+  );
+
+  const getItemLabel = useCallback(
+    (item: SidebarItem) =>
+      item.id === "athletes" && isAthlete ? "Il Mio Profilo" : item.label,
+    [isAthlete],
+  );
+
+  const isItemActive = useCallback(
+    (item: SidebarItem) => {
+      if (!pathname) {
+        return false;
+      }
+
+      if (item.id === "athletes" && isAthlete) {
+        return pathname.includes("/athletes/") && pathname.includes("/profile");
+      }
+
+      return pathname === item.href || pathname.startsWith(`${item.href}/`);
+    },
+    [isAthlete, pathname],
+  );
+
   React.useEffect(() => {
-    // Check if there's a saved preference in localStorage or if it's a mobile device
     if (typeof window !== "undefined") {
       const savedState = localStorage.getItem("sidebar-collapsed");
       const isMobile = window.innerWidth < 1024;
@@ -145,7 +284,6 @@ const Sidebar = memo(() => {
         setCollapsed(true);
       }
 
-      // Add resize listener to collapse sidebar on mobile
       const handleResize = () => {
         if (window.innerWidth < 1024 && !collapsed) {
           setCollapsed(true);
@@ -213,16 +351,17 @@ const Sidebar = memo(() => {
           scrollbarColor: "rgba(255, 255, 255, 0.3) transparent",
         }}
       >
-        {/* EasyGame HUB - Featured Link */}
         <div className="mb-4">
           <Link
             href={buildUrl("/hub")}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 transition-all shadow-lg",
+              collapsed && "justify-center px-0",
               pathname === "/hub" && "ring-2 ring-white/50",
             )}
+            title="EasyGame HUB"
           >
-            <Sparkles size={20} className="text-white" />
+            <Sparkles size={20} className="shrink-0 text-white" />
             {!collapsed && (
               <div className="flex flex-col">
                 <span className="font-bold text-white">EasyGame HUB</span>
@@ -234,333 +373,68 @@ const Sidebar = memo(() => {
           </Link>
         </div>
 
-        {/* CLUB Section */}
-        {!collapsed && (
-          <div className="text-sm font-bold text-blue-200 mb-2">CLUB</div>
-        )}
-        <div className="space-y-1 mb-6">
-          <Link
-            href={buildUrl("/dashboard")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/dashboard" && "bg-blue-500/50",
-            )}
-          >
-            <Home size={18} />
-            {!collapsed && <span>Dashboard</span>}
-          </Link>
-          <Link
-            href={buildUrl("/organization")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/organization" && "bg-blue-500/50",
-            )}
-          >
-            <Shield size={18} />
-            {!collapsed && <span>Club</span>}
-          </Link>
+        {sidebarGroups.map((group) => {
+          const isOpen = collapsed || openGroups[group.id] !== false;
+          const groupContentId = `sidebar-group-${group.id}`;
 
-          <Link
-            href={buildUrl("/structures")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/structures" && "bg-blue-500/50",
-            )}
-          >
-            <Building size={18} />
-            {!collapsed && <span>Strutture</span>}
-          </Link>
-          <Link
-            href={buildUrl("/clothing")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/clothing" && "bg-blue-500/50",
-            )}
-          >
-            <Shirt size={18} />
-            {!collapsed && <span>Abbigliamento</span>}
-          </Link>
-          <Link
-            href={buildUrl("/staff")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/staff" && "bg-blue-500/50",
-            )}
-          >
-            <Briefcase size={18} />
-            {!collapsed && <span>Staff</span>}
-          </Link>
-          <Link
-            href={buildUrl("/soci")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/soci" && "bg-blue-500/50",
-            )}
-          >
-            <UsersRound size={18} />
-            {!collapsed && <span>Soci</span>}
-          </Link>
-          <Link
-            href={buildUrl("/modulistica")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/modulistica" && "bg-blue-500/50",
-            )}
-          >
-            <FileUp size={18} />
-            {!collapsed && <span>Modulistica</span>}
-          </Link>
-          <Link
-            href={buildUrl("/sponsors")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/sponsors" && "bg-blue-500/50",
-            )}
-          >
-            <Handshake size={18} />
-            {!collapsed && <span>Sponsor</span>}
-          </Link>
-          <Link
-            href={buildUrl("/procura")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/procura" && "bg-blue-500/50",
-            )}
-          >
-            <Scale size={18} />
-            {!collapsed && <span>Procura</span>}
-          </Link>
-        </div>
+          return (
+            <div key={group.id} className="mb-1">
+              {!collapsed ? (
+                <button
+                  type="button"
+                  aria-expanded={openGroups[group.id] !== false}
+                  aria-controls={groupContentId}
+                  onClick={() => toggleGroup(group.id)}
+                  className="mb-2 flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs font-bold uppercase tracking-wide text-blue-100/90 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <span>{group.label}</span>
+                  {openGroups[group.id] !== false ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </button>
+              ) : null}
 
-        {/* TESSERATI Section */}
-        {!collapsed && (
-          <div className="text-sm font-bold text-blue-200 mb-2">TESSERATI</div>
-        )}
-        <div className="space-y-1 mb-6">
-          {isAthlete ? (
-            <Link
-              href={`/athletes/${user?.id}/profile`}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-                pathname.includes("/athletes/") &&
-                  pathname.includes("/profile") &&
-                  "bg-blue-500/50",
-              )}
-            >
-              <UserCircle size={18} />
-              {!collapsed && <span>Il Mio Profilo</span>}
-            </Link>
-          ) : (
-            <Link
-              href={buildUrl("/athletes")}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-                pathname === "/athletes" && "bg-blue-500/50",
-              )}
-            >
-              <UserCircle size={18} />
-              {!collapsed && <span>Atleti</span>}
-            </Link>
-          )}
-          <Link
-            href={buildUrl("/trainers")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/trainers" && "bg-blue-500/50",
-            )}
-          >
-            <UserCog size={18} />
-            {!collapsed && <span>Allenatori</span>}
-          </Link>
-          <Link
-            href={buildUrl("/categories")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/categories" && "bg-blue-500/50",
-            )}
-          >
-            <GraduationCap size={18} />
-            {!collapsed && <span>Categorie</span>}
-          </Link>
-          <Link
-            href={buildUrl("/medical")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/medical" && "bg-blue-500/50",
-            )}
-          >
-            <Stethoscope size={18} />
-            {!collapsed && <span>Certificati</span>}
-          </Link>
-        </div>
+              <div
+                id={groupContentId}
+                className={cn(
+                  "space-y-1 overflow-hidden transition-all duration-200",
+                  isOpen ? "mb-5 max-h-[900px] opacity-100" : "mb-2 max-h-0 opacity-0",
+                )}
+              >
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = isItemActive(item);
+                  const label = getItemLabel(item);
 
-        {/* ATTIVITÀ Section */}
-        {!collapsed && (
-          <div className="text-sm font-bold text-blue-200 mb-2">ATTIVITÀ</div>
-        )}
-        <div className="space-y-1 mb-6">
-          <Link
-            href={buildUrl("/training")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/training" && "bg-blue-500/50",
-            )}
-          >
-            <CalendarDays size={18} />
-            {!collapsed && <span>Allenamenti</span>}
-          </Link>
-          <Link
-            href={buildUrl("/matches")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/matches" && "bg-blue-500/50",
-            )}
-          >
-            <Trophy size={18} />
-            {!collapsed && <span>Gare</span>}
-          </Link>
-        </div>
-
-        {/* CONTABILITÀ Section */}
-        {!collapsed && (
-          <div className="text-sm font-bold text-blue-200 mb-2">
-            CONTABILITÀ
-          </div>
-        )}
-        <div className="space-y-1 mb-6">
-          <Link
-            href={buildUrl("/registration-management")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/registration-management" && "bg-blue-500/50",
-            )}
-          >
-            <Receipt size={18} />
-            {!collapsed && <span>Gestione Iscrizioni</span>}
-          </Link>
-          <Link
-            href={buildUrl("/movements")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/movements" && "bg-blue-500/50",
-            )}
-          >
-            <Wallet size={18} />
-            {!collapsed && <span>Movimenti</span>}
-          </Link>
-          <Link
-            href={buildUrl("/payments")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/payments" && "bg-blue-500/50",
-            )}
-          >
-            <CreditCard size={18} />
-            {!collapsed && <span>Pagamenti</span>}
-          </Link>
-        </div>
-
-        {/* Other items */}
-        <div className="space-y-1">
-          <Link
-            href={buildUrl("/secretariat")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/secretariat" && "bg-blue-500/50",
-            )}
-          >
-            <FileText size={18} />
-            {!collapsed && <span>Segreteria</span>}
-          </Link>
-          <Link
-            href={buildUrl("/notifications")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/notifications" && "bg-blue-500/50",
-            )}
-          >
-            <MessageSquare size={18} />
-            {!collapsed && <span>Notifiche</span>}
-          </Link>
-          <Link
-            href={buildUrl("/reports")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/reports" && "bg-blue-500/50",
-            )}
-          >
-            <PieChart size={18} />
-            {!collapsed && <span>Report</span>}
-          </Link>
-          <Link
-            href={buildUrl("/settings")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/settings" && "bg-blue-500/50",
-            )}
-          >
-            <Settings size={18} />
-            {!collapsed && <span>Impostazioni</span>}
-          </Link>
-          <Link
-            href={buildUrl("/permissions")}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-              pathname === "/permissions" && "bg-blue-500/50",
-            )}
-          >
-            <Lock size={18} />
-            {!collapsed && <span>Permessi</span>}
-          </Link>
-        </div>
+                  return (
+                    <Link
+                      key={item.id}
+                      href={getItemHref(item)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-blue-500/50 hover:text-white",
+                        collapsed && "justify-center px-0",
+                        active && "bg-blue-500/60 text-white",
+                      )}
+                      title={label}
+                    >
+                      <Icon size={18} className="shrink-0" />
+                      {!collapsed && <span>{label}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </nav>
 
       {!collapsed && (
         <div className="mt-auto p-4 border-t border-blue-500">
-          <div className="flex justify-center space-x-6 mb-4">
-            <a
-              href="#"
-              className="text-white hover:text-blue-200 transition-colors"
-            >
-              <Instagram size={20} />
-            </a>
-            <a
-              href="#"
-              className="text-white hover:text-blue-200 transition-colors"
-            >
-              <Facebook size={20} />
-            </a>
-            <a
-              href="#"
-              className="text-white hover:text-blue-200 transition-colors"
-            >
-              <Twitter size={20} />
-            </a>
-          </div>
-          {/* Chat button moved to header */}
-          <button
-            onClick={() => router.push("/account")}
-            className="w-full flex items-center justify-center gap-2 bg-white text-blue-600 rounded-md px-3 py-2 hover:bg-blue-50 transition-colors font-medium"
-          >
-            <LogOut size={18} />
-            <span>Torna al mio account</span>
-          </button>
-          <p className="text-xs text-center text-blue-200 mt-2">
+          <p className="text-xs text-center text-blue-200">
             powered by Francesco srl
           </p>
-        </div>
-      )}
-      {collapsed && (
-        <div className="mt-auto p-2 border-t border-blue-500">
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => router.push("/account")}
-              className="w-full flex items-center justify-center bg-white text-blue-600 rounded-md p-2 hover:bg-blue-50 transition-colors"
-              title="Torna al mio account"
-            >
-              <LogOut size={18} />
-            </button>
-          </div>
         </div>
       )}
     </aside>

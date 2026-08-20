@@ -676,6 +676,53 @@ const normalizeCommonAliases = (input: Record<string, any>) => {
   return next;
 };
 
+const normalizeAthletePaymentInput = (input: Record<string, any>) => {
+  const next = { ...input };
+  const metadata = parseJsonIfString(next.data);
+  next.data = metadata;
+
+  if (!next.athlete_id && next.athleteId) {
+    next.athlete_id = next.athleteId;
+  }
+
+  if (!next.organization_id && (next.organizationId || next.clubId)) {
+    next.organization_id = next.organizationId || next.clubId;
+  }
+
+  if (!next.due_date && next.dueDate) {
+    next.due_date = next.dueDate;
+  }
+
+  if (!next.paid_at && next.paidAt) {
+    next.paid_at = next.paidAt;
+  }
+
+  if (!next.description) {
+    next.description =
+      firstNonEmpty(metadata?.description, next.type, metadata?.type) ||
+      "Pagamento atleta";
+  }
+
+  delete next.athleteId;
+  delete next.organizationId;
+  delete next.clubId;
+  delete next.dueDate;
+  delete next.paidAt;
+
+  return next;
+};
+
+const firstNonEmpty = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  return "";
+};
+
 const normalizeModelInput = async (
   resource: string,
   input: Record<string, any>,
@@ -693,6 +740,11 @@ const normalizeModelInput = async (
     ...normalizeCommonAliases(input),
     ...preservedClubJsonFields,
   };
+
+  if (resource === "payments" || resource === "simplified_payments") {
+    next = normalizeAthletePaymentInput(next);
+  }
+
   next = normalizeDates(resource, next);
   next.settings = parseJsonIfString(next.settings);
   next.user_metadata = parseJsonIfString(next.user_metadata);

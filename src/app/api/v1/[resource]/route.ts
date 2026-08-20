@@ -21,6 +21,21 @@ const ensureResource = (resource: string) => {
   }
 };
 
+function resolveCreatePayload(body: any) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return body;
+  }
+
+  const keys = Object.keys(body);
+  const looksLikeWrappedPayload =
+    Object.prototype.hasOwnProperty.call(body, "data") &&
+    (Object.prototype.hasOwnProperty.call(body, "mode") ||
+      Object.prototype.hasOwnProperty.call(body, "meta") ||
+      keys.every((key) => ["data", "mode", "meta"].includes(key)));
+
+  return looksLikeWrappedPayload ? body.data : body;
+}
+
 export async function GET(request: Request, context: Context) {
   try {
     const { resource } = context.params;
@@ -77,7 +92,7 @@ export async function POST(request: Request, context: Context) {
 
     const body = await request.json();
     const mode = body?.mode === "upsert" ? "upsert" : "create";
-    const payload = body?.data ?? body;
+    const payload = resolveCreatePayload(body);
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
       request.headers.get("x-active-club-id"),

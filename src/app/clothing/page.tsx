@@ -17,14 +17,34 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -33,6 +53,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/use-toast";
@@ -40,6 +68,7 @@ import { apiRequest } from "@/lib/api/client";
 import {
   assignmentStatusLabels,
   canAssignNumber,
+  getAssignmentNumberLabel,
   getAthleteClothingProfile,
   getAvailableNumbersForGroup,
   getCompatibleClothingItemsForAthlete,
@@ -70,6 +99,11 @@ import {
   type NumberingGroup,
 } from "@/lib/clothing-inventory-utils";
 import {
+  printSupplierOrderPdf,
+  type SupplierOrderPdfRow,
+} from "@/lib/clothing-supplier-order-pdf";
+import { getJerseyGroupSummary } from "@/lib/jersey-numbering-utils";
+import {
   compareAthletesByLastName,
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
@@ -77,9 +111,15 @@ import { buildClubCategoryOptions } from "@/lib/category-utils";
 import {
   AlertCircle,
   Boxes,
+  Check,
+  ChevronsUpDown,
+  Download,
   PackagePlus,
+  Pencil,
   Plus,
+  RefreshCw,
   Shirt,
+  Trash2,
   Truck,
 } from "lucide-react";
 
@@ -138,6 +178,18 @@ type AssignmentForm = {
   notes: string;
 };
 
+type AssignmentEditForm = {
+  athleteId: string;
+  status: ClothingAssignmentStatus;
+  createdAt: string;
+  notes: string;
+};
+
+type SupplierOrderRow = SupplierOrderPdfRow & {
+  assignment: ClothingAssignment;
+  assignmentItem: ClothingAssignment["items"][number];
+};
+
 const emptyItemForm: ItemForm = {
   name: "",
   type: "articolo",
@@ -190,6 +242,20 @@ const emptyAssignmentForm: AssignmentForm = {
   notes: "",
 };
 
+const emptyAssignmentEditForm: AssignmentEditForm = {
+  athleteId: "",
+  status: "assigned",
+  createdAt: "",
+  notes: "",
+};
+
+const assignmentActionStatuses: ClothingAssignmentStatus[] = [
+  "reserved",
+  "assigned",
+  "delivered",
+  "cancelled",
+];
+
 const splitCsv = (value: string) =>
   value
     .split(",")
@@ -207,6 +273,46 @@ const formatDate = (value?: string) => {
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleDateString("it-IT");
 };
+
+const dateInputValue = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+};
+
+const firstText = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+
+  return "";
+};
+
+const supplierLabel = (
+  assignment: ClothingAssignment,
+  assignmentItem: ClothingAssignment["items"][number],
+  catalogItem?: ClothingCatalogItem,
+) =>
+  firstText(
+    (assignmentItem as any).supplier,
+    (assignmentItem as any).supplierName,
+    (assignmentItem as any).fornitore,
+    (assignmentItem as any).data?.supplier,
+    (assignmentItem as any).data?.fornitore,
+    assignment.raw?.supplier,
+    assignment.raw?.supplierName,
+    assignment.raw?.fornitore,
+    assignment.raw?.data?.supplier,
+    assignment.raw?.data?.fornitore,
+    catalogItem?.raw?.supplier,
+    catalogItem?.raw?.supplierName,
+    catalogItem?.raw?.fornitore,
+    catalogItem?.raw?.data?.supplier,
+    catalogItem?.raw?.data?.fornitore,
+    "Non indicato",
+  );
 
 const statusBadgeClass = (status: string) => {
   if (status === "delivered" || status === "received") {
@@ -296,7 +402,22 @@ export default function ClothingPage() {
     assignedNumbers: [],
   });
   const [inventoryFilter, setInventoryFilter] = useState("all");
+  const [inventorySearch, setInventorySearch] = useState("");
+  const [catalogSearch, setCatalogSearch] = useState("");
   const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [assignmentAthleteComboboxOpen, setAssignmentAthleteComboboxOpen] =
+    useState(false);
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState("all");
+  const [selectedSupplierOrderRows, setSelectedSupplierOrderRows] = useState<
+    Record<string, boolean>
+  >({});
+  const [assignmentEditOpen, setAssignmentEditOpen] = useState(false);
+  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(
+    null,
+  );
+  const [assignmentEditForm, setAssignmentEditForm] =
+    useState<AssignmentEditForm>(emptyAssignmentEditForm);
 
   const loadData = React.useCallback(async () => {
     if (!activeClub?.id || !user) {
@@ -372,6 +493,11 @@ export default function ClothingPage() {
     [state.items],
   );
 
+  const stockById = useMemo(
+    () => new Map(state.inventory.map((stock) => [stock.id, stock])),
+    [state.inventory],
+  );
+
   const selectedAssignmentAthlete = athletesById.get(assignmentForm.athleteId);
   const compatibleKitOptions = useMemo(() => {
     if (!selectedAssignmentAthlete) {
@@ -420,6 +546,23 @@ export default function ClothingPage() {
     selectedAssignmentKit,
   ]);
 
+  const filteredAssignmentAthletes = useMemo(() => {
+    const query = assignmentSearch.trim().toLowerCase();
+
+    return athletes
+      .filter((athlete) => {
+        if (!query) return true;
+
+        return [athleteLabel(athlete), getAthleteCategoryLabel(athlete)]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      })
+      .slice()
+      .sort(compareAthletesByLastName);
+  }, [assignmentSearch, athletes]);
+
   const filteredAssignments = useMemo(() => {
     const query = assignmentSearch.trim().toLowerCase();
     return state.assignments
@@ -453,6 +596,98 @@ export default function ClothingPage() {
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     [state.assignments],
   );
+
+  const supplierOrderRows = useMemo<SupplierOrderRow[]>(
+    () =>
+      supplierAssignments.flatMap((assignment) => {
+        const athlete = athletesById.get(assignment.athleteId);
+        const athleteName = athleteLabel(athlete);
+        const categoryName = getAthleteCategoryLabel(athlete);
+
+        return assignment.items.map((assignmentItem, index) => {
+          const stock = assignmentItem.inventoryStockId
+            ? stockById.get(assignmentItem.inventoryStockId)
+            : undefined;
+          const catalogItem = itemById.get(assignmentItem.itemId);
+          const id = `${assignment.id}:${assignmentItem.id || index}`;
+
+          return {
+            id,
+            assignment,
+            assignmentItem,
+            itemName:
+              assignmentItem.name ||
+              catalogItem?.name ||
+              assignment.kitName ||
+              "Articolo",
+            itemType: catalogItem?.type || assignmentItem.stockType || "-",
+            size: assignmentItem.size || assignment.size || "",
+            color: assignmentItem.color || assignment.color || "",
+            variant: assignmentItem.variant || assignment.variant || "",
+            numberLabel: getAssignmentNumberLabel(
+              assignment,
+              stock,
+              assignmentItem,
+            ),
+            quantity: Math.max(1, Number(assignmentItem.quantity || 1)),
+            supplier: supplierLabel(assignment, assignmentItem, catalogItem),
+            notes: firstText(assignmentItem.notes, assignment.notes),
+            status:
+              assignmentStatusLabels[assignmentItem.status] ||
+              assignmentStatusLabels[assignment.status],
+            athleteName,
+            categoryName,
+          };
+        });
+      }),
+    [athletesById, itemById, stockById, supplierAssignments],
+  );
+
+  const supplierOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(supplierOrderRows.map((row) => row.supplier || "Non indicato")),
+      ).sort((left, right) => left.localeCompare(right)),
+    [supplierOrderRows],
+  );
+
+  const filteredSupplierOrderRows = useMemo(() => {
+    const query = supplierSearch.trim().toLowerCase();
+
+    return supplierOrderRows.filter((row) => {
+      if (supplierFilter !== "all" && row.supplier !== supplierFilter) {
+        return false;
+      }
+
+      if (!query) return true;
+      return [
+        row.itemName,
+        row.itemType,
+        row.size,
+        row.color,
+        row.variant,
+        row.numberLabel,
+        row.supplier,
+        row.notes,
+        row.status,
+        row.athleteName,
+        row.categoryName,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [supplierFilter, supplierOrderRows, supplierSearch]);
+
+  const selectedSupplierRows = useMemo(
+    () => supplierOrderRows.filter((row) => selectedSupplierOrderRows[row.id]),
+    [selectedSupplierOrderRows, supplierOrderRows],
+  );
+
+  const allFilteredSupplierRowsSelected =
+    filteredSupplierOrderRows.length > 0 &&
+    filteredSupplierOrderRows.every((row) => selectedSupplierOrderRows[row.id]);
 
   const saveClubJson = async (field: string, value: any[]) => {
     if (!activeClub?.id) throw new Error("Club non trovato");
@@ -721,7 +956,7 @@ export default function ClothingPage() {
         assignments: result.assignments,
         inventory: result.inventory,
       }));
-      toast({ title: "Aggiornato", description: "Stato ordine aggiornato." });
+      toast({ title: "Aggiornato", description: "Stato aggiornato." });
     } catch (error: any) {
       toast({
         title: "Errore",
@@ -729,6 +964,375 @@ export default function ClothingPage() {
         variant: "destructive",
       });
     }
+  };
+
+  const exportSupplierRows = (
+    rows: SupplierOrderRow[],
+    scopeLabel: string,
+  ) => {
+    if (!rows.length) {
+      toast({
+        title: "Nessun articolo",
+        description: "Non ci sono righe da esportare.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const success = printSupplierOrderPdf({
+      clubName: firstText((activeClub as any)?.name, "EasyGame"),
+      clubLogoUrl:
+        (activeClub as any)?.logo_url || (activeClub as any)?.logoUrl || null,
+      rows,
+      supplierLabel: supplierFilter !== "all" ? supplierFilter : undefined,
+      scopeLabel,
+    });
+
+    if (!success) {
+      toast({
+        title: "Popup bloccato",
+        description: "Consenti i popup per generare la stampa PDF.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "PDF pronto",
+      description: "Si apre la finestra di stampa dell'ordine fornitore.",
+    });
+  };
+
+  const toggleSupplierRow = (rowId: string) => {
+    setSelectedSupplierOrderRows((current) => ({
+      ...current,
+      [rowId]: !current[rowId],
+    }));
+  };
+
+  const toggleAllSupplierRows = () => {
+    setSelectedSupplierOrderRows((current) => {
+      const next = { ...current };
+      filteredSupplierOrderRows.forEach((row) => {
+        next[row.id] = !allFilteredSupplierRowsSelected;
+      });
+      return next;
+    });
+  };
+
+  const openAssignmentEdit = (assignment: ClothingAssignment) => {
+    setEditingAssignmentId(assignment.id);
+    setAssignmentEditForm({
+      athleteId: assignment.athleteId,
+      status: assignment.status,
+      createdAt: dateInputValue(assignment.createdAt),
+      notes: assignment.notes || "",
+    });
+    setAssignmentEditOpen(true);
+  };
+
+  const saveAssignmentEdit = async () => {
+    try {
+      if (!editingAssignmentId) throw new Error("Assegnazione non trovata");
+      if (!assignmentEditForm.athleteId) throw new Error("Seleziona un atleta");
+
+      const assignment = state.assignments.find(
+        (entry) => entry.id === editingAssignmentId,
+      );
+      if (!assignment) throw new Error("Assegnazione non trovata");
+
+      const statusResult =
+        assignment.status !== assignmentEditForm.status
+          ? updateClothingAssignmentStatus({
+              assignmentId: assignment.id,
+              nextStatus: assignmentEditForm.status,
+              state,
+            })
+          : {
+              assignments: state.assignments,
+              inventory: state.inventory,
+            };
+      const now = new Date().toISOString();
+      const nextCreatedAt = assignmentEditForm.createdAt
+        ? new Date(`${assignmentEditForm.createdAt}T12:00:00.000Z`).toISOString()
+        : assignment.createdAt;
+      const linkedStockIds = new Set(
+        assignment.items
+          .map((item) => item.inventoryStockId)
+          .filter(Boolean) as string[],
+      );
+      const nextAssignments = statusResult.assignments.map((entry) =>
+        entry.id === assignment.id
+          ? {
+              ...entry,
+              athleteId: assignmentEditForm.athleteId,
+              assigneeId: assignmentEditForm.athleteId,
+              status: assignmentEditForm.status,
+              notes: assignmentEditForm.notes.trim(),
+              createdAt: nextCreatedAt,
+              updatedAt: now,
+              items: entry.items.map((item) => ({
+                ...item,
+                status: assignmentEditForm.status,
+              })),
+            }
+          : entry,
+      );
+      const nextInventory = statusResult.inventory.map((stock) =>
+        stock.assignmentId === assignment.id || linkedStockIds.has(stock.id)
+          ? {
+              ...stock,
+              athleteId:
+                stock.stockType === "single_unit"
+                  ? assignmentEditForm.athleteId
+                  : stock.athleteId,
+            }
+          : stock,
+      );
+      const nextJerseyAssignments = state.jerseyAssignments.map((entry) =>
+        entry.assignmentId === assignment.id
+          ? {
+              ...entry,
+              athleteId: assignmentEditForm.athleteId,
+              updatedAt: now,
+            }
+          : entry,
+      );
+
+      await saveClubJson(
+        "kit_assignments",
+        nextAssignments.map(serializeClothingAssignment),
+      );
+      await saveClubJson(
+        "clothing_inventory",
+        nextInventory.map(serializeInventoryStock),
+      );
+      await saveClubJson(
+        "jersey_assignments",
+        nextJerseyAssignments.map(serializeJerseyNumberAssignment),
+      );
+      setState((current) => ({
+        ...current,
+        assignments: nextAssignments,
+        inventory: nextInventory,
+        jerseyAssignments: nextJerseyAssignments,
+      }));
+      setAssignmentEditOpen(false);
+      setEditingAssignmentId(null);
+      setAssignmentEditForm(emptyAssignmentEditForm);
+      toast({ title: "Salvato", description: "Assegnazione aggiornata." });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error?.message || "Impossibile aggiornare assegnazione",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const deleteAssignment = async (assignment: ClothingAssignment) => {
+    const confirmed = window.confirm(
+      "Eliminare questa assegnazione e liberare lo stock collegato?",
+    );
+    if (!confirmed) return;
+
+    try {
+      const linkedStockIds = new Set(
+        assignment.items
+          .map((item) => item.inventoryStockId)
+          .filter(Boolean) as string[],
+      );
+      const quantityByStockId = assignment.items.reduce<Record<string, number>>(
+        (totals, item) => {
+          if (!item.inventoryStockId) return totals;
+          return {
+            ...totals,
+            [item.inventoryStockId]:
+              (totals[item.inventoryStockId] || 0) +
+              Math.max(1, Number(item.quantity || 1)),
+          };
+        },
+        {},
+      );
+      const nextInventory = state.inventory.map((stock) => {
+        const linked =
+          stock.assignmentId === assignment.id || linkedStockIds.has(stock.id);
+        if (!linked) return stock;
+
+        if (stock.stockType === "single_unit") {
+          return {
+            ...stock,
+            status: "available" as InventoryUnitStatus,
+            athleteId: null,
+            assignmentId: null,
+          };
+        }
+
+        const quantity = Math.max(1, quantityByStockId[stock.id] || 1);
+        return {
+          ...stock,
+          quantityAvailable:
+            Math.max(0, Number(stock.quantityAvailable || 0)) + quantity,
+          quantityReserved: Math.max(
+            0,
+            Number(stock.quantityReserved || 0) - quantity,
+          ),
+          quantityAssigned: Math.max(
+            0,
+            Number(stock.quantityAssigned || 0) - quantity,
+          ),
+          assignmentId: null,
+        };
+      });
+      const nextAssignments = state.assignments.filter(
+        (entry) => entry.id !== assignment.id,
+      );
+      const nextJerseyAssignments = state.jerseyAssignments.filter(
+        (entry) => entry.assignmentId !== assignment.id,
+      );
+
+      await saveClubJson(
+        "kit_assignments",
+        nextAssignments.map(serializeClothingAssignment),
+      );
+      await saveClubJson(
+        "clothing_inventory",
+        nextInventory.map(serializeInventoryStock),
+      );
+      await saveClubJson(
+        "jersey_assignments",
+        nextJerseyAssignments.map(serializeJerseyNumberAssignment),
+      );
+      setState((current) => ({
+        ...current,
+        assignments: nextAssignments,
+        inventory: nextInventory,
+        jerseyAssignments: nextJerseyAssignments,
+      }));
+      setSelectedSupplierOrderRows((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(
+            ([rowId]) => !rowId.startsWith(`${assignment.id}:`),
+          ),
+        ),
+      );
+      toast({ title: "Eliminata", description: "Assegnazione rimossa." });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error?.message || "Impossibile eliminare assegnazione",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const jerseyGroupSummaries = useMemo(
+    () =>
+      state.numberingGroups.map((group) =>
+        getJerseyGroupSummary({
+          group,
+          state,
+          athletes,
+          categories: categoryOptions,
+        }),
+      ),
+    [
+      athletes,
+      categoryOptions,
+      state.assignments,
+      state.jerseyAssignments,
+      state.numberingGroups,
+    ],
+  );
+
+  const saveManualJerseyNumber = async ({
+    athleteId,
+    groupId,
+    value,
+  }: {
+    athleteId: string;
+    groupId: string;
+    value: string | number | null;
+  }) => {
+    try {
+      const rawValue = String(value ?? "").trim();
+      const nextNumber = rawValue === "" ? null : Number(rawValue);
+      const group = state.numberingGroups.find((entry) => entry.id === groupId);
+
+      if (!group) {
+        throw new Error("Gruppo numerazione non trovato");
+      }
+
+      if (
+        nextNumber !== null &&
+        (!Number.isInteger(nextNumber) ||
+          nextNumber < group.minNumber ||
+          nextNumber > group.maxNumber)
+      ) {
+        throw new Error(`Numero fuori intervallo ${group.minNumber}-${group.maxNumber}`);
+      }
+
+      const directAssignments = state.jerseyAssignments.filter(
+        (entry) =>
+          !(
+            entry.athleteId === athleteId &&
+            entry.groupId === groupId &&
+            !entry.assignmentId
+          ),
+      );
+      const nextJerseyAssignments =
+        nextNumber === null
+          ? directAssignments
+          : [
+              ...directAssignments,
+              {
+                id: `jersey:${athleteId}:${groupId}`,
+                athleteId,
+                groupId,
+                number: nextNumber,
+                updatedAt: new Date().toISOString(),
+              },
+            ];
+
+      await saveClubJson(
+        "jersey_assignments",
+        nextJerseyAssignments.map(serializeJerseyNumberAssignment),
+      );
+      setState((current) => ({
+        ...current,
+        jerseyAssignments: nextJerseyAssignments,
+      }));
+      toast({
+        title: nextNumber === null ? "Numero rimosso" : "Numero salvato",
+        description: "Numerazione maglia aggiornata.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error?.message || "Impossibile aggiornare numero",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const assignRandomJerseyNumber = async (groupId: string, athleteId: string) => {
+    const summary = jerseyGroupSummaries.find(
+      (entry) => entry.group.id === groupId,
+    );
+    const availableNumbers = summary?.availableNumbers || [];
+
+    if (!availableNumbers.length) {
+      toast({
+        title: "Nessun numero disponibile",
+        description: "Tutti i numeri del gruppo sono gia utilizzati o riservati.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const number =
+      availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
+    await saveManualJerseyNumber({ athleteId, groupId, value: number });
   };
 
   const inventorySummary = useMemo(() => {
@@ -742,6 +1346,89 @@ export default function ClothingPage() {
     );
     return { singleAvailable, bulkAvailable };
   }, [state.inventory]);
+
+  const categoryNames = React.useCallback(
+    (ids: string[]) =>
+      ids
+        .map(
+          (id) =>
+            categoryOptions.find((category) => category.id === id)?.name || id,
+        )
+        .filter(Boolean)
+        .join(", "),
+    [categoryOptions],
+  );
+
+  const filteredInventory = useMemo(() => {
+    const query = inventorySearch.trim().toLowerCase();
+    return state.inventory.filter((stock) => {
+      if (inventoryFilter !== "all" && stock.stockType !== inventoryFilter) {
+        return false;
+      }
+
+      if (!query) return true;
+      const item = itemById.get(stock.itemId);
+      return [
+        item?.name,
+        item?.type,
+        item?.code,
+        stock.size,
+        stock.color,
+        stock.variant,
+        stock.number,
+        stock.notes,
+        stock.athleteId
+          ? athleteLabel(athletesById.get(String(stock.athleteId)))
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [athletesById, inventoryFilter, inventorySearch, itemById, state.inventory]);
+
+  const filteredCatalogItems = useMemo(() => {
+    const query = catalogSearch.trim().toLowerCase();
+    if (!query) return state.items;
+
+    return state.items.filter((item) =>
+      [
+        item.name,
+        item.type,
+        item.code,
+        item.sizes.join(" "),
+        item.colors.join(" "),
+        item.variants.join(" "),
+        categoryNames(item.compatibleCategoryIds),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [catalogSearch, categoryNames, state.items]);
+
+  const filteredKits = useMemo(() => {
+    const query = catalogSearch.trim().toLowerCase();
+    if (!query) return state.kits;
+
+    return state.kits.filter((kit) =>
+      [
+        kit.name,
+        kit.description,
+        kit.season,
+        categoryNames(kit.compatibleCategoryIds),
+        kit.components
+          .map((component) => component.name || itemById.get(component.itemId)?.name)
+          .join(" "),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [catalogSearch, categoryNames, itemById, state.kits]);
 
   const renderCategoryCheckboxes = (
     values: string[],
@@ -996,7 +1683,11 @@ export default function ClothingPage() {
               >
                 <DialogTrigger asChild>
                   <Button
-                    onClick={() => setAssignmentForm(emptyAssignmentForm)}
+                    onClick={() => {
+                      setAssignmentForm(emptyAssignmentForm);
+                      setAssignmentSearch("");
+                      setAssignmentAthleteComboboxOpen(false);
+                    }}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
                     <Plus className="mr-2 h-4 w-4" />
@@ -1011,31 +1702,78 @@ export default function ClothingPage() {
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
                         <Label>Atleta</Label>
-                        <Select
-                          value={assignmentForm.athleteId}
-                          onValueChange={(value) =>
-                            setAssignmentForm((current) => ({
-                              ...current,
-                              athleteId: value,
-                              kitId: "",
-                              itemId: "",
-                              sharedNumber: "",
-                              components: {},
-                            }))
-                          }
+                        <Popover
+                          open={assignmentAthleteComboboxOpen}
+                          onOpenChange={setAssignmentAthleteComboboxOpen}
                         >
-                          <SelectTrigger className="mt-2">
-                            <SelectValue placeholder="Seleziona atleta" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {athletes.map((athlete) => (
-                              <SelectItem key={athlete.id} value={athlete.id}>
-                                {athleteLabel(athlete)} -{" "}
-                                {getAthleteCategoryLabel(athlete)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={assignmentAthleteComboboxOpen}
+                              className="mt-2 w-full justify-between"
+                            >
+                              <span className="truncate text-left">
+                                {selectedAssignmentAthlete
+                                  ? `${athleteLabel(selectedAssignmentAthlete)} - ${getAthleteCategoryLabel(selectedAssignmentAthlete)}`
+                                  : "Seleziona atleta"}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="start"
+                            className="w-[var(--radix-popover-trigger-width)] p-0"
+                          >
+                            <Command shouldFilter={false}>
+                              <CommandInput
+                                placeholder="Cerca atleta o categoria..."
+                                value={assignmentSearch}
+                                onValueChange={setAssignmentSearch}
+                              />
+                              <CommandList>
+                                <CommandEmpty>Nessun atleta trovato.</CommandEmpty>
+                                <CommandGroup>
+                                  {filteredAssignmentAthletes.map((athlete) => (
+                                    <CommandItem
+                                      key={athlete.id}
+                                      value={`${athleteLabel(athlete)} ${getAthleteCategoryLabel(athlete)}`}
+                                      onSelect={() => {
+                                        setAssignmentForm((current) => ({
+                                          ...current,
+                                          athleteId: athlete.id,
+                                          kitId: "",
+                                          itemId: "",
+                                          sharedNumber: "",
+                                          components: {},
+                                        }));
+                                        setAssignmentAthleteComboboxOpen(false);
+                                        setAssignmentSearch("");
+                                      }}
+                                    >
+                                      <Check
+                                        className={
+                                          assignmentForm.athleteId === athlete.id
+                                            ? "mr-2 h-4 w-4 opacity-100"
+                                            : "mr-2 h-4 w-4 opacity-0"
+                                        }
+                                      />
+                                      <div className="min-w-0">
+                                        <div className="truncate font-medium">
+                                          {athleteLabel(athlete)}
+                                        </div>
+                                        <div className="truncate text-xs text-slate-500">
+                                          {getAthleteCategoryLabel(athlete)}
+                                        </div>
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                         {selectedAssignmentAthlete ? (
                           <p className="mt-2 text-xs text-slate-500">
                             Taglie suggerite:{" "}
@@ -1324,6 +2062,99 @@ export default function ClothingPage() {
               </Dialog>
             </div>
 
+            <Dialog open={assignmentEditOpen} onOpenChange={setAssignmentEditOpen}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Modifica assegnazione</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Atleta</Label>
+                    <Select
+                      value={assignmentEditForm.athleteId}
+                      onValueChange={(value) =>
+                        setAssignmentEditForm((current) => ({
+                          ...current,
+                          athleteId: value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Seleziona atleta" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {athletes.map((athlete) => (
+                          <SelectItem key={athlete.id} value={athlete.id}>
+                            {athleteLabel(athlete)} -{" "}
+                            {getAthleteCategoryLabel(athlete)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Stato</Label>
+                    <Select
+                      value={assignmentEditForm.status}
+                      onValueChange={(value) =>
+                        setAssignmentEditForm((current) => ({
+                          ...current,
+                          status: value as ClothingAssignmentStatus,
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {assignmentActionStatuses.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {assignmentStatusLabels[status]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Data assegnazione</Label>
+                    <Input
+                      className="mt-2"
+                      type="date"
+                      value={assignmentEditForm.createdAt}
+                      onChange={(event) =>
+                        setAssignmentEditForm((current) => ({
+                          ...current,
+                          createdAt: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label>Note</Label>
+                    <Textarea
+                      className="mt-2"
+                      value={assignmentEditForm.notes}
+                      onChange={(event) =>
+                        setAssignmentEditForm((current) => ({
+                          ...current,
+                          notes: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setAssignmentEditOpen(false)}
+                  >
+                    Annulla
+                  </Button>
+                  <Button onClick={saveAssignmentEdit}>Salva modifiche</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             <div className="grid gap-4 md:grid-cols-4">
               <MetricCard
                 title="Articoli"
@@ -1347,13 +2178,14 @@ export default function ClothingPage() {
               />
             </div>
 
-            <Tabs defaultValue="assegnazioni" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
-                <TabsTrigger value="assegnazioni">Assegnazioni</TabsTrigger>
+            <Tabs defaultValue="kit" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6">
+                <TabsTrigger value="kit">Kit</TabsTrigger>
+                <TabsTrigger value="articoli">Articoli</TabsTrigger>
                 <TabsTrigger value="magazzino">Magazzino</TabsTrigger>
-                <TabsTrigger value="catalogo">Kit e articoli</TabsTrigger>
-                <TabsTrigger value="numerazioni">Numerazioni</TabsTrigger>
+                <TabsTrigger value="assegnazioni">Assegnazioni</TabsTrigger>
                 <TabsTrigger value="ordini">Ordini fornitore</TabsTrigger>
+                <TabsTrigger value="numerazioni">Numerazioni</TabsTrigger>
               </TabsList>
 
               <TabsContent value="assegnazioni" className="space-y-4">
@@ -1376,7 +2208,7 @@ export default function ClothingPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="overflow-x-auto rounded-lg border">
-                      <table className="w-full min-w-[920px] text-sm">
+                      <table className="w-full min-w-[1120px] text-sm">
                         <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                           <tr>
                             <th className="px-3 py-2">Data</th>
@@ -1385,13 +2217,34 @@ export default function ClothingPage() {
                             <th className="px-3 py-2">Kit/Articoli</th>
                             <th className="px-3 py-2">Origine</th>
                             <th className="px-3 py-2">Stato</th>
-                            <th className="px-3 py-2">Numeri</th>
+                            <th className="px-3 py-2">Numero</th>
+                            <th className="px-3 py-2 text-right">Azioni</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
                           {filteredAssignments.length ? (
                             filteredAssignments.map((assignment) => {
                               const athlete = athletesById.get(assignment.athleteId);
+                              const numberLabels = assignment.items.length
+                                ? assignment.items.map((item) => {
+                                    const stock = item.inventoryStockId
+                                      ? stockById.get(item.inventoryStockId)
+                                      : undefined;
+                                    return {
+                                      id: item.id,
+                                      label: getAssignmentNumberLabel(
+                                        assignment,
+                                        stock,
+                                        item,
+                                      ),
+                                    };
+                                  })
+                                : [
+                                    {
+                                      id: assignment.id,
+                                      label: getAssignmentNumberLabel(assignment),
+                                    },
+                                  ];
                               return (
                                 <tr key={assignment.id}>
                                   <td className="px-3 py-3">
@@ -1431,10 +2284,75 @@ export default function ClothingPage() {
                                     </Badge>
                                   </td>
                                   <td className="px-3 py-3">
-                                    {assignment.items
-                                      .filter((item) => item.number !== null)
-                                      .map((item) => `n.${item.number}`)
-                                      .join(", ") || "-"}
+                                    <div className="flex flex-wrap gap-1">
+                                      {numberLabels.map((number) => (
+                                        <Badge
+                                          key={number.id}
+                                          variant={
+                                            number.label === "Senza numero"
+                                              ? "outline"
+                                              : "secondary"
+                                          }
+                                        >
+                                          {number.label === "Senza numero"
+                                            ? number.label
+                                            : `n.${number.label}`}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <div className="flex justify-end gap-1">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8"
+                                        onClick={() => openAssignmentEdit(assignment)}
+                                        aria-label="Modifica assegnazione"
+                                        title="Modifica assegnazione"
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-8 w-8"
+                                            aria-label="Cambia stato"
+                                            title="Cambia stato"
+                                          >
+                                            <RefreshCw className="h-4 w-4" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          {assignmentActionStatuses.map((status) => (
+                                            <DropdownMenuItem
+                                              key={status}
+                                              disabled={status === assignment.status}
+                                              onClick={() =>
+                                                updateAssignmentStatus(
+                                                  assignment,
+                                                  status,
+                                                )
+                                              }
+                                            >
+                                              {assignmentStatusLabels[status]}
+                                            </DropdownMenuItem>
+                                          ))}
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                        onClick={() => deleteAssignment(assignment)}
+                                        aria-label="Elimina assegnazione"
+                                        title="Elimina assegnazione"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
                                   </td>
                                 </tr>
                               );
@@ -1442,7 +2360,7 @@ export default function ClothingPage() {
                           ) : (
                             <tr>
                               <td
-                                colSpan={7}
+                                colSpan={8}
                                 className="px-3 py-8 text-center text-slate-500"
                               >
                                 Nessuna assegnazione reale salvata.
@@ -1690,7 +2608,7 @@ export default function ClothingPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <div className="hidden">
                       {state.inventory
                         .filter(
                           (stock) =>
@@ -1802,13 +2720,170 @@ export default function ClothingPage() {
                         </div>
                       ) : null}
                     </div>
+                    <div className="mb-3 max-w-md">
+                      <Input
+                        value={inventorySearch}
+                        onChange={(event) =>
+                          setInventorySearch(event.target.value)
+                        }
+                        placeholder="Cerca articolo, taglia, colore, atleta..."
+                      />
+                    </div>
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Articolo</TableHead>
+                            <TableHead>Tipo stock</TableHead>
+                            <TableHead>Taglia</TableHead>
+                            <TableHead>Colore</TableHead>
+                            <TableHead>Variante</TableHead>
+                            <TableHead>Numero</TableHead>
+                            <TableHead>Disponibile</TableHead>
+                            <TableHead>Riservato</TableHead>
+                            <TableHead>Assegnato</TableHead>
+                            <TableHead>Stato</TableHead>
+                            <TableHead>Atleta assegnato</TableHead>
+                            <TableHead className="text-right">Azioni</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredInventory.map((stock) => {
+                            const item = itemById.get(stock.itemId);
+                            const assignedAthlete = stock.athleteId
+                              ? athletesById.get(String(stock.athleteId))
+                              : null;
+
+                            return (
+                              <TableRow key={stock.id}>
+                                <TableCell className="min-w-[180px] font-medium">
+                                  {item?.name || stock.itemId}
+                                  <div className="text-xs text-muted-foreground">
+                                    {item?.type || "-"}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  {stock.stockType === "bulk_quantity"
+                                    ? "Quantita"
+                                    : "Unita singola"}
+                                </TableCell>
+                                <TableCell>{stock.size || "-"}</TableCell>
+                                <TableCell>{stock.color || "-"}</TableCell>
+                                <TableCell>{stock.variant || "-"}</TableCell>
+                                <TableCell>
+                                  {stock.number === null || stock.number === undefined
+                                    ? "-"
+                                    : stock.number}
+                                </TableCell>
+                                <TableCell>{stock.quantityAvailable || 0}</TableCell>
+                                <TableCell>{stock.quantityReserved || 0}</TableCell>
+                                <TableCell>{stock.quantityAssigned || 0}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={statusBadgeClass(
+                                      stock.status || "available",
+                                    )}
+                                  >
+                                    {stock.stockType === "bulk_quantity"
+                                      ? "Quantita"
+                                      : inventoryStatusLabels[
+                                          stock.status || "available"
+                                        ]}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {assignedAthlete
+                                    ? athleteLabel(assignedAthlete)
+                                    : "-"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={
+                                        stock.stockType === "single_unit"
+                                          ? stock.status !== "available"
+                                          : (stock.quantityAvailable || 0) <= 0
+                                      }
+                                      onClick={() => {
+                                        setAssignmentForm({
+                                          ...emptyAssignmentForm,
+                                          targetType: "item",
+                                          itemId: stock.itemId,
+                                          source: "inventory",
+                                          status: "reserved",
+                                          numberingGroupId:
+                                            stock.numberingGroupId || "",
+                                          components: {
+                                            [stock.itemId]: {
+                                              itemId: stock.itemId,
+                                              inventoryStockId: stock.id,
+                                              size: stock.size || "",
+                                              color: stock.color || "",
+                                              variant: stock.variant || "",
+                                              number: stock.number ?? null,
+                                              numberingGroupId:
+                                                stock.numberingGroupId || "",
+                                            },
+                                          },
+                                        });
+                                        setAssignmentDialogOpen(true);
+                                      }}
+                                    >
+                                      Assegna
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setStockForm({
+                                          id: stock.id,
+                                          stockType: stock.stockType,
+                                          itemId: stock.itemId,
+                                          size: stock.size || "",
+                                          color: stock.color || "",
+                                          variant: stock.variant || "",
+                                          number:
+                                            stock.number === null ||
+                                            stock.number === undefined
+                                              ? ""
+                                              : String(stock.number),
+                                          numberingGroupId:
+                                            stock.numberingGroupId || "",
+                                          status: stock.status || "available",
+                                          quantityAvailable: String(
+                                            stock.quantityAvailable || 0,
+                                          ),
+                                          notes: stock.notes || "",
+                                        });
+                                        setStockDialogOpen(true);
+                                      }}
+                                    >
+                                      Modifica
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                          {filteredInventory.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={12} className="py-8 text-center">
+                                Nessun magazzino registrato.
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
 
-              <TabsContent value="catalogo" className="space-y-4">
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <Card>
+              <TabsContent value="articoli" className="space-y-4">
+                <Card>
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <div>
@@ -2023,7 +3098,7 @@ export default function ClothingPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {state.items.map((item) => (
-                        <div key={item.id} className="rounded-lg border p-4">
+                        <div key={item.id} className="hidden">
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-medium">{item.name}</p>
@@ -2076,13 +3151,118 @@ export default function ClothingPage() {
                         </div>
                       ))}
                       {!state.items.length ? (
-                        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
+                        <p className="hidden">
                           Nessun articolo configurato.
                         </p>
                       ) : null}
+                      <div className="max-w-md">
+                        <Input
+                          value={catalogSearch}
+                          onChange={(event) =>
+                            setCatalogSearch(event.target.value)
+                          }
+                          placeholder="Cerca articolo, codice, taglia..."
+                        />
+                      </div>
+                      <div className="overflow-x-auto rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Nome</TableHead>
+                              <TableHead>Tipo</TableHead>
+                              <TableHead>Codice</TableHead>
+                              <TableHead>Taglie</TableHead>
+                              <TableHead>Colori</TableHead>
+                              <TableHead>Varianti</TableHead>
+                              <TableHead>Compatibilita categorie</TableHead>
+                              <TableHead>Requisiti</TableHead>
+                              <TableHead>Stato</TableHead>
+                              <TableHead className="text-right">Azioni</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredCatalogItems.map((item) => (
+                              <TableRow key={item.id}>
+                                <TableCell className="min-w-[180px] font-medium">
+                                  {item.name}
+                                </TableCell>
+                                <TableCell>{item.type || "-"}</TableCell>
+                                <TableCell>{item.code || "-"}</TableCell>
+                                <TableCell className="max-w-[180px]">
+                                  {item.sizes.join(", ") || "-"}
+                                </TableCell>
+                                <TableCell className="max-w-[180px]">
+                                  {item.colors.join(", ") || "-"}
+                                </TableCell>
+                                <TableCell className="max-w-[180px]">
+                                  {item.variants.join(", ") || "-"}
+                                </TableCell>
+                                <TableCell className="min-w-[220px]">
+                                  {categoryNames(item.compatibleCategoryIds) || "-"}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {item.requiresSize ? (
+                                      <Badge variant="secondary">taglia</Badge>
+                                    ) : null}
+                                    {item.requiresColor ? (
+                                      <Badge variant="secondary">colore</Badge>
+                                    ) : null}
+                                    {item.requiresNumber ? (
+                                      <Badge variant="secondary">numero</Badge>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">
+                                    {item.active ? "Attivo" : "Non attivo"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setItemForm({
+                                        id: item.id,
+                                        name: item.name,
+                                        type: item.type,
+                                        description: item.description || "",
+                                        code: item.code || "",
+                                        sizes: item.sizes.join(", "),
+                                        colors: item.colors.join(", "),
+                                        variants: item.variants.join(", "),
+                                        compatibleCategoryIds:
+                                          item.compatibleCategoryIds,
+                                        requiresSize: item.requiresSize,
+                                        requiresColor: item.requiresColor,
+                                        requiresNumber: item.requiresNumber,
+                                        numberMode: item.numberMode,
+                                        stockMode: item.stockMode,
+                                      });
+                                      setItemDialogOpen(true);
+                                    }}
+                                  >
+                                    Modifica
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            {filteredCatalogItems.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={10} className="py-8 text-center">
+                                  Nessun articolo configurato.
+                                </TableCell>
+                              </TableRow>
+                            ) : null}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </CardContent>
                   </Card>
+              </TabsContent>
 
+              <TabsContent value="kit" className="space-y-4">
                   <Card>
                     <CardHeader>
                       <div className="flex items-center justify-between">
@@ -2258,7 +3438,7 @@ export default function ClothingPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {state.kits.map((kit) => (
-                        <div key={kit.id} className="rounded-lg border p-4">
+                        <div key={kit.id} className="hidden">
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-medium">{kit.name}</p>
@@ -2309,13 +3489,95 @@ export default function ClothingPage() {
                         </div>
                       ))}
                       {!state.kits.length ? (
-                        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
+                        <p className="hidden">
                           Nessun kit configurato.
                         </p>
                       ) : null}
+                      <div className="overflow-x-auto rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Nome kit</TableHead>
+                              <TableHead>Stagione</TableHead>
+                              <TableHead>Componenti</TableHead>
+                              <TableHead>Categorie compatibili</TableHead>
+                              <TableHead>Numerazione</TableHead>
+                              <TableHead>Stato</TableHead>
+                              <TableHead className="text-right">Azioni</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredKits.map((kit) => (
+                              <TableRow key={kit.id}>
+                                <TableCell className="min-w-[180px] font-medium">
+                                  {kit.name}
+                                  <div className="text-xs text-muted-foreground">
+                                    {kit.description || "Nessuna descrizione"}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{kit.season || "-"}</TableCell>
+                                <TableCell className="min-w-[220px]">
+                                  {kit.components
+                                    .map(
+                                      (component) =>
+                                        component.name ||
+                                        itemById.get(component.itemId)?.name ||
+                                        component.itemId,
+                                    )
+                                    .join(", ") || "-"}
+                                </TableCell>
+                                <TableCell className="min-w-[220px]">
+                                  {categoryNames(kit.compatibleCategoryIds) || "-"}
+                                </TableCell>
+                                <TableCell>
+                                  {kit.numberMode === "shared_by_kit"
+                                    ? "Numero condiviso"
+                                    : kit.numberMode === "per_item"
+                                      ? "Numero per articolo"
+                                      : "Senza numero"}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">
+                                    {kit.active ? "Attivo" : "Non attivo"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setKitForm({
+                                        id: kit.id,
+                                        name: kit.name,
+                                        description: kit.description || "",
+                                        season: kit.season || "",
+                                        compatibleCategoryIds:
+                                          kit.compatibleCategoryIds,
+                                        numberingGroupId:
+                                          kit.numberingGroupId || "",
+                                        numberMode: kit.numberMode,
+                                        components: kit.components,
+                                      });
+                                      setKitDialogOpen(true);
+                                    }}
+                                  >
+                                    Modifica
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            {filteredKits.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={7} className="py-8 text-center">
+                                  Nessun kit configurato.
+                                </TableCell>
+                              </TableRow>
+                            ) : null}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </CardContent>
                   </Card>
-                </div>
               </TabsContent>
 
               <TabsContent value="numerazioni" className="space-y-4">
@@ -2416,15 +3678,12 @@ export default function ClothingPage() {
                       </Dialog>
                     </div>
                   </CardHeader>
-                  <CardContent className="grid gap-3 md:grid-cols-2">
-                    {state.numberingGroups.map((group) => {
-                      const used = state.jerseyAssignments.filter(
-                        (entry) =>
-                          entry.groupId === group.id && entry.number !== null,
-                      );
+                  <CardContent className="grid gap-4">
+                    {jerseyGroupSummaries.map((summary) => {
+                      const { group } = summary;
                       return (
                         <div key={group.id} className="rounded-lg border p-4">
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                             <div>
                               <p className="font-medium">{group.name}</p>
                               <p className="text-sm text-slate-500">
@@ -2432,7 +3691,19 @@ export default function ClothingPage() {
                                 {group.season ? ` - ${group.season}` : ""}
                               </p>
                             </div>
-                            <Badge variant="outline">{used.length} numeri</Badge>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="outline">
+                                {summary.usedNumbers.length} numeri
+                              </Badge>
+                              <Badge variant="outline">
+                                {summary.missingRows.length} senza numero
+                              </Badge>
+                              {summary.duplicateNumbers.length ? (
+                                <Badge className="bg-amber-100 text-amber-800">
+                                  {summary.duplicateNumbers.length} duplicati
+                                </Badge>
+                              ) : null}
+                            </div>
                           </div>
                           <div className="mt-3 flex flex-wrap gap-1">
                             {group.categoryIds.map((categoryId) => (
@@ -2441,6 +3712,155 @@ export default function ClothingPage() {
                                   ?.name || categoryId}
                               </Badge>
                             ))}
+                            {!group.categoryIds.length ? (
+                              <Badge variant="secondary">Tutte le categorie</Badge>
+                            ) : null}
+                          </div>
+                          {summary.duplicateNumbers.length ? (
+                            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                              Numeri duplicati:{" "}
+                              {summary.duplicateNumbers
+                                .map((entry) => entry.number)
+                                .join(", ")}
+                            </div>
+                          ) : null}
+                          <div className="mt-4 overflow-x-auto rounded-md border">
+                            <table className="w-full min-w-[780px] text-sm">
+                              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                                <tr>
+                                  <th className="px-3 py-2">Atleta</th>
+                                  <th className="px-3 py-2">Categoria</th>
+                                  <th className="px-3 py-2">Numeri</th>
+                                  <th className="px-3 py-2">Manuale</th>
+                                  <th className="px-3 py-2 text-right">Azioni</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {summary.rows.length ? (
+                                  summary.rows.map((row) => {
+                                    const manualRecord = row.records.find(
+                                      (record) =>
+                                        record.source === "jersey_assignment" &&
+                                        !record.assignmentId,
+                                    );
+
+                                    return (
+                                      <tr key={row.athleteId}>
+                                        <td className="px-3 py-3 font-medium">
+                                          {row.athleteName}
+                                        </td>
+                                        <td className="px-3 py-3">
+                                          {row.categoryLabel}
+                                        </td>
+                                        <td className="px-3 py-3">
+                                          <div className="flex flex-wrap gap-1">
+                                            {row.numbers.length ? (
+                                              row.numbers.map((number, index) => (
+                                                <Badge
+                                                  key={`${row.athleteId}-${number}-${index}`}
+                                                  variant="outline"
+                                                  className={
+                                                    row.duplicateNumbers.includes(
+                                                      number,
+                                                    )
+                                                      ? "border-amber-300 bg-amber-50 text-amber-800"
+                                                      : ""
+                                                  }
+                                                >
+                                                  {number}
+                                                </Badge>
+                                              ))
+                                            ) : (
+                                              <Badge variant="secondary">
+                                                Senza numero
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="px-3 py-3">
+                                          <Input
+                                            key={`${row.athleteId}-${manualRecord?.number ?? "empty"}`}
+                                            type="number"
+                                            min={group.minNumber}
+                                            max={group.maxNumber}
+                                            defaultValue={
+                                              manualRecord?.number ?? ""
+                                            }
+                                            placeholder="Numero"
+                                            className="h-9 w-28"
+                                            onBlur={(event) => {
+                                              const value =
+                                                event.target.value.trim();
+                                              if (
+                                                (!value && !manualRecord) ||
+                                                value ===
+                                                  String(
+                                                    manualRecord?.number ?? "",
+                                                  )
+                                              ) {
+                                                return;
+                                              }
+
+                                              void saveManualJerseyNumber({
+                                                athleteId: row.athleteId,
+                                                groupId: group.id,
+                                                value,
+                                              });
+                                            }}
+                                            onKeyDown={(event) => {
+                                              if (event.key === "Enter") {
+                                                event.currentTarget.blur();
+                                              }
+                                            }}
+                                          />
+                                        </td>
+                                        <td className="px-3 py-3">
+                                          <div className="flex justify-end gap-2">
+                                            {!row.hasNumber ? (
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() =>
+                                                  void assignRandomJerseyNumber(
+                                                    group.id,
+                                                    row.athleteId,
+                                                  )
+                                                }
+                                              >
+                                                Random
+                                              </Button>
+                                            ) : null}
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              disabled={!manualRecord}
+                                              onClick={() =>
+                                                void saveManualJerseyNumber({
+                                                  athleteId: row.athleteId,
+                                                  groupId: group.id,
+                                                  value: null,
+                                                })
+                                              }
+                                            >
+                                              Rimuovi
+                                            </Button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                ) : (
+                                  <tr>
+                                    <td
+                                      colSpan={5}
+                                      className="px-3 py-6 text-center text-slate-500"
+                                    >
+                                      Nessun atleta collegato al gruppo.
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
                           </div>
                           <div className="mt-4 flex justify-end">
                             <Button
@@ -2469,97 +3889,171 @@ export default function ClothingPage() {
               <TabsContent value="ordini" className="space-y-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Ordini fornitore</CardTitle>
-                    <CardDescription>
-                      Richieste da produrre o personalizzare, derivate dalle
-                      assegnazioni da ordinare.
-                    </CardDescription>
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                      <div>
+                        <CardTitle>Ordini fornitore</CardTitle>
+                        <CardDescription>
+                          Richieste da produrre o personalizzare, derivate dalle
+                          assegnazioni da ordinare.
+                        </CardDescription>
+                      </div>
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                        <Input
+                          className="md:w-64"
+                          placeholder="Cerca articolo, atleta, note..."
+                          value={supplierSearch}
+                          onChange={(event) => setSupplierSearch(event.target.value)}
+                        />
+                        <Select
+                          value={supplierFilter}
+                          onValueChange={setSupplierFilter}
+                        >
+                          <SelectTrigger className="bg-white md:w-48">
+                            <SelectValue placeholder="Fornitore" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tutti i fornitori</SelectItem>
+                            {supplierOptions.map((supplier) => (
+                              <SelectItem key={supplier} value={supplier}>
+                                {supplier}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          disabled={!filteredSupplierOrderRows.length}
+                          onClick={() =>
+                            exportSupplierRows(
+                              filteredSupplierOrderRows,
+                              "Ordine completo",
+                            )
+                          }
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          Esporta ordine PDF
+                        </Button>
+                        <Button
+                          disabled={!selectedSupplierRows.length}
+                          onClick={() =>
+                            exportSupplierRows(
+                              selectedSupplierRows,
+                              "Articoli selezionati",
+                            )
+                          }
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          Esporta selezionati PDF
+                        </Button>
+                      </div>
+                    </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                      <Badge variant="secondary">
+                        {filteredSupplierOrderRows.length} righe
+                      </Badge>
+                      <Badge variant="outline">
+                        {selectedSupplierRows.length} selezionate
+                      </Badge>
+                    </div>
                     <div className="overflow-x-auto rounded-lg border">
-                      <table className="w-full min-w-[980px] text-sm">
+                      <table className="w-full min-w-[1240px] text-sm">
                         <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                           <tr>
-                            <th className="px-3 py-2">Atleta</th>
-                            <th className="px-3 py-2">Categoria</th>
-                            <th className="px-3 py-2">Articoli</th>
-                            <th className="px-3 py-2">Taglie</th>
-                            <th className="px-3 py-2">Numeri</th>
+                            <th className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={allFilteredSupplierRowsSelected}
+                                onChange={toggleAllSupplierRows}
+                                aria-label="Seleziona tutti gli articoli filtrati"
+                              />
+                            </th>
+                            <th className="px-3 py-2">Articolo</th>
+                            <th className="px-3 py-2">Tipo</th>
+                            <th className="px-3 py-2">Taglia</th>
+                            <th className="px-3 py-2">Colore</th>
+                            <th className="px-3 py-2">Variante</th>
+                            <th className="px-3 py-2">Numero</th>
+                            <th className="px-3 py-2">Quantità</th>
+                            <th className="px-3 py-2">Fornitore</th>
+                            <th className="px-3 py-2">Note</th>
                             <th className="px-3 py-2">Stato</th>
-                            <th className="px-3 py-2">Aggiorna</th>
+                            <th className="px-3 py-2">Atleta</th>
+                            <th className="px-3 py-2">Azioni esportazione</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
-                          {supplierAssignments.length ? (
-                            supplierAssignments.map((assignment) => {
-                              const athlete = athletesById.get(assignment.athleteId);
-                              return (
-                                <tr key={assignment.id}>
-                                  <td className="px-3 py-3 font-medium">
-                                    {athleteLabel(athlete)}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    {getAthleteCategoryLabel(athlete)}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    {assignment.items
-                                      .map((item) => item.name)
-                                      .join(", ")}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    {assignment.items
-                                      .map((item) => item.size)
-                                      .filter(Boolean)
-                                      .join(", ") || "-"}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    {assignment.items
-                                      .map((item) =>
-                                        item.number !== null &&
-                                        item.number !== undefined
-                                          ? `n.${item.number}`
-                                          : "",
-                                      )
-                                      .filter(Boolean)
-                                      .join(", ") || "-"}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <Badge
-                                      variant="outline"
-                                      className={statusBadgeClass(assignment.status)}
-                                    >
-                                      {assignmentStatusLabels[assignment.status]}
-                                    </Badge>
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <Select
-                                      value={assignment.status}
-                                      onValueChange={(value) =>
-                                        updateAssignmentStatus(
-                                          assignment,
-                                          value as ClothingAssignmentStatus,
-                                        )
-                                      }
-                                    >
-                                      <SelectTrigger className="w-44">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {supplierOrderStatuses.map((status) => (
-                                          <SelectItem key={status} value={status}>
-                                            {assignmentStatusLabels[status]}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </td>
-                                </tr>
-                              );
-                            })
+                          {filteredSupplierOrderRows.length ? (
+                            filteredSupplierOrderRows.map((row) => (
+                              <tr key={row.id}>
+                                <td className="px-3 py-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(
+                                      selectedSupplierOrderRows[row.id],
+                                    )}
+                                    onChange={() => toggleSupplierRow(row.id)}
+                                    aria-label={`Seleziona ${row.itemName}`}
+                                  />
+                                </td>
+                                <td className="px-3 py-3 font-medium">
+                                  {row.itemName}
+                                  <div className="text-xs text-slate-500">
+                                    {row.athleteName} - {row.categoryName}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-3">{row.itemType || "-"}</td>
+                                <td className="px-3 py-3">{row.size || "-"}</td>
+                                <td className="px-3 py-3">{row.color || "-"}</td>
+                                <td className="px-3 py-3">{row.variant || "-"}</td>
+                                <td className="px-3 py-3">
+                                  <Badge
+                                    variant={
+                                      row.numberLabel === "Senza numero"
+                                        ? "outline"
+                                        : "secondary"
+                                    }
+                                  >
+                                    {row.numberLabel === "Senza numero"
+                                      ? row.numberLabel
+                                      : `n.${row.numberLabel}`}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-3">{row.quantity}</td>
+                                <td className="px-3 py-3">{row.supplier}</td>
+                                <td className="px-3 py-3">{row.notes || "-"}</td>
+                                <td className="px-3 py-3">
+                                  <Badge
+                                    variant="outline"
+                                    className={statusBadgeClass(
+                                      row.assignment.status,
+                                    )}
+                                  >
+                                    {row.status}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-3">
+                                  {row.athleteName}
+                                </td>
+                                <td className="px-3 py-3">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      exportSupplierRows([row], "Articolo singolo")
+                                    }
+                                  >
+                                    <Download className="mr-2 h-4 w-4" />
+                                    PDF
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))
                           ) : (
                             <tr>
                               <td
-                                colSpan={7}
+                                colSpan={13}
                                 className="px-3 py-8 text-center text-slate-500"
                               >
                                 Nessun ordine fornitore reale.

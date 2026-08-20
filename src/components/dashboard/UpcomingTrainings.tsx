@@ -286,7 +286,10 @@ const UpcomingTrainings = memo(
         : "bg-white dark:bg-gray-800 shadow-md border-0",
     );
     const headerClassName = cn(
-      isEmbedded ? "px-0 pb-3 pt-0" : "border-b border-gray-100 dark:border-gray-700",
+      "flex flex-row items-center justify-between",
+      isEmbedded
+        ? "px-0 pb-3 pt-0"
+        : "pb-2 border-b border-gray-100 dark:border-gray-700",
     );
     const contentClassName = isEmbedded ? "px-0 pb-0 pt-0" : "pt-4";
 
@@ -294,7 +297,7 @@ const UpcomingTrainings = memo(
       return (
         <Card className={shellClassName}>
           <CardHeader className={headerClassName}>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100">
               <div className="h-8 w-8 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 flex items-center justify-center">
                 <CalendarIcon className="h-4 w-4 text-white" />
               </div>
@@ -325,7 +328,7 @@ const UpcomingTrainings = memo(
     return (
       <Card className={shellClassName}>
         <CardHeader className={headerClassName}>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100">
             <div className="h-8 w-8 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 flex items-center justify-center">
               <CalendarIcon className="h-4 w-4 text-white" />
             </div>

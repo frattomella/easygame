@@ -27,6 +27,15 @@ type DocumentInput = {
   file: File;
 };
 
+export type StructureBookingInput = {
+  structureId: string;
+  fieldId: string;
+  start: string;
+  end: string;
+  athleteId?: string;
+  notes?: string;
+};
+
 type ParentDashboardContextValue = {
   data: ParentDashboardData | null;
   loading: boolean;
@@ -36,6 +45,7 @@ type ParentDashboardContextValue = {
   bookAppointment: (input: AppointmentInput) => Promise<void>;
   updateAppointment: (id: string, input: AppointmentInput) => Promise<void>;
   cancelAppointment: (id: string) => Promise<void>;
+  bookStructure: (input: StructureBookingInput) => Promise<void>;
   uploadDocument: (input: DocumentInput) => Promise<void>;
 };
 
@@ -52,6 +62,9 @@ const missingProviderContext: ParentDashboardContextValue = {
     throw new Error("Dashboard genitore non inizializzata");
   },
   cancelAppointment: async () => {
+    throw new Error("Dashboard genitore non inizializzata");
+  },
+  bookStructure: async () => {
     throw new Error("Dashboard genitore non inizializzata");
   },
   uploadDocument: async () => {
@@ -317,6 +330,30 @@ export function ParentDashboardProvider({
     [athleteRouteId, data?.athlete.id, refresh, showToast],
   );
 
+  const bookStructure = useCallback(
+    async (input: StructureBookingInput) => {
+      const response = await fetch(
+        `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/structures`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload?.error) {
+        throw new Error(
+          payload?.error?.message || "Impossibile richiedere la prenotazione",
+        );
+      }
+
+      showToast("success", "Richiesta prenotazione inviata");
+      await refresh();
+    },
+    [athleteRouteId, data?.athlete.id, refresh, showToast],
+  );
+
   const value = useMemo(
     () => ({
       data,
@@ -327,10 +364,12 @@ export function ParentDashboardProvider({
       bookAppointment,
       updateAppointment,
       cancelAppointment,
+      bookStructure,
       uploadDocument,
     }),
     [
       athleteRouteId,
+      bookStructure,
       bookAppointment,
       updateAppointment,
       cancelAppointment,

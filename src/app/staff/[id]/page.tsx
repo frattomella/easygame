@@ -14,6 +14,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ClubPersonDetailHeader } from "@/components/club/ClubPersonDetailHeader";
 import {
   Calendar,
@@ -30,7 +37,6 @@ import {
   Globe,
   IdCard,
   CalendarDays,
-  Building,
   X,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -57,6 +63,16 @@ const getStaffIdentity = (staffData: Record<string, any>) => {
   };
 };
 
+interface StaffDepartment {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+}
+
+const normalizeDepartmentName = (value?: string | null) =>
+  String(value || "").trim();
+
 export default function StaffMemberDetailsPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -69,6 +85,10 @@ export default function StaffMemberDetailsPage() {
   const [staffMember, setStaffMember] = useState<any>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
+  const [allStaffMembers, setAllStaffMembers] = useState<any[]>([]);
+  const [clubSettings, setClubSettings] = useState<Record<string, any>>({});
+  const [staffDepartments, setStaffDepartments] = useState<StaffDepartment[]>([]);
+  const [isSavingDepartment, setIsSavingDepartment] = useState(false);
 
   // Get clubId from localStorage if not in URL params
   useEffect(() => {
@@ -112,7 +132,7 @@ export default function StaffMemberDetailsPage() {
         
         const { data: clubData, error: clubError } = await supabase
           .from("clubs")
-          .select("staff_members")
+          .select("staff_members, settings")
           .eq("id", clubId)
           .maybeSingle();
 
@@ -139,12 +159,22 @@ export default function StaffMemberDetailsPage() {
         console.log("Club data loaded successfully:", clubData);
 
         // Find staff member in staff_members array
+        const members = Array.isArray(clubData?.staff_members)
+          ? clubData.staff_members
+          : [];
+        const settings =
+          clubData?.settings && typeof clubData.settings === "object"
+            ? clubData.settings
+            : {};
+        const savedDepartments = Array.isArray(settings.staffDepartments)
+          ? (settings.staffDepartments as StaffDepartment[])
+          : [];
+        setAllStaffMembers(members);
+        setClubSettings(settings);
+        setStaffDepartments(savedDepartments);
+
         let staffData = null;
-        if (clubData?.staff_members && Array.isArray(clubData.staff_members)) {
-          staffData = clubData.staff_members.find(
-            (staff: any) => staff.id === staffId
-          );
-        }
+        staffData = members.find((staff: any) => staff.id === staffId);
 
         if (!staffData) {
           console.error("Staff member not found in club data. StaffId:", staffId);
@@ -227,11 +257,62 @@ export default function StaffMemberDetailsPage() {
       await updateClubDataItem(clubId, "staff_members", staffId, payload);
       
       setStaffMember(payload);
+      setAllStaffMembers((current) =>
+        current.map((member) =>
+          member.id === staffId ? { ...member, ...payload } : member,
+        ),
+      );
       setEditingSection(null);
       showToast("success", "Modifiche salvate con successo");
     } catch (error) {
       console.error("Error updating staff member:", error);
       showToast("error", "Errore nel salvataggio delle modifiche");
+    }
+  };
+
+  const handleDepartmentChange = async (departmentName: string) => {
+    if (!clubId || !staffId || isSavingDepartment) return;
+
+    const nextDepartment =
+      departmentName === "__none__" ? "" : normalizeDepartmentName(departmentName);
+    const previousDepartment = staffMember?.department || "";
+    const previousStaffMembers = allStaffMembers;
+    const nextStaffMembers = previousStaffMembers.map((member) =>
+      member.id === staffId ? { ...member, department: nextDepartment } : member,
+    );
+
+    if (!nextStaffMembers.some((member) => member.id === staffId)) {
+      showToast("error", "Membro dello staff non trovato");
+      return;
+    }
+
+    setAllStaffMembers(nextStaffMembers);
+    setStaffMember((current: any) =>
+      current ? { ...current, department: nextDepartment } : current,
+    );
+    setIsSavingDepartment(true);
+
+    try {
+      const { error } = await supabase
+        .from("clubs")
+        .update({
+          staff_members: nextStaffMembers,
+          settings: clubSettings,
+        })
+        .eq("id", clubId);
+
+      if (error) throw error;
+
+      showToast("success", "Reparto aggiornato con successo");
+    } catch (error) {
+      console.error("Error assigning staff department:", error);
+      setAllStaffMembers(previousStaffMembers);
+      setStaffMember((current: any) =>
+        current ? { ...current, department: previousDepartment } : current,
+      );
+      showToast("error", "Errore nell'aggiornamento del reparto");
+    } finally {
+      setIsSavingDepartment(false);
     }
   };
 
@@ -302,6 +383,23 @@ export default function StaffMemberDetailsPage() {
       </div>
     );
   }
+
+  const currentDepartment = normalizeDepartmentName(staffMember.department);
+  const savedDepartmentOptions = staffDepartments.filter((department) =>
+    normalizeDepartmentName(department.name),
+  );
+  const departmentOptions =
+    currentDepartment &&
+    !savedDepartmentOptions.some(
+      (department) =>
+        normalizeDepartmentName(department.name).toLowerCase() ===
+        currentDepartment.toLowerCase(),
+    )
+      ? [
+          ...savedDepartmentOptions,
+          { id: `current-${currentDepartment}`, name: currentDepartment },
+        ]
+      : savedDepartmentOptions;
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -507,11 +605,32 @@ export default function StaffMemberDetailsPage() {
                         <h3 className="text-sm font-medium text-muted-foreground">Ruolo</h3>
                         <p className="mt-1">{staffMember.role}</p>
                       </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Dipartimento</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Building className="h-4 w-4 text-muted-foreground" />
-                          <p>{staffMember.department || "-"}</p>
+                      <div className="md:col-span-2">
+                        <h3 className="text-sm font-medium text-muted-foreground">Reparto</h3>
+                        <div className="mt-2 max-w-sm space-y-2">
+                          <Select
+                            value={staffMember.department || "__none__"}
+                            onValueChange={handleDepartmentChange}
+                            disabled={isSavingDepartment}
+                          >
+                            <SelectTrigger className="h-10">
+                              <SelectValue placeholder="Seleziona reparto" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">Non assegnato</SelectItem>
+                              {departmentOptions.map((department) => (
+                                <SelectItem
+                                  key={department.id || department.name}
+                                  value={department.name}
+                                >
+                                  {department.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            I reparti disponibili arrivano dalla gestione reparti dello staff.
+                          </p>
                         </div>
                       </div>
                       <div>
@@ -734,11 +853,31 @@ export default function StaffMemberDetailsPage() {
                       />
                     </div>
                     <div>
-                      <Label>Dipartimento</Label>
-                      <Input 
-                        value={editFormData.department || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, department: e.target.value})}
-                      />
+                      <Label>Reparto</Label>
+                      <Select
+                        value={editFormData.department || "__none__"}
+                        onValueChange={(value) =>
+                          setEditFormData({
+                            ...editFormData,
+                            department: value === "__none__" ? "" : value,
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-10">
+                          <SelectValue placeholder="Seleziona reparto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Non assegnato</SelectItem>
+                          {departmentOptions.map((department) => (
+                            <SelectItem
+                              key={department.id || department.name}
+                              value={department.name}
+                            >
+                              {department.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label>Stato</Label>

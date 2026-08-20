@@ -53,10 +53,10 @@ npm run local
 Di default EasyGame si apre su:
 
 ```text
-http://localhost:3000
+http://localhost:3001
 ```
 
-Se la porta `3000` e' occupata, il launcher prova `3001` e apre il browser sull'URL corretto.
+Se la porta `3001` e' occupata, il launcher prova `3002` e apre il browser sull'URL corretto.
 
 ## Configurare Neon
 
@@ -87,9 +87,9 @@ Il processo Next.js viene fermato e la porta locale torna libera.
 
 Installa Node.js LTS da https://nodejs.org/, poi chiudi e riapri il launcher.
 
-### Porta 3000 occupata
+### Porta 3001 occupata
 
-Il launcher prova automaticamente `3001`. Se anche `3001` e' occupata, chiudi altri server locali e riavvia.
+Il launcher prova automaticamente `3002`. Se anche `3002` e' occupata, chiudi altri server locali e riavvia.
 
 ### DATABASE_URL o DIRECT_URL mancanti
 
@@ -132,4 +132,4 @@ npm run db:push
 - Verificare app su localhost.
 - Verificare errore chiaro se `DATABASE_URL` manca.
 - Verificare errore chiaro se Node manca.
-- Verificare porta alternativa se `3000` e' occupata.
+- Verificare porta alternativa se `3001` e' occupata.

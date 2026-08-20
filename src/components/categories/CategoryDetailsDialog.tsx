@@ -70,7 +70,10 @@ export function CategoryDetailsDialog({
               </p>
               <p>
                 <strong>Allenamenti settimanali:</strong>{" "}
-                {category.trainingsPerWeek}
+                {category.trainingsPerWeek}{" "}
+                {category.trainingsPerWeek === 1
+                  ? "allenamento settimanale"
+                  : "allenamenti settimanali"}
               </p>
             </div>
           </div>

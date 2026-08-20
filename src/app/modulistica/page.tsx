@@ -1105,6 +1105,12 @@ function ModulisticaPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
+                            onClick={() => handleEditTemplate(template)}
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
+                            Modifica
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => handleArchiveTemplate(template)}
                           >
                             <Archive className="mr-2 h-4 w-4" />
@@ -1127,13 +1133,6 @@ function ModulisticaPage() {
                     </p>
                     <div className="flex flex-col space-y-2">
                       <div className="flex space-x-2">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => handleEditTemplate(template)}
-                        >
-                          <Edit className="mr-2 h-4 w-4" /> Modifica
-                        </Button>
                         <Button
                           variant="outline"
                           className="flex-1"

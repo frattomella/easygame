@@ -23,7 +23,7 @@ Nel progetto queste variabili sono gia previste in `\.env.local.example`:
 ```env
 DATABASE_URL=""
 DIRECT_URL=""
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NEXT_PUBLIC_APP_URL="http://localhost:3001"
 ```
 
 ## 2. Collega il database in locale
@@ -39,7 +39,7 @@ Poi apri `.env.local` e inserisci:
 
 - `DATABASE_URL`: URL pooled di Neon
 - `DIRECT_URL`: URL direct di Neon
-- `NEXT_PUBLIC_APP_URL=http://localhost:3000`
+- `NEXT_PUBLIC_APP_URL=http://localhost:3001`
 
 ## 3. Inizializza schema e dati demo
 
@@ -54,7 +54,7 @@ npm.cmd run prisma:seed
 npm.cmd run dev
 ```
 
-Apri poi `http://localhost:3000`.
+Apri poi `http://localhost:3001`.
 
 ## 4. Verifica funzionale
 

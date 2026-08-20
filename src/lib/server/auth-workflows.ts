@@ -34,7 +34,7 @@ const hashOtpCode = (code: string) =>
 const getAppBaseUrl = () =>
   process.env.AUTH_BASE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
-  "http://localhost:3000";
+  "http://localhost:3001";
 
 const isPhoneVerificationProviderConfigured = () =>
   Boolean(

@@ -270,27 +270,6 @@ export default function StaffPage() {
     setClubSettings(nextSettings);
   };
 
-  const handleAssignDepartment = async (
-    memberId: string,
-    departmentName: string,
-  ) => {
-    const normalizedDepartment =
-      departmentName === "__none__" ? "" : departmentName;
-    const nextStaffMembers = staffMembers.map((member) =>
-      member.id === memberId
-        ? { ...member, department: normalizedDepartment }
-        : member,
-    );
-
-    setStaffMembers(nextStaffMembers);
-
-    try {
-      await persistStaffState(nextStaffMembers);
-    } catch (error) {
-      console.error("Error assigning department:", error);
-    }
-  };
-
   const handleSaveDepartment = async (department: Department) => {
     const normalizedDepartment = {
       ...department,
@@ -533,35 +512,35 @@ export default function StaffPage() {
         </div>
 
         {/* Staff List */}
-        {viewMode === "table" ? (
-          <Card>
-            <CardContent className="p-6">
-              <StaffTable
-                staffMembers={filteredStaffMembers}
-                departments={departments}
-                onEdit={(member) =>
-                  router.push(`/staff/${member.id}?clubId=${clubId}`)
-                }
-                onDelete={(id) => handleDelete(id)}
-                onAssignDepartment={handleAssignDepartment}
-                onToggleStatus={(id) => console.log("Toggle status:", id)}
-                formatDate={(date) => {
-                  if (!date) return "N/A";
-                  try {
-                    return new Date(date).toLocaleDateString("it-IT", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                    });
-                  } catch {
-                    return "N/A";
+        {filteredStaffMembers.length > 0 ? (
+          viewMode === "table" ? (
+            <Card>
+              <CardContent className="p-6">
+                <StaffTable
+                  staffMembers={filteredStaffMembers}
+                  departments={departments}
+                  onEdit={(member) =>
+                    router.push(`/staff/${member.id}?clubId=${clubId}`)
                   }
-                }}
-                visibleColumns={visibleColumns}
-              />
-            </CardContent>
-          </Card>
-        ) : (
+                  onDelete={(id) => handleDelete(id)}
+                  onToggleStatus={(id) => console.log("Toggle status:", id)}
+                  formatDate={(date) => {
+                    if (!date) return "N/A";
+                    try {
+                      return new Date(date).toLocaleDateString("it-IT", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      });
+                    } catch {
+                      return "N/A";
+                    }
+                  }}
+                  visibleColumns={visibleColumns}
+                />
+              </CardContent>
+            </Card>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredStaffMembers.map((member) => {
               const department = departments.find(
@@ -611,27 +590,6 @@ export default function StaffPage() {
                     >
                       {member.department || "Non assegnato"}
                     </Badge>
-                    <Select
-                      value={member.department || "__none__"}
-                      onValueChange={(value) =>
-                        handleAssignDepartment(member.id, value)
-                      }
-                    >
-                      <SelectTrigger
-                        className="h-8 w-[150px]"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <SelectValue placeholder="Reparto" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Non assegnato</SelectItem>
-                        {departments.map((item) => (
-                          <SelectItem key={item.id} value={item.name}>
-                            {item.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </div>
                   <div className="flex items-center text-sm text-gray-600">
                     <Mail className="h-4 w-4 mr-2" />
@@ -674,43 +632,50 @@ export default function StaffPage() {
               );
             })}
           </div>
-        )}
+          )
+        ) : null}
 
         {filteredStaffMembers.length === 0 && !loading && (
           <Card className="text-center py-12">
             <CardContent>
               <Users className="h-16 w-16 mx-auto text-gray-400 mb-4" />
               <h3 className="text-xl font-semibold mb-2">
-                Nessun membro dello staff
+                {staffMembers.length === 0
+                  ? "Nessun membro dello staff"
+                  : "Nessun risultato trovato"}
               </h3>
               <p className="text-gray-600 mb-4">
-                Inizia aggiungendo il primo membro del tuo staff
+                {staffMembers.length === 0
+                  ? "Inizia aggiungendo il primo membro del tuo staff"
+                  : "Prova a modificare i filtri di ricerca"}
               </p>
-              <Button
-                onClick={() => {
-                  if (typeof window !== "undefined") {
-                    const storedClub = localStorage.getItem("activeClub");
-                    if (storedClub) {
-                      try {
-                        const parsed = JSON.parse(storedClub);
-                        if (parsed?.id) {
-                          router.push(`/staff/new?clubId=${parsed.id}`);
-                          return;
+              {staffMembers.length === 0 ? (
+                <Button
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      const storedClub = localStorage.getItem("activeClub");
+                      if (storedClub) {
+                        try {
+                          const parsed = JSON.parse(storedClub);
+                          if (parsed?.id) {
+                            router.push(`/staff/new?clubId=${parsed.id}`);
+                            return;
+                          }
+                        } catch (e) {
+                          console.error(
+                            "Errore nel parsing di activeClub da localStorage",
+                            e,
+                          );
                         }
-                      } catch (e) {
-                        console.error(
-                          "Errore nel parsing di activeClub da localStorage",
-                          e,
-                        );
                       }
                     }
-                  }
-                  router.push("/staff/new");
-                }}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Aggiungi Membro
-              </Button>
+                    router.push("/staff/new");
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Aggiungi Membro
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
         )}

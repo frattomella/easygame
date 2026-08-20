@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
@@ -63,6 +64,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { normalizeStructure } from "@/lib/structures-utils";
 
 type PaymentStatus = "Pagato" | "In attesa" | "Scaduto";
 
@@ -231,6 +233,7 @@ function normalizePayment(raw: any): StructurePayment {
 }
 
 export default function StrutturePage() {
+  const router = useRouter();
   const { user, activeClub } = useAuth();
   const { showToast } = useToast();
 
@@ -340,25 +343,8 @@ export default function StrutturePage() {
         const { getClubStructures } = await import("@/lib/simplified-db");
         const dbStructures = await getClubStructures(id);
 
-        const normalized: ClubStructure[] = (dbStructures || []).map(
-          (s: any) => ({
-            id: s?.id || uid("structure"),
-            name: s?.name || "",
-            address: s?.address || "",
-            isPublic: typeof s?.isPublic === "boolean" ? s.isPublic : true,
-            isVisibleToMembers:
-              typeof s?.isVisibleToMembers === "boolean"
-                ? s.isVisibleToMembers
-                : true,
-            isRentable:
-              typeof s?.isRentable === "boolean" ? s.isRentable : false,
-            payments: Array.isArray(s?.payments)
-              ? s.payments.map(normalizePayment)
-              : [],
-            fields: Array.isArray(s?.fields)
-              ? s.fields.map(normalizeField)
-              : [],
-          }),
+        const normalized: ClubStructure[] = (dbStructures || []).map((s: any) =>
+          normalizeStructure(s),
         );
 
         setStructures(normalized);
@@ -411,6 +397,10 @@ export default function StrutturePage() {
     setIsStructureModalOpen(true);
   };
 
+  const openStructureDetail = (id: string) => {
+    router.push(`/structures/${id}${clubId ? `?clubId=${clubId}` : ""}`);
+  };
+
   const handleDeleteStructure = async (id: string) => {
     const next = structures.filter((s) => s.id !== id);
     setStructures(next);
@@ -425,6 +415,7 @@ export default function StrutturePage() {
     }
 
     let next: ClubStructure[];
+    let createdStructureId: string | null = null;
 
     if (editingStructureId) {
       next = structures.map((s) =>
@@ -450,6 +441,7 @@ export default function StrutturePage() {
         payments: [],
         fields: [],
       };
+      createdStructureId = newStructure.id;
       next = [...structures, newStructure];
     }
 
@@ -460,6 +452,9 @@ export default function StrutturePage() {
       // IMPORTANT: close modal + reset mode to avoid "Modifica struttura" after create
       setIsStructureModalOpen(false);
       resetStructureForm();
+      if (createdStructureId) {
+        openStructureDetail(createdStructureId);
+      }
     }
   };
 
@@ -892,10 +887,10 @@ export default function StrutturePage() {
                             variant="outline"
                             size="sm"
                             className="gap-2"
-                            onClick={() => openEditStructure(s.id)}
+                            onClick={() => openStructureDetail(s.id)}
                           >
-                            <Pencil className="h-4 w-4" />
-                            Modifica
+                            <Building2 className="h-4 w-4" />
+                            Apri scheda
                           </Button>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -930,6 +925,44 @@ export default function StrutturePage() {
                         </div>
                       </CardHeader>
 
+                      <CardContent>
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <div className="rounded-md border bg-slate-50 p-3">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              Campi
+                            </p>
+                            <p className="mt-1 text-xl font-semibold">
+                              {s.fields?.length || 0}
+                            </p>
+                          </div>
+                          <div className="rounded-md border bg-slate-50 p-3">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              Prenotazioni
+                            </p>
+                            <p className="mt-1 text-xl font-semibold">
+                              {s.bookings?.length || 0}
+                            </p>
+                          </div>
+                          <div className="rounded-md border bg-slate-50 p-3">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              Affittabile
+                            </p>
+                            <p className="mt-1 text-sm font-medium">
+                              {s.isRentable ? "Si" : "No"}
+                            </p>
+                          </div>
+                          <div className="rounded-md border bg-slate-50 p-3">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              Tipo
+                            </p>
+                            <p className="mt-1 text-sm font-medium">
+                              {s.isPublic ? "Pubblica" : "Privata"}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+
+                      {false ? (
                       <CardContent className="space-y-4">
                         {/* Payments */}
                         <div className="rounded-lg border p-3">
@@ -1485,6 +1518,7 @@ export default function StrutturePage() {
                           ) : null}
                         </div>
                       </CardContent>
+                      ) : null}
                     </Card>
                   ))
                 )}

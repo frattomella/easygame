@@ -91,6 +91,10 @@ export type ParentDashboardData = {
     items: Array<Record<string, any>>;
     openingHours?: any;
   };
+  structures?: {
+    items: Array<Record<string, any>>;
+    bookings: Array<Record<string, any>>;
+  };
   notifications: Array<Record<string, any>>;
   analytics: {
     attendanceRate: number;

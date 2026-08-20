@@ -1,7 +1,11 @@
+import { notifyUnauthorized } from "@/lib/auth/session-sync";
+
 export type ApiEnvelope<T> = {
   data: T;
   error: null | {
     message: string;
+    status?: number;
+    code?: string;
     [key: string]: any;
   };
 };
@@ -9,6 +13,25 @@ export type ApiEnvelope<T> = {
 type ApiRequestOptions = Omit<RequestInit, "body"> & {
   body?: any;
 };
+
+/**
+ * Endpoint che gestiscono da soli il ciclo di vita della sessione: un 401 qui
+ * significa "credenziali errate" o "nessuna sessione", non "sessione scaduta
+ * mentre navigavo", quindi non deve innescare il logout centralizzato.
+ */
+const SESSION_LIFECYCLE_PATHS = [
+  "/api/v1/auth/login",
+  "/api/v1/auth/register",
+  "/api/v1/auth/logout",
+  "/api/v1/auth/session",
+  "/api/v1/auth/verify",
+  "/api/v1/auth/oauth",
+];
+
+const isSessionLifecyclePath = (path: string) =>
+  SESSION_LIFECYCLE_PATHS.some((lifecyclePath) =>
+    path.startsWith(lifecyclePath),
+  );
 
 const readCachedUserId = () => {
   if (typeof window === "undefined") {
@@ -106,24 +129,35 @@ export async function apiRequest<T = any>(
       .json()
       .catch(() => ({ data: null, error: { message: response.statusText } }));
 
+    if (response.status === 401 && !isSessionLifecyclePath(path)) {
+      // Il server è l'unica fonte autorevole della sessione: se rifiuta la
+      // richiesta la cache client è stale e va invalidata subito.
+      notifyUnauthorized();
+    }
+
     if (!response.ok && !payload?.error) {
       return {
         data: payload?.data ?? null,
         error: {
           message: response.statusText || "API request failed",
+          status: response.status,
         },
       };
     }
 
     return {
       data: payload?.data ?? null,
-      error: payload?.error ?? null,
+      error: payload?.error
+        ? { ...payload.error, status: response.status }
+        : null,
     };
   } catch (error: any) {
+    // Errore di trasporto: non possiamo dedurre nulla sulla sessione.
     return {
       data: null as T,
       error: {
         message: error?.message || "Errore di rete",
+        code: "NETWORK_ERROR",
       },
     };
   }

@@ -7,8 +7,8 @@ import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const MIN_NODE_VERSION = "18.17.0";
-const DEFAULT_PORT = 3000;
-const FALLBACK_PORT = 3001;
+const DEFAULT_PORT = 3001;
+const FALLBACK_PORT = 3002;
 const LOCAL_HOSTNAME = "127.0.0.1";
 const BROWSER_DELAY_MS = 6000;
 

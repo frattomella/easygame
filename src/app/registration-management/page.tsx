@@ -37,6 +37,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   CreditCard,
   Plus,
   Trash2,
@@ -83,6 +91,16 @@ import {
   generateInstallmentPreview,
   normalizePaymentPlan,
 } from "@/lib/payment-plan-utils";
+import {
+  getAvailableRegistrationPaymentMethods,
+  normalizePaymentSettings,
+  paymentStatusLabel,
+} from "@/lib/payments/payment-config-utils";
+import {
+  PAYMENT_PROVIDER_ORDER,
+  PAYMENT_PROVIDER_REGISTRY,
+} from "@/lib/payments/provider-registry";
+import type { ClubPaymentSettings as ClubPaymentSettingsType } from "@/lib/payments/payment-types";
 
 const normalizePaymentMethodRecord = (method: any) => ({
   id:
@@ -276,6 +294,8 @@ export default function RegistrationManagementPage() {
 
   // State for payment methods
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [clubPaymentSettings, setClubPaymentSettings] =
+    useState<ClubPaymentSettingsType>(() => normalizePaymentSettings(null));
 
   // State for new payment method dialog
   const [isNewMethodDialogOpen, setIsNewMethodDialogOpen] = useState(false);
@@ -361,12 +381,16 @@ export default function RegistrationManagementPage() {
         // Load payment methods from club settings fallback shared across the app
         try {
           const clubSettings = await getClubSettings(activeClub.id);
+          setClubPaymentSettings(
+            normalizePaymentSettings(clubSettings?.paymentSettings),
+          );
           const settingsMethods = Array.isArray(clubSettings?.paymentMethods)
             ? clubSettings.paymentMethods.map(normalizePaymentMethodRecord)
             : [];
           setPaymentMethods(settingsMethods);
         } catch (error) {
           console.warn("Payment methods not found, using empty array");
+          setClubPaymentSettings(normalizePaymentSettings(null));
           setPaymentMethods([]);
         }
 
@@ -481,6 +505,10 @@ export default function RegistrationManagementPage() {
       ? newPlan.installmentAmount ||
         Number((currentPlanTotal / Math.max(newPlan.installments, 1)).toFixed(2))
       : currentPlanTotal);
+  const onlineRegistrationMethods = React.useMemo(
+    () => getAvailableRegistrationPaymentMethods(clubPaymentSettings),
+    [clubPaymentSettings],
+  );
 
   const updatePlanService = (
     serviceId: string,
@@ -2040,6 +2068,94 @@ export default function RegistrationManagementPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
+                      <div className="rounded-lg border bg-muted/20 p-4">
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <h3 className="font-semibold">
+                              Metodi online da Club &gt; Pagamenti
+                            </h3>
+                            <p className="text-sm text-muted-foreground">
+                              La Gestione Iscrizioni usa solo provider
+                              abilitati, configurati e inclusi dal club.
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              window.location.href = "/organization?tab=pagamenti";
+                            }}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Apri Pagamenti
+                          </Button>
+                        </div>
+                        {onlineRegistrationMethods.length === 0 ? (
+                          <div className="rounded-md border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                            Nessun metodo di pagamento online configurato.
+                            Configura i metodi nella pagina Club &gt; Pagamenti.
+                          </div>
+                        ) : null}
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Metodo</TableHead>
+                              <TableHead>Provider</TableHead>
+                              <TableHead>Stato</TableHead>
+                              <TableHead>Disponibile</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {PAYMENT_PROVIDER_ORDER.map((provider) => {
+                              const definition = PAYMENT_PROVIDER_REGISTRY[provider];
+                              const config = clubPaymentSettings.providers[provider];
+                              const onlineMethod = onlineRegistrationMethods.find(
+                                (method) => method.provider === provider,
+                              );
+
+                              return (
+                                <TableRow key={provider}>
+                                  <TableCell className="font-medium">
+                                    {config.publicLabel || definition.label}
+                                  </TableCell>
+                                  <TableCell>{definition.label}</TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Badge
+                                        variant={
+                                          config.enabled ? "default" : "secondary"
+                                        }
+                                      >
+                                        {config.enabled
+                                          ? "Abilitato"
+                                          : "Disabilitato"}
+                                      </Badge>
+                                      <Badge variant="outline">
+                                        {paymentStatusLabel(config.status)}
+                                      </Badge>
+                                      {!definition.isImplemented ? (
+                                        <Badge variant="secondary">
+                                          Predisposto
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    {onlineMethod ? (
+                                      <Badge>Disponibile</Badge>
+                                    ) : (
+                                      <Badge variant="secondary">
+                                        Non disponibile
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+
                       {paymentMethods.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                           Nessun metodo di pagamento configurato. Crea il tuo
