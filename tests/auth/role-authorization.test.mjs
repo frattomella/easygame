@@ -6,6 +6,21 @@ import {
   getAccessRedirectPath,
   normalizeAccessRole,
 } from "../../src/lib/access-roles.ts";
+import {
+  getPostLoginPath,
+  PLATFORM_ADMIN_PRIVATE_PATH,
+} from "../../src/lib/platform-admin.ts";
+
+test("indirizza i platform admin direttamente alla dashboard applicativa", () => {
+  assert.equal(
+    getPostLoginPath({ email: "admin@example.invalid", role: "platform_admin" }),
+    PLATFORM_ADMIN_PRIVATE_PATH,
+  );
+  assert.equal(
+    getPostLoginPath({ email: "user@example.invalid", role: "parent" }),
+    "/account",
+  );
+});
 
 test("normalizza i sette ruoli applicativi e i relativi alias", () => {
   assert.equal(normalizeAccessRole("owner"), "owner");

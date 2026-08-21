@@ -46,3 +46,6 @@ export const isPlatformAdminUser = (user: any) => {
 
   return role === "platform_admin";
 };
+
+export const getPostLoginPath = (user: any) =>
+  isPlatformAdminUser(user) ? PLATFORM_ADMIN_PRIVATE_PATH : "/account";

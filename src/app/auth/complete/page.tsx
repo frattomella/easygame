@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, ShieldCheck } from "lucide-react";
+import { getPostLoginPath, isPlatformAdminUser } from "@/lib/platform-admin";
 
 export default function AuthCompletePage() {
   const [message, setMessage] = useState("Verifica sessione in corso...");
@@ -21,9 +22,14 @@ export default function AuthCompletePage() {
 
     // AuthProvider è l'unico responsabile della verifica server. La pagina di
     // completamento non duplica più sessione e membership prima del redirect.
-    setMessage("Accesso confermato. Apertura home account...");
-    window.location.replace("/account");
-  }, [loading, user?.id]);
+    const platformAdmin = isPlatformAdminUser(user);
+    setMessage(
+      platformAdmin
+        ? "Accesso amministratore confermato. Apertura dashboard di gestione..."
+        : "Accesso confermato. Apertura home account...",
+    );
+    window.location.replace(getPostLoginPath(user));
+  }, [loading, user]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_40%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_45%,#f8fafc_100%)] px-4 py-10">
