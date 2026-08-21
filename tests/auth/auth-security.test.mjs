@@ -15,7 +15,6 @@ import {
   shouldExposeVerificationPreviewCode,
 } from "../../src/lib/auth/otp-policy.ts";
 import {
-  isEmailVerificationProviderConfigured,
   isPhoneVerificationEnabled,
   isPhoneVerificationProviderConfigured,
 } from "../../src/lib/auth/provider-policy.ts";
@@ -74,7 +73,6 @@ test("i codici test non sono mai esposti in produzione", () => {
 
 test("la verifica SMS è proposta solo quando il canale è disponibile", () => {
   const production = { NODE_ENV: "production" };
-  assert.equal(isEmailVerificationProviderConfigured(production), false);
   assert.equal(isPhoneVerificationProviderConfigured(production), false);
   assert.equal(isPhoneVerificationEnabled(production), false);
 

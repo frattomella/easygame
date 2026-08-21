@@ -17,6 +17,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { sendNotificationEmails } from "@/lib/server/email/email-service";
 
 type Context = {
   params: {
@@ -112,7 +113,9 @@ const getParentUserIds = (athlete: any) => {
     .map((value) => firstText(value))
     .filter(Boolean);
 
-  return Array.from(new Set([firstText(athlete?.user_id), ...guardianIds].filter(Boolean)));
+  return Array.from(
+    new Set([firstText(athlete?.user_id), ...guardianIds].filter(Boolean)),
+  );
 };
 
 const createParentNotifications = async ({
@@ -145,6 +148,7 @@ const createParentNotifications = async ({
       },
     })),
   });
+  await sendNotificationEmails(parentUserIds);
 };
 
 const saveSharedDocuments = async (
@@ -252,7 +256,8 @@ export async function POST(request: Request, context: Context) {
     const uploadError = validateUpload({ fileName, mimeType, dataBase64 });
     if (uploadError) return jsonError(uploadError);
 
-    const documentId = firstText(body?.documentId, body?.document_id) || randomUUID();
+    const documentId =
+      firstText(body?.documentId, body?.document_id) || randomUUID();
     const assetId = randomUUID();
     const path = `${athlete.organization_id}/${athlete.id}/${assetId}-${sanitizePathPart(fileName) || "documento"}`;
     const publicUrl = `/api/parent-dashboard/${athlete.id}/documents/${assetId}`;
@@ -268,7 +273,9 @@ export async function POST(request: Request, context: Context) {
       },
     });
 
-    const existing = currentDocuments.find((document) => document.id === documentId);
+    const existing = currentDocuments.find(
+      (document) => document.id === documentId,
+    );
     const document = normalizeSharedDocument(
       {
         ...(existing || {}),
@@ -289,7 +296,8 @@ export async function POST(request: Request, context: Context) {
         status: normalizeSharedDocumentStatus(body?.status || "uploaded"),
         required: Boolean(body?.required ?? existing?.required ?? false),
         dueDate: firstText(body?.dueDate, body?.due_date, existing?.dueDate),
-        visibleToParent: body?.visibleToParent ?? body?.visible_to_parent ?? true,
+        visibleToParent:
+          body?.visibleToParent ?? body?.visible_to_parent ?? true,
         assetId: asset.id,
         uploadedAt: nowIso,
         createdAt: existing?.createdAt || nowIso,
@@ -380,7 +388,10 @@ export async function PATCH(request: Request, context: Context) {
       const lastReminderTime = existing.lastReminderAt
         ? new Date(existing.lastReminderAt).getTime()
         : 0;
-      if (lastReminderTime && Date.now() - lastReminderTime < 6 * 60 * 60 * 1000) {
+      if (
+        lastReminderTime &&
+        Date.now() - lastReminderTime < 6 * 60 * 60 * 1000
+      ) {
         return jsonError("Sollecito gia inviato nelle ultime 6 ore");
       }
       nextDocument = {
@@ -404,7 +415,9 @@ export async function PATCH(request: Request, context: Context) {
         ),
         dueDate: firstText(body?.dueDate, body?.due_date, existing.dueDate),
         visibleToParent:
-          body?.visibleToParent ?? body?.visible_to_parent ?? existing.visibleToParent,
+          body?.visibleToParent ??
+          body?.visible_to_parent ??
+          existing.visibleToParent,
       };
     }
 
@@ -455,4 +468,3 @@ export async function DELETE(request: Request, context: Context) {
     return jsonError(error?.message || "Errore archiviazione documento", 500);
   }
 }
-

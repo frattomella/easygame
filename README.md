@@ -21,10 +21,10 @@ Questa versione del progetto usa un backend classico `Next.js + Prisma + Postgre
 
 1. Copia `.env.local.example` in `.env.local`
 2. Inserisci la tua `DATABASE_URL` PostgreSQL
-3. Se vuoi email, SMS e OAuth reali, compila anche:
+3. Configura SMTP dalla dashboard platform admin. La password viene cifrata con
+   `SMTP_CREDENTIALS_SECRET` o, in fallback, `AUTH_RATE_LIMIT_SECRET`.
+4. Se vuoi SMS e OAuth reali, compila anche:
    - `AUTH_BASE_URL`
-   - `RESEND_API_KEY`
-   - `AUTH_FROM_EMAIL`
    - `TWILIO_ACCOUNT_SID`
    - `TWILIO_AUTH_TOKEN`
    - `TWILIO_VERIFY_SERVICE_SID`
@@ -32,7 +32,7 @@ Questa versione del progetto usa un backend classico `Next.js + Prisma + Postgre
    - `GOOGLE_CLIENT_SECRET`
    - `MICROSOFT_CLIENT_ID`
    - `MICROSOFT_CLIENT_SECRET`
-4. Esegui:
+5. Esegui:
 
 ```bash
 npm install
@@ -55,7 +55,7 @@ npm run build
 
 ### Pagamenti
 
-La nuova pagina ` /payments ` centralizza:
+La nuova pagina `/payments` centralizza:
 
 - pagamenti
 - fatture

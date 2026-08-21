@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { sendNotificationEmails } from "@/lib/server/email/email-service";
 import { isTrainerAccessRole } from "@/lib/access-roles";
 
 const TRAINER_OPERATIONAL_NOTIFICATION_TYPES = [
@@ -156,6 +157,7 @@ export async function POST(request: Request) {
         data,
       },
     });
+    await sendNotificationEmails([session.db.user.id]);
   }
 
   for (const notification of existingNotifications) {

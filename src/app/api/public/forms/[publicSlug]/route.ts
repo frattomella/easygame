@@ -17,6 +17,7 @@ import {
 } from "@/lib/server/online-forms";
 import { getSessionFromRequest } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { sendNotificationEmails } from "@/lib/server/email/email-service";
 
 type Context = {
   params: {
@@ -128,6 +129,7 @@ const createClubNotifications = async ({
       },
     })),
   });
+  await sendNotificationEmails(recipientIds);
 };
 
 export async function GET(request: Request, context: Context) {
@@ -312,7 +314,9 @@ export async function POST(request: Request, context: Context) {
       ),
       answers: Object.fromEntries(
         Object.entries(answers).filter(([fieldId]) => {
-          const field = form.fields.find((candidate) => candidate.id === fieldId);
+          const field = form.fields.find(
+            (candidate) => candidate.id === fieldId,
+          );
           return field ? !isReadOnlyField(field.type) : true;
         }),
       ),

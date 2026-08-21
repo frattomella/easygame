@@ -21,6 +21,12 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import {
+  EmailDeliveryError,
+  getEmailErrorMessage,
+  isEmailDeliveryConfigured,
+} from "@/lib/server/email/email-service";
+import { resolveEmailVerificationPolicy } from "@/lib/auth/email-verification-policy";
 
 const DUMMY_PASSWORD_HASH =
   "$2a$10$3gQkUQ3VL89S/gY5KFIC0OG/lquhesFrvFvKtZk4ebmerY.cPiUuO";
@@ -96,18 +102,22 @@ export async function POST(request: Request) {
     }
 
     if (!user.email_verified_at) {
-      const otpRateLimit = await consumeRequestRateLimits([
-        {
-          policy: AUTH_RATE_LIMITS.otpSend,
-          identifier: `email:${user.id}:${ip}`,
-        },
-      ]);
-      if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
-
-      const emailChallenge = await sendEmailVerificationChallenge(
-        user,
-        "login",
+      const emailVerificationPolicy = resolveEmailVerificationPolicy(
+        await isEmailDeliveryConfigured(),
       );
+      if (emailVerificationPolicy.canSendOtp) {
+        const otpRateLimit = await consumeRequestRateLimits([
+          {
+            policy: AUTH_RATE_LIMITS.otpSend,
+            identifier: `email:${user.id}:${ip}`,
+          },
+        ]);
+        if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
+      }
+
+      const emailChallenge = emailVerificationPolicy.canSendOtp
+        ? await sendEmailVerificationChallenge(user, "login")
+        : { sent: false, previewCode: null };
       return NextResponse.json(
         {
           data: {
@@ -206,6 +216,18 @@ export async function POST(request: Request) {
     attachSessionCookie(response, session);
     return response;
   } catch (error: any) {
+    if (error instanceof EmailDeliveryError) {
+      return NextResponse.json(
+        {
+          data: { user: null, session: null },
+          error: {
+            message: getEmailErrorMessage(error.code),
+            code: error.code,
+          },
+        },
+        { status: 503 },
+      );
+    }
     if (isPrismaConnectionError(error)) {
       console.error("Login database connection error:", {
         databaseUrlConfigured: Boolean(process.env.DATABASE_URL),

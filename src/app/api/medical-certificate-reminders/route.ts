@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { sendNotificationEmails } from "@/lib/server/email/email-service";
 
 const REMINDER_TYPE = "medical_certificate_reminder";
 const UUID_PATTERN =
@@ -245,6 +246,7 @@ export async function POST(request: Request) {
         },
       })),
     });
+    await sendNotificationEmails(recipientsToNotify);
   }
 
   return NextResponse.json({

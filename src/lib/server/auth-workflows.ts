@@ -6,13 +6,15 @@ import {
   shouldExposeVerificationPreviewCode,
 } from "../auth/otp-policy";
 import {
-  isEmailVerificationProviderConfigured,
   isPhoneVerificationEnabled,
   isPhoneVerificationProviderConfigured,
 } from "../auth/provider-policy";
+import {
+  isEmailDeliveryConfigured,
+  sendTransactionalEmail,
+} from "./email/email-service";
 
 export {
-  isEmailVerificationProviderConfigured,
   isPhoneVerificationEnabled,
   isPhoneVerificationProviderConfigured,
 } from "../auth/provider-policy";
@@ -154,41 +156,6 @@ const createInternalChallenge = async ({
   return code;
 };
 
-const sendEmailViaResend = async ({
-  to,
-  subject,
-  html,
-}: {
-  to: string;
-  subject: string;
-  html: string;
-}) => {
-  if (!isEmailVerificationProviderConfigured()) {
-    return false;
-  }
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: process.env.AUTH_FROM_EMAIL,
-      to: [to],
-      subject,
-      html,
-    }),
-  });
-
-  if (!response.ok) {
-    console.error("Resend verification delivery failed", {
-      status: response.status,
-    });
-  }
-  return response.ok;
-};
-
 const sendPhoneViaTwilioVerify = async (phone: string) => {
   if (!isPhoneVerificationProviderConfigured()) {
     return false;
@@ -235,9 +202,10 @@ export const sendEmailVerificationChallenge = async (
     expiresInMinutes: EMAIL_CODE_TTL_MINUTES,
   });
 
-  const sent = await sendEmailViaResend({
+  const delivery = await sendTransactionalEmail({
     to: user.email,
     subject: "Verifica il tuo account EasyGame",
+    text: `Il tuo codice EasyGame è ${code}. Scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f172a;">
         <h2 style="margin-bottom: 12px;">Verifica accesso EasyGame</h2>
@@ -249,8 +217,8 @@ export const sendEmailVerificationChallenge = async (
   });
 
   return {
-    sent,
-    previewCode: getPreviewCode(sent, code),
+    sent: delivery.status === "sent",
+    previewCode: getPreviewCode(delivery.status === "sent", code),
   };
 };
 
@@ -925,17 +893,20 @@ export const createSessionForOAuthUser = async (userId: string) => {
 
 export const createOAuthState = () => randomUUID();
 
-export const getAuthCapabilities = () => ({
-  emailVerification: true,
-  phoneVerification: isPhoneVerificationEnabled(),
-  emailProviderConfigured: isEmailVerificationProviderConfigured(),
-  phoneProviderConfigured: isPhoneVerificationProviderConfigured(),
-  testCodesEnabled: shouldExposeVerificationPreviewCode(),
-  providers: getEnabledOAuthProviders().map((provider) => ({
-    id: provider.id,
-    label: provider.label,
-  })),
-});
+export const getAuthCapabilities = async () => {
+  const emailConfigured = await isEmailDeliveryConfigured();
+  return {
+    emailVerification: true,
+    phoneVerification: isPhoneVerificationEnabled(),
+    emailProviderConfigured: emailConfigured,
+    phoneProviderConfigured: isPhoneVerificationProviderConfigured(),
+    testCodesEnabled: shouldExposeVerificationPreviewCode(),
+    providers: getEnabledOAuthProviders().map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+    })),
+  };
+};
 
 export const buildPendingVerificationResponse = async (userId: string) => {
   const user = await prisma.user.findUnique({

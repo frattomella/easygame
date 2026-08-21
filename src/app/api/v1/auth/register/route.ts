@@ -18,6 +18,12 @@ import {
   validatePassword,
 } from "@/lib/auth/password-policy";
 import { normalizePublicRegistrationRole } from "@/lib/auth/registration-policy";
+import { resolveEmailVerificationPolicy } from "@/lib/auth/email-verification-policy";
+import {
+  EmailDeliveryError,
+  getEmailErrorMessage,
+  isEmailDeliveryConfigured,
+} from "@/lib/server/email/email-service";
 
 const registrationResponse = ({
   verificationReference,
@@ -121,6 +127,9 @@ export async function POST(request: Request) {
     const first_name = String(userData.firstName || "").trim() || null;
     const last_name = String(userData.lastName || "").trim() || null;
     const phoneVerificationEnabled = isPhoneVerificationEnabled();
+    const emailVerificationPolicy = resolveEmailVerificationPolicy(
+      await isEmailDeliveryConfigured(),
+    );
     const phone = phoneVerificationEnabled
       ? String(userData.phone || "").trim() || null
       : null;
@@ -142,10 +151,9 @@ export async function POST(request: Request) {
           where: { id: existingUser.id },
           data: { token_verification_id: verificationReference },
         });
-        const emailChallenge = await sendEmailVerificationChallenge(
-          pendingUser,
-          "signup",
-        );
+        const emailChallenge = emailVerificationPolicy.canSendOtp
+          ? await sendEmailVerificationChallenge(pendingUser, "signup")
+          : { sent: false, previewCode: null };
         const phoneChallenge = phoneVerificationEnabled
           ? await sendPhoneVerificationChallenge(pendingUser, "signup")
           : { sent: false, previewCode: null };
@@ -198,10 +206,9 @@ export async function POST(request: Request) {
       },
     });
 
-    const emailChallenge = await sendEmailVerificationChallenge(
-      createdUser,
-      "signup",
-    );
+    const emailChallenge = emailVerificationPolicy.canSendOtp
+      ? await sendEmailVerificationChallenge(createdUser, "signup")
+      : { sent: false, previewCode: null };
     const phoneChallenge = phoneVerificationEnabled
       ? await sendPhoneVerificationChallenge(createdUser, "signup")
       : { sent: false, previewCode: null };
@@ -214,6 +221,18 @@ export async function POST(request: Request) {
       phonePreviewCode: phoneChallenge.previewCode,
     });
   } catch (error: any) {
+    if (error instanceof EmailDeliveryError) {
+      return NextResponse.json(
+        {
+          data: { user: null, session: null },
+          error: {
+            message: getEmailErrorMessage(error.code),
+            code: error.code,
+          },
+        },
+        { status: 503 },
+      );
+    }
     console.error("Registration error:", error);
     return NextResponse.json(
       {

@@ -9,6 +9,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { assertClubResourceAccess } from "@/lib/access-roles";
+import { sendNotificationEmails } from "@/lib/server/email/email-service";
 
 type Context = {
   params: {
@@ -108,6 +109,12 @@ export async function POST(request: Request, context: Context) {
 
     for (const item of items) {
       created.push(await createResource(resource, item || {}, mode, scope));
+    }
+
+    if (["notifications", "simplified_notifications"].includes(resource)) {
+      await sendNotificationEmails(
+        created.map((item: any) => String(item?.user_id || "")).filter(Boolean),
+      );
     }
 
     return NextResponse.json({

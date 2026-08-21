@@ -84,14 +84,11 @@ export function LoginForm() {
 
     try {
       // Frontend-only login backed by the local mock data layer
-      console.log("Attempting login with:", { email, password });
       const { data, error: signInError } =
         await supabase.auth.signInWithPassword({
           email,
           password,
         });
-
-      console.log("Login response:", { data, error: signInError });
 
       // Clear loading state if there's an error
       if (signInError) {

@@ -9,6 +9,12 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import {
+  EmailDeliveryError,
+  getEmailErrorMessage,
+  isEmailDeliveryConfigured,
+} from "@/lib/server/email/email-service";
+import { EMAIL_VERIFICATION_UNAVAILABLE_MESSAGE } from "@/lib/auth/email-verification-policy";
 
 export async function POST(request: Request) {
   try {
@@ -22,6 +28,19 @@ export async function POST(request: Request) {
           error: { message: "userId obbligatorio" },
         },
         { status: 400 },
+      );
+    }
+
+    if (!(await isEmailDeliveryConfigured())) {
+      return NextResponse.json(
+        {
+          data: { sent: false, previewCode: null },
+          error: {
+            message: EMAIL_VERIFICATION_UNAVAILABLE_MESSAGE,
+            code: "EMAIL_SERVICE_UNAVAILABLE",
+          },
+        },
+        { status: 503 },
       );
     }
 
@@ -53,7 +72,10 @@ export async function POST(request: Request) {
       });
     }
 
-    const challenge = await sendEmailVerificationChallenge(user, "verify_email");
+    const challenge = await sendEmailVerificationChallenge(
+      user,
+      "verify_email",
+    );
     return NextResponse.json({
       data: {
         sent: true,
@@ -62,7 +84,21 @@ export async function POST(request: Request) {
       error: null,
     });
   } catch (error: any) {
-    console.error("Email verification resend error:", error);
+    if (error instanceof EmailDeliveryError) {
+      return NextResponse.json(
+        {
+          data: { sent: false, previewCode: null },
+          error: {
+            message: getEmailErrorMessage(error.code),
+            code: error.code,
+          },
+        },
+        { status: 503 },
+      );
+    }
+    console.error("Email verification resend error", {
+      code: "EMAIL_VERIFICATION_RESEND_FAILED",
+    });
     return NextResponse.json(
       {
         data: null,

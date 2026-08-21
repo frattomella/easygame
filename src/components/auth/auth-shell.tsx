@@ -249,7 +249,9 @@ export function AuthShell({
         setMode("register");
         showToast(
           "success",
-          "Account creato. Completa la verifica per accedere.",
+          capabilities.emailProviderConfigured
+            ? "Account creato. Completa la verifica per accedere."
+            : "Account creato. La verifica email è temporaneamente non disponibile.",
         );
         return;
       }
@@ -524,8 +526,9 @@ export function AuthShell({
                         Verifica email
                       </div>
                       <p className="text-sm text-slate-500">
-                        Abbiamo inviato un codice a `{pendingVerification.email}
-                        `.
+                        {capabilities.emailProviderConfigured
+                          ? `Abbiamo inviato un codice a ${pendingVerification.email}.`
+                          : "Il tuo account è stato creato, ma l’invio del codice non è ancora disponibile. Riprova il login quando il servizio email sarà configurato."}
                       </p>
                       <Input
                         value={emailCode}
@@ -549,7 +552,10 @@ export function AuthShell({
                         <Button
                           type="button"
                           onClick={submitEmailVerification}
-                          disabled={verificationLoading}
+                          disabled={
+                            verificationLoading ||
+                            !capabilities.emailProviderConfigured
+                          }
                         >
                           {verificationLoading ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -562,6 +568,7 @@ export function AuthShell({
                           type="button"
                           variant="outline"
                           onClick={() => resendVerification("email")}
+                          disabled={!capabilities.emailProviderConfigured}
                         >
                           Reinvia codice
                         </Button>
