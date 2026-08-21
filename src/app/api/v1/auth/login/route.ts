@@ -11,6 +11,7 @@ import {
 } from "@/lib/server/auth";
 import {
   finalizeVerifiedSession,
+  isPhoneVerificationEnabled,
   sendEmailVerificationChallenge,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
@@ -43,7 +44,9 @@ const rateLimitedResponse = (result: {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const email = String(body?.email || "").trim().toLowerCase();
+    const email = String(body?.email || "")
+      .trim()
+      .toLowerCase();
     const password = String(body?.password || "");
 
     if (!email || !password) {
@@ -101,7 +104,10 @@ export async function POST(request: Request) {
       ]);
       if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
 
-      const emailChallenge = await sendEmailVerificationChallenge(user, "login");
+      const emailChallenge = await sendEmailVerificationChallenge(
+        user,
+        "login",
+      );
       return NextResponse.json(
         {
           data: {
@@ -113,7 +119,9 @@ export async function POST(request: Request) {
               phone: user.phone || null,
               emailRequired: true,
               phoneRequired: Boolean(
-                user.phone_verification_required && user.phone,
+                isPhoneVerificationEnabled() &&
+                  user.phone_verification_required &&
+                  user.phone,
               ),
               emailPreviewCode: emailChallenge.previewCode,
             },
@@ -127,7 +135,12 @@ export async function POST(request: Request) {
       );
     }
 
-    if (user.phone_verification_required && user.phone && !user.phone_verified_at) {
+    if (
+      isPhoneVerificationEnabled() &&
+      user.phone_verification_required &&
+      user.phone &&
+      !user.phone_verified_at
+    ) {
       const otpRateLimit = await consumeRequestRateLimits([
         {
           policy: AUTH_RATE_LIMITS.otpSend,
@@ -136,7 +149,10 @@ export async function POST(request: Request) {
       ]);
       if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
 
-      const phoneChallenge = await sendPhoneVerificationChallenge(user, "login");
+      const phoneChallenge = await sendPhoneVerificationChallenge(
+        user,
+        "login",
+      );
       return NextResponse.json(
         {
           data: {

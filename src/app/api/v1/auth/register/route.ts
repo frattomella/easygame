@@ -3,6 +3,7 @@ import { prisma } from "@/lib/server/prisma";
 import { hashPassword, verifyPassword } from "@/lib/server/auth";
 import {
   createVerificationReference,
+  isPhoneVerificationEnabled,
   sendEmailVerificationChallenge,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
@@ -54,7 +55,9 @@ const registrationResponse = ({
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const email = String(body?.email || "").trim().toLowerCase();
+    const email = String(body?.email || "")
+      .trim()
+      .toLowerCase();
     const password = String(body?.password || "");
     const userData =
       (typeof body?.options?.data === "object" && body.options.data) ||
@@ -117,7 +120,10 @@ export async function POST(request: Request) {
     );
     const first_name = String(userData.firstName || "").trim() || null;
     const last_name = String(userData.lastName || "").trim() || null;
-    const phone = String(userData.phone || "").trim() || null;
+    const phoneVerificationEnabled = isPhoneVerificationEnabled();
+    const phone = phoneVerificationEnabled
+      ? String(userData.phone || "").trim() || null
+      : null;
     const organization_name = String(
       userData.organizationName ||
         [first_name, last_name].filter(Boolean).join(" ").trim() ||
@@ -140,15 +146,14 @@ export async function POST(request: Request) {
           pendingUser,
           "signup",
         );
-        const phoneChallenge = await sendPhoneVerificationChallenge(
-          pendingUser,
-          "signup",
-        );
+        const phoneChallenge = phoneVerificationEnabled
+          ? await sendPhoneVerificationChallenge(pendingUser, "signup")
+          : { sent: false, previewCode: null };
 
         return registrationResponse({
           verificationReference,
           email,
-          phone: pendingUser.phone || null,
+          phone: phoneVerificationEnabled ? pendingUser.phone || null : null,
           emailPreviewCode: emailChallenge.previewCode,
           phonePreviewCode: phoneChallenge.previewCode,
         });
@@ -171,7 +176,7 @@ export async function POST(request: Request) {
         first_name,
         last_name,
         phone,
-        phone_verification_required: Boolean(phone),
+        phone_verification_required: Boolean(phoneVerificationEnabled && phone),
         role,
         is_club_creator: shouldCreateClub,
         organization_name: shouldCreateClub ? organization_name : null,
@@ -197,10 +202,9 @@ export async function POST(request: Request) {
       createdUser,
       "signup",
     );
-    const phoneChallenge = await sendPhoneVerificationChallenge(
-      createdUser,
-      "signup",
-    );
+    const phoneChallenge = phoneVerificationEnabled
+      ? await sendPhoneVerificationChallenge(createdUser, "signup")
+      : { sent: false, previewCode: null };
 
     return registrationResponse({
       verificationReference,

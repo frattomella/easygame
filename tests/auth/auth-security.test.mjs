@@ -14,10 +14,18 @@ import {
   MAX_OTP_ATTEMPTS,
   shouldExposeVerificationPreviewCode,
 } from "../../src/lib/auth/otp-policy.ts";
+import {
+  isEmailVerificationProviderConfigured,
+  isPhoneVerificationEnabled,
+  isPhoneVerificationProviderConfigured,
+} from "../../src/lib/auth/provider-policy.ts";
 
 test("la password policy server-side richiede complessità e lunghezza", () => {
   assert.equal(PASSWORD_POLICY.minLength, 12);
-  assert.equal(validatePassword("password123", "user@example.com").valid, false);
+  assert.equal(
+    validatePassword("password123", "user@example.com").valid,
+    false,
+  );
   assert.equal(validatePassword("Short1!", "user@example.com").valid, false);
   assert.equal(
     validatePassword("Sicura-Molto-2026!", "user@example.com").valid,
@@ -33,7 +41,10 @@ test("la registrazione pubblica non può auto-assegnare ruoli privilegiati", () 
   assert.equal(normalizePublicRegistrationRole("parent", false), "parent");
   assert.equal(normalizePublicRegistrationRole("trainer", false), "trainer");
   assert.equal(normalizePublicRegistrationRole("club_manager", false), "user");
-  assert.equal(normalizePublicRegistrationRole("platform_admin", false), "user");
+  assert.equal(
+    normalizePublicRegistrationRole("platform_admin", false),
+    "user",
+  );
   assert.equal(normalizePublicRegistrationRole("owner", true), "club_creator");
 });
 
@@ -61,13 +72,45 @@ test("i codici test non sono mai esposti in produzione", () => {
   );
 });
 
+test("la verifica SMS è proposta solo quando il canale è disponibile", () => {
+  const production = { NODE_ENV: "production" };
+  assert.equal(isEmailVerificationProviderConfigured(production), false);
+  assert.equal(isPhoneVerificationProviderConfigured(production), false);
+  assert.equal(isPhoneVerificationEnabled(production), false);
+
+  assert.equal(
+    isPhoneVerificationEnabled({
+      NODE_ENV: "production",
+      TWILIO_ACCOUNT_SID: "AC_test",
+      TWILIO_AUTH_TOKEN: "secret",
+      TWILIO_VERIFY_SERVICE_SID: "VA_test",
+    }),
+    true,
+  );
+  assert.equal(
+    isPhoneVerificationEnabled({
+      NODE_ENV: "development",
+      AUTH_ALLOW_TEST_CODES: "true",
+    }),
+    true,
+  );
+});
+
 test("rate limiting e OTP bloccano oltre la soglia configurata", () => {
   const now = new Date("2026-08-21T10:00:00.000Z");
   const expiresAt = new Date(now.getTime() + 60_000);
   const policy = AUTH_RATE_LIMITS.otpConfirm;
 
-  assert.equal(buildRateLimitResult(policy.limit, policy, expiresAt, now).allowed, true);
-  const blocked = buildRateLimitResult(policy.limit + 1, policy, expiresAt, now);
+  assert.equal(
+    buildRateLimitResult(policy.limit, policy, expiresAt, now).allowed,
+    true,
+  );
+  const blocked = buildRateLimitResult(
+    policy.limit + 1,
+    policy,
+    expiresAt,
+    now,
+  );
   assert.equal(blocked.allowed, false);
   assert.equal(blocked.remaining, 0);
   assert.equal(blocked.retryAfterSeconds, 60);

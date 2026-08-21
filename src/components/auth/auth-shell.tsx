@@ -54,7 +54,7 @@ type PendingVerification = {
 const defaultCapabilities: AuthCapabilities = {
   providers: [],
   emailVerification: true,
-  phoneVerification: true,
+  phoneVerification: false,
   emailProviderConfigured: false,
   phoneProviderConfigured: false,
   testCodesEnabled: false,
@@ -131,14 +131,20 @@ export function AuthShell({
   useEffect(() => {
     const loadProviders = async () => {
       setLoadingProviders(true);
-      const response = await apiRequest<AuthCapabilities>("/api/v1/auth/providers");
+      const response = await apiRequest<AuthCapabilities>(
+        "/api/v1/auth/providers",
+      );
       if (response.data) {
         setCapabilities({
           providers: response.data.providers || [],
           emailVerification: Boolean(response.data.emailVerification),
           phoneVerification: Boolean(response.data.phoneVerification),
-          phoneProviderConfigured: Boolean(response.data.phoneProviderConfigured),
-          emailProviderConfigured: Boolean(response.data.emailProviderConfigured),
+          phoneProviderConfigured: Boolean(
+            response.data.phoneProviderConfigured,
+          ),
+          emailProviderConfigured: Boolean(
+            response.data.emailProviderConfigured,
+          ),
           testCodesEnabled: Boolean(response.data.testCodesEnabled),
         });
       }
@@ -208,7 +214,10 @@ export function AuthShell({
         throw new Error("Le password non coincidono");
       }
 
-      if (registerRole === "club_creator" && !registerData.organizationName.trim()) {
+      if (
+        registerRole === "club_creator" &&
+        !registerData.organizationName.trim()
+      ) {
         throw new Error("Il nome del club è obbligatorio");
       }
 
@@ -272,16 +281,21 @@ export function AuthShell({
     setError(null);
 
     try {
-      const response = await apiRequest<any>("/api/v1/auth/verify/email/confirm", {
-        method: "POST",
-        body: {
-          userId: pendingVerification.userId,
-          code: emailCode.trim(),
+      const response = await apiRequest<any>(
+        "/api/v1/auth/verify/email/confirm",
+        {
+          method: "POST",
+          body: {
+            userId: pendingVerification.userId,
+            code: emailCode.trim(),
+          },
         },
-      });
+      );
 
       if (response.error) {
-        throw new Error(response.error.message || "Verifica email non riuscita");
+        throw new Error(
+          response.error.message || "Verifica email non riuscita",
+        );
       }
 
       if (response.data?.session) {
@@ -315,16 +329,21 @@ export function AuthShell({
     setError(null);
 
     try {
-      const response = await apiRequest<any>("/api/v1/auth/verify/phone/confirm", {
-        method: "POST",
-        body: {
-          userId: pendingVerification.userId,
-          code: phoneCode.trim(),
+      const response = await apiRequest<any>(
+        "/api/v1/auth/verify/phone/confirm",
+        {
+          method: "POST",
+          body: {
+            userId: pendingVerification.userId,
+            code: phoneCode.trim(),
+          },
         },
-      });
+      );
 
       if (response.error) {
-        throw new Error(response.error.message || "Verifica telefono non riuscita");
+        throw new Error(
+          response.error.message || "Verifica telefono non riuscita",
+        );
       }
 
       if (response.data?.session) {
@@ -384,7 +403,10 @@ export function AuthShell({
           }
         : prev,
     );
-    showToast("success", `Codice ${channel === "email" ? "email" : "SMS"} inviato`);
+    showToast(
+      "success",
+      `Codice ${channel === "email" ? "email" : "SMS"} inviato`,
+    );
   };
 
   const providerButtons = (
@@ -415,7 +437,8 @@ export function AuthShell({
         ))
       ) : (
         <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-          Google e Microsoft si abilitano inserendo le credenziali OAuth nelle env.
+          Google e Microsoft si abilitano inserendo le credenziali OAuth nelle
+          env.
         </div>
       )}
     </div>
@@ -442,13 +465,15 @@ export function AuthShell({
                 Gestisci la tua societa sportiva in modo semplice.
               </h1>
               <p className="max-w-xl text-blue-100">
-                Accedi a club, atleti, allenamenti, pagamenti e comunicazioni da un unico posto.
+                Accedi a club, atleti, allenamenti, pagamenti e comunicazioni da
+                un unico posto.
               </p>
             </div>
 
             <div className="rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur">
               <p className="text-sm text-blue-100">
-                Una dashboard per organizzare il lavoro quotidiano della societa.
+                Una dashboard per organizzare il lavoro quotidiano della
+                societa.
               </p>
             </div>
           </div>
@@ -468,9 +493,7 @@ export function AuthShell({
                   EasyGame
                 </span>
               </div>
-              <CardTitle className="text-2xl text-slate-900">
-                Accedi
-              </CardTitle>
+              <CardTitle className="text-2xl text-slate-900">Accedi</CardTitle>
               <p className="text-sm text-slate-500">
                 Entra nella gestione della tua societa sportiva.
               </p>
@@ -501,7 +524,8 @@ export function AuthShell({
                         Verifica email
                       </div>
                       <p className="text-sm text-slate-500">
-                        Abbiamo inviato un codice a `{pendingVerification.email}`.
+                        Abbiamo inviato un codice a `{pendingVerification.email}
+                        `.
                       </p>
                       <Input
                         value={emailCode}
@@ -510,13 +534,15 @@ export function AuthShell({
                       />
                       {pendingVerification.emailPreviewCode && (
                         <p className="text-xs text-amber-700">
-                          Codice test email: {pendingVerification.emailPreviewCode}
+                          Codice test email:{" "}
+                          {pendingVerification.emailPreviewCode}
                         </p>
                       )}
                       {!capabilities.emailProviderConfigured &&
                         !capabilities.testCodesEnabled && (
                           <p className="text-xs text-red-600">
-                            Servizio email non configurato. Contatta l’assistenza.
+                            Servizio email non configurato. Contatta
+                            l’assistenza.
                           </p>
                         )}
                       <div className="flex gap-2">
@@ -550,7 +576,8 @@ export function AuthShell({
                         Verifica telefono
                       </div>
                       <p className="text-sm text-slate-500">
-                        Inserisci il codice inviato a `{pendingVerification.phone}`.
+                        Inserisci il codice inviato a `
+                        {pendingVerification.phone}`.
                       </p>
                       <Input
                         value={phoneCode}
@@ -559,15 +586,17 @@ export function AuthShell({
                       />
                       {pendingVerification.phonePreviewCode && (
                         <p className="text-xs text-amber-700">
-                          Codice test SMS: {pendingVerification.phonePreviewCode}
+                          Codice test SMS:{" "}
+                          {pendingVerification.phonePreviewCode}
                         </p>
                       )}
                       {!capabilities.phoneProviderConfigured &&
                         capabilities.testCodesEnabled && (
-                        <p className="text-xs text-slate-500">
-                          Nessun provider SMS configurato: in testing il codice viene mostrato qui.
-                        </p>
-                      )}
+                          <p className="text-xs text-slate-500">
+                            Nessun provider SMS configurato: in testing il
+                            codice viene mostrato qui.
+                          </p>
+                        )}
                       {!capabilities.phoneProviderConfigured &&
                         !capabilities.testCodesEnabled && (
                           <p className="text-xs text-red-600">
@@ -620,7 +649,9 @@ export function AuthShell({
                             type="email"
                             className="pl-10"
                             value={loginEmail}
-                            onChange={(event) => setLoginEmail(event.target.value)}
+                            onChange={(event) =>
+                              setLoginEmail(event.target.value)
+                            }
                             placeholder="nome@esempio.com"
                             required
                           />
@@ -635,13 +666,19 @@ export function AuthShell({
                             type="password"
                             className="pl-10"
                             value={loginPassword}
-                            onChange={(event) => setLoginPassword(event.target.value)}
+                            onChange={(event) =>
+                              setLoginPassword(event.target.value)
+                            }
                             placeholder="Password"
                             required
                           />
                         </div>
                       </div>
-                      <Button type="submit" className="w-full" disabled={loginLoading}>
+                      <Button
+                        type="submit"
+                        className="w-full"
+                        disabled={loginLoading}
+                      >
                         {loginLoading ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
@@ -657,7 +694,9 @@ export function AuthShell({
                       <div className="grid gap-3 sm:grid-cols-2">
                         <Button
                           type="button"
-                          variant={registerRole === "user" ? "default" : "outline"}
+                          variant={
+                            registerRole === "user" ? "default" : "outline"
+                          }
                           className="justify-start"
                           onClick={() => setRegisterRole("user")}
                         >
@@ -667,7 +706,9 @@ export function AuthShell({
                         <Button
                           type="button"
                           variant={
-                            registerRole === "club_creator" ? "default" : "outline"
+                            registerRole === "club_creator"
+                              ? "default"
+                              : "outline"
                           }
                           className="justify-start"
                           onClick={() => setRegisterRole("club_creator")}
@@ -706,7 +747,10 @@ export function AuthShell({
                             id="firstName"
                             value={registerData.firstName}
                             onChange={(event) =>
-                              handleRegisterChange("firstName", event.target.value)
+                              handleRegisterChange(
+                                "firstName",
+                                event.target.value,
+                              )
                             }
                             required
                           />
@@ -717,7 +761,10 @@ export function AuthShell({
                             id="lastName"
                             value={registerData.lastName}
                             onChange={(event) =>
-                              handleRegisterChange("lastName", event.target.value)
+                              handleRegisterChange(
+                                "lastName",
+                                event.target.value,
+                              )
                             }
                             required
                           />
@@ -741,23 +788,28 @@ export function AuthShell({
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="phone">Cellulare</Label>
-                        <div className="relative">
-                          <Smartphone className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-                          <Input
-                            id="phone"
-                            type="tel"
-                            className="pl-10"
-                            value={registerData.phone}
-                            onChange={(event) =>
-                              handleRegisterChange("phone", event.target.value)
-                            }
-                            placeholder="+39 3xx xxx xxxx"
-                            required
-                          />
+                      {capabilities.phoneVerification && (
+                        <div className="space-y-2">
+                          <Label htmlFor="phone">Cellulare</Label>
+                          <div className="relative">
+                            <Smartphone className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+                            <Input
+                              id="phone"
+                              type="tel"
+                              className="pl-10"
+                              value={registerData.phone}
+                              onChange={(event) =>
+                                handleRegisterChange(
+                                  "phone",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder="+39 3xx xxx xxxx"
+                              required
+                            />
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
@@ -768,13 +820,18 @@ export function AuthShell({
                             minLength={12}
                             value={registerData.password}
                             onChange={(event) =>
-                              handleRegisterChange("password", event.target.value)
+                              handleRegisterChange(
+                                "password",
+                                event.target.value,
+                              )
                             }
                             required
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="confirmPassword">Conferma password</Label>
+                          <Label htmlFor="confirmPassword">
+                            Conferma password
+                          </Label>
                           <Input
                             id="confirmPassword"
                             type="password"

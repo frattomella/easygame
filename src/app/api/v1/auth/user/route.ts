@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isPhoneVerificationEnabled } from "@/lib/auth/provider-policy";
 import { prisma } from "@/lib/server/prisma";
 import {
   buildSessionPayload,
@@ -37,14 +38,18 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const email =
       body?.email !== undefined
-        ? String(body.email || "").trim().toLowerCase()
+        ? String(body.email || "")
+            .trim()
+            .toLowerCase()
         : undefined;
     const metadata =
       (typeof body?.data === "object" && body.data) ||
       (typeof body?.user_metadata === "object" && body.user_metadata) ||
       {};
     const phone =
-      metadata.phone !== undefined ? String(metadata.phone || "").trim() : undefined;
+      metadata.phone !== undefined
+        ? String(metadata.phone || "").trim()
+        : undefined;
 
     if (email !== undefined && !email) {
       return NextResponse.json(
@@ -116,7 +121,9 @@ export async function PATCH(request: Request) {
         email_verified_at: emailChanged ? null : undefined,
         phone_verified_at: phoneChanged ? null : undefined,
         phone_verification_required:
-          phone !== undefined ? Boolean(phone) : undefined,
+          phone !== undefined
+            ? Boolean(phone) && isPhoneVerificationEnabled()
+            : undefined,
         organization_name:
           metadata.organizationName !== undefined
             ? metadata.organizationName || null

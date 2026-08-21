@@ -5,13 +5,20 @@ import {
   MAX_OTP_ATTEMPTS,
   shouldExposeVerificationPreviewCode,
 } from "../auth/otp-policy";
+import {
+  isEmailVerificationProviderConfigured,
+  isPhoneVerificationEnabled,
+  isPhoneVerificationProviderConfigured,
+} from "../auth/provider-policy";
+
+export {
+  isEmailVerificationProviderConfigured,
+  isPhoneVerificationEnabled,
+  isPhoneVerificationProviderConfigured,
+} from "../auth/provider-policy";
 
 type VerificationChannel = "email" | "phone";
-type VerificationPurpose =
-  | "signup"
-  | "login"
-  | "verify_email"
-  | "verify_phone";
+type VerificationPurpose = "signup" | "login" | "verify_email" | "verify_phone";
 
 type VerificationDispatchResult = {
   sent: boolean;
@@ -20,7 +27,12 @@ type VerificationDispatchResult = {
 
 const EMAIL_CODE_TTL_MINUTES = 15;
 const PHONE_CODE_TTL_MINUTES = 10;
-const DEFAULT_WIDGETS = ["metrics", "activities", "trainings", "certifications"];
+const DEFAULT_WIDGETS = [
+  "metrics",
+  "activities",
+  "trainings",
+  "certifications",
+];
 
 const slugify = (value: string) =>
   value
@@ -52,16 +64,6 @@ const getAppBaseUrl = () =>
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:3001";
 
-export const isPhoneVerificationProviderConfigured = () =>
-  Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      process.env.TWILIO_VERIFY_SERVICE_SID,
-  );
-
-export const isEmailVerificationProviderConfigured = () =>
-  Boolean(process.env.RESEND_API_KEY && process.env.AUTH_FROM_EMAIL);
-
 const getPreviewCode = (sent: boolean, code: string) =>
   !sent && shouldExposeVerificationPreviewCode() ? code : null;
 
@@ -77,7 +79,11 @@ export const findUserByVerificationReference = async (reference: string) => {
   });
   if (byToken) return byToken;
 
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalizedReference)) {
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      normalizedReference,
+    )
+  ) {
     return null;
   }
 
@@ -97,6 +103,7 @@ const buildVerificationPayload = (user: {
   phone: user.phone || null,
   emailRequired: !user.email_verified_at,
   phoneRequired:
+    isPhoneVerificationEnabled() &&
     Boolean(user.phone_verification_required && user.phone) &&
     !user.phone_verified_at,
 });
@@ -501,7 +508,12 @@ export const finalizeVerifiedSession = async (userId: string) => {
     throw new Error("Email non verificata");
   }
 
-  if (user.phone_verification_required && user.phone && !user.phone_verified_at) {
+  if (
+    isPhoneVerificationEnabled() &&
+    user.phone_verification_required &&
+    user.phone &&
+    !user.phone_verified_at
+  ) {
     return {
       user,
       session: null,
@@ -566,7 +578,8 @@ export const createOAuthBootstrapUser = async ({
       provider,
       provider_account_id: providerAccountId,
       email,
-      display_name: [firstName, lastName].filter(Boolean).join(" ").trim() || null,
+      display_name:
+        [firstName, lastName].filter(Boolean).join(" ").trim() || null,
       avatar_url: avatarUrl || null,
     },
   });
@@ -864,10 +877,15 @@ export const findOrCreateOAuthUser = async ({
         user_metadata: {
           ...existingMetadata,
           name:
-            [existingUser.first_name || firstName, existingUser.last_name || lastName]
+            [
+              existingUser.first_name || firstName,
+              existingUser.last_name || lastName,
+            ]
               .filter(Boolean)
               .join(" ")
-              .trim() || displayName || undefined,
+              .trim() ||
+            displayName ||
+            undefined,
           avatarUrl: avatarUrl || existingMetadata.avatarUrl,
           oauthPreferredProvider: providerId,
         },
@@ -909,7 +927,7 @@ export const createOAuthState = () => randomUUID();
 
 export const getAuthCapabilities = () => ({
   emailVerification: true,
-  phoneVerification: true,
+  phoneVerification: isPhoneVerificationEnabled(),
   emailProviderConfigured: isEmailVerificationProviderConfigured(),
   phoneProviderConfigured: isPhoneVerificationProviderConfigured(),
   testCodesEnabled: shouldExposeVerificationPreviewCode(),
