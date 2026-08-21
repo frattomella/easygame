@@ -1,4 +1,5 @@
 easygamemobile/
+.codex-tmp/
 node_modules/
 .next/
 .git/
