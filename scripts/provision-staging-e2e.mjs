@@ -159,6 +159,24 @@ try {
     provisioned.push({ email: user.email, role: account.role });
   }
 
+  const collaboratorUser = usersByRole.get("collaborator");
+  await prisma.organizationUser.upsert({
+    where: {
+      organization_id_user_id_role: {
+        organization_id: club.id,
+        user_id: collaboratorUser.id,
+        role: "staff",
+      },
+    },
+    update: {},
+    create: {
+      organization_id: club.id,
+      user_id: collaboratorUser.id,
+      role: "staff",
+      is_primary: false,
+    },
+  });
+
   const trainerUser = usersByRole.get("trainer");
   const trainerRows = Array.isArray(club.trainers) ? club.trainers : [];
   const trainerAlreadyLinked = trainerRows.some((entry) => {
