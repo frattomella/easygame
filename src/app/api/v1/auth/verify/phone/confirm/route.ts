@@ -74,7 +74,12 @@ export async function POST(request: Request) {
     attachSessionCookie(response, finalized.session);
     return response;
   } catch (error: any) {
-    console.error("Phone verification confirm error:", error);
+    if (
+      error?.message !== "Codice non valido o scaduto" &&
+      error?.message !== "Codice SMS non valido"
+    ) {
+      console.error("Phone verification confirm error:", error);
+    }
     return NextResponse.json(
       {
         data: null,

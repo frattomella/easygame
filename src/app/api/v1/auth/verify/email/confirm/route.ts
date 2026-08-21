@@ -74,7 +74,9 @@ export async function POST(request: Request) {
     attachSessionCookie(response, finalized.session);
     return response;
   } catch (error: any) {
-    console.error("Email verification confirm error:", error);
+    if (error?.message !== "Codice non valido o scaduto") {
+      console.error("Email verification confirm error:", error);
+    }
     return NextResponse.json(
       {
         data: null,
