@@ -124,7 +124,7 @@ function TrainerSidebarContent({
   onNavigate?: () => void;
   onToggleCollapsed: () => void;
 }) {
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const router = useRouter();
   const {
     activeClub,
@@ -289,7 +289,7 @@ function TrainerSidebarContent({
 
 function TrainerTopBar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const { activeClub, signOut, trainerProfile, user } = useTrainerDashboard();
 
   const pageTitle = PAGE_TITLES[pathname] || "Dashboard Allenatore";
@@ -394,7 +394,7 @@ export default function TrainerDashboardLayoutShell({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);

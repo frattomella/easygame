@@ -64,6 +64,29 @@ import {
   getClubAthletes,
 } from "@/lib/simplified-db";
 
+type ProcuraContact = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+};
+
+type ProcuraDraft = {
+  name: string;
+  address: {
+    street: string;
+    city: string;
+    province: string;
+    postalCode: string;
+    country: string;
+  };
+  contacts: ProcuraContact[];
+  athletes: unknown[];
+  trainers: unknown[];
+  payments: unknown[];
+};
+
 export default function ProcuraPage() {
   const { showToast } = useToast();
   const { activeClub, user } = useAuth();
@@ -76,7 +99,7 @@ export default function ProcuraPage() {
   // State for new procura dialog
   const [isNewProcuraDialogOpen, setIsNewProcuraDialogOpen] = useState(false);
   const [editingProcura, setEditingProcura] = useState<any>(null);
-  const [newProcura, setNewProcura] = useState({
+  const [newProcura, setNewProcura] = useState<ProcuraDraft>({
     name: "",
     address: {
       street: "",

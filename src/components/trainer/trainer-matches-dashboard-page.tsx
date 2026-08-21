@@ -43,7 +43,7 @@ const getMatchNotes = (match: any) =>
   ).trim();
 
 export default function TrainerMatchesDashboardPage() {
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams() ?? new URLSearchParams();
   const {
     activeClub,
     assignedAthletes,

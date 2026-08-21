@@ -417,29 +417,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let subscription: { unsubscribe: () => void } = { unsubscribe: () => {} };
 
     try {
-      const { data, error: authChangeError } = supabase.auth.onAuthStateChange(
+      const { data } = supabase.auth.onAuthStateChange(
         async (event, session) => {
-          // Handle specific Supabase Auth errors gracefully
-          if (authChangeError) {
-            const errorMessage = authChangeError.message || "";
-            if (
-              errorMessage.includes("refresh_token_hmac_key") ||
-              errorMessage.includes("missing destination name")
-            ) {
-              console.warn(
-                "Supabase Auth temporary issue in auth state change:",
-                authChangeError,
-              );
-              // Don't show error to user for temporary server issues
-            } else {
-              console.error("Auth state change error:", authChangeError);
-              setError(
-                "Errore di connessione al server. Verifica la tua connessione internet.",
-              );
-            }
-            return;
-          }
-
           if (session?.user) {
             setUser(session.user);
             // Use metadata first for faster loading

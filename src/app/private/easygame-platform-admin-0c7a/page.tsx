@@ -218,8 +218,8 @@ export default function PlatformAdminPage() {
                   </h1>
                   <p className="max-w-3xl text-sm text-blue-100/90">
                     Qui puoi monitorare club, account registrati e accessi
-                    dell'applicazione. Il percorso è privato e accessibile solo
-                    all'amministrazione piattaforma.
+                    dell&apos;applicazione. Il percorso è privato e accessibile solo
+                    all&apos;amministrazione piattaforma.
                   </p>
                 </div>
               </div>

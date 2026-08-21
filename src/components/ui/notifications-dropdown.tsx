@@ -17,6 +17,15 @@ interface Notification {
   created_at?: string;
 }
 
+type NotificationRow = {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean | null;
+  created_at: string | null;
+};
+
 interface NotificationsDropdownProps {
   notificationCount?: number;
   allNotificationsHref?: string;
@@ -58,14 +67,14 @@ export function NotificationsDropdown({
         return;
       }
 
-      const transformedNotifications = (notificationsData || []).map(notification => ({
+      const transformedNotifications = (notificationsData || []).map((notification: NotificationRow) => ({
         id: notification.id,
         title: notification.title,
         message: notification.message,
         type: notification.type as "certificate" | "training" | "registration" | "system",
         date: notification.created_at || new Date().toISOString(),
         read: notification.read || false,
-        created_at: notification.created_at
+        created_at: notification.created_at || undefined
       }));
 
       setNotifications(transformedNotifications);

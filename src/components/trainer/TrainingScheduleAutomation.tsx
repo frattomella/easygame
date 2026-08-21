@@ -455,11 +455,11 @@ export function TrainingScheduleAutomation({
                       Funzionalità in Sviluppo
                     </p>
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      L'automazione completa richiede la configurazione di un
+                      L&apos;automazione completa richiede la configurazione di un
                       servizio di scheduling sul server.
                       <strong>
-                        Per ora, utilizza il pulsante "Genera Allenamenti
-                        Settimanali" per la generazione manuale.
+                        Per ora, utilizza il pulsante &quot;Genera Allenamenti
+                        Settimanali&quot; per la generazione manuale.
                       </strong>
                     </p>
                   </div>

@@ -534,7 +534,7 @@ function ChatDialog({
     if (!activeChat || (!newMessage.trim() && selectedFiles.length === 0))
       return;
 
-    const attachments = selectedFiles.map((file) => {
+    const attachments: NonNullable<Message["attachments"]> = selectedFiles.map((file) => {
       const type = file.type.startsWith("image/")
         ? "image"
         : file.type.startsWith("video/")

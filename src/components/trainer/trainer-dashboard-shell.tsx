@@ -245,7 +245,9 @@ export default function TrainerDashboardShell() {
           return (
             trainerIds.includes(normalizeValue(trainerProfile?.id)) ||
             trainerNames.includes(normalizeValue(trainerProfile?.name)) ||
-            trainingCategoryIds.some((categoryId) => categoryIds.has(categoryId))
+            trainingCategoryIds.some((categoryId: string) =>
+              categoryIds.has(categoryId),
+            )
           );
         })
         .map((training: any) => ({

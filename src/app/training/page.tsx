@@ -59,6 +59,7 @@ import {
   buildTrainingLocationOptions,
   findTrainingLocationOption,
   getFallbackTrainingLocationOptions,
+  type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import {
   canRecordTrainingAttendance,
@@ -148,6 +149,16 @@ interface TrainingSession {
   attendance?: any[];
   expectedAttendees?: number;
 }
+
+type TrainingPersonOption = {
+  id: string;
+  name: string;
+  [key: string]: unknown;
+};
+
+type TrainingCategoryOption = TrainingPersonOption & {
+  color?: string;
+};
 
 type AttendanceSheetAthlete = {
   id: string;
@@ -351,14 +362,14 @@ const buildTrainingAttendanceAthlete = ({
 };
 
 export default function TrainingPage() {
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams() ?? new URLSearchParams();
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [activeTab, setActiveTab] = React.useState<"daily" | "calendar">(
     "daily",
   );
-  const [trainers, setTrainers] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [locations, setLocations] = useState([]);
+  const [trainers, setTrainers] = useState<TrainingPersonOption[]>([]);
+  const [categories, setCategories] = useState<TrainingCategoryOption[]>([]);
+  const [locations, setLocations] = useState<TrainingLocationOption[]>([]);
   const [trainings, setTrainings] = React.useState<TrainingSession[]>([]);
   const [weeklySchedule, setWeeklySchedule] = React.useState<any[]>([]);
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
@@ -1549,18 +1560,29 @@ export default function TrainingPage() {
                                           };
 
                                           // Create attendance sheet HTML with real data
-                                          const existingAttendance = Array.isArray(
-                                            training.attendance,
-                                          )
-                                            ? training.attendance
+                                          const rawAttendance = training.attendance ?? [];
+                                          const existingAttendance: Array<{
+                                            athleteId: string;
+                                            present?: boolean;
+                                            notes?: string;
+                                          }> = Array.isArray(rawAttendance)
+                                            ? rawAttendance.map((entry: any) => ({
+                                                athleteId: String(entry.athleteId),
+                                                present: entry.present,
+                                                notes: entry.notes,
+                                              }))
                                             : [];
                                           const existingAttendanceMap =
-                                            new Map(
+                                            new Map<
+                                              string,
+                                              { present?: boolean; notes?: string }
+                                            >(
                                               existingAttendance.map(
-                                                (entry: any) => [
-                                                  entry.athleteId,
-                                                  entry,
-                                                ],
+                                                (entry: any) =>
+                                                  [
+                                                    String(entry.athleteId),
+                                                    entry,
+                                                  ] as const,
                                               ),
                                             );
                                           const presentCount = existingAttendance.filter(
@@ -2427,7 +2449,7 @@ export default function TrainingPage() {
                 location: updatedTraining.location,
                 trainer:
                   trainers.find((tr) => tr.id === updatedTraining.trainerId)
-                    ?.name || originalTraining.trainer,
+                    ?.name || editingTraining.trainer,
                 trainerIds: updatedTraining.trainerId
                   ? [updatedTraining.trainerId]
                   : [],

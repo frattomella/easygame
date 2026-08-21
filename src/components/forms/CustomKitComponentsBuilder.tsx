@@ -13,7 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-interface KitComponent {
+export interface KitComponent {
   id: string;
   name: string;
   selected: boolean;
@@ -29,7 +29,7 @@ interface CustomKitComponentsBuilderProps {
   defaultComponents?: KitComponent[];
   categoryId?: string;
   availableJerseyNumbers?: number[];
-  availableSizes?: string[];
+  availableSizes?: readonly string[];
   onJerseyNumberChange?: (componentId: string, number: number) => void;
   showSizeFields?: boolean;
   showJerseyNumbers?: boolean;

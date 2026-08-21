@@ -153,11 +153,11 @@ export function ApiDocsClient() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Questa pagina e' riservata agli amministratori piattaforma
+                  Questa pagina è riservata agli amministratori piattaforma
                   autorizzati.
                 </p>
                 <Button onClick={() => router.replace("/account")}>
-                  Torna all'account
+                  Torna all&apos;account
                 </Button>
               </CardContent>
             </Card>

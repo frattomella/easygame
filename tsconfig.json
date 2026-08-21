@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es5",
+    "target": "es2018",
     "lib": [
       "dom",
       "dom.iterable",
@@ -31,12 +31,16 @@
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     ".next/types/**/*.ts",
     "next.config.js"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "easygamemobile",
+    "src/app/tempobook",
+    "src/pages/tempobook",
+    "src/tempobook"
   ]
 }

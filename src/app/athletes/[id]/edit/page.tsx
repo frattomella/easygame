@@ -595,7 +595,7 @@ export default function EditAthletePage() {
                         <div className="space-y-2 md:col-span-2">
                           <p className="text-sm text-muted-foreground">
                             Per caricare un nuovo certificato medico, utilizzare
-                            la funzione nella pagina di dettaglio dell'atleta.
+                            la funzione nella pagina di dettaglio dell&apos;atleta.
                           </p>
                         </div>
                       </div>

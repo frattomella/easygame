@@ -501,8 +501,11 @@ export async function runTrainingAutomationForClub(
   const resourcePayloadsByType = await getResourcePayloadsByType(clubId);
   const athletes = await loadAutomationAthletes(clubId);
 
+  const clubSettings = isRecord(club.settings)
+    ? (club.settings as Record<string, unknown>)
+    : {};
   const storedSettings = parseTrainingAutomationSettings(
-    isRecord(club.settings) ? club.settings.trainingAutomation : null,
+    clubSettings.trainingAutomation,
   );
   const effectiveSettings = parseTrainingAutomationSettings(
     isRecord(options.settingsOverride)
@@ -746,8 +749,11 @@ export async function runDueTrainingAutomationForAllClubs(now = new Date()) {
   }> = [];
 
   for (const club of clubs) {
+    const clubSettings = isRecord(club.settings)
+      ? (club.settings as Record<string, unknown>)
+      : {};
     const settings = parseTrainingAutomationSettings(
-      isRecord(club.settings) ? club.settings.trainingAutomation : null,
+      clubSettings.trainingAutomation,
     );
 
     if (!shouldRunTrainingAutomation(settings, now)) {

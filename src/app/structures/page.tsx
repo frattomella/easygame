@@ -114,6 +114,7 @@ type ClubStructure = {
 
   payments: StructurePayment[];
   fields: StructureField[];
+  bookings?: unknown[];
 };
 
 const WEEK_DAYS: { key: string; label: string }[] = [
@@ -538,29 +539,30 @@ export default function StrutturePage() {
 
   // Fields
   const addField = async (structureId: string) => {
+    const newField: StructureField = {
+      id: uid("field"),
+      name: "Nuovo campo",
+      ownership: "Pubblica",
+      inRent: false,
+      isBookable: true,
+      isVisible: true,
+      availability: normalizeAvailability({
+        days: ["Lun", "Mer", "Ven"],
+        startTime: "18:00",
+        endTime: "22:00",
+      }),
+      pricing: [
+        { id: uid("price"), durationMinutes: 60, price: 0 },
+        { id: uid("price"), durationMinutes: 30, price: 0 },
+      ],
+    };
     const next = structures.map((s) =>
       s.id === structureId
         ? {
             ...s,
             fields: [
               ...(s.fields || []),
-              {
-                id: uid("field"),
-                name: "Nuovo campo",
-                ownership: "Pubblica",
-                inRent: false,
-                isBookable: true,
-                isVisible: true,
-                availability: normalizeAvailability({
-                  days: ["Lun", "Mer", "Ven"],
-                  startTime: "18:00",
-                  endTime: "22:00",
-                }),
-                pricing: [
-                  { id: uid("price"), durationMinutes: 60, price: 0 },
-                  { id: uid("price"), durationMinutes: 30, price: 0 },
-                ],
-              },
+              newField,
             ],
           }
         : s,
@@ -806,7 +808,7 @@ export default function StrutturePage() {
                       <div className="space-y-1">
                         <Label>Affittabile</Label>
                         <p className="text-xs text-muted-foreground">
-                          Abilita l'affitto della struttura.
+                          Abilita l&apos;affitto della struttura.
                         </p>
                       </div>
                       <Switch

@@ -864,9 +864,9 @@ export default function ClothingPage() {
       components: {
         ...current.components,
         [itemId]: {
-          itemId,
           ...(current.components[itemId] || {}),
           ...updates,
+          itemId,
         },
       },
     }));
@@ -876,8 +876,8 @@ export default function ClothingPage() {
     try {
       if (!activeClub?.id) throw new Error("Club non trovato");
       const components = assignmentTargetComponents.map((item) => ({
-        itemId: item.id,
         ...(assignmentForm.components[item.id] || {}),
+        itemId: item.id,
       }));
 
       if (!assignmentForm.athleteId) throw new Error("Seleziona un atleta");

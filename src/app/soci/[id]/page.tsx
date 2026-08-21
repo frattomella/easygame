@@ -72,7 +72,7 @@ export default function MemberDetailsPage() {
   const { showToast } = useToast();
   const memberId = params?.id as string;
   const clubIdFromUrl = searchParams?.get("clubId");
-  const [clubId, setClubId] = useState<string | null>(clubIdFromUrl);
+  const [clubId, setClubId] = useState<string | null>(clubIdFromUrl || null);
   const [isLoading, setIsLoading] = useState(true);
   const [member, setMember] = useState<any>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);

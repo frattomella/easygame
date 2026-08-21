@@ -37,6 +37,17 @@ interface Notification {
   data?: any;
 }
 
+type NotificationRow = {
+  id: string;
+  title: string;
+  message: string;
+  type: Notification["type"];
+  created_at?: string | null;
+  read?: boolean | null;
+  user_id?: string | null;
+  data?: unknown;
+};
+
 export default function NotificationsPage() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [activeTab, setActiveTab] = React.useState("all");
@@ -112,7 +123,12 @@ export default function NotificationsPage() {
         console.error("Error loading notifications:", error);
       }
 
-      const transformedNotifications = (notificationsData || []).map(
+      const notificationRows: NotificationRow[] = Array.isArray(
+        notificationsData,
+      )
+        ? notificationsData
+        : [];
+      const transformedNotifications: Notification[] = notificationRows.map(
         (notification) => ({
           id: notification.id,
           title: notification.title,
@@ -124,8 +140,8 @@ export default function NotificationsPage() {
             | "system",
           date: notification.created_at || new Date().toISOString(),
           read: notification.read || false,
-          created_at: notification.created_at,
-          user_id: notification.user_id,
+          created_at: notification.created_at || undefined,
+          user_id: notification.user_id || undefined,
           data: notification.data,
         }),
       );

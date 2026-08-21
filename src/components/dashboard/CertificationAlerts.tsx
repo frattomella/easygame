@@ -21,6 +21,24 @@ interface CertificationAlert {
   status: "expired" | "expiring" | "missing" | "valid";
 }
 
+type CertificateRow = {
+  id: string;
+  type?: string | null;
+  expiry_date?: string | null;
+  athlete_id: string;
+  athletes: {
+    id: string;
+    first_name?: string | null;
+    last_name?: string | null;
+  };
+};
+
+type AthleteRow = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+};
+
 interface CertificationAlertsProps {
   alerts?: CertificationAlert[];
   onViewAll?: () => void;
@@ -160,9 +178,16 @@ const CertificationAlerts = ({
 
         const formattedAlerts: CertificationAlert[] = [];
 
-        if (certificates) {
+        const certificateRows: CertificateRow[] = Array.isArray(certificates)
+          ? certificates
+          : [];
+        const athleteRows: AthleteRow[] = Array.isArray(allAthletes)
+          ? allAthletes
+          : [];
+
+        if (certificateRows.length > 0) {
           // Transform the data to match our component's expected format
-          const certificateAlerts = certificates
+          const certificateAlerts = certificateRows
             .map((cert) => {
               if (!cert?.expiry_date) {
                 return null;
@@ -196,12 +221,12 @@ const CertificationAlerts = ({
         }
 
         // Athletes without certificates are missing, not expired.
-        if (allAthletes) {
+        if (athleteRows.length > 0) {
           const athletesWithCertificates = new Set(
-            certificates?.map((cert) => cert.athlete_id) || [],
+            certificateRows.map((cert) => cert.athlete_id),
           );
 
-          const athletesWithoutCertificates = allAthletes.filter(
+          const athletesWithoutCertificates = athleteRows.filter(
             (athlete) => !athletesWithCertificates.has(athlete.id),
           );
 

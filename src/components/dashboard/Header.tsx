@@ -142,12 +142,13 @@ const Header = memo(
     ]
       .filter(Boolean)
       .join(" ");
-    const userName =
+    const userName = String(
       fullName ||
       user?.user_metadata?.name ||
       user?.user_metadata?.firstName ||
       user?.email?.split("@")[0] ||
-      "Account EasyGame";
+      "Account EasyGame",
+    );
     const accountAvatar =
       user?.user_metadata?.avatar_url ||
       user?.user_metadata?.picture ||

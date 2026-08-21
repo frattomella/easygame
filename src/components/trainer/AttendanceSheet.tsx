@@ -26,7 +26,7 @@ interface AttendanceSheetProps {
     avatar?: string;
     present?: boolean;
     notes?: string;
-    medicalCertExpiry?: string;
+    medicalCertExpiry?: string | null;
     participationContext?: "primary" | "secondary" | "extra";
     participationBadgeLabel?: string | null;
     isExtraCategory?: boolean;
@@ -37,7 +37,7 @@ interface AttendanceSheetProps {
     id: string;
     name: string;
     avatar?: string;
-    medicalCertExpiry?: string;
+    medicalCertExpiry?: string | null;
     participationContext?: "primary" | "secondary" | "extra";
     participationBadgeLabel?: string | null;
     isExtraCategory?: boolean;

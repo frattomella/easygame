@@ -5,8 +5,8 @@ import {
 } from "./athlete-category-memberships";
 
 type CategoryLike = {
-  id?: string;
-  name?: string;
+  id?: string | null;
+  name?: string | null;
   ageRange?: string | null;
   birthYearFrom?: number | string | null;
   birthYearTo?: number | string | null;

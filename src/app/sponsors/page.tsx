@@ -62,6 +62,46 @@ const SPONSOR_TYPE_OPTIONS = [
 const getSponsorTypeLabel = (type?: string) =>
   type === "fornitore" ? "Fornitore" : "Sponsor";
 
+type Sponsor = {
+  id: string;
+  name: string;
+  type: string;
+  phone: string;
+  email: string;
+  vatNumber: string;
+  pec: string;
+  sdi: string;
+  iban: string;
+  address: string;
+  city: string;
+  postalCode: string;
+  country: string;
+  region: string;
+  province: string;
+  logo: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type SponsorDraft = Omit<Sponsor, "id"> & { id?: string };
+
+type SponsorPayment = {
+  id: string;
+  sponsorId: string;
+  date: string;
+  amount: number;
+  description: string;
+  type: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type SponsorPaymentDraft = Omit<
+  SponsorPayment,
+  "id" | "amount" | "created_at" | "updated_at"
+> & { amount: string };
+
 export default function SponsorsPage() {
   const { showToast } = useToast();
   const router = useRouter();
@@ -69,13 +109,13 @@ export default function SponsorsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddSponsorDialog, setShowAddSponsorDialog] = useState(false);
   const [showAddPaymentDialog, setShowAddPaymentDialog] = useState(false);
-  const [selectedSponsor, setSelectedSponsor] = useState<any>(null);
+  const [selectedSponsor, setSelectedSponsor] = useState<Sponsor | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Sponsors and payments from database
-  const [sponsors, setSponsors] = useState([]);
-  const [payments, setPayments] = useState([]);
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [payments, setPayments] = useState<SponsorPayment[]>([]);
 
   // Get club ID from localStorage or URL
   const [clubId, setClubId] = useState<string | null>(null);
@@ -115,7 +155,7 @@ export default function SponsorsPage() {
   }, []);
 
   // New sponsor form state
-  const [newSponsor, setNewSponsor] = useState({
+  const [newSponsor, setNewSponsor] = useState<SponsorDraft>({
     name: "",
     type: "sponsor",
     phone: "",
@@ -134,10 +174,10 @@ export default function SponsorsPage() {
   });
 
   // New payment form state
-  const [newPayment, setNewPayment] = useState({
+  const [newPayment, setNewPayment] = useState<SponsorPaymentDraft>({
     sponsorId: "",
     date: new Date().toISOString().split("T")[0],
-    amount: 0,
+    amount: "",
     description: "",
     type: "entrata",
     status: "completato",
@@ -171,7 +211,7 @@ export default function SponsorsPage() {
     setNewPayment({
       sponsorId: selectedSponsor ? selectedSponsor.id : "",
       date: new Date().toISOString().split("T")[0],
-      amount: 0,
+      amount: "",
       description: "",
       type: "entrata",
       status: "completato",
@@ -236,7 +276,7 @@ export default function SponsorsPage() {
 
   // Get payments for a specific sponsor
   const getSponsorPayments = React.useCallback(
-    (sponsorId) => {
+    (sponsorId: string) => {
       if (!Array.isArray(payments) || payments.length === 0) return [];
       return payments.filter(
         (payment) => payment && payment.sponsorId === sponsorId,
@@ -246,16 +286,22 @@ export default function SponsorsPage() {
   );
 
   // Handle sponsor form change
-  const handleSponsorChange = React.useCallback((e) => {
+  const handleSponsorChange = React.useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setNewSponsor((prev) => ({ ...prev, [name]: value }));
-  }, []);
+    },
+    [],
+  );
 
   // Handle payment form change
-  const handlePaymentChange = React.useCallback((e) => {
+  const handlePaymentChange = React.useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setNewPayment((prev) => ({ ...prev, [name]: value }));
-  }, []);
+    },
+    [],
+  );
 
   // Add or update sponsor
   const handleAddSponsor = React.useCallback(async () => {
@@ -307,11 +353,16 @@ export default function SponsorsPage() {
 
     try {
       if (isEditMode && newSponsor.id) {
+        const sponsorId = newSponsor.id;
         // Update existing sponsor
         const currentSponsors = Array.isArray(sponsors) ? sponsors : [];
         const updatedSponsors = currentSponsors.map((sponsor) =>
-          sponsor && sponsor.id === newSponsor.id
-            ? { ...newSponsor, updated_at: new Date().toISOString() }
+          sponsor && sponsor.id === sponsorId
+            ? {
+                ...newSponsor,
+                id: sponsorId,
+                updated_at: new Date().toISOString(),
+              }
             : sponsor,
         );
 
@@ -422,7 +473,7 @@ export default function SponsorsPage() {
 
   // Delete sponsor
   const handleDeleteSponsor = React.useCallback(
-    async (sponsorId) => {
+    async (sponsorId: string) => {
       if (
         !sponsorId ||
         !confirm("Sei sicuro di voler eliminare questo sponsor?")
@@ -502,7 +553,7 @@ export default function SponsorsPage() {
 
   // Delete payment
   const handleDeletePayment = React.useCallback(
-    async (paymentId) => {
+    async (paymentId: string) => {
       if (
         !paymentId ||
         !confirm("Sei sicuro di voler eliminare questo pagamento?")
@@ -565,7 +616,7 @@ export default function SponsorsPage() {
   );
 
   // Format date
-  const formatDate = React.useCallback((dateString) => {
+  const formatDate = React.useCallback((dateString: string) => {
     if (!dateString) return "N/A";
     try {
       const date = new Date(dateString);

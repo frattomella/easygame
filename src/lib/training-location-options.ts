@@ -63,7 +63,9 @@ export const buildTrainingLocationOptions = (
           label: `${structureName} / ${fieldName}`,
         };
       })
-      .filter((option) => option.structureId && option.fieldId);
+      .filter((option: TrainingLocationOption) =>
+        Boolean(option.structureId && option.fieldId),
+      );
   });
 
   return options;

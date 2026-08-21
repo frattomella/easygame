@@ -175,7 +175,7 @@ const UpcomingTrainings = memo(
     const [loadedTrainings, setLoadedTrainings] =
       useState<TrainingSession[]>(() =>
         dedupeTrainings(Array.isArray(trainings) ? trainings : []).map(
-          normalizeTrainingSession,
+          (training) => normalizeTrainingSession(training),
         ),
       );
     const [loading, setLoading] = useState(isLoading);
@@ -242,7 +242,7 @@ const UpcomingTrainings = memo(
           if (trainings.length > 0) {
             setLoadedTrainings(
               dedupeTrainings(Array.isArray(trainings) ? trainings : []).map(
-                normalizeTrainingSession,
+                (training) => normalizeTrainingSession(training),
               ),
             );
             return;
@@ -453,7 +453,10 @@ const TrainingCard = memo(
           const { data: attendanceRecords } = await attendanceQuery;
 
           if (attendanceRecords) {
-            const formattedAttendance = attendanceRecords.map((record) => ({
+            const formattedAttendance = attendanceRecords.map((record: {
+              athletes?: unknown;
+              is_present?: boolean;
+            }) => ({
               name: record.athletes
                 ? getAthleteDisplayName(record.athletes)
                 : "Atleta sconosciuto",

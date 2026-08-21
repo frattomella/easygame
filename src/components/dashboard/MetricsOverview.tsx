@@ -101,6 +101,10 @@ const MetricCard = memo(
 
 MetricCard.displayName = "MetricCard";
 
+type CertificateMetricRecord = {
+  expiry_date?: string | null;
+};
+
 interface MetricsOverviewProps {
   totalAthletes?: number;
   activeCategories?: number;
@@ -239,7 +243,11 @@ const MetricsOverview = ({
           }).length;
 
           // Count expiring and expired certificates
-          const certificates = allCertificates?.data || [];
+          const certificates: CertificateMetricRecord[] = Array.isArray(
+            allCertificates?.data,
+          )
+            ? allCertificates.data
+            : [];
           const expiringCerts = certificates.filter((cert) => {
             if (!cert?.expiry_date) {
               return false;

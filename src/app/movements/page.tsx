@@ -16,7 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast-notification";
 import { AdvancedTransactionDialog } from "@/components/accounting/AdvancedTransactionDialog";
-import { BankAccountList } from "@/components/accounting/BankAccountList";
+import {
+  BankAccountList,
+  type BankAccount,
+} from "@/components/accounting/BankAccountList";
 import { MovementDetailPanel } from "@/components/accounting/MovementDetailPanel";
 import { AddInvoiceForm } from "@/components/forms/AddInvoiceForm";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -72,14 +75,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-type BankAccount = {
-  id: string;
-  name?: string;
-  bank_name?: string;
-  current_balance?: number;
-  [key: string]: any;
-};
 
 type MovementSourceType =
   | "transactions"

@@ -184,14 +184,11 @@ const parseSpreadsheetFile = async (file: File) => {
   const rows = utils.sheet_to_json<Record<string, any>>(worksheet, {
     defval: "",
   });
-  const headers = rows.length
-    ? Array.from(
-        rows.reduce((accumulator, row) => {
-          Object.keys(row).forEach((header) => accumulator.add(header));
-          return accumulator;
-        }, new Set<string>()),
-      )
-    : [];
+  const headerSet = new Set<string>();
+  rows.forEach((row) => {
+    Object.keys(row).forEach((header) => headerSet.add(header));
+  });
+  const headers = Array.from(headerSet);
 
   return { headers, rows };
 };

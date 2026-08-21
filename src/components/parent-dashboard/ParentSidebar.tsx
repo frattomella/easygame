@@ -25,7 +25,7 @@ import { useParentDashboard } from "./parent-dashboard-context";
 
 const ParentSidebar = memo(() => {
   const [collapsed, setCollapsed] = React.useState(false);
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const router = useRouter();
   const { signOut } = useAuth();
   const { athleteRouteId } = useParentDashboard();

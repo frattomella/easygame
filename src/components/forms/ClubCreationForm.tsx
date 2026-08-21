@@ -336,7 +336,7 @@ export function ClubCreationForm({
                 </TooltipTrigger>
                 <TooltipContent className="bg-white text-gray-800 p-2 rounded shadow-lg text-xs max-w-xs">
                   Il PIN viene utilizzato per autorizzare i pagamenti e le
-                  operazioni sensibili all'interno dell'app.
+                  operazioni sensibili all&apos;interno dell&apos;app.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

@@ -1030,9 +1030,11 @@ function ModulisticaPage() {
       showToast("success", "Documento generato dall'IA con successo");
     } catch (error) {
       console.error("Error generating AI document:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error || "");
       showToast(
         "error",
-        `Errore nella generazione del documento IA: ${error?.message || error}`,
+        `Errore nella generazione del documento IA: ${errorMessage}`,
       );
     } finally {
       setAiGenerating(false);

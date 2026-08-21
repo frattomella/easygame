@@ -128,7 +128,7 @@ const clearLinkedFields = (
     return { next: record, changed: false };
   }
 
-  const next = {
+  const next: Record<string, unknown> = {
     ...record,
     linkedUserId: null,
     linked_user_id: null,

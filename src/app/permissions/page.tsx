@@ -15,6 +15,14 @@ import { Input } from "@/components/ui/input";
 import { TimerBadge } from "@/components/ui/timer-badge";
 import TrainerPermissionsPage from "@/components/permissions/trainer-permissions-page";
 
+type LegacyManager = {
+  name: string;
+  email: string;
+  role: string;
+  accessDate: string;
+  active: boolean;
+};
+
 export default function PermissionsPage() {
   return <TrainerPermissionsPage />;
   const { showToast } = useToast();
@@ -50,7 +58,7 @@ export default function PermissionsPage() {
   const [isTokenExpired, setIsTokenExpired] = useState(false);
 
   // Use empty array as initial state for server rendering, then populate on client
-  const [managers, setManagers] = useState([]);
+  const [managers, setManagers] = useState<LegacyManager[]>([]);
 
   // Initialize managers on client-side only - empty for new clubs
   useEffect(() => {
@@ -62,7 +70,7 @@ export default function PermissionsPage() {
     showToast("success", "Permessi salvati con successo");
   };
 
-  const handleRoleSelect = (role) => {
+  const handleRoleSelect = (role: string) => {
     setSelectedRole(role);
     // In a real app, you would load the permissions for the selected role from the backend
   };
@@ -80,7 +88,7 @@ export default function PermissionsPage() {
               </h1>
               <p className="text-muted-foreground mt-1">
                 Configura cosa possono vedere e fare i genitori quando accedono
-                con il token dell'atleta
+                con il token dell&apos;atleta
               </p>
             </div>
 
@@ -189,7 +197,7 @@ export default function PermissionsPage() {
                         <div className="space-y-0.5">
                           <Label>Stato Iscrizione</Label>
                           <p className="text-sm text-muted-foreground">
-                            Mostra lo stato dell'iscrizione dell'atleta
+                            Mostra lo stato dell&apos;iscrizione dell&apos;atleta
                           </p>
                         </div>
                         <Switch
@@ -207,7 +215,7 @@ export default function PermissionsPage() {
                         <div className="space-y-0.5">
                           <Label>Informazioni Personali</Label>
                           <p className="text-sm text-muted-foreground">
-                            Mostra i dati personali dell'atleta
+                            Mostra i dati personali dell&apos;atleta
                           </p>
                         </div>
                         <Switch
@@ -243,7 +251,7 @@ export default function PermissionsPage() {
                         <div className="space-y-0.5">
                           <Label>Presenze</Label>
                           <p className="text-sm text-muted-foreground">
-                            Mostra il registro presenze dell'atleta
+                            Mostra il registro presenze dell&apos;atleta
                           </p>
                         </div>
                         <Switch
@@ -279,7 +287,7 @@ export default function PermissionsPage() {
                         <div className="space-y-0.5">
                           <Label>Documenti</Label>
                           <p className="text-sm text-muted-foreground">
-                            Mostra i documenti dell'atleta
+                            Mostra i documenti dell&apos;atleta
                           </p>
                         </div>
                         <Switch
@@ -397,7 +405,7 @@ export default function PermissionsPage() {
                         <div className="space-y-0.5">
                           <Label>Gestione Stato Iscrizione</Label>
                           <p className="text-sm text-muted-foreground">
-                            Permette di modificare lo stato dell'iscrizione
+                            Permette di modificare lo stato dell&apos;iscrizione
                           </p>
                         </div>
                         <Switch
@@ -584,7 +592,7 @@ export default function PermissionsPage() {
                           Genera Token Gestore
                         </h3>
                         <p className="text-sm text-muted-foreground mb-4">
-                          Crea un token di 10 caratteri per consentire l'accesso
+                          Crea un token di 10 caratteri per consentire l&apos;accesso
                           come gestore (valido per 2 minuti)
                         </p>
                         <div className="flex gap-2 items-center">
@@ -599,7 +607,7 @@ export default function PermissionsPage() {
                               tokenExpiryTime &&
                               !isTokenExpired && (
                                 <TimerBadge
-                                  expiryTime={tokenExpiryTime}
+                                  expiryTime={tokenExpiryTime || new Date()}
                                   onExpire={() => {
                                     setIsTokenExpired(true);
                                     showToast("warning", "Il token è scaduto");

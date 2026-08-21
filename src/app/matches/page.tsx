@@ -1532,7 +1532,7 @@ export default function MatchesPage() {
                           <CalendarIcon className="h-12 w-12 mb-2 opacity-50" />
                           <p>Nessuna gara programmata per questa data</p>
                           <p className="text-sm">
-                            Seleziona un'altra data o aggiungi una nuova gara
+                            Seleziona un&apos;altra data o aggiungi una nuova gara
                           </p>
                         </div>
                       )}

@@ -223,7 +223,7 @@ const normalizeToken = (value: unknown) =>
     .trim()
     .toLowerCase();
 
-const normalizeList = (value: unknown) => {
+const normalizeList = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return Array.from(
       new Set(

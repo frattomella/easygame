@@ -534,7 +534,7 @@ export default function HubPage() {
                       <div className="flex items-center gap-3">
                         <Lightbulb className="h-8 w-8" />
                         <div>
-                          <h2 className="text-2xl font-bold">Hai un'idea?</h2>
+                          <h2 className="text-2xl font-bold">Hai un&apos;idea?</h2>
                           <p className="text-white/90">
                             Proponi nuove funzionalità per EasyGame
                           </p>

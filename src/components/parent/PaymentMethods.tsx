@@ -279,6 +279,38 @@ export function PaymentMethods({
         </CardContent>
       </Card>
 
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Pagamenti</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {payments.length === 0 ? (
+            <p className="text-muted-foreground">Nessun pagamento disponibile.</p>
+          ) : (
+            payments.map((payment) => (
+              <div
+                key={payment.id}
+                className="flex items-center justify-between gap-4 rounded-lg border p-4"
+              >
+                <div>
+                  <p className="font-medium">{payment.description}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Scadenza: {formatDate(payment.due_date)} · {payment.amount.toFixed(2)}€
+                  </p>
+                </div>
+                {payment.status === "completed" ? (
+                  <Badge variant="secondary">Pagato</Badge>
+                ) : (
+                  <Button type="button" onClick={() => handlePayNow(payment)}>
+                    Paga ora
+                  </Button>
+                )}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
       {/* Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
         <DialogContent className="sm:max-w-md">
@@ -327,3 +359,60 @@ export function PaymentMethods({
                       id="cardNumber"
                       name="cardNumber"
                       placeholder="1234 5678 9012 3456"
+                      value={cardDetails.cardNumber}
+                      onChange={handleCardDetailsChange}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="cardHolder">Intestatario</Label>
+                    <Input
+                      id="cardHolder"
+                      name="cardHolder"
+                      value={cardDetails.cardHolder}
+                      onChange={handleCardDetailsChange}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="expiryDate">Scadenza</Label>
+                      <Input
+                        id="expiryDate"
+                        name="expiryDate"
+                        placeholder="MM/AA"
+                        value={cardDetails.expiryDate}
+                        onChange={handleCardDetailsChange}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="cvv">CVV</Label>
+                      <Input
+                        id="cvv"
+                        name="cvv"
+                        type="password"
+                        value={cardDetails.cvv}
+                        onChange={handleCardDetailsChange}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  onClick={handleProcessPayment}
+                  disabled={!selectedMethod || processingPayment}
+                >
+                  {processingPayment && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Conferma pagamento
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

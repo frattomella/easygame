@@ -261,8 +261,8 @@ export default function AthletesPage() {
   const { activeClub, user } = useAuth();
   const { runWithLoader } = useGlobalLoading();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = usePathname() || "";
+  const searchParams = useSearchParams() ?? new URLSearchParams();
   const requestedClubId =
     searchParams.get("clubId") ||
     searchParams.get("organization_id") ||

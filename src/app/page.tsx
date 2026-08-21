@@ -346,7 +346,6 @@ const peopleOptions = useMemo(() => {
         rows.push({
           assignmentId: a.id,
           kitId: kitKey,
-          kitId: kitKey,
           assigneeId: a.assigneeId,
           assigneeType: a.assigneeType,
           kitName:
@@ -1452,7 +1451,7 @@ const peopleOptions = useMemo(() => {
                               }}
                               aria-label="Modifica gruppo"
                             >
-                              <Pencil className="h-4 w-4" />
+                              <Edit className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"

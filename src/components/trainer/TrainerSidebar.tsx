@@ -19,7 +19,7 @@ import {
 
 const TrainerSidebar = memo(() => {
   const [collapsed, setCollapsed] = React.useState(false);
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const router = useRouter();
   const { permissions } = useTrainerDashboard();
 

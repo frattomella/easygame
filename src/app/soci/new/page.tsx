@@ -24,7 +24,7 @@ function NewSocioPageContent() {
   const { showToast } = useToast();
   const { activeClub } = useAuth();
   const clubIdFromUrl = searchParams?.get("clubId");
-  const [clubId, setClubId] = useState<string | null>(clubIdFromUrl);
+  const [clubId, setClubId] = useState<string | null>(clubIdFromUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     firstName: "",

@@ -121,7 +121,7 @@ export function AttendanceConfirmation({
             </div>
 
             <div className="space-y-2">
-              <Label>L'atleta parteciperà all'allenamento?</Label>
+              <Label>L&apos;atleta parteciperà all&apos;allenamento?</Label>
               <RadioGroup
                 value={
                   willAttend === null ? undefined : willAttend ? "yes" : "no"

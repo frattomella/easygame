@@ -281,7 +281,7 @@ export async function PATCH(request: Request, context: Context) {
       );
     }
 
-    const updatedAppointment = {
+    const updatedAppointment: Record<string, any> = {
       ...currentAppointment,
       title: reason,
       reason,
@@ -381,7 +381,7 @@ export async function DELETE(request: Request, context: Context) {
       );
     }
 
-    const cancelledAppointment = {
+    const cancelledAppointment: Record<string, any> = {
       ...appointments[appointmentIndex],
       status: "cancelled",
       cancelled_at: new Date().toISOString(),

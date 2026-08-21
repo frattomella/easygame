@@ -293,7 +293,7 @@ export function CategoryEditorDialog({
           <div>
             <Label>Assegnazione rapida allenatori</Label>
             <p className="text-sm text-muted-foreground mt-1">
-              Un allenatore puo' essere assegnato a piu' categorie.
+              Un allenatore può essere assegnato a più categorie.
             </p>
           </div>
 

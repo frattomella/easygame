@@ -68,7 +68,7 @@ import {
 import { useToast } from "@/components/ui/toast-notification";
 
 export default function TrainerTrainingsDashboardPage() {
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams() ?? new URLSearchParams();
   const {
     activeClub,
     assignedAthletes,

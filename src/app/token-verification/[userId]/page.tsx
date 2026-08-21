@@ -513,7 +513,15 @@ export default function TokenVerificationPage() {
           user?.user_metadata?.role === "club_manager" ||
           user?.user_metadata?.role === "admin";
 
-        let allClubs = [];
+        let allClubs: Array<{
+          id: string;
+          name: string;
+          role: string;
+          roleLabel: string;
+          color: string;
+          addedAt: string | null;
+          logo_url: string | null;
+        }> = [];
 
         if (isCreator) {
           const { data: createdClubs } = await supabase
@@ -522,7 +530,12 @@ export default function TokenVerificationPage() {
             .eq("creator_id", userId);
 
           if (createdClubs && createdClubs.length > 0) {
-            allClubs = createdClubs.map((club) => ({
+            allClubs = createdClubs.map((club: {
+              id: string;
+              name: string | null;
+              created_at: string | null;
+              logo_url: string | null;
+            }) => ({
               id: club.id,
               name: club.name || "Club senza nome",
               role: "club_creator",
@@ -1114,17 +1127,12 @@ export default function TokenVerificationPage() {
         );
 
         // Update or insert user record with updated club access
-        const { error: updateError } = await supabase.from("users").upsert(
-          {
-            id: userId,
-            email: user?.email || "",
-            club_access: updatedClubAccess,
-            updated_at: new Date().toISOString(),
-          },
-          {
-            onConflict: "id",
-          },
-        );
+        const { error: updateError } = await supabase.from("users").upsert({
+          id: userId,
+          email: user?.email || "",
+          club_access: updatedClubAccess,
+          updated_at: new Date().toISOString(),
+        });
 
         if (updateError) {
           console.error("Error updating user club access:", updateError);

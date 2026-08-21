@@ -60,11 +60,9 @@ export const DEFAULT_TRAINER_DASHBOARD_PERMISSIONS: TrainerDashboardPermissions 
     },
   };
 
-type PartialPermissionGroup = Record<string, unknown> | null | undefined;
-
 const mergePermissionGroup = <T extends Record<string, boolean>>(
   defaults: T,
-  overrides: PartialPermissionGroup,
+  overrides: unknown,
 ) => {
   const nextGroup = { ...defaults };
   const source =

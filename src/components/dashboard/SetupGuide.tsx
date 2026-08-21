@@ -63,7 +63,7 @@ const SetupGuide: React.FC<SetupGuideProps> = ({ onClose, onStartTour }) => {
               <li>Accedi rapidamente alle sezioni principali dalla sidebar</li>
               <li>Visualizza le metriche e le attività recenti</li>
             </ul>
-            <p className="mt-2">Vuoi un tour guidato dell'applicazione?</p>
+            <p className="mt-2">Vuoi un tour guidato dell&apos;applicazione?</p>
           </div>
           <div className="flex justify-end mt-3 gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>

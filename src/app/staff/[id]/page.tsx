@@ -80,7 +80,7 @@ export default function StaffMemberDetailsPage() {
   const { showToast } = useToast();
   const staffId = params?.id as string;
   const clubIdFromParams = searchParams?.get("clubId");
-  const [clubId, setClubId] = useState<string | null>(clubIdFromParams);
+  const [clubId, setClubId] = useState<string | null>(clubIdFromParams || null);
   const [isLoading, setIsLoading] = useState(true);
   const [staffMember, setStaffMember] = useState<any>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);

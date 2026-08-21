@@ -1338,8 +1338,8 @@ export default function SecretariatPage() {
                                         ⚠️ Nessun orario di apertura configurato
                                         per {dayName}.
                                         <br />
-                                        Configura gli orari nella sezione "Orari
-                                        di Apertura" o seleziona un altro
+                                        Configura gli orari nella sezione &quot;Orari
+                                        di Apertura&quot; o seleziona un altro
                                         giorno.
                                       </p>
                                     </div>
@@ -1633,7 +1633,7 @@ export default function SecretariatPage() {
                               htmlFor="note-all-day"
                               className="cursor-pointer"
                             >
-                              Promemoria per l'intera giornata (notifica alle
+                              Promemoria per l&apos;intera giornata (notifica alle
                               08:00)
                             </Label>
                           </div>
@@ -1813,7 +1813,7 @@ export default function SecretariatPage() {
                                             htmlFor={`edit-note-all-day-${note.id}`}
                                             className="cursor-pointer"
                                           >
-                                            Promemoria per l'intera giornata
+                                            Promemoria per l&apos;intera giornata
                                             (notifica alle 08:00)
                                           </Label>
                                         </div>

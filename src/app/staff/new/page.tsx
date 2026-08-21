@@ -456,7 +456,7 @@ function NewStaffMemberPageContent() {
                         <SelectValue placeholder="Seleziona tipo" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="carta_identita">Carta d'Identità</SelectItem>
+                        <SelectItem value="carta_identita">Carta d&apos;Identità</SelectItem>
                         <SelectItem value="patente">Patente</SelectItem>
                         <SelectItem value="passaporto">Passaporto</SelectItem>
                       </SelectContent>

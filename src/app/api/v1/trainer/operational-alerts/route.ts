@@ -71,7 +71,10 @@ export async function POST(request: Request) {
   }
 
   const payload = await request.json().catch(() => ({}));
-  const alerts = (Array.isArray(payload?.alerts) ? payload.alerts : [])
+  const rawAlerts: unknown[] = Array.isArray(payload?.alerts)
+    ? payload.alerts
+    : [];
+  const alerts = rawAlerts
     .map(normalizeAlert)
     .filter((alert): alert is NonNullable<ReturnType<typeof normalizeAlert>> =>
       Boolean(alert),

@@ -307,6 +307,7 @@ export const getSharedDocumentsFromAthlete = (
     .filter((document) => {
       if (!options.includeArchived && document.archived) return false;
       const key = document.id || document.assetId;
+      if (!key) return false;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

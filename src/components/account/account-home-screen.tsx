@@ -151,7 +151,7 @@ function AccountHeaderActions({
             onSelect={onSignOut}
           >
             <LogOut className="mr-2 h-4 w-4" />
-            Esci dall'account
+            Esci dall&apos;account
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -472,7 +472,7 @@ function AccountBottomCTA({ onAddAccess }: { onAddAccess: () => void }) {
           </div>
           <div>
             <h2 className="max-w-[300px] text-[28px] font-black leading-[1.35] text-[#07112f] md:max-w-none md:text-[23px]">
-              Un club, una squadra, un'unica passione.
+              Un club, una squadra, un&apos;unica passione.
             </h2>
             <p className="mt-4 max-w-[315px] text-[19px] font-medium leading-8 text-[#5f6b84] md:mt-3 md:max-w-[520px] md:text-[17px] md:leading-7">
               Organizza, comunica e porta la tua squadra verso nuovi traguardi

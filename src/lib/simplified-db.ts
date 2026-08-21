@@ -489,7 +489,7 @@ export async function getUserClubs(userId: string) {
 
     // Aggiungi il ruolo dell'utente a ciascun club
     return (
-      clubs?.map((club) => {
+      clubs?.map((club: Record<string, any>) => {
         const accessInfo = userData.club_access.find(
           (access: any) => access.club_id === club.id,
         );
@@ -2066,7 +2066,9 @@ export async function addTrainerContract(
       } catch (fetchError) {
         if (retryCount === maxRetries - 1) {
           console.error("Network error adding trainer contract:", fetchError);
-          throw new Error(`Network error: ${fetchError.message}`);
+          throw new Error(
+            `Network error: ${fetchError instanceof Error ? fetchError.message : "Unknown error"}`,
+          );
         }
         retryCount++;
         await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
@@ -3014,7 +3016,9 @@ export async function updateClubData(
       } catch (fetchError) {
         if (retryCount === maxRetries - 1) {
           console.error(`Network error updating ${dataType}:`, fetchError);
-          throw new Error(`Network error: ${fetchError.message}`);
+          throw new Error(
+            `Network error: ${fetchError instanceof Error ? fetchError.message : "Unknown error"}`,
+          );
         }
         retryCount++;
         await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));

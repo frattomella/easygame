@@ -153,6 +153,7 @@ import {
 } from "@/lib/shared-documents";
 import type { OnlineForm } from "@/lib/online-forms";
 import { apiRequest } from "@/lib/api/client";
+import type { KitComponent } from "@/components/forms/CustomKitComponentsBuilder";
 
 const CustomKitComponentsBuilder = dynamic(
   () =>
@@ -230,14 +231,14 @@ const createEmptyAttachment = () => ({
   file: null as File | null,
 });
 
-const normalizeClubFederations = (clubData: any) => {
+const normalizeClubFederations = (clubData: any): string[] => {
   const rawFederations = Array.isArray(clubData?.federations)
     ? clubData.federations
     : Array.isArray(clubData?.settings?.federations)
       ? clubData.settings.federations
       : [];
 
-  const names = rawFederations
+  const names: string[] = rawFederations
     .map((federation: any) =>
       typeof federation === "string"
         ? federation
@@ -246,7 +247,7 @@ const normalizeClubFederations = (clubData: any) => {
     .map((name: string) => String(name || "").trim())
     .filter(Boolean);
 
-  return [...new Set(names)];
+  return Array.from(new Set<string>(names));
 };
 
 const calculateAgeFromBirthDate = (birthDate?: string) => {
@@ -458,12 +459,12 @@ const getGuardianTokenTiming = (guardian: any, nowMs: number) => {
   };
 };
 
-const buildAthleteKitBuilderComponents = (components: any[]) =>
+const buildAthleteKitBuilderComponents = (components: any[]): KitComponent[] =>
   normalizeKitComponents(components).map((componentName, index) => ({
     id: `athlete-kit-component-${index}-${componentName.replace(/\s+/g, "-").toLowerCase()}`,
     name: componentName,
     selected: true,
-    deliveryStatus: "pending",
+    deliveryStatus: "pending" as const,
   }));
 
 export default function AthleteProfilePage() {
@@ -857,7 +858,7 @@ export default function AthleteProfilePage() {
 
         // Transform the simplified_athletes record to the expected format
         const athletePayload = normalizeRecord(athleteRecord.data);
-        const athleteData = {
+        const athleteData: Record<string, any> = {
           id: athleteRecord.id,
           firstName: athleteRecord.first_name,
           lastName: athleteRecord.last_name,
@@ -2812,12 +2813,16 @@ export default function AthleteProfilePage() {
 
     setIsDocumentScanInProgress(true);
     setDocumentScanError("");
-    let worker: { recognize: (input: string) => Promise<any>; terminate: () => Promise<void> } | null = null;
+    let worker: {
+      recognize: (input: string) => Promise<any>;
+      terminate: () => Promise<unknown>;
+    } | null = null;
 
     try {
       const { createWorker } = await import("tesseract.js");
-      worker = await createWorker("ita+eng");
-      const result = await worker.recognize(documentScanImage);
+      const activeWorker = await createWorker("ita+eng");
+      worker = activeWorker;
+      const result = await activeWorker.recognize(documentScanImage);
 
       const rawText = result?.data?.text || "";
       if (!rawText.trim()) {
@@ -6196,7 +6201,7 @@ export default function AthleteProfilePage() {
                           </div>
                           <p className="text-xs text-muted-foreground">
                             Il link e generico e non contiene dati sensibili
-                            dell'atleta.
+                            dell&apos;atleta.
                           </p>
                         </div>
                       </div>
@@ -7026,7 +7031,7 @@ export default function AthleteProfilePage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Carta d'identità">
-                          Carta d'identità
+                          Carta d&apos;identità
                         </SelectItem>
                         <SelectItem value="Passaporto">Passaporto</SelectItem>
                         <SelectItem value="Patente">Patente</SelectItem>
@@ -7979,7 +7984,7 @@ export default function AthleteProfilePage() {
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
-                    Dopo l'analisi vedrai qui i campi estratti dal documento.
+                    Dopo l&apos;analisi vedrai qui i campi estratti dal documento.
                   </div>
                 )}
               </div>
@@ -8267,8 +8272,8 @@ export default function AthleteProfilePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminare il certificato medico?</AlertDialogTitle>
             <AlertDialogDescription>
-              Il certificato verra rimosso dalla scheda sanitaria dell'atleta.
-              L'operazione non puo essere annullata.
+              Il certificato verra rimosso dalla scheda sanitaria dell&apos;atleta.
+              L&apos;operazione non puo essere annullata.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -8304,8 +8309,8 @@ export default function AthleteProfilePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminare la visita medica?</AlertDialogTitle>
             <AlertDialogDescription>
-              La visita medica verra rimossa dalla scheda dell'atleta.
-              L'operazione non puo essere annullata.
+              La visita medica verra rimossa dalla scheda dell&apos;atleta.
+              L&apos;operazione non puo essere annullata.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

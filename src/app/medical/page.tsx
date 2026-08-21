@@ -53,6 +53,29 @@ interface Certificate {
   avatar?: string;
 }
 
+type MedicalAthleteRow = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  profile_image?: string | null;
+  data?: ({
+    avatar?: string | null;
+    medicalCertExpiry?: string | null;
+  } & Record<string, unknown>) | null;
+  [key: string]: unknown;
+};
+
+type MedicalCertificateRow = {
+  id: string;
+  athlete_id: string;
+  notes?: string | null;
+  type?: string | null;
+  issue_date: string;
+  expiry_date: string;
+  file_url?: string | null;
+  document_url?: string | null;
+};
+
 const getCertificateSortTime = (certificate: Pick<Certificate, "expiryDate" | "issueDate">) => {
   const expiryTime = certificate.expiryDate
     ? new Date(certificate.expiryDate).getTime()
@@ -81,7 +104,7 @@ export default function MedicalPage() {
   const [certificates, setCertificates] = React.useState<Certificate[]>([]);
   const [showAddCertificateModal, setShowAddCertificateModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [athletes, setAthletes] = useState<any[]>([]);
+  const [athletes, setAthletes] = useState<MedicalAthleteRow[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<
     { id: string; name: string }[]
   >([]);
@@ -191,8 +214,8 @@ export default function MedicalPage() {
         let certificatesData = null;
         if (athletesData && athletesData.length > 0) {
           const athleteIds = athletesData
-            .map((a) => a.id)
-            .filter((id) => id && id.trim() !== "");
+            .map((athlete: MedicalAthleteRow) => athlete.id)
+            .filter((id: string) => id.trim() !== "");
 
           if (athleteIds.length > 0) {
             const { data, error: certificatesError } = await supabase
@@ -209,9 +232,11 @@ export default function MedicalPage() {
         const certificatesByAthlete = new Map<string, Certificate>();
 
         if (certificatesData) {
-          for (const cert of certificatesData) {
+          for (const cert of certificatesData as MedicalCertificateRow[]) {
             // Find athlete for this certificate
-            const athlete = athletesData?.find((a) => a.id === cert.athlete_id);
+            const athlete = athletesData?.find(
+              (row: MedicalAthleteRow) => row.id === cert.athlete_id,
+            );
             if (!athlete) continue;
 
             const athleteName =
@@ -245,11 +270,14 @@ export default function MedicalPage() {
         // Add athletes without certificates as missing
         if (athletesData) {
           const athletesWithCertificates = new Set(
-            certificatesData?.map((cert) => cert.athlete_id) || [],
+            certificatesData?.map(
+              (cert: MedicalCertificateRow) => cert.athlete_id,
+            ) || [],
           );
 
           const athletesWithoutCertificates = athletesData.filter(
-            (athlete) => !athletesWithCertificates.has(athlete.id),
+            (athlete: MedicalAthleteRow) =>
+              !athletesWithCertificates.has(athlete.id),
           );
 
           for (const athlete of athletesWithoutCertificates) {

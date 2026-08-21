@@ -28,6 +28,7 @@ export function AddCategoryForm({
   const [formData, setFormData] = useState({
     name: initialData?.name || "",
     description: initialData?.sport || "",
+    ageRange: initialData?.ageRange || "",
     birthYearFrom: initialBirthYears.birthYearFrom?.toString() || "",
     birthYearTo: initialBirthYears.birthYearTo?.toString() || "",
     color: initialData?.color || "bg-blue-500 text-white",
@@ -40,6 +41,7 @@ export function AddCategoryForm({
       setFormData({
         name: initialData.name || "",
         description: initialData.sport || initialData.description || "",
+        ageRange: initialData.ageRange || "",
         birthYearFrom: birthYears.birthYearFrom?.toString() || "",
         birthYearTo: birthYears.birthYearTo?.toString() || "",
         color: initialData.color || "bg-blue-500 text-white",
@@ -50,6 +52,7 @@ export function AddCategoryForm({
     setFormData({
       name: "",
       description: "",
+      ageRange: "",
       birthYearFrom: "",
       birthYearTo: "",
       color: "bg-blue-500 text-white",
@@ -117,6 +120,8 @@ export function AddCategoryForm({
         name: "",
         description: "",
         ageRange: "",
+        birthYearFrom: "",
+        birthYearTo: "",
         color: "bg-blue-500 text-white",
       });
 
@@ -197,7 +202,7 @@ export function AddCategoryForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="ageRange">Fascia d'Età</Label>
+          <Label htmlFor="ageRange">Fascia d&apos;Età</Label>
           <Input
             id="ageRange"
             name="ageRange"

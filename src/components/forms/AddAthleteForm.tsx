@@ -182,7 +182,7 @@ export function AddAthleteForm({
             className="bg-gray-50"
           />
           <p className="text-xs text-muted-foreground">
-            Codice univoco per l'accesso del genitore
+            Codice univoco per l&apos;accesso del genitore
           </p>
         </div>
       </form>

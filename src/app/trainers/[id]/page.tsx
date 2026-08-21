@@ -188,7 +188,7 @@ export default function TrainerDetailsPage() {
   const { showToast } = useToast();
   const trainerId = params?.id as string;
   const clubIdFromParams = searchParams?.get("clubId");
-  const [clubId, setClubId] = useState<string | null>(clubIdFromParams);
+  const [clubId, setClubId] = useState<string | null>(clubIdFromParams || null);
   const [searchValue, setSearchValue] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [categories, setCategories] = useState<any[]>([]);
@@ -1198,7 +1198,7 @@ export default function TrainerDetailsPage() {
                 <div>
                   <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">{trainerHeaderName}</h1>
                   <div className="flex items-center gap-2 mt-1">
-                    {trainer.categories.map((category) => (
+                    {trainer.categories.map((category: { id: string; name: string }) => (
                       <Badge key={category.id} className="bg-blue-500 text-white">
                         {category.name}
                       </Badge>
@@ -1950,7 +1950,7 @@ export default function TrainerDetailsPage() {
                       <div>
                         <h3 className="text-sm font-medium text-muted-foreground">Categorie Assegnate</h3>
                         <div className="flex flex-wrap gap-2 mt-1">
-                          {trainer.categories.map((category) => (
+                          {trainer.categories.map((category: { id: string; name: string }) => (
                             <Badge key={category.id} className="bg-blue-500 text-white">
                               {category.name}
                             </Badge>
@@ -2111,7 +2111,7 @@ export default function TrainerDetailsPage() {
                                 File visita medica caricato
                               </p>
                               <p className="text-sm text-muted-foreground">
-                                Clicca su "Visualizza" per aprire il documento
+                                Clicca su &quot;Visualizza&quot; per aprire il documento
                               </p>
                             </div>
                           </div>
@@ -2809,7 +2809,7 @@ export default function TrainerDetailsPage() {
                     <div>
                       <Label>Categorie assegnate</Label>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Un allenatore puo' avere piu' categorie assegnate.
+                        Un allenatore può avere più categorie assegnate.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-muted/30 p-3">

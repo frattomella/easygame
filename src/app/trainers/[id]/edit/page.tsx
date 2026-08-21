@@ -26,6 +26,26 @@ import {
 } from "@/lib/trainer-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
+type TrainerEditState = {
+  [field: string]: string | string[];
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  postalCode: string;
+  birthDate: string;
+  startDate: string;
+  bio: string;
+  avatar: string;
+  categories: string[];
+  salary: string;
+  fiscalCode: string;
+  password: string;
+  confirmPassword: string;
+};
+
 export default function EditTrainerPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -38,7 +58,7 @@ export default function EditTrainerPage() {
   const [categories, setCategories] = useState<any[]>([]);
 
   // Real trainer data from database
-  const [trainerData, setTrainerData] = useState<any>(null);
+  const [trainerData, setTrainerData] = useState<TrainerEditState | null>(null);
 
   // Fetch trainer data from database
   useEffect(() => {
@@ -124,10 +144,14 @@ export default function EditTrainerPage() {
     >,
   ) => {
     const { name, value } = e.target;
-    setTrainerData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setTrainerData((prev) =>
+      prev
+        ? {
+            ...prev,
+            [name]: value,
+          }
+        : prev,
+    );
   };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,6 +169,7 @@ export default function EditTrainerPage() {
 
   const handleCategoryChange = (categoryId: string) => {
     setTrainerData((prev) => {
+      if (!prev) return prev;
       const categories = [...prev.categories];
       if (categories.includes(categoryId)) {
         return {

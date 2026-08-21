@@ -153,7 +153,7 @@ export const normalizeAthleteAnalytics = (
   value: unknown,
 ): AthleteAnalyticsSummary => {
   const record = normalizeRecord(value);
-  const events = normalizeCollection<any>(record.events).map((event, index) => ({
+  const events = normalizeCollection<any>(record.events).map<AthleteAnalyticsEvent>((event, index) => ({
     id: toTrimmedString(event?.id) || `athlete-event-${index}`,
     type: event?.type === "match" ? "match" : "training",
     title: toTrimmedString(event?.title) || "Evento",

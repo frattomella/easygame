@@ -221,7 +221,7 @@ export function AthleteImportDialog({
               <div className="rounded-2xl border p-4">
                 <h3 className="font-medium">Mappatura automatica</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  La mappatura e&apos; proposta in automatico ma puo' essere
+                  La mappatura è proposta in automatico ma può essere
                   corretta prima dell&apos;import.
                 </p>
 

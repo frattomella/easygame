@@ -196,7 +196,7 @@ export function LandingPage() {
                   <div className="text-3xl font-bold text-blue-600 mb-1">
                     €249.99
                   </div>
-                  <p className="text-gray-500">all'anno (risparmia 20%)</p>
+                  <p className="text-gray-500">all&apos;anno (risparmia 20%)</p>
                 </div>
 
                 <ul className="space-y-3 mb-8 flex-1">
@@ -226,7 +226,7 @@ export function LandingPage() {
                   className="w-full bg-blue-600 hover:bg-blue-700"
                   onClick={showLoginSection}
                 >
-                  Risparmia con l'Annuale
+                  Risparmia con l&apos;Annuale
                 </Button>
               </CardContent>
             </Card>
@@ -243,7 +243,7 @@ export function LandingPage() {
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               Tutto ciò di cui hai bisogno per gestire la tua associazione
-              sportiva in un'unica piattaforma
+              sportiva in un&apos;unica piattaforma
             </p>
           </div>
 
@@ -377,10 +377,10 @@ export function LandingPage() {
                   ))}
                 </div>
                 <p className="text-gray-700 mb-6">
-                  "EasyGame ha rivoluzionato la gestione della nostra
+                  &quot;EasyGame ha rivoluzionato la gestione della nostra
                   polisportiva. Prima impiegavamo ore per organizzare
                   allenamenti e gestire i certificati, ora tutto è automatizzato
-                  e accessibile in pochi click."
+                  e accessibile in pochi click.&quot;
                 </p>
                 <div className="flex items-center">
                   <div className="relative h-12 w-12 rounded-full overflow-hidden mr-4 bg-gray-200">
@@ -412,9 +412,9 @@ export function LandingPage() {
                   ))}
                 </div>
                 <p className="text-gray-700 mb-6">
-                  "Come allenatrice, posso finalmente concentrarmi sul campo
-                  anziché sulla burocrazia. L'app è intuitiva e mi permette di
-                  gestire i miei gruppi di atleti in modo efficiente."
+                  &quot;Come allenatrice, posso finalmente concentrarmi sul campo
+                  anziché sulla burocrazia. L&apos;app è intuitiva e mi permette di
+                  gestire i miei gruppi di atleti in modo efficiente.&quot;
                 </p>
                 <div className="flex items-center">
                   <div className="relative h-12 w-12 rounded-full overflow-hidden mr-4 bg-gray-200">
@@ -446,9 +446,9 @@ export function LandingPage() {
                   ))}
                 </div>
                 <p className="text-gray-700 mb-6">
-                  "Come genitore, apprezzo molto poter vedere gli allenamenti di
+                  &quot;Come genitore, apprezzo molto poter vedere gli allenamenti di
                   mio figlio e ricevere notifiche sui pagamenti. La
-                  comunicazione con la società è migliorata notevolmente."
+                  comunicazione con la società è migliorata notevolmente.&quot;
                 </p>
                 <div className="flex items-center">
                   <div className="relative h-12 w-12 rounded-full overflow-hidden mr-4 bg-gray-200">

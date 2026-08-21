@@ -73,7 +73,10 @@ import {
   getClubSettings,
   saveClubSettings,
 } from "@/lib/simplified-db";
-import { CustomKitComponentsBuilder } from "@/components/forms/CustomKitComponentsBuilder";
+import {
+  CustomKitComponentsBuilder,
+  type KitComponent,
+} from "@/components/forms/CustomKitComponentsBuilder";
 import {
   normalizeKitAssignmentRecord,
   normalizeKitComponents,
@@ -167,12 +170,12 @@ const deriveClothingProfile = (gender?: string, birthDate?: string) => {
   return isFemale ? "DONNA" : "UOMO";
 };
 
-const buildBuilderComponents = (components: any[]) =>
+const buildBuilderComponents = (components: any[]): KitComponent[] =>
   normalizeKitComponents(components).map((componentName, index) => ({
     id: `kit-component-${index}-${componentName.replace(/\s+/g, "-").toLowerCase()}`,
     name: componentName,
     selected: true,
-    deliveryStatus: "pending",
+    deliveryStatus: "pending" as const,
   }));
 
 const getAthleteCategoryLabel = (
@@ -266,7 +269,10 @@ const resolveAthleteDefaultSize = (componentName: string, athlete: any) => {
   return clothingSizes.shirtSize || "";
 };
 
-const buildAthleteAssignmentComponents = (components: any[], athlete: any) =>
+const buildAthleteAssignmentComponents = (
+  components: any[],
+  athlete: any,
+): KitComponent[] =>
   buildBuilderComponents(components).map((component) => ({
     ...component,
     size: resolveAthleteDefaultSize(component.name, athlete) || undefined,
@@ -330,7 +336,13 @@ export default function RegistrationManagementPage() {
   // State for clothing kit dialog
   const [isNewKitDialogOpen, setIsNewKitDialogOpen] = useState(false);
   const [editingKit, setEditingKit] = useState<any>(null);
-  const [newKit, setNewKit] = useState({
+  const [newKit, setNewKit] = useState<{
+    name: string;
+    description: string;
+    price: number;
+    components: KitComponent[];
+    active: boolean;
+  }>({
     name: "",
     description: "",
     price: 0,
@@ -341,7 +353,14 @@ export default function RegistrationManagementPage() {
   // State for kit assignment dialog
   const [isNewAssignmentDialogOpen, setIsNewAssignmentDialogOpen] =
     useState(false);
-  const [newAssignment, setNewAssignment] = useState({
+  const [newAssignment, setNewAssignment] = useState<{
+    athleteId: string;
+    kitId: string;
+    components: KitComponent[];
+    assignmentType: "kit" | "components";
+    notes: string;
+    status: string;
+  }>({
     athleteId: "",
     kitId: "",
     components: [],
@@ -1445,7 +1464,7 @@ export default function RegistrationManagementPage() {
                                   </h3>
                                   <p className="text-sm text-muted-foreground">
                                     Le scadenze sono relative alla data inizio
-                                    iscrizione dell'atleta.
+                                    iscrizione dell&apos;atleta.
                                   </p>
                                 </div>
                                 <Button
@@ -2952,10 +2971,10 @@ export default function RegistrationManagementPage() {
                                             newAssignment.assignmentType ===
                                             "kit"
                                           }
-                                          onChange={(e) =>
+                                          onChange={() =>
                                             setNewAssignment({
                                               ...newAssignment,
-                                              assignmentType: e.target.value,
+                                              assignmentType: "kit",
                                             })
                                           }
                                         />
@@ -2973,10 +2992,10 @@ export default function RegistrationManagementPage() {
                                             newAssignment.assignmentType ===
                                             "components"
                                           }
-                                          onChange={(e) =>
+                                          onChange={() =>
                                             setNewAssignment({
                                               ...newAssignment,
-                                              assignmentType: e.target.value,
+                                              assignmentType: "components",
                                             })
                                           }
                                         />

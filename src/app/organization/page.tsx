@@ -182,7 +182,7 @@ type SeasonCopyField = (typeof SEASON_COPYABLE_FIELDS)[number]["key"];
 
 export default function OrganizationPage() {
   const { showToast } = useToast();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams() ?? new URLSearchParams();
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
   const [customSport, setCustomSport] = useState("");
@@ -1833,7 +1833,7 @@ const [federations, setFederations] = useState<any[]>([]);
 
                 <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                   Ogni club può gestire più stagioni. Cambiando stagione attiva,
-                  la dashboard e le configurazioni stagionali leggono l'annualità
+                  la dashboard e le configurazioni stagionali leggono l&apos;annualità
                   selezionata mantenendo separati i dati storici.
                 </div>
               </CardContent>

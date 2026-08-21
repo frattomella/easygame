@@ -118,7 +118,9 @@ function NewTrainerPageContent() {
                 id: String(category?.id || "").trim(),
                 name: String(category?.name || "").trim(),
               }))
-              .filter((category) => category.id && category.name)
+              .filter((category: { id: string; name: string }) =>
+                Boolean(category.id && category.name),
+              )
           : [];
 
         setCategories(nextCategories);

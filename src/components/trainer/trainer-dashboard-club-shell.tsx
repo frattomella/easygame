@@ -92,7 +92,7 @@ export default function TrainerDashboardClubShell({
       return;
     }
 
-    const navigationKey = resolveNavigationKey(pathname);
+    const navigationKey = resolveNavigationKey(pathname || "");
     if (navigationKey && !permissions.navigation[navigationKey]) {
       router.replace(getFirstAccessibleTrainerRoute(permissions));
     }
@@ -120,7 +120,7 @@ export default function TrainerDashboardClubShell({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Header
-          title={resolvePageTitle(pathname)}
+          title={resolvePageTitle(pathname || "")}
           notificationCount={operationalAlerts.length}
           showQuickActions={false}
           showMobileHubLink={false}

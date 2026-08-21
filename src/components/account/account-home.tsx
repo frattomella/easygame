@@ -867,7 +867,7 @@ export default function AccountHome() {
                     </p>
                     <p className="mt-2 text-sm text-slate-500">
                       Quando ti viene assegnato un ruolo in un altro club, lo trovi
-                      qui e puoi aprirne subito l'area dedicata.
+                      qui e puoi aprirne subito l&apos;area dedicata.
                     </p>
                   </div>
                 ) : (

@@ -64,9 +64,11 @@ export const buildDefaultSeason = (referenceDate = FALLBACK_DATE): ClubSeason =>
 
 export const normalizeClubSeasons = (settings: any) => {
   const fallbackSeason = buildDefaultSeason();
-  const rawSeasons = Array.isArray(settings?.seasons) ? settings.seasons : [];
+  const rawSeasons: unknown[] = Array.isArray(settings?.seasons)
+    ? settings.seasons
+    : [];
 
-  const seasons = rawSeasons.length
+  const seasons: ClubSeason[] = rawSeasons.length
     ? rawSeasons
         .map((season: any) => {
           const startDate =
