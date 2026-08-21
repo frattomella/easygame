@@ -132,6 +132,12 @@ export function LoginForm() {
         setLoading(false);
         return;
       }
+      const authenticatedUser = data.user;
+      if (!authenticatedUser) {
+        setError("Profilo utente non disponibile.");
+        setLoading(false);
+        return;
+      }
 
       // Store remember me preference
       if (rememberMe) {
@@ -143,8 +149,8 @@ export function LoginForm() {
       }
 
       // Save account to saved accounts list
-      const userRole = data.user?.user_metadata?.role || "user";
-      const userName = data.user?.user_metadata?.name || email.split("@")[0];
+      const userRole = authenticatedUser.user_metadata?.role || "user";
+      const userName = authenticatedUser.user_metadata?.name || email.split("@")[0];
 
       const newAccount = {
         email,
@@ -188,7 +194,7 @@ export function LoginForm() {
       const { data: orgs } = await supabase
         .from("organization_users")
         .select("organization_id, role, organizations(name)")
-        .eq("user_id", data.user.id);
+        .eq("user_id", authenticatedUser.id);
 
       let redirectPath = "/dashboard";
 
@@ -196,15 +202,15 @@ export function LoginForm() {
       if (userType === "club") {
         // For club login type
         if (
-          data.user?.user_metadata?.isClubCreator ||
-          data.user?.user_metadata?.role === "club_creator" ||
+          authenticatedUser.user_metadata?.isClubCreator ||
+          authenticatedUser.user_metadata?.role === "club_creator" ||
           (orgs && orgs.length > 0)
         ) {
           // If user has organizations, redirect to the specific club dashboard
           if (orgs && orgs.length > 0) {
             // Get the primary organization or the first one
             const primaryOrg =
-              orgs.find((org) => org.role === "owner") || orgs[0];
+              orgs.find((org: any) => org.role === "owner") || orgs[0];
 
             // Store the active club in localStorage
             localStorage.setItem(
@@ -226,19 +232,19 @@ export function LoginForm() {
         } else {
           // If not a club creator and no orgs, go to token verification
           // Use dynamic route for user-specific page
-          redirectPath = `/token-verification/${data.user.id}`;
+          redirectPath = `/token-verification/${authenticatedUser.id}`;
         }
       } else {
         // For user login type (athlete, parent, trainer)
-        if (data.user?.user_metadata?.role === "trainer") {
+        if (authenticatedUser.user_metadata?.role === "trainer") {
           redirectPath = "/trainer-dashboard";
-        } else if (data.user?.user_metadata?.role === "athlete") {
-          redirectPath = "/parent-view/profile";
-        } else if (data.user?.user_metadata?.role === "parent") {
-          redirectPath = "/parent-view/dashboard";
+        } else if (authenticatedUser.user_metadata?.role === "athlete") {
+          redirectPath = "/account";
+        } else if (authenticatedUser.user_metadata?.role === "parent") {
+          redirectPath = "/account";
         } else {
           // Use dynamic route for user-specific page
-          redirectPath = `/token-verification/${data.user.id}`;
+          redirectPath = `/token-verification/${authenticatedUser.id}`;
         }
       }
 
@@ -412,9 +418,9 @@ export function LoginForm() {
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-md">
                 <p className="text-sm text-red-600 mb-2">{error}</p>
-                {(error.includes("connessione") ||
-                  error.includes("rete") ||
-                  error.includes("fetch")) && (
+                {(error?.includes("connessione") ||
+                  error?.includes("rete") ||
+                  error?.includes("fetch")) && (
                   <div className="mt-2 text-xs text-red-500">
                     <p>Suggerimenti:</p>
                     <ul className="list-disc list-inside mt-1 space-y-1">

@@ -5,6 +5,12 @@ import {
   confirmPhoneVerification,
   finalizeVerifiedSession,
 } from "@/lib/server/auth-workflows";
+import {
+  AUTH_RATE_LIMITS,
+  consumeRequestRateLimits,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
 
 export async function POST(request: Request) {
   try {
@@ -22,11 +28,30 @@ export async function POST(request: Request) {
       );
     }
 
-    await confirmPhoneVerification(userId, code);
-    const finalized = await finalizeVerifiedSession(userId);
+    const rateLimit = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpConfirm,
+        identifier: `phone:${userId}:${getRequestIp(request)}`,
+      },
+    ]);
+    if (rateLimit) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: "Troppi tentativi. Richiedi un nuovo codice.",
+            code: "RATE_LIMITED",
+          },
+        },
+        { status: 429, headers: rateLimitHeaders(rateLimit) },
+      );
+    }
+
+    const verifiedUser = await confirmPhoneVerification(userId, code);
+    const finalized = await finalizeVerifiedSession(verifiedUser.id);
 
     if (!finalized.session) {
-      const pending = await buildPendingVerificationResponse(userId);
+      const pending = await buildPendingVerificationResponse(verifiedUser.id);
       return NextResponse.json({
         data: {
           user: serializeAuthUser(pending.user),
@@ -49,10 +74,11 @@ export async function POST(request: Request) {
     attachSessionCookie(response, finalized.session);
     return response;
   } catch (error: any) {
+    console.error("Phone verification confirm error:", error);
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore verifica telefono" },
+        error: { message: "Codice non valido o scaduto" },
       },
       { status: 400 },
     );

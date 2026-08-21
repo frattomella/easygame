@@ -36,7 +36,9 @@ type AuthCapabilities = {
   providers: AuthProvider[];
   emailVerification: boolean;
   phoneVerification: boolean;
+  emailProviderConfigured: boolean;
   phoneProviderConfigured: boolean;
+  testCodesEnabled: boolean;
 };
 
 type PendingVerification = {
@@ -53,7 +55,9 @@ const defaultCapabilities: AuthCapabilities = {
   providers: [],
   emailVerification: true,
   phoneVerification: true,
+  emailProviderConfigured: false,
   phoneProviderConfigured: false,
+  testCodesEnabled: false,
 };
 
 export function AuthShell({
@@ -134,6 +138,8 @@ export function AuthShell({
           emailVerification: Boolean(response.data.emailVerification),
           phoneVerification: Boolean(response.data.phoneVerification),
           phoneProviderConfigured: Boolean(response.data.phoneProviderConfigured),
+          emailProviderConfigured: Boolean(response.data.emailProviderConfigured),
+          testCodesEnabled: Boolean(response.data.testCodesEnabled),
         });
       }
       setLoadingProviders(false);
@@ -507,6 +513,12 @@ export function AuthShell({
                           Codice test email: {pendingVerification.emailPreviewCode}
                         </p>
                       )}
+                      {!capabilities.emailProviderConfigured &&
+                        !capabilities.testCodesEnabled && (
+                          <p className="text-xs text-red-600">
+                            Servizio email non configurato. Contatta l’assistenza.
+                          </p>
+                        )}
                       <div className="flex gap-2">
                         <Button
                           type="button"
@@ -550,11 +562,18 @@ export function AuthShell({
                           Codice test SMS: {pendingVerification.phonePreviewCode}
                         </p>
                       )}
-                      {!capabilities.phoneProviderConfigured && (
+                      {!capabilities.phoneProviderConfigured &&
+                        capabilities.testCodesEnabled && (
                         <p className="text-xs text-slate-500">
                           Nessun provider SMS configurato: in testing il codice viene mostrato qui.
                         </p>
                       )}
+                      {!capabilities.phoneProviderConfigured &&
+                        !capabilities.testCodesEnabled && (
+                          <p className="text-xs text-red-600">
+                            Servizio SMS non configurato. Contatta l’assistenza.
+                          </p>
+                        )}
                       <div className="flex gap-2">
                         <Button
                           type="button"
@@ -628,7 +647,7 @@ export function AuthShell({
                         ) : (
                           <ArrowRight className="mr-2 h-4 w-4" />
                         )}
-                        Entra nell'app
+                        Entra nell&apos;app
                       </Button>
                     </form>
                   </TabsContent>
@@ -746,6 +765,7 @@ export function AuthShell({
                           <Input
                             id="register-password"
                             type="password"
+                            minLength={12}
                             value={registerData.password}
                             onChange={(event) =>
                               handleRegisterChange("password", event.target.value)
@@ -758,6 +778,7 @@ export function AuthShell({
                           <Input
                             id="confirmPassword"
                             type="password"
+                            minLength={12}
                             value={registerData.confirmPassword}
                             onChange={(event) =>
                               handleRegisterChange(

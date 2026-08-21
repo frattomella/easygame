@@ -1,5 +1,10 @@
 import { prisma } from "./prisma";
+import type { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
+import {
+  getPasswordPolicyMessage,
+  validatePassword,
+} from "../auth/password-policy";
 import {
   buildClubCategoryOptions,
   resolveCategoryId,
@@ -763,7 +768,12 @@ const normalizeModelInput = async (
     delete next.club_access;
 
     if (next.password) {
-      next.password_hash = await hashPassword(String(next.password));
+      const password = String(next.password);
+      const passwordPolicy = validatePassword(password, next.email);
+      if (!passwordPolicy.valid) {
+        throw new Error(getPasswordPolicyMessage(passwordPolicy));
+      }
+      next.password_hash = await hashPassword(password);
       delete next.password;
     }
 
@@ -1533,7 +1543,7 @@ export const getResourceById = async (
 
   assertRecordAccess(resource, record || null, scope);
 
-  return serializeRecord(resource, record || null);
+  return record ? serializeRecord(resource, record) : null;
 };
 
 const resolveUpsertWhere = (resource: string, input: Record<string, any>) => {
@@ -1672,6 +1682,13 @@ export const createResource = async (
     normalized.user_id
   ) {
     const role = normalized.role || "member";
+    const accessData: Prisma.OrganizationUserUncheckedCreateInput = {
+      id: normalized.id || undefined,
+      organization_id: String(normalized.organization_id),
+      user_id: String(normalized.user_id),
+      role: String(role),
+      is_primary: Boolean(normalized.is_primary),
+    };
     const existingAccess = await prisma.organizationUser.findFirst({
       where: {
         organization_id: normalized.organization_id,
@@ -1683,18 +1700,10 @@ export const createResource = async (
     const record = existingAccess
       ? await prisma.organizationUser.update({
           where: { id: existingAccess.id },
-          data: {
-            ...normalized,
-            role,
-          },
-          include: getModelInclude(resource),
+          data: accessData,
         })
       : await prisma.organizationUser.create({
-          data: {
-            ...normalized,
-            role,
-          },
-          include: getModelInclude(resource),
+          data: accessData,
         });
 
     return serializeRecord(resource, record);

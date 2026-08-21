@@ -127,7 +127,14 @@ export function RegisterForm() {
         throw signUpError;
       }
 
-      console.log("Supabase auth response:", data);
+      if (data.verification) {
+        showToast(
+          "success",
+          "Registrazione ricevuta. Accedi per completare la verifica.",
+        );
+        router.push(`/login?email=${encodeURIComponent(formData.email)}`);
+        return;
+      }
 
       if (data.user) {
         console.log("User created successfully");
@@ -246,7 +253,7 @@ export function RegisterForm() {
 
         return;
       } else {
-        console.warn("No user data returned from Supabase");
+        throw new Error("Flusso di registrazione incompleto");
       }
     } catch (err: any) {
       console.error("Registration error:", err);
@@ -259,11 +266,7 @@ export function RegisterForm() {
         console.error("Error details:", err.details);
       }
 
-      if (err.message?.includes("Password should be at least")) {
-        errorMessage = "La password deve essere di almeno 6 caratteri.";
-      } else if (err.message?.includes("User already registered")) {
-        errorMessage = "Email già registrata. Prova ad accedere.";
-      } else if (err.message?.includes("fetch")) {
+      if (err.message?.includes("fetch")) {
         errorMessage =
           "Errore di connessione al server. Verifica la tua connessione internet.";
       } else if (err.message) {
@@ -287,7 +290,7 @@ export function RegisterForm() {
             : "Crea un profilo utente"}
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          Registrazione collegata al backend SQL dell'app.
+          Registrazione collegata al backend SQL dell&apos;app.
         </p>
       </div>
 
@@ -337,6 +340,7 @@ export function RegisterForm() {
               id="password"
               name="password"
               type="password"
+              minLength={12}
               value={formData.password}
               onChange={handleChange}
               required
@@ -349,6 +353,7 @@ export function RegisterForm() {
               id="confirmPassword"
               name="confirmPassword"
               type="password"
+              minLength={12}
               value={formData.confirmPassword}
               onChange={handleChange}
               required

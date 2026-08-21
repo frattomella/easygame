@@ -1,6 +1,10 @@
-import { createHash, randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomInt, randomUUID } from "crypto";
 import { prisma } from "./prisma";
 import { createSessionForUser, hashPassword } from "./auth";
+import {
+  MAX_OTP_ATTEMPTS,
+  shouldExposeVerificationPreviewCode,
+} from "../auth/otp-policy";
 
 type VerificationChannel = "email" | "phone";
 type VerificationPurpose =
@@ -25,8 +29,20 @@ const slugify = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-const createOtpCode = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const asMetadataRecord = (value: unknown): Record<string, any> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : {};
+
+const createOtpCode = () => randomInt(100000, 1_000_000).toString();
 
 const hashOtpCode = (code: string) =>
   createHash("sha256").update(code).digest("hex");
@@ -36,12 +52,37 @@ const getAppBaseUrl = () =>
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:3001";
 
-const isPhoneVerificationProviderConfigured = () =>
+export const isPhoneVerificationProviderConfigured = () =>
   Boolean(
     process.env.TWILIO_ACCOUNT_SID &&
       process.env.TWILIO_AUTH_TOKEN &&
       process.env.TWILIO_VERIFY_SERVICE_SID,
   );
+
+export const isEmailVerificationProviderConfigured = () =>
+  Boolean(process.env.RESEND_API_KEY && process.env.AUTH_FROM_EMAIL);
+
+const getPreviewCode = (sent: boolean, code: string) =>
+  !sent && shouldExposeVerificationPreviewCode() ? code : null;
+
+export const createVerificationReference = () =>
+  `verify_${randomBytes(24).toString("hex")}`;
+
+export const findUserByVerificationReference = async (reference: string) => {
+  const normalizedReference = String(reference || "").trim();
+  if (!normalizedReference) return null;
+
+  const byToken = await prisma.user.findUnique({
+    where: { token_verification_id: normalizedReference },
+  });
+  if (byToken) return byToken;
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalizedReference)) {
+    return null;
+  }
+
+  return prisma.user.findUnique({ where: { id: normalizedReference } });
+};
 
 const buildVerificationPayload = (user: {
   id: string;
@@ -115,7 +156,7 @@ const sendEmailViaResend = async ({
   subject: string;
   html: string;
 }) => {
-  if (!process.env.RESEND_API_KEY || !process.env.AUTH_FROM_EMAIL) {
+  if (!isEmailVerificationProviderConfigured()) {
     return false;
   }
 
@@ -133,6 +174,11 @@ const sendEmailViaResend = async ({
     }),
   });
 
+  if (!response.ok) {
+    console.error("Resend verification delivery failed", {
+      status: response.status,
+    });
+  }
   return response.ok;
 };
 
@@ -158,6 +204,11 @@ const sendPhoneViaTwilioVerify = async (phone: string) => {
     },
   );
 
+  if (!response.ok) {
+    console.error("Twilio verification delivery failed", {
+      status: response.status,
+    });
+  }
   return response.ok;
 };
 
@@ -183,7 +234,7 @@ export const sendEmailVerificationChallenge = async (
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f172a;">
         <h2 style="margin-bottom: 12px;">Verifica accesso EasyGame</h2>
-        <p>Ciao ${user.first_name || ""}, usa questo codice per completare l'accesso:</p>
+        <p>Ciao ${escapeHtml(user.first_name || "")}, usa questo codice per completare l'accesso:</p>
         <div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; padding: 16px 0;">${code}</div>
         <p>Il codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.</p>
       </div>
@@ -192,7 +243,7 @@ export const sendEmailVerificationChallenge = async (
 
   return {
     sent,
-    previewCode: sent ? null : code,
+    previewCode: getPreviewCode(sent, code),
   };
 };
 
@@ -228,7 +279,7 @@ export const sendPhoneVerificationChallenge = async (
 
   return {
     sent: false,
-    previewCode: code,
+    previewCode: getPreviewCode(false, code),
   };
 };
 
@@ -256,20 +307,32 @@ const verifyInternalChallenge = async ({
   });
 
   if (!challenge) {
-    throw new Error("Nessun codice valido trovato");
+    throw new Error("Codice non valido o scaduto");
+  }
+
+  if (challenge.attempts >= MAX_OTP_ATTEMPTS) {
+    await prisma.authVerificationChallenge.update({
+      where: { id: challenge.id },
+      data: { consumed_at: new Date() },
+    });
+    throw new Error("Codice non valido o scaduto");
   }
 
   const isValid = challenge.code_hash === hashOtpCode(code);
+  const nextAttempts = challenge.attempts + 1;
   await prisma.authVerificationChallenge.update({
     where: { id: challenge.id },
     data: {
-      attempts: challenge.attempts + 1,
-      consumed_at: isValid ? new Date() : challenge.consumed_at,
+      attempts: nextAttempts,
+      consumed_at:
+        isValid || nextAttempts >= MAX_OTP_ATTEMPTS
+          ? new Date()
+          : challenge.consumed_at,
     },
   });
 
   if (!isValid) {
-    throw new Error("Codice di verifica non valido");
+    throw new Error("Codice non valido o scaduto");
   }
 
   return challenge;
@@ -304,17 +367,20 @@ const verifyPhoneWithTwilio = async (phone: string, code: string) => {
 };
 
 export const confirmEmailVerification = async (
-  userId: string,
+  userReference: string,
   code: string,
 ) => {
+  const user = await findUserByVerificationReference(userReference);
+  if (!user) throw new Error("Codice non valido o scaduto");
+
   await verifyInternalChallenge({
-    userId,
+    userId: user.id,
     channel: "email",
     code,
   });
 
   return prisma.user.update({
-    where: { id: userId },
+    where: { id: user.id },
     data: {
       email_verified_at: new Date(),
     },
@@ -322,15 +388,13 @@ export const confirmEmailVerification = async (
 };
 
 export const confirmPhoneVerification = async (
-  userId: string,
+  userReference: string,
   code: string,
 ) => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-  });
+  const user = await findUserByVerificationReference(userReference);
 
   if (!user) {
-    throw new Error("Utente non trovato");
+    throw new Error("Codice non valido o scaduto");
   }
 
   if (!user.phone) {
@@ -341,14 +405,14 @@ export const confirmPhoneVerification = async (
     await verifyPhoneWithTwilio(user.phone, code);
   } else {
     await verifyInternalChallenge({
-      userId,
+      userId: user.id,
       channel: "phone",
       code,
     });
   }
 
   return prisma.user.update({
-    where: { id: userId },
+    where: { id: user.id },
     data: {
       phone_verified_at: new Date(),
     },
@@ -371,11 +435,12 @@ export const ensurePrimaryClubForUser = async (userId: string) => {
     return user.club_access[0]?.organization_id || null;
   }
 
+  const userMetadata = asMetadataRecord(user.user_metadata);
+
   const organizationName =
     user.organization_name ||
-    (typeof user.user_metadata === "object" &&
-    user.user_metadata?.organizationName
-      ? String(user.user_metadata.organizationName)
+    (userMetadata.organizationName
+      ? String(userMetadata.organizationName)
       : "") ||
     [user.first_name, user.last_name].filter(Boolean).join(" ").trim() ||
     "Nuovo Club";
@@ -387,20 +452,11 @@ export const ensurePrimaryClubForUser = async (userId: string) => {
       creator_id: user.id,
       contact_email: user.email,
       contact_phone: user.phone || null,
-      address:
-        typeof user.user_metadata === "object" ? user.user_metadata?.address || null : null,
-      city:
-        typeof user.user_metadata === "object" ? user.user_metadata?.city || null : null,
-      postal_code:
-        typeof user.user_metadata === "object"
-          ? user.user_metadata?.postalCode || null
-          : null,
-      region:
-        typeof user.user_metadata === "object" ? user.user_metadata?.region || null : null,
-      province:
-        typeof user.user_metadata === "object"
-          ? user.user_metadata?.province || null
-          : null,
+      address: userMetadata.address || null,
+      city: userMetadata.city || null,
+      postal_code: userMetadata.postalCode || null,
+      region: userMetadata.region || null,
+      province: userMetadata.province || null,
       country: "Italia",
     },
   });
@@ -765,16 +821,16 @@ export const findOrCreateOAuthUser = async ({
   });
 
   if (existingAccount?.user) {
+    const existingMetadata = asMetadataRecord(
+      existingAccount.user.user_metadata,
+    );
     const updatedUser = await prisma.user.update({
       where: { id: existingAccount.user.id },
       data: {
         email_verified_at: existingAccount.user.email_verified_at || new Date(),
         user_metadata: {
-          ...(typeof existingAccount.user.user_metadata === "object" &&
-          existingAccount.user.user_metadata
-            ? existingAccount.user.user_metadata
-            : {}),
-          avatarUrl: avatarUrl || existingAccount.user.user_metadata?.avatarUrl,
+          ...existingMetadata,
+          avatarUrl: avatarUrl || existingMetadata.avatarUrl,
           oauthPreferredProvider: providerId,
         },
       },
@@ -798,6 +854,7 @@ export const findOrCreateOAuthUser = async ({
   });
 
   if (existingUser) {
+    const existingMetadata = asMetadataRecord(existingUser.user_metadata);
     const updatedUser = await prisma.user.update({
       where: { id: existingUser.id },
       data: {
@@ -805,16 +862,13 @@ export const findOrCreateOAuthUser = async ({
         last_name: existingUser.last_name || lastName || null,
         email_verified_at: existingUser.email_verified_at || new Date(),
         user_metadata: {
-          ...(typeof existingUser.user_metadata === "object" &&
-          existingUser.user_metadata
-            ? existingUser.user_metadata
-            : {}),
+          ...existingMetadata,
           name:
             [existingUser.first_name || firstName, existingUser.last_name || lastName]
               .filter(Boolean)
               .join(" ")
               .trim() || displayName || undefined,
-          avatarUrl: avatarUrl || existingUser.user_metadata?.avatarUrl,
+          avatarUrl: avatarUrl || existingMetadata.avatarUrl,
           oauthPreferredProvider: providerId,
         },
       },
@@ -856,7 +910,9 @@ export const createOAuthState = () => randomUUID();
 export const getAuthCapabilities = () => ({
   emailVerification: true,
   phoneVerification: true,
+  emailProviderConfigured: isEmailVerificationProviderConfigured(),
   phoneProviderConfigured: isPhoneVerificationProviderConfigured(),
+  testCodesEnabled: shouldExposeVerificationPreviewCode(),
   providers: getEnabledOAuthProviders().map((provider) => ({
     id: provider.id,
     label: provider.label,

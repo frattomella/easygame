@@ -825,6 +825,15 @@ const createApiSupabaseClient = () => ({
       const response = await apiRequest<{
         user: MockUser | null;
         session: MockSession | null;
+        verification?: {
+          userId: string;
+          email: string;
+          phone?: string | null;
+          emailRequired: boolean;
+          phoneRequired: boolean;
+          emailPreviewCode?: string | null;
+          phonePreviewCode?: string | null;
+        };
       }>("/api/v1/auth/register", {
         method: "POST",
         body: { email, password, options },
@@ -967,7 +976,7 @@ const createApiSupabaseClient = () => ({
     const channelApi = {
       on: (
         event: string,
-        filter: { table?: string; event?: string },
+        filter: { table?: string; event?: string; schema?: string },
         callback: (payload: any) => void,
       ) => {
         channelHandlers.push({
@@ -1070,7 +1079,7 @@ const CACHE_TTL = 5 * 60 * 1000;
 
 export const cachedQuery = async (
   key: string,
-  queryFn: () => Promise<any>,
+  queryFn: () => PromiseLike<any>,
   ttl: number = CACHE_TTL,
 ) => {
   const cached = queryCache.get(key);

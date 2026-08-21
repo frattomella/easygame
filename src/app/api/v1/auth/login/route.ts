@@ -14,6 +14,31 @@ import {
   sendEmailVerificationChallenge,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
+import {
+  AUTH_RATE_LIMITS,
+  consumeRequestRateLimits,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
+
+const DUMMY_PASSWORD_HASH =
+  "$2a$10$3gQkUQ3VL89S/gY5KFIC0OG/lquhesFrvFvKtZk4ebmerY.cPiUuO";
+
+const rateLimitedResponse = (result: {
+  retryAfterSeconds: number;
+  limit: number;
+  remaining: number;
+}) =>
+  NextResponse.json(
+    {
+      data: { user: null, session: null },
+      error: {
+        message: "Troppe richieste. Riprova più tardi.",
+        code: "RATE_LIMITED",
+      },
+    },
+    { status: 429, headers: rateLimitHeaders({ ...result, allowed: false }) },
+  );
 
 export async function POST(request: Request) {
   try {
@@ -31,11 +56,22 @@ export async function POST(request: Request) {
       );
     }
 
+    const ip = getRequestIp(request);
+    const loginRateLimit = await consumeRequestRateLimits([
+      { policy: AUTH_RATE_LIMITS.loginIp, identifier: `ip:${ip}` },
+      {
+        policy: AUTH_RATE_LIMITS.loginIdentity,
+        identifier: `identity:${email}`,
+      },
+    ]);
+    if (loginRateLimit) return rateLimitedResponse(loginRateLimit);
+
     const user = await prisma.user.findUnique({
       where: { email },
     });
 
     if (!user) {
+      await verifyPassword(password, DUMMY_PASSWORD_HASH);
       return NextResponse.json(
         {
           data: { user: null, session: null },
@@ -57,6 +93,14 @@ export async function POST(request: Request) {
     }
 
     if (!user.email_verified_at) {
+      const otpRateLimit = await consumeRequestRateLimits([
+        {
+          policy: AUTH_RATE_LIMITS.otpSend,
+          identifier: `email:${user.id}:${ip}`,
+        },
+      ]);
+      if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
+
       const emailChallenge = await sendEmailVerificationChallenge(user, "login");
       return NextResponse.json(
         {
@@ -84,6 +128,14 @@ export async function POST(request: Request) {
     }
 
     if (user.phone_verification_required && user.phone && !user.phone_verified_at) {
+      const otpRateLimit = await consumeRequestRateLimits([
+        {
+          policy: AUTH_RATE_LIMITS.otpSend,
+          identifier: `phone:${user.id}:${ip}`,
+        },
+      ]);
+      if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
+
       const phoneChallenge = await sendPhoneVerificationChallenge(user, "login");
       return NextResponse.json(
         {

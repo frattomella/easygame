@@ -5,6 +5,10 @@ import {
   getSessionFromRequest,
   hashPassword,
 } from "@/lib/server/auth";
+import {
+  getPasswordPolicyMessage,
+  validatePassword,
+} from "@/lib/auth/password-policy";
 
 export async function GET(request: Request) {
   const session = await getSessionFromRequest(request);
@@ -52,6 +56,27 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const requestedPassword =
+      body?.password !== undefined ? String(body.password) : undefined;
+    if (requestedPassword !== undefined) {
+      const passwordPolicy = validatePassword(
+        requestedPassword,
+        email || session.db.user.email,
+      );
+      if (!passwordPolicy.valid) {
+        return NextResponse.json(
+          {
+            data: { user: null },
+            error: {
+              message: getPasswordPolicyMessage(passwordPolicy),
+              code: "WEAK_PASSWORD",
+            },
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     if (email && email !== session.db.user.email) {
       const existingUser = await prisma.user.findUnique({
         where: { email },
@@ -76,8 +101,8 @@ export async function PATCH(request: Request) {
       where: { id: session.db.user_id },
       data: {
         email: emailChanged ? email : undefined,
-        password_hash: body?.password
-          ? await hashPassword(String(body.password))
+        password_hash: requestedPassword
+          ? await hashPassword(requestedPassword)
           : undefined,
         first_name:
           metadata.firstName !== undefined

@@ -7,6 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import {
+  getPasswordPolicyMessage,
+  validatePassword,
+} from "@/lib/auth/password-policy";
 
 export default function ProfilePage({
   params,
@@ -222,8 +226,9 @@ export default function ProfilePage({
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError("La password deve essere di almeno 6 caratteri");
+    const passwordPolicy = validatePassword(newPassword, email);
+    if (!passwordPolicy.valid) {
+      setError(getPasswordPolicyMessage(passwordPolicy));
       return;
     }
 
@@ -333,7 +338,7 @@ export default function ProfilePage({
             <Label htmlFor="email">Email</Label>
             <Input id="email" value={email} disabled className="bg-gray-50" />
             <p className="text-xs text-gray-500">
-              L'email non può essere modificata
+              L&apos;email non può essere modificata
             </p>
           </div>
 
@@ -409,7 +414,7 @@ export default function ProfilePage({
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Nuova password (min. 6 caratteri)"
                     required
-                    minLength={6}
+                    minLength={12}
                   />
                 </div>
 
@@ -424,7 +429,7 @@ export default function ProfilePage({
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Conferma nuova password"
                     required
-                    minLength={6}
+                    minLength={12}
                   />
                 </div>
 

@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/server/prisma";
-import { sendPhoneVerificationChallenge } from "@/lib/server/auth-workflows";
+import {
+  findUserByVerificationReference,
+  sendPhoneVerificationChallenge,
+} from "@/lib/server/auth-workflows";
+import {
+  AUTH_RATE_LIMITS,
+  consumeRequestRateLimits,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
 
 export async function POST(request: Request) {
   try {
@@ -17,33 +25,48 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
+    const rateLimit = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpSend,
+        identifier: `phone:${userId}:${getRequestIp(request)}`,
+      },
+    ]);
+    if (rateLimit) {
       return NextResponse.json(
         {
           data: null,
-          error: { message: "Utente non trovato" },
+          error: {
+            message: "Troppi reinvii. Riprova più tardi.",
+            code: "RATE_LIMITED",
+          },
         },
-        { status: 404 },
+        { status: 429, headers: rateLimitHeaders(rateLimit) },
       );
+    }
+
+    const user = await findUserByVerificationReference(userId);
+
+    if (!user || !user.phone || user.phone_verified_at) {
+      return NextResponse.json({
+        data: { sent: true, previewCode: null },
+        error: null,
+      });
     }
 
     const challenge = await sendPhoneVerificationChallenge(user, "verify_phone");
     return NextResponse.json({
       data: {
-        sent: challenge.sent,
+        sent: true,
         previewCode: challenge.previewCode,
       },
       error: null,
     });
   } catch (error: any) {
+    console.error("Phone verification resend error:", error);
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore invio verifica telefono" },
+        error: { message: "Errore invio verifica telefono" },
       },
       { status: 500 },
     );

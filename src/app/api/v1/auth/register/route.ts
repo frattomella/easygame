@@ -1,10 +1,55 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
-import { hashPassword, serializeAuthUser } from "@/lib/server/auth";
+import { hashPassword, verifyPassword } from "@/lib/server/auth";
 import {
+  createVerificationReference,
   sendEmailVerificationChallenge,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
+import {
+  AUTH_RATE_LIMITS,
+  consumeRequestRateLimits,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
+import {
+  getPasswordPolicyMessage,
+  validatePassword,
+} from "@/lib/auth/password-policy";
+import { normalizePublicRegistrationRole } from "@/lib/auth/registration-policy";
+
+const registrationResponse = ({
+  verificationReference,
+  email,
+  phone,
+  emailPreviewCode = null,
+  phonePreviewCode = null,
+}: {
+  verificationReference: string;
+  email: string;
+  phone: string | null;
+  emailPreviewCode?: string | null;
+  phonePreviewCode?: string | null;
+}) =>
+  NextResponse.json(
+    {
+      data: {
+        user: null,
+        session: null,
+        verification: {
+          userId: verificationReference,
+          email,
+          phone,
+          emailRequired: true,
+          phoneRequired: Boolean(phone),
+          emailPreviewCode,
+          phonePreviewCode,
+        },
+      },
+      error: null,
+    },
+    { status: 202 },
+  );
 
 export async function POST(request: Request) {
   try {
@@ -26,35 +71,98 @@ export async function POST(request: Request) {
       );
     }
 
+    const passwordPolicy = validatePassword(password, email);
+    if (!passwordPolicy.valid) {
+      return NextResponse.json(
+        {
+          data: { user: null, session: null },
+          error: {
+            message: getPasswordPolicyMessage(passwordPolicy),
+            code: "WEAK_PASSWORD",
+          },
+        },
+        { status: 400 },
+      );
+    }
+
+    const ip = getRequestIp(request);
+    const rateLimit = await consumeRequestRateLimits([
+      { policy: AUTH_RATE_LIMITS.registerIp, identifier: `ip:${ip}` },
+      {
+        policy: AUTH_RATE_LIMITS.registerIdentity,
+        identifier: `identity:${email}`,
+      },
+    ]);
+    if (rateLimit) {
+      return NextResponse.json(
+        {
+          data: { user: null, session: null },
+          error: {
+            message: "Troppe richieste. Riprova più tardi.",
+            code: "RATE_LIMITED",
+          },
+        },
+        { status: 429, headers: rateLimitHeaders(rateLimit) },
+      );
+    }
+
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
 
-    if (existingUser) {
-      return NextResponse.json(
-        {
-          data: { user: null, session: null },
-          error: { message: "User already registered" },
-        },
-        { status: 409 },
-      );
-    }
-
-    const password_hash = await hashPassword(password);
-    const requestedRole = String(userData.role || "user");
     const shouldCreateClub = Boolean(body?.createClub ?? userData.createClub);
-    const role = shouldCreateClub
-      ? "club_creator"
-      : requestedRole === "club_creator"
-        ? "user"
-        : requestedRole;
+    const role = normalizePublicRegistrationRole(
+      userData.role,
+      shouldCreateClub,
+    );
     const first_name = String(userData.firstName || "").trim() || null;
     const last_name = String(userData.lastName || "").trim() || null;
+    const phone = String(userData.phone || "").trim() || null;
     const organization_name = String(
       userData.organizationName ||
         [first_name, last_name].filter(Boolean).join(" ").trim() ||
         "Nuovo Club",
     ).trim();
+
+    if (existingUser) {
+      const passwordMatches = await verifyPassword(
+        password,
+        existingUser.password_hash,
+      );
+
+      if (passwordMatches && !existingUser.email_verified_at) {
+        const verificationReference = createVerificationReference();
+        const pendingUser = await prisma.user.update({
+          where: { id: existingUser.id },
+          data: { token_verification_id: verificationReference },
+        });
+        const emailChallenge = await sendEmailVerificationChallenge(
+          pendingUser,
+          "signup",
+        );
+        const phoneChallenge = await sendPhoneVerificationChallenge(
+          pendingUser,
+          "signup",
+        );
+
+        return registrationResponse({
+          verificationReference,
+          email,
+          phone: pendingUser.phone || null,
+          emailPreviewCode: emailChallenge.previewCode,
+          phonePreviewCode: phoneChallenge.previewCode,
+        });
+      }
+
+      return registrationResponse({
+        verificationReference: createVerificationReference(),
+        email,
+        phone,
+      });
+    }
+
+    const password_hash = await hashPassword(password);
+    const verificationReference = createVerificationReference();
 
     const createdUser = await prisma.user.create({
       data: {
@@ -62,16 +170,21 @@ export async function POST(request: Request) {
         password_hash,
         first_name,
         last_name,
-        phone: userData.phone || null,
-        phone_verification_required: Boolean(userData.phone),
+        phone,
+        phone_verification_required: Boolean(phone),
         role,
         is_club_creator: shouldCreateClub,
         organization_name: shouldCreateClub ? organization_name : null,
-        token_verification_id: `token-${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2, 8)}`,
+        token_verification_id: verificationReference,
         user_metadata: {
-          ...userData,
+          firstName: first_name || undefined,
+          lastName: last_name || undefined,
+          name:
+            String(userData.name || "").trim() ||
+            [first_name, last_name].filter(Boolean).join(" ").trim() ||
+            undefined,
+          phone: phone || undefined,
+          accessCode: userData.accessCode || undefined,
           role,
           createClub: shouldCreateClub,
           organizationName: shouldCreateClub ? organization_name : undefined,
@@ -89,33 +202,20 @@ export async function POST(request: Request) {
       "signup",
     );
 
-    return NextResponse.json(
-      {
-        data: {
-          user: serializeAuthUser(createdUser),
-          session: null,
-          verification: {
-            userId: createdUser.id,
-            email: createdUser.email,
-            phone: createdUser.phone || null,
-            emailRequired: true,
-            phoneRequired: Boolean(
-              createdUser.phone_verification_required && createdUser.phone,
-            ),
-            emailPreviewCode: emailChallenge.previewCode,
-            phonePreviewCode: phoneChallenge.previewCode,
-          },
-        },
-        error: null,
-      },
-      { status: 201 },
-    );
+    return registrationResponse({
+      verificationReference,
+      email,
+      phone,
+      emailPreviewCode: emailChallenge.previewCode,
+      phonePreviewCode: phoneChallenge.previewCode,
+    });
   } catch (error: any) {
+    console.error("Registration error:", error);
     return NextResponse.json(
       {
         data: { user: null, session: null },
         error: {
-          message: error?.message || "Errore durante la registrazione",
+          message: "Errore durante la registrazione",
         },
       },
       { status: 500 },
