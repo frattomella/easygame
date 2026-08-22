@@ -67,27 +67,27 @@ Regola pratica: **codice nuovo → `api.ts` + `mobile-backend-storage.ts`**.
   (`readAuthToken` in `src/lib/server/auth.ts`).
 - Il club/contesto attivo viaggia con `x-active-club-id`, come nel Web.
 
-## Server Express nel mobile — da NON usare
+## Nessun accesso diretto al database — ADR-0018
 
-`easygamemobile/server/` contiene uno scaffold Replit:
+Il mobile parla **solo** con le API `/api/v1` della Web App.
 
-- `index.ts` — Express con CORS per domini Replit e localhost;
-- `routes.ts` — **`registerRoutes()` non registra alcuna rotta**;
-- `storage.ts` — storage in memoria.
+Fino al 2026-08-22 la cartella conteneva anche uno scaffold Replit
+(`server/`, Express con `registerRoutes()` vuota), uno schema **Drizzle**
+(`shared/schema.ts`) che ridefiniva una tabella `users` con colonne
+`username` / `password`, e uno script `db:push` che avrebbe applicato quello
+schema al **database Neon reale**, dove `users` e la tabella gestita da Prisma.
 
-Non e collegato all'app: `api.ts` punta direttamente al backend Next.js.
+Sono stati rimossi tutti: `server/`, `shared/`, `drizzle.config.ts`, `.replit`,
+gli script `db:push` e `server:*`, l'alias `@shared` da `tsconfig.json` e
+`babel.config.js`, e le dipendenze `drizzle-orm`, `drizzle-zod`, `drizzle-kit`,
+`express`, `@types/express`, `pg`, `ws`, `http-proxy-middleware`, `tsx`.
 
-## Drizzle — rischio da conoscere
-
-`easygamemobile/shared/schema.ts` definisce con Drizzle una tabella `users` con
-colonne `username` / `password`, e `drizzle.config.ts` legge `DATABASE_URL`.
-
-Lo script `npm run db:push` nella cartella mobile eseguirebbe
-`drizzle-kit push` **contro lo stesso database Neon della Web App**, dove la
-tabella `users` e quella reale gestita da Prisma (email, `password_hash`, ...).
-
-> **Non eseguire mai `npm run db:push` dentro `easygamemobile/`.**
-> Vedi [14 — Sicurezza](14-security.md) e [WP-06](20-work-packages.md).
+> **Regola permanente:** nessuna connection string, nessun ORM e nessuno
+> strumento di migrazione dentro `easygamemobile/`. Se al mobile serve un dato
+> che l'API non espone, si aggiunge un endpoint lato Web.
+>
+> La CI lo verifica: il job `guardrails` fallisce se `DATABASE_URL` ricompare
+> in `easygamemobile/`.
 
 ## Comandi
 

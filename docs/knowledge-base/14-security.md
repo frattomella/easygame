@@ -71,25 +71,26 @@ non dati altrui.
 *Mitigazione*: [WP-03](20-work-packages.md) — estendere `AccessAreaGuard` o
 introdurre un `middleware.ts`.
 
-### 2. `easygamemobile` puo distruggere il database reale — ALTO
+### 2. ~~`easygamemobile` puo distruggere il database reale~~ — RISOLTO (2026-08-22)
 
-`easygamemobile/shared/schema.ts` definisce con Drizzle una tabella `users`
-(`username`, `password`) diversa dalla `users` reale gestita da Prisma.
-`drizzle.config.ts` legge `DATABASE_URL`.
+Lo schema Drizzle, lo scaffold Express, `drizzle.config.ts`, `.replit`, lo
+script `db:push` e tutte le dipendenze di accesso al database sono stati
+**rimossi** dal mobile ([ADR-0018](18-decision-log.md)).
 
-Eseguire `npm run db:push` dentro `easygamemobile/` con `DATABASE_URL`
-valorizzato lancerebbe `drizzle-kit push` **sul database Neon di
-staging/produzione**, tentando di alterare la tabella degli utenti.
+Presidio permanente: il job `guardrails` della CI fallisce se `DATABASE_URL`
+ricompare sotto `easygamemobile/`.
 
-> **Non eseguire mai `npm run db:push` in `easygamemobile/`.**
-> Rimedio strutturale: [WP-06](20-work-packages.md) — rimuovere Drizzle e lo
-> scaffold Express dal mobile.
+### 3. `.env` locale punta al database di staging — MITIGATO (2026-08-22)
 
-### 3. `.env` locale punta al database di staging — ALTO (operativo)
+Il branch Neon di sviluppo **non esiste ancora** (richiede la console Neon), ma
+le scritture locali verso database condivisi sono **bloccate**:
+`scripts/db-guard.mjs` precede `db:push`, `db:migrate`, `prisma:push`,
+`prisma:migrate`, `prisma:seed` e `staging:provision-e2e`, e consente solo con
+`EASYGAME_DB_ENV="development"`.
 
-Non esiste un database locale. Qualunque comando Prisma di scrittura eseguito
-in locale (`migrate dev`, `db push`, `prisma:seed`) modifica staging.
-Vedi [13 — Ambienti](13-environments.md).
+Resta un rischio residuo: la guardia protegge gli script npm, **non** un
+`npx prisma db push` invocato a mano. Vedi [13 — Ambienti](13-environments.md)
+e [WP-09](20-work-packages.md).
 
 ### 4. Il deploy applica le migrazioni — MEDIO
 

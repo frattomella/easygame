@@ -7,6 +7,8 @@ module.exports = defineConfig([
   expoConfig,
   eslintPluginPrettierRecommended,
   {
-    ignores: ["dist/*"],
+    // .codex-* sono artefatti locali di tooling, gitignored: non fanno parte
+    // del progetto e non devono far fallire il lint (ne in locale ne in CI).
+    ignores: ["dist/*", ".codex-*", "server_dist/*"],
   },
 ]);
