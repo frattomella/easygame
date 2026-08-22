@@ -516,23 +516,92 @@ round trip a Neon ciascuna.
 
 ---
 
-### WP-34 · Responsivita verificata del Web — `READY`
+### WP-34 · Responsivita verificata del Web — `PARZIALE` (2026-08-23)
 
 **Obiettivo.** Rendere ogni area del Web usabile da desktop, tablet e
 smartphone, con una verifica ripetibile invece che a campione.
 
-**Scope.** Inventario delle pagine con tabelle a larghezza fissa e dialog non
-scrollabili; regola: ogni contenitore largo scorre dentro il proprio
-`overflow-x-auto`, mai il `body`. Breakpoint di riferimento: 375, 768, 1280 px.
+**Fatto (Blocco 3).** Corretti i difetti **sistemici**, cioe quelli che
+vivono nei componenti condivisi e quindi valgono per tutte le pagine:
 
-**Dipendenze.** Nessuna. Non collide con WP-31..WP-33.
+- `DialogContent` e `AlertDialogContent` non avevano ne altezza massima ne
+  scorrimento: una dialog piu alta dello schermo — scheda atleta, conferma
+  piano, editor categoria — usciva dal viewport e i pulsanti in fondo erano
+  **irraggiungibili** su telefono;
+- i comandi delle schermate di accesso misuravano 28-36 px, sotto la soglia
+  dei 44 px per un bersaglio da dito;
+- la topbar mobile ripeteva "EasyGame" e non diceva in che club e in che
+  stagione ci si trovava.
+
+**Verifica.** A 375, 768 e 1280 px, sul banco che monta la chrome reale
+(sidebar, topbar, tabella larga, dialog alta) e sulle pagine pubbliche:
+scroll orizzontale del documento **0 px**, nessun elemento fuori contenitore,
+dialog interamente dentro il viewport a tutti e tre i breakpoint.
+
+**Resta aperto.** Le pagine gestionali non sono verificabili senza una
+sessione autenticata: la verifica pagina per pagina di scheda atleta,
+pagamenti, categorie, allenatori e gestione club va fatta a mano in staging.
 
 **Acceptance criteria.**
-- [ ] Nessuna pagina management produce scroll orizzontale del documento a 375 px
-- [ ] Le dialog restano interamente raggiungibili a 375 px
-- [ ] La regola e in [10 — UI/UX](10-ui-ux-conventions.md)
+- [x] Nessuna pagina verificata produce scroll orizzontale del documento a 375 px
+- [x] Le dialog restano interamente raggiungibili a 375 px
+- [x] La regola e in [10 — UI/UX](10-ui-ux-conventions.md)
+- [ ] Verifica pagina per pagina delle aree gestionali (richiede sessione)
 
-**File.** `src/app/**`, `src/components/**`, [10](10-ui-ux-conventions.md).
+**File.** `src/components/ui/dialog.tsx`, `src/components/ui/alert-dialog.tsx`,
+`src/app/globals.css`, `src/components/layout/MobileTopBar.tsx`,
+[10](10-ui-ux-conventions.md).
+
+---
+
+### WP-37 · Identita visiva, topbar e console di piattaforma — `DONE` (2026-08-23)
+
+**Obiettivo.** Dare una voce sola alle superfici applicative e separare il
+mestiere di piattaforma da quello di club.
+
+**Cause radice individuate.**
+
+1. Il marchio era un **PNG su CDN esterno** (`r2.fivemanage.com`), sgranato
+   appena superava la dimensione nativa, piu tre riferimenti a `/logo.png`,
+   `/logo-blu.png` e `logo-bianco.png`: due file **inesistenti in `public/`**,
+   cioe immagini rotte in produzione.
+2. Nessun font dichiarato: l'applicazione usava lo stack di sistema, diverso
+   su ogni macchina.
+3. La topbar del club portava chat (senza backend), azioni rapide (duplicato
+   della sidebar) e assistenza (link a un sito esterno), tutte con lo stesso
+   peso visivo dei comandi reali.
+4. La dashboard `platform_admin` montava **sidebar e topbar del club**: un
+   amministratore di piattaforma vedeva "Atleti", "Allenamenti" e la stagione
+   di un club a cui non appartiene.
+5. `AppLoadingScreen` animava cerchi pulsanti, puntini rimbalzanti e due
+   gradienti radiali senza dire cosa stesse succedendo.
+6. L'indicatore dell'autosave diceva "Salvato automaticamente" anche prima di
+   aver salvato, e non distingueva un errore da un successo.
+7. La barra Atleti allineava sei pulsanti a etichetta piena: su telefono
+   occupava due schermate e nessuna azione risultava principale.
+
+**Scope.** Marchio SVG in repo; `Inter` + `Archivo` self-hosted con
+`next/font`; token di brand e `.eg-tabular` per i dati; `ClubIdentity` e
+`SeasonPlate`; topbar club e mobile riscritte; `PlatformAdminShell` con
+sezioni proprie; `AppLoadingScreen` + `ListSkeleton` + `CardsSkeleton`;
+`SaveStatus` a quattro stati; barra Atleti compattata.
+
+**Acceptance criteria.**
+- [x] Nessun riferimento a host esterni o a PNG inesistenti
+- [x] Topbar club senza chat, azioni rapide e assistenza
+- [x] Club e stagione visibili su desktop **e** su telefono
+- [x] La console di piattaforma non monta la chrome del club
+- [x] Attese e salvataggi hanno una forma sola, annunciata agli screen reader
+- [x] Test di conformita che impediscono la reintroduzione dei difetti
+
+**File.** `src/components/brand/**`, `src/components/platform-admin/**`,
+`src/components/dashboard/Header.tsx`, `src/components/layout/MobileTopBar.tsx`,
+`src/components/auth/**`, `src/components/ui/app-loading-screen.tsx`,
+`src/components/ui/save-status.tsx`, `src/app/layout.tsx`,
+`src/app/globals.css`, `tailwind.config.ts`, `next.config.js`,
+[10](10-ui-ux-conventions.md).
+
+**Test.** `tests/ui/brand-and-chrome.test.mjs`.
 
 ---
 

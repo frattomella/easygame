@@ -44,13 +44,13 @@ import {
   ClubCreateFormState,
   createClubDefaults,
   createProfileDefaults,
-  EASYGAME_LOGO,
   getInitials,
   mapMembershipToClub,
   MembershipRecord,
   ProfileFormState,
   sortClubs,
 } from "./account-shared";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 const ACCOUNT_HERO_IMAGE = "/images/account/account-hero.png";
 const ACCOUNT_TEAM_IMAGE = "/images/account/account-team.png";
@@ -168,16 +168,7 @@ function AccountHero(props: AccountHeroProps) {
     <header className="relative overflow-hidden px-5 pt-8 md:px-8 md:pt-8 xl:px-12 xl:pt-9">
       <div className="relative z-10 flex items-center justify-between gap-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center md:h-12 md:w-12">
-            <Image
-              src={EASYGAME_LOGO}
-              alt="EasyGame Logo"
-              width={48}
-              height={48}
-              className="object-contain"
-              unoptimized
-            />
-          </div>
+          <EasyGameLogo className="h-11 w-11 shrink-0 md:h-12 md:w-12" />
           <span className="text-[25px] font-black tracking-normal text-[#07112f] md:text-[26px]">
             EasyGame
           </span>

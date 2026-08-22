@@ -46,8 +46,8 @@ import {
   TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY,
   type TrainerNavigationPermissionKey,
 } from "@/lib/trainer-dashboard-permissions";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
-const EASYGAME_LOGO = "/logo-blu.png";
 
 const NAV_ITEMS: Array<{
   key: TrainerNavigationPermissionKey;
@@ -152,14 +152,7 @@ function TrainerSidebarContent({
     >
       <div className="border-b border-white/10 px-4 py-5">
         <div className="flex items-center gap-3">
-          <div className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/20">
-            <Image
-              src={EASYGAME_LOGO}
-              alt="EasyGame"
-              fill
-              className="object-contain p-2"
-            />
-          </div>
+          <EasyGameLogo tone="light" className="h-11 w-11 shrink-0 rounded-2xl" />
           {!collapsed ? (
             <div className="min-w-0">
               <p className="truncate text-lg font-semibold">EasyGame</p>

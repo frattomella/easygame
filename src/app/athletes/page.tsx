@@ -1367,110 +1367,117 @@ export default function AthletesPage() {
               title="Atleti"
               subtitle="Gestisci gli atleti tesserati del tuo club."
             />
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div className="relative w-full sm:w-auto">
+            {/*
+              Una riga sola: cerca, filtra, aggiungi. Le quattro azioni
+              secondarie — colonne, report, export, import — stavano in fila
+              come la principale e su telefono riempivano due schermate.
+              Ora vivono in un menu e la barra ha una sola azione evidente.
+            */}
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="relative w-full lg:max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
-                  placeholder="Cerca atleti..."
+                  placeholder="Cerca per nome o cognome"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 w-full sm:w-80"
+                  className="pl-9"
+                  aria-label="Cerca atleti"
                 />
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               </div>
-              <div className="flex gap-2 w-full sm:w-auto flex-wrap">
-                {/* Status Filter Buttons */}
-                <div className="flex gap-1 border rounded-lg p-1 bg-white dark:bg-gray-800">
+
+              <div className="eg-scroll-x -mx-1 px-1 lg:mx-0 lg:px-0">
+                <div
+                  role="group"
+                  aria-label="Filtra per stato"
+                  className="inline-flex gap-1 rounded-lg border border-slate-200 bg-white p-1"
+                >
                   <Button
                     variant={statusFilter === "active" ? "default" : "ghost"}
                     size="sm"
+                    aria-pressed={statusFilter === "active"}
                     onClick={() => setStatusFilter("active")}
-                    className={
-                      statusFilter === "active"
-                        ? "bg-green-600 hover:bg-green-700"
-                        : ""
-                    }
+                    className="h-8 shrink-0 px-2.5 text-xs"
                   >
-                    <Eye className="h-4 w-4 mr-1" />
+                    <Eye className="mr-1 h-3.5 w-3.5" />
                     Attivi
                   </Button>
                   <Button
                     variant={statusFilter === "suspended" ? "default" : "ghost"}
                     size="sm"
+                    aria-pressed={statusFilter === "suspended"}
                     onClick={() => setStatusFilter("suspended")}
-                    className={
-                      statusFilter === "suspended"
-                        ? "bg-amber-600 hover:bg-amber-700"
-                        : ""
-                    }
+                    className="h-8 shrink-0 px-2.5 text-xs"
                   >
-                    <UserX className="h-4 w-4 mr-1" />
+                    <UserX className="mr-1 h-3.5 w-3.5" />
                     Sospesi
                   </Button>
                   <Button
                     variant={statusFilter === "inactive" ? "default" : "ghost"}
                     size="sm"
+                    aria-pressed={statusFilter === "inactive"}
                     onClick={() => setStatusFilter("inactive")}
-                    className={
-                      statusFilter === "inactive"
-                        ? "bg-gray-600 hover:bg-gray-700"
-                        : ""
-                    }
+                    className="h-8 shrink-0 px-2.5 text-xs"
                   >
-                    <EyeOff className="h-4 w-4 mr-1" />
+                    <EyeOff className="mr-1 h-3.5 w-3.5" />
                     Disattivati
                   </Button>
                   <Button
                     variant={statusFilter === "all" ? "default" : "ghost"}
                     size="sm"
+                    aria-pressed={statusFilter === "all"}
                     onClick={() => setStatusFilter("all")}
-                    className={
-                      statusFilter === "all"
-                        ? "bg-blue-600 hover:bg-blue-700"
-                        : ""
-                    }
+                    className="h-8 shrink-0 px-2.5 text-xs"
                   >
                     Tutti
                   </Button>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2 lg:ml-auto">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9">
+                      <MoreVertical className="mr-1.5 h-4 w-4" />
+                      Altre azioni
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem
+                      onClick={() => setShowCustomizeColumnsModal(true)}
+                    >
+                      <Settings className="mr-2 h-4 w-4" />
+                      Personalizza colonne
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => router.push("/reports?report=categories")}
+                    >
+                      <BarChart3 className="mr-2 h-4 w-4" />
+                      Report categorie
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={exportAthletesPdf}
+                      disabled={!filteredAthletes.length && !selectedAthleteIds.size}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Esporta PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setShowImportAthletesModal(true)}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Importa atleti
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <Button
-                  variant="outline"
-                  className="flex-1 sm:flex-none"
-                  onClick={() => setShowCustomizeColumnsModal(true)}
-                >
-                  <Settings className="h-4 w-4 mr-2" />
-                  Personalizza Colonne
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 sm:flex-none"
-                  onClick={() => router.push("/reports?report=categories")}
-                >
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Report categorie
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 sm:flex-none"
-                  onClick={exportAthletesPdf}
-                  disabled={!filteredAthletes.length && !selectedAthleteIds.size}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Esporta PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 sm:flex-none"
-                  onClick={() => setShowImportAthletesModal(true)}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Importa Atleti
-                </Button>
-                <Button
-                  className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700"
+                  size="sm"
+                  className="h-9 flex-1 lg:flex-none"
                   onClick={() => setShowAddAthleteModal(true)}
                 >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nuovo Atleta
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Nuovo atleta
                 </Button>
               </div>
             </div>

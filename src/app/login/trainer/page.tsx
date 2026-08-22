@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast-notification";
 import Image from "next/image";
 import Link from "next/link";
 import { AppBackButton } from "@/components/navigation/AppBackButton";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 export default function TrainerLoginPage() {
   const [email, setEmail] = useState("");
@@ -54,14 +55,7 @@ export default function TrainerLoginPage() {
       <header className="container mx-auto py-4 px-4 flex justify-between items-center">
         <div className="flex items-center gap-2">
           <AppBackButton fallbackHref="/" className="border-white/30 bg-white text-blue-600 hover:bg-blue-50" />
-          <div className="rounded-md bg-white p-2 relative h-10 w-10">
-            <Image
-              src="/logo.png"
-              alt="EasyGame Logo"
-              fill
-              className="object-contain"
-            />
-          </div>
+          <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
           <h1 className="text-xl font-bold text-white">EasyGame</h1>
         </div>
         <Link href="/">

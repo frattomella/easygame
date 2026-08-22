@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { cn } from "@/lib/utils";
 import { useParentDashboard } from "./parent-dashboard-context";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 const ParentSidebar = memo(() => {
   const [collapsed, setCollapsed] = React.useState(false);
@@ -93,16 +94,7 @@ const ParentSidebar = memo(() => {
     >
       <div className="mb-6 flex flex-col items-center px-4 py-4">
         <div className="flex items-center gap-4">
-          <div className="relative h-10 w-10">
-            <Image
-              src="https://r2.fivemanage.com/LxmV791LM4K69ERXKQGHd/image/logo.png"
-              alt="EasyGame Logo"
-              width={40}
-              height={40}
-              className="object-contain"
-              unoptimized
-            />
-          </div>
+          <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
           {!collapsed ? (
             <h1 className="text-xl font-bold text-white">EasyGame</h1>
           ) : null}

@@ -122,7 +122,6 @@ export default function TrainerDashboardClubShell({
         <Header
           title={resolvePageTitle(pathname || "")}
           notificationCount={operationalAlerts.length}
-          showQuickActions={false}
           showMobileHubLink={false}
           mobileNavSections={trainerMobileNavSections}
         />

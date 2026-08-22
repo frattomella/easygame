@@ -1,13 +1,11 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Menu,
   UserCircle,
-  Zap,
   Home,
   Building,
   Users,
@@ -33,30 +31,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useAuth } from "@/components/providers/AuthProvider";
-import logoBianco from "@/logo-bianco.png";
-
-const quickActions = [
-  {
-    id: "new-athlete",
-    label: "Nuovo Atleta",
-    href: "/athletes?action=new",
-  },
-  {
-    id: "register-certificate",
-    label: "Registra Certificato Medico",
-    href: "/medical?action=new",
-  },
-  {
-    id: "new-training",
-    label: "Nuovo Allenamento",
-    href: "/training?action=new",
-  },
-  {
-    id: "new-match",
-    label: "Nuova Gara",
-    href: "/matches?action=new",
-  },
-];
+import { ClubIdentity } from "@/components/brand/club-identity";
 
 const navSections = [
   {
@@ -126,21 +101,18 @@ export type MobileNavSection = {
 };
 
 interface MobileTopBarProps {
-  showQuickActions?: boolean;
   showHubLink?: boolean;
   title?: string;
   navSectionsOverride?: MobileNavSection[];
 }
 
 export const MobileTopBar: React.FC<MobileTopBarProps> = ({
-  showQuickActions = true,
   showHubLink = true,
   title,
   navSectionsOverride,
 }) => {
-  const { user } = useAuth();
+  const { user, activeClub } = useAuth();
   const router = useRouter();
-  const [quickOpen, setQuickOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [clubId, setClubId] = useState<string | null>(null);
 
@@ -184,11 +156,6 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
     [clubId],
   );
 
-  const handleQuickAction = (href: string) => {
-    setQuickOpen(false);
-    router.push(buildUrl(href));
-  };
-
   const handleProfileClick = () => {
     if (user?.id) {
       router.push(`/profile/${user.id}`);
@@ -199,83 +166,46 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
 
   return (
     <>
-      <header className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-600 to-blue-800 px-4 py-3 text-white shadow-md lg:hidden">
-        <div className="flex items-center gap-2">
-          <div className="relative h-8 w-8 rounded-lg overflow-hidden bg-white/10">
-            <Image
-              src={logoBianco}
-              alt="EasyGame Logo"
-              fill
-              className="object-contain p-1"
-            />
-          </div>
-          <div className="min-w-0">
-            <span className="block truncate text-sm font-semibold">EasyGame</span>
-            {title ? (
-              <span className="block truncate text-[11px] text-blue-100">
-                {title}
-              </span>
-            ) : null}
-          </div>
-        </div>
+      {/*
+        Su telefono lo spazio e poco e va speso su cosa serve davvero sapere:
+        in che club sei e in che stagione. Prima la barra ripeteva "EasyGame",
+        che e sempre vero e quindi non informa.
+      */}
+      <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 lg:hidden">
+        <ClubIdentity
+          compact
+          clubName={activeClub?.name || "EasyGame"}
+          seasonLabel={activeClub?.activeSeasonLabel || null}
+          logoUrl={activeClub?.logo_url || null}
+          className="min-w-0 flex-1"
+        />
 
-        <div className="flex items-center gap-1">
-          {/* Quick actions */}
-          {showQuickActions ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-white hover:bg-white/10"
-              onClick={() => setQuickOpen(true)}
-            >
-              <Zap className="h-5 w-5" />
-            </Button>
-          ) : null}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0 text-slate-600"
+          onClick={handleProfileClick}
+          aria-label="Profilo"
+        >
+          <UserCircle className="h-5 w-5" />
+        </Button>
 
-          {/* Profile */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/10"
-            onClick={handleProfileClick}
-          >
-            <UserCircle className="h-6 w-6" />
-          </Button>
-
-          {/* Burger menu */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/10"
-            onClick={() => setMenuOpen(true)}
-          >
-            <Menu className="h-6 w-6" />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0 text-slate-600"
+          onClick={() => setMenuOpen(true)}
+          aria-label="Apri il menu"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
       </header>
 
-      {/* Quick actions sheet */}
-      <Sheet open={quickOpen} onOpenChange={setQuickOpen}>
-        <SheetContent side="right" className="w-80 max-w-[92vw] p-0">
-          <SheetHeader className="shrink-0 border-b px-5 py-4 pr-12">
-            <SheetTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-blue-500" />
-              Azioni Rapide
-            </SheetTitle>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4 pb-6">
-            {quickActions.map((action) => (
-              <button
-                key={action.id}
-                onClick={() => handleQuickAction(action.href)}
-                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
-              >
-                <span className="font-medium">{action.label}</span>
-              </button>
-            ))}
-          </div>
-        </SheetContent>
-      </Sheet>
+      {title ? (
+        <p className="border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 lg:hidden">
+          {title}
+        </p>
+      ) : null}
 
       {/* Navigation sheet */}
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>

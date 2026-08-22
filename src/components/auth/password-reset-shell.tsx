@@ -8,7 +8,8 @@ import { PASSWORD_POLICY, validatePassword } from "@/lib/auth/password-policy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
+import { EasyGameWordmark } from "@/components/brand/easygame-logo";
 
 type Status = "idle" | "loading" | "done" | "error";
 
@@ -21,13 +22,19 @@ const Shell = ({
   description: string;
   children: React.ReactNode;
 }) => (
-  <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-    <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-      <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
+  <div className="eg-auth flex min-h-screen items-center justify-center bg-[var(--eg-paper)] px-4 py-8">
+    <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 sm:p-8">
+      <EasyGameWordmark className="mb-6" />
+      <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">
+        {title}
+      </h1>
       <p className="mt-2 text-sm text-slate-600">{description}</p>
       <div className="mt-6">{children}</div>
       <p className="mt-6 text-center text-sm text-slate-500">
-        <Link href="/login" className="font-medium text-blue-600 hover:underline">
+        <Link
+          href="/login"
+          className="font-medium text-[var(--eg-blue)] hover:underline"
+        >
           Torna all&apos;accesso
         </Link>
       </p>
@@ -35,16 +42,32 @@ const Shell = ({
   </div>
 );
 
-const Feedback = ({ tone, children }: { tone: "ok" | "ko"; children: React.ReactNode }) => (
+/**
+ * Esito di un'operazione. Stessa forma in tutte le schermate di accesso:
+ * un riquadro, un'icona, una frase che dice cosa e successo.
+ */
+const Feedback = ({
+  tone,
+  children,
+}: {
+  tone: "ok" | "ko";
+  children: React.ReactNode;
+}) => (
   <p
     role="status"
+    aria-live="polite"
     className={
       tone === "ok"
-        ? "rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
-        : "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+        ? "flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+        : "flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"
     }
   >
-    {children}
+    {tone === "ok" ? (
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+    ) : (
+      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+    )}
+    <span className="min-w-0">{children}</span>
   </p>
 );
 

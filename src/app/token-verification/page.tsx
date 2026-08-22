@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 export default function TokenVerificationRedirect() {
   const router = useRouter();
@@ -86,11 +87,7 @@ export default function TokenVerificationRedirect() {
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-cyan-400 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md mx-auto bg-white rounded-3xl shadow-xl p-8 text-center">
         <div className="flex flex-col items-center mb-6">
-          <img
-            src="https://r2.fivemanage.com/LxmV791LM4K69ERXKQGHd/image/logo.png"
-            alt="EasyGame Logo"
-            className="h-16 w-auto mb-2"
-          />
+          <EasyGameLogo className="mb-2 h-16 w-16" />
           <h1 className="text-2xl font-bold">
             {error || "Reindirizzamento in corso..."}
           </h1>

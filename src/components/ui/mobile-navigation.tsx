@@ -21,6 +21,7 @@ import {
   CreditCard,
   Shield,
 } from "lucide-react";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 interface MobileNavigationProps {
   className?: string;
@@ -139,14 +140,7 @@ const MobileNavigation = ({ className }: MobileNavigationProps) => {
       {/* Mobile Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-2">
-          <div className="relative h-8 w-8">
-            <Image
-              src="/logo-blu.png"
-              alt="EasyGame Logo"
-              fill
-              className="object-contain"
-            />
-          </div>
+          <EasyGameLogo className="h-8 w-8 shrink-0" />
           <span className="font-semibold text-lg">{orgName}</span>
         </div>
         <Button

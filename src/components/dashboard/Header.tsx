@@ -1,19 +1,7 @@
 "use client";
 
-import React, { memo, useCallback, useState } from "react";
-import dynamic from "next/dynamic";
-import {
-  ArrowLeft,
-  Calendar,
-  CreditCard,
-  FileHeart,
-  HelpCircle,
-  LogOut,
-  Trophy,
-  UserCircle,
-  UserPlus,
-  Zap,
-} from "lucide-react";
+import React, { memo, useCallback } from "react";
+import { ArrowLeft, LogOut, UserCircle } from "lucide-react";
 import { Button } from "../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -25,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import Image from "next/image";
 import { useAuth } from "../providers/AuthProvider";
 import { NotificationsDropdown } from "../ui/notifications-dropdown";
 import {
@@ -34,11 +21,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
 import {
   MobileTopBar,
   type MobileNavSection,
 } from "@/components/layout/MobileTopBar";
+import { ClubIdentity } from "@/components/brand/club-identity";
 import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   canAccessPath,
@@ -46,18 +33,16 @@ import {
   getPathAccessArea,
 } from "@/lib/access-roles";
 
-// Import default club logo
-import clubLogoDefault from "@/../public/images/club_logo.png";
-
-const ChatButton = dynamic<{ className?: string }>(
-  () => import("../ui/chat").then((module) => module.ChatButton),
-  { ssr: false },
-);
-
+/**
+ * Un solo stile per i comandi della topbar.
+ *
+ * Prima ce n'erano cinque, ciascuno con la propria variante per il contesto
+ * allenatore, piu un pulsante in gradiente animato: la barra sembrava una
+ * fiera di stili e nessuno dei comandi aveva evidentemente piu peso degli
+ * altri.
+ */
 const topBarButtonClassName =
-  "relative h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-white p-0 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900";
-const quickActionClubButtonClassName =
-  "relative h-10 shrink-0 rounded-full border border-blue-400/40 bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 bg-[length:200%_200%] bg-[position:0%_50%] px-4 text-white shadow-md shadow-blue-500/20 transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:bg-[position:100%_50%] hover:text-white hover:shadow-lg hover:shadow-blue-500/25 focus-visible:ring-blue-500";
+  "relative h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-white p-0 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900";
 
 interface HeaderProps {
   title?: string;
@@ -65,49 +50,9 @@ interface HeaderProps {
   notificationCount?: number;
   userAvatar?: string;
   searchQuery?: string;
-  showQuickActions?: boolean;
   mobileNavSections?: MobileNavSection[];
   showMobileHubLink?: boolean;
 }
-
-// Quick Actions data
-const quickActions = [
-  {
-    id: "new-athlete",
-    label: "Nuovo Atleta",
-    icon: UserPlus,
-    href: "/athletes?action=new",
-    color: "bg-blue-500",
-  },
-  {
-    id: "register-certificate",
-    label: "Registra Certificato Medico",
-    icon: FileHeart,
-    href: "/medical?action=new",
-    color: "bg-red-500",
-  },
-  {
-    id: "new-training",
-    label: "Nuovo Allenamento",
-    icon: Calendar,
-    href: "/training?action=new",
-    color: "bg-green-500",
-  },
-  {
-    id: "new-match",
-    label: "Nuova Gara",
-    icon: Trophy,
-    href: "/matches?action=new",
-    color: "bg-orange-500",
-  },
-  {
-    id: "new-payment",
-    label: "Registra Pagamento",
-    icon: CreditCard,
-    href: "/movements?action=new",
-    color: "bg-purple-500",
-  },
-];
 
 const Header = memo(
   ({
@@ -116,7 +61,6 @@ const Header = memo(
     notificationCount = 0,
     userAvatar = "",
     searchQuery = "",
-    showQuickActions = true,
     mobileNavSections,
     showMobileHubLink = true,
   }: HeaderProps) => {
@@ -126,8 +70,6 @@ const Header = memo(
     const [activeSeasonLabel, setActiveSeasonLabel] = React.useState<
       string | null
     >(null);
-    const [quickActionsOpen, setQuickActionsOpen] = useState(false);
-
     const {
       activeClub,
       accessLoading,
@@ -378,17 +320,8 @@ const Header = memo(
       }
     }, [pathname]);
 
-    const handleQuickAction = (href: string) => {
-      setQuickActionsOpen(false);
-      router.push(href);
-    };
-
     const handleReturnToAccount = () => {
       router.push("/account");
-    };
-
-    const handleHelpClick = () => {
-      window.open("https://www.cedisoft.it/contatti/", "_blank");
     };
 
     const handleBackNavigation = useCallback(() => {
@@ -399,173 +332,58 @@ const Header = memo(
       router.back();
     }, [router]);
 
-    const isTrainerHeaderContext =
-      pathname?.startsWith("/trainer-dashboard") ||
-      isTrainer ||
-      String(activeClub?.role || "").toLowerCase() === "trainer";
-    const backButtonClassName = isTrainerHeaderContext
-      ? "shrink-0 rounded-full border border-border/70 text-foreground hover:bg-muted"
-      : topBarButtonClassName;
-    const quickActionButtonClassName = isTrainerHeaderContext
-      ? "relative bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 bg-[length:200%_200%] bg-[position:0%_50%] text-white transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:bg-[position:100%_50%] hover:text-white hover:shadow-lg hover:shadow-blue-500/25"
-      : quickActionClubButtonClassName;
-    const helpButtonClassName = isTrainerHeaderContext
-      ? "text-muted-foreground hover:text-foreground"
-      : topBarButtonClassName;
-    const accountButtonClassName = isTrainerHeaderContext
-      ? "h-10 w-10 rounded-full border border-slate-200 bg-white p-0 hover:bg-slate-50"
-      : topBarButtonClassName;
-    const sharedActionButtonClassName = isTrainerHeaderContext
-      ? "relative"
-      : topBarButtonClassName;
 
     return (
       <>
         <div className="lg:hidden">
           <MobileTopBar
-            showQuickActions={showQuickActions}
             showHubLink={showMobileHubLink}
             title={title}
             navSectionsOverride={mobileNavSections}
           />
         </div>
 
-        <header className="sticky top-0 z-10 hidden h-20 w-full items-center justify-between border-b border-border bg-background px-4 py-4 md:px-6 lg:flex">
-          <div className="flex min-w-0 items-center gap-3 mr-auto">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleBackNavigation}
-                    className={backButtonClassName}
-                    aria-label={`Torna indietro da ${title}`}
-                  >
-                    <ArrowLeft className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Torna indietro</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <span className="truncate text-sm font-semibold text-foreground md:hidden">
-              {title}
-            </span>
-
-            <div className="hidden md:flex items-center gap-2">
-              <div className="flex items-center gap-2">
-                <div className="h-12 w-12 relative header-org-logo">
-                  <Image
-                    src={clubLogo || clubLogoDefault}
-                    alt={`${orgName || "EasyGame"} Logo`}
-                    fill
-                    className="object-contain rounded"
-                    unoptimized={!!clubLogo}
-                  />
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-xl header-org-name">
-                    {orgName || "EasyGame"}
-                  </span>
-                  {activeSeasonLabel ? (
-                    <button
-                      type="button"
-                      title="Gestisci stagione sportiva"
-                      aria-label="Gestisci stagione sportiva"
-                      onClick={() => router.push("/organization?tab=stagioni")}
-                      className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                    >
-                      Stagione {activeSeasonLabel}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2 md:space-x-4 ml-auto">
-            {/* Quick Actions Button */}
-            {showQuickActions ? (
-              <>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size={isTrainerHeaderContext ? "icon" : "default"}
-                        className={quickActionButtonClassName}
-                        onClick={() => setQuickActionsOpen(true)}
-                      >
-                        <Zap className="h-5 w-5" />
-                        {!isTrainerHeaderContext ? (
-                          <span className="ml-2 hidden xl:inline">
-                            Azioni rapide
-                          </span>
-                        ) : null}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Azioni Rapide</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <Sheet
-                  open={quickActionsOpen}
-                  onOpenChange={setQuickActionsOpen}
+        {/*
+          Tre cose e basta: dove torni, dove sei, chi sei.
+          Chat, azioni rapide e assistenza sono state tolte: la chat non
+          aveva un backend, le azioni rapide duplicavano voci gia presenti
+          nella sidebar e l'assistenza era un link a un sito esterno.
+        */}
+        <header className="sticky top-0 z-10 hidden h-16 w-full items-center gap-3 border-b border-slate-200 bg-white px-4 md:px-6 lg:flex">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleBackNavigation}
+                  className={topBarButtonClassName}
+                  aria-label={`Torna indietro da ${title}`}
                 >
-                  <SheetContent side="right" className="w-80">
-                    <SheetHeader>
-                      <SheetTitle className="flex items-center gap-2">
-                        <Zap className="h-5 w-5 text-blue-500" />
-                        Azioni Rapide
-                      </SheetTitle>
-                    </SheetHeader>
-                    <div className="mt-6 space-y-3">
-                      {quickActions.map((action) => (
-                        <button
-                          key={action.id}
-                          onClick={() => handleQuickAction(action.href)}
-                          className="w-full flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left text-slate-900 transition-colors hover:bg-slate-50 hover:text-slate-900"
-                        >
-                          <div className={`p-2 rounded-lg ${action.color}`}>
-                            <action.icon className="h-5 w-5 text-white" />
-                          </div>
-                          <span className="font-medium">{action.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </SheetContent>
-                </Sheet>
-              </>
-            ) : null}
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Torna indietro</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
-            {/* Help Button */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleHelpClick}
-                    className={helpButtonClassName}
-                  >
-                    <HelpCircle className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Assistenza - Contattaci</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <ClubIdentity
+            clubName={orgName || "EasyGame"}
+            seasonLabel={activeSeasonLabel}
+            logoUrl={clubLogo}
+            onSeasonClick={() => router.push("/organization?tab=stagioni")}
+            className="min-w-0 flex-1"
+          />
 
-            <ChatButton className={sharedActionButtonClassName} />
+          <span className="hidden min-w-0 max-w-[16rem] truncate text-sm text-slate-500 xl:block">
+            {title}
+          </span>
 
+          <div className="flex shrink-0 items-center gap-2">
             <NotificationsDropdown
-              buttonClassName={sharedActionButtonClassName}
+              buttonClassName={topBarButtonClassName}
               notificationCount={notificationCount}
               allNotificationsHref={
                 pathname?.startsWith("/trainer-dashboard")
@@ -579,7 +397,7 @@ const Header = memo(
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={accountButtonClassName}
+                  className={topBarButtonClassName}
                   aria-label={`Account ${userName}`}
                   title={userName}
                 >

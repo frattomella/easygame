@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { ClubCreationForm } from "@/components/forms/ClubCreationForm";
 import ProfileModal from "./profile-modal";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 export default function TokenVerificationPage() {
   const [tokenLength, setTokenLength] = useState<5 | 8 | 10>(5);
@@ -1234,11 +1235,7 @@ export default function TokenVerificationPage() {
       <div className="w-full max-w-md mx-auto space-y-6">
         {/* App Logo and Name */}
         <div className="flex flex-col items-center mb-4">
-          <img
-            src="https://r2.fivemanage.com/LxmV791LM4K69ERXKQGHd/image/logo.png"
-            alt="EasyGame Logo"
-            className="h-16 w-auto mb-2"
-          />
+          <EasyGameLogo tone="light" className="mb-2 h-16 w-16" />
           <h1 className="text-2xl font-bold text-white">EasyGame</h1>
         </div>
 

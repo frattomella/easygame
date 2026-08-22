@@ -2,9 +2,6 @@ import type { ReactNode } from "react";
 import { getAccessRoleLabel, normalizeAccessRole } from "@/lib/access-roles";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 
-export const EASYGAME_LOGO =
-  "https://r2.fivemanage.com/LxmV791LM4K69ERXKQGHd/image/logo.png";
-
 export const CREATE_CLUB_TABS = [
   { value: "general", label: "Generali" },
   { value: "fiscal", label: "Dati fiscali" },

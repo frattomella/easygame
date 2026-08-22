@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 175 test, 17 file
+## Cosa e coperto oggi — 186 test, 18 file
 
 | File | Test | Copre |
 |------|------|-------|
@@ -68,6 +68,7 @@ endpoint nuovo che dimentica il controllo.
 | `tests/lib/trainer-delete.test.mjs` | 8 | L'eliminazione di un allenatore e persistita su tutte le origini che la lettura rimette insieme |
 | `tests/lib/coalescing-saver.test.mjs` | 6 | L'autosave scrive una volta alla volta e accorpa le modifiche fatte durante l'attesa |
 | `tests/lib/club-write-requests.test.mjs` | 8 | Quante richieste costa ogni operazione sul club e con quale proiezione di colonne |
+| `tests/ui/brand-and-chrome.test.mjs` | 11 | Marchio senza dipendenze esterne, topbar senza chat/azioni rapide/assistenza, console di piattaforma separata dal club, modali che stanno nello schermo, font self-hosted |
 
 ## Isolamento multi-tenant: cosa dimostrano i test
 

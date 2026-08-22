@@ -29,6 +29,7 @@ import {
 } from "@/lib/training-location-options";
 import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
 import { createCoalescingSaver } from "@/lib/performance";
+import { SaveStatus, type SaveState } from "@/components/ui/save-status";
 import {
   findScheduleConflicts,
   isValidTimeRange,
@@ -148,7 +149,9 @@ export function WeeklyTrainingSchedule({
   const [showEditDialog, setShowEditDialog] = React.useState(false);
   const [editingTraining, setEditingTraining] =
     React.useState<WeeklyTrainingItem | null>(null);
-  const [saving, setSaving] = React.useState(false);
+  const [saveState, setSaveState] = React.useState<SaveState>("idle");
+  const [savedAt, setSavedAt] = React.useState<Date | null>(null);
+  const saving = saveState === "saving";
   const lastPersistedScheduleRef = React.useRef("[]");
   const defaultCategoryId = categories[0]?.id || "";
   const [newTraining, setNewTraining] = React.useState<WeeklyTrainingItem>({
@@ -390,23 +393,24 @@ export function WeeklyTrainingSchedule({
         // perde per una corsa fra risposte.
         saveRunnerRef.current = createCoalescingSaver(
           async ({ schedule: scheduleToSave, notify: shouldNotify }) => {
-            setSaving(true);
+            setSaveState("saving");
             try {
               await updateClubData(clubId, "weekly_schedule", scheduleToSave);
               lastPersistedScheduleRef.current =
                 buildScheduleSnapshot(scheduleToSave);
               await onSave(scheduleToSave);
+              setSavedAt(new Date());
+              setSaveState("saved");
               if (shouldNotify) {
-                showToast(
-                  "success",
-                  "Programma settimanale salvato con successo",
-                );
+                showToast("success", "Programma settimanale salvato");
               }
             } catch (error) {
               console.error("Error saving weekly schedule:", error);
-              showToast("error", "Errore durante il salvataggio del programma");
-            } finally {
-              setSaving(false);
+              setSaveState("error");
+              showToast(
+                "error",
+                "Programma non salvato. Controlla la connessione e riprova.",
+              );
             }
           },
           {
@@ -678,9 +682,7 @@ export function WeeklyTrainingSchedule({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border bg-white px-3 py-2 text-xs text-slate-500">
-            {saving ? "Salvataggio..." : "Salvato automaticamente"}
-          </span>
+          <SaveStatus state={saveState} savedAt={savedAt} />
           <Button
             onClick={() => setShowAddDialog(true)}
             className="bg-blue-600 hover:bg-blue-700"

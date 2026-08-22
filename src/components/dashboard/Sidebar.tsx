@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { memoize } from "@/lib/performance";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 type SidebarItem = {
   id: string;
@@ -302,16 +303,7 @@ const Sidebar = memo(() => {
     >
       <div className="mb-6 flex items-center flex-col py-4 px-4">
         <div className="flex items-center gap-4">
-          <div className="relative h-10 w-10">
-            <Image
-              src="https://r2.fivemanage.com/LxmV791LM4K69ERXKQGHd/image/logo.png"
-              alt="EasyGame Logo"
-              width={40}
-              height={40}
-              className="object-contain"
-              unoptimized
-            />
-          </div>
+          <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
           {!collapsed && (
             <h1 className="text-xl font-bold text-white">EasyGame</h1>
           )}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiRequest } from "@/lib/api/client";
@@ -24,7 +23,10 @@ import {
   Smartphone,
   UserRound,
 } from "lucide-react";
-import { EASYGAME_LOGO } from "@/components/account/account-shared";
+import {
+  EasyGameLogo,
+  EasyGameWordmark,
+} from "@/components/brand/easygame-logo";
 
 type AuthMode = "login" | "register";
 
@@ -448,54 +450,64 @@ export function AuthShell({
   );
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_40%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_45%,#f8fafc_100%)] px-4 py-10">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-6xl items-center justify-center">
-        <div className="grid w-full gap-8 lg:grid-cols-[1.1fr_520px]">
-          <div className="hidden rounded-[32px] bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 p-10 text-white shadow-2xl lg:flex lg:flex-col lg:justify-between">
-            <div className="space-y-5">
-              <div className="flex items-center gap-4">
-                <Image
-                  src={EASYGAME_LOGO}
-                  alt="EasyGame Logo"
-                  width={44}
-                  height={44}
-                  className="object-contain"
-                  unoptimized
-                />
-                <span className="text-2xl font-bold">EasyGame</span>
-              </div>
-              <h1 className="max-w-lg text-4xl font-bold leading-tight">
-                Gestisci la tua societa sportiva in modo semplice.
-              </h1>
-              <p className="max-w-xl text-blue-100">
-                Accedi a club, atleti, allenamenti, pagamenti e comunicazioni da
-                un unico posto.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur">
-              <p className="text-sm text-blue-100">
-                Una dashboard per organizzare il lavoro quotidiano della
-                societa.
-              </p>
-            </div>
-          </div>
-
-          <Card className="border-white/70 bg-white/90 shadow-2xl backdrop-blur">
-            <CardHeader className="space-y-3 pb-3">
-              <div className="flex items-center gap-3">
-                <Image
-                  src={EASYGAME_LOGO}
-                  alt="EasyGame Logo"
-                  width={40}
-                  height={40}
-                  className="object-contain"
-                  unoptimized
-                />
-                <span className="text-xl font-bold text-slate-900">
+    <div className="eg-auth min-h-screen bg-[var(--eg-paper)] px-4 py-6 sm:py-10">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-5xl items-center justify-center">
+        <div className="grid w-full gap-6 lg:grid-cols-[1fr_460px] lg:gap-8">
+          {/*
+            Il pannello non vende: mostra l'oggetto che il prodotto amministra.
+            Una griglia settimanale e la targa della stagione — le due cose che
+            in EasyGame delimitano tutto il resto.
+          */}
+          <aside className="hidden rounded-2xl bg-[var(--eg-navy)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
+            <div className="space-y-6">
+              <span className="flex items-center gap-3">
+                <EasyGameLogo tone="light" className="h-10 w-10" />
+                <span className="font-display text-xl font-semibold tracking-tight">
                   EasyGame
                 </span>
+              </span>
+
+              <h1 className="font-display text-3xl font-semibold leading-[1.15] tracking-tight">
+                Il registro della tua
+                <br />
+                societa sportiva.
+              </h1>
+              <p className="max-w-sm text-sm leading-relaxed text-slate-300">
+                Atleti, certificati medici, quote e programma settimanale.
+                Una stagione per volta, senza mescolare gli anni.
+              </p>
+            </div>
+
+            <div
+              aria-hidden
+              className="mt-10 rounded-xl border border-white/10 bg-white/[0.04] p-4"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <span className="eg-eyebrow text-slate-400">
+                  Programma settimanale
+                </span>
+                <span className="eg-tabular rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[0.625rem] font-semibold text-amber-300">
+                  2026/2027
+                </span>
               </div>
+              <div className="grid grid-cols-6 gap-1">
+                {Array.from({ length: 24 }).map((_, index) => (
+                  <span
+                    key={index}
+                    className={
+                      [4, 9, 10, 15, 20].includes(index)
+                        ? "h-5 rounded bg-blue-500/80"
+                        : "h-5 rounded bg-white/[0.06]"
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="space-y-3 pb-3">
+              <EasyGameWordmark className="lg:hidden" />
               <CardTitle className="text-2xl text-slate-900">Accedi</CardTitle>
               <p className="text-sm text-slate-500">
                 Entra nella gestione della tua societa sportiva.

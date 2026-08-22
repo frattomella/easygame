@@ -1,5 +1,82 @@
 # 10 — Convenzioni UI/UX
 
+## Identita visiva (Blocco 3, 2026-08-23)
+
+### Marchio
+
+`src/components/brand/easygame-logo.tsx` — SVG in repo, nessuna richiesta di
+rete. `EasyGameLogo` con `tone="dark"` su fondo chiaro e `tone="light"` su
+fondo scuro; `EasyGameWordmark` dove EasyGame parla in prima persona
+(accesso, console di piattaforma, account).
+
+**Non reintrodurre** `r2.fivemanage.com`, `/logo.png`, `/logo-blu.png` o
+`logo-bianco.png`: erano un PNG remoto sgranato e tre riferimenti a file
+inesistenti. Un test di conformita lo impedisce.
+
+### Tipografia
+
+| Ruolo | Font | Dove |
+|-------|------|------|
+| Testo e dati | `Inter` (`font-sans`) | tutto il prodotto |
+| Titoli e etichette | `Archivo` (`font-display`) | intestazioni, nomi club, targhe |
+
+Self-hosted con `next/font`: nessuna richiesta a Google a runtime.
+Le colonne di numeri — date, importi, numeri di maglia, stagioni — usano
+`.eg-tabular`, altrimenti le cifre ballano da una riga all'altra.
+
+### Token
+
+In `globals.css`: `--eg-navy` (chrome e piattaforma), `--eg-blue` (azione
+primaria), `--eg-paper` (fondo pagina), `--eg-line`, e `--eg-season`, che e
+l'**unico ambra della chrome** ed e riservato alla stagione.
+
+### La stagione e una targa, non un badge
+
+Da WP-32 la stagione e il perimetro dei dati visibili. `SeasonPlate` e
+`ClubIdentity` (`src/components/brand/club-identity.tsx`) la mostrano con un
+colore proprio e cifre tabellari, in topbar desktop e mobile. Chi apre una
+pagina deve sempre poter rispondere a «quale club, quale stagione».
+
+### Chrome separate
+
+| Contesto | Shell |
+|----------|-------|
+| Club | `dashboard/Sidebar` + `dashboard/Header` |
+| Piattaforma | `platform-admin/platform-admin-shell` |
+
+La console `platform_admin` **non** monta la chrome del club: un
+amministratore di piattaforma non ha un club attivo e non deve vedere
+«Atleti» o la stagione di una societa a cui non appartiene.
+
+### Regole responsive
+
+Breakpoint di riferimento: **375, 768, 1280 px**.
+
+- nessuna pagina produce scroll orizzontale del documento: un contenuto piu
+  largo scorre dentro il proprio contenitore (`.eg-scroll-x` o
+  `overflow-x-auto`), mai il `body`;
+- i modali hanno `max-h-[calc(100dvh-2rem)]` e `overflow-y-auto`. Senza,
+  i pulsanti in fondo diventano irraggiungibili su telefono;
+- **le classi `slide-in-from-*` dei modali non sono decorative**: `animate-in`
+  riscrive `transform`, quindi sono loro a fornire il -50% che centra il
+  riquadro. Toglierle lo sposta fuori schermo;
+- nelle schermate di accesso (`.eg-auth`) i comandi hanno almeno 44 px di
+  altezza sotto il breakpoint `sm`. Nelle tabelle di gestione la densita
+  resta voluta.
+
+### Attese e salvataggi
+
+| Situazione | Componente |
+|-----------|------------|
+| Pagina o sezione in caricamento | `AppLoadingScreen` |
+| Elenco in arrivo | `ListSkeleton` |
+| Griglia di schede in arrivo | `CardsSkeleton` |
+| Operazione bloccante | `AppBlockingOverlay` |
+| Salvataggio automatico | `SaveStatus` (`idle` / `saving` / `saved` / `error`) |
+
+Tutti dichiarano `role="status"` e `aria-live="polite"`.
+
+---
 ## Design system
 
 - **Tailwind CSS 3** + **shadcn/ui** su Radix. Config in

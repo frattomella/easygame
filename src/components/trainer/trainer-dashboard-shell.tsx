@@ -28,8 +28,8 @@ import {
   Users,
 } from "lucide-react";
 import { dedupeTrainings, getTrainingStableKey } from "@/lib/training-utils";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
-const EASYGAME_LOGO = "/logo-blu.png";
 
 const normalizeValue = (value: unknown) =>
   String(value || "")
@@ -314,7 +314,7 @@ export default function TrainerDashboardShell() {
           <div className="flex flex-col gap-5 border-b border-slate-100 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
               <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-gradient-to-br from-blue-600 to-sky-500 shadow-lg">
-                <Image src={EASYGAME_LOGO} alt="EasyGame" width={42} height={42} className="object-contain" />
+                <EasyGameLogo className="h-[42px] w-[42px]" />
               </div>
               <div className="space-y-1">
                 <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-blue-700">
