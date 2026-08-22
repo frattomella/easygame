@@ -57,9 +57,7 @@ easygame/
 | `client/services/mobile-backend-storage.ts` | Cache/adapter sopra `api.ts` | In uso |
 | `client/services/storage.ts` | **Dati mock** (`MOCK_USER`, `MOCK_CLUBS`) | Usato solo da schermate non collegate |
 | `client/services/mobile-storage-service.ts` | Terzo layer di storage | **Orfano** |
-| `server/` | Express scaffold Replit, `registerRoutes` **vuota** | Non usato |
-| `shared/schema.ts` + `drizzle.config.ts` | Schema Drizzle con tabella `users` (username/password) | **Pericoloso**, vedi [14 — Sicurezza](14-security.md) |
-| `.replit` | Configurazione Replit | Legacy |
+| ~~`server/`, `shared/`, `drizzle.config.ts`, `.replit`~~ | Scaffold Replit, schema Drizzle e accesso diretto al database | **Rimossi** il 2026-08-22, vedi [ADR-0018](18-decision-log.md) |
 
 ## Radice
 
@@ -69,10 +67,12 @@ easygame/
 | `next.config.js` | Config Next: `reactStrictMode`, remote images, `serverActions.bodySizeLimit`. |
 | `vercel.json` | `buildCommand: npm run vercel-build`, regione `fra1`. |
 | `.vercelignore` | Esclude `easygamemobile/`, `.codex-tmp/`, log, env. |
-| `.babelrc` + `babel.config.js` | Residuo Tempo. **Disattiva SWC** in Next. Vedi [16](16-technical-debt.md). |
+| `.github/workflows/ci.yml` | Pipeline CI: job web, mobile e guardrail di sicurezza. |
 | `tempo.config.json` | Residuo del tool Tempo. Nessun codice lo legge. |
 | `components.json` | Config shadcn/ui. |
 | `.eslintrc.json` / `.eslintignore` | ESLint via `next/core-web-vitals`. |
+| `src/middleware.ts` | Cancello di autenticazione edge sui percorsi protetti. |
+| `scripts/db-guard.mjs` | Blocca le scritture locali verso database condivisi. |
 | `EasyGame - Avvio Locale.bat`, `avvia-easygame.cmd`, `start-local.sh`, `scripts/start-local.*` | Launcher locali multi-piattaforma. |
 
 ## Directory locali non versionate

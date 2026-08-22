@@ -52,21 +52,29 @@ Le liste tornano complete.
 
 → WP-12
 
-### D5 — Copertura test assente sulle aree critiche
+### D5 — Copertura test ancora parziale — MIGLIORATO (2026-08-22)
 
-Zero test su route handler, `resources.ts`, isolamento multi-tenant,
-`simplified-db.ts`. Il runner non fa discovery: i file vanno elencati a mano in
-`package.json`.
+Il runner fa ora **discovery automatica** su `tests/**/*.test.mjs`: un file
+nuovo non va piu aggiunto a mano a `package.json`. I test sono passati da 30 a
+55, con copertura su route guard, middleware e conformita di tutti i 42 route
+handler (autenticazione, scope, permessi, nessuna esposizione di hash).
+
+**Resta scoperto** cio che conta di piu: l'isolamento multi-tenant a runtime.
+`src/lib/server/resources.ts` non e importabile dal runner (import senza
+estensione e PrismaClient costruito a livello di modulo), quindi
+`listResource` e `ensureOrganizationAccess` sono verificati solo staticamente.
+Zero test su `simplified-db.ts`.
 
 → WP-04
 
-### D6 — Nessuna CI
+### D6 — ~~Nessuna CI~~ — RISOLTO (2026-08-22)
 
-Nessuna pipeline: i gate (test, typecheck, lint, build) dipendono dalla
-disciplina di chi committa. In piu **`.gitignore` contiene `.github/`**, quindi
-oggi un workflow non sarebbe nemmeno committabile.
-
-→ WP-02
+`.github/workflows/ci.yml` esegue su ogni push e pull request tre job:
+**web** (typecheck, lint, test, build, controllo codice irraggiungibile),
+**mobile** (check:types, lint) e **guardrails** (nessun `.env` committato,
+nessun token noto, nessuna connection string con credenziali, nessun
+`DATABASE_URL` nel mobile). La voce `.github/` e stata rimossa da
+`.gitignore`.
 
 ## Impatto medio
 
@@ -82,16 +90,18 @@ Persistono anche chiavi legacy nello storage del browser
 
 → WP-17 (rinomina e riduzione graduale)
 
-### D8 — `.babelrc` disattiva SWC
+### D8 — ~~`.babelrc` disattiva SWC~~ — RISOLTO (2026-08-22)
 
-`.babelrc` con `next/babel` (residuo del tool Tempo) fa usare a Next **Babel**
-al posto di SWC: build piu lente e `swcMinify` di fatto meno efficace.
-`babel.config.js` e un file vuoto messo «per evitare conflitti».
+`.babelrc` con `next/babel` (residuo del tool Tempo) faceva usare a Next Babel
+al posto di SWC. Rimossi `.babelrc`, `babel.config.js` e la dipendenza
+`@babel/runtime`, come previsto da [ADR-0017](18-decision-log.md), dopo aver
+verificato che tutti i gate passassero.
 
-Rimuoverli e probabilmente corretto ma cambia la toolchain di compilazione:
-va fatto in un WP con build e smoke test dedicati.
+Misurato: build **161 s -> 62 s**, First Load JS condiviso **95,8 -> 87,8 kB**
+(app router) e **91 -> 82,5 kB** (pages router), set di route identico.
 
-→ WP-08
+Restano da valutare separatamente `tempo.config.json` e la dipendenza
+`tempo-devtools`, ancora classificati REVIEW.
 
 ### D9 — Residui di due generazioni di UI
 
@@ -161,7 +171,7 @@ risorse reali. Raddoppiano la superficie API senza aggiungere valore.
   script lo invoca.
 - `vaul`, `embla-carousel-react`, `react-resizable-panels`, `react-hook-form`:
   usati **solo** da primitive UI non referenziate.
-- `@babel/runtime`: necessario solo finche resta `.babelrc` (vedi D8).
+- ~~`@babel/runtime`~~: rimosso insieme a `.babelrc` (vedi D8).
 
 Nessuna di queste finisce nel bundle client (il tree-shaking le esclude perche
 i moduli non sono raggiungibili): l'impatto e su `npm install`, non a runtime.
@@ -171,10 +181,11 @@ i moduli non sono raggiungibili): l'impatto e su `npm install`, non a runtime.
 Prevalentemente `@next/next/no-img-element` e
 `react-hooks/exhaustive-deps`. Nessun errore. Non farli crescere.
 
-### D18 — `.gitignore` con voci discutibili
+### D18 — `.gitignore` con voci discutibili — MIGLIORATO (2026-08-22)
 
-Contiene `.git`, `.github/`, `**/tempobook/**`, `node_modules` ripetuto piu
-volte, `.vercel`. La voce `.github/` va rimossa prima di introdurre la CI.
+Rimosse `.github/` (impediva di committare la CI) e `.git` (inutile).
+Restano `**/tempobook/**` ora superfluo e `node_modules` ripetuto piu volte:
+innocui, da ripulire con calma.
 
 ### D19 — Drift Prisma cosmetico
 
@@ -183,7 +194,17 @@ Prisma default applicativi; due indici hanno nome troncato diversamente.
 Comportamento identico. **Non generare una migrazione correttiva** senza motivo
 funzionale.
 
-### D20 — Documentazione operativa parzialmente superata
+### D20 — ~~Documentazione operativa superata~~ — RISOLTO (2026-08-22)
 
-`docs/testing-and-deploy.md` cita `typescript.ignoreBuildErrors = true` in
-`next.config.js`: **quel flag non c'e piu**. Il resto della guida e valido.
+`docs/testing-and-deploy.md` non cita piu `typescript.ignoreBuildErrors` e
+rimanda alla Knowledge Base.
+
+### D21 — Il branch Neon di sviluppo non esiste ancora
+
+`ADR-0012` prevede un database separato per lo sviluppo. La creazione richiede
+la console Neon e non e stata possibile da questa working copy. Nel frattempo
+`scripts/db-guard.mjs` blocca le scritture locali verso database condivisi, ma
+protegge solo gli script npm: un `npx prisma db push` invocato a mano passa
+comunque.
+
+→ WP-09
