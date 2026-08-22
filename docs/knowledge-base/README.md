@@ -43,7 +43,7 @@ comportamenti desiderati o pianificati.
 
 - Ultimo audit completo: **2026-08-22**
 - Commit di riferimento: branch `codex/recovery-20260820-pre-wp02`
-- Baseline verificata: `npm test` **55/55**, `npm run typecheck` OK,
+- Baseline verificata: `npm test` **84/84**, `npm run typecheck` OK,
   `npm run lint` 0 errori, `npm run build` OK (**120 route, 62 s**),
   mobile `check:types` e `lint` verdi
 

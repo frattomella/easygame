@@ -79,8 +79,8 @@ validato. Mai committare segreti, `.env`, artefatti di build o snapshot del
 repository.
 
 ### 9. Sicurezza database e ambienti
-**Finche il branch Neon di sviluppo non esiste, il `.env` locale punta al
-database di STAGING** (ADR-0012).
+**Il locale usa un database di sviluppo dedicato** (`docker-compose.dev.yml`,
+porta 5434), non piu staging (ADR-0012).
 
 - `scripts/db-guard.mjs` blocca gli script npm di scrittura se
   `EASYGAME_DB_ENV` non vale `development`. **Copre solo gli script npm**: un
@@ -147,9 +147,10 @@ Vedi [ADR-0007](docs/knowledge-base/18-decision-log.md).
    verificati non possono accedere**. Anche il reset password dipende da SMTP.
 8. Il checkout pagamenti risponde **501**: nessun provider e implementato e
    non va implementato con un PSP diretto (ADR-0013, CediPay).
-9. `resources.ts` **non e importabile dai test** (import senza estensione,
-   PrismaClient a livello di modulo): l'isolamento multi-tenant e verificato
-   solo staticamente.
+9. `src/lib/server/**` **e testabile**: l'hook in
+   `tests/helpers/extensionless-resolver.mjs` risolve import senza estensione
+   e alias `@/`, e `__setPrismaClientForTests()` permette di iniettare un
+   doppio. L'isolamento multi-tenant ha 29 test a runtime.
 
 ---
 

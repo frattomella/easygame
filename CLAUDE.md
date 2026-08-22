@@ -81,7 +81,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 Prima di ogni commit:
 
 ```bash
-npm test           # 55/55 attesi
+npm test           # 84/84 attesi
 npm run typecheck  # nessun output
 npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare
@@ -147,10 +147,17 @@ Nello stesso commit del codice:
 
 ## 8. Sicurezza database e ambienti
 
-**Finche il branch Neon di sviluppo non esiste, il `.env` locale punta al
-database di STAGING** ([ADR-0012](docs/knowledge-base/18-decision-log.md)).
+**Il locale usa un database di sviluppo dedicato**, non piu staging
+([ADR-0012](docs/knowledge-base/18-decision-log.md)):
 
-`scripts/db-guard.mjs` blocca gli script npm di scrittura quando
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+e in `.env`: la connection string di `.env.example` piu
+`EASYGAME_DB_ENV="development"`.
+
+`scripts/db-guard.mjs` blocca comunque gli script npm di scrittura se
 `EASYGAME_DB_ENV` non vale `development`. **La guardia copre solo gli script
 npm**: un `npx prisma db push` invocato a mano la aggira.
 

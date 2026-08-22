@@ -67,7 +67,7 @@ Un commit = un cambiamento coerente.
 ## Gate obbligatori prima del commit
 
 ```bash
-npm test           # 55/55
+npm test           # 84/84
 npm run typecheck  # pulito
 npm run lint       # 0 errori, warning non in aumento
 npm run build      # completa

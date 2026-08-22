@@ -8,7 +8,7 @@ importare direttamente i `.ts` sorgente.
 
 ```jsonc
 "test":      "npm run test:unit",
-"test:unit": "node --experimental-strip-types --experimental-test-isolation=none --test \"tests/**/*.test.mjs\""
+"test:unit": "node --experimental-strip-types --experimental-test-isolation=none --import ./tests/helpers/register-hooks.mjs --test \"tests/**/*.test.mjs\""
 ```
 
 Dal 2026-08-22 la **discovery e automatica**: un file nuovo sotto `tests/` viene
@@ -22,18 +22,29 @@ percorso completo:
 import { validatePassword } from "../../src/lib/auth/password-policy.ts";
 ```
 
-Conseguenza pratica: si possono testare **solo moduli senza JSX, senza
-dipendenze da Next o dal browser, e che usino import con estensione**.
-`src/lib/server/resources.ts` non e importabile proprio per questo (usa
-`import { prisma } from "./prisma"` e costruisce `PrismaClient` a livello di
-modulo).
+Restano non testabili i moduli con JSX o con dipendenze da Next e dal browser.
 
-Dove il runtime non e raggiungibile si usano **test di conformita statica** sul
-sorgente: leggono i file e verificano invarianti strutturali. Sono meno
-espressivi di un test di comportamento, ma colgono la regressione che conta —
-un endpoint nuovo che dimentica il controllo.
+Dal 2026-08-22 **`src/lib/server/**` e invece testabile**, grazie a due
+tasselli:
 
-## Cosa e coperto oggi — 55 test, 10 file
+1. `tests/helpers/extensionless-resolver.mjs` — hook di risoluzione ESM
+   registrato via `--import ./tests/helpers/register-hooks.mjs`. Risolve gli
+   import senza estensione (`./prisma`) e l'alias `@/`, che Node non conosce
+   ma il bundler di Next si. **Non tocca il codice di produzione.**
+2. `src/lib/server/prisma.ts` costruisce il client **alla prima query** invece
+   che all'import, ed espone `__setPrismaClientForTests()`. Il client esportato
+   e un Proxy che inoltra al client reale (o al doppio) legando i metodi,
+   perche Prisma usa `this` internamente.
+
+`tests/helpers/fake-prisma.mjs` fornisce un doppio che registra le chiamate e
+filtra i record con la semantica dei `where` di Prisma (uguaglianza, `in`,
+`not`, `gt`, `OR`, `AND`, `NOT`, filtri su path JSON).
+
+Dove il runtime resta irraggiungibile si usano **test di conformita statica**
+sul sorgente: meno espressivi, ma colgono la regressione che conta — un
+endpoint nuovo che dimentica il controllo.
+
+## Cosa e coperto oggi — 84 test, 11 file
 
 | File | Test | Copre |
 |------|------|-------|
@@ -47,16 +58,46 @@ un endpoint nuovo che dimentica il controllo.
 | `tests/auth/session-sync.test.mjs` | 3 | Invalidazione cache e handler `unauthorized` |
 | `tests/auth/membership-load-result.test.mjs` | 3 | Normalizzazione del caricamento membership |
 | `tests/email/smtp-config.test.mjs` | 4 | Validazione config SMTP, **la password non e mai esposta**, cifratura autenticata e rilevamento manomissioni |
+| `tests/server/multi-tenant-isolation.test.mjs` | 29 | **Isolamento multi-tenant a runtime**: lettura, dettaglio, creazione, update e delete cross-tenant sulle funzioni vere di `resources.ts` |
+
+## Isolamento multi-tenant: cosa dimostrano i test
+
+`tests/server/multi-tenant-isolation.test.mjs` esercita le funzioni reali con
+un doppio del client. Copre, per un utente che appartiene al solo club A:
+
+| Operazione | Verifica |
+|-----------|----------|
+| `listResource` | la query parte gia con `where.organization_id` del club attivo; un `organization_id` o `club_id` altrui viene rifiutato |
+| `listResource("clubs")` | `where.id` ristretto a `{ in: allowedOrganizationIds }`; senza club consentiti la lista e vuota |
+| `getResourceById` | un record altrui non e leggibile |
+| `createResource` | un `organization_id` altrui e rifiutato; senza, viene imposto il club attivo; senza club attivo non si crea nulla |
+| `updateResource` | un record altrui non e modificabile e **resta intatto**; non si puo spostare un record in un altro club |
+| `deleteResource` | un record altrui non e cancellabile e **resta presente** |
+| Alias | `simplified_athletes` e `organizations` applicano lo stesso isolamento |
+| Copertura d'insieme | **tutte** le risorse `club_resource` piu atleti, certificati, pagamenti, fatture e ricevute filtrano per organizzazione |
+
+Due forme di rifiuto, entrambe corrette:
+
+- modelli Prisma dedicati → `"Accesso negato"` (il record e letto e poi
+  rifiutato);
+- risorse generiche di club → `"non trovata"`, perche il filtro e **dentro la
+  query**: il record altrui non viene mai letto. E la forma migliore, perche
+  non conferma l'esistenza. Un test dedicato verifica che un id inventato e un
+  id reale di un altro club diano **la stessa** risposta.
+
+### Verificati per mutazione
+
+I test sono stati validati sabotando temporaneamente il codice:
+
+| Sabotaggio | Test falliti |
+|-----------|--------------|
+| `listResource` non impone piu `organization_id` | **8** |
+| `ensureOrganizationAccess` non solleva piu | **11** |
 
 ## Cosa NON e coperto
 
-- **Isolamento multi-tenant a runtime** — la lacuna piu importante.
-  `listResource` e `ensureOrganizationAccess` sono verificati solo
-  staticamente: nessun test dimostra che una query restituisca davvero solo i
-  dati del club consentito. Richiede di rendere `resources.ts` importabile o
-  iniettabile. → [WP-04](20-work-packages.md)
-- **`src/lib/server/resources.ts`** — 1.919 righe, inclusa la sincronizzazione
-  distruttiva `club_resource_items` ⇄ `clubs.<json>`.
+- **`syncClubResourceItemsFromField`** — la sincronizzazione distruttiva
+  `club_resource_items` ⇄ `clubs.<json>` non e ancora coperta. → WP-10
 - **`src/lib/simplified-db.ts`** — 4.036 righe di logica di dominio.
 - **Componenti e pagine** — nessun test di rendering.
 - **Mobile** — nessun test. → [WP-24](20-work-packages.md)
@@ -71,7 +112,7 @@ Eseguiti automaticamente dalla CI su ogni push e pull request
 (`.github/workflows/ci.yml`), e da eseguire in locale prima di ogni commit:
 
 ```bash
-npm test           # 55/55 attesi
+npm test           # 84/84 attesi
 npm run typecheck  # nessun output = OK
 npm run lint       # 0 errori (i warning esistenti sono tollerati)
 npm run build      # deve completare
@@ -93,7 +134,7 @@ connection string con credenziali, nessun `DATABASE_URL` nel mobile).
 
 | Gate | Esito |
 |------|-------|
-| `npm test` | 55 pass / 0 fail |
+| `npm test` | 84 pass / 0 fail |
 | `npm run typecheck` | OK |
 | `npm run lint` | 0 errori, 53 warning (`no-img-element`, `exhaustive-deps`) |
 | `npm run build` | OK, 120 route, 62 s |
@@ -106,9 +147,10 @@ correggi prima di committare.
 
 ## Come aggiungere un test
 
-1. Il modulo da testare deve essere **puro**: nessun import di `next/*`, nessun
-   JSX, nessuna dipendenza dal DOM, e import con estensione esplicita. Se non
-   lo e, estrai la logica in `src/lib/<dominio>.ts` e testa quella.
+1. Il modulo da testare non deve avere JSX ne dipendenze da Next o dal DOM.
+   Gli import senza estensione e l'alias `@/` sono gestiti dall'hook di
+   risoluzione. Se il modulo tocca il database, inietta un doppio con
+   `__setPrismaClientForTests()` e usa `createFakePrisma()`.
 2. Crea `tests/<area>/<nome>.test.mjs`. Viene raccolto automaticamente.
 3. Esegui `npm test`.
 

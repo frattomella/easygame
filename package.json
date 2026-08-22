@@ -25,7 +25,7 @@
     "prisma:seed": "node scripts/db-guard.mjs \"npm run prisma:seed\" && node prisma/seed.js",
     "staging:provision-e2e": "node scripts/db-guard.mjs \"npm run staging:provision-e2e\" && node scripts/provision-staging-e2e.mjs",
     "db:status": "prisma migrate status",
-    "test:unit": "node --experimental-strip-types --experimental-test-isolation=none --test \"tests/**/*.test.mjs\""
+    "test:unit": "node --experimental-strip-types --experimental-test-isolation=none --import ./tests/helpers/register-hooks.mjs --test \"tests/**/*.test.mjs\""
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
