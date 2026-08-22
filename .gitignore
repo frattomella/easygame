@@ -68,3 +68,8 @@ node_modules/
 node_modules
 
 .vercel
+
+# temp/deploy snapshots
+.codex-tmp/
+.codex-run/
+.codex-logs/
