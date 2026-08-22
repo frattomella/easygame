@@ -39,6 +39,12 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Il build va prima del typecheck: `next-env.d.ts` e gitignored (default
+      # di create-next-app) e senza di esso `tsc` non trova le dichiarazioni
+      # dei moduli immagine. Next lo rigenera a ogni build.
+      - name: Build
+        run: npm run build
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -47,9 +53,6 @@ jobs:
 
       - name: Test
         run: npm test
-
-      - name: Build
-        run: npm run build
 
       - name: Nessun codice irraggiungibile
         run: npx tsc --noEmit --incremental false --allowUnreachableCode false
@@ -99,8 +102,13 @@ jobs:
 
       - name: Nessun segreto evidente nei file tracciati
         run: |
+          # Questo file e escluso perche contiene il pattern stesso e
+          # altrimenti si auto-segnalerebbe.
           pattern='(sk_live_|sk_test_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|github_pat_|xox[baprs]-|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY|SG\.[A-Za-z0-9_-]{20,})'
-          if git grep -nIE "$pattern" -- . ':!package-lock.json' ':!easygamemobile/package-lock.json'; then
+          if git grep -nIE "$pattern" -- . \
+              ':!package-lock.json' \
+              ':!easygamemobile/package-lock.json' \
+              ':!.github/workflows/ci.yml'; then
             echo "Possibile segreto nei file tracciati"; exit 1
           fi
           echo "OK: nessun token noto"
