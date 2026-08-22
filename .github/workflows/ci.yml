@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# Un solo run per ref: un push successivo annulla il precedente.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web App (src/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Il build importa src/lib/server/prisma.ts, che richiede DATABASE_URL.
+      # Sono valori fittizi: la CI non si connette a nessun database e non deve
+      # avere accesso a Neon. Vedi docs/knowledge-base/13-environments.md.
+      DATABASE_URL: "postgresql://ci:ci@127.0.0.1:5432/ci?sslmode=disable"
+      DIRECT_URL: "postgresql://ci:ci@127.0.0.1:5432/ci?sslmode=disable"
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Nessun codice irraggiungibile
+        run: npx tsc --noEmit --incremental false --allowUnreachableCode false
+
+  mobile:
+    name: Mobile App (easygamemobile/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: easygamemobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: easygamemobile/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check:types
+
+      - name: Lint
+        run: npm run lint
+
+  guardrails:
+    name: Guardrail di sicurezza
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nessun file .env reale committato
+        run: |
+          found=$(git ls-files | grep -E '^(.*/)?\.env($|\.local$|\.production$)' || true)
+          if [ -n "$found" ]; then
+            echo "File .env committati:"; echo "$found"; exit 1
+          fi
+          echo "OK: solo template .env*.example"
+
+      - name: Nessun segreto evidente nei file tracciati
+        run: |
+          pattern='(sk_live_|sk_test_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|github_pat_|xox[baprs]-|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY|SG\.[A-Za-z0-9_-]{20,})'
+          if git grep -nIE "$pattern" -- . ':!package-lock.json' ':!easygamemobile/package-lock.json'; then
+            echo "Possibile segreto nei file tracciati"; exit 1
+          fi
+          echo "OK: nessun token noto"
+
+      - name: Nessuna connection string con credenziali reali
+        run: |
+          # Solo URL che contengono davvero utente:password@host.
+          # I placeholder noti dei template e della CI sono ammessi.
+          found=$(git grep -hoIE 'postgres(ql)?://[^:/@[:space:]]+:[^@[:space:]]+@[^[:space:]"]+' \
+            -- . ':!package-lock.json' ':!easygamemobile/package-lock.json' \
+            | grep -vE '://(USER:PASSWORD|postgres:postgres|ci:ci)@' || true)
+          if [ -n "$found" ]; then
+            echo "Connection string con credenziali:"; echo "$found"; exit 1
+          fi
+          echo "OK: solo placeholder"
+
+      - name: Il mobile non accede al database
+        run: |
+          if git grep -nI 'DATABASE_URL' -- easygamemobile; then
+            echo "Il mobile deve usare solo le API EasyGame (ADR-0018)"; exit 1
+          fi
+          echo "OK: nessun riferimento a DATABASE_URL nel mobile"
