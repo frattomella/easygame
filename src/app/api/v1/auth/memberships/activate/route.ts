@@ -6,6 +6,7 @@ import {
 } from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 const UUID_PATTERN =
   /^(?:urn:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -284,6 +285,17 @@ export async function POST(request: Request) {
       organizationId,
       userId: session.db.user_id,
       role: updatedMembership.role,
+    });
+
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.membershipActivated,
+      actorUserId: session.db.user_id,
+      actorEmail: session.db.user.email,
+      actorRole: updatedMembership.role,
+      organizationId,
+      resource: "organization_users",
+      resourceId: updatedMembership.id,
+      request,
     });
 
     return NextResponse.json({

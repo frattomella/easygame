@@ -23,8 +23,14 @@ export type SafeEmailErrorCode =
   | "SMTP_DELIVERY_FAILED";
 
 export class EmailDeliveryError extends Error {
-  constructor(readonly code: SafeEmailErrorCode) {
+  // Campo esplicito invece di parameter property: le parameter property non
+  // sono supportate dallo strip-only di Node e renderebbero questo modulo,
+  // e tutti quelli che lo importano, non testabili. Vedi 15-testing.md.
+  readonly code: SafeEmailErrorCode;
+
+  constructor(code: SafeEmailErrorCode) {
     super(code);
+    this.code = code;
     this.name = "EmailDeliveryError";
   }
 }

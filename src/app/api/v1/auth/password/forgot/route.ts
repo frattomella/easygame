@@ -15,6 +15,7 @@ import {
   getEmailErrorMessage,
   isEmailDeliveryConfigured,
 } from "@/lib/server/email/email-service";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 export const runtime = "nodejs";
 
@@ -80,6 +81,14 @@ export async function POST(request: Request) {
     }
 
     const challenge = await sendPasswordResetChallenge(user);
+
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.authPasswordResetRequested,
+      actorUserId: user.id,
+      actorEmail: user.email,
+      request,
+      metadata: { delivered: challenge.sent },
+    });
 
     return NextResponse.json({
       data: {

@@ -6,6 +6,7 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 export const runtime = "nodejs";
 
@@ -50,7 +51,15 @@ export async function POST(request: Request) {
       );
     }
 
-    await confirmPasswordReset({ userId, token, password });
+    const esito = await confirmPasswordReset({ userId, token, password });
+
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.authPasswordResetCompleted,
+      actorUserId: esito.userId,
+      actorEmail: esito.email,
+      request,
+      metadata: { sessionsRevoked: true },
+    });
 
     return NextResponse.json({
       data: {
@@ -61,6 +70,14 @@ export async function POST(request: Request) {
       error: null,
     });
   } catch (error: any) {
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.authPasswordResetFailed,
+      outcome: "failure",
+      request,
+      // Nessun token e nessuna password nei metadati: solo il motivo.
+      metadata: { reason: error?.message || "unknown" },
+    });
+
     return NextResponse.json(
       {
         data: null,

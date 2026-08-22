@@ -59,6 +59,7 @@ ovunque.
 | `Notification` | `notifications` | Per club e/o utente |
 | `ClubResourceItem` | `club_resource_items` | **Contenitore generico**: `resource_type` + `payload` JSON + `name`/`status`/`date` estratti per filtrare |
 | `Asset` | `assets` | File. Unique `(bucket, path)`. `data_base64` = **i binari possono essere salvati nel database**. Vedi [16](16-technical-debt.md). |
+| `AuditLog` | `audit_logs` | Traccia delle operazioni sensibili: `action`, `outcome`, actor, `organization_id`, risorsa, IP, user agent, `metadata` filtrati. Nessuna FK, per sopravvivere alla cancellazione dell'attore. Quattro indici per interrogazione e purge. Vedi [ADR-0019](18-decision-log.md) |
 
 ## `club_resource_items`: i 27 tipi
 
@@ -117,7 +118,7 @@ applicativo**.
 
 ## Migrazioni
 
-6 migrazioni in `prisma/migrations/`:
+7 migrazioni in `prisma/migrations/`:
 
 | Migrazione | Contenuto |
 |------------|-----------|
@@ -127,9 +128,11 @@ applicativo**.
 | `20260521103000_allow_multiple_roles_per_organization_user` | Unique su `(org, user, role)` |
 | `20260821120000_auth_rate_limits` | `auth_rate_limit_buckets` |
 | `20260821160000_email_provider_config` | `email_provider_configs` |
+| `20260822180000_audit_log` | `audit_logs` |
 
 Stato verificato su Neon staging il 2026-08-22:
-`npx prisma migrate status` → **Database schema is up to date** (6/6 applicate).
+`npx prisma migrate status` → **Database schema is up to date**. La settima
+(`audit_logs`) viene applicata al primo deploy.
 
 ### Drift noto e benigno
 
@@ -142,6 +145,11 @@ Stato verificato su Neon staging il 2026-08-22:
 Sono differenze cosmetiche introdotte dalla migrazione SQL scritta a mano.
 **Non generare una migrazione correttiva** senza una ragione funzionale: il
 comportamento applicativo e identico.
+
+Attenzione: `prisma migrate diff` include comunque queste istruzioni in ogni
+nuova migrazione generata. Vanno **rimosse a mano** dal file, come e stato
+fatto in `20260822180000_audit_log`, dove il motivo e scritto in testa al
+file.
 
 ## Seed
 

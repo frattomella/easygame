@@ -10,6 +10,11 @@ import {
 } from "@/lib/server/auth";
 import { assertClubResourceAccess } from "@/lib/access-roles";
 import { sendNotificationEmails } from "@/lib/server/email/email-service";
+import {
+  AUDIT_ACTIONS,
+  AUDITED_RESOURCES,
+  recordAuditEvent,
+} from "@/lib/server/audit";
 
 type Context = {
   params: {
@@ -61,7 +66,22 @@ export async function GET(request: Request, context: Context) {
         request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
-    assertClubResourceAccess(scope.activeRole, resource, "read");
+    try {
+      assertClubResourceAccess(scope.activeRole, resource, "read");
+    } catch (denied) {
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.resourceAccessDenied,
+        outcome: "denied",
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: scope.activeOrganizationId,
+        resource,
+        request,
+        metadata: { attemptedAction: "read" },
+      });
+      throw denied;
+    }
     const data = await listResource(resource, url.searchParams, scope);
 
     return NextResponse.json({ data, error: null });
@@ -102,13 +122,43 @@ export async function POST(request: Request, context: Context) {
       request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
-    assertClubResourceAccess(scope.activeRole, resource, "create");
+    try {
+      assertClubResourceAccess(scope.activeRole, resource, "create");
+    } catch (denied) {
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.resourceAccessDenied,
+        outcome: "denied",
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: scope.activeOrganizationId,
+        resource,
+        request,
+        metadata: { attemptedAction: "create" },
+      });
+      throw denied;
+    }
 
     const items = Array.isArray(payload) ? payload : [payload];
     const created = [];
 
     for (const item of items) {
       created.push(await createResource(resource, item || {}, mode, scope));
+    }
+
+    if (AUDITED_RESOURCES.has(resource)) {
+      for (const item of created) {
+        await recordAuditEvent({
+          action: AUDIT_ACTIONS.resourceCreated,
+          actorUserId: session.db.user_id,
+          actorEmail: session.db.user.email,
+          actorRole: scope.activeRole,
+          organizationId: scope.activeOrganizationId,
+          resource,
+          resourceId: (item as any)?.id || null,
+          request,
+        });
+      }
     }
 
     if (["notifications", "simplified_notifications"].includes(resource)) {

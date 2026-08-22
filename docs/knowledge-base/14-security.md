@@ -112,10 +112,32 @@ preflight CORS).
 Oggi non processa eventi, quindi l'impatto e nullo — **ma non deve essere
 attivato prima di implementare la verifica**. Vedi [WP-13](20-work-packages.md).
 
-### 7. Nessun audit log — MEDIO
+### 7. ~~Nessun audit log~~ — IMPLEMENTATO (2026-08-22)
 
-Non c'e traccia di chi ha modificato cosa. Per un gestionale che tratta dati di
-minori e dati fiscali e una lacuna di compliance. Vedi [WP-16](20-work-packages.md).
+`src/lib/server/audit.ts` scrive su `audit_logs` chi ha fatto cosa, su quale
+club, con quale esito ([ADR-0019](18-decision-log.md)).
+
+Tracciate: login riuscito e fallito, logout, richiesta e completamento del
+reset password, attivazione membership, creazione/modifica/cancellazione delle
+risorse economiche e di accesso (`AUDITED_RESOURCES`), e **tutti** i dinieghi
+di autorizzazione su qualunque risorsa.
+
+Registrati: azione, esito, actor (id, email, ruolo), organizzazione, risorsa e
+id, IP, user agent, metadati filtrati, timestamp.
+
+Garanzie:
+
+- **nessun segreto**: i metadati passano da `sanitizeMetadata`, che censura le
+  chiavi sensibili per sottostringa (password, token, hash, iban, ...) e per
+  segmento (`iv`, `pin`, `otp`, `code`, ...), a qualunque profondita;
+- **non fa fallire l'operazione tracciata**: un errore di scrittura viene
+  registrato su console e basta;
+- **non legge mai il corpo delle richieste** (verificato da un test).
+
+Retention: `AUDIT_LOG_RETENTION_DAYS` piu `purgeExpiredAuditEvents()`. Se la
+variabile non e impostata **non si cancella nulla**: il periodo e una decisione
+di prodotto e compliance, non un default tecnico. Manca ancora lo scheduler che
+invochi la purge, e manca una UI di consultazione: → [WP-16](20-work-packages.md).
 
 ### 8. Binari nel database — MEDIO
 

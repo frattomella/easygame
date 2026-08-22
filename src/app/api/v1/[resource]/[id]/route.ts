@@ -10,6 +10,39 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { assertClubResourceAccess } from "@/lib/access-roles";
+import {
+  AUDIT_ACTIONS,
+  AUDITED_RESOURCES,
+  recordAuditEvent,
+} from "@/lib/server/audit";
+
+/**
+ * Traccia le scritture sulle risorse sensibili (dati economici, fiscali e di
+ * accesso) e **tutti** i dinieghi, su qualunque risorsa. Vedi ADR-0019.
+ */
+const auditResourceWrite = async (
+  action: string,
+  request: Request,
+  session: any,
+  scope: any,
+  resource: string,
+  id: string,
+  outcome: "success" | "denied" = "success",
+) => {
+  if (outcome === "success" && !AUDITED_RESOURCES.has(resource)) return;
+
+  await recordAuditEvent({
+    action,
+    outcome,
+    actorUserId: session?.db?.user_id,
+    actorEmail: session?.db?.user?.email,
+    actorRole: scope?.activeRole,
+    organizationId: scope?.activeOrganizationId,
+    resource,
+    resourceId: id,
+    request,
+  });
+};
 
 type Context = {
   params: {
@@ -83,11 +116,32 @@ export async function PATCH(request: Request, context: Context) {
       request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
-    assertClubResourceAccess(scope.activeRole, resource, "update");
+    try {
+      assertClubResourceAccess(scope.activeRole, resource, "update");
+    } catch (denied) {
+      await auditResourceWrite(
+        AUDIT_ACTIONS.resourceAccessDenied,
+        request,
+        session,
+        scope,
+        resource,
+        id,
+        "denied",
+      );
+      throw denied;
+    }
 
     const body = await request.json();
     const payload = body?.data ?? body;
     const data = await updateResource(resource, id, payload || {}, scope);
+    await auditResourceWrite(
+      AUDIT_ACTIONS.resourceUpdated,
+      request,
+      session,
+      scope,
+      resource,
+      id,
+    );
 
     return NextResponse.json({
       data,
@@ -126,9 +180,30 @@ export async function DELETE(request: Request, context: Context) {
       request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
-    assertClubResourceAccess(scope.activeRole, resource, "delete");
+    try {
+      assertClubResourceAccess(scope.activeRole, resource, "delete");
+    } catch (denied) {
+      await auditResourceWrite(
+        AUDIT_ACTIONS.resourceAccessDenied,
+        request,
+        session,
+        scope,
+        resource,
+        id,
+        "denied",
+      );
+      throw denied;
+    }
 
     const data = await deleteResource(resource, id, scope);
+    await auditResourceWrite(
+      AUDIT_ACTIONS.resourceDeleted,
+      request,
+      session,
+      scope,
+      resource,
+      id,
+    );
     return NextResponse.json({
       data,
       error: null,

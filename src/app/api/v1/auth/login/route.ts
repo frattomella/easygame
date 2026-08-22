@@ -27,6 +27,7 @@ import {
   isEmailDeliveryConfigured,
 } from "@/lib/server/email/email-service";
 import { resolveEmailVerificationPolicy } from "@/lib/auth/email-verification-policy";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 const DUMMY_PASSWORD_HASH =
   "$2a$10$3gQkUQ3VL89S/gY5KFIC0OG/lquhesFrvFvKtZk4ebmerY.cPiUuO";
@@ -81,6 +82,13 @@ export async function POST(request: Request) {
 
     if (!user) {
       await verifyPassword(password, DUMMY_PASSWORD_HASH);
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.authLoginFailure,
+        outcome: "failure",
+        actorEmail: email,
+        request,
+        metadata: { reason: "unknown_account" },
+      });
       return NextResponse.json(
         {
           data: { user: null, session: null },
@@ -92,6 +100,14 @@ export async function POST(request: Request) {
 
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) {
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.authLoginFailure,
+        outcome: "failure",
+        actorUserId: user.id,
+        actorEmail: user.email,
+        request,
+        metadata: { reason: "wrong_password" },
+      });
       return NextResponse.json(
         {
           data: { user: null, session: null },
@@ -214,6 +230,15 @@ export async function POST(request: Request) {
     });
 
     attachSessionCookie(response, session);
+
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.authLoginSuccess,
+      actorUserId: finalized.user.id,
+      actorEmail: finalized.user.email,
+      actorRole: finalized.user.role,
+      request,
+    });
+
     return response;
   } catch (error: any) {
     if (error instanceof EmailDeliveryError) {
