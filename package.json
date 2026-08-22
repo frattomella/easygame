@@ -5,8 +5,7 @@
   },
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); fs.rmSync('.next', { recursive: true, force: true });\"",
-    "test": "npm run test:auth",
-    "test:auth": "node --experimental-strip-types --experimental-test-isolation=none --test tests/auth/session-sync.test.mjs tests/auth/request-deduper.test.mjs tests/auth/active-club-access.test.mjs tests/auth/membership-load-result.test.mjs tests/auth/role-authorization.test.mjs tests/auth/auth-security.test.mjs tests/email/smtp-config.test.mjs",
+    "test": "npm run test:unit",
     "typecheck": "tsc --noEmit --incremental false",
     "lint": "next lint",
     "local": "node scripts/start-local.mjs",
@@ -25,7 +24,8 @@
     "prisma:push": "node scripts/db-guard.mjs \"npm run prisma:push\" && prisma db push",
     "prisma:seed": "node scripts/db-guard.mjs \"npm run prisma:seed\" && node prisma/seed.js",
     "staging:provision-e2e": "node scripts/db-guard.mjs \"npm run staging:provision-e2e\" && node scripts/provision-staging-e2e.mjs",
-    "db:status": "prisma migrate status"
+    "db:status": "prisma migrate status",
+    "test:unit": "node --experimental-strip-types --experimental-test-isolation=none --test \"tests/**/*.test.mjs\""
   },
   "dependencies": {
     "@babel/runtime": "^7.26.10",

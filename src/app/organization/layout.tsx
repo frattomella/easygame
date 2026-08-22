@@ -1,5 +1,6 @@
 "use client";
 
+import { AccessAreaGuard } from "@/components/auth/access-area-guard";
 import { ToastProvider } from "@/components/ui/toast-notification";
 
 export default function OrganizationLayout({
@@ -7,5 +8,9 @@ export default function OrganizationLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <ToastProvider>{children}</ToastProvider>;
+  return (
+    <AccessAreaGuard>
+      <ToastProvider>{children}</ToastProvider>
+    </AccessAreaGuard>
+  );
 }
