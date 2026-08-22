@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 155 test, 15 file
+## Cosa e coperto oggi — 175 test, 17 file
 
 | File | Test | Copre |
 |------|------|-------|
@@ -66,6 +66,8 @@ endpoint nuovo che dimentica il controllo.
 | `tests/lib/payment-enrollment.test.mjs` | 16 | Servizi opzionali nel totale e nelle rate, pro-rata applicato e diagnosticato, stato reale di ogni rata |
 | `tests/lib/api-adapter-requests.test.mjs` | 4 | L'adapter fa **una** richiesta per select senza relazioni, e carica le relazioni solo quando servono |
 | `tests/lib/trainer-delete.test.mjs` | 8 | L'eliminazione di un allenatore e persistita su tutte le origini che la lettura rimette insieme |
+| `tests/lib/coalescing-saver.test.mjs` | 6 | L'autosave scrive una volta alla volta e accorpa le modifiche fatte durante l'attesa |
+| `tests/lib/club-write-requests.test.mjs` | 8 | Quante richieste costa ogni operazione sul club e con quale proiezione di colonne |
 
 ## Isolamento multi-tenant: cosa dimostrano i test
 

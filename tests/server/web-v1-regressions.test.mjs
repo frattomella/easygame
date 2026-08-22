@@ -195,6 +195,92 @@ test("view=summary non tocca le risorse che non sono atleti", async () => {
   assert.equal(categorie.length, 3);
 });
 
+/* ----------------- WP-31 · proiezione di colonne sul club ------------------- */
+
+test("fields restituisce solo le colonne chieste piu quelle di servizio", async () => {
+  const [record] = await resources.listResource(
+    "clubs",
+    new URLSearchParams({ id: CLUB, fields: "categories" }),
+    scope(),
+  );
+
+  const query = fake.lastCall("club", "findMany");
+  assert.deepEqual(Object.keys(query.args.select).sort(), [
+    "categories",
+    "id",
+    "name",
+    "settings",
+    "slug",
+  ]);
+  assert.ok(record, "la lettura proiettata deve comunque restituire il club");
+});
+
+test("senza fields la lettura del club resta completa", async () => {
+  await resources.listResource(
+    "clubs",
+    new URLSearchParams({ id: CLUB }),
+    scope(),
+  );
+
+  const query = fake.lastCall("club", "findMany");
+  assert.equal(query.args.select, undefined);
+});
+
+test("una colonna sconosciuta viene ignorata invece di far fallire la query", async () => {
+  await resources.listResource(
+    "clubs",
+    new URLSearchParams({ id: CLUB, fields: "categories,colonna_inventata" }),
+    scope(),
+  );
+
+  const query = fake.lastCall("club", "findMany");
+  assert.equal("colonna_inventata" in query.args.select, false);
+  assert.equal(query.args.select.categories, true);
+});
+
+test("fields non tocca le risorse diverse dal club", async () => {
+  await resources.listResource(
+    "simplified_athletes",
+    new URLSearchParams({ club_id: CLUB, fields: "first_name" }),
+    scope(),
+  );
+
+  const query = fake.lastCall("athlete", "findMany");
+  assert.equal(query.args.select, undefined);
+});
+
+test("la risposta di una scrittura sul club rispetta la stessa proiezione", () => {
+  const proiettato = resources.projectClubResponse(
+    "clubs",
+    {
+      id: CLUB,
+      slug: "club",
+      name: "Club",
+      settings: {},
+      categories: [{ id: "cat" }],
+      matches: [{ id: "m" }],
+      transactions: [{ id: "t" }],
+    },
+    new URLSearchParams({ fields: "id" }),
+  );
+
+  assert.deepEqual(Object.keys(proiettato).sort(), [
+    "id",
+    "name",
+    "settings",
+    "slug",
+  ]);
+});
+
+test("senza fields la risposta di una scrittura resta completa", () => {
+  const record = { id: CLUB, categories: [{ id: "cat" }] };
+
+  assert.deepEqual(
+    resources.projectClubResponse("clubs", record, new URLSearchParams()),
+    record,
+  );
+});
+
 /* ------------------- WP-32 · stagione applicata dal server ------------------- */
 
 test("con la stagione attiva il server esclude le risorse delle altre stagioni", async () => {

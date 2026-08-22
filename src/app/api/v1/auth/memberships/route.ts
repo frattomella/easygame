@@ -15,46 +15,41 @@ export async function GET(request: Request) {
       );
     }
 
-    const memberships = await prisma.organizationUser.findMany({
-      where: {
-        user_id: session.db.user_id,
-      },
-      include: {
-        organization: {
-          select: {
-            id: true,
-            name: true,
-            logo_url: true,
-            creator_id: true,
-            contact_email: true,
-            contact_phone: true,
-            city: true,
-            province: true,
-            created_at: true,
-            settings: true,
+    const clubSummarySelect = {
+      id: true,
+      name: true,
+      logo_url: true,
+      creator_id: true,
+      contact_email: true,
+      contact_phone: true,
+      city: true,
+      province: true,
+      created_at: true,
+      settings: true,
+    } as const;
+
+    // Letture indipendenti, eseguite in parallelo: questa rotta e sul percorso
+    // critico di ogni caricamento di pagina (AuthProvider).
+    const [memberships, ownedClubs] = await Promise.all([
+      prisma.organizationUser.findMany({
+        where: {
+          user_id: session.db.user_id,
+        },
+        include: {
+          organization: {
+            select: clubSummarySelect,
           },
         },
-      },
-      orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
-    });
-    const ownedClubs = await prisma.club.findMany({
-      where: {
-        creator_id: session.db.user_id,
-      },
-      select: {
-        id: true,
-        name: true,
-        logo_url: true,
-        creator_id: true,
-        contact_email: true,
-        contact_phone: true,
-        city: true,
-        province: true,
-        created_at: true,
-        settings: true,
-      },
-      orderBy: { created_at: "asc" },
-    });
+        orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
+      }),
+      prisma.club.findMany({
+        where: {
+          creator_id: session.db.user_id,
+        },
+        select: clubSummarySelect,
+        orderBy: { created_at: "asc" },
+      }),
+    ]);
 
     const membershipRows = memberships.map((membership) => ({
       ...membership,

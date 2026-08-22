@@ -28,6 +28,7 @@ import {
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
+import { createCoalescingSaver } from "@/lib/performance";
 import {
   findScheduleConflicts,
   isValidTimeRange,
@@ -118,6 +119,14 @@ const groupLocationsByStructure = (locations: TrainingLocationOption[]) => {
 
   return Array.from(groups.values());
 };
+
+/**
+ * Attesa prima che l'autosave scriva.
+ *
+ * Trascinare un allenamento sulla griglia produce molti aggiornamenti di stato
+ * consecutivi: senza attesa ognuno diventerebbe una scrittura.
+ */
+const AUTOSAVE_DEBOUNCE_MS = 1200;
 
 export function WeeklyTrainingSchedule({
   categories = [],
@@ -363,30 +372,60 @@ export function WeeklyTrainingSchedule({
     }
   }, [resetNewTraining, showAddDialog]);
 
+  const saveRunnerRef = React.useRef<
+    ((value: { schedule: WeeklyTrainingItem[]; notify: boolean }) => Promise<void>) | null
+  >(null);
+
   const persistSchedule = React.useCallback(
     async (nextSchedule: WeeklyTrainingItem[], notify = false) => {
       if (!activeClub?.id) {
         return;
       }
 
-      setSaving(true);
-      try {
-        await updateClubData(activeClub.id, "weekly_schedule", nextSchedule);
-        lastPersistedScheduleRef.current =
-          buildScheduleSnapshot(nextSchedule);
-        await onSave(nextSchedule);
-        if (notify) {
-          showToast("success", "Programma settimanale salvato con successo");
-        }
-      } catch (error) {
-        console.error("Error saving weekly schedule:", error);
-        showToast("error", "Errore durante il salvataggio del programma");
-      } finally {
-        setSaving(false);
+      const clubId = activeClub.id;
+
+      if (!saveRunnerRef.current) {
+        // Una scrittura per volta, con accorpamento di quelle richieste nel
+        // frattempo: le PATCH non si sovrappongono e l'ultima modifica non si
+        // perde per una corsa fra risposte.
+        saveRunnerRef.current = createCoalescingSaver(
+          async ({ schedule: scheduleToSave, notify: shouldNotify }) => {
+            setSaving(true);
+            try {
+              await updateClubData(clubId, "weekly_schedule", scheduleToSave);
+              lastPersistedScheduleRef.current =
+                buildScheduleSnapshot(scheduleToSave);
+              await onSave(scheduleToSave);
+              if (shouldNotify) {
+                showToast(
+                  "success",
+                  "Programma settimanale salvato con successo",
+                );
+              }
+            } catch (error) {
+              console.error("Error saving weekly schedule:", error);
+              showToast("error", "Errore durante il salvataggio del programma");
+            } finally {
+              setSaving(false);
+            }
+          },
+          {
+            isEqual: ({ schedule: candidate }) =>
+              buildScheduleSnapshot(candidate) ===
+              lastPersistedScheduleRef.current,
+          },
+        );
       }
+
+      await saveRunnerRef.current({ schedule: nextSchedule, notify });
     },
     [activeClub?.id, buildScheduleSnapshot, onSave, showToast],
   );
+
+  // Cambiando club il runner precedente scriverebbe sul club sbagliato.
+  React.useEffect(() => {
+    saveRunnerRef.current = null;
+  }, [activeClub?.id]);
 
   React.useEffect(() => {
     if (!autoSave || !loaded) {
@@ -399,7 +438,7 @@ export function WeeklyTrainingSchedule({
 
     const timer = setTimeout(() => {
       persistSchedule(schedule, false);
-    }, 1200);
+    }, AUTOSAVE_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
   }, [autoSave, buildScheduleSnapshot, loaded, persistSchedule, schedule]);

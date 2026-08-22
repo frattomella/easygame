@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { apiRequest } from "./api/client";
+import { apiRequest, readStoredActiveClub } from "./api/client";
 import { normalizeTrainerList } from "./trainer-utils";
 import {
   getAthleteCategoryLabels,
@@ -446,18 +446,89 @@ export async function getClub(clubId: string) {
   }
 }
 
+/**
+ * Legge **solo** le colonne indicate del club.
+ *
+ * La riga di un club porta 35 colonne JSON: leggerla intera per modificarne
+ * una sola trasferiva centinaia di KB a ogni salvataggio. Passa da
+ * `apiRequest` invece che dall'adapter perche la proiezione e una scelta
+ * esplicita di questo chiamante, non un comportamento globale delle select
+ * (WP-31).
+ */
+const readClubFields = async (clubId: string, fields: string[]) => {
+  const params = new URLSearchParams({
+    id: clubId,
+    fields: fields.join(","),
+  });
+  const response = await apiRequest<any[]>(
+    `/api/v1/clubs?${params.toString()}`,
+  );
+
+  if (response.error) {
+    return { data: null, error: response.error };
+  }
+
+  const record = Array.isArray(response.data) ? response.data[0] : response.data;
+  return { data: record || null, error: null };
+};
+
+/**
+ * Scrive alcune colonne del club chiedendo indietro solo quelle.
+ *
+ * Senza `fields` la risposta di una PATCH e la riga intera: su un autosave e
+ * il trasferimento piu costoso dell'operazione, e nessuno di questi chiamanti
+ * la usa — tutti restituiscono lo stato che hanno gia calcolato (WP-31).
+ */
+const writeClubFields = async (
+  clubId: string,
+  updates: Record<string, any>,
+) => {
+  // `fields=id` restituisce le sole colonne di servizio: non ha senso farsi
+  // rimandare indietro la collezione appena inviata.
+  const response = await apiRequest<any>(
+    `/api/v1/clubs/${encodeURIComponent(clubId)}?fields=id`,
+    { method: "PATCH", body: { data: updates } },
+  );
+
+  return { data: response.data ?? null, error: response.error };
+};
+
+/**
+ * Stagione attiva gia nota al browser, senza toccare la rete.
+ *
+ * E la stessa che `apiRequest` mette in `x-active-season-id`: se il club
+ * attivo memorizzato e proprio questo, leggerla da li evita una lettura del
+ * club a ogni scrittura, autosave compresi (WP-36).
+ */
+const readActiveSeasonIdForClub = (clubId: string) => {
+  const activeClub = readStoredActiveClub();
+
+  if (!activeClub || String(activeClub.id || "") !== String(clubId)) {
+    return null;
+  }
+
+  return String(activeClub.activeSeasonId || "").trim() || null;
+};
+
 const getClubSeasonState = async (clubId: string) => {
-  const { data, error } = await supabase
-    .from("clubs")
-    .select("settings")
-    .eq("id", clubId)
-    .single();
+  const knownSeasonId = readActiveSeasonIdForClub(clubId);
+  if (knownSeasonId) {
+    return {
+      seasons: [],
+      activeSeasonId: knownSeasonId,
+      activeSeason: null,
+      legacySeasonId: null,
+    };
+  }
+
+  const { data, error } = await readClubFields(clubId, ["settings"]);
 
   if (error) {
     return {
       seasons: [],
       activeSeasonId: null,
       activeSeason: null,
+      legacySeasonId: null,
     };
   }
 
@@ -2217,8 +2288,6 @@ export async function addClubData(
   newData: any,
 ) {
   try {
-    console.log(`Adding ${dataType} to club ${clubId}:`, newData);
-
     // Validate inputs
     if (!clubId || typeof clubId !== "string") {
       throw new Error("Valid club ID is required");
@@ -2237,12 +2306,12 @@ export async function addClubData(
 
     while (retryCount < maxRetries) {
       try {
-        // Get current club data
-        const { data: clubData, error: fetchError } = await supabase
-          .from("clubs")
-          .select(`${dataType}, id`)
-          .eq("id", clubId)
-          .single();
+        // Solo la colonna che si sta modificando: la riga intera del club
+        // porta 35 colonne JSON e non serve nessuna delle altre.
+        const { data: clubData, error: fetchError } = await readClubFields(
+          clubId,
+          [dataType],
+        );
 
         if (fetchError) {
           // Handle column not found error - return empty array silently
@@ -2299,19 +2368,10 @@ export async function addClubData(
 
         const updatedData = [...currentData, seasonAwareItem];
 
-        console.log(
-          `Updating club ${clubId} with new ${dataType} data:`,
-          updatedData,
+        const { data: updateResult, error: updateError } = await writeClubFields(
+          clubId,
+          { [dataType]: updatedData },
         );
-
-        // Update the club data
-        const { data: updateResult, error: updateError } = await supabase
-          .from("clubs")
-          .update({
-            [dataType]: updatedData,
-          })
-          .eq("id", clubId)
-          .select();
 
         if (updateError) {
           if (retryCount === maxRetries - 1) {
@@ -2327,13 +2387,12 @@ export async function addClubData(
           continue;
         }
 
-        if (!updateResult || updateResult.length === 0) {
+        if (!updateResult) {
           throw new Error(
             `No rows updated when adding ${dataType}. Club may not exist.`,
           );
         }
 
-        console.log(`Successfully added ${dataType} to club:`, seasonAwareItem);
         return seasonAwareItem;
       } catch (fetchError: any) {
         if (retryCount === maxRetries - 1) {
@@ -2367,11 +2426,9 @@ export async function addClubData(
  */
 export async function getClubData(clubId: string, dataType: string) {
   try {
-    const { data: clubData, error } = await supabase
-      .from("clubs")
-      .select(`${dataType}, settings`)
-      .eq("id", clubId)
-      .single();
+    const { data: clubData, error } = await readClubFields(clubId, [
+      dataType,
+    ]);
 
     if (error) {
       // If the column doesn't exist, return empty array silently for known financial columns
@@ -2646,11 +2703,7 @@ const getClubDirectCollectionWithLegacySeasonFallback = async (
   clubId: string,
   dataType: "trainings" | "weekly_schedule",
 ) => {
-  const { data, error } = await supabase
-    .from("clubs")
-    .select(`${dataType}, settings`)
-    .eq("id", clubId)
-    .single();
+  const { data, error } = await readClubFields(clubId, [dataType]);
 
   if (error) {
     console.warn(
@@ -2989,12 +3042,9 @@ export async function updateClubData(
             ? applySeasonIdToCollection(updatedData, seasonState.activeSeasonId)
             : updatedData;
 
-        const { error } = await supabase
-          .from("clubs")
-          .update({
-            [dataType]: seasonAwareData,
-          })
-          .eq("id", clubId);
+        const { error } = await writeClubFields(clubId, {
+          [dataType]: seasonAwareData,
+        });
 
         if (error) {
           if (retryCount === maxRetries - 1) {
@@ -3034,25 +3084,19 @@ export async function deleteClubDataItem(
   itemId: string,
 ) {
   try {
-    // Get current club data
-    const { data: clubData, error: fetchError } = await supabase
-      .from("clubs")
-      .select(`${dataType}, settings`)
-      .eq("id", clubId)
-      .single();
+    const { data: clubData, error: fetchError } = await readClubFields(
+      clubId,
+      [dataType],
+    );
 
     if (fetchError) throw fetchError;
 
     const currentData = clubData?.[dataType] || [];
     const updatedData = currentData.filter((item: any) => item.id !== itemId);
 
-    // Update the club data
-    const { error: updateError } = await supabase
-      .from("clubs")
-      .update({
-        [dataType]: updatedData,
-      })
-      .eq("id", clubId);
+    const { error: updateError } = await writeClubFields(clubId, {
+      [dataType]: updatedData,
+    });
 
     if (updateError) throw updateError;
 
@@ -3141,13 +3185,12 @@ export async function updateClubDataItem(
   updates: any,
 ) {
   try {
-    // `settings` serve per stampare la stagione attiva sull'elemento: va
-    // richiesto esplicitamente, altrimenti resta sempre undefined.
-    const { data: clubData, error: fetchError } = await supabase
-      .from("clubs")
-      .select(`${dataType}, settings`)
-      .eq("id", clubId)
-      .single();
+    // `settings` arriva sempre con la proiezione: serve per stampare la
+    // stagione attiva sull'elemento.
+    const { data: clubData, error: fetchError } = await readClubFields(
+      clubId,
+      [dataType],
+    );
 
     if (fetchError) throw fetchError;
 
@@ -3172,13 +3215,9 @@ export async function updateClubDataItem(
         : item,
     );
 
-    // Update the club data
-    const { error: updateError } = await supabase
-      .from("clubs")
-      .update({
-        [dataType]: updatedData,
-      })
-      .eq("id", clubId);
+    const { error: updateError } = await writeClubFields(clubId, {
+      [dataType]: updatedData,
+    });
 
     if (updateError) throw updateError;
 
@@ -4094,11 +4133,10 @@ export async function deleteClubTrainer(clubId: string, trainerId: string) {
     throw new Error("Allenatore non valido");
   }
 
-  const { data: clubData, error: fetchError } = await supabase
-    .from("clubs")
-    .select("trainers, staff_members")
-    .eq("id", clubId)
-    .single();
+  const { data: clubData, error: fetchError } = await readClubFields(clubId, [
+    "trainers",
+    "staff_members",
+  ]);
 
   if (fetchError) {
     throw fetchError;
@@ -4139,10 +4177,7 @@ export async function deleteClubTrainer(clubId: string, trainerId: string) {
   }
 
   if (Object.keys(updates).length > 0) {
-    const { error: updateError } = await supabase
-      .from("clubs")
-      .update(updates)
-      .eq("id", clubId);
+    const { error: updateError } = await writeClubFields(clubId, updates);
 
     if (updateError) {
       throw updateError;

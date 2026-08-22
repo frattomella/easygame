@@ -1290,6 +1290,95 @@ const applySeasonStamp = async (
   return { ...payload, seasonId: season.activeSeasonId };
 };
 
+const CLUB_RESOURCES = new Set(["clubs", "organizations"]);
+
+/**
+ * Colonne sempre presenti in una lettura proiettata del club.
+ *
+ * `id` serve a indirizzare la scrittura successiva, `slug` e `name` alle
+ * intestazioni, `settings` a risolvere la stagione attiva. Costano poco e
+ * evitano che una proiezione dimentichi un campo di servizio.
+ */
+const CLUB_PROJECTION_MANDATORY_FIELDS = ["id", "slug", "name", "settings"];
+
+/**
+ * Colonne del club che una proiezione puo chiedere.
+ *
+ * Elenco esplicito invece dell'enum generato da Prisma: un campo sconosciuto
+ * viene ignorato e la lettura degrada alle sole colonne obbligatorie, invece
+ * di far fallire la query con un nome di colonna arbitrario dal client.
+ */
+const CLUB_PROJECTABLE_FIELDS = new Set([
+  ...CLUB_JSON_FIELDS,
+  ...CLUB_PROJECTION_MANDATORY_FIELDS,
+  "logo_url",
+  "creator_id",
+  "contact_email",
+  "contact_phone",
+  "city",
+  "province",
+  "payment_pin",
+  "created_at",
+  "updated_at",
+]);
+
+/**
+ * Proiezione di colonne richiesta con `?fields=a,b,c`, onorata **solo** per
+ * `clubs` e `organizations`.
+ *
+ * La riga di un club porta 35 colonne JSON: leggerla intera per modificarne
+ * una sola significava trasferire centinaia di KB a ogni salvataggio, autosave
+ * compresi (WP-31). E opt-in: senza il parametro la risposta e completa, quindi
+ * nessun chiamante esistente perde campi.
+ */
+export const resolveClubProjection = (
+  resource: string,
+  searchParams: URLSearchParams,
+) => {
+  if (!CLUB_RESOURCES.has(resource)) {
+    return undefined;
+  }
+
+  const requested = String(searchParams.get("fields") || "")
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean);
+
+  if (requested.length === 0) {
+    return undefined;
+  }
+
+  const selected = new Set(
+    [...CLUB_PROJECTION_MANDATORY_FIELDS, ...requested].filter((field) =>
+      CLUB_PROJECTABLE_FIELDS.has(field),
+    ),
+  );
+
+  return Object.fromEntries([...selected].map((field) => [field, true]));
+};
+
+/**
+ * Applica la stessa proiezione alla **risposta** di una scrittura sul club.
+ *
+ * Senza questo, ogni PATCH restituiva la riga intera: su un autosave e il
+ * trasferimento piu costoso dell'intera operazione, e il client non ne usa
+ * nulla (WP-31).
+ */
+export const projectClubResponse = (
+  resource: string,
+  record: Record<string, any> | null,
+  searchParams: URLSearchParams,
+) => {
+  const projection = resolveClubProjection(resource, searchParams);
+  if (!projection || !record) {
+    return record;
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => key in projection),
+  );
+};
+
 const ATHLETE_RESOURCES = new Set(["athletes", "simplified_athletes"]);
 
 /**
@@ -1724,22 +1813,30 @@ export const listResource = async (
     delete where.club_id;
   }
 
-  const records = await delegate.findMany({
-    where,
-    include: getModelInclude(resource),
-    orderBy:
-      config.kind === "club_resource" ? { created_at: "asc" } : undefined,
-  });
+  // La stagione si risolve in parallelo alla lettura principale: e una lettura
+  // indipendente e in serie aggiungerebbe un round trip a ogni lista.
+  const clubProjection = resolveClubProjection(resource, searchParams);
+
+  const [records, season] = await Promise.all([
+    delegate.findMany({
+      where,
+      ...(clubProjection
+        ? { select: clubProjection }
+        : { include: getModelInclude(resource) }),
+      orderBy:
+        config.kind === "club_resource" ? { created_at: "asc" } : undefined,
+    }),
+    resolveRequestSeason(
+      resource,
+      where.organization_id || scope?.activeOrganizationId,
+      options,
+    ),
+  ]);
 
   const serializedRecords = records
     .map((record: Record<string, any>) => serializeRecord(resource, record))
     .filter(Boolean) as Record<string, any>[];
 
-  const season = await resolveRequestSeason(
-    resource,
-    where.organization_id || scope?.activeOrganizationId,
-    options,
-  );
   const seasonScopedRecords = season
     ? filterCollectionBySeason(resource, serializedRecords, season.activeSeasonId, {
         legacySeasonId: season.legacySeasonId,

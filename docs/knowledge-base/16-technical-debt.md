@@ -82,6 +82,20 @@ nessun token noto, nessuna connection string con credenziali, nessun
 
 ## Impatto medio
 
+### D22 — Un secondo componente di programma settimanale, non collegato
+
+`src/components/dashboard/WeeklyTrainingSchedule.tsx` non e importato da
+nessuna pagina: `/training` usa `WeeklyTrainingSchedulePanel.tsx`. Il
+componente orfano contiene un autosave a 3 secondi **senza deduplicazione**,
+che scriverebbe a ogni montaggio, e salva un programma settimanale nella
+colonna `clubs.trainings`.
+
+**Perche pesa:** e la trappola descritta nell'errore tipico n. 1 di
+`CLAUDE.md` — chi cerca «autosave del programma settimanale» trova per primo
+la versione sbagliata.
+
+→ WP-18
+
 ### D7 — Adapter `supabase.ts` fuorviante
 
 `src/lib/supabase.ts` (1.116 righe) espone un'API in stile Supabase

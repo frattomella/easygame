@@ -61,3 +61,57 @@ export function throttle<T extends (...args: any[]) => any>(
     }
   };
 }
+
+/**
+ * Esegue una scrittura per volta, accorpando quelle richieste nel frattempo.
+ *
+ * Un autosave puo essere invocato di nuovo mentre il salvataggio precedente e
+ * ancora in volo: senza accorpamento le scritture si sovrappongono, il server
+ * riceve richieste che si annullano a vicenda e l'ordine delle risposte non e
+ * garantito.
+ *
+ * Qui la scrittura in corso non viene interrotta; l'ultimo stato richiesto
+ * durante l'attesa viene salvato una sola volta al termine, scartando quelli
+ * intermedi. `isEqual` permette di saltare del tutto una scrittura che non
+ * cambierebbe nulla.
+ */
+export function createCoalescingSaver<T>(
+  save: (value: T) => Promise<void>,
+  options: { isEqual?: (candidate: T) => boolean } = {},
+) {
+  let inFlight = false;
+  let pending: { value: T } | null = null;
+
+  const shouldSkip = (value: T) =>
+    typeof options.isEqual === "function" && options.isEqual(value);
+
+  return async function run(value: T): Promise<void> {
+    if (inFlight) {
+      // Solo l'ultimo stato sopravvive: i precedenti sarebbero comunque
+      // sovrascritti.
+      pending = { value };
+      return;
+    }
+
+    inFlight = true;
+    try {
+      if (!shouldSkip(value)) {
+        await save(value);
+      }
+
+      while (pending) {
+        const next = pending.value;
+        pending = null;
+
+        if (shouldSkip(next)) {
+          continue;
+        }
+
+        await save(next);
+      }
+    } finally {
+      inFlight = false;
+      pending = null;
+    }
+  };
+}

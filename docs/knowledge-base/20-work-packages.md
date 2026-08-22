@@ -455,6 +455,67 @@ stampa la stagione attiva.
 
 ---
 
+### WP-36 · Costo delle scritture e autosave — `DONE` (2026-08-22)
+
+**Obiettivo.** Nessuna operazione interattiva deve trasferire la riga intera
+del club, e l'autosave non deve generare chiamate eccessive.
+
+**Cause radice individuate.**
+
+1. Ogni lettura del club restituiva **tutte** le 35 colonne JSON, anche
+   quando il chiamante ne modificava una sola.
+2. Anche la **risposta** di ogni PATCH era la riga intera, e nessuno dei
+   chiamanti la usava: tutti restituiscono lo stato che hanno gia calcolato.
+3. L'adapter rileggeva il record prima di scriverlo anche quando il filtro
+   era gia `eq("id", …)`, cioe quando il bersaglio era noto.
+4. `updateClubData` scaricava il club solo per leggere `settings` e
+   risolvere la stagione attiva, che il browser conosce gia.
+5. L'autosave del programma settimanale aveva debounce e deduplicazione, ma
+   **nessun accorpamento**: continuando a modificare durante un salvataggio
+   partivano PATCH sovrapposte, con ordine di arrivo non garantito.
+6. `addClubData` scriveva nel log l'intera collezione a ogni salvataggio.
+
+**Scope.** Parametro `fields` per `clubs`/`organizations` in lettura e sulla
+risposta delle scritture; `readClubFields` / `writeClubFields` in
+`simplified-db.ts`; scorciatoia dell'adapter quando il filtro e solo `id`;
+stagione attiva letta da `readStoredActiveClub`; `createCoalescingSaver` in
+`performance.ts`, adottato dal pannello del programma settimanale.
+
+**Misura** (club sintetico da 479 KB su 35 colonne JSON):
+
+| Operazione | Prima | Dopo |
+|-----------|-------|------|
+| Autosave programma settimanale | 5 richieste, 1.915 KB | **1 richiesta, 16 KB** |
+| Creazione categoria | 5 richieste, 1.915 KB | **2 richieste, 20 KB** |
+| Modifica categoria | 5 richieste, 1.915 KB | **2 richieste, 20 KB** |
+| Eliminazione elemento | 4 richieste, 1.436 KB | **2 richieste, 19 KB** |
+| Eliminazione allenatore | non persisteva | **2 richieste, 19 KB** |
+| Lettura collezione club | 2 richieste, 957 KB | **1 richiesta, 10 KB** |
+
+I 16 KB dell'autosave sono il programma che si sta salvando: e il minimo
+trasferibile.
+
+**Latenza lato server.** Tre coppie di letture indipendenti passano da
+sequenziali a parallele: `resolveOrganizationScopeForUser` (su **ogni**
+richiesta autenticata), `GET /api/v1/auth/memberships` (su ogni caricamento
+di pagina) e la risoluzione della stagione dentro `listResource`. Tolgono un
+round trip a Neon ciascuna.
+
+**Acceptance criteria.**
+- [x] Nessuna operazione interattiva trasferisce colonne che non usa
+- [x] L'autosave scrive una volta alla volta e accorpa le modifiche in attesa
+- [x] Uno stato identico all'ultimo salvato non produce scrittura
+- [x] Senza `fields` il comportamento e invariato
+- [x] Test di regressione su richieste, proiezione e accorpamento
+
+**File.** `src/lib/server/resources.ts`, `src/app/api/v1/[resource]/[id]/route.ts`,
+`src/lib/simplified-db.ts`, `src/lib/supabase.ts`, `src/lib/api/client.ts`,
+`src/lib/performance.ts`, `src/lib/server/auth.ts`,
+`src/app/api/v1/auth/memberships/route.ts`,
+`src/components/dashboard/WeeklyTrainingSchedulePanel.tsx`.
+
+---
+
 ### WP-34 · Responsivita verificata del Web — `READY`
 
 **Obiettivo.** Rendere ogni area del Web usabile da desktop, tablet e

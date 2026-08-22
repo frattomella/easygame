@@ -3,6 +3,7 @@ import {
   RESOURCE_CONFIG,
   deleteResource,
   getResourceById,
+  projectClubResponse,
   updateResource,
 } from "@/lib/server/resources";
 import {
@@ -133,9 +134,16 @@ export async function PATCH(request: Request, context: Context) {
 
     const body = await request.json();
     const payload = body?.data ?? body;
-    const data = await updateResource(resource, id, payload || {}, scope, {
+    const updated = await updateResource(resource, id, payload || {}, scope, {
       activeSeasonId: request.headers.get("x-active-season-id"),
     });
+    // Con `?fields=` la risposta porta le stesse colonne della lettura, invece
+    // della riga intera del club (WP-31).
+    const data = projectClubResponse(
+      resource,
+      updated,
+      new URL(request.url).searchParams,
+    );
     await auditResourceWrite(
       AUDIT_ACTIONS.resourceUpdated,
       request,

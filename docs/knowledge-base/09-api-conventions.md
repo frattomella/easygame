@@ -136,6 +136,27 @@ default resta `full`.
 Resta valida come soluzione strutturale WP-15 (spostare i file fuori dal
 database) e WP-12 (paginazione).
 
+### `fields` — proiezione di colonne del club
+
+Parametro riconosciuto **solo** per `clubs` e `organizations`, in lettura
+(`GET /api/v1/clubs?id=…&fields=categories`) e sulla **risposta** della
+scrittura (`PATCH /api/v1/clubs/:id?fields=id`).
+
+La riga di un club porta 35 colonne JSON. Leggerla intera per modificarne una
+sola trasferiva centinaia di KB a ogni salvataggio, autosave compresi.
+
+- alle colonne richieste si aggiungono sempre `id`, `slug`, `name`,
+  `settings`: costano poco e servono a indirizzare la scrittura successiva e a
+  risolvere la stagione attiva;
+- una colonna sconosciuta viene **ignorata**, non fa fallire la query: il
+  parametro arriva dal client;
+- senza `fields` la risposta e completa, quindi nessun chiamante esistente
+  perde campi.
+
+Lato client la proiezione e una scelta esplicita dei lettori in
+`src/lib/simplified-db.ts` (`readClubFields` / `writeClubFields`), non un
+comportamento globale dell'adapter: le `select` normali restano invariate.
+
 ### Filtro di stagione
 
 Se la richiesta porta `x-active-season-id` e la risorsa e una `club_resource`

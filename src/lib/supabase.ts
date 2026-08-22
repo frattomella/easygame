@@ -671,6 +671,30 @@ class ApiQueryBuilder {
     return result.data;
   }
 
+  /**
+   * Id del record da scrivere, quando il filtro **e** solo `eq("id", ...)`.
+   *
+   * In quel caso il bersaglio e gia noto e rileggerlo prima di scrivere e uno
+   * spreco: su `clubs` significava scaricare l'intera riga — 35 colonne JSON —
+   * a ogni salvataggio, autosave compresi (WP-31).
+   *
+   * Con qualunque altro filtro si torna alla rilettura, perche solo i record
+   * letti possono essere confrontati con `applyFilters`.
+   */
+  private resolveDirectTargetId() {
+    if (this.filters.length !== 1) {
+      return null;
+    }
+
+    const [filter] = this.filters;
+    if (filter.type !== "eq" || filter.column !== "id") {
+      return null;
+    }
+
+    const id = String(filter.value ?? "").trim();
+    return id || null;
+  }
+
   private async execute() {
     try {
       if (this.action === "select") {
@@ -716,8 +740,10 @@ class ApiQueryBuilder {
       }
 
       if (this.action === "update") {
-        const existingRows = await this.loadRows();
-        const rowsToUpdate = applyFilters(existingRows, this.filters);
+        const directTargetId = this.resolveDirectTargetId();
+        const rowsToUpdate = directTargetId
+          ? [{ id: directTargetId }]
+          : applyFilters(await this.loadRows(), this.filters);
         const affectedRows = [];
 
         for (const row of rowsToUpdate) {
@@ -749,8 +775,10 @@ class ApiQueryBuilder {
       }
 
       if (this.action === "delete") {
-        const existingRows = await this.loadRows();
-        const rowsToDelete = applyFilters(existingRows, this.filters);
+        const directTargetId = this.resolveDirectTargetId();
+        const rowsToDelete = directTargetId
+          ? [{ id: directTargetId }]
+          : applyFilters(await this.loadRows(), this.filters);
         const affectedRows = [];
 
         for (const row of rowsToDelete) {

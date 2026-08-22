@@ -228,21 +228,25 @@ export const resolveOrganizationScopeForUser = async (
   preferredOrganizationId?: string | null,
   preferredRole?: string | null,
 ): Promise<OrganizationAccessScope> => {
-  const memberships = await prisma.organizationUser.findMany({
-    where: { user_id: userId },
-    select: {
-      id: true,
-      organization_id: true,
-      role: true,
-      is_primary: true,
-    },
-    orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
-  });
-  const ownedClubs = await prisma.club.findMany({
-    where: { creator_id: userId },
-    select: { id: true },
-    orderBy: { created_at: "asc" },
-  });
+  // Le due letture sono indipendenti e vengono eseguite in parallelo: in serie
+  // aggiungevano due round trip a Neon a **ogni** richiesta autenticata.
+  const [memberships, ownedClubs] = await Promise.all([
+    prisma.organizationUser.findMany({
+      where: { user_id: userId },
+      select: {
+        id: true,
+        organization_id: true,
+        role: true,
+        is_primary: true,
+      },
+      orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
+    }),
+    prisma.club.findMany({
+      where: { creator_id: userId },
+      select: { id: true },
+      orderBy: { created_at: "asc" },
+    }),
+  ]);
 
   const allowedOrganizationIds = Array.from(
     new Set(

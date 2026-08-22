@@ -63,7 +63,14 @@ const readCachedUserId = () => {
   return null;
 };
 
-const readStoredActiveClub = () => {
+/**
+ * Club attivo memorizzato dal browser.
+ *
+ * Esportato perche e gia la fonte da cui `apiRequest` costruisce gli header di
+ * contesto: chi ha bisogno del club o della stagione attiva deve leggere da
+ * qui, non reimplementare la lettura da `localStorage`.
+ */
+export const readStoredActiveClub = () => {
   if (typeof window === "undefined") {
     return null;
   }
