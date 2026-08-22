@@ -18,13 +18,14 @@
     "postinstall": "prisma generate",
     "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
+    "db:push": "node scripts/db-guard.mjs \"npm run db:push\" && prisma db push",
+    "db:migrate": "node scripts/db-guard.mjs \"npm run db:migrate\" && prisma migrate dev",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:push": "prisma db push",
-    "prisma:seed": "node prisma/seed.js",
-    "staging:provision-e2e": "node scripts/provision-staging-e2e.mjs"
+    "prisma:migrate": "node scripts/db-guard.mjs \"npm run prisma:migrate\" && prisma migrate dev",
+    "prisma:push": "node scripts/db-guard.mjs \"npm run prisma:push\" && prisma db push",
+    "prisma:seed": "node scripts/db-guard.mjs \"npm run prisma:seed\" && node prisma/seed.js",
+    "staging:provision-e2e": "node scripts/db-guard.mjs \"npm run staging:provision-e2e\" && node scripts/provision-staging-e2e.mjs",
+    "db:status": "prisma migrate status"
   },
   "dependencies": {
     "@babel/runtime": "^7.26.10",

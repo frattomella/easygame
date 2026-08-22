@@ -26,20 +26,61 @@ Conseguenze:
 - **nessun deploy verso un progetto production va eseguito senza
   autorizzazione esplicita e verifica del target.**
 
-### Attenzione: `.env` locale punta al database di staging
+### Development separato da staging — `EASYGAME_DB_ENV` e la guardia
 
-`DATABASE_URL` e `DIRECT_URL` in `.env` e `.env.local` puntano allo **stesso
-endpoint Neon usato da staging**. Non esiste un database locale separato.
+[ADR-0012](18-decision-log.md) stabilisce che lo sviluppo locale deve avere un
+**branch/database Neon dedicato** e non deve mai scrivere su staging.
 
-Ne segue che, in locale:
+**Stato al 2026-08-22:** il branch Neon di sviluppo **non e ancora stato
+creato** — richiede accesso alla console Neon, non disponibile da questa
+working copy. Nel frattempo il `.env` locale punta ancora all'endpoint di
+staging, ma **la scrittura e bloccata a livello di script**.
 
-- `npx prisma migrate dev`, `npx prisma db push` e `npm run prisma:seed`
-  **agiscono sui dati di staging**;
-- `prisma:seed` creerebbe/sovrascriverebbe gli account demo su staging.
+#### La guardia
 
-> Comandi consentiti in locale senza autorizzazione: solo lettura
-> (`prisma migrate status`, `prisma studio` in sola consultazione, query di
-> lettura). Vedi [17 — Convenzioni](17-development-conventions.md).
+`scripts/db-guard.mjs` precede ogni comando npm che scrive sul database:
+
+| Script | Protetto |
+|--------|----------|
+| `db:push`, `prisma:push` | si |
+| `db:migrate`, `prisma:migrate` | si |
+| `prisma:seed` | si |
+| `staging:provision-e2e` | si |
+| `db:status` (`prisma migrate status`) | no — sola lettura |
+| `db:generate`, `prisma:generate` | no — non tocca il database |
+| `vercel-build` (`prisma migrate deploy`) | **no, di proposito** — e il percorso legittimo con cui gli ambienti ricevono le migrazioni |
+
+Comportamento, in base a `EASYGAME_DB_ENV`:
+
+- `development` → il comando procede;
+- `staging` o `production` → **bloccato**, con l'indicazione che le migrazioni
+  arrivano dal deploy Vercel;
+- **non impostata** → **bloccato**, perche non e possibile sapere su cosa si
+  scriverebbe.
+
+La guardia stampa host e nome del database (mai utente, password o query
+string) per rendere evidente il target.
+
+Override per un singolo comando, da usare **solo con autorizzazione
+esplicita**:
+
+```bash
+EASYGAME_ALLOW_SHARED_DB_WRITE=1 npm run prisma:seed
+```
+
+#### Come completare la separazione
+
+1. Nella console Neon, crea un branch del progetto chiamato `development`.
+2. Copia le due connection string (pooled e direct).
+3. Nel `.env` locale imposta `DATABASE_URL`, `DIRECT_URL` e
+   `EASYGAME_DB_ENV="development"`.
+4. Allinea lo schema: `npx prisma migrate deploy` (oppure `npm run db:migrate`,
+   ora consentito).
+5. Popola i dati demo con una password tua:
+   `SEED_DEMO_PASSWORD="$(openssl rand -base64 24)" npm run prisma:seed`.
+6. Verifica che `npm run db:status` riporti il branch di sviluppo.
+
+Finche il punto 1 non e fatto, in locale restano possibili solo le letture.
 
 ## Variabili d'ambiente
 
