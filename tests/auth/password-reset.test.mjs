@@ -92,6 +92,23 @@ test("le challenge di reset non interferiscono con gli OTP di verifica", () => {
   );
 });
 
+test("la risposta ha la stessa forma per account esistenti e non", () => {
+  // Un campo in piu nella risposta dell'account reale sarebbe un oracolo di
+  // esistenza: rilevato su staging il 2026-08-22 e corretto.
+  assert.ok(
+    FORGOT_ROUTE.includes("const rispostaGenerica ="),
+    "entrambe le risposte devono passare dallo stesso costruttore",
+  );
+  assert.ok(
+    FORGOT_ROUTE.includes("...(previewToken ? { previewToken } : {})"),
+    "previewToken deve comparire solo se valorizzato",
+  );
+  assert.ok(
+    !FORGOT_ROUTE.includes("previewToken: challenge.previewCode"),
+    "previewToken non deve essere inserito incondizionatamente",
+  );
+});
+
 test("l'endpoint di richiesta non rivela se un account esiste", () => {
   assert.ok(
     FORGOT_ROUTE.includes("PASSWORD_RESET_GENERIC_MESSAGE"),

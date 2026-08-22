@@ -119,7 +119,15 @@ POST /api/v1/auth/password/reset { userId, token, password }
 Dettagli che contano:
 
 - **Nessuna enumerazione**: la risposta di `forgot` non cambia mai, nemmeno in
-  caso di errore inatteso; non esiste un 404.
+  caso di errore inatteso; non esiste un 404. Entrambi i rami passano dallo
+  stesso costruttore di risposta, cosi la forma e identica: durante il test su
+  staging del 2026-08-22 era emerso che l'account reale riceveva un campo
+  `previewToken` in piu, ed e stato corretto.
+- **Residuo noto sui tempi**: la risposta per un account esistente impiega ~2 s
+  (handshake e invio SMTP), quella per un account inesistente e immediata. La
+  differenza e osservabile. La mitiga il rate limit (3 richieste per email e
+  3 per IP ogni 10 minuti), che rende impraticabile enumerare a volume.
+  Eliminarla richiederebbe di inviare l'email in modo asincrono.
 - **Token monouso**, TTL **30 minuti**.
 - **Ogni sessione viene revocata** dopo il reset, su tutti i dispositivi.
 - Se l'email non era verificata, il reset la marca come verificata: chi ha
@@ -131,6 +139,22 @@ Dettagli che contano:
 UI: `/auth/forgot-password` e `/auth/reset-password`, piu il link «Password
 dimenticata?» nella schermata di login. Entrambe le pagine restano pubbliche
 (il middleware non protegge `/auth`).
+
+### Verificato end-to-end il 2026-08-22
+
+Ciclo completo eseguito contro un **database reale** (ambiente di sviluppo),
+22 verifiche tutte superate: token casuale da 32 byte salvato solo come hash
+SHA-256, scadenza a 30 minuti, token errato rifiutato con incremento di
+`attempts`, password debole rifiutata dalla policy, reset valido che cambia la
+password e **revoca tutte le sessioni** (2 → 0), email marcata verificata,
+riuso del token rifiutato, token scaduto rifiutato, una nuova richiesta che
+invalida la precedente, e nessuna interferenza fra challenge di reset e OTP di
+verifica email.
+
+**Consegna SMTP verificata su staging**: la richiesta per un account reale ha
+prodotto un evento di audit `auth.password_reset.requested` con
+`{"delivered": true}`, che il codice imposta solo quando il provider SMTP
+conferma l'invio. Il token generato dal test e stato invalidato subito dopo.
 
 ## Rate limiting
 

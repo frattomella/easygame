@@ -26,10 +26,23 @@ export const runtime = "nodejs";
  * deve permettere di scoprire quali email sono registrate.
  */
 export async function POST(request: Request) {
-  const genericSuccess = NextResponse.json({
-    data: { sent: true, message: PASSWORD_RESET_GENERIC_MESSAGE },
-    error: null,
-  });
+  /**
+   * La risposta deve essere **identica byte per byte** che l'account esista o
+   * no: una differenza anche solo di forma (un campo in piu) sarebbe un
+   * oracolo di esistenza. `previewToken` compare quindi solo quando e
+   * davvero valorizzato, cioe fuori produzione con AUTH_ALLOW_TEST_CODES.
+   */
+  const rispostaGenerica = (previewToken: string | null = null) =>
+    NextResponse.json({
+      data: {
+        sent: true,
+        message: PASSWORD_RESET_GENERIC_MESSAGE,
+        ...(previewToken ? { previewToken } : {}),
+      },
+      error: null,
+    });
+
+  const genericSuccess = rispostaGenerica();
 
   try {
     const body = await request.json().catch(() => ({}));
@@ -90,14 +103,7 @@ export async function POST(request: Request) {
       metadata: { delivered: challenge.sent },
     });
 
-    return NextResponse.json({
-      data: {
-        sent: true,
-        message: PASSWORD_RESET_GENERIC_MESSAGE,
-        previewToken: challenge.previewCode,
-      },
-      error: null,
-    });
+    return rispostaGenerica(challenge.previewCode);
   } catch (error: any) {
     if (error instanceof EmailDeliveryError) {
       return NextResponse.json(
