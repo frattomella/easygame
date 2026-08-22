@@ -42,7 +42,8 @@ Classificazione:
 | Soci | COMPLETE | Lista, dettaglio, creazione |
 | Sponsor | COMPLETE | Lista, dettaglio, pagamenti sponsor |
 | Strutture e campi | COMPLETE | `/structures`, orari di apertura, prenotazioni |
-| Categorie | COMPLETE | `/categories`, statistiche atleti per categoria |
+| Categorie | COMPLETE | `/categories`, statistiche atleti per categoria. Il secondo anno di nascita e facoltativo: una categoria puo coprire un solo anno |
+| Stagioni sportive | PARTIAL | `clubs.settings.seasons`, `/organization`. Il filtro e applicato dal server su `x-active-season-id`; **manca il riporto** di categorie e piani da una stagione all'altra (WP-35) |
 
 ## Attivita sportiva
 
@@ -76,7 +77,9 @@ Classificazione:
 | Capability | Stato | Note |
 |-----------|-------|------|
 | Quote e pagamenti atleti | COMPLETE | `/payments`, modello `AthletePayment` |
-| Piani di pagamento e sconti | COMPLETE | `payment_plans`, `discounts` |
+| Piani di pagamento e sconti | COMPLETE | `payment_plans`, `discounts`, servizi obbligatori e opzionali, rate a percentuale/fisso/saldo |
+| Pro-rata sulla quota | COMPLETE | `calculateProratedTotal`, metodo a giorni o mesi. Quando non e calcolabile la UI dice quale dato manca |
+| Metodi di incasso | COMPLETE | `clubs.settings.paymentMethods` + metodi manuali e provider online; selezione strutturata anche in «Modifica pagamento» |
 | Fatture | COMPLETE | Numerazione unica, campi fatturazione elettronica |
 | Ricevute | COMPLETE | Collegabili a pagamento e fattura |
 | Metodi di incasso | COMPLETE | `payment_methods` con commissioni configurabili |

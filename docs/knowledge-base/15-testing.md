@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 84 test, 11 file
+## Cosa e coperto oggi — 155 test, 15 file
 
 | File | Test | Copre |
 |------|------|-------|
@@ -59,6 +59,13 @@ endpoint nuovo che dimentica il controllo.
 | `tests/auth/membership-load-result.test.mjs` | 3 | Normalizzazione del caricamento membership |
 | `tests/email/smtp-config.test.mjs` | 4 | Validazione config SMTP, **la password non e mai esposta**, cifratura autenticata e rilevamento manomissioni |
 | `tests/server/multi-tenant-isolation.test.mjs` | 29 | **Isolamento multi-tenant a runtime**: lettura, dettaglio, creazione, update e delete cross-tenant sulle funzioni vere di `resources.ts` |
+| `tests/server/audit-log.test.mjs` | 14 | Registrazione degli eventi sensibili e assenza di dati riservati nel log |
+| `tests/server/web-v1-regressions.test.mjs` | 16 | Proiezione `view=summary` della lista atleti, filtro e stampa della stagione attiva, sincronizzazione transazionale delle risorse club |
+| `tests/lib/club-seasons.test.mjs` | 7 | Separazione delle stagioni e attribuzione dei record legacy alla stagione baseline |
+| `tests/lib/category-birth-years.test.mjs` | 6 | Categorie con un solo anno di nascita: normalizzazione, etichetta, associazione atleta |
+| `tests/lib/payment-enrollment.test.mjs` | 16 | Servizi opzionali nel totale e nelle rate, pro-rata applicato e diagnosticato, stato reale di ogni rata |
+| `tests/lib/api-adapter-requests.test.mjs` | 4 | L'adapter fa **una** richiesta per select senza relazioni, e carica le relazioni solo quando servono |
+| `tests/lib/trainer-delete.test.mjs` | 8 | L'eliminazione di un allenatore e persistita su tutte le origini che la lettura rimette insieme |
 
 ## Isolamento multi-tenant: cosa dimostrano i test
 

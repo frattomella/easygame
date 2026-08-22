@@ -82,7 +82,9 @@ export async function GET(request: Request, context: Context) {
       });
       throw denied;
     }
-    const data = await listResource(resource, url.searchParams, scope);
+    const data = await listResource(resource, url.searchParams, scope, {
+      activeSeasonId: request.headers.get("x-active-season-id"),
+    });
 
     return NextResponse.json({ data, error: null });
   } catch (error: any) {
@@ -143,7 +145,11 @@ export async function POST(request: Request, context: Context) {
     const created = [];
 
     for (const item of items) {
-      created.push(await createResource(resource, item || {}, mode, scope));
+      created.push(
+        await createResource(resource, item || {}, mode, scope, {
+          activeSeasonId: request.headers.get("x-active-season-id"),
+        }),
+      );
     }
 
     if (AUDITED_RESOURCES.has(resource)) {

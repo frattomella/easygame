@@ -46,7 +46,7 @@ import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
-import { getClubTrainers } from "@/lib/simplified-db";
+import { deleteClubTrainer, getClubTrainers } from "@/lib/simplified-db";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface Trainer {
@@ -129,14 +129,31 @@ export default function TrainersPage() {
     fetchData();
   }, [clubId, showToast]);
 
+  const [deletingTrainerId, setDeletingTrainerId] = useState<string | null>(null);
+
   const handleDelete = async (trainerId: string) => {
+    if (!clubId || deletingTrainerId) return;
     if (!confirm("Sei sicuro di voler eliminare questo allenatore?")) return;
 
+    setDeletingTrainerId(trainerId);
     try {
-      // Update logic here
-      setTrainers((current) => current.filter((trainer) => trainer.id !== trainerId));
+      const result = await deleteClubTrainer(clubId, trainerId);
+
+      if (!result.removed) {
+        showToast("error", "Allenatore non trovato tra i dati del club");
+        return;
+      }
+
+      // Si rilegge dal server invece di filtrare lo stato locale: e la lettura
+      // a unire le tre origini dell'allenatore, e solo lei sa cosa resta.
+      const trainersData = await getClubTrainers(clubId);
+      setTrainers(Array.isArray(trainersData) ? trainersData : []);
+      showToast("success", "Allenatore eliminato");
     } catch (error) {
       console.error("Error deleting trainer:", error);
+      showToast("error", "Impossibile eliminare l'allenatore");
+    } finally {
+      setDeletingTrainerId(null);
     }
   };
 
@@ -470,6 +487,7 @@ export default function TrainersPage() {
                                 <Button
                                   variant="destructive"
                                   size="sm"
+                                  disabled={deletingTrainerId === trainer.id}
                                   onClick={() => handleDelete(trainer.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />

@@ -305,7 +305,9 @@ export default function AthletesPage() {
           .select("*")
           .eq("club_id", clubId)
           .order("created_at", { ascending: true }),
-        getClubAthletes(clubId),
+        // La lista mostra anagrafica, categoria e stato: non serve trasportare
+        // gli allegati base64 di 200 schede atleta (WP-31).
+        getClubAthletes(clubId, { view: "summary" }),
       ]);
 
       const normalizedCategories = buildCategoryList(categoriesData || []);

@@ -93,18 +93,24 @@ export function CategoryEditorDialog({
     e.preventDefault();
 
     const birthYearFrom = Number(formData.birthYearFrom);
-    const birthYearTo = Number(formData.birthYearTo);
+    // Il secondo anno e opzionale: se non lo scegli, la categoria copre un
+    // anno solo.
+    const birthYearTo = String(formData.birthYearTo).trim()
+      ? Number(formData.birthYearTo)
+      : birthYearFrom;
 
     if (!formData.name.trim()) {
       showToast("error", "Il nome categoria e' obbligatorio");
       return;
     }
 
-    if (!Number.isInteger(birthYearFrom) || !Number.isInteger(birthYearTo)) {
-      showToast(
-        "error",
-        "Inserisci un anno di nascita iniziale e finale validi",
-      );
+    if (!Number.isInteger(birthYearFrom)) {
+      showToast("error", "Inserisci un anno di nascita valido");
+      return;
+    }
+
+    if (!Number.isInteger(birthYearTo)) {
+      showToast("error", "L'anno di nascita finale non e' valido");
       return;
     }
 
@@ -246,18 +252,18 @@ export function CategoryEditorDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="birthYearTo">Anno di nascita al</Label>
+            <Label htmlFor="birthYearTo">
+              Anno di nascita al{" "}
+              <span className="text-muted-foreground">(facoltativo)</span>
+            </Label>
             <select
               id="birthYearTo"
               name="birthYearTo"
               value={formData.birthYearTo}
               onChange={handleChange}
               className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-              required
             >
-              <option value="" disabled>
-                Seleziona anno
-              </option>
+              <option value="">Solo l&apos;anno iniziale</option>
               {birthYearOptions.map((year) => (
                 <option key={year} value={year}>
                   {year}

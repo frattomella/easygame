@@ -403,3 +403,93 @@ export const normalizeExtraServices = (value: unknown): HubExtraService[] => {
     };
   });
 };
+
+/**
+ * Metodo di incasso configurato a mano dal club, in `settings.paymentMethods`.
+ *
+ * Vive qui e non nella pagina Iscrizioni perche serve anche alla scheda
+ * atleta: registrare un incasso deve poter scegliere fra i metodi del club
+ * invece di scriverne il nome a mano (WP-33).
+ */
+export type ClubPaymentMethodOption = {
+  id: string;
+  name: string;
+  details: string;
+  active: boolean;
+};
+
+const MANUAL_PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bankTransfer: "Bonifico",
+  cash: "Contanti",
+  other: "Altro metodo manuale",
+};
+
+export const normalizeClubPaymentMethod = (
+  method: unknown,
+): ClubPaymentMethodOption => {
+  const record = asRecord(method);
+
+  return {
+    id:
+      firstText(record.id) ||
+      (typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `method_${Date.now()}`),
+    name: firstText(record.name),
+    details: firstText(record.details, asRecord(record.config).details),
+    active: Boolean(record.active ?? record.is_enabled ?? true),
+  };
+};
+
+export const normalizeClubPaymentMethods = (
+  value: unknown,
+): ClubPaymentMethodOption[] =>
+  (Array.isArray(value) ? value : []).map(normalizeClubPaymentMethod);
+
+export const serializeClubPaymentMethodsForSettings = (
+  methods: ClubPaymentMethodOption[],
+) =>
+  methods.map((method, index) => ({
+    id: method.id,
+    name: method.name,
+    type: "custom",
+    is_enabled: method.active,
+    processing_fee_percentage: 0,
+    processing_fee_fixed: 0,
+    display_order: index + 1,
+    config: {
+      details: method.details || "",
+    },
+  }));
+
+/**
+ * Etichette selezionabili quando si registra un incasso: i metodi
+ * personalizzati attivi del club, i metodi manuali abilitati e i provider
+ * online effettivamente utilizzabili. Nessun duplicato, ordine stabile.
+ */
+export const getClubPaymentMethodChoices = (clubSettings: unknown): string[] => {
+  const settings = asRecord(clubSettings);
+  const paymentSettings = normalizePaymentSettings(settings.paymentSettings);
+
+  const custom = normalizeClubPaymentMethods(settings.paymentMethods)
+    .filter((method) => method.active && method.name)
+    .map((method) => method.name);
+
+  const manual = Object.entries(paymentSettings.manualMethods || {})
+    .filter(([, enabled]) => Boolean(enabled))
+    .map(([key]) => MANUAL_PAYMENT_METHOD_LABELS[key] || key);
+
+  const online = getAvailableRegistrationPaymentMethods(paymentSettings).map(
+    (method) => method.label,
+  );
+
+  const seen = new Set<string>();
+  return [...custom, ...manual, ...online].filter((label) => {
+    const key = label.trim().toLowerCase();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};

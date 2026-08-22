@@ -423,21 +423,30 @@ const fetchTable = async (resource: string, searchParams?: URLSearchParams) => {
   };
 };
 
-const buildStoreSnapshot = async (
-  table: string,
-  relationNames: Set<string>,
-) => {
-  const resources = Array.from(new Set([table, ...relationNames]));
+const EMPTY_STORE = { tables: {} as Record<string, any[]> };
+
+/**
+ * Carica **solo** le tabelle delle relazioni da idratare.
+ *
+ * La tabella di partenza non serve: le sue righe sono gia in mano al chiamante
+ * e nessun consumatore dello store le rilegge. Includerla significava fare una
+ * seconda richiesta **senza filtri** a ogni singola select, raddoppiando il
+ * traffico dell'applicazione (WP-31).
+ */
+const buildStoreSnapshot = async (relationNames: Set<string>) => {
+  if (relationNames.size === 0) {
+    return EMPTY_STORE;
+  }
+
   const entries = await Promise.all(
-    resources.map(async (resource) => {
+    Array.from(relationNames).map(async (resource) => {
       const result = await fetchTable(resource);
       return [resource, result.data] as const;
     }),
   );
 
-  const tables = Object.fromEntries(entries);
   return {
-    tables,
+    tables: Object.fromEntries(entries),
   };
 };
 
@@ -471,7 +480,13 @@ class ApiQueryBuilder {
   private orderBy?: { column: string; ascending: boolean };
   private rowLimit?: number;
 
-  constructor(private readonly table: string) {}
+  // Campo esplicito invece di parameter property: lo strip-only di Node non
+  // le supporta e il modulo non sarebbe importabile dai test (ADR-0023).
+  private readonly table: string;
+
+  constructor(table: string) {
+    this.table = table;
+  }
 
   private buildServerSearchParams() {
     const passthroughFilters = new Set([
@@ -617,7 +632,7 @@ class ApiQueryBuilder {
       this.filters,
       this.orderBy,
     );
-    const store = await buildStoreSnapshot(this.table, relationNames);
+    const store = await buildStoreSnapshot(relationNames);
     const hydratedRows = rows.map((row) => {
       const nextRow = clone(row);
       relationNames.forEach((relation) => {

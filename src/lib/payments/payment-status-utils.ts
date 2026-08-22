@@ -59,6 +59,81 @@ export const isPaymentPaidLike = (payment: unknown) => {
   return Boolean(record.paid_at || record.paidAt) || isPaidPaymentStatus(record.status);
 };
 
+export type InstallmentPaymentState = "paid" | "pending" | "unbilled";
+
+const asText = (value: unknown) => String(value ?? "").trim().toLowerCase();
+
+/**
+ * Vero se il pagamento registrato copre questa rata.
+ *
+ * `syncAthleteEnrollmentInstallmentPayments` scrive `data.installmentId` su
+ * ogni pagamento generato: e il legame autorevole. La descrizione e l'etichetta
+ * servono solo per i pagamenti creati prima che quel campo esistesse.
+ */
+export const paymentCoversInstallment = (
+  payment: unknown,
+  installment: unknown,
+) => {
+  const installmentRecord = asRecord(installment);
+  const installmentId = asText(installmentRecord.id);
+  const data = getPaymentDataRecord(payment);
+  const paymentInstallmentId = asText(
+    data.installmentId ?? data.installment_id,
+  );
+
+  if (installmentId && paymentInstallmentId) {
+    return paymentInstallmentId === installmentId;
+  }
+
+  const label = asText(installmentRecord.label);
+  if (!label) {
+    return false;
+  }
+
+  if (asText(data.installmentLabel ?? data.installment_label) === label) {
+    return true;
+  }
+
+  const description = asText(asRecord(payment).description);
+  return description.endsWith(`- ${label}`) || description === label;
+};
+
+/**
+ * Stato reale di una rata del piano.
+ *
+ * Il Riepilogo Incasso mostrava «In attesa» come costante nel markup, quindi
+ * anche dopo un incasso registrato (WP-33). `unbilled` distingue la rata per
+ * cui non esiste ancora nessun pagamento generato.
+ */
+export const resolveInstallmentPaymentStatus = (
+  installment: unknown,
+  payments: unknown[] = [],
+) => {
+  const related = (Array.isArray(payments) ? payments : []).filter(
+    (payment) =>
+      !isPaymentExcludedFromTotals(payment) &&
+      paymentCoversInstallment(payment, installment),
+  );
+
+  if (related.length === 0) {
+    return {
+      state: "unbilled" as InstallmentPaymentState,
+      label: "Da generare",
+      payment: null as unknown,
+    };
+  }
+
+  const paid = related.find((payment) => isPaymentPaidLike(payment));
+
+  return paid
+    ? { state: "paid" as InstallmentPaymentState, label: "Pagato", payment: paid }
+    : {
+        state: "pending" as InstallmentPaymentState,
+        label: "In attesa",
+        payment: related[0],
+      };
+};
+
 export const normalizePaymentAccountingStatus = (payment: unknown) => {
   if (isPaymentExcludedFromTotals(payment)) {
     return "cancelled" as const;

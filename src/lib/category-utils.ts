@@ -375,6 +375,15 @@ export const normalizeCategoryBirthYears = (category: CategoryLike) => {
     }
   }
 
+  // Una categoria puo coprire un solo anno di nascita: il secondo anno e
+  // opzionale e, quando manca, coincide con il primo. Cosi «2015» e una
+  // categoria valida e non un intervallo aperto.
+  if (birthYearFrom !== undefined && birthYearTo === undefined) {
+    birthYearTo = birthYearFrom;
+  } else if (birthYearTo !== undefined && birthYearFrom === undefined) {
+    birthYearFrom = birthYearTo;
+  }
+
   if (
     birthYearFrom !== undefined &&
     birthYearTo !== undefined &&
@@ -403,13 +412,8 @@ export const formatCategoryBirthYears = (category: CategoryLike) => {
     return `Nati dal ${birthYearFrom} al ${birthYearTo}`;
   }
 
-  if (birthYearFrom !== undefined) {
-    return `Nati dal ${birthYearFrom}`;
-  }
-
-  if (birthYearTo !== undefined) {
-    return `Nati fino al ${birthYearTo}`;
-  }
+  // Non esiste il caso «solo uno dei due anni»: `normalizeCategoryBirthYears`
+  // completa l'anno mancante con quello presente.
 
   if (typeof category.ageRange === "string" && category.ageRange.trim()) {
     return category.ageRange.trim();

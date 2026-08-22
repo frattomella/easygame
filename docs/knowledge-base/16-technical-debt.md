@@ -34,16 +34,19 @@ Le risorse di club esistono sia in `club_resource_items` sia come colonne
 
 → WP-10 (transazione + eliminazione del percorso distruttivo)
 
-### D3 — Il filtro per stagione e solo client-side
+### D3 — ~~Il filtro per stagione e solo client-side~~ — RISOLTO (2026-08-22)
 
-`x-active-season-id` viene inviato dal client ma **nessun endpoint lo legge**.
-Le API restituiscono tutti i dati del club, il filtro lo fa
-`filterCollectionBySeason` nel browser.
+`x-active-season-id` e ora letto dal CRUD generico: in lettura esclude le
+risorse club di altre stagioni, in scrittura stampa la stagione attiva sul
+payload. I record senza `seasonId` appartengono alla stagione baseline (la piu
+vecchia del club), cosi le stagioni restano separate senza far sparire i dati
+storici. Il filtro client resta come rete di sicurezza.
 
-**Perche pesa:** payload piu grandi del necessario e nessuna garanzia
-applicativa sul perimetro stagione.
+**Resta aperto:** non esiste una funzione per **riportare** categorie, piani o
+listini da una stagione all'altra. Aprire una stagione nuova significa oggi
+ricrearli a mano. Vedi WP-35.
 
-→ WP-11
+→ WP-11 (chiuso), WP-32
 
 ### D4 — Nessuna paginazione, ordinamento o ricerca server-side
 
@@ -141,9 +144,17 @@ l'App Router. `_app.tsx` contiene ancora riferimenti commentati a
 
 → WP-18
 
-### D13 — File nel database
+### D13 — File nel database — **PIU GRAVE DI QUANTO SEMBRASSE**
 
-`Asset.data_base64` permette di salvare binari in Postgres.
+`Asset.data_base64` permette di salvare binari in Postgres, ma il problema non
+si ferma li: `supabase.storage.upload` produce un **data URL base64** e le
+schede atleta lo salvano dentro `athletes.data` (`identityDocuments`,
+`enrollmentDocuments`, `documents`, `certificateFiles`, `avatar`). Con 200
+atleti la lista trasferiva ~25 MB.
+
+`view=summary` (WP-31) toglie gli allegati dalle liste e porta il payload a
+~2 MB, ma **i file restano nel database** e i ~2 MB residui sono quasi tutti
+avatar base64. La soluzione strutturale resta spostarli su object storage.
 
 → WP-15
 

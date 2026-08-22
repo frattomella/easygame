@@ -152,8 +152,15 @@ import {
   getSharedDocumentTypeLabel,
 } from "@/lib/shared-documents";
 import type { OnlineForm } from "@/lib/online-forms";
+import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { apiRequest } from "@/lib/api/client";
 import type { KitComponent } from "@/components/forms/CustomKitComponentsBuilder";
+
+/**
+ * `Select` di Radix non accetta `value=""`: serve un valore sentinella per
+ * «nessun metodo indicato».
+ */
+const PAYMENT_METHOD_UNSET = "__nessun_metodo__";
 
 const CustomKitComponentsBuilder = dynamic(
   () =>
@@ -559,6 +566,11 @@ export default function AthleteProfilePage() {
   const [showAddEnrollmentDocumentModal, setShowAddEnrollmentDocumentModal] =
     useState(false);
   const [clubFederations, setClubFederations] = useState<string[]>([]);
+  // Metodi di incasso configurati dal club: alimentano la selezione in
+  // «Modifica pagamento», che prima era un campo di testo libero (WP-33).
+  const [clubPaymentMethodChoices, setClubPaymentMethodChoices] = useState<
+    string[]
+  >([]);
   const [editingGuardianIndex, setEditingGuardianIndex] = useState<
     number | null
   >(null);
@@ -1056,6 +1068,9 @@ export default function AthleteProfilePage() {
         setCertificateFiles(normalizedCollections.certificateFiles);
         setClothingSizes(resolvedClothingSizes);
         setClubFederations(normalizeClubFederations(clubRecord));
+        setClubPaymentMethodChoices(
+          getClubPaymentMethodChoices(clubRecord?.settings),
+        );
 
         // Load payment plans and discounts from club
         try {
@@ -2033,6 +2048,22 @@ export default function AthleteProfilePage() {
     payment?.source === "athlete_payment" &&
     payment?.statusKey !== "cancelled" &&
     payment?.data?.excludedFromTotals !== true;
+
+  // Il metodo gia salvato resta selezionabile anche se il club nel frattempo
+  // lo ha rimosso dalla configurazione: modificare l'importo non deve
+  // cancellare in silenzio l'informazione su come e stato incassato.
+  const paymentMethodOptions = React.useMemo(() => {
+    const current = String(paymentEditForm.method || "").trim();
+    if (!current) {
+      return clubPaymentMethodChoices;
+    }
+
+    return clubPaymentMethodChoices.some(
+      (method) => method.toLowerCase() === current.toLowerCase(),
+    )
+      ? clubPaymentMethodChoices
+      : [...clubPaymentMethodChoices, current];
+  }, [clubPaymentMethodChoices, paymentEditForm.method]);
 
   const openPaymentEditDialog = (payment: any) => {
     if (!isEditableAthletePayment(payment) || payment.statusKey === "paid") {
@@ -7607,16 +7638,35 @@ export default function AthleteProfilePage() {
               </div>
               <div>
                 <Label>Metodo</Label>
-                <Input
-                  value={paymentEditForm.method}
-                  onChange={(event) =>
+                <Select
+                  value={paymentEditForm.method || PAYMENT_METHOD_UNSET}
+                  onValueChange={(value) =>
                     setPaymentEditForm((current) => ({
                       ...current,
-                      method: event.target.value,
+                      method: value === PAYMENT_METHOD_UNSET ? "" : value,
                     }))
                   }
-                  className="mt-2"
-                />
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Seleziona metodo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={PAYMENT_METHOD_UNSET}>
+                      Non specificato
+                    </SelectItem>
+                    {paymentMethodOptions.map((method) => (
+                      <SelectItem key={method} value={method}>
+                        {method}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {clubPaymentMethodChoices.length === 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Nessun metodo configurato: aggiungili in Gestione
+                    iscrizioni.
+                  </p>
+                ) : null}
               </div>
             </div>
             <div>

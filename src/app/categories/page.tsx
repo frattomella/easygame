@@ -627,14 +627,22 @@ const buildDialogAthletesForCategory = (category: Category) =>
         return false;
       }
 
-      // Validate required fields
+      // Il secondo anno di nascita e facoltativo: una categoria puo coprire
+      // un solo anno. `normalizeCategoryBirthYears` completa quello mancante.
+      const { birthYearFrom, birthYearTo } = normalizeCategoryBirthYears(
+        categoryData,
+      );
+
       if (
         !categoryData.name ||
-        !Number.isInteger(Number(categoryData.birthYearFrom)) ||
-        !Number.isInteger(Number(categoryData.birthYearTo))
+        !Number.isInteger(birthYearFrom) ||
+        !Number.isInteger(birthYearTo)
       ) {
         console.error("Missing required fields:", categoryData);
-        showToast("error", "Nome categoria e anni di nascita sono obbligatori");
+        showToast(
+          "error",
+          "Nome categoria e anno di nascita iniziale sono obbligatori",
+        );
         return false;
       }
 
@@ -662,8 +670,8 @@ const buildDialogAthletesForCategory = (category: Category) =>
         description: trimmedDescription,
         sport: trimmedDescription,
         ageRange: categoryData.ageRange.trim(),
-        birthYearFrom: Number(categoryData.birthYearFrom),
-        birthYearTo: Number(categoryData.birthYearTo),
+        birthYearFrom,
+        birthYearTo,
         color: categoryData.color || "bg-blue-500 text-white",
       };
 

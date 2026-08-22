@@ -281,10 +281,19 @@ export const getSelectedOptionalServiceIdsFromAthlete = (athlete: unknown) => {
     paymentConfig.selected_optional_service_ids,
     enrollment.selectedOptionalServiceIds,
     enrollment.selected_optional_service_ids,
-  ].find((value) => Array.isArray(value)) as unknown[] | undefined;
+  ];
+
+  // Si prende il primo array **non vuoto**, non il primo array.
+  // La scheda atleta valorizza sempre `selectedOptionalServiceIds`, anche a
+  // `[]`: fermarsi li nascondeva la selezione confermata, che vive in
+  // `enrollmentPaymentConfig`, e i servizi opzionali sparivano da totale e
+  // rate (WP-33).
+  const selected = candidates.find(
+    (value) => Array.isArray(value) && value.length > 0,
+  ) as unknown[] | undefined;
 
   return Array.from(
-    new Set((candidates || []).map((value) => toText(value)).filter(Boolean)),
+    new Set((selected || []).map((value) => toText(value)).filter(Boolean)),
   );
 };
 
@@ -631,6 +640,8 @@ const normalizeProrationSettings = (
 
   return {
     enabled,
+    // Un pro-rata attivo con metodo non riconosciuto resta `none`, ma
+    // `calculateProratedTotal` lo segnala invece di degradarlo in silenzio.
     method: enabled ? method : "none",
     seasonStartDate:
       firstText(
@@ -655,6 +666,18 @@ const normalizeProrationSettings = (
   };
 };
 
+/**
+ * Applica il pro-rata al totale del piano.
+ *
+ * `applied` significa **il pro-rata e stato calcolato**, non «l'importo e
+ * cambiato». Un'iscrizione che parte esattamente all'inizio del periodo paga
+ * il 100%: il pro-rata e comunque stato applicato, e la UI deve dirlo.
+ * Prima `applied` era `prorated !== baseTotal`, quindi in quel caso — il piu
+ * comune a inizio stagione — mostrava «Non applicato» (WP-33).
+ *
+ * `adjusted` distingue il caso in cui l'importo e davvero cambiato.
+ * Quando il pro-rata e acceso ma non calcolabile, `warning` dice cosa manca.
+ */
 export const calculateProratedTotal = ({
   total,
   proration,
@@ -669,24 +692,40 @@ export const calculateProratedTotal = ({
   const baseTotal = roundCurrency(Math.max(0, Number(total) || 0));
   const manualAmount = toPaymentPlanAmount(manualOverride);
 
+  const result = (value: {
+    total: number;
+    applied: boolean;
+    method: NormalizedPaymentPlanProrationSettings["method"] | "manual";
+    warning?: string | null;
+  }) => ({
+    total: value.total,
+    originalTotal: baseTotal,
+    applied: value.applied,
+    adjusted: value.applied && value.total !== baseTotal,
+    method: value.method,
+    warning: value.warning ?? null,
+  });
+
   if (proration?.allowManualOverride && manualAmount > 0) {
-    return {
-      total: manualAmount,
-      originalTotal: baseTotal,
-      applied: true,
-      method: "manual" as const,
-      warning: null as string | null,
-    };
+    return result({ total: manualAmount, applied: true, method: "manual" });
   }
 
-  if (!proration?.enabled || proration.method === "none" || baseTotal <= 0) {
-    return {
+  if (!proration?.enabled) {
+    return result({ total: baseTotal, applied: false, method: "none" });
+  }
+
+  if (proration.method === "none") {
+    return result({
       total: baseTotal,
-      originalTotal: baseTotal,
       applied: false,
-      method: "none" as const,
-      warning: null as string | null,
-    };
+      method: "none",
+      warning:
+        "Il pro-rata e attivo ma non ha un metodo di calcolo: scegli giorni o mesi.",
+    });
+  }
+
+  if (baseTotal <= 0) {
+    return result({ total: baseTotal, applied: false, method: proration.method });
   }
 
   const seasonStart = parseDate(proration.seasonStartDate);
@@ -694,58 +733,45 @@ export const calculateProratedTotal = ({
   const assignmentStart = parseDate(startDate);
 
   if (!seasonStart || !seasonEnd || !assignmentStart || seasonEnd <= seasonStart) {
-    return {
+    return result({
       total: baseTotal,
-      originalTotal: baseTotal,
       applied: false,
       method: proration.method,
       warning:
         "Configura data inizio, data fine periodo e data inizio iscrizione per applicare il pro-rata.",
-    };
+    });
   }
 
   const effectiveStart =
     assignmentStart < seasonStart ? seasonStart : assignmentStart;
 
   if (effectiveStart >= seasonEnd) {
-    return {
-      total: 0,
-      originalTotal: baseTotal,
-      applied: true,
-      method: proration.method,
-      warning: null as string | null,
-    };
+    return result({ total: 0, applied: true, method: proration.method });
   }
 
   if (proration.method === "months") {
     const totalMonths = diffInCalendarMonthsInclusive(seasonStart, seasonEnd);
     const remainingMonths = diffInCalendarMonthsInclusive(effectiveStart, seasonEnd);
-    const prorated = totalMonths
-      ? roundCurrency(baseTotal * (remainingMonths / totalMonths))
-      : baseTotal;
 
-    return {
-      total: prorated,
-      originalTotal: baseTotal,
-      applied: prorated !== baseTotal,
-      method: "months" as const,
-      warning: null as string | null,
-    };
+    return result({
+      total: totalMonths
+        ? roundCurrency(baseTotal * (remainingMonths / totalMonths))
+        : baseTotal,
+      applied: true,
+      method: "months",
+    });
   }
 
   const totalDays = diffInDays(seasonStart, seasonEnd);
   const remainingDays = diffInDays(effectiveStart, seasonEnd);
-  const prorated = totalDays
-    ? roundCurrency(baseTotal * (remainingDays / totalDays))
-    : baseTotal;
 
-  return {
-    total: prorated,
-    originalTotal: baseTotal,
-    applied: prorated !== baseTotal,
-    method: "days" as const,
-    warning: null as string | null,
-  };
+  return result({
+    total: totalDays
+      ? roundCurrency(baseTotal * (remainingDays / totalDays))
+      : baseTotal,
+    applied: true,
+    method: "days",
+  });
 };
 
 export const roundInstallmentsToFive = (

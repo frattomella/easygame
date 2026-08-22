@@ -94,6 +94,14 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       rowsOf(name).push(created);
       return created;
     },
+    createMany: async (args = {}) => {
+      calls.push({ delegate: name, method: "createMany", args });
+      const rows = Array.isArray(args.data) ? args.data : [args.data];
+      rows.forEach((row, index) => {
+        rowsOf(name).push({ id: row?.id || `${name}-generated-${index}`, ...row });
+      });
+      return { count: rows.length };
+    },
     update: async (args = {}) => {
       calls.push({ delegate: name, method: "update", args });
       const row = rowsOf(name).find((r) => matchesWhere(r, args.where));

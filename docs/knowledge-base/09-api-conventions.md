@@ -51,7 +51,7 @@ Impostati automaticamente da `apiRequest` (web) e da `services/api.ts` (mobile):
 |--------|-------------|-------------------|
 | `x-active-club-id` | Club attivo proposto dal client | **Si**, validato contro `allowedOrganizationIds` |
 | `x-active-access-role` | Ruolo con cui operare | **Si**, validato contro le membership |
-| `x-active-season-id` | Stagione attiva | **No** — nessun endpoint lo legge oggi |
+| `x-active-season-id` | Stagione attiva | **Si** — il CRUD generico filtra e stampa la stagione sulle risorse club (WP-11, WP-32) |
 | `Authorization: Bearer` | Token di sessione (mobile) | Si |
 
 Il cookie `easygame_session` e l'alternativa usata dal Web.
@@ -110,12 +110,55 @@ Solo una whitelist, confronto di uguaglianza esatta:
 filtro per intervallo. Le liste tornano complete. Vedi
 [16 — Debito tecnico](16-technical-debt.md).
 
+### `view=summary` — proiezione leggera delle liste
+
+Parametro riconosciuto **solo** su `athletes` e `simplified_athletes`. Un
+valore diverso da `summary` non filtra nulla.
+
+Gli allegati di un atleta (documenti d'identita, moduli di iscrizione,
+certificati) sono salvati come **data URL base64 dentro `athletes.data`**: una
+lista di 200 atleti trasferiva ~25 MB per mostrare nome, categoria e scadenza
+certificato. Con `view=summary` la stessa lista scende a ~2 MB.
+
+La proiezione toglie dal solo campo `data`:
+
+- le collezioni di allegati: `certificateFiles`, `documents`,
+  `enrollmentDocuments`, `guardians`, `identityDocuments`, `medicalVisits`,
+  `paymentHistory`, `payments`, `registrationDocuments`, `registrations`;
+- qualunque altro valore che sia un data URL di almeno 1 KB, **tranne**
+  `avatar` e `avatar_url`, che la lista mostra.
+
+Non e una cache: e la stessa lettura, con meno campi. Il dettaglio
+(`GET /api/v1/<resource>/<id>`) restituisce sempre il `data` completo.
+Lato client si chiede con `getClubAthletes(clubId, { view: "summary" })`; il
+default resta `full`.
+
+Resta valida come soluzione strutturale WP-15 (spostare i file fuori dal
+database) e WP-12 (paginazione).
+
+### Filtro di stagione
+
+Se la richiesta porta `x-active-season-id` e la risorsa e una `club_resource`
+soggetta a stagione (`SEASON_SCOPED_DATA_TYPES` in `src/lib/club-seasons.ts`):
+
+- in lettura la risposta esclude le risorse di altre stagioni;
+- in scrittura `payload.seasonId` viene stampato con la stagione attiva, se il
+  payload non ne porta gia una;
+- le risorse **senza** `seasonId` (create prima delle stagioni) appartengono
+  alla **stagione baseline**, cioe la piu vecchia del club;
+- un id di stagione che il club non ha **non filtra nulla**: meglio mostrare
+  tutto che una lista vuota inspiegabile;
+- senza l'header il comportamento e invariato.
+
+Non e un confine di sicurezza: il confine resta `organization_id`.
+
 ### Effetti collaterali da conoscere
 
 - `POST /api/v1/notifications` e `/api/v1/simplified_notifications` inviano
   anche **email** ai destinatari (`sendNotificationEmails`).
 - Scrivere una `club_resource` risincronizza la colonna JSON su `clubs`;
-  scrivere quella colonna ricrea le righe. Vedi
+  scrivere quella colonna riallinea le righe **in una sola transazione**,
+  preservando gli `id` degli elementi gia presenti (WP-10). Vedi
   [06 — Modello dati](06-data-model.md).
 
 ## Sequenza obbligatoria in un route handler

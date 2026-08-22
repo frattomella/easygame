@@ -3,6 +3,16 @@
 import { AlertCircle, CheckCircle2, CreditCard, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  resolveInstallmentPaymentStatus,
+  type InstallmentPaymentState,
+} from "@/lib/payments/payment-status-utils";
+
+const INSTALLMENT_BADGE_CLASS: Record<InstallmentPaymentState, string> = {
+  paid: "border-green-200 bg-green-50 text-green-700 hover:bg-green-50",
+  pending: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
+  unbilled: "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-100",
+};
 
 const formatCurrency = (value: unknown) =>
   new Intl.NumberFormat("it-IT", {
@@ -228,10 +238,15 @@ export function EnrollmentPaymentBreakdown({
       {summary?.prorationResult?.applied || summary?.prorationResult?.warning ? (
         <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
           <p className="font-semibold">Calcolo quota stagionale</p>
-          {summary?.prorationResult?.applied ? (
+          {summary?.prorationResult?.adjusted ? (
             <p className="mt-1">
               Totale originario {formatCurrency(summary.prorationResult.originalTotal)}
               , ricalcolato a {formatCurrency(summary.prorationResult.total)}.
+            </p>
+          ) : summary?.prorationResult?.applied ? (
+            <p className="mt-1">
+              Pro-rata applicato sull&apos;intero periodo:{" "}
+              {formatCurrency(summary.prorationResult.total)}.
             </p>
           ) : null}
           {summary?.prorationResult?.warning ? (
@@ -248,29 +263,38 @@ export function EnrollmentPaymentBreakdown({
             Piano pagamento / rate
           </p>
           <div className="space-y-2">
-            {installments.map((installment: any) => (
-              <div
-                key={installment.id}
-                className="flex flex-col justify-between gap-1 rounded-lg bg-slate-50 px-3 py-2 sm:flex-row sm:items-center dark:bg-slate-900/60"
-              >
-                <div>
-                  <p className="font-medium">{installment.label}</p>
-                  <p className="text-xs text-slate-500">
-                    {installment.dueDate
-                      ? `Scadenza ${formatDate(installment.dueDate)}`
-                      : "Scadenza non definita"}
-                  </p>
+            {installments.map((installment: any) => {
+              const installmentStatus = resolveInstallmentPaymentStatus(
+                installment,
+                paymentItems,
+              );
+
+              return (
+                <div
+                  key={installment.id}
+                  className="flex flex-col justify-between gap-1 rounded-lg bg-slate-50 px-3 py-2 sm:flex-row sm:items-center dark:bg-slate-900/60"
+                >
+                  <div>
+                    <p className="font-medium">{installment.label}</p>
+                    <p className="text-xs text-slate-500">
+                      {installment.dueDate
+                        ? `Scadenza ${formatDate(installment.dueDate)}`
+                        : "Scadenza non definita"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold">
+                      {formatCurrency(installment.amount)}
+                    </p>
+                    <Badge
+                      className={INSTALLMENT_BADGE_CLASS[installmentStatus.state]}
+                    >
+                      {installmentStatus.label}
+                    </Badge>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <p className="font-semibold">
-                    {formatCurrency(installment.amount)}
-                  </p>
-                  <Badge className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50">
-                    In attesa
-                  </Badge>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}

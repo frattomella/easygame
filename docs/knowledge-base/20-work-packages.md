@@ -243,7 +243,7 @@ quello al client, coprire con test.
 
 ---
 
-### WP-10 · Rendere transazionale la sincronizzazione delle risorse club — `READY`
+### WP-10 · Rendere transazionale la sincronizzazione delle risorse club — `DONE` (2026-08-22)
 
 **Obiettivo.** Eliminare il percorso distruttivo non transazionale
 `syncClubResourceItemsFromField`.
@@ -259,15 +259,21 @@ quello al client, coprire con test.
 **Dipendenze.** WP-04 (servono test prima di toccare questo codice).
 
 **Acceptance criteria.**
-- [ ] Un errore a meta sincronizzazione non lascia dati parziali
-- [ ] Gli `id` degli elementi esistenti non cambiano dopo un PATCH del club
-- [ ] Test che simula il fallimento a meta
+- [x] Un errore a meta sincronizzazione non lascia dati parziali
+- [x] Gli `id` degli elementi esistenti non cambiano dopo un PATCH del club
+- [x] Test che simula il fallimento a meta
+
+**Nota.** La terza voce di scope — rifiutare la scrittura diretta dei campi JSON
+su `PATCH /api/v1/clubs/:id` — **non** e stata fatta: e un cambio di contratto
+che tocca decine di chiamanti client. Resta in WP-07.
+
+**Test.** `tests/server/web-v1-regressions.test.mjs`.
 
 **File.** `src/lib/server/resources.ts`, [06](06-data-model.md).
 
 ---
 
-### WP-11 · Filtro stagione lato server — `BLOCKED (WP-05)`
+### WP-11 · Filtro stagione lato server — `DONE` (2026-08-22)
 
 **Obiettivo.** Far rispettare `x-active-season-id` al server, che oggi lo ignora.
 
@@ -275,13 +281,21 @@ quello al client, coprire con test.
 un riferimento di stagione, mantenendo il comportamento attuale quando l'header
 e assente.
 
-**Dipendenze.** WP-05.
+**Dipendenze.** Nessuna: si e rivelato indipendente da WP-05, perche l'header
+non entra nel corpo della richiesta e non richiede validazione con `zod`.
 
 **Acceptance criteria.**
-- [ ] Con header stagione impostato, la risposta non contiene record di altre
+- [x] Con header stagione impostato, la risposta non contiene record di altre
       stagioni
-- [ ] Senza header il comportamento e invariato
-- [ ] Il filtro client diventa ridondante ma non rompe nulla
+- [x] Senza header il comportamento e invariato
+- [x] Il filtro client diventa ridondante ma non rompe nulla
+
+**In piu rispetto allo scope.** Il server **stampa** anche la stagione attiva
+sulle risorse create o aggiornate, e i record senza `seasonId` sono attribuiti
+alla stagione baseline. Senza queste due regole il filtro avrebbe fatto sparire
+tutti i dati storici. Vedi WP-32.
+
+**Test.** `tests/server/web-v1-regressions.test.mjs`, `tests/lib/club-seasons.test.mjs`.
 
 **File.** `src/lib/server/resources.ts`, `src/lib/club-seasons.ts`,
 [09](09-api-conventions.md).
@@ -306,6 +320,186 @@ pagamenti, movimenti).
 
 **File.** `src/lib/server/resources.ts`, `src/lib/api/client.ts`,
 [09](09-api-conventions.md).
+
+---
+
+## Fase F2 — Web V1: difetti che colpiscono l'uso quotidiano
+
+Aperti da [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive).
+
+### WP-31 · Performance delle liste grandi — `DONE` (2026-08-22)
+
+**Obiettivo.** Riportare la pagina Atleti di un club con 200+ atleti a un
+caricamento di pochi secondi, senza introdurre cache incoerenti.
+
+**Cause radice individuate.**
+
+1. Ogni `select` dell'adapter `src/lib/supabase.ts` faceva **due** richieste:
+   quella filtrata e uno *snapshot* dell'intera tabella **senza alcun filtro**,
+   costruito anche quando la select non aveva relazioni da idratare.
+2. `GET /api/v1/simplified_athletes` restituisce il `data` JSON completo di
+   ogni atleta. Gli allegati (documenti identita, documenti iscrizione,
+   certificati) sono salvati come **data URL base64 dentro quel JSON**: la
+   lista di 200 atleti trasferisce decine di MB per mostrare nome, categoria e
+   scadenza certificato.
+3. `syncClubResourceItemsFromField` cancellava e ricreava **tutti** gli
+   elementi di un tipo con una `create` per riga, fuori da una transazione: il
+   salvataggio di una categoria ricreava l'intero insieme (vedi WP-10).
+
+**Scope.** Snapshot solo quando servono relazioni; proiezione `view=summary`
+per le liste atleti; sincronizzazione risorse club transazionale e in blocco.
+**Fuori scope:** paginazione (WP-12) e spostamento dei file fuori dal database
+(WP-15), che restano la soluzione strutturale.
+
+**Acceptance criteria.**
+- [x] Una `select` senza relazioni fa una sola richiesta HTTP
+- [x] La lista atleti non trasporta allegati base64
+- [x] Il dettaglio atleta continua a ricevere il `data` completo
+- [x] Test di regressione su entrambe
+
+**Misura.** Club sintetico con 200 atleti, allegati come data URL base64,
+sulle funzioni vere di `resources.ts`:
+
+| Grandezza | Prima | Dopo |
+|-----------|-------|------|
+| Payload della lista Atleti | 24,99 MB | 1,99 MB (−92%, 13x) |
+| Richieste HTTP per caricamento | 6 | 3 |
+| Righe restituite | 200 | 200 |
+
+I ~2 MB residui sono quasi tutti **avatar base64**: restano perche la lista li
+mostra. Toglierli richiede object storage (WP-15).
+
+**Non misurato.** Il tempo di caricamento end-to-end su un club reale con
+200+ atleti: in locale non esiste un dataset di quella taglia e crearlo
+richiede un'autorizzazione a scrivere sul database (sezione 8 di `CLAUDE.md`).
+
+**File.** `src/lib/supabase.ts`, `src/lib/server/resources.ts`,
+`src/lib/simplified-db.ts`, `src/app/athletes/page.tsx`,
+[09](09-api-conventions.md).
+
+---
+
+### WP-32 · Stagioni e consistenza dei dati club — `DONE` (2026-08-22)
+
+**Obiettivo.** Cambiando stagione devono cambiare davvero i dati pertinenti, e
+le stagioni devono restare separate.
+
+**Cause radice individuate.**
+
+1. Il filtro stagione era **solo client-side** e applicato dal solo
+   `getClubData`. Le risorse lette da `club_resource_items` — categorie in
+   testa — non erano filtrate affatto: cambiare stagione non cambiava nulla.
+2. `filterCollectionBySeason` scartava i record **senza `seasonId`**: i dati
+   creati prima dell'introduzione delle stagioni sparivano. Da qui la toppa
+   `getClubDirectCollectionWithLegacySeasonFallback`, applicata solo a
+   `trainings` e `weekly_schedule`, che pero li rendeva visibili in *tutte* le
+   stagioni.
+3. Gli allenatori eliminati ricomparivano perche `handleDelete` in
+   `src/app/trainers/page.tsx` **non persisteva nulla**: filtrava solo lo stato
+   React locale.
+4. `updateClubDataItem` leggeva `clubData.settings` senza averlo selezionato.
+
+**Decisione applicata.** I record senza `seasonId` appartengono alla **stagione
+piu vecchia** del club (la baseline), non a tutte e non a nessuna. Il filtro
+diventa server-side su `x-active-season-id` (chiude WP-11) e la scrittura
+stampa la stagione attiva.
+
+**Acceptance criteria.**
+- [x] Con `x-active-season-id` la risposta non contiene risorse di altre stagioni
+- [x] Senza header il comportamento e invariato
+- [x] I record legacy senza stagione restano visibili nella stagione baseline
+- [x] Eliminare un allenatore lo elimina davvero, in tutte e tre le origini
+- [x] Categorie con **un solo anno di nascita**: il secondo anno e opzionale
+- [x] Test di regressione
+
+**File.** `src/lib/club-seasons.ts`, `src/lib/server/resources.ts`,
+`src/lib/category-utils.ts`, `src/lib/simplified-db.ts`,
+`src/app/trainers/page.tsx`, `src/app/categories/page.tsx`,
+`src/components/forms/CategoryEditorDialog.tsx`,
+`src/components/forms/AddCategoryForm.tsx`.
+
+---
+
+### WP-33 · Correttezza del dominio pagamenti — `DONE` (2026-08-22)
+
+**Obiettivo.** Rendere coerenti piano, rate, incassi e riepiloghi.
+
+**Cause radice individuate.**
+
+1. **Riepilogo Incasso sempre «In attesa»**: in
+   `src/components/payments/EnrollmentPaymentBreakdown.tsx` il badge di ogni
+   rata era **una costante scritta nel markup**, mai derivata dai pagamenti
+   registrati.
+2. **Servizi opzionali non inclusi nelle rate**:
+   `getSelectedOptionalServiceIdsFromAthlete` sceglieva il **primo** candidato
+   che fosse un array. La scheda atleta valorizza sempre
+   `selectedOptionalServiceIds`, anche a `[]`: un array vuoto vinceva su
+   `enrollmentPaymentConfig.selectedOptionalServiceIds`, che invece contiene la
+   selezione confermata.
+3. **Pro-rata sempre «Non applicato»**: `normalizeProrationSettings` accettava
+   `enabled: true` con un `method` non riconosciuto e lo degradava a `none`
+   silenziosamente, senza spiegare perche.
+4. **Metodo di pagamento a testo libero** nella dialog «Modifica pagamento».
+
+**Acceptance criteria.**
+- [x] Una rata coperta da un pagamento saldato non e piu «In attesa»
+- [x] I servizi opzionali selezionati entrano nel totale e nelle rate
+- [x] Il pro-rata configurato correttamente risulta applicato; quando non lo e,
+      la UI dice quale dato manca
+- [x] Il metodo di pagamento e una selezione strutturata dai metodi del club
+- [x] Test di regressione su ciascun punto
+
+**File.** `src/lib/payment-plan-utils.ts`, `src/lib/athlete-payment-utils.ts`,
+`src/components/payments/EnrollmentPaymentBreakdown.tsx`,
+`src/app/athletes/[id]/page.tsx`.
+
+---
+
+### WP-34 · Responsivita verificata del Web — `READY`
+
+**Obiettivo.** Rendere ogni area del Web usabile da desktop, tablet e
+smartphone, con una verifica ripetibile invece che a campione.
+
+**Scope.** Inventario delle pagine con tabelle a larghezza fissa e dialog non
+scrollabili; regola: ogni contenitore largo scorre dentro il proprio
+`overflow-x-auto`, mai il `body`. Breakpoint di riferimento: 375, 768, 1280 px.
+
+**Dipendenze.** Nessuna. Non collide con WP-31..WP-33.
+
+**Acceptance criteria.**
+- [ ] Nessuna pagina management produce scroll orizzontale del documento a 375 px
+- [ ] Le dialog restano interamente raggiungibili a 375 px
+- [ ] La regola e in [10 — UI/UX](10-ui-ux-conventions.md)
+
+**File.** `src/app/**`, `src/components/**`, [10](10-ui-ux-conventions.md).
+
+---
+
+### WP-35 · Riportare i dati da una stagione all'altra — `READY`
+
+**Obiettivo.** Aprire una stagione nuova senza ricreare tutto a mano.
+
+**Contesto.** Con WP-32 le stagioni sono davvero separate: una categoria
+creata nella stagione 2026/2027 non compare nella 2025/2026, e viceversa.
+Manca il complemento: una funzione che **duplichi** nella stagione nuova le
+categorie, i piani di pagamento e gli sconti della stagione precedente,
+lasciando scegliere cosa riportare.
+
+**Scope.** Azione «Riporta dalla stagione precedente» in `/organization`;
+duplicazione lato server delle `club_resource` soggette a stagione, con nuovi
+`id` e `seasonId` della stagione di destinazione. Nessuna copia di dati
+operativi (allenamenti, partite, presenze, incassi).
+
+**Dipendenze.** WP-32.
+
+**Acceptance criteria.**
+- [ ] Si sceglie quali tipi riportare
+- [ ] Gli elementi duplicati portano la stagione di destinazione
+- [ ] Rieseguire il riporto non crea duplicati
+- [ ] Test dedicati
+
+**File.** `src/lib/server/resources.ts`, `src/app/organization/page.tsx`,
+[06](06-data-model.md), [09](09-api-conventions.md).
 
 ---
 

@@ -85,21 +85,31 @@ POST/PATCH/DELETE /api/v1/matches/:id
 
 PATCH /api/v1/clubs/:id  con body { matches: [...] }
    → syncClubResourceItemsFromField()
-   → DELETE FROM club_resource_items WHERE resource_type='matches'
-   → INSERT una riga per elemento
-   → syncClubAggregateField()
+   → BEGIN
+       DELETE FROM club_resource_items WHERE resource_type='matches'
+       INSERT ... (createMany, una sola istruzione)
+       UPDATE clubs SET matches = <array nell'ordine inviato dal client>
+     COMMIT
 ```
 
 ### Implicazioni operative
 
 - Le due rappresentazioni **devono** restare allineate: non scrivere mai
   direttamente `clubs.<campo>` con Prisma aggirando `resources.ts`.
-- Il percorso «PATCH club» e **distruttivo**: cancella e ricrea le righe. Gli
-  elementi il cui `id` non e un UUID valido **ricevono un id nuovo**.
-- Non c'e transazione attorno a delete+insert: un errore a meta lascia dati
-  parziali.
-- Non c'e controllo di concorrenza: due PATCH sullo stesso club in parallelo
-  possono perdere scritture.
+- Il percorso «PATCH club» riscrive tutte le righe di quel `resource_type`,
+  ma dal 2026-08-22 (WP-10):
+  - **e transazionale**: delete, insert e aggiornamento dell'aggregato stanno
+    nella stessa transazione, quindi un errore a meta non lascia dati parziali;
+  - **preserva l'identita**: un elemento gia presente mantiene la sua riga
+    (stesso `id`, stesso `created_at`), anche quando il suo id logico non e un
+    UUID;
+  - **e una sola scrittura di massa** invece di una `INSERT` per elemento:
+    salvare una categoria non costa piu N round trip.
+- L'aggregato JSON riflette **l'ordine inviato dal client**, non l'ordine di
+  `created_at`: un inserimento di massa condivide lo stesso istante e
+  l'ordinamento sarebbe ambiguo.
+- Resta senza controllo di concorrenza: due PATCH sullo stesso club in
+  parallelo possono ancora perdere scritture.
 
 ## Scoping multi-tenant
 

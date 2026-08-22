@@ -208,12 +208,25 @@ const loadClubAthleteMemberships = async (
   }
 };
 
-const loadClubAthleteRows = async (clubId: string) => {
+export type ClubAthletesView = "full" | "summary";
+
+/**
+ * `summary` chiede al server la proiezione senza allegati: serve alle liste,
+ * che mostrano anagrafica e categoria e non aprono mai un documento.
+ * Il default resta `full`, cosi nessun chiamante esistente perde campi.
+ */
+const loadClubAthleteRows = async (
+  clubId: string,
+  view: ClubAthletesView = "full",
+) => {
   if (!clubId) {
     return [];
   }
 
   const params = new URLSearchParams({ club_id: clubId });
+  if (view === "summary") {
+    params.set("view", "summary");
+  }
   const response = await apiRequest<any[]>(
     `/api/v1/simplified_athletes?${params.toString()}`,
   );
@@ -509,10 +522,13 @@ export async function getUserClubs(userId: string) {
 /**
  * Ottiene tutti gli atleti di un club
  */
-export async function getClubAthletes(clubId: string) {
+export async function getClubAthletes(
+  clubId: string,
+  options: { view?: ClubAthletesView } = {},
+) {
   try {
     const [data, membershipRecords] = await Promise.all([
-      loadClubAthleteRows(clubId),
+      loadClubAthleteRows(clubId, options.view || "full"),
       loadClubAthleteMemberships(clubId),
     ]);
 
@@ -2412,6 +2428,7 @@ export async function getClubData(clubId: string, dataType: string) {
       dataType,
       rawData,
       seasonState.activeSeasonId,
+      { legacySeasonId: seasonState.legacySeasonId },
     );
   } catch (error: any) {
     // Handle network errors gracefully
@@ -2654,36 +2671,14 @@ const getClubDirectCollectionWithLegacySeasonFallback = async (
 
   const settings =
     typeof data?.settings === "object" && data.settings ? data.settings : {};
-  const { activeSeasonId } = normalizeClubSeasons(settings);
-  const seasonAware = filterCollectionBySeason(
-    dataType,
-    rawCollection,
-    activeSeasonId,
-  );
-  const legacySeasonless = rawCollection.filter((record: any) => {
-    const seasonId =
-      typeof record?.seasonId === "string" ? record.seasonId.trim() : "";
-    return !seasonId;
+  const { activeSeasonId, legacySeasonId } = normalizeClubSeasons(settings);
+
+  // I record senza `seasonId` appartengono alla stagione baseline: la regola
+  // vive in `filterCollectionBySeason`, qui non serve piu una deroga locale
+  // che li rendeva visibili in ogni stagione (WP-32).
+  return filterCollectionBySeason(dataType, rawCollection, activeSeasonId, {
+    legacySeasonId,
   });
-
-  const merged: any[] = [];
-  const seen = new Set<string>();
-
-  [...seasonAware, ...legacySeasonless].forEach((record: any, index: number) => {
-    const identity =
-      String(record?.id || "").trim() ||
-      JSON.stringify(record) ||
-      `${dataType}-${index}`;
-
-    if (seen.has(identity)) {
-      return;
-    }
-
-    seen.add(identity);
-    merged.push(record);
-  });
-
-  return merged;
 };
 
 const getNonEmptyString = (...values: unknown[]) => {
@@ -3146,10 +3141,11 @@ export async function updateClubDataItem(
   updates: any,
 ) {
   try {
-    // Get current club data
+    // `settings` serve per stampare la stagione attiva sull'elemento: va
+    // richiesto esplicitamente, altrimenti resta sempre undefined.
     const { data: clubData, error: fetchError } = await supabase
       .from("clubs")
-      .select(dataType)
+      .select(`${dataType}, settings`)
       .eq("id", clubId)
       .single();
 
@@ -4015,13 +4011,7 @@ export async function getClubTrainers(clubId: string) {
       ]);
 
     const legacyTrainerStaff = Array.isArray(staffMembers)
-      ? staffMembers.filter((staff: any) =>
-          ["trainer", "allenatore"].includes(
-            String(staff?.role || staff?.type || "")
-              .trim()
-              .toLowerCase(),
-          ),
-        )
+      ? staffMembers.filter(isTrainerLikeStaffMember)
       : [];
 
     return normalizeTrainerList(
@@ -4033,4 +4023,146 @@ export async function getClubTrainers(clubId: string) {
     // Return empty array instead of throwing to prevent UI crashes
     return [];
   }
+}
+
+/** Un membro dello staff che `getClubTrainers` considera anche un allenatore. */
+export const isTrainerLikeStaffMember = (staff: any) =>
+  ["trainer", "allenatore"].includes(
+    String(staff?.role || staff?.type || "")
+      .trim()
+      .toLowerCase(),
+  );
+
+const toIdentityToken = (value: unknown) =>
+  String(value || "").trim().toLowerCase();
+
+/**
+ * Identificatori forti di un allenatore. `normalizeTrainerList` costruisce
+ * l'`id` mostrato in lista da uno di questi, quando ce n'e uno.
+ */
+const getTrainerStrongTokens = (entry: any) => {
+  const record = isRecord(entry) ? entry : {};
+
+  return [
+    record.id,
+    record.trainerId,
+    record.trainer_id,
+    record.user_id,
+    record.userId,
+    record.linkedUserId,
+    record.linked_user_id,
+  ]
+    .map(toIdentityToken)
+    .filter(Boolean);
+};
+
+/**
+ * Ripieghi usati da `normalizeTrainerList` quando l'allenatore non ha nessun
+ * identificatore forte. Si consultano **solo** se nessuna voce ha risposto sui
+ * token forti: un nome puo collidere, un id no.
+ */
+const getTrainerWeakTokens = (entry: any) => {
+  const record = isRecord(entry) ? entry : {};
+
+  return [
+    record.email,
+    record.mail,
+    record.linkedUserEmail,
+    record.linked_user_email,
+    record.name,
+    record.fullName,
+  ]
+    .map(toIdentityToken)
+    .filter(Boolean);
+};
+
+/**
+ * Elimina davvero un allenatore.
+ *
+ * `getClubTrainers` unisce **tre** origini: il campo JSON `clubs.trainers`, le
+ * righe `club_resource_items` di tipo `trainers` e i membri dello staff con
+ * ruolo allenatore. Toccarne una sola faceva ricomparire l'allenatore al primo
+ * refresh (WP-32).
+ *
+ * Scrivere `clubs.trainers` copre anche `club_resource_items`: il server
+ * risincronizza le righe dal campo JSON nella stessa transazione.
+ */
+export async function deleteClubTrainer(clubId: string, trainerId: string) {
+  const target = toIdentityToken(trainerId);
+
+  if (!clubId || !target) {
+    throw new Error("Allenatore non valido");
+  }
+
+  const { data: clubData, error: fetchError } = await supabase
+    .from("clubs")
+    .select("trainers, staff_members")
+    .eq("id", clubId)
+    .single();
+
+  if (fetchError) {
+    throw fetchError;
+  }
+
+  const currentTrainers = Array.isArray(clubData?.trainers)
+    ? clubData.trainers
+    : [];
+  const currentStaff = Array.isArray(clubData?.staff_members)
+    ? clubData.staff_members
+    : [];
+  const trainerLikeStaff = currentStaff.filter(isTrainerLikeStaffMember);
+  const candidates = [...currentTrainers, ...trainerLikeStaff];
+
+  const matchedOnStrongToken = candidates.some((entry: any) =>
+    getTrainerStrongTokens(entry).includes(target),
+  );
+  const matchesTarget = (entry: any) =>
+    matchedOnStrongToken
+      ? getTrainerStrongTokens(entry).includes(target)
+      : getTrainerWeakTokens(entry).includes(target);
+
+  const nextTrainers = currentTrainers.filter(
+    (entry: any) => !matchesTarget(entry),
+  );
+  // Un membro dello staff che non e un allenatore non va toccato: qui si sta
+  // eliminando un allenatore, non una persona dallo staff.
+  const nextStaff = currentStaff.filter(
+    (entry: any) => !(isTrainerLikeStaffMember(entry) && matchesTarget(entry)),
+  );
+
+  const updates: Record<string, any> = {};
+  if (nextTrainers.length !== currentTrainers.length) {
+    updates.trainers = nextTrainers;
+  }
+  if (nextStaff.length !== currentStaff.length) {
+    updates.staff_members = nextStaff;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const { error: updateError } = await supabase
+      .from("clubs")
+      .update(updates)
+      .eq("id", clubId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return { removed: true, trainers: nextTrainers };
+  }
+
+  // Nessuna corrispondenza nei campi JSON: l'allenatore puo esistere solo come
+  // riga `club_resource_items`, se le due rappresentazioni si sono disallineate.
+  // L'endpoint della risorsa accetta sia l'UUID della riga sia l'id logico e
+  // riallinea il campo JSON del club.
+  const deleteResponse = await apiRequest<any>(
+    `/api/v1/trainers/${encodeURIComponent(trainerId)}`,
+    { method: "DELETE" },
+  );
+
+  if (!deleteResponse.error) {
+    return { removed: true, trainers: nextTrainers };
+  }
+
+  return { removed: false, trainers: currentTrainers };
 }

@@ -98,37 +98,14 @@ import {
   getAvailableRegistrationPaymentMethods,
   normalizePaymentSettings,
   paymentStatusLabel,
+  normalizeClubPaymentMethod as normalizePaymentMethodRecord,
+  serializeClubPaymentMethodsForSettings as serializePaymentMethodsForSettings,
 } from "@/lib/payments/payment-config-utils";
 import {
   PAYMENT_PROVIDER_ORDER,
   PAYMENT_PROVIDER_REGISTRY,
 } from "@/lib/payments/provider-registry";
 import type { ClubPaymentSettings as ClubPaymentSettingsType } from "@/lib/payments/payment-types";
-
-const normalizePaymentMethodRecord = (method: any) => ({
-  id:
-    String(method?.id || "").trim() ||
-    (typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `method_${Date.now()}`),
-  name: String(method?.name || "").trim(),
-  details: String(method?.details || method?.config?.details || "").trim(),
-  active: Boolean(method?.active ?? method?.is_enabled ?? true),
-});
-
-const serializePaymentMethodsForSettings = (methods: any[]) =>
-  methods.map((method, index) => ({
-    id: method.id,
-    name: method.name,
-    type: "custom",
-    is_enabled: method.active,
-    processing_fee_percentage: 0,
-    processing_fee_fixed: 0,
-    display_order: index + 1,
-    config: {
-      details: method.details || "",
-    },
-  }));
 
 const CLOTHING_SIZE_OPTIONS = {
   BAMBINO: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"],

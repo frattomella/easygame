@@ -125,7 +125,30 @@ export const normalizeClubSeasons = (settings: any) => {
     seasons,
     activeSeasonId: activeSeason.id,
     activeSeason,
+    legacySeasonId: resolveLegacySeasonId(seasons),
   };
+};
+
+/**
+ * Stagione a cui appartengono i record creati **prima** dell'introduzione
+ * delle stagioni, cioe quelli senza `seasonId`.
+ *
+ * E la stagione piu vecchia del club: `seasons` e ordinato dalla piu recente
+ * alla piu antica. Attribuirli a una stagione sola e l'unico modo di tenere le
+ * stagioni separate senza far sparire i dati storici (WP-32).
+ */
+export const resolveLegacySeasonId = (seasons: ClubSeason[]) =>
+  seasons.length > 0 ? seasons[seasons.length - 1].id : null;
+
+const readRecordSeasonId = (record: any) => {
+  const value =
+    typeof record?.seasonId === "string"
+      ? record.seasonId
+      : typeof record?.season_id === "string"
+        ? record.season_id
+        : "";
+
+  return value.trim() || null;
 };
 
 export const isSeasonScopedDataType = (dataType: string) =>
@@ -153,10 +176,20 @@ export const applySeasonIdToCollection = (
     applySeasonIdToRecord(record, seasonId),
   );
 
+/**
+ * Filtra una collezione sulla stagione attiva.
+ *
+ * I record **senza** `seasonId` sono quelli creati prima che le stagioni
+ * esistessero. Non vanno scartati (sparirebbero) ne mostrati ovunque (le
+ * stagioni non sarebbero piu separate): appartengono alla stagione baseline,
+ * cioe la piu vecchia del club. Quando la baseline non e nota si preferisce
+ * mostrarli, perche perdere dati e peggio che mostrarne troppi.
+ */
 export const filterCollectionBySeason = (
   dataType: string,
   records: any[],
   activeSeasonId: string | null | undefined,
+  options: { legacySeasonId?: string | null } = {},
 ) => {
   if (!isSeasonScopedDataType(dataType)) {
     return Array.isArray(records) ? records : [];
@@ -166,13 +199,15 @@ export const filterCollectionBySeason = (
     return Array.isArray(records) ? records : [];
   }
 
-  return (Array.isArray(records) ? records : []).filter((record) => {
-    const recordSeasonId =
-      typeof record?.seasonId === "string" && record.seasonId.trim()
-        ? record.seasonId.trim()
-        : null;
+  const legacySeasonId = options.legacySeasonId ?? null;
+  const keepLegacyRecords = !legacySeasonId || legacySeasonId === activeSeasonId;
 
-    return recordSeasonId === activeSeasonId;
+  return (Array.isArray(records) ? records : []).filter((record) => {
+    const recordSeasonId = readRecordSeasonId(record);
+
+    return recordSeasonId === null
+      ? keepLegacyRecords
+      : recordSeasonId === activeSeasonId;
   });
 };
 

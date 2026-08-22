@@ -133,7 +133,9 @@ export async function PATCH(request: Request, context: Context) {
 
     const body = await request.json();
     const payload = body?.data ?? body;
-    const data = await updateResource(resource, id, payload || {}, scope);
+    const data = await updateResource(resource, id, payload || {}, scope, {
+      activeSeasonId: request.headers.get("x-active-season-id"),
+    });
     await auditResourceWrite(
       AUDIT_ACTIONS.resourceUpdated,
       request,

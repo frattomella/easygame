@@ -10,6 +10,11 @@ import {
   resolveCategoryId,
   resolveCategoryLabel,
 } from "../category-utils";
+import {
+  filterCollectionBySeason,
+  isSeasonScopedDataType,
+  normalizeClubSeasons,
+} from "../club-seasons";
 
 type ResourceConfig = {
   kind: "model" | "club_resource";
@@ -972,6 +977,25 @@ const syncClubAggregateField = async (
   });
 };
 
+const newResourceItemId = () =>
+  typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 14)}`;
+
+/**
+ * Riallinea `club_resource_items` a un campo JSON del club.
+ *
+ * Tre proprieta che prima mancavano (WP-10, WP-31):
+ *
+ * 1. **transazionale**: cancellazione, reinserimento e aggregato stanno nella
+ *    stessa transazione. Un errore a meta non lascia piu il club senza
+ *    categorie e l'aggregato disallineato;
+ * 2. **identita preservata**: un elemento gia presente mantiene la sua riga
+ *    (stesso `id`, stesso `created_at`), invece di riceverne una nuova a ogni
+ *    salvataggio;
+ * 3. **una sola scrittura di massa**: `createMany` al posto di una `create`
+ *    per elemento. Salvare una categoria non costa piu N round trip.
+ */
 const syncClubResourceItemsFromField = async (
   organization_id: string,
   resource_type: string,
@@ -984,30 +1008,61 @@ const syncClubResourceItemsFromField = async (
     return;
   }
 
-  await prisma.clubResourceItem.deleteMany({
-    where: {
-      organization_id,
-      resource_type,
-    },
+  const existingItems = await prisma.clubResourceItem.findMany({
+    where: { organization_id, resource_type },
+    orderBy: { created_at: "asc" },
   });
 
-  for (const item of normalizedItems) {
-    const itemId = isUuid(item?.id) ? normalizeUuid(item.id) : undefined;
-
-    await prisma.clubResourceItem.create({
-      data: {
-        ...(itemId ? { id: itemId } : {}),
-        organization_id,
-        resource_type,
-        name: item?.name || item?.title || null,
-        status: item?.status || null,
-        date: toDateOrUndefined(item?.date) || null,
-        payload: item,
-      },
-    });
+  const existingByKey = new Map<string, (typeof existingItems)[number]>();
+  for (const existing of existingItems) {
+    existingByKey.set(existing.id, existing);
+    const logicalId = getClubResourceLogicalId(existing);
+    if (logicalId) {
+      existingByKey.set(logicalId, existing);
+    }
   }
 
-  await syncClubAggregateField(organization_id, resource_type);
+  const now = new Date();
+  const rows = normalizedItems.map((item) => {
+    const requestedId = String(item?.id || "").trim();
+    const existing = requestedId ? existingByKey.get(requestedId) : undefined;
+
+    return {
+      id:
+        existing?.id ||
+        (isUuid(item?.id) ? normalizeUuid(item.id) : newResourceItemId()),
+      organization_id,
+      resource_type,
+      name: item?.name || item?.title || null,
+      status: item?.status || null,
+      date: toDateOrUndefined(item?.date) || null,
+      payload: item,
+      created_at: existing?.created_at || now,
+      updated_at: now,
+    };
+  });
+
+  // L'aggregato riflette l'ordine con cui il client ha inviato gli elementi:
+  // rileggerli ordinati per `created_at` sarebbe ambiguo, perche un inserimento
+  // di massa condivide lo stesso istante.
+  const aggregate = rows.map((row) => serializeClubResourceItem(row));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.clubResourceItem.deleteMany({
+      where: { organization_id, resource_type },
+    });
+
+    if (rows.length > 0) {
+      await tx.clubResourceItem.createMany({ data: rows });
+    }
+
+    if (CLUB_JSON_FIELDS.includes(resource_type)) {
+      await tx.club.update({
+        where: { id: organization_id },
+        data: { [resource_type]: aggregate },
+      });
+    }
+  });
 };
 
 const normalizeClubResourceInput = (
@@ -1147,6 +1202,171 @@ const getModelInclude = (resource: string) => {
   }
 
   return undefined;
+};
+
+/**
+ * Contesto di richiesta che non fa parte dello scope di autorizzazione.
+ *
+ * Oggi contiene la sola stagione attiva (`x-active-season-id`). Non e un
+ * confine di sicurezza: il confine resta `organization_id`.
+ */
+export type ResourceRequestOptions = {
+  activeSeasonId?: string | null;
+};
+
+const isSeasonScopedResource = (resource: string) =>
+  RESOURCE_CONFIG[resource]?.kind === "club_resource" &&
+  isSeasonScopedDataType(resource);
+
+const loadClubSeasonState = async (organizationId: string | null) => {
+  if (!organizationId) {
+    return null;
+  }
+
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { settings: true },
+  });
+
+  if (!club) {
+    return null;
+  }
+
+  return normalizeClubSeasons(
+    club.settings && typeof club.settings === "object" ? club.settings : {},
+  );
+};
+
+/**
+ * Stagione da applicare alla richiesta, se e una stagione che il club ha
+ * davvero. Un id stale (stagione eliminata, club cambiato) non filtra nulla:
+ * meglio mostrare tutto che una lista vuota inspiegabile.
+ */
+const resolveRequestSeason = async (
+  resource: string,
+  organizationId: string | null | undefined,
+  options: ResourceRequestOptions | undefined,
+) => {
+  const requested = String(options?.activeSeasonId || "").trim();
+  if (!requested || !isSeasonScopedResource(resource)) {
+    return null;
+  }
+
+  const seasonState = await loadClubSeasonState(organizationId || null);
+
+  if (!seasonState?.seasons.some((season) => season.id === requested)) {
+    return null;
+  }
+
+  return { activeSeasonId: requested, legacySeasonId: seasonState.legacySeasonId };
+};
+
+/**
+ * Stampa la stagione attiva su una risorsa club che ne e soggetta.
+ *
+ * Senza questo, una categoria creata mentre e attiva la stagione 2026/2027
+ * resterebbe senza `seasonId` e finirebbe nella stagione baseline.
+ * Una stagione gia presente sul payload non viene mai sovrascritta.
+ */
+const applySeasonStamp = async (
+  resource: string,
+  payload: Record<string, any>,
+  organizationId: string | null | undefined,
+  options: ResourceRequestOptions | undefined,
+) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (String(payload.seasonId || "").trim()) {
+    return payload;
+  }
+
+  const season = await resolveRequestSeason(resource, organizationId, options);
+  if (!season) {
+    return payload;
+  }
+
+  return { ...payload, seasonId: season.activeSeasonId };
+};
+
+const ATHLETE_RESOURCES = new Set(["athletes", "simplified_athletes"]);
+
+/**
+ * Chiavi di `athletes.data` che contengono collezioni di allegati.
+ *
+ * Gli allegati sono salvati come data URL base64 dentro il JSON dell'atleta:
+ * una lista di 200 atleti trasferirebbe decine di MB per mostrare nome,
+ * categoria e scadenza certificato. `view=summary` le omette; il dettaglio
+ * atleta continua a ricevere il `data` completo (WP-31).
+ */
+const ATHLETE_SUMMARY_OMITTED_DATA_KEYS = new Set([
+  "certificateFiles",
+  "documents",
+  "enrollmentDocuments",
+  "guardians",
+  "identityDocuments",
+  "medicalVisits",
+  "paymentHistory",
+  "payments",
+  "registrationDocuments",
+  "registrations",
+]);
+
+/** Oltre questa soglia un data URL non e piu un valore, e un file. */
+const SUMMARY_INLINE_FILE_MIN_LENGTH = 1024;
+
+/** L'avatar resta: la lista atleti lo mostra. */
+const SUMMARY_PRESERVED_INLINE_FILE_KEYS = new Set(["avatar", "avatar_url"]);
+
+const isInlineFileValue = (key: string, value: unknown) =>
+  typeof value === "string" &&
+  value.length >= SUMMARY_INLINE_FILE_MIN_LENGTH &&
+  value.startsWith("data:") &&
+  !SUMMARY_PRESERVED_INLINE_FILE_KEYS.has(key);
+
+const toAthleteSummaryRecord = (record: Record<string, any>) => {
+  const data = record?.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return record;
+  }
+
+  const summaryData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (ATHLETE_SUMMARY_OMITTED_DATA_KEYS.has(key)) {
+      continue;
+    }
+
+    if (isInlineFileValue(key, value)) {
+      continue;
+    }
+
+    summaryData[key] = value;
+  }
+
+  return { ...record, data: summaryData };
+};
+
+/**
+ * Proiezione leggera richiesta con `?view=summary`.
+ *
+ * Non e una cache: e la stessa lettura, senza i campi che la lista non usa.
+ * Un valore sconosciuto di `view` non filtra nulla.
+ */
+const applyListView = (
+  resource: string,
+  records: Record<string, any>[],
+  searchParams: URLSearchParams,
+) => {
+  if (searchParams.get("view") !== "summary") {
+    return records;
+  }
+
+  if (!ATHLETE_RESOURCES.has(resource)) {
+    return records;
+  }
+
+  return records.map((record) => toAthleteSummaryRecord(record));
 };
 
 const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
@@ -1478,6 +1698,7 @@ export const listResource = async (
   resource: string,
   searchParams: URLSearchParams,
   scope?: ResourceAccessScope,
+  options?: ResourceRequestOptions,
 ) => {
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
@@ -1510,16 +1731,29 @@ export const listResource = async (
       config.kind === "club_resource" ? { created_at: "asc" } : undefined,
   });
 
-  const serializedRecords = records.map((record: Record<string, any>) =>
-    serializeRecord(resource, record),
-  );
+  const serializedRecords = records
+    .map((record: Record<string, any>) => serializeRecord(resource, record))
+    .filter(Boolean) as Record<string, any>[];
 
-  return filterTrainerDashboardRecords(
+  const season = await resolveRequestSeason(
     resource,
-    serializedRecords.filter(Boolean) as Record<string, any>[],
+    where.organization_id || scope?.activeOrganizationId,
+    options,
+  );
+  const seasonScopedRecords = season
+    ? filterCollectionBySeason(resource, serializedRecords, season.activeSeasonId, {
+        legacySeasonId: season.legacySeasonId,
+      })
+    : serializedRecords;
+
+  const trainerScopedRecords = await filterTrainerDashboardRecords(
+    resource,
+    seasonScopedRecords,
     searchParams,
     scope,
   );
+
+  return applyListView(resource, trainerScopedRecords, searchParams);
 };
 
 export const getResourceById = async (
@@ -1586,6 +1820,7 @@ export const createResource = async (
   input: Record<string, any>,
   mode: "create" | "upsert" = "create",
   scope?: ResourceAccessScope,
+  options?: ResourceRequestOptions,
 ) => {
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
@@ -1624,6 +1859,16 @@ export const createResource = async (
           nextPayload.id = preservedLogicalId;
         }
 
+        // La stagione si stampa **dopo** la fusione con il payload esistente:
+        // modificare una categoria mentre e attiva un'altra stagione non deve
+        // spostarla di stagione.
+        const stampedPayload = await applySeasonStamp(
+          resource,
+          nextPayload,
+          data.organization_id || existing.organization_id,
+          options,
+        );
+
         const record = await delegate.update({
           where: { id: existing.id },
           data: {
@@ -1637,7 +1882,7 @@ export const createResource = async (
               existing.date ??
               toDateOrUndefined(nextPayload.date) ??
               null,
-            payload: nextPayload,
+            payload: stampedPayload,
           },
         });
 
@@ -1651,6 +1896,13 @@ export const createResource = async (
         return serializeRecord(resource, record);
       }
     }
+
+    data.payload = await applySeasonStamp(
+      resource,
+      data.payload,
+      data.organization_id,
+      options,
+    );
 
     const record = await delegate.create({
       data,
@@ -1776,6 +2028,7 @@ export const updateResource = async (
   id: string,
   input: Record<string, any>,
   scope?: ResourceAccessScope,
+  options?: ResourceRequestOptions,
 ) => {
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
@@ -1813,6 +2066,13 @@ export const updateResource = async (
       nextPayload.id = logicalIdToPreserve;
     }
 
+    const stampedPayload = await applySeasonStamp(
+      resource,
+      nextPayload,
+      existing.organization_id,
+      options,
+    );
+
     normalized.organization_id = resolveScopedOrganizationId(
       scope,
       normalized.organization_id || existing?.organization_id,
@@ -1829,7 +2089,7 @@ export const updateResource = async (
           existing.date ??
           toDateOrUndefined(nextPayload.date) ??
           null,
-        payload: nextPayload,
+        payload: stampedPayload,
       },
     });
 
