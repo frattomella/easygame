@@ -104,6 +104,6 @@ Configurazione: copiare `.env.example` e valorizzare
 
 ## Cosa manca per completare il mobile
 
-Vedi [11 — Capability](11-capabilities.md) e [WP-09..WP-12](20-work-packages.md):
+Vedi [11 — Capability](11-capabilities.md) e [WP-21..WP-25](20-work-packages.md):
 aree parent/atleta assenti, nessun test, nessuna pipeline di build (EAS),
 mock ancora presenti, tre layer di storage da consolidare a uno.

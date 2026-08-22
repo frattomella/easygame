@@ -1,6 +1,19 @@
-## EasyGame SQL Backend
+## EasyGame
 
-Questa versione del progetto usa un backend classico `Next.js + Prisma + PostgreSQL`.
+Gestionale multi-tenant per ASD, associazioni e societa sportive.
+Backend `Next.js + Prisma + PostgreSQL (Neon)`, hosting Vercel.
+
+> **Documentazione ufficiale: [`docs/knowledge-base/`](docs/knowledge-base/README.md)**
+> E la fonte di verita su architettura, modello dati, autenticazione, ruoli,
+> API, ambienti, sicurezza, debito tecnico e roadmap.
+>
+> Sviluppo assistito da AI: leggi [`CLAUDE.md`](CLAUDE.md) e
+> [`AGENTS.md`](AGENTS.md) prima di modificare il codice.
+
+Il repository contiene due applicazioni separate:
+
+- **Web App** — `src/`, funzionante
+- **Mobile App** — `easygamemobile/`, incompleta (solo area allenatore)
 
 ### Stack backend
 

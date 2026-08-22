@@ -108,5 +108,15 @@ In questo modo testi su dati reali separati senza toccare la produzione.
 
 ## 8. Nota tecnica
 
-La build attuale passa, ma in `next.config.js` e ancora presente `typescript.ignoreBuildErrors = true`.
-Prima della produzione definitiva conviene rimuovere quel flag e chiudere gli ultimi errori TypeScript residui.
+`typescript.ignoreBuildErrors` **non e piu presente** in `next.config.js`: la
+build compila con i controlli TypeScript attivi e `npm run typecheck` e pulito.
+Non reintrodurre quel flag.
+
+## 9. Documentazione estesa
+
+Questa guida copre il percorso operativo minimo. Per architettura, modello dati,
+sicurezza, ambienti e roadmap la fonte di verita e la Knowledge Base:
+
+- [`docs/knowledge-base/`](knowledge-base/README.md)
+- in particolare [13 — Ambienti](knowledge-base/13-environments.md) e
+  [15 — Testing](knowledge-base/15-testing.md)

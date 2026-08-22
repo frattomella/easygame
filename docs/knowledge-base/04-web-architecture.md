@@ -47,18 +47,18 @@ raggiungibile. E un debito noto, non replicarlo: vedi
 | Parent | `/parent-view/[id]` + 9 sottopagine (athlete, contacts, documents, matches, payments, secretariat, structures, trainings, `[dashboardId]`) |
 | Athlete | `/athletes/[id]/profile` |
 | Privato | `/private/easygame-platform-admin-0c7a`, `/private/api-docs` |
-| Radice | `/` — **oggi mostra una copia legacy della pagina Abbigliamento**, vedi sotto |
+| Radice | `/` — mostra `AuthShell` in modalita login (nessuna landing pubblica) |
 
-### Anomalia della route `/`
+### Nota storica sulla route `/`
 
-`src/app/page.tsx` (1.750 righe) esporta `ClothingPage`: e una versione
-**precedente e piu piccola** di `src/app/clothing/page.tsx` (4.082 righe).
-La landing pubblica e stata rimossa in passato e la root non e mai stata
-ridefinita.
+Fino al cleanup del 2026-08-22, `src/app/page.tsx` era lungo 1.750 righe: il
+componente esportato si chiamava `ClothingPage` e conteneva una copia
+precedente della pagina Abbigliamento. Quel codice era pero **interamente dopo
+il `return`**, quindi mai eseguito: la route ha sempre reso il login. Il file e
+stato ridotto al solo componente reale (`HomePage`).
 
-Non e stato modificato durante il cleanup perche cambia il comportamento
-visibile del prodotto. Richiede una decisione di prodotto: vedi
-[WP-01](20-work-packages.md) e [decisioni aperte](19-roadmap.md).
+La landing pubblica e stata rimossa in passato e non e stata sostituita: `/`,
+`/login` e `/register` mostrano tutte i flussi di autenticazione.
 
 ## Catena dati lato client
 

@@ -1,0 +1,219 @@
+# CLAUDE.md — istruzioni per Claude Code su EasyGame
+
+EasyGame e un gestionale multi-tenant per ASD e societa sportive.
+Nel repository convivono **due applicazioni**:
+
+- **Web App** (`src/`) — Next.js 14 App Router, **funzionante e in produzione
+  d'uso**. Vercel + Neon PostgreSQL + Prisma.
+- **Mobile App** (`easygamemobile/`) — Expo / React Native, **incompleta**,
+  oggi solo area allenatore.
+
+> La Web App su Vercel + Neon e la **baseline funzionante**.
+> Deve restare operativa dopo ogni tuo intervento.
+
+---
+
+## 1. Leggi la documentazione prima di modificare
+
+La fonte di verita e **[`docs/knowledge-base/`](docs/knowledge-base/README.md)**.
+Documenta il codice reale, non intenzioni.
+
+**Prima di scrivere codice, leggi almeno:**
+
+| Se il task riguarda | Leggi |
+|---------------------|-------|
+| Qualsiasi cosa | [17 — Convenzioni](docs/knowledge-base/17-development-conventions.md) |
+| Orientarsi nei file | [02 — Repository map](docs/knowledge-base/02-repository-map.md) |
+| Web / Next.js | [04 — Web architecture](docs/knowledge-base/04-web-architecture.md) |
+| Mobile / Expo | [05 — Mobile architecture](docs/knowledge-base/05-mobile-architecture.md) |
+| Database, Prisma, Neon | [06 — Modello dati](docs/knowledge-base/06-data-model.md) |
+| Login, OTP, OAuth, sessioni | [07 — Autenticazione](docs/knowledge-base/07-authentication.md) |
+| Ruoli, permessi, accessi | [08 — Ruoli e permessi](docs/knowledge-base/08-roles-and-permissions.md) |
+| Endpoint API | [09 — Convenzioni API](docs/knowledge-base/09-api-conventions.md) |
+| Componenti, pagine, stile | [10 — UI/UX](docs/knowledge-base/10-ui-ux-conventions.md) |
+| «Questa funzione esiste?» | [11 — Capability](docs/knowledge-base/11-capabilities.md) |
+| SMTP, SMS, OAuth, pagamenti | [12 — Integrazioni](docs/knowledge-base/12-integrations.md) |
+| Build, deploy, variabili | [13 — Ambienti](docs/knowledge-base/13-environments.md) |
+| Qualsiasi cosa tocchi dati o auth | [14 — Sicurezza](docs/knowledge-base/14-security.md) |
+| Test | [15 — Testing](docs/knowledge-base/15-testing.md) |
+| Perche una cosa e cosi | [18 — Decision log](docs/knowledge-base/18-decision-log.md) |
+| Cosa fare dopo | [20 — Work Package](docs/knowledge-base/20-work-packages.md) |
+
+**Se la KB e in disaccordo con il codice, vince il codice**: correggi la KB
+nello stesso commit.
+
+---
+
+## 2. Ownership dei domini
+
+Un dominio ha un punto di ingresso unico. Non crearne un secondo.
+
+| Dominio | File proprietario | Regola |
+|---------|-------------------|--------|
+| Ruoli e permessi | `src/lib/access-roles.ts` | Nessuna logica di ruolo altrove |
+| Sessioni e scope | `src/lib/server/auth.ts` | Ogni endpoint passa da `requireAuthenticatedUser` + `resolveOrganizationScopeForUser` |
+| Accesso dati server | `src/lib/server/resources.ts` | Nessuna query Prisma club-scoped fuori da qui senza filtro esplicito |
+| Client Prisma | `src/lib/server/prisma.ts` | Mai istanziare un secondo `PrismaClient` |
+| Email | `src/lib/server/email/` | Unico punto di invio |
+| Policy auth | `src/lib/auth/*.ts` | Moduli puri e testabili |
+| Trasporto HTTP client | `src/lib/api/client.ts` | Mai un `fetch` diretto a `/api` da un componente |
+| Dominio client | `src/lib/simplified-db.ts` | In riduzione (WP-07): non aggiungere logica nuova qui |
+| Dati mobile | `easygamemobile/client/services/api.ts` + `mobile-backend-storage.ts` | Mai `storage.ts` (mock) ne `mobile-storage-service.ts` (orfano) |
+
+---
+
+## 3. Modifiche atomiche, niente refactoring estraneo
+
+- Un commit = un cambiamento coerente.
+- **Vietato** il refactoring opportunistico: niente riformattazioni di massa,
+  rinomine non richieste, riordino import, «gia che c'ero».
+- Se noti un problema fuori scope: annotalo in
+  [16 — Debito tecnico](docs/knowledge-base/16-technical-debt.md) o proponi un
+  WP. **Non risolverlo nello stesso commit.**
+- Se il diff supera ~400 righe, valuta di dividerlo.
+- Non toccare Web e Mobile nello stesso commit, salvo un cambio di contratto
+  API che li riguarda entrambi (e in quel caso spiegalo).
+
+---
+
+## 4. Test obbligatori
+
+Prima di ogni commit:
+
+```bash
+npm test           # 30/30 attesi
+npm run typecheck  # nessun output
+npm run lint       # 0 errori; i warning non devono aumentare
+npm run build      # deve completare
+```
+
+Se hai toccato il mobile:
+
+```bash
+cd easygamemobile && npm run check:types && npm run lint
+```
+
+**Ogni commit che tocca auth, ruoli, permessi o accesso ai dati deve includere
+o aggiornare un test.**
+
+Il runner non fa discovery: un nuovo file di test va **aggiunto alla lista in
+`package.json → test:auth`**, altrimenti non viene eseguito.
+
+---
+
+## 5. Aggiorna la Knowledge Base
+
+Nello stesso commit del codice:
+
+| Cambi | Aggiorna |
+|-------|----------|
+| Schema Prisma / migrazioni | [06](docs/knowledge-base/06-data-model.md) |
+| Auth, OTP, OAuth | [07](docs/knowledge-base/07-authentication.md) |
+| Ruoli o permessi | [08](docs/knowledge-base/08-roles-and-permissions.md) |
+| Endpoint | [09](docs/knowledge-base/09-api-conventions.md) + `docs/api-registry.md` + `src/lib/api/registry.ts` |
+| Stato di una funzione | [11](docs/knowledge-base/11-capabilities.md) |
+| Integrazioni | [12](docs/knowledge-base/12-integrations.md) |
+| Variabili / deploy | [13](docs/knowledge-base/13-environments.md) + `.env.example` |
+| Sicurezza | [14](docs/knowledge-base/14-security.md) |
+| Scelta architetturale | nuovo ADR in [18](docs/knowledge-base/18-decision-log.md) |
+| Stato di un WP | [20](docs/knowledge-base/20-work-packages.md) |
+
+---
+
+## 6. Separazione Web / Mobile
+
+- Progetti npm **indipendenti**: `package.json`, `node_modules`, `tsconfig.json`
+  separati.
+- **Nessun import tra i due alberi.** Non esistono alias condivisi.
+- Il mobile e escluso dal `tsconfig.json` del web e dal `.vercelignore`: non
+  viene mai deployato con il web.
+- Il codice comune di fatto duplicato (permessi trainer, utility certificati) va
+  allineato **a mano**; se lo cambi da una parte, verifica l'altra e dichiaralo.
+
+---
+
+## 7. Git
+
+- Branch dal `main`: `feat/`, `fix/`, `chore/`, `docs/`, `test/`,
+  `wp/<numero>-<slug>`.
+- **Non committare su `main`.** Nessun push forzato su branch condivisi.
+- Messaggi in **italiano**, imperativo, con prefisso convenzionale. Nel corpo:
+  cosa e cambiato, perche, come e stato validato.
+- Non committare: `.env` o segreti, `node_modules`, `.next`, build artifact,
+  screenshot di debug, snapshot del repository, contenuti di `.codex-*`.
+- Prima di committare esegui `git diff` e leggilo davvero.
+
+---
+
+## 8. Sicurezza database e ambienti
+
+**Il `.env` locale punta al database Neon di STAGING. Non esiste un database
+locale.**
+
+| Operazione | Autorizzazione |
+|------------|----------------|
+| `npx prisma migrate status`, query di lettura | libera |
+| `npx prisma migrate dev`, `prisma db push`, `npm run prisma:seed`, `npm run staging:provision-e2e` | **richiede autorizzazione esplicita** |
+| Qualunque `UPDATE` / `DELETE` massivo | **richiede autorizzazione esplicita** |
+| `npm run db:push` dentro `easygamemobile/` | **VIETATO SEMPRE** — Drizzle altererebbe la tabella `users` reale |
+
+Regole di codice:
+
+- mai una query Prisma club-scoped senza `scope` e senza filtro
+  `organization_id`;
+- mai fidarsi di un `organization_id` che arriva dal client: deve passare da
+  `ensureOrganizationAccess`;
+- mai importare `src/lib/server/**` da un componente client;
+- mai restituire `password_hash`, credenziali cifrate, token o codici OTP;
+- un errore di autorizzazione **deve** contenere la stringa `Accesso negato`
+  (il route handler generico la usa per mappare il 403).
+
+---
+
+## 9. Nessuna modifica non autorizzata alla produzione
+
+- Deploy su **staging** (`easygame-staging`): consentito dopo che tutti i gate
+  sono verdi. `npx vercel --prod` sul progetto gia collegato.
+- Deploy su **produzione**: **mai senza autorizzazione esplicita.**
+  Nello scope Vercel corrente non esiste un progetto production: se ne trovi
+  uno, **fermati e chiedi**.
+- **Ogni deploy esegue `prisma migrate deploy`.** Verifica sempre
+  `npx prisma migrate status` e il contenuto di `prisma/migrations/` prima.
+- Non modificare variabili d'ambiente Vercel senza autorizzazione.
+- Dopo un deploy: verifica lo stato `READY` e fai uno smoke test
+  (`/`, `/login`, `/api/v1/registry`).
+
+---
+
+## 10. Vincolo Cedi Platform
+
+EasyGame potrebbe in futuro diventare un prodotto della Cedi Platform con un
+backend .NET. **Non avviare alcuna migrazione ora.**
+
+Regola operativa permanente: **non introdurre nuovo accoppiamento** che renda
+difficile spostare la logica di dominio fuori da Next.js.
+
+- Niente servizi proprietari dell'hosting (Vercel KV, Blob, Edge Config).
+- Niente Server Actions come unico canale di scrittura: passa dalle API.
+- La logica nuova va in moduli isolabili sotto `src/lib/server/`.
+
+Vedi [ADR-0007](docs/knowledge-base/18-decision-log.md).
+
+---
+
+## 11. Errori tipici da evitare su questo repository
+
+1. Aggiungere una seconda implementazione di qualcosa che esiste gia (e
+   successo con toast, storage mobile, dashboard trainer, pagine account).
+2. Mettere logica di dominio in `page.tsx`.
+3. Scrivere `clubs.<campo>` direttamente con Prisma, aggirando `resources.ts`:
+   disallinea `club_resource_items`.
+4. Creare un test e dimenticare di aggiungerlo a `package.json`.
+5. Usare `src/components/ui/*` presumendo che siano tutti in uso: 19 non lo
+   sono.
+6. Fidarsi del nome `src/lib/supabase.ts`: **non parla con Supabase**, e un
+   adapter su `fetch`.
+7. Eseguire un comando Prisma di scrittura in locale credendo di essere su un
+   DB locale: si e su **staging**.
+8. Dichiarare una funzione «completa» senza flusso end-to-end (i pagamenti
+   online rispondono 501).
