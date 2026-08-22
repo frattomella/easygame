@@ -1,0 +1,35 @@
+# Database PostgreSQL per lo sviluppo locale.
+#
+# Serve a non far mai puntare l'ambiente locale al database di staging
+# (ADR-0012). E un'alternativa a zero configurazione al branch Neon di
+# sviluppo: se preferisci la parita con la produzione, crea il branch su Neon e
+# usa quella connection string al posto di questa.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   npm run db:migrate
+#   SEED_DEMO_PASSWORD="..." npm run prisma:seed
+#
+# La porta e 5434 per non collidere con eventuali PostgreSQL gia installati
+# sulla macchina (tipicamente 5432/5433).
+
+services:
+  easygame-dev-db:
+    image: postgres:17-alpine
+    container_name: easygame-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: easygame
+      POSTGRES_PASSWORD: easygame_dev_local
+      POSTGRES_DB: easygame_dev
+    ports:
+      - "5434:5432"
+    volumes:
+      - easygame-dev-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easygame -d easygame_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  easygame-dev-db-data:

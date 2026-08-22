@@ -2,6 +2,23 @@
 
 Questa guida serve per avviare EasyGame sul PC senza ricordare comandi manuali.
 
+## Database di sviluppo
+
+L'ambiente locale **non deve mai puntare al database di staging** (ADR-0012).
+Il modo piu rapido per averne uno tutto tuo:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+npx prisma migrate deploy
+SEED_DEMO_PASSWORD="$(openssl rand -base64 18)" npm run prisma:seed
+```
+
+Poi in `.env`: le due connection string che trovi in `.env.example` e
+`EASYGAME_DB_ENV="development"`.
+
+In alternativa crea un branch `development` dalla console Neon.
+Dettagli in `docs/knowledge-base/13-environments.md`.
+
 ## Requisiti
 
 - Node.js LTS installato da https://nodejs.org/

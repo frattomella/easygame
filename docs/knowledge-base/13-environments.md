@@ -4,7 +4,7 @@
 
 | Ambiente | Vercel | Database | Note |
 |----------|--------|----------|------|
-| **Locale** | — | Neon (stesso endpoint di staging via `.env`) | `npm run dev` su `127.0.0.1:3001` |
+| **Locale** | — | **Database di sviluppo dedicato** (Docker su porta 5434, oppure branch Neon `development`) | `npm run dev` su `127.0.0.1:3001` |
 | **Staging** | Progetto `easygame-staging` | Neon, db `neondb` — endpoint in `DATABASE_URL` su Vercel | Alias pubblico dell'app |
 | **Produzione** | **Non presente nello scope Vercel corrente** | — | Vedi avvertenza sotto |
 
@@ -26,17 +26,51 @@ Conseguenze:
 - **nessun deploy verso un progetto production va eseguito senza
   autorizzazione esplicita e verifica del target.**
 
-### Development separato da staging — `EASYGAME_DB_ENV` e la guardia
+### Development separato da staging — ATTIVO
 
-[ADR-0012](18-decision-log.md) stabilisce che lo sviluppo locale deve avere un
-**branch/database Neon dedicato** e non deve mai scrivere su staging.
+[ADR-0012](18-decision-log.md) stabilisce che lo sviluppo locale non deve mai
+scrivere su staging. Dal 2026-08-22 la separazione e **effettiva**: l'ambiente
+locale punta a un proprio database.
 
-**Stato al 2026-08-22:** il branch Neon di sviluppo **non e ancora stato
-creato** — richiede accesso alla console Neon, non disponibile da questa
-working copy. Nel frattempo il `.env` locale punta ancora all'endpoint di
-staging, ma **la scrittura e bloccata a livello di script**.
+#### Opzione A — database in Docker (predefinita)
 
-#### La guardia
+`docker-compose.dev.yml` avvia un PostgreSQL 17 dedicato sulla porta **5434**,
+scelta per non collidere con un eventuale PostgreSQL gia installato sulla
+macchina (tipicamente 5432/5433).
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+npx prisma migrate deploy
+SEED_DEMO_PASSWORD="$(openssl rand -base64 18)" npm run prisma:seed
+```
+
+Connection string (gia in `.env.example`):
+
+```
+postgresql://easygame:easygame_dev_local@127.0.0.1:5434/easygame_dev?sslmode=disable
+```
+
+Le credenziali del container sono volutamente banali: e un database locale,
+usa e getta, mai esposto. Il volume `easygame-dev-db-data` conserva i dati tra
+un riavvio e l'altro; per ripartire da zero,
+`docker compose -f docker-compose.dev.yml down -v`.
+
+#### Opzione B — branch Neon `development`
+
+Piu vicino alla produzione (stesso motore gestito, stesso SSL). Va creato dalla
+console Neon — **non e automatizzabile da questa working copy**, che non ha
+credenziali API Neon. Una volta creato, incolla le due connection string in
+`DATABASE_URL` (pooled) e `DIRECT_URL` (direct).
+
+#### In entrambi i casi
+
+Imposta nel `.env` locale:
+
+```
+EASYGAME_DB_ENV="development"
+```
+
+#### La guardia sulle scritture
 
 `scripts/db-guard.mjs` precede ogni comando npm che scrive sul database:
 
@@ -50,37 +84,22 @@ staging, ma **la scrittura e bloccata a livello di script**.
 | `db:generate`, `prisma:generate` | no — non tocca il database |
 | `vercel-build` (`prisma migrate deploy`) | **no, di proposito** — e il percorso legittimo con cui gli ambienti ricevono le migrazioni |
 
-Comportamento, in base a `EASYGAME_DB_ENV`:
+Comportamento in base a `EASYGAME_DB_ENV`: `development` passa;
+`staging`/`production` sono bloccati; **variabile assente** e bloccata, perche
+il target sarebbe ignoto. La guardia stampa host e nome database, mai
+credenziali.
 
-- `development` → il comando procede;
-- `staging` o `production` → **bloccato**, con l'indicazione che le migrazioni
-  arrivano dal deploy Vercel;
-- **non impostata** → **bloccato**, perche non e possibile sapere su cosa si
-  scriverebbe.
-
-La guardia stampa host e nome del database (mai utente, password o query
-string) per rendere evidente il target.
-
-Override per un singolo comando, da usare **solo con autorizzazione
-esplicita**:
+Override per un singolo comando, **solo con autorizzazione esplicita**:
 
 ```bash
 EASYGAME_ALLOW_SHARED_DB_WRITE=1 npm run prisma:seed
 ```
 
-#### Come completare la separazione
+Anche `npm run local` avvisa in modo visibile se sta per avviarsi contro un
+database non di sviluppo.
 
-1. Nella console Neon, crea un branch del progetto chiamato `development`.
-2. Copia le due connection string (pooled e direct).
-3. Nel `.env` locale imposta `DATABASE_URL`, `DIRECT_URL` e
-   `EASYGAME_DB_ENV="development"`.
-4. Allinea lo schema: `npx prisma migrate deploy` (oppure `npm run db:migrate`,
-   ora consentito).
-5. Popola i dati demo con una password tua:
-   `SEED_DEMO_PASSWORD="$(openssl rand -base64 24)" npm run prisma:seed`.
-6. Verifica che `npm run db:status` riporti il branch di sviluppo.
-
-Finche il punto 1 non e fatto, in locale restano possibili solo le letture.
+**Limite noto:** la guardia copre gli script npm, non un `npx prisma db push`
+invocato a mano.
 
 ## Variabili d'ambiente
 
@@ -108,7 +127,7 @@ Riferimento completo: [`.env.example`](../../.env.example).
 
 | Variabile | Significato |
 |-----------|-------------|
-| `DATABASE_URL` | Endpoint **pooler** Neon. Obbligatoria: `src/lib/server/prisma.ts` lancia un errore all'avvio se manca |
+| `DATABASE_URL` | Connection string PostgreSQL: endpoint **pooler** Neon negli ambienti, database di sviluppo in locale. Obbligatoria: `src/lib/server/prisma.ts` fallisce alla prima query se manca |
 | `DIRECT_URL` | Endpoint diretto per Prisma CLI e migrazioni |
 | `NEXT_PUBLIC_APP_URL` | URL pubblico dell'app |
 | `AUTH_BASE_URL` | Base per le redirect URI OAuth |
@@ -174,7 +193,9 @@ Launcher alternativi per chi non usa la CLI:
 | `scripts/configure-staging-neon-ssl.mjs` | Allinea i parametri SSL su staging |
 | `scripts/verify-staging-access-switch.mjs` | Verifica il cambio di club/ruolo su staging |
 | `scripts/provision-staging-e2e.mjs` | `npm run staging:provision-e2e` — **crea dati** su staging |
-| `scripts/start-local.mjs` / `.ps1` | Avvio guidato locale |
+| `scripts/start-local.mjs` / `.ps1` | Avvio guidato locale; avvisa se il target non e un database di sviluppo |
+| `scripts/db-guard.mjs` | Blocca gli script npm di scrittura verso database condivisi |
+| `docker-compose.dev.yml` | Database PostgreSQL di sviluppo, porta 5434 |
 
 Gli script che scrivono (`provision-staging-e2e`) vanno eseguiti solo con
 autorizzazione esplicita.

@@ -246,6 +246,8 @@ function ensureEnvFile() {
     );
   }
 
+  warnIfSharedDatabase(envValues);
+
   logStep(".env trovato e variabili database presenti");
   return envValues;
 }
@@ -282,6 +284,42 @@ function sanitizeOutput(output, envValues) {
   return sanitized
     .replace(/postgres(?:ql)?:\/\/[^\s"'`]+/gi, "postgresql://***")
     .trim();
+}
+
+/**
+ * Avvisa quando l'ambiente locale sta per lavorare su un database condiviso.
+ *
+ * Non blocca l'avvio: leggere staging in locale e talvolta legittimo. Blocca
+ * invece la scrittura, tramite scripts/db-guard.mjs. Vedi ADR-0012.
+ */
+function warnIfSharedDatabase(envValues) {
+  const declared = String(envValues.EASYGAME_DB_ENV || "").trim().toLowerCase();
+
+  if (declared === "development") {
+    return;
+  }
+
+  let target = "sconosciuto";
+  try {
+    const url = new URL(String(envValues.DATABASE_URL || ""));
+    target = `${url.hostname}${url.pathname}`;
+  } catch {
+    // connection string non interpretabile: si segnala comunque
+  }
+
+  logWarn("");
+  logWarn("  ATTENZIONE: questo avvio NON usa un database di sviluppo.");
+  logWarn(`  Target: ${target}`);
+  logWarn(
+    declared
+      ? `  EASYGAME_DB_ENV vale "${declared}".`
+      : "  EASYGAME_DB_ENV non e impostata.",
+  );
+  logWarn("  I comandi di scrittura Prisma resteranno bloccati.");
+  logWarn("  Per un database di sviluppo:");
+  logWarn("    docker compose -f docker-compose.dev.yml up -d");
+  logWarn('    e imposta EASYGAME_DB_ENV="development" in .env');
+  logWarn("");
 }
 
 function runDatabaseCheck(envValues) {
