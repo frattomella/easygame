@@ -213,7 +213,7 @@ export default function TrainerContractsPage({
   // Show loading state
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Contratti Allenatore" />
@@ -230,7 +230,7 @@ export default function TrainerContractsPage({
   // Show error state if trainer not found
   if (!trainer) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Allenatore Non Trovato" />
@@ -250,7 +250,7 @@ export default function TrainerContractsPage({
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title={`Contratti - ${trainer.name}`} />

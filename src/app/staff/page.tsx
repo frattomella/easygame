@@ -692,7 +692,7 @@ export default function StaffPage() {
   );
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       {/* Desktop layout */}
       <div className="hidden lg:flex w-full">
         <Sidebar />

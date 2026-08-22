@@ -275,7 +275,7 @@ export default function MemberDetailsPage() {
   // Show loading state
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Dettaglio Socio" />
@@ -292,7 +292,7 @@ export default function MemberDetailsPage() {
   // Show error state if member not found
   if (!member) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Socio Non Trovato" />
@@ -312,7 +312,7 @@ export default function MemberDetailsPage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Dettaglio Socio" />

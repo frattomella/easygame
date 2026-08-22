@@ -60,6 +60,15 @@ Breakpoint di riferimento: **375, 768, 1280 px**.
 - **le classi `slide-in-from-*` dei modali non sono decorative**: `animate-in`
   riscrive `transform`, quindi sono loro a fornire il -50% che centra il
   riquadro. Toglierle lo sposta fuori schermo;
+- il contenitore di pagina usa `h-[100dvh]`, non `h-screen`: `100vh` su
+  telefono e piu alto dell'area visibile quando la barra del browser e
+  presente, e il fondo pagina finisce sotto lo schermo;
+- **mai annidare `min-h-screen` dentro `min-h-screen`**: la colonna centrale
+  non ha piu un'altezza da cui `flex-1 min-h-0 overflow-y-auto` possa
+  ricavare uno scorrimento interno, e a scorrere finisce l'intero documento
+  mentre la sidebar resta tagliata. Lo schema corretto e: contenitore
+  `h-[100dvh] overflow-hidden` → colonna `min-h-0 flex-1 flex-col` →
+  `<main className={dashboardMainClassName}>`;
 - nelle schermate di accesso (`.eg-auth`) i comandi hanno almeno 44 px di
   altezza sotto il breakpoint `sm`. Nelle tabelle di gestione la densita
   resta voluta.

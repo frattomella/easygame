@@ -3508,7 +3508,7 @@ export default function AthleteProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Profilo Atleta" />
@@ -3524,7 +3524,7 @@ export default function AthleteProfilePage() {
 
   if (!athlete) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Atleta Non Trovato" />
@@ -3542,7 +3542,7 @@ export default function AthleteProfilePage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Profilo Atleta" />

@@ -247,7 +247,7 @@ export default function EditTrainerPage() {
   // Show loading state
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Modifica Allenatore" />
@@ -264,7 +264,7 @@ export default function EditTrainerPage() {
   // Show error state if trainer not found
   if (!trainerData) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Allenatore Non Trovato" />
@@ -284,7 +284,7 @@ export default function EditTrainerPage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Modifica Allenatore" />

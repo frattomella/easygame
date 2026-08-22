@@ -90,7 +90,7 @@ const ParentSidebar = memo(() => {
 
   return (
     <aside
-      className={`flex h-screen ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col overflow-hidden bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300`}
+      className={`flex h-[100dvh] ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col overflow-hidden bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300`}
     >
       <div className="mb-6 flex flex-col items-center px-4 py-4">
         <div className="flex items-center gap-4">

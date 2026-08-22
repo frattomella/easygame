@@ -186,14 +186,14 @@ export default function TrainersPage() {
   });
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      {/* Sidebar */}
+    // Altezza fissa + colonna che puo restringersi: cosi lo scorrimento
+    // avviene dentro <main>, non su tutto il documento.
+    <div className="flex h-[100dvh] overflow-hidden bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="hidden md:block">
         <Sidebar />
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Header title="Allenatori" />
 
         <main className={dashboardMainClassName}>

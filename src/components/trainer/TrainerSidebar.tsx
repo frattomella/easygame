@@ -103,7 +103,7 @@ const TrainerSidebar = memo(() => {
 
   return (
     <aside
-      className={`flex h-screen ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300 overflow-hidden relative`}
+      className={`flex h-[100dvh] ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300 overflow-hidden relative`}
     >
       <div className="mb-6 flex items-center flex-col py-4 px-4">
         <div className="flex items-center gap-4">

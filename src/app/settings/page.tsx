@@ -255,7 +255,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Impostazioni" />
@@ -287,7 +287,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Impostazioni" />

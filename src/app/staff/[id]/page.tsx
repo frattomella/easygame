@@ -348,7 +348,7 @@ export default function StaffMemberDetailsPage() {
   // Show loading state
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Dettaglio Membro Staff" />
@@ -365,7 +365,7 @@ export default function StaffMemberDetailsPage() {
   // Show error state if staff member not found
   if (!staffMember) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Membro Staff Non Trovato" />
@@ -402,7 +402,7 @@ export default function StaffMemberDetailsPage() {
       : savedDepartmentOptions;
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title="Dettaglio Membro Staff" />

@@ -433,7 +433,7 @@ export default function TrainerDashboardLayoutShell({
   }
 
   return (
-    <div className="flex min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_36%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_52%,#f8fafc_100%)]">
+    <div className="flex h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_36%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_52%,#f8fafc_100%)]">
       <div className="hidden lg:block">
         <TrainerSidebarContent
           collapsed={collapsed}
@@ -448,7 +448,7 @@ export default function TrainerDashboardLayoutShell({
         />
       </div>
 
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TrainerTopBar onOpenMobileMenu={() => setMobileSidebarOpen(true)} />
 
         <main className={dashboardMainClassName}>

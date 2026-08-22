@@ -20,7 +20,7 @@ const LayoutWithMobileNav = ({ children }: LayoutWithMobileNavProps) => {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       {/* Desktop Sidebar */}
       <Sidebar />
 

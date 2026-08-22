@@ -633,7 +633,7 @@ export default function SponsorsPage() {
   // Show message if no club is found
   if (clubNotFound) {
     return (
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="Gestione Sponsor" />
@@ -1066,7 +1066,7 @@ export default function SponsorsPage() {
   );
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
       {/* Desktop layout */}
       <div className="hidden lg:flex w-full">
         <Sidebar />

@@ -111,7 +111,7 @@ export function ApiDocsClient() {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-gray-50">
+      <div className="flex h-[100dvh] bg-gray-50">
         <Sidebar />
         <div className="flex flex-1 items-center justify-center">
           <div className="flex items-center gap-3 text-slate-600">
@@ -125,7 +125,7 @@ export function ApiDocsClient() {
 
   if (!user?.id) {
     return (
-      <div className="flex h-screen bg-gray-50">
+      <div className="flex h-[100dvh] bg-gray-50">
         <Sidebar />
         <div className="flex flex-1 items-center justify-center">
           <div className="flex items-center gap-3 text-slate-600">
@@ -139,7 +139,7 @@ export function ApiDocsClient() {
 
   if (!canAccess) {
     return (
-      <div className="flex h-screen bg-gray-50">
+      <div className="flex h-[100dvh] bg-gray-50">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header title="API interne EasyGame" />

@@ -76,7 +76,7 @@ export default function ParentDashboardShell({
   ];
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="flex h-[100dvh] overflow-hidden bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="hidden md:block">
         <ParentSidebar />
       </div>

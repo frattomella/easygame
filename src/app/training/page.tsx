@@ -1114,7 +1114,7 @@ export default function TrainingPage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] overflow-hidden bg-gray-50 dark:bg-gray-900">
       <div className="shrink-0">
         <Sidebar />
       </div>
