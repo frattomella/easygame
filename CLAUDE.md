@@ -6,10 +6,22 @@ Nel repository convivono **due applicazioni**:
 - **Web App** (`src/`) — Next.js 14 App Router, **funzionante e in produzione
   d'uso**. Vercel + Neon PostgreSQL + Prisma.
 - **Mobile App** (`easygamemobile/`) — Expo / React Native, **incompleta**,
-  oggi solo area allenatore.
+  oggi solo area allenatore. **Sviluppo DIFFERITO.**
 
 > La Web App su Vercel + Neon e la **baseline funzionante**.
 > Deve restare operativa dopo ogni tuo intervento.
+
+> **Priorita assoluta corrente**
+> ([ADR-0025](docs/knowledge-base/18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive)):
+> completare **EasyGame Web V1** e renderla pienamente utilizzabile da
+> desktop, tablet e smartphone.
+>
+> **Non sviluppare nuove funzionalita Mobile** fino a nuova decisione. Su
+> `easygamemobile/` sono ammessi solo: correzioni di sicurezza, e gli
+> adeguamenti resi necessari da un cambio di contratto API deciso lato Web.
+>
+> Ogni pagina Web che tocchi deve restare usabile a **375 px, 768 px e
+> 1280 px**.
 
 ---
 
@@ -87,7 +99,7 @@ npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare
 ```
 
-Se hai toccato il mobile:
+Se hai toccato il mobile (raro: lo sviluppo e differito, vedi ADR-0025):
 
 ```bash
 cd easygamemobile && npm run check:types && npm run lint

@@ -1,5 +1,13 @@
 # 05 — Architettura Mobile App
 
+> **SVILUPPO DIFFERITO** (2026-08-22,
+> [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive)).
+> La priorita assoluta e completare EasyGame Web V1 e renderla responsive.
+> **Nessuna nuova funzionalita Mobile** fino a una decisione esplicita.
+> Restano ammessi solo le correzioni di sicurezza e gli adeguamenti resi
+> necessari da un cambio di contratto API deciso lato Web.
+> Questo documento descrive lo stato **congelato** dell'app.
+
 Cartella: `easygamemobile/`. **Progetto npm indipendente**: proprio
 `package.json`, `package-lock.json`, `tsconfig.json`, `eslint.config.js`,
 `node_modules`.

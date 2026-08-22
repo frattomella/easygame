@@ -5,7 +5,8 @@ diversi in parallelo. Ogni WP indica esplicitamente i file che tocca, cosi due
 agenti possono lavorare insieme senza collidere.
 
 **Stati:** `DONE` · `READY` (dipendenze soddisfatte) · `BLOCKED` (attende un WP
-o una decisione) · `NEEDS DECISION` (attende approvazione, vedi
+o una decisione) · `DEFERRED` (sospeso per decisione, vedi l'ADR citato) ·
+`NEEDS DECISION` (attende approvazione, vedi
 [19 — Roadmap](19-roadmap.md#decisioni-che-richiedono-approvazione-del-proprietario-del-prodotto))
 
 **Regole comuni a tutti i WP** (non ripetute in ogni scheda):
@@ -467,7 +468,7 @@ Per ciascuna: estrarre la logica in `src/lib/`, i sotto-componenti in
 
 ---
 
-### WP-20 · Deprecare gli alias di compatibilita — `BLOCKED (WP-21)`
+### WP-20 · Deprecare gli alias di compatibilita — `BLOCKED (WP-21, DEFERRED)`
 
 **Obiettivo.** Rimuovere `simplified_*` e `organizations` dal registro risorse.
 
@@ -484,9 +485,16 @@ superfici sono migrate.
 
 ---
 
-## Fase F4 — Mobile
+## Fase F4 — Mobile — **DIFFERITA** (2026-08-22)
 
-### WP-21 · Consolidare il layer dati mobile — `PARZIALE` (2026-08-22)
+> **WP-21..WP-25 sono `DEFERRED`** per
+> [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive).
+> Nessuna nuova funzionalita Mobile fino a una decisione esplicita che superi
+> quell'ADR. Sul codice `easygamemobile/` restano ammessi solo le correzioni di
+> sicurezza e gli adeguamenti resi necessari da un cambio di contratto API
+> deciso lato Web. Il progetto resta nella CI e continua a essere compilato.
+
+### WP-21 · Consolidare il layer dati mobile — `DEFERRED (ADR-0025)` · era `PARZIALE` (2026-08-22)
 
 **Obiettivo.** Un solo servizio dati.
 
@@ -506,7 +514,7 @@ isolare `storage.ts` (mock) in attesa della rimozione delle schermate v1.
 
 ---
 
-### WP-22 · Rimuovere le schermate mobile v1 — `BLOCKED (verifica R8)`
+### WP-22 · Rimuovere le schermate mobile v1 — `DEFERRED (ADR-0025)`
 
 **Scope.** Eliminare le 10 schermate non collegate e `services/storage.ts`.
 
@@ -518,7 +526,7 @@ isolare `storage.ts` (mock) in attesa della rimozione delle schermate v1.
 
 ---
 
-### WP-23 · Allineare le funzionalita trainer mobile al Web — `BLOCKED (WP-21)`
+### WP-23 · Allineare le funzionalita trainer mobile al Web — `DEFERRED (ADR-0025)`
 
 **Scope.** Colmare le differenze su presenze, convocazioni, alert operativi e
 notifiche. **Non** introdurre nuove regole di dominio nel client mobile:
@@ -530,7 +538,7 @@ consumare gli endpoint esistenti o richiederne di nuovi lato Web.
 
 ---
 
-### WP-24 · Test per il mobile — `BLOCKED (WP-21)`
+### WP-24 · Test per il mobile — `DEFERRED (ADR-0025)`
 
 **Scope.** Introdurre un runner (allineato all'approccio del Web se possibile) e
 coprire `api.ts` (envelope, retry, timeout), `mobile-backend-storage`
@@ -542,7 +550,7 @@ coprire `api.ts` (envelope, retry, timeout), `mobile-backend-storage`
 
 ---
 
-### WP-25 · Build distribuibile (EAS) — `BLOCKED (WP-22)`
+### WP-25 · Build distribuibile (EAS) — `DEFERRED (ADR-0025)`
 
 **Scope.** Configurare EAS, profili build (development / preview / production),
 gestione dei segreti, procedura di distribuzione interna.

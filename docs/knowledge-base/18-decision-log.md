@@ -478,3 +478,57 @@ vuole parita con la produzione.
   mai esposto.
 
 **Stato:** ATTIVA. Non supera ADR-0012: ne e l'attuazione.
+
+---
+
+## ADR-0025 — Mobile App differita: la priorita e EasyGame Web V1 responsive
+
+**Data:** 2026-08-22
+
+**Contesto.** Il repository contiene due applicazioni ([ADR-0020](#adr-0020--web-e-mobile-restano-nello-stesso-repository-con-confini-espliciti)):
+la Web App in uso reale e la Mobile App, ferma allo stato di prototipo con la
+sola area allenatore ([05](05-mobile-architecture.md)). La fase F4 della
+roadmap prevedeva di portarla a prodotto distribuibile (WP-21..WP-25).
+
+Nel frattempo la Web App presenta difetti che colpiscono l'uso quotidiano:
+la pagina Atleti impiega decine di secondi con 200+ record, il cambio stagione
+non separa davvero i dati, e il dominio pagamenti produce importi e stati
+incoerenti. Inoltre gli utenti usano gia il Web da tablet e smartphone, dove
+manca una verifica sistematica del comportamento responsive.
+
+Investire sul mobile prima di aver chiuso questi punti significherebbe
+duplicare su una seconda piattaforma regole di dominio ancora instabili.
+
+**Decisione.** La Mobile App e **DIFFERITA**. La priorita assoluta e
+completare **EasyGame Web V1** e renderla pienamente utilizzabile da desktop,
+tablet e smartphone.
+
+1. Nessuna nuova funzionalita Mobile fino a una decisione esplicita che superi
+   questo ADR.
+2. I WP-21..WP-25 passano allo stato `DEFERRED`. La fase F4 esce dal percorso
+   critico.
+3. Sul codice `easygamemobile/` restano ammessi **solo**: correzioni di
+   sicurezza, e gli adeguamenti resi necessari da un cambio di contratto API
+   deciso lato Web.
+4. La responsivita del Web diventa un requisito di uscita di V1, non un
+   miglioramento opzionale: ogni pagina toccata da un intervento deve restare
+   usabile a 375 px, 768 px e 1280 px.
+5. Le regole di dominio nuove continuano a nascere server-side
+   ([ADR-0021](#adr-0021--backend-typescript-per-la-v1-nessuna-migrazione-net)), cosi che un futuro
+   client mobile le consumi invece di riscriverle.
+
+**Conseguenze.**
+
+- La fase F4 non e cancellata, e sospesa: quando riprendera, trovera un
+  dominio piu stabile e piu logica gia server-side.
+- `easygamemobile/` resta nel repository e nella CI: continua a essere
+  compilato e verificato, ma non evolve.
+- Il divieto di reintrodurre un ORM o una connection string nel mobile
+  ([ADR-0018](#adr-0018--il-mobile-parla-solo-con-le-api-easygame-mai-con-neon)) resta in
+  vigore e la CI continua a farlo rispettare.
+- Chi lavora su un dominio condiviso di fatto (permessi trainer, utility
+  certificati) **non** deve piu allineare a mano la copia mobile: la si
+  allineera alla ripresa di F4, dichiarando il disallineamento in
+  [16 — Debito tecnico](16-technical-debt.md).
+
+**Stato:** ATTIVA.

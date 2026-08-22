@@ -3,18 +3,25 @@
 Principio guida: **stabilizzare cio che esiste prima di aggiungere.**
 Non e prevista alcuna riscrittura dell'applicazione.
 
+**Priorita assoluta corrente ([ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive)):**
+completare **EasyGame Web V1** e renderla pienamente utilizzabile da desktop,
+tablet e smartphone. La **Mobile App e DIFFERITA**: nessuna nuova funzionalita
+mobile fino a una decisione esplicita.
+
 I lavori concreti sono in [20 — Work Package](20-work-packages.md).
 
 ## Fasi
 
 ```
 F1  Fondamenta        →  F2  Stabilizzazione Web V1  →  F3  Completamento
-     (WP-01..WP-06, WP-09)          (WP-07..WP-12)                (WP-13..WP-16)
-                                    ↓                            ↓
-                        F4  Mobile (WP-21..WP-25)    F5  Production readiness
+     (WP-01..WP-06, WP-09)     (WP-07..WP-12, WP-31..WP-34)      (WP-13..WP-16)
+                                                                 ↓
+                                                     F5  Production readiness
                                                           (WP-26..WP-29)
                                                                  ↓
                                                      F6  Evoluzione (WP-30+)
+
+F4  Mobile (WP-21..WP-25) — DIFFERITA, fuori dal percorso critico
 ```
 
 ### F1 — Fondamenta per lo sviluppo assistito — **COMPLETATA** (2026-08-22)
@@ -42,8 +49,16 @@ Estrazione incrementale della logica da `simplified-db.ts` a
 `src/lib/server/`, transazionalita della sincronizzazione club, filtro
 stagione server-side, paginazione, validazione con `zod`.
 
+Con [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive)
+la fase assorbe anche i difetti che colpiscono l'uso quotidiano del Web:
+performance delle liste grandi (WP-31), consistenza di stagioni e risorse club
+(WP-32), correttezza del dominio pagamenti (WP-33) e responsivita verificata
+(WP-34).
+
 **Criterio di uscita:** le regole di business critiche (permessi, scoping,
-calcoli economici) sono applicate server-side e coperte da test.
+calcoli economici) sono applicate server-side e coperte da test; la pagina
+Atleti di un club reale carica in pochi secondi; ogni pagina toccata resta
+usabile a 375 px, 768 px e 1280 px.
 
 ### F3 — Completamento funzionale
 
@@ -57,14 +72,18 @@ esportabili, audit log.
 **Criterio di uscita:** nessuna capability dichiarata `COMPLETE` senza flusso
 end-to-end e test.
 
-### F4 — Mobile
+### F4 — Mobile — **DIFFERITA** (2026-08-22)
 
-**Obiettivo:** portare l'app mobile da prototipo trainer a prodotto
-distribuibile.
+Sospesa da [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive).
+Non e cancellata: riprendera quando il Web V1 sara completo e responsive.
 
-Consolidamento a un solo layer dati, rimozione dei mock e delle schermate v1,
-copertura funzionale trainer allineata al Web, test, build EAS.
-Le aree parent e atleta arrivano solo dopo.
+Sul codice `easygamemobile/` restano ammessi **solo** le correzioni di
+sicurezza e gli adeguamenti resi necessari da un cambio di contratto API
+deciso lato Web. Il progetto resta nella CI e continua a essere compilato.
+
+**Obiettivo alla ripresa:** portare l'app mobile da prototipo trainer a
+prodotto distribuibile — un solo layer dati, rimozione dei mock e delle
+schermate v1, copertura funzionale trainer allineata al Web, test, build EAS.
 
 **Criterio di uscita:** build firmata installabile, flusso trainer completo,
 test presenti.
@@ -120,3 +139,4 @@ Decisioni aggiuntive prese nella stessa sede:
 | Web e Mobile restano nello **stesso repository**, con confini espliciti | [ADR-0020](18-decision-log.md) |
 | Backend **TypeScript** per la V1, nessuna migrazione .NET; ridurre progressivamente la logica client-side | [ADR-0021](18-decision-log.md) |
 | Workflow: **locale → test/build → commit → staging → UAT → production solo autorizzata** | [ADR-0022](18-decision-log.md) |
+| **Mobile App differita**; priorita assoluta a Web V1 completo e responsive | [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive) |

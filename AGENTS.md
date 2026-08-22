@@ -23,6 +23,7 @@ EasyGame: gestionale multi-tenant per ASD e societa sportive.
 | Database | Neon PostgreSQL (unico, multi-tenant logico per `organization_id`) | nessuno proprio |
 | Hosting | Vercel, progetto `easygame-staging`, regione `fra1` | nessuno |
 | Stato | **funzionante — baseline da non rompere** | **incompleta**, solo area allenatore |
+| Priorita | **assoluta**: completare la V1 e renderla responsive (375/768/1280 px) | **DIFFERITA** ([ADR-0025](docs/knowledge-base/18-decision-log.md)): nessuna nuova funzionalita |
 
 ---
 
