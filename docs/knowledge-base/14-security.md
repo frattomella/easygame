@@ -20,6 +20,39 @@ lo e**, e i rischi operativi da conoscere prima di toccare il codice.
 | Segreti nel repository | **Nessuno**: scansione dei file tracciati negativa; `.env` e `.env.local` non sono mai stati committati |
 | TypeScript | `strict: true`, e `ignoreBuildErrors` **non** e attivo in `next.config.js` |
 
+## Incidenti risolti
+
+### I-01 — Credenziali demo pubblicate e funzionanti su staging (2026-08-22) — RISOLTO
+
+**Cosa era esposto.** Il repository GitHub e **pubblico**. Il README elencava
+`demo@easygame.it`, `trainer@easygame.it`, `athlete@easygame.it`,
+`parent@easygame.it` con password `password123`. Gli stessi account
+**esistevano davvero** sul database di staging, con email verificata e sessioni
+attive, e lo staging e raggiungibile da internet. Verificato con un confronto
+bcrypt in sola lettura: **la password pubblicata era valida su tutti e quattro**.
+L'account `demo@easygame.it` ha ruolo `club_creator`, quindi dava accesso in
+scrittura ai dati reali del club.
+
+**Rimedio applicato.**
+
+- Password ruotate su tutti e quattro gli account con valori casuali da 28
+  caratteri, hash **bcrypt cost 12**.
+- Revocate **37 sessioni** attive (24 + 5 + 4 + 4).
+- Verificato che la vecchia password non funziona piu, sia con confronto bcrypt
+  sia con una `POST /api/v1/auth/login` reale su staging → **401**.
+- Credenziali nuove salvate solo in `.staging-credentials.local`, gitignored.
+- Credenziali rimosse da `README.md` e da [06 — Modello dati](06-data-model.md).
+- `prisma/seed.js` non ha piu una password predefinita: richiede
+  `SEED_DEMO_PASSWORD` (minimo 16 caratteri) e usa bcrypt cost 12.
+
+**Da fare comunque.** Non c'e modo di sapere se qualcuno ha usato quelle
+credenziali prima della rotazione: i dati di staging vanno considerati
+potenzialmente visti da terzi. Non e possibile verificarlo perche **non esiste
+audit log** — vedi rischio aperto n. 7 e [ADR-0019](18-decision-log.md).
+
+**Lezione registrata.** Nessuna credenziale reale, host di database, endpoint
+Neon o URL di deployment nella documentazione di un repository pubblico.
+
 ## Rischi aperti
 
 ### 1. Nessuna protezione di route a livello edge — MEDIO

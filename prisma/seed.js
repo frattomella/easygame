@@ -46,8 +46,27 @@ async function upsertUser(user) {
   });
 }
 
+function resolveSeedPassword() {
+  const password = String(process.env.SEED_DEMO_PASSWORD || "");
+
+  if (!password) {
+    throw new Error(
+      "SEED_DEMO_PASSWORD non impostata. Il seed non usa piu una password " +
+        "predefinita: le credenziali degli account demo non devono essere " +
+        "prevedibili ne finire nella documentazione. Esempio:\n" +
+        '  SEED_DEMO_PASSWORD="$(openssl rand -base64 24)" npm run prisma:seed',
+    );
+  }
+
+  if (password.length < 16) {
+    throw new Error("SEED_DEMO_PASSWORD deve contenere almeno 16 caratteri");
+  }
+
+  return password;
+}
+
 async function main() {
-  const password_hash = await bcrypt.hash("password123", 10);
+  const password_hash = await bcrypt.hash(resolveSeedPassword(), 12);
 
   const owner = await upsertUser({
     id: DEMO_IDS.clubCreator,

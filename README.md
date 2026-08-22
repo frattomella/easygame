@@ -25,10 +25,17 @@ Il repository contiene due applicazioni separate:
 
 ### Account demo seed
 
-- `demo@easygame.it` / `password123`
-- `trainer@easygame.it` / `password123`
-- `athlete@easygame.it` / `password123`
-- `parent@easygame.it` / `password123`
+Il seed crea quattro account demo — `demo@easygame.it` (owner),
+`trainer@easygame.it`, `athlete@easygame.it`, `parent@easygame.it` — e imposta
+per tutti la password che **tu** fornisci in `SEED_DEMO_PASSWORD`:
+
+```bash
+SEED_DEMO_PASSWORD="$(openssl rand -base64 24)" npm run prisma:seed
+```
+
+Non esiste piu una password predefinita e **nessuna credenziale reale va
+scritta in questo repository**, che e pubblico. Le credenziali degli ambienti
+condivisi si conservano fuori dal repository.
 
 ### Configurazione locale
 

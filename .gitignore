@@ -73,3 +73,7 @@ node_modules
 .codex-tmp/
 .codex-run/
 .codex-logs/
+
+# credenziali locali, mai committare
+.staging-credentials.local
+*.credentials.local

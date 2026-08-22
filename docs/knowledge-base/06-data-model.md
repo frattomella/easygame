@@ -145,8 +145,21 @@ comportamento applicativo e identico.
 
 ## Seed
 
-`prisma/seed.js` (`npm run prisma:seed`) crea account demo:
-`demo@easygame.it`, `trainer@easygame.it`, `athlete@easygame.it`,
-`parent@easygame.it`, tutti con password `password123`.
+`prisma/seed.js` (`npm run prisma:seed`) crea quattro account demo:
+`demo@easygame.it` (owner), `trainer@easygame.it`, `athlete@easygame.it`,
+`parent@easygame.it`.
+
+La password **non e piu predefinita**: il seed legge `SEED_DEMO_PASSWORD`
+(minimo 16 caratteri) e si rifiuta di partire se manca. L'hash e bcrypt cost 12.
+
+```bash
+SEED_DEMO_PASSWORD="$(openssl rand -base64 24)" npm run prisma:seed
+```
 
 **Da non eseguire mai contro un database con dati reali.**
+
+> Fino al 2026-08-22 il seed usava `password123` e quella credenziale era
+> pubblicata nel README di un repository pubblico, mentre gli account
+> esistevano davvero sullo staging raggiungibile da internet. Le credenziali
+> sono state ruotate e le sessioni revocate. Non reintrodurre credenziali
+> nella documentazione: vedi [14 — Sicurezza](14-security.md).
