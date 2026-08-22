@@ -89,18 +89,28 @@ estrazione e un lavoro di trasporto e non di riscrittura.
 Regola operativa permanente: nessun nuovo accoppiamento a servizi proprietari
 dell'hosting. Vedi [ADR-0007](18-decision-log.md).
 
-## Decisioni che richiedono approvazione del proprietario del prodotto
+## Decisioni deliberate — tutte chiuse il 2026-08-22
 
-Queste **non** vanno prese da uno sviluppatore o da un agente:
+Le questioni A1–A9 aperte dall'audit sono state **decise dal proprietario del
+prodotto**. Sono vincolanti e registrate come ADR in
+[18 — Decision log](18-decision-log.md).
 
-| # | Decisione | Perche serve una scelta |
-|---|-----------|-------------------------|
-| A1 | **Ambiente di produzione** | Nello scope Vercel corrente non esiste un progetto production. Va chiarito se esiste altrove, se va creato, e con quale database |
-| A2 | **Database locale separato** | Oggi `.env` punta a staging: ogni comando Prisma di scrittura in locale tocca staging. Serve un branch Neon dedicato allo sviluppo |
-| A3 | **Pagamenti online** | Implementarli davvero (scelta del PSP, contratti, fee) oppure rimuovere la promessa dall'interfaccia |
-| A4 | **`/hub`** | Il catalogo marketplace e statico: diventa reale o viene nascosto |
-| A5 | **Reset password** | Oggi assente: se un utente perde la password non ha recupero self-service |
-| A6 | **Rimozione dei residui v1** (trainer v1, schermate mobile v1, primitive UI inutilizzate) | Sono recuperabili da Git ma richiedono conferma che nessuna funzione debba essere riportata |
-| A7 | **Rimozione di `.babelrc`** | Riabilita SWC e cambia la toolchain di compilazione |
-| A8 | **Rimozione di Drizzle/Express dal mobile** | Elimina un rischio concreto per il database, ma tocca la struttura del progetto mobile |
-| A9 | **Retention e privacy** | Il sistema tratta dati di minori e dati fiscali senza audit log ne policy di retention documentata |
+| # | Decisione presa | ADR |
+|---|-----------------|-----|
+| A1 | Production **non attivata**; staging e l'ambiente ufficiale fino alla UAT finale | [ADR-0011](18-decision-log.md) |
+| A2 | **DB/branch Neon separato** per development; il locale non scrive su staging | [ADR-0012](18-decision-log.md) |
+| A3 | Pagamenti **in roadmap**, passeranno da **CediPay / Platform.Payments** | [ADR-0013](18-decision-log.md) |
+| A4 | `/hub` **resta statico** | [ADR-0014](18-decision-log.md) |
+| A5 | Reset password **obbligatorio prima della produzione**, via SMTP | [ADR-0015](18-decision-log.md) |
+| A6 | Si eliminano **solo** i residui gia classificati `SAFE TO DELETE` | [ADR-0016](18-decision-log.md) |
+| A7 | `.babelrc` si rimuove **solo se SWC supera tutti i gate** | [ADR-0017](18-decision-log.md) |
+| A8 | Il mobile usa **solo le API EasyGame**; rischio Drizzle/Express/`db:push` **rimosso** | [ADR-0018](18-decision-log.md) |
+| A9 | Privacy, retention e audit **bloccanti per la produzione** | [ADR-0019](18-decision-log.md) |
+
+Decisioni aggiuntive prese nella stessa sede:
+
+| Decisione | ADR |
+|-----------|-----|
+| Web e Mobile restano nello **stesso repository**, con confini espliciti | [ADR-0020](18-decision-log.md) |
+| Backend **TypeScript** per la V1, nessuna migrazione .NET; ridurre progressivamente la logica client-side | [ADR-0021](18-decision-log.md) |
+| Workflow: **locale → test/build → commit → staging → UAT → production solo autorizzata** | [ADR-0022](18-decision-log.md) |
