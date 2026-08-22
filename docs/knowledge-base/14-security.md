@@ -55,21 +55,16 @@ Neon o URL di deployment nella documentazione di un repository pubblico.
 
 ## Rischi aperti
 
-### 1. Nessuna protezione di route a livello edge — MEDIO
+### 1. ~~Nessuna protezione di route~~ — RISOLTO (2026-08-22)
 
-Non esiste `middleware.ts`. Il controllo di navigazione e il componente client
-`AccessAreaGuard`, montato **solo** su `/dashboard`, `/trainer-dashboard`,
-`/parent-view/[id]`, `/athletes/[id]/profile`.
+Protezione a due livelli: `src/middleware.ts` reindirizza a `/login` chi apre
+un percorso protetto senza cookie di sessione, e `AccessAreaGuard` e montato
+su **tutte** le aree. Nessuno dei due sostituisce l'autorizzazione server-side
+delle API, che resta il presidio principale.
 
-Le altre ~40 pagine di area management non hanno guard: un utente autenticato
-con ruolo non adeguato puo **caricare la shell** di quelle pagine.
-
-*Perche non e critico*: i dati arrivano solo dalle API, che applicano
-l'autorizzazione server-side. L'utente vede un'interfaccia vuota o con errori,
-non dati altrui.
-
-*Mitigazione*: [WP-03](20-work-packages.md) — estendere `AccessAreaGuard` o
-introdurre un `middleware.ts`.
+Limite dichiarato: il middleware verifica la **presenza** del cookie, non la
+sua validita (il runtime edge non ha Prisma). Un cookie scaduto passa di li e
+viene respinto dalle API con 401.
 
 ### 2. ~~`easygamemobile` puo distruggere il database reale~~ — RISOLTO (2026-08-22)
 
@@ -80,17 +75,15 @@ script `db:push` e tutte le dipendenze di accesso al database sono stati
 Presidio permanente: il job `guardrails` della CI fallisce se `DATABASE_URL`
 ricompare sotto `easygamemobile/`.
 
-### 3. `.env` locale punta al database di staging — MITIGATO (2026-08-22)
+### 3. ~~`.env` locale punta al database di staging~~ — RISOLTO (2026-08-22)
 
-Il branch Neon di sviluppo **non esiste ancora** (richiede la console Neon), ma
-le scritture locali verso database condivisi sono **bloccate**:
-`scripts/db-guard.mjs` precede `db:push`, `db:migrate`, `prisma:push`,
-`prisma:migrate`, `prisma:seed` e `staging:provision-e2e`, e consente solo con
-`EASYGAME_DB_ENV="development"`.
+L'ambiente locale usa un database di sviluppo dedicato
+(`docker-compose.dev.yml`, porta 5434). In piu `scripts/db-guard.mjs` blocca
+gli script npm di scrittura quando `EASYGAME_DB_ENV` non vale `development`.
 
-Resta un rischio residuo: la guardia protegge gli script npm, **non** un
-`npx prisma db push` invocato a mano. Vedi [13 — Ambienti](13-environments.md)
-e [WP-09](20-work-packages.md).
+Rischio residuo: la guardia protegge gli script npm, **non** un
+`npx prisma db push` invocato a mano con un `.env` ripuntato su un ambiente
+condiviso. Vedi [13 — Ambienti](13-environments.md).
 
 ### 4. Il deploy applica le migrazioni — MEDIO
 
@@ -165,9 +158,14 @@ diventa un problema di memoria e latenza, non di riservatezza.
 
 ### 12. Nessun Row Level Security — informativo
 
-L'isolamento multi-tenant e **solo applicativo**. Un bug in `resources.ts`
-diventerebbe direttamente una fuga cross-tenant. La copertura di test su questo
-punto e il presidio piu importante: vedi [WP-04](20-work-packages.md).
+L'isolamento multi-tenant e **solo applicativo**: un bug in `resources.ts`
+diventerebbe direttamente una fuga cross-tenant.
+
+Dal 2026-08-22 il presidio esiste: 29 test a runtime coprono lettura,
+dettaglio, creazione, update e delete cross-tenant sulle funzioni vere, e sono
+stati validati per mutazione (rimuovendo il filtro falliscono 8 test,
+disattivando `ensureOrganizationAccess` ne falliscono 11). Vedi
+[15 — Testing](15-testing.md).
 
 ## Regole per chi scrive codice
 
@@ -180,6 +178,9 @@ punto e il presidio piu importante: vedi [WP-04](20-work-packages.md).
    o codici OTP in una risposta.
 5. Un messaggio di errore di autorizzazione **deve** contenere la stringa
    `Accesso negato` (il route handler generico la usa per mappare il 403).
+6. Un'operazione sensibile nuova va tracciata con `recordAuditEvent`, e i suoi
+   metadati non devono contenere segreti (`sanitizeMetadata` li censura, ma
+   non passarglieli e meglio).
 6. Nuovi segreti: solo variabili d'ambiente o colonne cifrate, mai nel
    repository, mai in `NEXT_PUBLIC_*`.
 7. Ogni modifica ad `access-roles.ts` richiede l'aggiornamento di

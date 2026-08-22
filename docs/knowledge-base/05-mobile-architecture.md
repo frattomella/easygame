@@ -48,14 +48,14 @@ Ogni stack include anche `NotificationsScreen`.
 Sono la v1 basata su dati mock. Non modificarle: se serve una funzione, portala
 sulla v2 collegata.
 
-## Layer dati — tre servizi, due generazioni
+## Layer dati — due servizi in uso, piu un mock
 
 | File | Righe | Cosa fa | Stato |
 |------|-------|---------|-------|
 | `client/services/api.ts` | 912 | Client HTTP verso `/api/v1` della Web App. Base URL da `EXPO_PUBLIC_EASYGAME_API_URL` (o override salvato in SecureStore). Timeout 6 s, retry su 408/429/502/503/504. Stesso envelope `{data, error}`. | **In uso, fonte dati reale** |
 | `client/services/mobile-backend-storage.ts` | 1.260 | Cache AsyncStorage + normalizzazione sopra `api.ts`. Chiavi `@easygame/mobile/*`. | **In uso** |
-| `client/services/storage.ts` | 387 | **Dati mock hard-coded** (`MOCK_USER`, `MOCK_CLUBS`). Chiavi `@easygame/*`. | Usato solo dalle schermate non collegate |
-| `client/services/mobile-storage-service.ts` | 1.240 | Terzo layer di storage, stessa forma di `mobile-backend-storage`. | **Orfano: nessun import** |
+| `client/services/storage.ts` | 387 | **Dati mock hard-coded** (`MOCK_USER`, `MOCK_CLUBS`). Chiavi `@easygame/*`. | Usato solo dalle schermate non collegate (R8) |
+| ~~`client/services/mobile-storage-service.ts`~~ | 1.240 | Terzo layer di storage, duplicato di `mobile-backend-storage` | **Rimosso** il 2026-08-22: zero import, riclassificato SAFE |
 
 Regola pratica: **codice nuovo → `api.ts` + `mobile-backend-storage.ts`**.
 
@@ -94,10 +94,31 @@ gli script `db:push` e `server:*`, l'alias `@shared` da `tsconfig.json` e
 ```bash
 cd easygamemobile
 npm install
-npm run check:types     # tsc --noEmit  (verificato OK il 2026-08-22)
+npm run check:types     # tsc --noEmit
 npm run lint            # expo lint
 npm run expo:local      # avvio Expo in LAN
 ```
+
+### Verifica di avvio reale — 2026-08-22
+
+Typecheck e lint non dimostrano che l'app parta: il grafo di import viene
+risolto da Metro, non da `tsc`. Verifica effettuata:
+
+```bash
+EXPO_NO_DEPENDENCY_VALIDATION=1 CI=1 npx expo start --offline --port 8082
+curl "http://localhost:8082/client/index.bundle?platform=android&dev=true"
+```
+
+Esito: Metro avviato, **bundle Android costruito, 12,9 MB**, nessun errore di
+risoluzione. Tutte e otto le schermate collegate risultano nel bundle
+(`LoginScreen`, `AccountHubScreen`, `NotificationsScreen`, e le cinque
+`Trainer*DashboardScreen`/`TrainerAthletesScreen`). Il layer dati rimosso non
+compare.
+
+Nota: l'entry point e `client/index.bundle`, non `index.bundle`, perche
+`package.json` punta a `client/index.js`.
+
+**Non ancora verificato:** esecuzione su un dispositivo o emulatore reale.
 
 Configurazione: copiare `.env.example` e valorizzare
 `EXPO_PUBLIC_EASYGAME_API_URL` con l'URL del backend (staging o locale).
@@ -106,4 +127,4 @@ Configurazione: copiare `.env.example` e valorizzare
 
 Vedi [11 — Capability](11-capabilities.md) e [WP-21..WP-25](20-work-packages.md):
 aree parent/atleta assenti, nessun test, nessuna pipeline di build (EAS),
-mock ancora presenti, tre layer di storage da consolidare a uno.
+mock ancora presenti nelle schermate v1.

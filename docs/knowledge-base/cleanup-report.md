@@ -183,13 +183,16 @@ Rimossi in attuazione di [ADR-0018](18-decision-log.md): `shared/schema.ts`,
 
 Presidio permanente: la CI fallisce se `DATABASE_URL` ricompare nel mobile.
 
-### R8 — Mobile: schermate v1 e storage mock
+### R8 — Mobile: schermate v1 e storage mock (parziale)
 
-10 schermate non collegate + `client/services/storage.ts` (mock) +
-`client/services/mobile-storage-service.ts` (**orfano, nessun import**).
+**Rimosso** il 2026-08-22: `client/services/mobile-storage-service.ts`
+(1.240 righe, terzo layer di storage duplicato, **zero import** in tutto il
+progetto). Riclassificato SAFE dopo verifica su tutti i file tracciati, e
+confermato assente dal bundle Metro.
 
-`mobile-storage-service.ts` e il candidato piu sicuro: nessuno lo importa.
-Vedi [WP-21](20-work-packages.md).
+**Restano REVIEW**: le 10 schermate v1 non collegate e `services/storage.ts`
+(dati mock), che quelle schermate usano ancora. Vanno rimossi insieme, dopo la
+verifica funzione per funzione prevista da ADR-0016.
 
 ### R9 — Asset pubblici non referenziati
 
