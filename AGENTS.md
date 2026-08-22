@@ -61,8 +61,7 @@ npm test && npm run typecheck && npm run lint && npm run build
 Tutti verdi prima di commettere. Mobile: `cd easygamemobile && npm run check:types && npm run lint`.
 
 Ogni commit su **auth, ruoli, permessi o accesso ai dati** deve includere o
-aggiornare un test. Ricorda: **il nuovo file di test va aggiunto a
-`package.json → test:auth`**, non c'e discovery automatica.
+aggiornare un test. La discovery e automatica su `tests/**/*.test.mjs`.
 
 ### 6. Aggiorna la Knowledge Base
 Nello stesso commit del codice. La tabella completa «cosa cambi → cosa
@@ -80,13 +79,17 @@ validato. Mai committare segreti, `.env`, artefatti di build o snapshot del
 repository.
 
 ### 9. Sicurezza database e ambienti
-**Il `.env` locale punta al database Neon di STAGING. Non esiste un DB locale.**
+**Finche il branch Neon di sviluppo non esiste, il `.env` locale punta al
+database di STAGING** (ADR-0012).
 
-- Libero: sola lettura (`npx prisma migrate status`, query di lettura).
-- Richiede autorizzazione esplicita: `prisma migrate dev`, `prisma db push`,
-  `prisma:seed`, `staging:provision-e2e`, qualunque scrittura massiva.
-- **Vietato sempre:** `npm run db:push` dentro `easygamemobile/` — lo schema
-  Drizzle altererebbe la tabella `users` reale.
+- `scripts/db-guard.mjs` blocca gli script npm di scrittura se
+  `EASYGAME_DB_ENV` non vale `development`. **Copre solo gli script npm**: un
+  `npx prisma db push` a mano la aggira.
+- Libero: sola lettura (`npm run db:status`, query di lettura).
+- Richiede autorizzazione esplicita: ogni scrittura, anche con l'override
+  `EASYGAME_ALLOW_SHARED_DB_WRITE=1`.
+- **Vietato:** reintrodurre ORM, schemi o connection string in
+  `easygamemobile/` (ADR-0018). La CI lo verifica.
 
 Nel codice: mai una query club-scoped senza filtro `organization_id`; mai
 fidarsi dell'`organization_id` inviato dal client; mai importare
@@ -134,13 +137,19 @@ Vedi [ADR-0007](docs/knowledge-base/18-decision-log.md).
    colonne `Json?` di `clubs`), tenute allineate da `resources.ts`.
 3. L'header `x-active-season-id` viene inviato ma **nessun endpoint lo legge**:
    il filtro stagione e client-side.
-4. Solo 4 layout hanno `AccessAreaGuard`; le altre pagine management non hanno
-   guard di route (i dati restano protetti server-side).
+4. La protezione delle pagine e a **due livelli**: `src/middleware.ts` (solo
+   presenza del cookie, non valida la sessione) e `AccessAreaGuard` montato su
+   ogni area tramite `management-area-layout`. L'autorizzazione vera resta
+   server-side nelle API.
 5. Convivono due generazioni di UI trainer: usa i `*-dashboard-page.tsx` (v2).
 6. 19 primitive in `src/components/ui/` non sono referenziate da nulla.
 7. La verifica email e obbligatoria e **senza SMTP configurato gli utenti non
-   verificati non possono accedere**.
-8. Il checkout pagamenti risponde **501**: nessun provider e implementato.
+   verificati non possono accedere**. Anche il reset password dipende da SMTP.
+8. Il checkout pagamenti risponde **501**: nessun provider e implementato e
+   non va implementato con un PSP diretto (ADR-0013, CediPay).
+9. `resources.ts` **non e importabile dai test** (import senza estensione,
+   PrismaClient a livello di modulo): l'isolamento multi-tenant e verificato
+   solo staticamente.
 
 ---
 

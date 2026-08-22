@@ -53,11 +53,14 @@ Prefissi management riconosciuti: `/dashboard`, `/athletes`, `/categories`,
 `/registration-management`, `/reports`, `/secretariat`, `/settings`, `/soci`,
 `/sponsors`, `/staff`, `/structures`, `/trainers`, `/training`.
 
-> **Attenzione**: `canAccessPath` e applicato dal componente client
-> `AccessAreaGuard`, montato solo su 4 layout (`/dashboard`,
-> `/trainer-dashboard`, `/parent-view/[id]`, `/athletes/[id]/profile`).
-> Le altre pagine management **non hanno guard di route**. La protezione dei
-> dati resta comunque server-side. Vedi [14 — Sicurezza](14-security.md).
+> Dal 2026-08-22 `canAccessPath` e applicato da `AccessAreaGuard` su **tutte**
+> le aree, tramite `src/components/auth/management-area-layout.tsx` montato in
+> ogni `layout.tsx` di area. A monte, `src/middleware.ts` reindirizza a
+> `/login` chi non ha il cookie di sessione.
+>
+> Nessuno dei due e il presidio principale: il middleware non valida la
+> sessione (niente Prisma su edge) e il guard e client-side. **L'autorizzazione
+> vera resta server-side nelle API.** Vedi [14 — Sicurezza](14-security.md).
 
 ## Permessi sulle risorse API — `canAccessClubResource`
 

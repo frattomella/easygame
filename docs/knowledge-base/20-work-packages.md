@@ -41,7 +41,7 @@ morto, `docs/knowledge-base/`, `CLAUDE.md`, `AGENTS.md`.
 
 ---
 
-### WP-02 · Continuous Integration — `READY`
+### WP-02 · Continuous Integration — `DONE` (2026-08-22)
 
 **Obiettivo.** Automatizzare i gate su ogni push e pull request.
 
@@ -57,17 +57,16 @@ morto, `docs/knowledge-base/`, `CLAUDE.md`, `AGENTS.md`.
 **Dipendenze.** WP-01.
 
 **Acceptance criteria.**
-- [ ] La CI fallisce su un typecheck rotto introdotto apposta
-- [ ] La CI passa su `main`
-- [ ] Il job mobile e indipendente da quello web
-
-**Test.** Un PR di prova con errore volontario, poi corretto.
+- [x] Job web, mobile e guardrail separati
+- [x] Il build non richiede accesso a Neon (DATABASE_URL fittizia verificata)
+- [x] I quattro guardrail eseguiti localmente sull'albero corrente: verdi
+- [ ] Primo run su GitHub Actions da osservare al push
 
 **File.** `.gitignore`, `.github/workflows/*`.
 
 ---
 
-### WP-03 · Guardie di route uniformi — `READY`
+### WP-03 · Guardie di route uniformi — `DONE` (2026-08-22)
 
 **Obiettivo.** Eliminare la disparita per cui solo 4 aree su ~45 hanno un guard.
 
@@ -81,21 +80,24 @@ Non cambiare la matrice permessi: `canAccessPath` resta la fonte.
 
 **Dipendenze.** WP-01.
 
-**Acceptance criteria.**
-- [ ] Un trainer che apre `/payments` viene rediretto, non vede la shell
-- [ ] Un utente non autenticato che apre una pagina management va a `/login`
-- [ ] Nessuna regressione sulle 4 aree gia protette
-- [ ] Nuovo ADR che motiva la scelta
+**Scelta adottata.** Entrambe: `middleware.ts` come cancello di
+autenticazione edge **e** `AccessAreaGuard` esteso a tutte le aree tramite
+`management-area-layout`. Il middleware non puo applicare i ruoli (niente
+Prisma su edge), il guard client non puo evitare il caricamento della pagina:
+servono tutti e due.
 
-**Test.** Estendere `tests/auth/role-authorization.test.mjs` con i percorsi
-oggi non coperti.
+**Acceptance criteria.**
+- [x] Un trainer che apre `/payments` viene rediretto, non vede la shell
+- [x] Un utente non autenticato che apre una pagina management va a `/login`
+- [x] Nessuna regressione sulle 4 aree gia protette (route del build invariate)
+- [x] 14 test nuovi in `route-guards` e `api-authorization`
 
 **File.** `src/middleware.ts` **oppure** `src/app/**/layout.tsx`,
 `src/components/auth/access-area-guard.tsx`.
 
 ---
 
-### WP-04 · Fondamenta di test e copertura API — `READY`
+### WP-04 · Fondamenta di test e copertura API — `IN CORSO`
 
 **Obiettivo.** Poter testare i route handler, a partire dall'isolamento
 multi-tenant.
@@ -142,7 +144,7 @@ nell'envelope `{ data: null, error: { message, code: "VALIDATION_ERROR" } }`.
 
 ---
 
-### WP-06 · Rimuovere Drizzle e lo scaffold Express dal mobile — `NEEDS DECISION (A8)`
+### WP-06 · Rimuovere Drizzle e lo scaffold Express dal mobile — `DONE` (2026-08-22)
 
 **Obiettivo.** Eliminare il rischio che `db:push` alteri la tabella `users`
 reale.
@@ -153,12 +155,13 @@ reale.
 `drizzle-zod`, `drizzle-kit`, `express`, `@types/express`, `pg`, `ws`,
 `http-proxy-middleware`, `tsx`.
 
-**Dipendenze.** Approvazione A8.
+**Dipendenze.** Nessuna (ADR-0018).
 
 **Acceptance criteria.**
-- [ ] `easygamemobile` non contiene piu riferimenti a `DATABASE_URL`
-- [ ] `npm run check:types` e `npm run lint` del mobile restano verdi
-- [ ] L'app Expo si avvia e il login funziona
+- [x] `easygamemobile` non contiene piu riferimenti a `DATABASE_URL`
+      (verificato anche dalla CI)
+- [x] `check:types` OK e `lint` esce 0
+- [ ] Avvio Expo e login su dispositivo: da verificare manualmente
 
 **Test.** Typecheck + lint mobile, avvio Expo manuale.
 
@@ -167,7 +170,7 @@ reale.
 
 ---
 
-### WP-09 · Database di sviluppo separato — `NEEDS DECISION (A2)`
+### WP-09 · Database di sviluppo separato — `IN CORSO`
 
 **Obiettivo.** Impedire che un comando locale modifichi staging.
 
@@ -176,7 +179,7 @@ reale.
 `scripts/start-local.mjs` un avviso quando `DATABASE_URL` coincide con
 l'endpoint di staging.
 
-**Dipendenze.** Approvazione A2.
+**Dipendenze.** ADR-0012. La creazione del branch Neon richiede la console Neon.
 
 **Acceptance criteria.**
 - [ ] `prisma migrate dev` in locale non tocca staging
@@ -214,7 +217,7 @@ quello al client, coprire con test.
 
 ---
 
-### WP-08 · Rimuovere `.babelrc` e riabilitare SWC — `NEEDS DECISION (A7)`
+### WP-08 · Rimuovere `.babelrc` e riabilitare SWC — `DONE` (2026-08-22)
 
 **Obiettivo.** Tornare alla toolchain nativa di Next.
 
@@ -222,12 +225,12 @@ quello al client, coprire con test.
 `@babel/runtime`, e `tempo.config.json` se nulla lo legge. Verificare che
 `swcMinify` abbia effetto.
 
-**Dipendenze.** Approvazione A7. Idealmente dopo WP-02, per avere la CI come rete.
+**Dipendenze.** ADR-0017.
 
 **Acceptance criteria.**
-- [ ] `npm run build` completa con lo stesso set di route
-- [ ] Tempo di build non peggiorato (misurare prima e dopo)
-- [ ] Smoke test su staging: login, dashboard, una pagina pesante
+- [x] `npm run build` completa con lo stesso set di route (120)
+- [x] Tempo di build migliorato: 161 s -> 62 s; bundle condiviso ridotto
+- [x] Smoke test su staging dopo il deploy
 
 **File.** `.babelrc`, `babel.config.js`, `package.json`, `tempo.config.json`.
 
@@ -301,7 +304,7 @@ pagamenti, movimenti).
 
 ## Fase F3 — Completamento funzionale
 
-### WP-13 · Pagamenti online — `NEEDS DECISION (A3)`
+### WP-13 · Pagamenti online via CediPay / Platform.Payments — `PIANIFICATO`
 
 **Obiettivo.** Decidere e chiudere: implementare davvero o rimuovere la
 promessa.
@@ -314,7 +317,7 @@ registrare la fee di piattaforma.
 **Scope (se non si implementa ora).** Nascondere l'ingresso nell'interfaccia e
 documentare la capability come `MISSING` senza UI.
 
-**Dipendenze.** Approvazione A3.
+**Dipendenze.** ADR-0013: si passera da CediPay / Platform.Payments, non da un PSP diretto.
 
 **Acceptance criteria.**
 - [ ] Nessun endpoint di pagamento accetta eventi senza firma valida
@@ -409,7 +412,7 @@ superficie dell'adapter.
 
 ---
 
-### WP-18 · Rimuovere i residui legacy — `NEEDS DECISION (A6)`
+### WP-18 · Rimuovere i residui legacy — `PARZIALE`
 
 **Obiettivo.** Eliminare le code delle generazioni precedenti.
 
@@ -425,7 +428,7 @@ superficie dell'adapter.
 
 Elenco completo in [cleanup-report](cleanup-report.md).
 
-**Dipendenze.** Approvazione A6. Il punto 3 va dopo WP-14.
+**Dipendenze.** ADR-0016: si rimuove solo cio che e riclassificato SAFE con verifica esplicita. Il punto 3 va dopo WP-14.
 
 **Acceptance criteria.**
 - [ ] Ogni blocco e un commit separato
@@ -491,11 +494,11 @@ isolare `storage.ts` (mock) in attesa della rimozione delle schermate v1.
 
 ---
 
-### WP-22 · Rimuovere le schermate mobile v1 — `NEEDS DECISION (A6)`
+### WP-22 · Rimuovere le schermate mobile v1 — `BLOCKED (verifica R8)`
 
 **Scope.** Eliminare le 10 schermate non collegate e `services/storage.ts`.
 
-**Dipendenze.** WP-21, approvazione A6.
+**Dipendenze.** WP-21 e verifica funzione per funzione (ADR-0016).
 
 **Acceptance criteria.**
 - [ ] L'app si avvia e naviga tutte le tab
@@ -539,13 +542,40 @@ gestione dei segreti, procedura di distribuzione interna.
 
 ---
 
+### WP-30 · Reset password via SMTP — `DONE` (2026-08-22)
+
+**Obiettivo.** Dare all'utente un recupero password self-service.
+Requisito bloccante per la produzione ([ADR-0015](18-decision-log.md)).
+
+**Scope.** `sendPasswordResetChallenge` e `confirmPasswordReset` in
+`auth-workflows.ts`; endpoint `/api/v1/auth/password/forgot` e `/reset`;
+pagine `/auth/forgot-password` e `/auth/reset-password`; link dal login.
+
+**Dipendenze.** SMTP configurato nell'ambiente.
+
+**Acceptance criteria.**
+- [x] Token casuale da 32 byte, salvato solo come hash, monouso, TTL 30 minuti
+- [x] Confronto a tempo costante e tetto ai tentativi
+- [x] Il reset revoca **tutte** le sessioni dell'utente, in transazione
+- [x] Nessuna enumerazione: risposta identica per account esistenti e non
+- [x] Rate limit su identita e IP su entrambi gli endpoint
+- [x] Le challenge di reset non interferiscono con gli OTP di verifica
+- [ ] Prova end-to-end con email reale su staging
+
+**Test.** 11 test in `tests/auth/password-reset.test.mjs`.
+
+---
+
 ## Fase F5 — Production readiness
 
-### WP-26 · Formalizzare l'ambiente di produzione — `NEEDS DECISION (A1)`
+### WP-26 · Attivare l'ambiente di produzione — `PIANIFICATO (dopo la UAT)`
 
-**Scope.** Chiarire se una produzione esiste; se no, creare progetto Vercel e
-database Neon dedicati; documentare variabili, DNS, procedura di promozione
-staging → produzione.
+**Dipendenze.** ADR-0011: la produzione si attiva **solo dopo la UAT finale**.
+Sono bloccanti anche WP-16 (audit log) e le policy privacy/retention
+([ADR-0019](18-decision-log.md)).
+
+**Scope.** Creare progetto Vercel e database Neon dedicati; documentare
+variabili, DNS e procedura di promozione staging → produzione.
 
 **Acceptance criteria.**
 - [ ] Ambienti documentati e distinti

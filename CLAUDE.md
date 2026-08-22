@@ -81,7 +81,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 Prima di ogni commit:
 
 ```bash
-npm test           # 30/30 attesi
+npm test           # 55/55 attesi
 npm run typecheck  # nessun output
 npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare
@@ -96,8 +96,8 @@ cd easygamemobile && npm run check:types && npm run lint
 **Ogni commit che tocca auth, ruoli, permessi o accesso ai dati deve includere
 o aggiornare un test.**
 
-Il runner non fa discovery: un nuovo file di test va **aggiunto alla lista in
-`package.json → test:auth`**, altrimenti non viene eseguito.
+Il runner fa **discovery automatica** su `tests/**/*.test.mjs`: un file nuovo
+viene eseguito senza toccare `package.json`.
 
 ---
 
@@ -147,15 +147,20 @@ Nello stesso commit del codice:
 
 ## 8. Sicurezza database e ambienti
 
-**Il `.env` locale punta al database Neon di STAGING. Non esiste un database
-locale.**
+**Finche il branch Neon di sviluppo non esiste, il `.env` locale punta al
+database di STAGING** ([ADR-0012](docs/knowledge-base/18-decision-log.md)).
+
+`scripts/db-guard.mjs` blocca gli script npm di scrittura quando
+`EASYGAME_DB_ENV` non vale `development`. **La guardia copre solo gli script
+npm**: un `npx prisma db push` invocato a mano la aggira.
 
 | Operazione | Autorizzazione |
 |------------|----------------|
-| `npx prisma migrate status`, query di lettura | libera |
-| `npx prisma migrate dev`, `prisma db push`, `npm run prisma:seed`, `npm run staging:provision-e2e` | **richiede autorizzazione esplicita** |
+| `npm run db:status`, `npx prisma migrate status`, query di lettura | libera |
+| `npm run db:push`, `db:migrate`, `prisma:seed`, `staging:provision-e2e` | bloccati dalla guardia; **richiedono autorizzazione esplicita** |
+| `npx prisma ...` di scrittura invocato a mano | **richiede autorizzazione esplicita** — la guardia non lo intercetta |
 | Qualunque `UPDATE` / `DELETE` massivo | **richiede autorizzazione esplicita** |
-| `npm run db:push` dentro `easygamemobile/` | **VIETATO SEMPRE** — Drizzle altererebbe la tabella `users` reale |
+| Reintrodurre un ORM o una connection string in `easygamemobile/` | **VIETATO** ([ADR-0018](docs/knowledge-base/18-decision-log.md)); la CI lo blocca |
 
 Regole di codice:
 

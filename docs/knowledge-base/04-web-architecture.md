@@ -15,8 +15,9 @@ Runtime Node `22.x`. Hosting Vercel, regione `fra1`.
   poco il rendering server: i dati arrivano quasi sempre via `fetch` dal
   browser. Non e un bug, e la scelta corrente: mantieni lo stesso approccio
   salvo WP dedicati.
-- **Nessun `middleware.ts`.** Non esiste protezione edge: ogni controllo avviene
-  o nel route handler (server) o nel guard React (client).
+- `src/middleware.ts` fa da cancello di autenticazione edge: verifica la
+  **presenza** del cookie di sessione sui percorsi protetti. Non puo validarla
+  (niente Prisma su edge) ne applicare i ruoli.
 
 ## Layout e chrome
 
@@ -27,14 +28,21 @@ Runtime Node `22.x`. Hosting Vercel, regione `fra1`.
 | Trainer | `src/app/trainer-dashboard/layout.tsx` | `AccessAreaGuard` |
 | Parent | `src/app/parent-view/[id]/layout.tsx` | `AccessAreaGuard` |
 | Athlete | `src/app/athletes/[id]/profile/layout.tsx` | `AccessAreaGuard` |
-| Organization | `src/app/organization/layout.tsx` | Solo `ToastProvider` (nessun guard) |
+| Organization | `src/app/organization/layout.tsx` | `AccessAreaGuard` + `ToastProvider` |
+| Aree di gestione (22) | `src/app/<area>/layout.tsx` | Re-export di `management-area-layout` (= `AccessAreaGuard`) |
 
-**Fatto importante:** solo 4 aree hanno `AccessAreaGuard`. Le altre ~40 pagine
-di area management importano direttamente `Sidebar`/`Header` e **non hanno un
-guard di route**. La protezione dei dati resta comunque garantita dal server
-(vedi [08](08-roles-and-permissions.md) e [14](14-security.md)), ma la shell UI e
-raggiungibile. E un debito noto, non replicarlo: vedi
-[WP-03](20-work-packages.md).
+Dal 2026-08-22 **tutte** le aree hanno un guard. La protezione e a due livelli:
+
+1. `src/middleware.ts` — cancello edge: senza cookie di sessione su un
+   percorso protetto, redirect a `/login?next=...`. Non valida la sessione
+   contro il database (il runtime edge non ha Prisma) e non applica i ruoli.
+2. `AccessAreaGuard` — client: applica `canAccessPath` sul pathname corrente.
+   Essendo basato sul pathname, montarlo piu in alto e idempotente:
+   `/athletes/[id]/profile` resta area atleta anche con il guard su
+   `/athletes`.
+
+Nessuno dei due sostituisce l'autorizzazione server-side delle API, che resta
+il presidio principale (vedi [14](14-security.md)).
 
 ## Route pagina (72)
 
@@ -110,6 +118,5 @@ Gli endpoint esclusi dal punto 3 sono elencati in `SESSION_LIFECYCLE_PATHS`
 - `npm run build` → `next build`.
 - `npm run vercel-build` → `prisma generate && prisma migrate deploy && next build`
   (**esegue le migrazioni**, vedi [13 — Ambienti](13-environments.md)).
-- Presenza di `.babelrc` con `next/babel`: Next usa **Babel invece di SWC** per
-  la transpilazione. E un residuo del tool Tempo. Rimuoverlo va valutato e
-  testato in un WP dedicato ([WP-08](20-work-packages.md)), non di passaggio.
+- La transpilazione usa **SWC**: `.babelrc` e stato rimosso il 2026-08-22
+  ([ADR-0017](18-decision-log.md)). Build di riferimento: **62 s, 120 route**.

@@ -43,5 +43,19 @@ comportamenti desiderati o pianificati.
 
 - Ultimo audit completo: **2026-08-22**
 - Commit di riferimento: branch `codex/recovery-20260820-pre-wp02`
-- Baseline verificata: `npm test` 30/30, `npm run typecheck` OK, `npm run lint`
-  0 errori, `npm run build` OK (116 route)
+- Baseline verificata: `npm test` **55/55**, `npm run typecheck` OK,
+  `npm run lint` 0 errori, `npm run build` OK (**120 route, 62 s**),
+  mobile `check:types` e `lint` verdi
+
+### Hardening del 2026-08-22
+
+Dopo l'audit iniziale sono stati eseguiti, in attuazione degli ADR 0011–0022:
+
+- rotazione delle credenziali demo esposte su staging e rimozione delle
+  password dalla documentazione ([14 — Sicurezza](14-security.md), incidente I-01);
+- guardia sulle scritture verso database condivisi ([13](13-environments.md));
+- CI con gate e guardrail di sicurezza;
+- route guard su tutte le aree, piu il middleware edge ([08](08-roles-and-permissions.md));
+- reset password via SMTP ([07](07-authentication.md));
+- rimozione dell'accesso diretto al database dal mobile ([05](05-mobile-architecture.md));
+- rimozione di Babel e ritorno a SWC ([16](16-technical-debt.md) D8).

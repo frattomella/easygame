@@ -136,11 +136,12 @@ introdurre Jest o Vitest.
 
 **Decisione.** `node:test` con `--experimental-strip-types`, file `.mjs` che
 importano direttamente i `.ts`, elencati esplicitamente in
-`package.json → test:auth`.
+`package.json`. Dal 2026-08-22 la discovery e automatica.
 
 **Conseguenze.** Zero dipendenze e avvio istantaneo. In cambio: **si possono
-testare solo moduli puri** (niente JSX, niente Next), nessuna discovery
-automatica, nessun coverage.
+testare solo moduli puri** (niente JSX, niente Next, import con estensione) e
+nessun coverage. Dal 2026-08-22 la discovery e automatica su
+`tests/**/*.test.mjs`.
 
 **Stato:** ATTIVA. Il limite va superato per testare le API — vedi
 [WP-04](20-work-packages.md).

@@ -67,7 +67,7 @@ Un commit = un cambiamento coerente.
 ## Gate obbligatori prima del commit
 
 ```bash
-npm test           # 30/30
+npm test           # 55/55
 npm run typecheck  # pulito
 npm run lint       # 0 errori, warning non in aumento
 npm run build      # completa
@@ -82,9 +82,8 @@ cd easygamemobile && npm run check:types && npm run lint
 ## Test
 
 Ogni commit che tocca **auth, ruoli, permessi o accesso ai dati** deve
-includere o aggiornare un test. Ricorda di **aggiungere il file alla lista in
-`package.json → test:auth`**: non c'e discovery automatica.
-Vedi [15 — Testing](15-testing.md).
+includere o aggiornare un test. La discovery e **automatica** su
+`tests/**/*.test.mjs`: basta creare il file. Vedi [15 — Testing](15-testing.md).
 
 ## Git
 
@@ -100,15 +99,17 @@ Vedi [15 — Testing](15-testing.md).
 
 ## Database e ambienti — regole non negoziabili
 
-- **Il `.env` locale punta al database Neon di staging.** Non esiste un DB
-  locale.
+- **Finche il branch Neon di sviluppo non esiste, il `.env` locale punta al
+  database di staging** ([ADR-0012](18-decision-log.md)).
+- `scripts/db-guard.mjs` blocca gli script npm di scrittura quando
+  `EASYGAME_DB_ENV` non vale `development`. **Copre solo gli script npm**:
+  un `npx prisma db push` invocato a mano la aggira.
 - Consentiti senza autorizzazione: comandi di **sola lettura**
-  (`npx prisma migrate status`, query di lettura).
-- Richiedono **autorizzazione esplicita**: `prisma migrate dev`,
-  `prisma db push`, `prisma:seed`, `staging:provision-e2e`, qualunque `UPDATE`
-  o `DELETE` massivo.
-- **Vietato sempre**: `npm run db:push` dentro `easygamemobile/` (Drizzle
-  altererebbe la tabella `users` reale — vedi [14](14-security.md)).
+  (`npm run db:status`, query di lettura).
+- Richiedono **autorizzazione esplicita**: qualunque scrittura, incluso
+  l'override `EASYGAME_ALLOW_SHARED_DB_WRITE=1`.
+- **Vietato**: reintrodurre ORM, schemi o connection string in
+  `easygamemobile/` ([ADR-0018](18-decision-log.md)); la CI lo verifica.
 - Una nuova migrazione va scritta a mano in `prisma/migrations/`, rivista, e
   applicata prima a staging. Ricorda che **ogni deploy Vercel esegue
   `prisma migrate deploy`**.
