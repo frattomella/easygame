@@ -97,7 +97,7 @@ servono tutti e due.
 
 ---
 
-### WP-04 · Fondamenta di test e copertura API — `IN CORSO`
+### WP-04 · Fondamenta di test e copertura API — `DONE` (2026-08-22)
 
 **Obiettivo.** Poter testare i route handler, a partire dall'isolamento
 multi-tenant.
@@ -114,10 +114,12 @@ multi-tenant.
 **Dipendenze.** WP-01.
 
 **Acceptance criteria.**
-- [ ] Un test fallisce se si rimuove il filtro `organization_id` da
-      `listResource`
-- [ ] Un nuovo file in `tests/` viene eseguito senza modificare `package.json`
-- [ ] Almeno 15 test nuovi
+- [x] Un test fallisce se si rimuove il filtro `organization_id` da
+      `listResource` — **ne falliscono 8**; disattivando
+      `ensureOrganizationAccess` ne falliscono 11
+- [x] Un nuovo file in `tests/` viene eseguito senza modificare `package.json`
+- [x] Almeno 15 test nuovi — **da 30 a 97**
+- [x] `resources.ts` importabile e Prisma iniettabile ([ADR-0023](18-decision-log.md))
 
 **File.** `package.json`, `tests/server/**`, [15](15-testing.md).
 
@@ -170,7 +172,7 @@ reale.
 
 ---
 
-### WP-09 · Database di sviluppo separato — `IN CORSO`
+### WP-09 · Database di sviluppo separato — `DONE` (2026-08-22)
 
 **Obiettivo.** Impedire che un comando locale modifichi staging.
 
@@ -182,9 +184,13 @@ l'endpoint di staging.
 **Dipendenze.** ADR-0012. La creazione del branch Neon richiede la console Neon.
 
 **Acceptance criteria.**
-- [ ] `prisma migrate dev` in locale non tocca staging
-- [ ] `npm run local` avvisa se l'host del DB e quello di staging
-- [ ] Documentazione aggiornata
+- [x] `prisma migrate dev` in locale non tocca staging: il `.env` punta al
+      database Docker, e `db-guard` blocca comunque i target condivisi
+- [x] `npm run local` avvisa se il target non e un database di sviluppo
+- [x] Documentazione aggiornata (`.env.example`, `README_LOCAL.md`,
+      [13](13-environments.md))
+- [ ] Branch Neon `development`: **richiede la console Neon**, vedi
+      [ADR-0024](18-decision-log.md)
 
 **File.** `.env.example`, `scripts/start-local.mjs`, `README_LOCAL.md`,
 [13](13-environments.md).
@@ -369,7 +375,7 @@ migrare gli asset esistenti; mantenere `Asset` come indice con `public_url`.
 
 ---
 
-### WP-16 · Audit log — `BLOCKED (WP-04)`
+### WP-16 · Audit log — `PARZIALE` (2026-08-22)
 
 **Obiettivo.** Tracciare chi ha fatto cosa sulle operazioni sensibili.
 
@@ -381,9 +387,14 @@ pagamenti/fatture/ricevute, cancellazioni, azioni platform admin.
 **Dipendenze.** WP-04. Legato alla decisione A9.
 
 **Acceptance criteria.**
-- [ ] Ogni operazione elencata produce una riga
-- [ ] Il log non contiene segreti ne dati personali non necessari
-- [ ] Migrazione applicata prima a staging
+- [x] Ogni operazione elencata produce una riga
+- [x] Il log non contiene segreti (`sanitizeMetadata`, verificato anche sul
+      record salvato su database reale)
+- [x] Migrazione applicata prima allo sviluppo, poi a staging con il deploy
+- [x] Retention configurabile con `AUDIT_LOG_RETENTION_DAYS`
+- [ ] **Scheduler** che invochi `purgeExpiredAuditEvents()`
+- [ ] **UI di consultazione** per il platform admin
+- [ ] Decisione di prodotto sul periodo di retention
 
 **File.** `prisma/schema.prisma`, `src/lib/server/audit.ts`,
 `src/app/api/**`, [14](14-security.md).
@@ -475,7 +486,7 @@ superfici sono migrate.
 
 ## Fase F4 — Mobile
 
-### WP-21 · Consolidare il layer dati mobile — `READY`
+### WP-21 · Consolidare il layer dati mobile — `PARZIALE` (2026-08-22)
 
 **Obiettivo.** Un solo servizio dati.
 
@@ -486,9 +497,10 @@ isolare `storage.ts` (mock) in attesa della rimozione delle schermate v1.
 **Dipendenze.** Nessuna. Non collide con nessun WP web.
 
 **Acceptance criteria.**
-- [ ] Nessun import di `mobile-storage-service`
-- [ ] Nessuna schermata collegata legge dati mock
-- [ ] `check:types` e `lint` verdi
+- [x] `mobile-storage-service.ts` **rimosso** (era gia senza import)
+- [x] Nessuna schermata collegata legge dati mock
+- [x] `check:types` e `lint` verdi, **piu bundle Metro costruito** (12,9 MB)
+- [ ] `services/storage.ts` resta finche esistono le schermate v1 (WP-22)
 
 **File.** solo `easygamemobile/client/**`.
 
@@ -560,7 +572,9 @@ pagine `/auth/forgot-password` e `/auth/reset-password`; link dal login.
 - [x] Nessuna enumerazione: risposta identica per account esistenti e non
 - [x] Rate limit su identita e IP su entrambi gli endpoint
 - [x] Le challenge di reset non interferiscono con gli OTP di verifica
-- [ ] Prova end-to-end con email reale su staging
+- [x] Ciclo completo provato su database reale: token, scadenza, riuso,
+      sostituzione, revoca sessioni, isolamento dagli OTP
+- [x] Consegna SMTP verificata su staging
 
 **Test.** 11 test in `tests/auth/password-reset.test.mjs`.
 

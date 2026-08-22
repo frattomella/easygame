@@ -17,15 +17,21 @@ F1  Fondamenta        →  F2  Stabilizzazione Web V1  →  F3  Completamento
                                                      F6  Evoluzione (WP-30+)
 ```
 
-### F1 — Fondamenta per lo sviluppo assistito
+### F1 — Fondamenta per lo sviluppo assistito — **COMPLETATA** (2026-08-22)
 
 **Obiettivo:** rendere il repository lavorabile in parallelo, senza sorprese.
 
-Cleanup completato, KB pubblicata, CI attiva, guardie di route uniformi, test
-sulle aree critiche, rimozione dei rischi operativi (Drizzle nel mobile).
+Fatto: cleanup, KB, CI con guardrail, route guard su tutte le aree, database di
+sviluppo separato con guardia sulle scritture, rimozione dell'accesso diretto
+al database dal mobile, isolamento multi-tenant coperto da test a runtime,
+audit log, reset password.
 
-**Criterio di uscita:** ogni PR passa automaticamente test + typecheck + lint +
-build; nessun comando puo alterare per errore il database.
+**Criterio di uscita raggiunto:** ogni push passa automaticamente test,
+typecheck, lint, build e guardrail di sicurezza; nessun comando npm puo
+alterare per errore un database condiviso.
+
+Resta fuori: lo scheduler della purge dell'audit e la UI di consultazione
+(WP-16), e il branch Neon di sviluppo (WP-09, richiede la console).
 
 ### F2 — Stabilizzazione Web V1
 

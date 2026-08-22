@@ -409,3 +409,72 @@ locale -> test/build -> commit -> staging -> UAT -> production (solo autorizzata
 - Non si «salta a staging» per provare: si prova in locale.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0023 — Il codice server e testabile senza toccare la produzione
+
+**Data:** 2026-08-22
+
+**Contesto.** [ADR-0008](#adr-0008--test-con-il-runner-nativo-di-node-senza-framework)
+sceglieva il runner nativo di Node. Il limite pratico era che
+`src/lib/server/**` non era importabile: import senza estensione, alias `@/`
+sconosciuto a Node, e `PrismaClient` costruito all'import del modulo. Cosi
+l'isolamento multi-tenant — la protezione principale del prodotto — restava
+verificabile solo con test statici sul sorgente.
+
+**Decisione.** Rendere testabile il layer server senza cambiare il modo in cui
+Next costruisce il bundle:
+
+1. un **hook di risoluzione ESM per i soli test**
+   (`tests/helpers/extensionless-resolver.mjs`, registrato con `--import`)
+   colma le differenze fra la risoluzione di Node e quella del bundler;
+2. `src/lib/server/prisma.ts` costruisce il client **alla prima query** e
+   permette di sostituirlo con `__setPrismaClientForTests()`. L'export resta un
+   Proxy che inoltra al client attivo legando i metodi;
+3. niente **parameter property** TypeScript nel codice server: non sono
+   supportate dallo strip-only di Node e renderebbero non testabile ogni modulo
+   che le importa.
+
+**Conseguenze.**
+
+- Il layer dati e coperto da test a runtime, validati per mutazione.
+- Il Proxy aggiunge una indirezione al percorso dati: e stato verificato
+  contro un database reale su query semplici, `findMany`, `$transaction` in
+  forma array e callback, `$queryRaw` e `$disconnect`.
+- I test girano con **isolamento per processo**: con `isolation=none` i file
+  condividono i hook e il client iniettato da un file sovrascriveva quello di
+  un altro.
+- Il codice di produzione non dipende in alcun modo dall'hook.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0024 — Database di sviluppo in Docker, branch Neon come alternativa
+
+**Data:** 2026-08-22
+
+**Contesto.** [ADR-0012](#adr-0012--database-di-development-separato-da-staging)
+prevede un branch Neon dedicato allo sviluppo. La creazione richiede la console
+Neon: da questa working copy non ci sono credenziali API. Il PostgreSQL gia
+installato sulla macchina richiede una password non disponibile, e modificare
+`pg_hba.conf` significherebbe toccare una configurazione di sicurezza di
+sistema.
+
+**Decisione.** Fornire un database di sviluppo **in Docker**
+(`docker-compose.dev.yml`, PostgreSQL 17 sulla porta 5434) come opzione
+predefinita, mantenendo il branch Neon come alternativa documentata per chi
+vuole parita con la produzione.
+
+**Conseguenze.**
+
+- Lo sviluppo locale non tocca piu staging, che era l'obiettivo di ADR-0012.
+- Serve Docker per l'opzione predefinita; chi non lo ha usa il branch Neon.
+- Il database di sviluppo e PostgreSQL 17 «nudo», mentre gli ambienti usano
+  Neon con pooler e SSL: differenze di comportamento sono possibili ma non ne
+  sono emerse (le 7 migrazioni si applicano identiche).
+- Le credenziali del container sono volutamente banali: e locale, usa e getta,
+  mai esposto.
+
+**Stato:** ATTIVA. Non supera ADR-0012: ne e l'attuazione.

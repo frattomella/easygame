@@ -52,20 +52,21 @@ Le liste tornano complete.
 
 → WP-12
 
-### D5 — Copertura test ancora parziale — MIGLIORATO (2026-08-22)
+### D5 — Copertura test — MOLTO MIGLIORATO (2026-08-22)
 
 Il runner fa ora **discovery automatica** su `tests/**/*.test.mjs`: un file
 nuovo non va piu aggiunto a mano a `package.json`. I test sono passati da 30 a
 55, con copertura su route guard, middleware e conformita di tutti i 42 route
 handler (autenticazione, scope, permessi, nessuna esposizione di hash).
 
-**Resta scoperto** cio che conta di piu: l'isolamento multi-tenant a runtime.
-`src/lib/server/resources.ts` non e importabile dal runner (import senza
-estensione e PrismaClient costruito a livello di modulo), quindi
-`listResource` e `ensureOrganizationAccess` sono verificati solo staticamente.
-Zero test su `simplified-db.ts`.
+`src/lib/server/**` e ora **testabile a runtime** ([ADR-0023](18-decision-log.md)):
+97 test, di cui 29 sull'isolamento multi-tenant e 13 sull'audit log, validati
+per mutazione.
 
-→ WP-04
+**Resta scoperto:** `simplified-db.ts` (4.036 righe), la sincronizzazione
+distruttiva `club_resource_items` ⇄ `clubs.<json>`, i componenti e il mobile.
+
+→ WP-07, WP-10, WP-24
 
 ### D6 — ~~Nessuna CI~~ — RISOLTO (2026-08-22)
 
@@ -199,12 +200,18 @@ funzionale.
 `docs/testing-and-deploy.md` non cita piu `typescript.ignoreBuildErrors` e
 rimanda alla Knowledge Base.
 
-### D21 — Il branch Neon di sviluppo non esiste ancora
+### D21 — Il database di sviluppo e Docker, non un branch Neon
 
-`ADR-0012` prevede un database separato per lo sviluppo. La creazione richiede
-la console Neon e non e stata possibile da questa working copy. Nel frattempo
-`scripts/db-guard.mjs` blocca le scritture locali verso database condivisi, ma
-protegge solo gli script npm: un `npx prisma db push` invocato a mano passa
-comunque.
+L'obiettivo di ADR-0012 e raggiunto — il locale non tocca piu staging — ma con
+PostgreSQL in Docker invece che con un branch Neon
+([ADR-0024](18-decision-log.md)): la creazione del branch richiede la console
+Neon, non disponibile da questa working copy.
+
+Differenza residua: lo sviluppo gira su PostgreSQL «nudo», gli ambienti su Neon
+con pooler e SSL. Le 7 migrazioni si applicano identiche, ma la parita non e
+totale.
+
+Resta inoltre che `db-guard` protegge gli script npm, non un `npx prisma`
+invocato a mano.
 
 → WP-09
