@@ -56,6 +56,14 @@ const PUBLIC_BY_DESIGN = new Map([
   ["v1/auth/verify/phone/confirm", "OTP pre-sessione"],
   ["v1/auth/oauth/[provider]/start", "avvio OAuth"],
   ["v1/auth/oauth/[provider]/callback", "ritorno OAuth"],
+  [
+    "v1/auth/password/forgot",
+    "reset pre-sessione: risposta identica anche se l'account non esiste",
+  ],
+  [
+    "v1/auth/password/reset",
+    "reset pre-sessione: autorizza il token monouso, non la sessione",
+  ],
   ["v1/registry", "catalogo endpoint per il client mobile"],
   ["public/forms/[publicSlug]", "modulo online pubblico, per contratto"],
   ["payments/webhook", "callback del PSP; non processa eventi (WP-13)"],
@@ -208,7 +216,7 @@ test("la deroga pubblica resta piccola e giustificata", () => {
   // Se questo numero cresce, qualcuno sta rendendo pubblico un endpoint:
   // deve essere una scelta consapevole, non un effetto collaterale.
   assert.ok(
-    PUBLIC_BY_DESIGN.size <= 13,
+    PUBLIC_BY_DESIGN.size <= 15,
     `troppi endpoint pubblici: ${PUBLIC_BY_DESIGN.size}`,
   );
   for (const [id, motivo] of PUBLIC_BY_DESIGN) {

@@ -1,10 +1,20 @@
-import { createHash, randomBytes, randomInt, randomUUID } from "crypto";
+import {
+  createHash,
+  randomBytes,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
+} from "crypto";
 import { prisma } from "./prisma";
 import { createSessionForUser, hashPassword } from "./auth";
 import {
   MAX_OTP_ATTEMPTS,
   shouldExposeVerificationPreviewCode,
 } from "../auth/otp-policy";
+import {
+  getPasswordPolicyMessage,
+  validatePassword,
+} from "../auth/password-policy";
 import {
   isPhoneVerificationEnabled,
   isPhoneVerificationProviderConfigured,
@@ -20,7 +30,12 @@ export {
 } from "../auth/provider-policy";
 
 type VerificationChannel = "email" | "phone";
-type VerificationPurpose = "signup" | "login" | "verify_email" | "verify_phone";
+type VerificationPurpose =
+  | "signup"
+  | "login"
+  | "verify_email"
+  | "verify_phone"
+  | "reset_password";
 
 type VerificationDispatchResult = {
   sent: boolean;
@@ -271,6 +286,10 @@ const verifyInternalChallenge = async ({
     where: {
       user_id: userId,
       channel,
+      // Le challenge di reset password hanno un token lungo e un flusso
+      // proprio: non devono essere consumate da una conferma OTP, altrimenti
+      // un reset in corso verrebbe invalidato da un tentativo di verifica.
+      purpose: { not: "reset_password" },
       consumed_at: null,
       expires_at: {
         gt: new Date(),
@@ -922,4 +941,172 @@ export const buildPendingVerificationResponse = async (userId: string) => {
     session: null,
     verification: buildVerificationPayload(user),
   };
+};
+
+/* ------------------------------------------------------------------------- *
+ * Reset password (ADR-0015)
+ *
+ * Diverso dagli OTP a 6 cifre: qui si usa un token lungo casuale consegnato
+ * come link via email. Il token e salvato solo come hash SHA-256 e la ricerca
+ * della challenge e vincolata anche al `purpose`, cosi un token di reset non
+ * puo essere consumato dalla conferma email e viceversa.
+ * ------------------------------------------------------------------------- */
+
+const PASSWORD_RESET_TTL_MINUTES = 30;
+
+export const PASSWORD_RESET_GENERIC_MESSAGE =
+  "Se l'indirizzo è associato a un account, ti abbiamo inviato le istruzioni per reimpostare la password.";
+
+const createPasswordResetToken = () => randomBytes(32).toString("hex");
+
+export const findUserByEmailForPasswordReset = async (email: string) => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail) return null;
+  return prisma.user.findUnique({ where: { email: normalizedEmail } });
+};
+
+export const sendPasswordResetChallenge = async (user: {
+  id: string;
+  email: string;
+  first_name?: string | null;
+}): Promise<VerificationDispatchResult> => {
+  const token = createPasswordResetToken();
+
+  // Un solo token di reset valido per volta.
+  await prisma.authVerificationChallenge.updateMany({
+    where: {
+      user_id: user.id,
+      channel: "email",
+      purpose: "reset_password",
+      consumed_at: null,
+    },
+    data: { consumed_at: new Date() },
+  });
+
+  await prisma.authVerificationChallenge.create({
+    data: {
+      user_id: user.id,
+      channel: "email",
+      purpose: "reset_password",
+      target: user.email,
+      code_hash: hashOtpCode(token),
+      expires_at: new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000),
+    },
+  });
+
+  const resetUrl = `${getAppBaseUrl()}/auth/reset-password?uid=${encodeURIComponent(
+    user.id,
+  )}&token=${encodeURIComponent(token)}`;
+
+  const delivery = await sendTransactionalEmail({
+    to: user.email,
+    subject: "Reimposta la password EasyGame",
+    text:
+      `Hai richiesto di reimpostare la password del tuo account EasyGame.\n\n` +
+      `Apri questo link entro ${PASSWORD_RESET_TTL_MINUTES} minuti:\n${resetUrl}\n\n` +
+      `Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f172a;">
+        <h2 style="margin-bottom: 12px;">Reimposta la password</h2>
+        <p>Ciao ${escapeHtml(user.first_name || "")}, hai richiesto di reimpostare la password del tuo account EasyGame.</p>
+        <p style="padding: 20px 0;">
+          <a href="${resetUrl}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Scegli una nuova password</a>
+        </p>
+        <p>Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti e può essere usato una sola volta.</p>
+        <p style="color:#64748b;font-size:13px;">Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.</p>
+      </div>
+    `,
+  });
+
+  return {
+    sent: delivery.status === "sent",
+    // In sviluppo, se l'email non parte, il token è consultabile come per gli OTP.
+    previewCode: getPreviewCode(delivery.status === "sent", token),
+  };
+};
+
+export const confirmPasswordReset = async ({
+  userId,
+  token,
+  password,
+}: {
+  userId: string;
+  token: string;
+  password: string;
+}) => {
+  const normalizedUserId = String(userId || "").trim();
+  const normalizedToken = String(token || "").trim();
+
+  if (!normalizedUserId || !normalizedToken) {
+    throw new Error("Link di reset non valido o scaduto");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: normalizedUserId },
+  });
+  if (!user) {
+    throw new Error("Link di reset non valido o scaduto");
+  }
+
+  const policy = validatePassword(password, user.email);
+  if (!policy.valid) {
+    throw new Error(getPasswordPolicyMessage(policy));
+  }
+
+  const challenge = await prisma.authVerificationChallenge.findFirst({
+    where: {
+      user_id: user.id,
+      channel: "email",
+      purpose: "reset_password",
+      consumed_at: null,
+      expires_at: { gt: new Date() },
+    },
+    orderBy: { created_at: "desc" },
+  });
+
+  if (!challenge) {
+    throw new Error("Link di reset non valido o scaduto");
+  }
+
+  if (challenge.attempts >= MAX_OTP_ATTEMPTS) {
+    await prisma.authVerificationChallenge.update({
+      where: { id: challenge.id },
+      data: { consumed_at: new Date() },
+    });
+    throw new Error("Link di reset non valido o scaduto");
+  }
+
+  const provided = Buffer.from(hashOtpCode(normalizedToken), "hex");
+  const expected = Buffer.from(challenge.code_hash, "hex");
+  const matches =
+    provided.length === expected.length && timingSafeEqual(provided, expected);
+
+  if (!matches) {
+    await prisma.authVerificationChallenge.update({
+      where: { id: challenge.id },
+      data: { attempts: { increment: 1 } },
+    });
+    throw new Error("Link di reset non valido o scaduto");
+  }
+
+  const password_hash = await hashPassword(password);
+
+  await prisma.$transaction([
+    prisma.authVerificationChallenge.update({
+      where: { id: challenge.id },
+      data: { consumed_at: new Date() },
+    }),
+    prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password_hash,
+        // Chi ha aperto il link ha dimostrato di controllare la casella.
+        ...(user.email_verified_at ? {} : { email_verified_at: new Date() }),
+      },
+    }),
+    // Un reset invalida ogni sessione aperta, ovunque.
+    prisma.session.deleteMany({ where: { user_id: user.id } }),
+  ]);
+
+  return { userId: user.id, email: user.email };
 };

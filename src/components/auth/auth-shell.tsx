@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiRequest } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
@@ -679,6 +680,14 @@ export function AuthShell({
                             placeholder="Password"
                             required
                           />
+                        </div>
+                        <div className="flex justify-end">
+                          <Link
+                            href="/auth/forgot-password"
+                            className="text-sm font-medium text-blue-600 hover:underline"
+                          >
+                            Password dimenticata?
+                          </Link>
                         </div>
                       </div>
                       <Button

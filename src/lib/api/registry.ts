@@ -158,6 +158,22 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "auth.password.forgot",
+    method: "POST",
+    path: "/api/v1/auth/password/forgot",
+    description:
+      "Richiesta reset password: invia via SMTP un link monouso valido 30 minuti",
+    mobile_ready: true,
+  },
+  {
+    name: "auth.password.reset",
+    method: "POST",
+    path: "/api/v1/auth/password/reset",
+    description:
+      "Imposta la nuova password dal token di reset e revoca tutte le sessioni",
+    mobile_ready: true,
+  },
+  {
     name: "auth.oauth.start",
     method: "GET",
     path: "/api/v1/auth/oauth/:provider/start",

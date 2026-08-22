@@ -27,6 +27,8 @@ Fonte ufficiale da mantenere aggiornata:
 - `POST /api/v1/auth/verify/phone/confirm`
 - `GET /api/v1/auth/oauth/:provider/start`
 - `GET /api/v1/auth/oauth/:provider/callback`
+- `POST /api/v1/auth/password/forgot`
+- `POST /api/v1/auth/password/reset`
 
 ## Flusso auth applicativo
 

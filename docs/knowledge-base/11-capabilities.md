@@ -20,7 +20,7 @@ Classificazione:
 | Verifica email OTP | PARTIAL | Obbligatoria e senza bypass, ma **dipende da SMTP configurato**: senza SMTP l'utente non verificato non entra |
 | Verifica telefono OTP | PARTIAL | Codice completo, attiva solo con Twilio configurato. Non configurata in staging |
 | OAuth Google / Microsoft | PARTIAL | Flusso completo (`start`/`callback`, `external_accounts`), disattivato senza credenziali |
-| Reset password | MISSING | Nessun endpoint di recupero password |
+| Reset password | COMPLETE | `/api/v1/auth/password/forgot` e `/reset`, token monouso 30 min via SMTP, revoca di tutte le sessioni, nessuna enumerazione account. Dipende da SMTP configurato |
 | Sessioni | COMPLETE | Opache su DB, 14 giorni, cookie + Bearer |
 | Refresh token | MISSING | `refresh_token` e uguale ad `access_token`; alla scadenza si rifa il login |
 | Logout | COMPLETE | Cancella la riga `sessions` e il cookie |

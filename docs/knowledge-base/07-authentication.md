@@ -50,6 +50,8 @@ dell'account tramite timing. Il messaggio d'errore e sempre
 | GET | `/api/v1/auth/athlete-profile/[athleteId]` | Profilo atleta collegato |
 | POST | `/api/v1/auth/verify/email/send` · `/confirm` | OTP email |
 | POST | `/api/v1/auth/verify/phone/send` · `/confirm` | OTP telefono |
+| POST | `/api/v1/auth/password/forgot` | Richiesta reset password |
+| POST | `/api/v1/auth/password/reset` | Imposta la nuova password |
 | GET | `/api/v1/auth/oauth/[provider]/start` · `/callback` | OAuth |
 
 ## Flusso di login (stato reale)
@@ -88,6 +90,47 @@ configurazione SMTP sia presente. Vedi [12 — Integrazioni](12-integrations.md)
 - `AUTH_ALLOW_TEST_CODES=true` espone il codice OTP nella risposta
   (`previewCode`) — **solo fuori produzione**, vedi
   `shouldExposeVerificationPreviewCode` in `src/lib/auth/otp-policy.ts`.
+
+## Reset password
+
+Implementato il 2026-08-22 ([ADR-0015](18-decision-log.md)). Diverso dagli OTP:
+usa un **token lungo consegnato come link**, non un codice a 6 cifre.
+
+```
+POST /api/v1/auth/password/forgot { email }
+  1. rate limit su email e IP (3 / 10 min per ciascuno)
+  2. se SMTP non e configurato → 503 SMTP_CONFIGURATION_INVALID
+  3. token casuale da 32 byte, salvato solo come hash SHA-256 in
+     auth_verification_challenges (channel "email", purpose "reset_password")
+  4. eventuali token di reset precedenti vengono consumati: ne resta uno solo
+  5. email con link {AUTH_BASE_URL}/auth/reset-password?uid=...&token=...
+  6. risposta SEMPRE identica, esista o no l'account
+
+POST /api/v1/auth/password/reset { userId, token, password }
+  1. rate limit su utente e IP (5 / 15 min)
+  2. validazione con la policy password del progetto
+  3. challenge cercata per user + channel + purpose, non consumata, non scaduta
+  4. confronto degli hash con timingSafeEqual; tentativo errato incrementa
+     attempts, oltre MAX_OTP_ATTEMPTS la challenge viene bruciata
+  5. in transazione: consuma la challenge, aggiorna password_hash,
+     cancella TUTTE le sessioni dell'utente
+```
+
+Dettagli che contano:
+
+- **Nessuna enumerazione**: la risposta di `forgot` non cambia mai, nemmeno in
+  caso di errore inatteso; non esiste un 404.
+- **Token monouso**, TTL **30 minuti**.
+- **Ogni sessione viene revocata** dopo il reset, su tutti i dispositivi.
+- Se l'email non era verificata, il reset la marca come verificata: chi ha
+  aperto il link ha dimostrato di controllare la casella.
+- `verifyInternalChallenge` esclude esplicitamente `purpose: "reset_password"`,
+  cosi una conferma OTP non puo consumare un reset in corso e viceversa.
+- **Dipende da SMTP**: senza provider configurato l'endpoint risponde 503.
+
+UI: `/auth/forgot-password` e `/auth/reset-password`, piu il link «Password
+dimenticata?» nella schermata di login. Entrambe le pagine restano pubbliche
+(il middleware non protegge `/auth`).
 
 ## Rate limiting
 
