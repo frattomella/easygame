@@ -141,14 +141,17 @@ dipendenze (`vaul`, `embla-carousel-react`, `react-resizable-panels`,
 
 `AttendanceConfirmation` merita una decisione di prodotto, non solo tecnica.
 
-### R4 — Toolchain Babel / Tempo
+### R4 — ~~Toolchain Babel / Tempo~~ — RIMOSSA (2026-08-22)
 
-`.babelrc`, `babel.config.js`, `@babel/runtime`, `tempo.config.json`,
-dipendenza `tempo-devtools`.
+Riclassificata SAFE e rimossa dopo la verifica prevista da
+[ADR-0017](18-decision-log.md): con SWC tutti i gate passano, la build scende
+da 161 s a 62 s, il bundle condiviso si riduce e il set di route resta identico.
 
-**Perche non rimossi.** `.babelrc` con `next/babel` fa usare a Next **Babel al
-posto di SWC**: rimuoverlo cambia il compilatore di produzione. Va fatto con
-build e smoke test dedicati. Vedi [WP-08](20-work-packages.md) e decisione A7.
+Rimossi: `.babelrc`, `babel.config.js`, `@babel/runtime`,
+`tempo.config.json` (nessun file lo legge), la dipendenza `tempo-devtools`
+(l'unico riferimento era un import commentato), l'alias webpack
+`'tempo-devtools': false` in `next.config.js`, le righe commentate in
+`src/pages/_app.tsx` e la variabile `NEXT_PUBLIC_TEMPO` da `.env.example`.
 
 ### R5 — Pages Router residuo
 
@@ -163,23 +166,22 @@ Da rimuovere insieme, dopo verifica che l'App Router copra 404 ed errori.
 | Pacchetto | Nota |
 |-----------|------|
 | `radix-ui` | Pacchetto ombrello, nessun import (si usano i singoli `@radix-ui/react-*`) |
-| `tempo-devtools` | Tutti gli import sono commentati |
+| ~~`tempo-devtools`~~ | **Rimosso** il 2026-08-22 insieme al resto della toolchain Tempo (R4) |
 | `prettier` | In `dependencies` invece che `devDependencies`, nessuno script lo invoca |
 | `vaul`, `embla-carousel-react`, `react-resizable-panels`, `react-hook-form` | Usati **solo** dalle primitive di R2 |
-| `@babel/runtime` | Necessario finche resta R4 |
+| ~~`@babel/runtime`~~ | **Rimosso** il 2026-08-22 insieme a `.babelrc` (R4) |
 
 Nessuna finisce nel bundle client. L'impatto e su `npm install`.
 
-### R7 — Mobile: Drizzle ed Express
+### R7 — ~~Mobile: Drizzle ed Express~~ — RIMOSSI (2026-08-22)
 
-`easygamemobile/shared/schema.ts`, `drizzle.config.ts`, `server/`, `.replit`,
-script `db:push` / `server:*`, dipendenze `drizzle-*`, `express`, `pg`, `ws`,
+Rimossi in attuazione di [ADR-0018](18-decision-log.md): `shared/schema.ts`,
+`drizzle.config.ts`, `server/`, `.replit`, gli script `db:push` e
+`server:*`, l'alias `@shared`, e le dipendenze `drizzle-orm`, `drizzle-zod`,
+`drizzle-kit`, `express`, `@types/express`, `pg`, `ws`,
 `http-proxy-middleware`, `tsx`.
 
-**Perche non rimossi.** Tocca la struttura del progetto mobile e richiede
-approvazione (A8). **Ma e anche un rischio attivo**: `db:push` altererebbe la
-tabella `users` reale. Vedi [14](14-security.md) e
-[WP-06](20-work-packages.md).
+Presidio permanente: la CI fallisce se `DATABASE_URL` ricompare nel mobile.
 
 ### R8 — Mobile: schermate v1 e storage mock
 
@@ -198,12 +200,11 @@ Vedi [WP-21](20-work-packages.md).
 dall'esterno o da contenuti salvati a database. `report-template.pdf` suggerisce
 una funzione di export non collegata.
 
-### R10 — `.gitignore`: voci da rivedere
+### R10 — `.gitignore`: parzialmente sistemato (2026-08-22)
 
-- **`.github/`** — impedisce di committare i workflow CI. **Da rimuovere prima
-  di WP-02.**
-- `.git` — inutile (Git non traccia mai `.git`)
-- `node_modules` ripetuto tre volte, `**/tempobook/**` ora inutile
+Rimosse `.github/` (impediva di committare la CI) e `.git` (inutile).
+Restano `**/tempobook/**`, ormai superflua, e `node_modules` ripetuto piu
+volte: innocui.
 
 ### R11 — Alias di compatibilita API
 

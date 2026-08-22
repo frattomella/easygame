@@ -60,7 +60,6 @@
     "react-dom": "^18",
     "react-hook-form": "^7.54.2",
     "react-resizable-panels": "^2.1.7",
-    "tempo-devtools": "^2.0.109",
     "tesseract.js": "^7.0.0",
     "vaul": "^1.1.2",
     "xlsx": "^0.18.5",

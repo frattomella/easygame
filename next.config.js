@@ -26,17 +26,12 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
   },
   webpack: (config, { isServer, dev }) => {
-    if (!isServer) {
+    if (!isServer && dev) {
+      // Profiling build di React solo in sviluppo.
       config.resolve.alias = {
         ...config.resolve.alias,
-        ...(dev
-          ? {
-              'react-dom$': 'react-dom/profiling',
-              'scheduler/tracing': 'scheduler/tracing-profiling',
-            }
-          : {
-              'tempo-devtools': false,
-            }),
+        'react-dom$': 'react-dom/profiling',
+        'scheduler/tracing': 'scheduler/tracing-profiling',
       };
     }
     return config;
