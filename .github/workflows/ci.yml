@@ -116,14 +116,22 @@ jobs:
       - name: Nessuna connection string con credenziali reali
         run: |
           # Solo URL che contengono davvero utente:password@host.
-          # I placeholder noti dei template e della CI sono ammessi.
+          #
+          # Sono ammessi:
+          #  - il placeholder USER:PASSWORD dei template;
+          #  - qualunque host di loopback (127.0.0.1, ::1, localhost): non puo
+          #    essere un database remoto, e li vivono il database di sviluppo
+          #    in Docker e le connection string fittizie di test e CI.
           found=$(git grep -hoIE 'postgres(ql)?://[^:/@[:space:]]+:[^@[:space:]]+@[^[:space:]"]+' \
             -- . ':!package-lock.json' ':!easygamemobile/package-lock.json' \
-            | grep -vE '://(USER:PASSWORD|postgres:postgres|ci:ci)@' || true)
+            | grep -vE '://USER:PASSWORD@' \
+            | grep -vE '@(127\.0\.0\.1|localhost|\[::1\])[:/]' || true)
           if [ -n "$found" ]; then
-            echo "Connection string con credenziali:"; echo "$found"; exit 1
+            echo "Connection string con credenziali verso un host remoto:"
+            echo "$found"
+            exit 1
           fi
-          echo "OK: solo placeholder"
+          echo "OK: solo placeholder e host locali"
 
       - name: Il mobile non accede al database
         run: |
