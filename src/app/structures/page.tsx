@@ -65,6 +65,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { normalizeStructure } from "@/lib/structures-utils";
+import { sortByName } from "@/lib/sorting";
 
 type PaymentStatus = "Pagato" | "In attesa" | "Scaduto";
 
@@ -243,6 +244,12 @@ export default function StrutturePage() {
   const [activeClubId, setActiveClubId] = useState<string | null>(null);
 
   const [structures, setStructures] = useState<ClubStructure[]>([]);
+  // L'elenco strutture si mostra in ordine alfabetico; `structures` resta la
+  // sorgente per le modifiche, che indicizzano per id.
+  const sortedStructures = useMemo(
+    () => sortByName(structures, (structure) => structure.name),
+    [structures],
+  );
 
   // Structure create/edit modal
   const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
@@ -851,14 +858,14 @@ export default function StrutturePage() {
               </Card>
             ) : (
               <div className="space-y-6">
-                {structures.length === 0 ? (
+                {sortedStructures.length === 0 ? (
                   <Card>
                     <CardContent className="py-10 text-center text-muted-foreground">
                       Nessuna struttura registrata.
                     </CardContent>
                   </Card>
                 ) : (
-                  structures.map((s) => (
+                  sortedStructures.map((s) => (
                     <Card key={s.id} className="overflow-hidden">
                       <CardHeader className="flex flex-row items-start justify-between gap-4">
                         <div>

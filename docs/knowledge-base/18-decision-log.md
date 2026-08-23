@@ -700,3 +700,79 @@ verificabile senza rete, e il solo pezzo che tocca il socket
   ADR copre la configurazione, non la ricezione.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0030 — La compatibilita fra categorie e configurata, non dedotta
+
+**Data:** 2026-08-23
+
+**Contesto.** Il Blocco 5 di Web V1 chiede di poter dire «un atleta Under 13
+puo essere utilizzato anche in Under 14, ma non automaticamente in Under 15».
+Prima l'unica relazione fra atleta e categoria era l'appartenenza
+(`athlete_category_memberships`): non esisteva modo di esprimere la vicinanza
+fra due categorie.
+
+La strada apparentemente piu breve — dedurre la vicinanza dal nome («Under 13»
+accanto a «Under 14») o dagli anni di nascita — non regge nel prodotto reale:
+le categorie sono personalizzate e si chiamano «Pulcini - Scauri», «Pulcini -
+S. Cosma», «Prima squadra femminile». Nomi vicini non significano categorie
+vicine, e nomi lontani non significano categorie incompatibili.
+
+**Decisione.** La compatibilita e una **configurazione esplicita della
+categoria**: ogni categoria porta `compatibleCategoryIds`, l'elenco delle
+categorie in cui i **suoi** atleti possono essere utilizzati. La logica vive in
+`src/lib/category-compatibility.ts`, modulo puro.
+
+Tre proprieta del modello:
+
+1. **esplicita** — nessuna inferenza da nome o anni di nascita: vale solo cio
+   che l'utente configura nella scheda della categoria;
+2. **orientata** — «U13 verso U14» dice che gli atleti U13 sono utilizzabili in
+   U14, non il contrario. Le due direzioni si configurano separatamente;
+3. **non transitiva** — se U13 dichiara U14 e U14 dichiara U15, un atleta U13
+   **non** diventa eleggibile per U15. Si guarda un solo salto, mai la chiusura
+   transitiva. E il requisito esplicito del prodotto, ed e imposto dal codice:
+   `getCompatibleCategoryIds` non viene mai riapplicata al proprio risultato.
+
+**Tre concetti restano separati.**
+
+| Concetto | Dove vive | Significato |
+|---|---|---|
+| Categoria primaria | `athlete_category_memberships.is_primary` | la categoria dell'atleta |
+| Appartenenza secondaria | `athlete_category_memberships` | l'atleta e iscritto anche qui |
+| Eleggibilita compatibile | calcolata, **mai persistita** | l'atleta potrebbe essere usato qui |
+
+L'eleggibilita non crea membership, non cambia la categoria primaria e non fa
+entrare nessuno in un gruppo da sola: chi la vuole deve chiederla. Il primo
+consumatore e il gruppo numerazione, che espone il flag
+`includeCompatibleCategories` (default `false`).
+
+**Dove sono i dati.** `compatibleCategoryIds` sta nel payload della categoria,
+quindi in `club_resource_items` e nell'aggregato `clubs.categories`. **Nessuna
+migrazione Prisma**: le categorie sono gia una risorsa JSON del club, e una
+tabella di adiacenza avrebbe introdotto uno schema per un dato che oggi vive
+interamente dentro la configurazione del club.
+
+**Alternative scartate.**
+
+- *Dedurre dagli anni di nascita.* Due categorie possono condividere gli anni
+  senza essere intercambiabili (squadre diverse dello stesso paese), e due
+  categorie adiacenti possono avere regolamenti che vietano lo scambio.
+- *Relazione simmetrica.* «Gli U13 possono giocare in U14» quasi mai implica il
+  contrario: renderla simmetrica avrebbe reso configurabile solo il caso raro.
+- *Chiusura transitiva.* E esattamente cio che il prodotto vieta.
+- *Tabella `category_compatibilities`.* Un secondo modo di conservare la
+  configurazione di una categoria, con il rischio di disallineamento gia visto
+  su `club_resource_items` (vedi ADR-0010).
+
+**Conseguenze.**
+
+- Le categorie personalizzate funzionano come quelle standard: il modello non
+  guarda mai il nome.
+- Chi legge una riga di un gruppo sa **perche** e li: `primary`, `secondary`,
+  `compatible` o `external` (ha un numero ma non e piu nelle categorie del
+  gruppo).
+- Un club che non configura nulla non vede alcun cambiamento.
+
+**Stato:** ATTIVA.

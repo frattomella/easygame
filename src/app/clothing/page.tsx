@@ -52,6 +52,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -102,16 +107,22 @@ import {
   printSupplierOrderPdf,
   type SupplierOrderPdfRow,
 } from "@/lib/clothing-supplier-order-pdf";
-import { getJerseyGroupSummary } from "@/lib/jersey-numbering-utils";
+import { getJerseyGroupSummaries } from "@/lib/jersey-numbering-utils";
+import { CATEGORY_ELIGIBILITY_LABELS } from "@/lib/category-compatibility";
 import {
   compareAthletesByLastName,
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
-import { buildClubCategoryOptions } from "@/lib/category-utils";
+import { sortByName } from "@/lib/sorting";
+import {
+  buildClubCategoryOptions,
+  type NormalizedCategoryOption,
+} from "@/lib/category-utils";
 import {
   AlertCircle,
   Boxes,
   Check,
+  ChevronDown,
   ChevronsUpDown,
   Download,
   PackagePlus,
@@ -122,6 +133,13 @@ import {
   Trash2,
   Truck,
 } from "lucide-react";
+
+/**
+ * Righe mostrate per gruppo prima del pulsante "Mostra altri". Con centinaia
+ * di atleti la tabella completa costava piu del resto della pagina messo
+ * insieme, e nessuno la leggeva tutta.
+ */
+const GROUP_ROWS_PAGE_SIZE = 25;
 
 type ItemForm = {
   id?: string;
@@ -378,14 +396,27 @@ export default function ClothingPage() {
     normalizeClubClothingState({}),
   );
   const [athletes, setAthletes] = useState<any[]>([]);
+  // Tipo completo e non `{ id, name }`: i gruppi numerazione hanno bisogno
+  // anche di `compatibleCategoryIds`.
   const [categoryOptions, setCategoryOptions] = useState<
-    Array<{ id: string; name: string }>
+    NormalizedCategoryOption[]
   >([]);
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [kitDialogOpen, setKitDialogOpen] = useState(false);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  // I gruppi partono chiusi: con molte categorie la scheda mostrava decine di
+  // tabelle complete tutte insieme.
+  const [expandedGroupIds, setExpandedGroupIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [groupRowSearch, setGroupRowSearch] = useState<Record<string, string>>(
+    {},
+  );
+  const [groupRowLimits, setGroupRowLimits] = useState<Record<string, number>>(
+    {},
+  );
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
   const [kitForm, setKitForm] = useState<KitForm>(emptyKitForm);
   const [stockForm, setStockForm] = useState<StockForm>(emptyStockForm);
@@ -395,6 +426,7 @@ export default function ClothingPage() {
     id: "",
     name: "",
     categoryIds: [],
+    includeCompatibleCategories: false,
     season: "",
     minNumber: 0,
     maxNumber: 99,
@@ -839,6 +871,7 @@ export default function ClothingPage() {
         id: "",
         name: "",
         categoryIds: [],
+        includeCompatibleCategories: false,
         season: "",
         minNumber: 0,
         maxNumber: 99,
@@ -1226,22 +1259,38 @@ export default function ClothingPage() {
     }
   };
 
+  // Catalogo, kit e gruppi si mostrano sempre in ordine alfabetico: l'ordine
+  // di inserimento non dice niente a chi cerca un articolo.
+  const sortedCatalogItems = useMemo(
+    () => sortByName(state.items, (item) => item.name),
+    [state.items],
+  );
+  const sortedKits = useMemo(
+    () => sortByName(state.kits, (kit) => kit.name),
+    [state.kits],
+  );
+  const sortedNumberingGroups = useMemo(
+    () => sortByName(state.numberingGroups, (group) => group.name),
+    [state.numberingGroups],
+  );
+
+  // Una sola passata per tutti i gruppi: le assegnazioni si scorrono una
+  // volta e l'eleggibilita di ogni atleta si calcola una volta sola, non una
+  // volta per gruppo.
   const jerseyGroupSummaries = useMemo(
     () =>
-      state.numberingGroups.map((group) =>
-        getJerseyGroupSummary({
-          group,
-          state,
-          athletes,
-          categories: categoryOptions,
-        }),
-      ),
+      getJerseyGroupSummaries({
+        groups: sortedNumberingGroups,
+        state,
+        athletes,
+        categories: categoryOptions,
+      }),
     [
       athletes,
       categoryOptions,
+      sortedNumberingGroups,
       state.assignments,
       state.jerseyAssignments,
-      state.numberingGroups,
     ],
   );
 
@@ -1390,9 +1439,9 @@ export default function ClothingPage() {
 
   const filteredCatalogItems = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
-    if (!query) return state.items;
+    if (!query) return sortedCatalogItems;
 
-    return state.items.filter((item) =>
+    return sortedCatalogItems.filter((item) =>
       [
         item.name,
         item.type,
@@ -1407,13 +1456,13 @@ export default function ClothingPage() {
         .toLowerCase()
         .includes(query),
     );
-  }, [catalogSearch, categoryNames, state.items]);
+  }, [catalogSearch, categoryNames, sortedCatalogItems]);
 
   const filteredKits = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
-    if (!query) return state.kits;
+    if (!query) return sortedKits;
 
-    return state.kits.filter((kit) =>
+    return sortedKits.filter((kit) =>
       [
         kit.name,
         kit.description,
@@ -1428,7 +1477,7 @@ export default function ClothingPage() {
         .toLowerCase()
         .includes(query),
     );
-  }, [catalogSearch, categoryNames, itemById, state.kits]);
+  }, [catalogSearch, categoryNames, itemById, sortedKits]);
 
   const renderCategoryCheckboxes = (
     values: string[],
@@ -1944,7 +1993,7 @@ export default function ClothingPage() {
                             <SelectValue placeholder="Seleziona gruppo" />
                           </SelectTrigger>
                           <SelectContent>
-                            {state.numberingGroups.map((group) => (
+                            {sortedNumberingGroups.map((group) => (
                               <SelectItem key={group.id} value={group.id}>
                                 {group.name}
                               </SelectItem>
@@ -2472,7 +2521,7 @@ export default function ClothingPage() {
                                     <SelectValue placeholder="Seleziona articolo" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {state.items.map((item) => (
+                                    {sortedCatalogItems.map((item) => (
                                       <SelectItem key={item.id} value={item.id}>
                                         {item.name}
                                       </SelectItem>
@@ -2538,7 +2587,7 @@ export default function ClothingPage() {
                                       <SelectValue placeholder="Gruppo" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {state.numberingGroups.map((group) => (
+                                      {sortedNumberingGroups.map((group) => (
                                         <SelectItem key={group.id} value={group.id}>
                                           {group.name}
                                         </SelectItem>
@@ -3097,7 +3146,7 @@ export default function ClothingPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {state.items.map((item) => (
+                      {sortedCatalogItems.map((item) => (
                         <div key={item.id} className="hidden">
                           <div className="flex items-start justify-between gap-2">
                             <div>
@@ -3350,7 +3399,7 @@ export default function ClothingPage() {
                                   <SelectValue placeholder="Gruppo numerazione" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {state.numberingGroups.map((group) => (
+                                  {sortedNumberingGroups.map((group) => (
                                     <SelectItem key={group.id} value={group.id}>
                                       {group.name}
                                     </SelectItem>
@@ -3373,7 +3422,7 @@ export default function ClothingPage() {
                               <div>
                                 <Label>Componenti</Label>
                                 <div className="mt-2 space-y-2 rounded-md border p-3">
-                                  {state.items.map((item) => {
+                                  {sortedCatalogItems.map((item) => {
                                     const existing = kitForm.components.find(
                                       (component) => component.itemId === item.id,
                                     );
@@ -3437,7 +3486,7 @@ export default function ClothingPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {state.kits.map((kit) => (
+                      {sortedKits.map((kit) => (
                         <div key={kit.id} className="hidden">
                           <div className="flex items-start justify-between gap-2">
                             <div>
@@ -3598,6 +3647,7 @@ export default function ClothingPage() {
                                 id: "",
                                 name: "",
                                 categoryIds: [],
+                                includeCompatibleCategories: false,
                                 season: "",
                                 minNumber: 0,
                                 maxNumber: 99,
@@ -3664,6 +3714,31 @@ export default function ClothingPage() {
                                   categoryIds: next,
                                 })),
                             )}
+                            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+                              <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={groupForm.includeCompatibleCategories}
+                                onChange={(event) =>
+                                  setGroupForm((current) => ({
+                                    ...current,
+                                    includeCompatibleCategories:
+                                      event.target.checked,
+                                  }))
+                                }
+                              />
+                              <span>
+                                <span className="block font-medium">
+                                  Includi le categorie compatibili
+                                </span>
+                                <span className="block text-muted-foreground">
+                                  Aggiunge gli atleti che le categorie del
+                                  gruppo dichiarano compatibili nella scheda
+                                  Categorie. L&apos;eleggibilita non cambia la
+                                  categoria dell&apos;atleta.
+                                </span>
+                              </span>
+                            </label>
                             <div className="flex justify-end gap-2">
                               <Button
                                 variant="outline"
@@ -3681,17 +3756,57 @@ export default function ClothingPage() {
                   <CardContent className="grid gap-4">
                     {jerseyGroupSummaries.map((summary) => {
                       const { group } = summary;
+                      const isOpen = Boolean(expandedGroupIds[group.id]);
+                      const query = (groupRowSearch[group.id] || "")
+                        .trim()
+                        .toLowerCase();
+                      const filteredRows = query
+                        ? summary.rows.filter((row) =>
+                            `${row.athleteName} ${row.categoryLabel}`
+                              .toLowerCase()
+                              .includes(query),
+                          )
+                        : summary.rows;
+                      const rowLimit =
+                        groupRowLimits[group.id] || GROUP_ROWS_PAGE_SIZE;
+                      const visibleRows = filteredRows.slice(0, rowLimit);
+                      const hiddenRowCount =
+                        filteredRows.length - visibleRows.length;
+
                       return (
-                        <div key={group.id} className="rounded-lg border p-4">
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                            <div>
-                              <p className="font-medium">{group.name}</p>
-                              <p className="text-sm text-slate-500">
-                                {group.minNumber}-{group.maxNumber}
-                                {group.season ? ` - ${group.season}` : ""}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
+                        <Collapsible
+                          key={group.id}
+                          open={isOpen}
+                          onOpenChange={(next) =>
+                            setExpandedGroupIds((current) => ({
+                              ...current,
+                              [group.id]: next,
+                            }))
+                          }
+                          className="rounded-lg border"
+                        >
+                          <div className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
+                            <CollapsibleTrigger className="flex flex-1 items-start gap-2 text-left">
+                              <ChevronDown
+                                className={`mt-1 h-4 w-4 shrink-0 text-slate-500 transition-transform ${
+                                  isOpen ? "rotate-180" : ""
+                                }`}
+                              />
+                              <span className="min-w-0">
+                                <span className="block font-medium">
+                                  {group.name}
+                                </span>
+                                <span className="block text-sm text-slate-500">
+                                  {group.minNumber}-{group.maxNumber}
+                                  {group.season ? ` - ${group.season}` : ""} -{" "}
+                                  {summary.rows.length}{" "}
+                                  {summary.rows.length === 1
+                                    ? "atleta"
+                                    : "atleti"}
+                                </span>
+                              </span>
+                            </CollapsibleTrigger>
+                            <div className="flex flex-wrap items-start gap-2">
                               <Badge variant="outline">
                                 {summary.usedNumbers.length} numeri
                               </Badge>
@@ -3703,178 +3818,260 @@ export default function ClothingPage() {
                                   {summary.duplicateNumbers.length} duplicati
                                 </Badge>
                               ) : null}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setGroupForm(group);
+                                  setGroupDialogOpen(true);
+                                }}
+                              >
+                                Modifica
+                              </Button>
                             </div>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-1">
-                            {group.categoryIds.map((categoryId) => (
-                              <Badge key={categoryId} variant="secondary">
-                                {categoryOptions.find((cat) => cat.id === categoryId)
-                                  ?.name || categoryId}
-                              </Badge>
-                            ))}
-                            {!group.categoryIds.length ? (
-                              <Badge variant="secondary">Tutte le categorie</Badge>
+                          <CollapsibleContent className="border-t px-4 pb-4 pt-4">
+                            <div className="flex flex-wrap gap-1">
+                              {group.categoryIds.map((categoryId) => (
+                                <Badge key={categoryId} variant="secondary">
+                                  {categoryOptions.find(
+                                    (cat) => cat.id === categoryId,
+                                  )?.name || categoryId}
+                                </Badge>
+                              ))}
+                              {!group.categoryIds.length ? (
+                                <Badge variant="secondary">
+                                  Tutte le categorie
+                                </Badge>
+                              ) : null}
+                              {group.includeCompatibleCategories ? (
+                                <Badge
+                                  variant="outline"
+                                  className="border-sky-200 bg-sky-50 text-sky-700"
+                                >
+                                  Categorie compatibili incluse
+                                </Badge>
+                              ) : null}
+                            </div>
+                            {summary.duplicateNumbers.length ? (
+                              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                Numeri duplicati:{" "}
+                                {summary.duplicateNumbers
+                                  .map((entry) => entry.number)
+                                  .join(", ")}
+                              </div>
                             ) : null}
-                          </div>
-                          {summary.duplicateNumbers.length ? (
-                            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                              Numeri duplicati:{" "}
-                              {summary.duplicateNumbers
-                                .map((entry) => entry.number)
-                                .join(", ")}
+                            <div className="mt-3">
+                              <Input
+                                value={groupRowSearch[group.id] || ""}
+                                placeholder="Cerca atleta o categoria"
+                                className="h-9 w-full md:max-w-xs"
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setGroupRowSearch((current) => ({
+                                    ...current,
+                                    [group.id]: value,
+                                  }));
+                                  setGroupRowLimits((current) => ({
+                                    ...current,
+                                    [group.id]: GROUP_ROWS_PAGE_SIZE,
+                                  }));
+                                }}
+                              />
                             </div>
-                          ) : null}
-                          <div className="mt-4 overflow-x-auto rounded-md border">
-                            <table className="w-full min-w-[780px] text-sm">
-                              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                                <tr>
-                                  <th className="px-3 py-2">Atleta</th>
-                                  <th className="px-3 py-2">Categoria</th>
-                                  <th className="px-3 py-2">Numeri</th>
-                                  <th className="px-3 py-2">Manuale</th>
-                                  <th className="px-3 py-2 text-right">Azioni</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y">
-                                {summary.rows.length ? (
-                                  summary.rows.map((row) => {
-                                    const manualRecord = row.records.find(
-                                      (record) =>
-                                        record.source === "jersey_assignment" &&
-                                        !record.assignmentId,
-                                    );
+                            <div className="mt-3 overflow-x-auto rounded-md border">
+                              <table className="w-full min-w-[780px] text-sm">
+                                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                                  <tr>
+                                    <th className="px-3 py-2">Atleta</th>
+                                    <th className="px-3 py-2">Categoria</th>
+                                    <th className="px-3 py-2">Numeri</th>
+                                    <th className="px-3 py-2">Manuale</th>
+                                    <th className="px-3 py-2 text-right">
+                                      Azioni
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {visibleRows.length ? (
+                                    visibleRows.map((row) => {
+                                      const manualRecord = row.records.find(
+                                        (record) =>
+                                          record.source ===
+                                            "jersey_assignment" &&
+                                          !record.assignmentId,
+                                      );
 
-                                    return (
-                                      <tr key={row.athleteId}>
-                                        <td className="px-3 py-3 font-medium">
-                                          {row.athleteName}
-                                        </td>
-                                        <td className="px-3 py-3">
-                                          {row.categoryLabel}
-                                        </td>
-                                        <td className="px-3 py-3">
-                                          <div className="flex flex-wrap gap-1">
-                                            {row.numbers.length ? (
-                                              row.numbers.map((number, index) => (
+                                      return (
+                                        <tr key={row.athleteId}>
+                                          <td className="px-3 py-3 font-medium">
+                                            {row.athleteName}
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <div className="flex flex-wrap items-center gap-1">
+                                              <span>{row.categoryLabel}</span>
+                                              {row.membership === "secondary" ||
+                                              row.membership === "compatible" ? (
                                                 <Badge
-                                                  key={`${row.athleteId}-${number}-${index}`}
                                                   variant="outline"
-                                                  className={
-                                                    row.duplicateNumbers.includes(
-                                                      number,
-                                                    )
-                                                      ? "border-amber-300 bg-amber-50 text-amber-800"
-                                                      : ""
-                                                  }
+                                                  className="border-sky-200 bg-sky-50 text-sky-700"
                                                 >
-                                                  {number}
+                                                  {
+                                                    CATEGORY_ELIGIBILITY_LABELS[
+                                                      row.membership
+                                                    ]
+                                                  }
                                                 </Badge>
-                                              ))
-                                            ) : (
-                                              <Badge variant="secondary">
-                                                Senza numero
-                                              </Badge>
-                                            )}
-                                          </div>
-                                        </td>
-                                        <td className="px-3 py-3">
-                                          <Input
-                                            key={`${row.athleteId}-${manualRecord?.number ?? "empty"}`}
-                                            type="number"
-                                            min={group.minNumber}
-                                            max={group.maxNumber}
-                                            defaultValue={
-                                              manualRecord?.number ?? ""
-                                            }
-                                            placeholder="Numero"
-                                            className="h-9 w-28"
-                                            onBlur={(event) => {
-                                              const value =
-                                                event.target.value.trim();
-                                              if (
-                                                (!value && !manualRecord) ||
-                                                value ===
-                                                  String(
-                                                    manualRecord?.number ?? "",
-                                                  )
-                                              ) {
-                                                return;
+                                              ) : null}
+                                              {row.membership === "external" ? (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="border-slate-200 bg-slate-50 text-slate-600"
+                                                >
+                                                  Fuori gruppo
+                                                </Badge>
+                                              ) : null}
+                                            </div>
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <div className="flex flex-wrap gap-1">
+                                              {row.numbers.length ? (
+                                                row.numbers.map(
+                                                  (number, index) => (
+                                                    <Badge
+                                                      key={`${row.athleteId}-${number}-${index}`}
+                                                      variant="outline"
+                                                      className={
+                                                        row.duplicateNumbers.includes(
+                                                          number,
+                                                        )
+                                                          ? "border-amber-300 bg-amber-50 text-amber-800"
+                                                          : ""
+                                                      }
+                                                    >
+                                                      {number}
+                                                    </Badge>
+                                                  ),
+                                                )
+                                              ) : (
+                                                <Badge variant="secondary">
+                                                  Senza numero
+                                                </Badge>
+                                              )}
+                                            </div>
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <Input
+                                              key={`${row.athleteId}-${manualRecord?.number ?? "empty"}`}
+                                              type="number"
+                                              min={group.minNumber}
+                                              max={group.maxNumber}
+                                              defaultValue={
+                                                manualRecord?.number ?? ""
                                               }
-
-                                              void saveManualJerseyNumber({
-                                                athleteId: row.athleteId,
-                                                groupId: group.id,
-                                                value,
-                                              });
-                                            }}
-                                            onKeyDown={(event) => {
-                                              if (event.key === "Enter") {
-                                                event.currentTarget.blur();
-                                              }
-                                            }}
-                                          />
-                                        </td>
-                                        <td className="px-3 py-3">
-                                          <div className="flex justify-end gap-2">
-                                            {!row.hasNumber ? (
-                                              <Button
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={() =>
-                                                  void assignRandomJerseyNumber(
-                                                    group.id,
-                                                    row.athleteId,
-                                                  )
+                                              placeholder="Numero"
+                                              className="h-9 w-28"
+                                              onBlur={(event) => {
+                                                const value =
+                                                  event.target.value.trim();
+                                                if (
+                                                  (!value && !manualRecord) ||
+                                                  value ===
+                                                    String(
+                                                      manualRecord?.number ??
+                                                        "",
+                                                    )
+                                                ) {
+                                                  return;
                                                 }
-                                              >
-                                                Random
-                                              </Button>
-                                            ) : null}
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              disabled={!manualRecord}
-                                              onClick={() =>
+
                                                 void saveManualJerseyNumber({
                                                   athleteId: row.athleteId,
                                                   groupId: group.id,
-                                                  value: null,
-                                                })
-                                              }
-                                            >
-                                              Rimuovi
-                                            </Button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })
-                                ) : (
-                                  <tr>
-                                    <td
-                                      colSpan={5}
-                                      className="px-3 py-6 text-center text-slate-500"
-                                    >
-                                      Nessun atleta collegato al gruppo.
-                                    </td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
-                          <div className="mt-4 flex justify-end">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setGroupForm(group);
-                                setGroupDialogOpen(true);
-                              }}
-                            >
-                              Modifica
-                            </Button>
-                          </div>
-                        </div>
+                                                  value,
+                                                });
+                                              }}
+                                              onKeyDown={(event) => {
+                                                if (event.key === "Enter") {
+                                                  event.currentTarget.blur();
+                                                }
+                                              }}
+                                            />
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <div className="flex justify-end gap-2">
+                                              {!row.hasNumber ? (
+                                                <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  onClick={() =>
+                                                    void assignRandomJerseyNumber(
+                                                      group.id,
+                                                      row.athleteId,
+                                                    )
+                                                  }
+                                                >
+                                                  Random
+                                                </Button>
+                                              ) : null}
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                disabled={!manualRecord}
+                                                onClick={() =>
+                                                  void saveManualJerseyNumber({
+                                                    athleteId: row.athleteId,
+                                                    groupId: group.id,
+                                                    value: null,
+                                                  })
+                                                }
+                                              >
+                                                Rimuovi
+                                              </Button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })
+                                  ) : (
+                                    <tr>
+                                      <td
+                                        colSpan={5}
+                                        className="px-3 py-6 text-center text-slate-500"
+                                      >
+                                        {query
+                                          ? "Nessun atleta corrisponde alla ricerca."
+                                          : "Nessun atleta collegato al gruppo."}
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                            {hiddenRowCount > 0 ? (
+                              <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-500">
+                                <span>
+                                  {visibleRows.length} di {filteredRows.length}{" "}
+                                  atleti
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    setGroupRowLimits((current) => ({
+                                      ...current,
+                                      [group.id]:
+                                        rowLimit + GROUP_ROWS_PAGE_SIZE,
+                                    }))
+                                  }
+                                >
+                                  Mostra altri{" "}
+                                  {Math.min(hiddenRowCount, GROUP_ROWS_PAGE_SIZE)}
+                                </Button>
+                              </div>
+                            ) : null}
+                          </CollapsibleContent>
+                        </Collapsible>
                       );
                     })}
                     {!state.numberingGroups.length ? (

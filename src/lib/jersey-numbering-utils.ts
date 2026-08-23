@@ -1,9 +1,46 @@
+/**
+ * Numeri di maglia e gruppi numerazione.
+ *
+ * Il modulo risponde a una domanda sola: dato un gruppo numerazione, **quali
+ * atleti ne fanno parte e con che numero**. Tre scelte che vale la pena
+ * conoscere prima di modificarlo:
+ *
+ * 1. **il riconoscimento della categoria non e riscritto qui**. Chi appartiene
+ *    a una categoria lo dice `athlete-category-memberships`, chi e utilizzabile
+ *    in una categoria adiacente lo dice `category-compatibility`. Prima questo
+ *    file aveva la sua lettura privata delle categorie, confrontava le
+ *    stringhe **rispettando le maiuscole** e ignorava le membership in
+ *    snake_case: gli atleti la cui categoria era registrata con una forma
+ *    diversa sparivano dai gruppi senza alcun errore;
+ * 2. **il nome dell'atleta non e ricomposto qui**. Lo formatta
+ *    `athlete-name-utils` (Cognome poi Nome). La composizione locale
+ *    concatenava tutti i campi nome trovati e, poiche l'API espone sia
+ *    `first_name`/`last_name` sia l'alias `name`, stampava «Mario Rossi Mario
+ *    Rossi»;
+ * 3. **gli indici si costruiscono una volta**. `buildJerseyNumberIndex`
+ *    scorre le assegnazioni una sola volta per tutti i gruppi: prima ogni
+ *    gruppo rileggeva l'intero stato, e il riepilogo per atleta rileggeva lo
+ *    stato una volta per record.
+ */
+
 import type {
   ClothingAssignment,
   ClothingState,
   JerseyNumberAssignment,
   NumberingGroup,
 } from "@/lib/clothing-inventory-utils";
+import {
+  buildCategoryCompatibilityIndex,
+  buildCategoryIdSet,
+  getAthleteCategoryEligibility,
+  getEligibilityKindForSet,
+  type AthleteCategoryEligibility,
+  type CategoryCompatibilityIndex,
+  type CategoryCompatibilityInput,
+  type CategoryEligibilityKind,
+} from "@/lib/category-compatibility";
+import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
+import { compareNameValues } from "@/lib/sorting";
 
 const ACTIVE_ASSIGNMENT_STATUSES = new Set([
   "reserved",
@@ -26,11 +63,23 @@ export type JerseyNumberRecord = {
   source: "jersey_assignment" | "clothing_assignment";
 };
 
+/**
+ * Come una riga e finita nel gruppo.
+ *
+ * `external` copre il caso reale in cui un atleta ha un numero assegnato nel
+ * gruppo pur non appartenendo (piu) a nessuna delle sue categorie: il numero
+ * va mostrato comunque, altrimenti resterebbe occupato e invisibile.
+ */
+export type JerseyGroupMembershipKind =
+  | Exclude<CategoryEligibilityKind, "none">
+  | "external";
+
 export type JerseyGroupAthleteRow = {
   athleteId: string;
   athlete: any | null;
   athleteName: string;
   categoryLabel: string;
+  membership: JerseyGroupMembershipKind;
   records: JerseyNumberRecord[];
   numbers: number[];
   duplicateNumbers: number[];
@@ -50,98 +99,22 @@ export type JerseyGroupSummary = {
   randomAvailableNumber: number | null;
 };
 
+/**
+ * Indice delle assegnazioni numero, costruito una volta e condiviso da tutti
+ * i gruppi della pagina.
+ */
+export type JerseyNumberIndex = {
+  records: JerseyNumberRecord[];
+  byGroupId: Map<string, JerseyNumberRecord[]>;
+  byAthleteId: Map<string, JerseyNumberRecord[]>;
+};
+
 const normalizeText = (value: unknown) => String(value || "").trim();
 
 const toNumberOrNull = (value: unknown) => {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-};
-
-const getAthleteName = (athlete: any) =>
-  [
-    athlete?.first_name,
-    athlete?.last_name,
-    athlete?.firstName,
-    athlete?.lastName,
-    athlete?.name,
-    athlete?.surname,
-  ]
-    .map(normalizeText)
-    .filter(Boolean)
-    .slice(0, athlete?.name && athlete?.surname ? 2 : 4)
-    .join(" ")
-    .trim() ||
-  normalizeText(athlete?.displayName) ||
-  normalizeText(athlete?.id) ||
-  "Atleta";
-
-const getAthleteCategoryValues = (athlete: any) => {
-  const values = new Set<string>();
-  const data = athlete?.data && typeof athlete.data === "object" ? athlete.data : {};
-
-  [
-    athlete?.category_id,
-    athlete?.categoryId,
-    athlete?.category,
-    data?.category_id,
-    data?.categoryId,
-    data?.category,
-  ].forEach((value) => {
-    const text = normalizeText(value);
-    if (text) values.add(text);
-  });
-
-  [athlete?.category_name, athlete?.categoryName, data?.categoryName].forEach(
-    (value) => {
-      const text = normalizeText(value);
-      if (text) values.add(text);
-    },
-  );
-
-  const categories = Array.isArray(athlete?.categories)
-    ? athlete.categories
-    : Array.isArray(data?.categories)
-      ? data.categories
-      : [];
-  categories.forEach((value: any) => {
-    const text = normalizeText(value?.id || value?.name || value);
-    if (text) values.add(text);
-  });
-
-  const memberships = Array.isArray(athlete?.categoryMemberships)
-    ? athlete.categoryMemberships
-    : Array.isArray(data?.categoryMemberships)
-      ? data.categoryMemberships
-      : [];
-  memberships.forEach((membership: any) => {
-    [membership?.categoryId, membership?.category_id, membership?.categoryName]
-      .map(normalizeText)
-      .filter(Boolean)
-      .forEach((value) => values.add(value));
-  });
-
-  return values;
-};
-
-const categoryLabelForAthlete = (
-  athlete: any,
-  categories: Array<{ id?: string | null; name?: string | null }> = [],
-) => {
-  const values = getAthleteCategoryValues(athlete);
-  const matched = categories.find(
-    (category) =>
-      values.has(normalizeText(category.id)) ||
-      values.has(normalizeText(category.name)),
-  );
-
-  return (
-    normalizeText(matched?.name) ||
-    normalizeText(athlete?.category_name) ||
-    normalizeText(athlete?.categoryName) ||
-    normalizeText(athlete?.data?.categoryName) ||
-    "-"
-  );
 };
 
 export const getJerseyNumberRecords = (
@@ -182,53 +155,110 @@ export const getJerseyNumberRecords = (
   return [...directRecords, ...assignmentRecords];
 };
 
-export const getJerseyGroupSummary = ({
-  group,
-  state,
-  athletes,
-  categories = [],
-}: {
-  group: NumberingGroup;
-  state: Pick<ClothingState, "assignments" | "jerseyAssignments">;
-  athletes: any[];
-  categories?: Array<{ id?: string | null; name?: string | null }>;
-}): JerseyGroupSummary => {
-  const records = getJerseyNumberRecords(state).filter(
-    (record) => record.groupId === group.id,
-  );
-  const recordsByAthleteId = new Map<string, JerseyNumberRecord[]>();
+const pushToBucket = <T>(map: Map<string, T[]>, key: string, value: T) => {
+  const bucket = map.get(key);
+  if (bucket) {
+    bucket.push(value);
+  } else {
+    map.set(key, [value]);
+  }
+};
+
+/**
+ * Costruisce gli indici per gruppo e per atleta con una sola scansione dello
+ * stato. Con N assegnazioni e G gruppi il costo passa da O(N x G) a O(N + G).
+ */
+export const buildJerseyNumberIndex = (
+  state: Pick<ClothingState, "assignments" | "jerseyAssignments">,
+): JerseyNumberIndex => {
+  const records = getJerseyNumberRecords(state);
+  const byGroupId = new Map<string, JerseyNumberRecord[]>();
+  const byAthleteId = new Map<string, JerseyNumberRecord[]>();
+
   records.forEach((record) => {
-    if (!recordsByAthleteId.has(record.athleteId)) {
-      recordsByAthleteId.set(record.athleteId, []);
+    if (record.groupId) {
+      pushToBucket(byGroupId, record.groupId, record);
     }
-    recordsByAthleteId.get(record.athleteId)?.push(record);
+    if (record.athleteId) {
+      pushToBucket(byAthleteId, record.athleteId, record);
+    }
   });
 
-  const groupCategoryValues = new Set(
-    group.categoryIds.map(normalizeText).filter(Boolean),
-  );
-  const groupAthletes = athletes.filter((athlete) => {
-    if (!groupCategoryValues.size) return true;
-    const athleteCategories = getAthleteCategoryValues(athlete);
-    return Array.from(groupCategoryValues).some((value) =>
-      athleteCategories.has(value),
-    );
+  return { records, byGroupId, byAthleteId };
+};
+
+/**
+ * Etichetta di categoria da mostrare in griglia: la categoria **primaria**
+ * dell'atleta, non la prima che capita fra quelle configurate.
+ */
+const categoryLabelForEligibility = (
+  eligibility: AthleteCategoryEligibility,
+  index: CategoryCompatibilityIndex,
+) => {
+  const primary = eligibility.primaryCategoryId
+    ? index.getCategoryName(eligibility.primaryCategoryId)
+    : "";
+  if (primary) {
+    return primary;
+  }
+
+  const first = eligibility.memberCategoryIds[0];
+  return first ? index.getCategoryName(first) : "-";
+};
+
+type GroupSummaryContext = {
+  index: JerseyNumberIndex;
+  categoryIndex: CategoryCompatibilityIndex;
+  athleteById: Map<string, any>;
+  eligibilityByAthleteId: Map<string, AthleteCategoryEligibility>;
+  /**
+   * Nome «Cognome Nome» gia composto. E anche la chiave di ordinamento: si
+   * calcola una volta per atleta invece che a ogni confronto di `sort`, dove
+   * ricomporlo dominava il costo del riepilogo.
+   */
+  displayNameByAthleteId: Map<string, string>;
+  athletes: any[];
+};
+
+const buildGroupSummary = (
+  group: NumberingGroup,
+  context: GroupSummaryContext,
+): JerseyGroupSummary => {
+  const {
+    index,
+    categoryIndex,
+    athleteById,
+    eligibilityByAthleteId,
+    displayNameByAthleteId,
+    athletes,
+  } = context;
+
+  const records = index.byGroupId.get(group.id) || [];
+  const recordsByAthleteId = new Map<string, JerseyNumberRecord[]>();
+  records.forEach((record) => {
+    pushToBucket(recordsByAthleteId, record.athleteId, record);
   });
-  const athleteById = new Map(
-    athletes.map((athlete) => [normalizeText(athlete.id), athlete]),
+
+  const groupCategoryIds = Array.from(
+    new Set(
+      group.categoryIds
+        .map((value) => categoryIndex.resolveCategoryId(value))
+        .filter(Boolean),
+    ),
   );
-  const rowAthleteIds = new Set([
-    ...groupAthletes.map((athlete) => normalizeText(athlete.id)),
-    ...Array.from(recordsByAthleteId.keys()),
-  ]);
+  const includeCompatible = Boolean(group.includeCompatibleCategories);
+  // L'insieme si normalizza una volta per gruppo, non una volta per atleta.
+  const groupCategoryIdSet = buildCategoryIdSet(groupCategoryIds);
 
   const numberAthleteIds = new Map<number, Set<string>>();
   records.forEach((record) => {
     if (record.number === null) return;
-    if (!numberAthleteIds.has(record.number)) {
-      numberAthleteIds.set(record.number, new Set());
+    const athleteIds = numberAthleteIds.get(record.number);
+    if (athleteIds) {
+      athleteIds.add(record.athleteId);
+    } else {
+      numberAthleteIds.set(record.number, new Set([record.athleteId]));
     }
-    numberAthleteIds.get(record.number)?.add(record.athleteId);
   });
 
   const duplicateNumberValues = new Set(
@@ -237,20 +267,59 @@ export const getJerseyGroupSummary = ({
       .map(([number]) => number),
   );
 
-  const rows = Array.from(rowAthleteIds)
-    .filter(Boolean)
-    .map((athleteId) => {
+  const membershipByAthleteId = new Map<string, JerseyGroupMembershipKind>();
+
+  athletes.forEach((athlete) => {
+    const athleteId = normalizeText(athlete?.id);
+    if (!athleteId) return;
+
+    // Un gruppo senza categorie configurate copre tutto il club: e la
+    // convenzione gia in uso e va preservata.
+    if (!groupCategoryIds.length) {
+      membershipByAthleteId.set(athleteId, "primary");
+      return;
+    }
+
+    const eligibility = eligibilityByAthleteId.get(athleteId);
+    if (!eligibility) return;
+
+    const kind = getEligibilityKindForSet({
+      eligibility,
+      categoryIdSet: groupCategoryIdSet,
+      includeCompatible,
+    });
+
+    if (kind !== "none") {
+      membershipByAthleteId.set(athleteId, kind);
+    }
+  });
+
+  // Un atleta con un numero assegnato resta in griglia anche se non e (piu)
+  // nelle categorie del gruppo: il suo numero e comunque occupato.
+  recordsByAthleteId.forEach((_records, athleteId) => {
+    if (!membershipByAthleteId.has(athleteId)) {
+      membershipByAthleteId.set(athleteId, "external");
+    }
+  });
+
+  const rows = Array.from(membershipByAthleteId.entries())
+    .map(([athleteId, membership]) => {
       const athlete = athleteById.get(athleteId) || null;
       const athleteRecords = recordsByAthleteId.get(athleteId) || [];
       const numbers = athleteRecords
         .map((record) => record.number)
         .filter((number): number is number => number !== null);
+      const eligibility = eligibilityByAthleteId.get(athleteId);
 
       return {
         athleteId,
         athlete,
-        athleteName: getAthleteName(athlete || { id: athleteId }),
-        categoryLabel: categoryLabelForAthlete(athlete, categories),
+        athleteName:
+          displayNameByAthleteId.get(athleteId) || "Atleta non trovato",
+        categoryLabel: eligibility
+          ? categoryLabelForEligibility(eligibility, categoryIndex)
+          : "-",
+        membership,
         records: athleteRecords,
         numbers,
         duplicateNumbers: numbers.filter((number) =>
@@ -259,15 +328,19 @@ export const getJerseyGroupSummary = ({
         hasNumber: numbers.length > 0,
       };
     })
-    .sort((left, right) => left.athleteName.localeCompare(right.athleteName));
+    .sort(
+      (left, right) =>
+        compareNameValues(left.athleteName, right.athleteName) ||
+        (left.athleteId < right.athleteId ? -1 : 1),
+    );
 
   const usedNumbers = Array.from(numberAthleteIds.keys()).sort((a, b) => a - b);
+  const reservedNumbers = new Set(group.reservedNumbers);
   const availableNumbers = Array.from(
     { length: Math.max(0, group.maxNumber - group.minNumber + 1) },
-    (_, index) => group.minNumber + index,
+    (_, offset) => group.minNumber + offset,
   ).filter(
-    (number) =>
-      !numberAthleteIds.has(number) && !group.reservedNumbers.includes(number),
+    (number) => !numberAthleteIds.has(number) && !reservedNumbers.has(number),
   );
 
   return {
@@ -288,6 +361,83 @@ export const getJerseyGroupSummary = ({
   };
 };
 
+const buildSummaryContext = ({
+  state,
+  athletes,
+  categories,
+  index,
+  categoryIndex,
+}: {
+  state: Pick<ClothingState, "assignments" | "jerseyAssignments">;
+  athletes: any[];
+  categories: readonly CategoryCompatibilityInput[];
+  index?: JerseyNumberIndex;
+  categoryIndex?: CategoryCompatibilityIndex;
+}): GroupSummaryContext => {
+  const resolvedCategoryIndex =
+    categoryIndex || buildCategoryCompatibilityIndex(categories);
+  const athleteById = new Map<string, any>();
+  const eligibilityByAthleteId = new Map<string, AthleteCategoryEligibility>();
+  const displayNameByAthleteId = new Map<string, string>();
+
+  athletes.forEach((athlete) => {
+    const athleteId = normalizeText(athlete?.id);
+    if (!athleteId) return;
+    athleteById.set(athleteId, athlete);
+    displayNameByAthleteId.set(athleteId, formatAthleteNameLastFirst(athlete));
+    // L'eleggibilita si calcola una volta per atleta, non una volta per
+    // (atleta, gruppo): normalizzare le membership e la parte cara.
+    eligibilityByAthleteId.set(
+      athleteId,
+      getAthleteCategoryEligibility({ athlete, index: resolvedCategoryIndex }),
+    );
+  });
+
+  return {
+    index: index || buildJerseyNumberIndex(state),
+    categoryIndex: resolvedCategoryIndex,
+    athleteById,
+    eligibilityByAthleteId,
+    displayNameByAthleteId,
+    athletes,
+  };
+};
+
+/**
+ * Riepilogo di **tutti** i gruppi in una passata sola. E la forma da preferire
+ * quando i gruppi sono piu di uno.
+ */
+export const getJerseyGroupSummaries = ({
+  groups,
+  state,
+  athletes,
+  categories = [],
+}: {
+  groups: readonly NumberingGroup[];
+  state: Pick<ClothingState, "assignments" | "jerseyAssignments">;
+  athletes: any[];
+  categories?: readonly CategoryCompatibilityInput[];
+}): JerseyGroupSummary[] => {
+  const context = buildSummaryContext({ state, athletes, categories });
+  return groups.map((group) => buildGroupSummary(group, context));
+};
+
+export const getJerseyGroupSummary = ({
+  group,
+  state,
+  athletes,
+  categories = [],
+}: {
+  group: NumberingGroup;
+  state: Pick<ClothingState, "assignments" | "jerseyAssignments">;
+  athletes: any[];
+  categories?: readonly CategoryCompatibilityInput[];
+}): JerseyGroupSummary =>
+  buildGroupSummary(
+    group,
+    buildSummaryContext({ state, athletes, categories }),
+  );
+
 export const getAthleteJerseyNumberSummary = ({
   athleteId,
   state,
@@ -298,18 +448,17 @@ export const getAthleteJerseyNumberSummary = ({
   groups: NumberingGroup[];
 }) => {
   const groupById = new Map(groups.map((group) => [group.id, group]));
-  const records = getJerseyNumberRecords(state).filter(
-    (record) => record.athleteId === athleteId,
-  );
+  const index = buildJerseyNumberIndex(state);
+  const records = index.byAthleteId.get(athleteId) || [];
+
+  // Prima ogni record rileggeva l'intero stato per cercare i duplicati: con
+  // l'indice il confronto e una lettura di mappa.
   const duplicateRecords = records.filter((record) => {
     if (record.number === null || !record.groupId) return false;
-    const matches = getJerseyNumberRecords(state).filter(
+    return (index.byGroupId.get(record.groupId) || []).some(
       (entry) =>
-        entry.groupId === record.groupId &&
-        entry.number === record.number &&
-        entry.athleteId !== athleteId,
+        entry.number === record.number && entry.athleteId !== athleteId,
     );
-    return matches.length > 0;
   });
 
   return {

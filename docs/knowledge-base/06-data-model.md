@@ -93,6 +93,24 @@ Poiche la colonna e unica, ogni scrittura parziale e un **read-modify-write**:
 
 Definiti in `CLUB_RESOURCE_TYPES` (`src/lib/server/resources.ts`).
 
+### Campi del payload che portano logica (Blocco 5, 2026-08-23)
+
+I payload di `club_resource_items` non hanno schema, ma due campi sono letti
+da moduli applicativi e vanno trattati come parte del contratto:
+
+| Risorsa | Campo | Significato |
+|---|---|---|
+| `categories` | `compatibleCategoryIds: string[]` | categorie in cui gli atleti di questa categoria possono essere utilizzati. Esplicito, orientato, **non transitivo** ([ADR-0030](18-decision-log.md)). Letto da `src/lib/category-compatibility.ts`. |
+| `jersey_groups` | `includeCompatibleCategories: boolean` | se il gruppo numerazione accoglie anche gli atleti eleggibili per compatibilita. Default `false`. |
+
+L'eleggibilita per compatibilita **non e persistita**: si calcola a ogni
+lettura. Le appartenenze reali restano in `athlete_category_memberships`, che
+resta l'unica sorgente di «questo atleta e in questa categoria».
+
+I riferimenti dentro `compatibleCategoryIds` possono essere id o nomi:
+`buildCategoryCompatibilityIndex` li risolve senza distinguere maiuscole,
+perche i dati storici mescolano le due forme.
+
 ## La doppia scrittura club_resource_items ⇄ clubs.<json>
 
 `CLUB_JSON_FIELDS` = tutti i tipi sopra **tranne `access_tokens`**, piu

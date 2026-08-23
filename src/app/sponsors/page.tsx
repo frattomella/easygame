@@ -53,6 +53,7 @@ import {
   deleteClubDataItem,
 } from "@/lib/simplified-db";
 import { useRouter } from "next/navigation";
+import { sortByName } from "@/lib/sorting";
 
 const SPONSOR_TYPE_OPTIONS = [
   { value: "sponsor", label: "Sponsor" },
@@ -251,7 +252,7 @@ export default function SponsorsPage() {
   // Filter sponsors based on search query and type
   const filteredSponsors = React.useMemo(() => {
     if (!Array.isArray(sponsors) || sponsors.length === 0) return [];
-    return sponsors.filter((sponsor) => {
+    return sortByName(sponsors, (sponsor) => sponsor?.name).filter((sponsor) => {
       if (!sponsor || typeof sponsor !== "object") return false;
       const name = sponsor.name || "";
       const email = sponsor.email || "";

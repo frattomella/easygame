@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 249 test, 28 file
+## Cosa e coperto oggi — 280 test, 32 file
 
 | File | Test | Copre |
 |------|------|-------|
@@ -75,6 +75,10 @@ endpoint nuovo che dimentica il controllo.
 | `tests/lib/club-profile-autosave.test.mjs` | 6 | **Quali sezioni possono salvarsi da sole**, e che una sezione in autosave non scriva IBAN, dati fiscali, stagioni o listini |
 | `tests/server/anagrafica-validation.test.mjs` | 10 | Validazione anagrafica lato server, con l'eccezione esplicita per i dati gia in archivio |
 | `tests/ui/brand-and-chrome.test.mjs` | 11 | Marchio senza dipendenze esterne, topbar senza chat/azioni rapide/assistenza, console di piattaforma separata dal club, modali che stanno nello schermo, font self-hosted |
+| `tests/lib/sorting.test.mjs` | 8 | Comparatore nominale unico: maiuscole ignorate, numeri ordinati da numeri, valori vuoti in fondo, stabilita, Cognome poi Nome per le persone |
+| `tests/lib/category-compatibility.test.mjs` | 8 | Compatibilita **esplicita, orientata e non transitiva**; categorie personalizzate e riferimenti per nome; primaria, appartenenze ed eleggibilita restano insiemi distinti |
+| `tests/lib/jersey-numbering-groups.test.mjs` | 10 | Atleti che rientrano nel gruppo con la categoria registrata solo per nome, nome atleta non duplicato, righe ordinate, numeri duplicati e riservati, indice costruito in una passata |
+| `tests/lib/numbering-group-persistence.test.mjs` | 5 | I gruppi e la compatibilita sopravvivono al giro serializza/normalizza, compresi i numeri riservati salvati come numeri |
 | `tests/ui/account-onboarding-and-admin.test.mjs` | 9 | Home account senza tavolozza propria e con i tre stati distinti, area onboarding protetta e saltabile, import con avanzamento reale e riepilogo, IMAP separato da SMTP nella console |
 
 ## Isolamento multi-tenant: cosa dimostrano i test

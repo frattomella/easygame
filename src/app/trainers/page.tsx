@@ -47,6 +47,7 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 import { deleteClubTrainer, getClubTrainers } from "@/lib/simplified-db";
+import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface Trainer {
@@ -158,7 +159,7 @@ export default function TrainersPage() {
   };
 
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-  const filteredTrainers = trainers.filter((trainer) => {
+  const filteredTrainers = sortPeopleByLastName(trainers).filter((trainer) => {
     const trainerCategories = Array.isArray(trainer?.categories)
       ? trainer.categories
       : [];

@@ -47,6 +47,7 @@ Classificazione:
 | Sponsor | COMPLETE | Lista, dettaglio, pagamenti sponsor |
 | Strutture e campi | COMPLETE | `/structures`, orari di apertura, prenotazioni |
 | Categorie | COMPLETE | `/categories`, statistiche atleti per categoria. Il secondo anno di nascita e facoltativo: una categoria puo coprire un solo anno |
+| Compatibilita fra categorie | COMPLETE | Configurazione esplicita per categoria (`compatibleCategoryIds`), orientata e non transitiva ([ADR-0030](18-decision-log.md)). Consumata oggi dai gruppi numerazione; non crea appartenenze |
 | Stagioni sportive | PARTIAL | `clubs.settings.seasons`, `/organization`. Il filtro e applicato dal server su `x-active-season-id`; **manca il riporto** di categorie e piani da una stagione all'altra (WP-35) |
 
 ## Attivita sportiva
@@ -99,7 +100,8 @@ Classificazione:
 
 | Capability | Stato | Note |
 |-----------|-------|------|
-| Kit, prodotti, inventario | COMPLETE | `/clothing` (4.082 righe), `clothing_*` |
+| Kit, prodotti, inventario | COMPLETE | `/clothing`, `clothing_*` |
+| Gruppi numerazione | COMPLETE | `jersey_groups`, `jersey-numbering-utils.ts`. Schede chiuse di default, ricerca e paginazione interne; le righe dichiarano perche l'atleta e nel gruppo (`primary`/`secondary`/`compatible`/`external`) |
 | Assegnazioni kit | COMPLETE | `/api/clothing/assignments`, `kit_assignments` |
 | Ordine fornitore PDF | COMPLETE | `clothing-supplier-order-pdf.ts` |
 

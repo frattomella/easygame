@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
+import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
+import { sortByName } from "@/lib/sorting";
 import {
   BarChart3,
   Building2,
@@ -343,11 +345,12 @@ export default function PlatformAdminPage() {
 
   const filteredUsers = useMemo(() => {
     const normalized = search.trim().toLowerCase();
+    const orderedUsers = sortPeopleByLastName(overview?.users || []);
     if (!normalized) {
-      return overview?.users || [];
+      return orderedUsers;
     }
 
-    return (overview?.users || []).filter((item) =>
+    return orderedUsers.filter((item) =>
       [item.email, item.first_name, item.last_name, item.role]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalized)),
@@ -356,11 +359,12 @@ export default function PlatformAdminPage() {
 
   const filteredClubs = useMemo(() => {
     const normalized = search.trim().toLowerCase();
+    const orderedClubs = sortByName(overview?.clubs || [], (item) => item.name);
     if (!normalized) {
-      return overview?.clubs || [];
+      return orderedClubs;
     }
 
-    return (overview?.clubs || []).filter((item) =>
+    return orderedClubs.filter((item) =>
       [item.name, item.city, item.contact_email, item.contact_phone]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalized)),

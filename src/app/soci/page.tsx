@@ -43,7 +43,10 @@ import {
 } from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
+import {
+  comparePeopleByLastName,
+  formatPersonNameLastFirst,
+} from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface Socio {
@@ -190,21 +193,7 @@ export default function SociPage() {
               club_id: clubId,
             };
           })
-          .sort((left: Socio, right: Socio) =>
-            formatPersonNameLastFirst({
-              firstName: left.firstName,
-              lastName: left.lastName,
-              name: left.name,
-            }).localeCompare(
-              formatPersonNameLastFirst({
-                firstName: right.firstName,
-                lastName: right.lastName,
-                name: right.name,
-              }),
-              "it",
-              { sensitivity: "base" },
-            ),
-          );
+          .sort(comparePeopleByLastName);
 
         setSoci(transformedData);
       } catch (error) {

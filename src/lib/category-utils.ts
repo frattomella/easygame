@@ -3,6 +3,7 @@ import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
 } from "./athlete-category-memberships";
+import { readCategoryCompatibilityList } from "./category-compatibility";
 
 type CategoryLike = {
   id?: string | null;
@@ -19,6 +20,14 @@ export type NormalizedCategoryOption = {
   id: string;
   name: string;
   color?: string | null;
+  /**
+   * Categorie in cui gli atleti di questa categoria possono essere utilizzati.
+   * Viaggia insieme all'opzione perche chi costruisce l'elenco categorie e
+   * anche chi poi deve valutare la compatibilita (gruppi numerazione): senza
+   * di essa la configurazione andrebbe persa nella normalizzazione.
+   * Vedi `@/lib/category-compatibility`.
+   */
+  compatibleCategoryIds: string[];
 };
 
 const YEAR_PATTERN = /(\d{4})\D+(\d{4})/;
@@ -72,6 +81,7 @@ const toCategoryOption = (
     id: id || name,
     name: name || id || "Categoria",
     color,
+    compatibleCategoryIds: readCategoryCompatibilityList(value as any),
   };
 };
 
@@ -91,6 +101,7 @@ const collectCategoryOptions = (
         id: entry,
         name: entry,
         color: null,
+        compatibleCategoryIds: [],
       }));
   }
 
@@ -140,6 +151,7 @@ const collectCategoryOptions = (
               id: fallbackId,
               name,
               color: null,
+              compatibleCategoryIds: [],
             },
           ]
         : [];
@@ -206,6 +218,15 @@ const mergeCategoryOption = (
       candidate.id,
     name: current.name || candidate.name || current.id || candidate.id,
     color: current.color ?? candidate.color ?? null,
+    // La compatibilita e configurata solo sull'anagrafica categorie: quando la
+    // stessa categoria arriva da piu fonti si tiene l'unione, cosi non dipende
+    // da quale fonte e stata letta per prima.
+    compatibleCategoryIds: Array.from(
+      new Set([
+        ...(current.compatibleCategoryIds || []),
+        ...(candidate.compatibleCategoryIds || []),
+      ]),
+    ),
   };
 };
 
@@ -218,6 +239,7 @@ const deriveCategoryFromAthlete = (
       id: primaryMembership.categoryId,
       name: primaryMembership.categoryName,
       color: null,
+      compatibleCategoryIds: [],
     };
   }
 
@@ -246,6 +268,7 @@ const deriveCategoryFromAthlete = (
     id: id || fallback || name,
     name: name || fallback || id || "Categoria",
     color: null,
+    compatibleCategoryIds: [],
   };
 };
 
@@ -322,6 +345,7 @@ export function buildClubCategoryOptions({
           id: membership.categoryId,
           name: membership.categoryName,
           color: null,
+          compatibleCategoryIds: [],
         }),
       );
 

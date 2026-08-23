@@ -1,3 +1,5 @@
+import { compareNameValueLists, sortByNameKeys } from "./sorting";
+
 export type AthleteNameLike = {
   first_name?: string | null;
   last_name?: string | null;
@@ -86,38 +88,49 @@ export const getAthleteDisplayName = (athlete: unknown) => {
   return "Atleta";
 };
 
-export const compareAthletesByLastName = (left: unknown, right: unknown) => {
-  const leftLastName = getAthleteLastName(left);
-  const rightLastName = getAthleteLastName(right);
-  const surnameComparison = leftLastName.localeCompare(rightLastName, "it", {
-    sensitivity: "base",
-  });
-
-  if (surnameComparison !== 0) {
-    return surnameComparison;
-  }
-
-  const leftFirstName = getAthleteFirstName(left);
-  const rightFirstName = getAthleteFirstName(right);
-  const firstNameComparison = leftFirstName.localeCompare(
-    rightFirstName,
-    "it",
-    {
-      sensitivity: "base",
-    },
+/**
+ * Criterio unico per ordinare le persone in tutta la Web App: **Cognome poi
+ * Nome**, case-insensitive e stabile.
+ *
+ * Quando un record non espone cognome e nome separati (succede per allenatori
+ * e staff salvati con il solo campo `name`) si ricade sull'etichetta di
+ * visualizzazione: e l'unico dato disponibile e non sarebbe lecito indovinare
+ * dove finisca il cognome.
+ *
+ * Il confronto passa da `@/lib/sorting`: un solo collator per tutti gli
+ * elenchi dell'applicazione.
+ */
+export const compareAthletesByLastName = (left: unknown, right: unknown) =>
+  compareNameValueLists(
+    [
+      getAthleteLastName(left),
+      getAthleteFirstName(left),
+      getAthleteDisplayName(left),
+    ],
+    [
+      getAthleteLastName(right),
+      getAthleteFirstName(right),
+      getAthleteDisplayName(right),
+    ],
   );
 
-  if (firstNameComparison !== 0) {
-    return firstNameComparison;
-  }
+/**
+ * Alias esplicito di `compareAthletesByLastName` per gli elenchi di persone
+ * che non sono atleti (allenatori, staff, soci, utenti).
+ */
+export const comparePeopleByLastName = compareAthletesByLastName;
 
-  const leftDisplayName = getAthleteDisplayName(left);
-  const rightDisplayName = getAthleteDisplayName(right);
-
-  return leftDisplayName.localeCompare(rightDisplayName, "it", {
-    sensitivity: "base",
-  });
-};
+/**
+ * Ordina una collezione di persone per Cognome → Nome senza mutarla.
+ */
+export const sortPeopleByLastName = <T>(
+  people: readonly T[] | null | undefined,
+): T[] =>
+  sortByNameKeys(people, (person) => [
+    getAthleteLastName(person),
+    getAthleteFirstName(person),
+    getAthleteDisplayName(person),
+  ]);
 
 export const getAthleteSearchText = (athlete: AthleteNameLike) => {
   const firstName = cleanNamePart(athlete.first_name ?? athlete.firstName);

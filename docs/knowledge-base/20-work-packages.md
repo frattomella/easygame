@@ -833,6 +833,99 @@ separati, nessuna libreria IMAP nuova.
 
 ---
 
+### WP-44 · Gruppi numerazione, compatibilita categorie e ordinamento — `DONE` (2026-08-23)
+
+**Obiettivo.** Rendere affidabile il flusso abbigliamento/numerazione, dare un
+modello esplicito alla compatibilita fra categorie e dare a tutta la Web App un
+solo ordinamento nominale.
+
+**Cause radice individuate.**
+
+1. **Atleti assenti dai gruppi.** `jersey-numbering-utils.ts` aveva una lettura
+   privata delle categorie dell'atleta: confrontava le stringhe **rispettando
+   le maiuscole** (`normalizeText` faceva solo `trim`), leggeva
+   `categoryMemberships` ma non `category_memberships`, e leggeva
+   `membership.categoryName` ma non `membership.category_name` — cioe proprio
+   le chiavi con cui l'API serializza le membership. Ogni atleta la cui
+   categoria era registrata in una forma diversa da quella attesa spariva dal
+   gruppo **senza errore**. Il sintomo osservato («le categorie con nomi simili
+   non compaiono») era questo: alcune categorie erano riferite per id, altre
+   per nome, e solo le prime combaciavano.
+2. **Nome atleta stampato due volte.** `getAthleteName` concatenava tutti i
+   campi nome trovati. L'API aggiunge a ogni atleta l'alias
+   `name = "Nome Cognome"` (`withCompatibilityAliases`), quindi l'elenco era
+   `["Mario", "Rossi", "Mario Rossi"]` e usciva «Mario Rossi Mario Rossi».
+3. **Numeri riservati persi al refresh.** `normalizeNumberingGroup` passava
+   `reservedNumbers` e `assignedNumbers` per `normalizeList`, che gestisce
+   array, stringhe e oggetti ma **non i numeri**: un `[10, 12]` gia numerico
+   usciva vuoto a ogni ricaricamento della pagina.
+4. **Costo quadratico.** `getJerseyGroupSummary` era chiamata una volta per
+   gruppo e ognuna rileggeva l'intero stato; `getAthleteJerseyNumberSummary`
+   rileggeva lo stato **una volta per record** per cercare i duplicati.
+5. **Nessun modello di compatibilita.** L'unica relazione atleta-categoria era
+   l'appartenenza: «un U13 puo essere usato in U14» non era esprimibile.
+6. **Ordinamento a macchia di leopardo.** Quattordici `localeCompare` scritti a
+   mano, con locale e opzioni diverse; allenatori, staff, sponsor, strutture,
+   utenti e club della console non erano ordinati affatto.
+
+**Scope.** `src/lib/sorting.ts` (nuovo, comparatore unico);
+`src/lib/category-compatibility.ts` (nuovo, modello di compatibilita);
+riscrittura di `src/lib/jersey-numbering-utils.ts`; scheda gruppi di
+`/clothing` a tendina con ricerca e paginazione; configurazione della
+compatibilita nella scheda categoria; applicazione dell'ordinamento agli
+elenchi nominali.
+
+**Modello adottato.** [ADR-0030](18-decision-log.md): la compatibilita e
+configurata per categoria (`compatibleCategoryIds`), **esplicita**,
+**orientata** e **non transitiva**. Restano separati categoria primaria,
+appartenenze effettive ed eleggibilita per compatibilita; l'eleggibilita non e
+persistita e non fa entrare nessuno in un gruppo se il gruppo non la chiede
+(`includeCompatibleCategories`, default `false`).
+
+**Acceptance criteria.**
+- [x] Un atleta la cui categoria e registrata solo per nome, o con maiuscole
+      diverse, entra nel gruppo giusto
+- [x] Categorie con nomi simili restano gruppi distinti
+- [x] Il nome atleta e stampato una volta sola, come `Cognome Nome`
+- [x] Le schede dei gruppi partono chiuse e si aprono a tendina
+- [x] Ricerca interna al gruppo e limite di righe con «Mostra altri»
+- [x] La compatibilita non e mai dedotta dal nome della categoria e funziona
+      con categorie personalizzate
+- [x] La compatibilita non e transitiva (test dedicato)
+- [x] Gruppi, flag e compatibilita sopravvivono al refresh
+- [x] Ordinamento nominale unico, case-insensitive e stabile, applicato ad
+      atleti, allenatori, staff, soci, utenti, club, categorie, gruppi,
+      sponsor, strutture e catalogo abbigliamento
+
+**Prestazioni.** Riepilogo di tutti i gruppi, 1.000 atleti / 30 categorie /
+3.000 assegnazioni: **34,9 ms → 17,4 ms** (2,0x). Riepilogo numeri di un
+atleta: **2,5 ms → 1,0 ms** (2,5x). Con 400 atleti e 12 gruppi: 7,1 → 5,9 ms.
+A cio si aggiunge il fatto che le tabelle chiuse non vengono renderizzate.
+
+**Aree escluse dall'ordinamento alfabetico.** Date, scadenze, cronologie, rate,
+priorita, classifiche e sequenze configurate a mano: l'ordine vi ha un
+significato funzionale. L'elenco e in
+[10 — UI/UX](10-ui-ux-conventions.md#ordinamento-degli-elenchi-blocco-5-2026-08-23).
+
+**Test.** `tests/lib/sorting.test.mjs` (8),
+`tests/lib/category-compatibility.test.mjs` (8),
+`tests/lib/jersey-numbering-groups.test.mjs` (10),
+`tests/lib/numbering-group-persistence.test.mjs` (5).
+
+**File.** `src/lib/sorting.ts`, `src/lib/category-compatibility.ts`,
+`src/lib/jersey-numbering-utils.ts`, `src/lib/athlete-name-utils.ts`,
+`src/lib/category-utils.ts`, `src/lib/clothing-inventory-utils.ts`,
+`src/app/clothing/page.tsx`, `src/app/categories/page.tsx`,
+`src/components/forms/CategoryEditorDialog.tsx`, `src/app/trainers/page.tsx`,
+`src/app/staff/page.tsx`, `src/app/soci/page.tsx`, `src/app/sponsors/page.tsx`,
+`src/app/structures/page.tsx`,
+`src/app/private/easygame-platform-admin-0c7a/page.tsx`,
+`src/components/account/account-shared.ts`,
+[06](06-data-model.md), [10](10-ui-ux-conventions.md),
+[11](11-capabilities.md), [18](18-decision-log.md).
+
+---
+
 ### WP-35 · Riportare i dati da una stagione all'altra — `READY`
 
 **Obiettivo.** Aprire una stagione nuova senza ricreare tutto a mano.

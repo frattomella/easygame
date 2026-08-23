@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { getAccessRoleLabel, normalizeAccessRole } from "@/lib/access-roles";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
+import { compareNameValues } from "@/lib/sorting";
 
 export const CREATE_CLUB_TABS = [
   { value: "general", label: "Generali" },
@@ -169,11 +170,15 @@ export const getInitials = (value: string) =>
     .map((part) => part.charAt(0).toUpperCase())
     .join("") || "EG";
 
+/**
+ * Il club principale resta in cima - e una priorita funzionale, non un
+ * ordinamento nominale - e tutti gli altri seguono in ordine alfabetico.
+ */
 export const sortClubs = (clubs: AccountClub[]) =>
   [...clubs].sort((left, right) => {
     if (left.isPrimary && !right.isPrimary) return -1;
     if (!left.isPrimary && right.isPrimary) return 1;
-    return left.name.localeCompare(right.name);
+    return compareNameValues(left.name, right.name);
   });
 
 export const createFederationItem = (): FederationItem => ({

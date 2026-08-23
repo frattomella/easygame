@@ -87,6 +87,12 @@ export type NumberingGroup = {
   id: string;
   name: string;
   categoryIds: string[];
+  /**
+   * Se true il gruppo accoglie anche gli atleti che le sue categorie
+   * dichiarano compatibili (vedi `category-compatibility`). Resta false di
+   * default: l'eleggibilita non e un'appartenenza e va richiesta.
+   */
+  includeCompatibleCategories: boolean;
   season?: string;
   minNumber: number;
   maxNumber: number;
@@ -267,6 +273,36 @@ const toNumber = (value: unknown, fallback = 0) => {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+/**
+ * Elenco di numeri tollerante alle forme in cui puo essere salvato: array di
+ * numeri, array di stringhe, stringa separata da virgole.
+ *
+ * Serviva un normalizzatore dedicato: `normalizeList` tratta solo array,
+ * stringhe e oggetti, quindi un `[10, 12]` gia numerico usciva vuoto e i
+ * numeri riservati di un gruppo sparivano al ricaricamento della pagina.
+ */
+const normalizeNumberList = (value: unknown): number[] => {
+  const collect = (entry: unknown): number[] => {
+    if (Array.isArray(entry)) {
+      return entry.flatMap(collect);
+    }
+
+    if (typeof entry === "string") {
+      // Le parti si convertono qui, senza ricorsione: una stringa che non
+      // contiene virgole si ridarebbe a se stessa all'infinito.
+      return entry
+        .split(",")
+        .map((part) => toOptionalNumber(part.trim()))
+        .filter((value): value is number => value !== null);
+    }
+
+    const parsed = toOptionalNumber(entry);
+    return parsed === null ? [] : [parsed];
+  };
+
+  return Array.from(new Set(collect(value)));
 };
 
 const toOptionalNumber = (value: unknown) => {
@@ -618,15 +654,20 @@ export const normalizeNumberingGroup = (group: any): NumberingGroup => ({
   id: firstString(group?.id, group?.groupId) || makeId("group"),
   name: firstString(group?.name, group?.title, "Gruppo numerazione"),
   categoryIds: normalizeList(group?.categoryIds ?? group?.categories),
+  includeCompatibleCategories: Boolean(
+    group?.includeCompatibleCategories ??
+      group?.include_compatible_categories ??
+      group?.includeCompatible,
+  ),
   season: firstString(group?.season),
   minNumber: toNumber(group?.minNumber ?? group?.min_number, 0),
   maxNumber: toNumber(group?.maxNumber ?? group?.max_number, 99),
-  reservedNumbers: normalizeList(group?.reservedNumbers ?? group?.reserved_numbers)
-    .map((value) => toOptionalNumber(value))
-    .filter((value): value is number => value !== null),
-  assignedNumbers: normalizeList(group?.assignedNumbers ?? group?.assigned_numbers)
-    .map((value) => toOptionalNumber(value))
-    .filter((value): value is number => value !== null),
+  reservedNumbers: normalizeNumberList(
+    group?.reservedNumbers ?? group?.reserved_numbers,
+  ),
+  assignedNumbers: normalizeNumberList(
+    group?.assignedNumbers ?? group?.assigned_numbers,
+  ),
   raw: group,
 });
 
@@ -914,6 +955,7 @@ export const serializeNumberingGroup = (group: NumberingGroup) => ({
   name: group.name,
   categories: group.categoryIds,
   categoryIds: group.categoryIds,
+  includeCompatibleCategories: group.includeCompatibleCategories,
   season: group.season || "",
   minNumber: group.minNumber,
   maxNumber: group.maxNumber,

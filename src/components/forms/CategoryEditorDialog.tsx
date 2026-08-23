@@ -2,6 +2,8 @@
 
 import React, { useState } from "react";
 import { normalizeCategoryBirthYears } from "@/lib/category-utils";
+import { readCategoryCompatibilityList } from "@/lib/category-compatibility";
+import { sortByName } from "@/lib/sorting";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +28,15 @@ interface CategoryEditorDialogProps {
     name: string;
   }[];
   initialAssignedTrainerIds?: string[];
+  /**
+   * Le altre categorie del club, per configurare la compatibilita. La
+   * categoria in modifica viene esclusa: non ha senso dichiararla compatibile
+   * con se stessa.
+   */
+  availableCategories?: {
+    id: string;
+    name: string;
+  }[];
 }
 
 const getInitialFormState = (
@@ -41,6 +52,7 @@ const getInitialFormState = (
     birthYearTo: birthYears.birthYearTo?.toString() || "",
     color: initialData?.color || "bg-blue-500 text-white",
     assignedTrainerIds: initialAssignedTrainerIds,
+    compatibleCategoryIds: readCategoryCompatibilityList(initialData),
   };
 };
 
@@ -52,6 +64,7 @@ export function CategoryEditorDialog({
   isEditing = false,
   availableTrainers = [],
   initialAssignedTrainerIds = [],
+  availableCategories = [],
 }: CategoryEditorDialogProps) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState(
@@ -78,6 +91,26 @@ export function CategoryEditorDialog({
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const compatibilityOptions = React.useMemo(
+    () =>
+      sortByName(
+        availableCategories.filter(
+          (category) => category.id && category.id !== initialData?.id,
+        ),
+        (category) => category.name,
+      ),
+    [availableCategories, initialData?.id],
+  );
+
+  const handleCompatibleCategoryToggle = (categoryId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      compatibleCategoryIds: prev.compatibleCategoryIds.includes(categoryId)
+        ? prev.compatibleCategoryIds.filter((id: string) => id !== categoryId)
+        : [...prev.compatibleCategoryIds, categoryId],
+    }));
   };
 
   const handleTrainerToggle = (trainerId: string) => {
@@ -146,6 +179,7 @@ export function CategoryEditorDialog({
         trainersCount: initialData?.trainersCount || 0,
         trainingsPerWeek: initialData?.trainingsPerWeek || 0,
         assignedTrainerIds: formData.assignedTrainerIds,
+        compatibleCategoryIds: formData.compatibleCategoryIds,
       });
 
       if (result === false) {
@@ -293,6 +327,52 @@ export function CategoryEditorDialog({
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <Label>Categorie compatibili</Label>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Gli atleti di questa categoria possono essere utilizzati anche
+              nelle categorie selezionate. La relazione va dichiarata in modo
+              esplicito, non viene dedotta dal nome o dagli anni di nascita, e
+              non e transitiva: se selezioni Under 14, gli atleti non diventano
+              utilizzabili anche nelle categorie compatibili di Under 14.
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              La categoria principale degli atleti non cambia: restano iscritti
+              qui.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-border bg-muted/30 p-4">
+            {compatibilityOptions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nessun&apos;altra categoria configurata nel club.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {compatibilityOptions.map((category) => {
+                  const selected = formData.compatibleCategoryIds.includes(
+                    category.id,
+                  );
+
+                  return (
+                    <Button
+                      key={category.id}
+                      type="button"
+                      variant={selected ? "default" : "outline"}
+                      size="sm"
+                      className={selected ? "bg-blue-600 hover:bg-blue-700" : ""}
+                      onClick={() => handleCompatibleCategoryToggle(category.id)}
+                    >
+                      {category.name}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-3">

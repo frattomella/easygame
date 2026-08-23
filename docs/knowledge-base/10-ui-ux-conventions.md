@@ -222,6 +222,51 @@ il modo piu veloce per far pensare a un utente che i suoi dati sono spariti.
   della maggior parte dei warning ESLint. Per il codice nuovo preferisci
   `next/image` quando l'immagine e statica e di dimensione nota.
 
+## Ordinamento degli elenchi (Blocco 5, 2026-08-23)
+
+Un solo comparatore per tutta la Web App: `src/lib/sorting.ts`.
+**Non riscrivere `localeCompare` in una pagina.**
+
+| Cosa | Helper | Modulo |
+|---|---|---|
+| Persone (atleti, allenatori, staff, soci, utenti) | `sortPeopleByLastName`, `comparePeopleByLastName` | `@/lib/athlete-name-utils` |
+| Entita con un nome (categorie, gruppi, club, sponsor, strutture, articoli) | `sortByName`, `compareNameValues` | `@/lib/sorting` |
+| Piu chiavi in cascata | `sortByNameKeys`, `compareNameValueLists` | `@/lib/sorting` |
+
+Il confronto e italiano, case-insensitive (`sensitivity: "base"`), numerico
+(«Under 9» precede «Under 10»), con i valori vuoti in fondo e **stabile**: due
+nomi che differiscono solo per maiuscole o accenti restano nell'ordine di
+partenza, cosi le chiavi successive (il nome dopo il cognome) possono decidere.
+
+**Criterio unico per le persone: `Cognome` poi `Nome`.** Quando un record ha un
+solo campo `name` (succede per allenatori e staff) si ricade sull'etichetta
+completa: non si indovina dove finisca il cognome dentro un campo unico.
+
+### Dove l'ordinamento alfabetico NON va applicato
+
+Elenchi in cui l'ordine ha un significato funzionale. Applicarvi l'alfabetico e
+una regressione:
+
+- date, scadenze, cronologie, storici (`compareTrainingsByStart`,
+  `createdAt` decrescente);
+- rate e piani di pagamento: contano numero e scadenza;
+- classifiche e priorita (avvisi certificati, alert);
+- sequenze configurate a mano (voci di navigazione, opzioni di permesso,
+  componenti di un kit, orario settimanale);
+- il club principale in cima all'elenco club: e una priorita, non un ordine
+  nominale — gli altri club seguono in alfabetico.
+
+## Elenchi lunghi: chiusi di default (Blocco 5, 2026-08-23)
+
+Quando una pagina mostra **N schede ognuna con la propria tabella** — oggi i
+gruppi numerazione in `/clothing` — le schede partono **chiuse** e si aprono a
+tendina (`Collapsible`). L'intestazione mostra i numeri che servono a decidere
+se aprire (quanti atleti, quanti senza numero, quanti duplicati).
+
+Dentro la scheda aperta: un campo di ricerca e un limite di righe con «Mostra
+altri». Con centinaia di atleti la tabella completa costava piu del resto della
+pagina, e nessuno la leggeva tutta.
+
 ## Form
 
 Non c'e uno standard unico:

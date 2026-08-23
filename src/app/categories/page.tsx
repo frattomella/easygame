@@ -38,6 +38,8 @@ import {
   formatCategoryBirthYears,
   normalizeCategoryBirthYears,
 } from "@/lib/category-utils";
+import { readCategoryCompatibilityList } from "@/lib/category-compatibility";
+import { sortByName } from "@/lib/sorting";
 import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
@@ -76,6 +78,11 @@ interface Category {
   trainersCount: number;
   trainingsPerWeek: number;
   color: string;
+  /**
+   * Categorie in cui gli atleti di questa categoria possono essere utilizzati.
+   * Configurazione esplicita, vedi `@/lib/category-compatibility`.
+   */
+  compatibleCategoryIds: string[];
 }
 
 type CategoryDialogAthlete = {
@@ -425,6 +432,7 @@ const buildCategoryViewModel = (
       activeSeasonId,
     ),
     color: rawCategory.color || "bg-blue-500 text-white",
+    compatibleCategoryIds: readCategoryCompatibilityList(rawCategory),
   };
 };
 
@@ -673,6 +681,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
         birthYearFrom,
         birthYearTo,
         color: categoryData.color || "bg-blue-500 text-white",
+        compatibleCategoryIds: readCategoryCompatibilityList(categoryData),
       };
 
       const { data, error } = await supabase.from("categories").upsert(payload);
@@ -901,10 +910,13 @@ const buildDialogAthletesForCategory = (category: Category) =>
     }
   };
 
-  const filteredCategories = categories.filter(
-    (category) =>
-      category.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      category.sport.toLowerCase().includes(searchQuery.toLowerCase()),
+  const filteredCategories = sortByName(
+    categories.filter(
+      (category) =>
+        category.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        category.sport.toLowerCase().includes(searchQuery.toLowerCase()),
+    ),
+    (category) => category.name,
   );
 
   return (
@@ -1123,9 +1135,16 @@ const buildDialogAthletesForCategory = (category: Category) =>
         onSubmit={handleAddCategory}
         initialData={editingCategory ? selectedCategory : undefined}
         isEditing={editingCategory}
-        availableTrainers={clubTrainers.map((trainer) => ({
-          id: trainer.id,
-          name: getTrainerDisplayName(trainer),
+        availableTrainers={sortByName(
+          clubTrainers.map((trainer) => ({
+            id: trainer.id,
+            name: getTrainerDisplayName(trainer),
+          })),
+          (trainer) => trainer.name,
+        )}
+        availableCategories={categories.map((category) => ({
+          id: category.id,
+          name: category.name,
         }))}
         initialAssignedTrainerIds={
           editingCategory && selectedCategory

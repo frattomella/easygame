@@ -45,6 +45,8 @@ import {
 } from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
+import { sortByName } from "@/lib/sorting";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface StaffMember {
@@ -109,9 +111,7 @@ const mergeDepartments = (
     }
   });
 
-  return Array.from(byName.values()).sort((left, right) =>
-    left.name.localeCompare(right.name, "it", { sensitivity: "base" }),
-  );
+  return sortByName(Array.from(byName.values()), (item) => item.name);
 };
 
 const getDepartmentBadgeClassName = (department?: Department) =>
@@ -278,12 +278,12 @@ export default function StaffPage() {
 
     if (!normalizedDepartment.name) return;
 
-    const nextDepartments = departments
-      .filter((item) => item.id !== normalizedDepartment.id)
-      .concat(normalizedDepartment)
-      .sort((left, right) =>
-        left.name.localeCompare(right.name, "it", { sensitivity: "base" }),
-      );
+    const nextDepartments = sortByName(
+      departments
+        .filter((item) => item.id !== normalizedDepartment.id)
+        .concat(normalizedDepartment),
+      (item) => item.name,
+    );
 
     setDepartments(nextDepartments);
 
@@ -322,14 +322,15 @@ export default function StaffPage() {
     }
   };
 
-  const filteredStaffMembers =
+  const filteredStaffMembers = sortPeopleByLastName(
     departmentFilter === "all"
       ? staffMembers
       : staffMembers.filter(
           (member) =>
             normalizeDepartmentName(member.department).toLowerCase() ===
             departmentFilter.toLowerCase(),
-        );
+        ),
+  );
   const staffCountsByDepartment = staffMembers.reduce<Record<string, number>>(
     (counts, member) => {
       const key = normalizeDepartmentName(member.department).toLowerCase();
