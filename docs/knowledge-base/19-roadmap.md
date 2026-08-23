@@ -14,7 +14,7 @@ I lavori concreti sono in [20 — Work Package](20-work-packages.md).
 
 ```
 F1  Fondamenta        →  F2  Stabilizzazione Web V1  →  F3  Completamento
-     (WP-01..WP-06, WP-09)     (WP-07..WP-12, WP-31..WP-34)      (WP-13..WP-16)
+     (WP-01..WP-06, WP-09)     (WP-07..WP-12, WP-31..WP-43)      (WP-13..WP-16)
                                                                  ↓
                                                      F5  Production readiness
                                                           (WP-26..WP-29)
@@ -54,6 +54,15 @@ la fase assorbe anche i difetti che colpiscono l'uso quotidiano del Web:
 performance delle liste grandi (WP-31), consistenza di stagioni e risorse club
 (WP-32), correttezza del dominio pagamenti (WP-33) e responsivita verificata
 (WP-34).
+
+Il lavoro procede a **blocchi**, ognuno chiuso da un commit con i gate verdi:
+
+| Blocco | Contenuto | WP |
+|--------|-----------|-----|
+| 1 | Performance, stagioni, pagamenti | WP-31, WP-32, WP-33 |
+| 2 | Costo delle scritture e autosave | WP-36 |
+| 3 | Identita visiva, topbar, console di piattaforma, responsivita sistemica | WP-37, WP-34 |
+| 4 | Account, onboarding, produttivita gestionale | WP-38, WP-39, WP-40, WP-41, WP-42, WP-43 |
 
 **Criterio di uscita:** le regole di business critiche (permessi, scoping,
 calcoli economici) sono applicate server-side e coperte da test; la pagina

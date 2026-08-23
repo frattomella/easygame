@@ -37,6 +37,7 @@ const PROTECTED_PREFIXES = [
   "/modulistica",
   "/movements",
   "/notifications",
+  "/onboarding",
   "/organization",
   "/parent-view",
   "/payments",

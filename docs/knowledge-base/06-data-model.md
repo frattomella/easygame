@@ -23,7 +23,8 @@ ovunque.
 | `ExternalAccount` | `external_accounts` | Account OAuth collegati. Unique `(provider, provider_account_id)` |
 | `AuthVerificationChallenge` | `auth_verification_challenges` | OTP email/telefono: `code_hash`, `expires_at`, `attempts`, `consumed_at` |
 | `AuthRateLimitBucket` | `auth_rate_limit_buckets` | Contatori rate limit, chiave = hash SHA-256 di scope+identita |
-| `EmailProviderConfig` | `email_provider_configs` | Configurazione SMTP unica, password cifrata (`password_ciphertext` + `iv` + `tag`) |
+| `EmailProviderConfig` | `email_provider_configs` | Configurazione SMTP unica, password cifrata (`password_ciphertext` + `iv` + `tag`). CHECK `provider = 'smtp'` |
+| `ImapProviderConfig` | `imap_provider_configs` | Configurazione IMAP unica, password cifrata con contesto crittografico **separato** da SMTP. Nessun mittente: la posta si legge, non si invia |
 
 ### Tenant
 
@@ -32,6 +33,25 @@ ovunque.
 | `Club` | `clubs` | Il tenant. `slug` unique, `creator_id -> users.id`. Dati anagrafici, fiscali e bancari in colonne dedicate. **~35 colonne `Json?`** di mirroring (vedi sotto). |
 | `Dashboard` | `dashboards` | Dashboard configurabili per club |
 | `OrganizationUser` | `organization_users` | Membership. Unique `(organization_id, user_id, role)`: **piu ruoli per utente nello stesso club sono ammessi**. `is_primary` marca il default. |
+
+#### `clubs.settings` — chiavi note
+
+`settings` e una sola colonna JSON e raccoglie tutto cio che non ha una
+colonna dedicata. Le chiavi con un significato per il codice:
+
+| Chiave | Scritta da | Significato |
+|--------|------------|-------------|
+| `seasons`, `activeSeasonId` | scheda Club → Stagioni | Perimetro dei dati visibili (WP-32) |
+| `paymentSettings`, `subscription`, `extraServices` | scheda Club → Pagamenti | Listini e abbonamento |
+| `types`, `sports`, `foundingYear` | scheda Club → Generale | Descrittivi, in autosave |
+| `contact1*`, `contact2*`, `companyEmail`, `companyPec` | scheda Club → Contatti | Recapiti, in autosave |
+| `website`, `facebook`, `instagram`, `twitter`, `youtube` | scheda Club → Social | Link pubblici, in autosave |
+| `federations` | scheda Club → Federazione | Affiliazioni |
+| `onboarding` | `/onboarding` (Blocco 4) | Stato della configurazione iniziale: `status`, `completedSteps`, date. Vedi `src/lib/onboarding.ts` |
+
+Poiche la colonna e unica, ogni scrittura parziale e un **read-modify-write**:
+`patchClubSettings` in `src/lib/club-profile.ts` rilegge la sola colonna
+`settings` prima di riscriverla, per non azzerare le chiavi che non tocca.
 
 ### Dominio sportivo
 
@@ -139,10 +159,31 @@ applicativo**.
 | `20260821120000_auth_rate_limits` | `auth_rate_limit_buckets` |
 | `20260821160000_email_provider_config` | `email_provider_configs` |
 | `20260822180000_audit_log` | `audit_logs` |
+| `20260823090000_imap_provider_config` | `imap_provider_configs` |
 
 Stato verificato su Neon staging il 2026-08-22:
 `npx prisma migrate status` → **Database schema is up to date**. La settima
-(`audit_logs`) viene applicata al primo deploy.
+(`audit_logs`) e l'ottava (`imap_provider_configs`) vengono applicate al
+deploy successivo, da `prisma migrate deploy` nel comando `vercel-build`.
+
+La migrazione `20260823090000_imap_provider_config` e stata **scritta a mano**,
+nello stesso stile di `20260821160000_email_provider_config`: in locale
+`prisma migrate dev` e bloccato dalla guardia di `scripts/db-guard.mjs`
+(sezione 8 di `CLAUDE.md`) e non e stata chiesta autorizzazione a scrivere sul
+database.
+
+Verifica eseguita senza toccare nessun database:
+
+```bash
+npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script
+```
+
+Il `CREATE TABLE "imap_provider_configs"` generato da Prisma coincide colonna
+per colonna con quello scritto a mano. Le due `CHECK` aggiuntive (intervallo
+della porta, valori ammessi di `security_mode`) non sono nel modello Prisma —
+esattamente come le tre di `email_provider_configs` — e rientrano nello stesso
+drift cosmetico gia documentato: sono vincoli che il database applica e
+l'applicazione rispetta.
 
 ### Drift noto e benigno
 

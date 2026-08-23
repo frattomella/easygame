@@ -532,3 +532,171 @@ tablet e smartphone.
   [16 — Debito tecnico](16-technical-debt.md).
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0026 — L'autosave si applica per sezione, e la classificazione e codice
+
+**Data:** 2026-08-23
+
+**Contesto.** La scheda Club ha nove schede e **un solo** pulsante «Salva
+Modifiche», in fondo alla pagina. Chi cambia un recapito e passa ad altro perde
+la modifica; chi non nota il pulsante lo perde sempre. Estendere l'autosave a
+tutta la pagina pero non e accettabile: la stessa maschera contiene l'IBAN
+degli incassi, i listini delle quote, le affiliazioni federali (che si possono
+rimuovere) e la stagione attiva, che dal Blocco 2 decide **quali dati esistono**
+per il resto dell'applicazione.
+
+**Decisione.** L'autosave si concede **per sezione**, non per pagina, e solo
+alle sezioni descrittive: Generale, Contatti, Social. Restano a conferma
+esplicita Dati Fiscali, Dati Bancari, Federazione, Stagioni, Pagamenti e
+Account/Fatturazione.
+
+La classificazione **non e una convenzione da ricordare**: vive in
+`src/lib/club-profile.ts` come dato, con la motivazione di ogni sezione
+accanto, e `buildClubProfileSectionUpdate` restituisce un oggetto vuoto per le
+sezioni non in autosave. Un test verifica che una sezione in autosave non possa
+scrivere IBAN, dati fiscali, stagioni o listini.
+
+Ogni autosave deve avere tutte e tre le cose: debounce, accorpamento
+(`createCoalescingSaver`, WP-36) e stato visibile (`SaveStatus`).
+
+**Conseguenze.**
+
+- Sulle schede in autosave il pulsante «Salva» sparisce, **tranne** quando ci
+  sono modifiche pendenti in una sezione a conferma esplicita: in quel caso
+  resta, con un avviso. Altrimenti cambiare scheda le farebbe perdere in
+  silenzio.
+- `clubs.settings` e una colonna JSON unica: una scrittura parziale e sempre un
+  read-modify-write. `saveClubProfileSection` rilegge la sola colonna
+  `settings`, e solo quando la sezione la tocca davvero.
+- Aggiungere una sezione alla scheda Club obbliga a dichiararne la natura in
+  `CLUB_PROFILE_SECTIONS`. E il punto: la domanda «questa si puo salvare da
+  sola?» diventa impossibile da saltare.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0027 — Il codice fiscale si calcola, i comuni non si inventano
+
+**Data:** 2026-08-23
+
+**Contesto.** Il Blocco 4 chiede compilazione assistita di CAP, comune,
+provincia e codice fiscale. Il codice fiscale italiano si calcola da cognome,
+nome, data di nascita, sesso e **codice catastale (Belfiore) del comune di
+nascita**. I primi quattro elementi l'applicazione li ha; il quinto richiede la
+tabella dei circa 8.000 comuni italiani, che nel repository non c'e e che
+nessuno ha fornito.
+
+La tentazione era generarla a memoria. Un codice catastale sbagliato produce un
+codice fiscale **formalmente valido e sostanzialmente falso**, che finisce su
+tesseramenti e fatture e che nessuna validazione successiva puo scoprire: il
+carattere di controllo tornerebbe corretto.
+
+**Decisione.** EasyGame contiene solo dati anagrafici che puo garantire:
+
+1. le **107 province** con sigla e regione — insieme chiuso, stabile,
+   verificabile;
+2. l'algoritmo completo del codice fiscale, **carattere di controllo incluso**,
+   che accetta il codice catastale come input e non lo indovina mai;
+3. la verifica di un codice fiscale gia inserito, e l'estrazione del codice
+   catastale da un codice valido.
+
+Nessuna tabella dei comuni finche non arriva da una fonte ufficiale (ANPR o
+ISTAT). Quando il codice catastale manca, l'interfaccia lo chiede una volta
+invece di tirare a indovinare.
+
+**Conseguenze.**
+
+- Il completamento «CAP → comune» non esiste. Esiste «provincia → regione», che
+  e esatto, e la validazione formale del CAP.
+- Il pulsante «Calcola» del codice fiscale compare solo quando tutti gli
+  elementi ci sono, e **solo se il campo e vuoto**: non esiste nemmeno il gesto
+  che sovrascriverebbe un valore inserito a mano. Un codice che non corrisponde
+  ai dati anagrafici viene **segnalato**, mai corretto d'ufficio.
+- Le stesse regole valgono sul server (`src/lib/server/anagrafica.ts`), che
+  importa lo stesso modulo puro: client e server non possono divergere.
+- Se un domani arriva la tabella dei comuni, l'unico punto da toccare e
+  `italian-registry.ts`: la firma di `computeCodiceFiscale` non cambia.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0028 — Lo stato dell'onboarding vive nelle impostazioni del club
+
+**Data:** 2026-08-23
+
+**Contesto.** L'onboarding introdotto dal Blocco 4 deve essere saltabile e
+riprendibile. Serve quindi ricordare a che punto e. Le alternative erano una
+tabella dedicata, il `localStorage` del browser, oppure una chiave dentro
+`clubs.settings`.
+
+**Decisione.** `clubs.settings.onboarding`, normalizzato da
+`src/lib/onboarding.ts`.
+
+**Motivi.** Lo stato appartiene al **club**, non alla persona ne al
+dispositivo: se il proprietario configura le categorie dal portatile e il
+giorno dopo apre dal telefono, deve trovare quei passi gia fatti. Il
+`localStorage` fallirebbe entrambe le cose. Una tabella per cinque flag
+richiederebbe una migrazione, un modello e un endpoint per un dato che non
+viene mai interrogato trasversalmente.
+
+**Conseguenze.**
+
+- Nessuna migrazione. Lo stato viaggia con il club, anche nei backup.
+- `normalizeOnboardingState` tollera qualunque cosa trovi: uno stato scritto
+  male da una versione futura non rompe la dashboard, la riporta a «da fare».
+- `settings` e una colonna JSON unica, quindi ogni scrittura passa da
+  `patchClubSettings`, che rilegge prima di riscrivere. Senza, salvare
+  l'onboarding cancellerebbe stagioni e listini.
+- `skipped` **non** e uno stato finale: toglie l'invito automatico ma lascia il
+  percorso raggiungibile. Un onboarding saltato non e un onboarding perduto.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0029 — IMAP ha tabella, credenziali e contesto crittografico propri
+
+**Data:** 2026-08-23
+
+**Contesto.** Il Blocco 4 chiede una configurazione IMAP opzionale accanto a
+SMTP, con il vincolo esplicito: «Mantieni credenziali SMTP e IMAP separate».
+La tabella `email_provider_configs` esisteva gia e la tentazione era riusarla
+con un secondo `id`.
+
+**Decisione.** Tabella separata `imap_provider_configs`, e — soprattutto —
+**contesto crittografico separato**: `credential-crypto.ts` accetta un
+`purpose` (`smtp` | `imap`) che entra sia nella derivazione della chiave sia
+nel dato autenticato di AES-GCM.
+
+**Motivi.**
+
+- Il riuso era comunque impedito da un vincolo del database: la riga SMTP ha un
+  CHECK `provider = 'smtp'` e richiede mittente e nome mittente, che per la
+  posta in entrata non hanno significato.
+- «Separate» come requisito di prodotto significa che una credenziale non deve
+  poter essere usata al posto dell'altra. Con lo stesso contesto crittografico
+  lo sarebbe stata: bastava copiare tre colonne da una riga all'altra. Con
+  contesti diversi la decifratura fallisce, ed e un test a dimostrarlo.
+
+**Decisione secondaria: nessuna libreria IMAP.** Serve un solo comando —
+`LOGIN` — per dire all'amministratore se la configurazione funziona. La
+conversazione e scritta come macchina a stati pura (`imap-protocol.ts`),
+verificabile senza rete, e il solo pezzo che tocca il socket
+(`imap-client.ts`) resta di poche decine di righe.
+
+**Conseguenze.**
+
+- Nessuna dipendenza nuova, e la parte con la logica e coperta da test.
+- Il traffico e sempre cifrato: con `starttls`, se il server rifiuta l'upgrade
+  la sessione viene **chiusa** invece di autenticarsi in chiaro.
+- Username e password con CR o LF vengono rifiutati prima di raggiungere il
+  socket: sono valori che arrivano da un form e finirebbero dentro un
+  protocollo a righe.
+- Oggi la casella non viene **letta** da nessuna funzione applicativa: questo
+  ADR copre la configurazione, non la ricezione.
+
+**Stato:** ATTIVA.

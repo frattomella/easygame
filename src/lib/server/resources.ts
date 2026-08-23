@@ -5,6 +5,7 @@ import {
   getPasswordPolicyMessage,
   validatePassword,
 } from "../auth/password-policy";
+import { assertAnagraficaIsValid } from "./anagrafica";
 import {
   buildClubCategoryOptions,
   resolveCategoryId,
@@ -2012,6 +2013,7 @@ export const createResource = async (
   }
 
   const normalized = await normalizeModelInput(resource, input);
+  assertAnagraficaIsValid(resource, normalized);
 
   if (resource === "clubs" || resource === "organizations") {
     if (scope?.userId && !normalized.creator_id) {
@@ -2203,6 +2205,7 @@ export const updateResource = async (
     include: getModelInclude(resource),
   });
   assertRecordAccess(resource, existing, scope);
+  assertAnagraficaIsValid(resource, normalized, existing);
 
   if (isOrganizationScopedResource(resource)) {
     normalized.organization_id = resolveScopedOrganizationId(

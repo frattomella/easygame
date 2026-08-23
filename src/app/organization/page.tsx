@@ -62,6 +62,20 @@ import {
   type ClubSeason,
 } from "@/lib/club-seasons";
 import { cn } from "@/lib/utils";
+import { createCoalescingSaver } from "@/lib/performance";
+import { SaveStatus, type SaveState } from "@/components/ui/save-status";
+import {
+  CLUB_PROFILE_SECTIONS,
+  clubProfileSectionSnapshot,
+  isAutosaveClubSection,
+  saveClubProfileSection,
+  type ClubProfileDraft,
+  type ClubProfileSectionId,
+} from "@/lib/club-profile";
+import {
+  AssistedAddressFields,
+  AssistedFiscalCodeField,
+} from "@/components/forms/assisted-anagrafica";
 import { ClubBillingSettings } from "@/components/payments/ClubBillingSettings";
 import { ClubPaymentSettings } from "@/components/payments/ClubPaymentSettings";
 import {
@@ -180,6 +194,13 @@ const SEASON_COPYABLE_FIELDS = [
 
 type SeasonCopyField = (typeof SEASON_COPYABLE_FIELDS)[number]["key"];
 
+/**
+ * Attesa prima di scrivere una sezione in autosave. Un secondo e la pausa
+ * naturale fra due parole digitate: piu corto genera una scrittura per
+ * carattere, piu lungo fa sembrare che non stia salvando niente.
+ */
+const CLUB_AUTOSAVE_DEBOUNCE_MS = 1000;
+
 export default function OrganizationPage() {
   const { showToast } = useToast();
   const searchParams = useSearchParams() ?? new URLSearchParams();
@@ -280,6 +301,7 @@ export default function OrganizationPage() {
     type: "dilettante",
     foundingYear: "",
     address: "",
+    city: "",
     postalCode: "",
     region: "",
     province: "",
@@ -403,6 +425,7 @@ const [federations, setFederations] = useState<any[]>([]);
             foundingYear:
               (clubData as any).founding_year || settings.foundingYear || "",
             address: clubData.address || "",
+            city: clubData.city || "",
             postalCode: clubData.postal_code || "",
             region: clubData.region || "",
             province: clubData.province || "",
@@ -813,6 +836,235 @@ const [federations, setFederations] = useState<any[]>([]);
     }
   };
 
+  // --- autosave delle sezioni descrittive ------------------------------------
+
+  const clubProfileDraft = React.useMemo<ClubProfileDraft>(
+    () => ({
+      name: organizationData.name,
+      logoUrl: logoPreview || "",
+      types: selectedTypes,
+      sports: selectedSports,
+      foundingYear: organizationData.foundingYear,
+      address: organizationData.address,
+      city: organizationData.city,
+      postalCode: organizationData.postalCode,
+      region: organizationData.region,
+      province: organizationData.province,
+      country: organizationData.country,
+      contact1Name: organizationData.contact1Name,
+      contact1Phone: organizationData.contact1Phone,
+      contact1Email: organizationData.contact1Email,
+      contact2Name: organizationData.contact2Name,
+      contact2Phone: organizationData.contact2Phone,
+      contact2Email: organizationData.contact2Email,
+      companyEmail,
+      companyPec,
+      website: organizationData.website,
+      facebook: organizationData.facebook,
+      instagram: organizationData.instagram,
+      twitter: organizationData.twitter,
+      youtube: organizationData.youtube,
+    }),
+    [
+      companyEmail,
+      companyPec,
+      logoPreview,
+      organizationData,
+      selectedSports,
+      selectedTypes,
+    ],
+  );
+
+  /**
+   * Impronta delle sezioni a conferma esplicita. Serve solo a sapere se ci
+   * sono modifiche non salvate altrove: senza questo, passando a una scheda in
+   * autosave il pulsante Salva sparirebbe portandosi via quelle modifiche.
+   */
+  const manualSectionsSnapshot = React.useMemo(
+    () =>
+      JSON.stringify({
+        businessName: organizationData.businessName,
+        vatNumber: organizationData.vatNumber,
+        fiscalCode: organizationData.fiscalCode,
+        atecoCode: organizationData.atecoCode,
+        sdiCode: organizationData.sdiCode,
+        taxRegime: showCustomTaxRegimeInput ? customTaxRegime : taxRegimePreset,
+        legalAddress: organizationData.legalAddress,
+        legalCity: organizationData.legalCity,
+        legalPostalCode: organizationData.legalPostalCode,
+        legalRegion: organizationData.legalRegion,
+        legalProvince: organizationData.legalProvince,
+        legalCountry: organizationData.legalCountry,
+        representativeName: organizationData.representativeName,
+        representativeSurname: organizationData.representativeSurname,
+        representativeFiscalCode: organizationData.representativeFiscalCode,
+        bankName: organizationData.bankName,
+        iban: organizationData.iban,
+        federations,
+        paymentSettings,
+        subscriptionSettings,
+        extraServices,
+      }),
+    [
+      customTaxRegime,
+      extraServices,
+      federations,
+      organizationData,
+      paymentSettings,
+      showCustomTaxRegimeInput,
+      subscriptionSettings,
+      taxRegimePreset,
+    ],
+  );
+
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const persistedSectionsRef = React.useRef(new Map<string, string>());
+  const manualBaselineRef = React.useRef<string | null>(null);
+  const seededClubIdRef = React.useRef<string | null>(null);
+  const autosaveRunnerRef = React.useRef<
+    | ((value: {
+        section: ClubProfileSectionId;
+        draft: ClubProfileDraft;
+        snapshot: string;
+      }) => Promise<void>)
+    | null
+  >(null);
+
+  const autosaveSection = isAutosaveClubSection(activeTab)
+    ? (activeTab as ClubProfileSectionId)
+    : null;
+
+  // Cambiando club il runner precedente scriverebbe sul club sbagliato.
+  React.useEffect(() => {
+    autosaveRunnerRef.current = null;
+  }, [clubId]);
+
+  // Stato di partenza: quello appena caricato dal server. Prima di averlo,
+  // l'autosave non deve partire, o riscriverebbe il club con un form vuoto.
+  React.useEffect(() => {
+    if (!clubId || !clubSnapshot || seededClubIdRef.current === clubId) {
+      return;
+    }
+
+    seededClubIdRef.current = clubId;
+    const snapshots = new Map<string, string>();
+    CLUB_PROFILE_SECTIONS.filter((section) => section.autosave).forEach(
+      (section) => {
+        snapshots.set(
+          section.id,
+          clubProfileSectionSnapshot(section.id, clubProfileDraft),
+        );
+      },
+    );
+    persistedSectionsRef.current = snapshots;
+    manualBaselineRef.current = manualSectionsSnapshot;
+  }, [clubId, clubProfileDraft, clubSnapshot, manualSectionsSnapshot]);
+
+  const syncClubIdentityLocally = React.useCallback(
+    (name: string, logoUrl: string) => {
+      try {
+        const rawActiveClub = localStorage.getItem("activeClub");
+        if (rawActiveClub) {
+          const parsedClub = JSON.parse(rawActiveClub);
+          if (parsedClub?.id === clubId) {
+            parsedClub.name = name;
+            parsedClub.logo_url = logoUrl || parsedClub.logo_url;
+            localStorage.setItem("activeClub", JSON.stringify(parsedClub));
+          }
+        }
+        localStorage.setItem("organization-name", name);
+        if (logoUrl) {
+          localStorage.setItem("organization-logo", logoUrl);
+        }
+        window.dispatchEvent(
+          new CustomEvent("club-updated", {
+            detail: { clubId, name, logo_url: logoUrl },
+          }),
+        );
+      } catch (error) {
+        console.error("Error syncing club identity locally:", error);
+      }
+    },
+    [clubId],
+  );
+
+  const persistClubSection = React.useCallback(
+    async (
+      section: ClubProfileSectionId,
+      draft: ClubProfileDraft,
+      snapshot: string,
+    ) => {
+      if (!clubId) {
+        return;
+      }
+
+      if (!autosaveRunnerRef.current) {
+        // Una scrittura per volta, con accorpamento di quelle richieste nel
+        // frattempo: le PATCH non si sovrappongono (WP-36).
+        autosaveRunnerRef.current = createCoalescingSaver(
+          async ({ section: target, draft: payload, snapshot: fingerprint }) => {
+            setSaveState("saving");
+            try {
+              await saveClubProfileSection(clubId, target, payload);
+              persistedSectionsRef.current.set(target, fingerprint);
+              setSavedAt(new Date());
+              setSaveState("saved");
+              if (target === "generale") {
+                syncClubIdentityLocally(payload.name.trim(), payload.logoUrl);
+              }
+            } catch (error) {
+              console.error("Error autosaving club section:", error);
+              setSaveState("error");
+            }
+          },
+          {
+            isEqual: ({ section: target, snapshot: fingerprint }) =>
+              persistedSectionsRef.current.get(target) === fingerprint,
+          },
+        );
+      }
+
+      await autosaveRunnerRef.current({ section, draft, snapshot });
+    },
+    [clubId, syncClubIdentityLocally],
+  );
+
+  React.useEffect(() => {
+    if (!clubId || !autosaveSection || seededClubIdRef.current !== clubId) {
+      return;
+    }
+
+    // Il nome vuoto e uno stato di passaggio — si sta cancellando per
+    // riscrivere — non una modifica da salvare: un club senza nome comparirebbe
+    // vuoto nella topbar e nella home account.
+    if (autosaveSection === "generale" && !clubProfileDraft.name.trim()) {
+      return;
+    }
+
+    const snapshot = clubProfileSectionSnapshot(
+      autosaveSection,
+      clubProfileDraft,
+    );
+    if (persistedSectionsRef.current.get(autosaveSection) === snapshot) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void persistClubSection(autosaveSection, clubProfileDraft, snapshot);
+    }, CLUB_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [autosaveSection, clubId, clubProfileDraft, persistClubSection]);
+
+  const hasPendingManualChanges =
+    manualBaselineRef.current !== null &&
+    manualBaselineRef.current !== manualSectionsSnapshot;
+
+  const activeSectionDefinition = CLUB_PROFILE_SECTIONS.find(
+    (section) => section.id === activeTab,
+  );
+
   const handleSave = async () => {
     try {
       let currentClubId = clubId;
@@ -887,6 +1139,7 @@ const [federations, setFederations] = useState<any[]>([]);
         bank_name: organizationData.bankName,
         iban: organizationData.iban,
         address: organizationData.address,
+        city: organizationData.city,
         postal_code: organizationData.postalCode,
         region: organizationData.region,
         province: organizationData.province,
@@ -1231,47 +1484,19 @@ const [federations, setFederations] = useState<any[]>([]);
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="postalCode">CAP</Label>
-                    <Input
-                      id="postalCode"
-                      name="postalCode"
-                      value={organizationData.postalCode}
-                      onChange={handleChange}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="country">Nazione</Label>
-                    <Input
-                      id="country"
-                      name="country"
-                      value={organizationData.country}
-                      onChange={handleChange}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="region">Regione</Label>
-                    <Input
-                      id="region"
-                      name="region"
-                      value={organizationData.region}
-                      onChange={handleChange}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="province">Provincia</Label>
-                    <Input
-                      id="province"
-                      name="province"
-                      value={organizationData.province}
-                      onChange={handleChange}
-                    />
-                  </div>
-                </div>
+                <AssistedAddressFields
+                  idPrefix="club-operational"
+                  values={{
+                    postalCode: organizationData.postalCode,
+                    city: organizationData.city,
+                    province: organizationData.province,
+                    region: organizationData.region,
+                    country: organizationData.country,
+                  }}
+                  onChange={(patch) =>
+                    setOrganizationData((prev) => ({ ...prev, ...patch }))
+                  }
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -1396,56 +1621,36 @@ const [federations, setFederations] = useState<any[]>([]);
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="legalCity">Comune</Label>
-                    <Input
-                      id="legalCity"
-                      name="legalCity"
-                      value={organizationData.legalCity}
-                      onChange={handleChange}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="legalPostalCode">CAP</Label>
-                    <Input
-                      id="legalPostalCode"
-                      name="legalPostalCode"
-                      value={organizationData.legalPostalCode}
-                      onChange={handleChange}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="legalCountry">Paese</Label>
-                    <Input
-                      id="legalCountry"
-                      name="legalCountry"
-                      value={organizationData.legalCountry}
-                      onChange={handleChange}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="legalRegion">Regione</Label>
-                    <Input
-                      id="legalRegion"
-                      name="legalRegion"
-                      value={organizationData.legalRegion}
-                      onChange={handleChange}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="legalProvince">Provincia</Label>
-                    <Input
-                      id="legalProvince"
-                      name="legalProvince"
-                      value={organizationData.legalProvince}
-                      onChange={handleChange}
-                    />
-                  </div>
-                </div>
+                <AssistedAddressFields
+                  idPrefix="club-legal"
+                  values={{
+                    postalCode: organizationData.legalPostalCode,
+                    city: organizationData.legalCity,
+                    province: organizationData.legalProvince,
+                    region: organizationData.legalRegion,
+                    country: organizationData.legalCountry,
+                  }}
+                  onChange={(patch) =>
+                    setOrganizationData((prev) => ({
+                      ...prev,
+                      ...(patch.postalCode !== undefined
+                        ? { legalPostalCode: patch.postalCode }
+                        : {}),
+                      ...(patch.city !== undefined
+                        ? { legalCity: patch.city }
+                        : {}),
+                      ...(patch.province !== undefined
+                        ? { legalProvince: patch.province }
+                        : {}),
+                      ...(patch.region !== undefined
+                        ? { legalRegion: patch.region }
+                        : {}),
+                      ...(patch.country !== undefined
+                        ? { legalCountry: patch.country }
+                        : {}),
+                    }))
+                  }
+                />
               </CardContent>
             </Card>
 
@@ -1475,17 +1680,22 @@ const [federations, setFederations] = useState<any[]>([]);
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="representativeFiscalCode">
-                    Codice Fiscale
-                  </Label>
-                  <Input
-                    id="representativeFiscalCode"
-                    name="representativeFiscalCode"
-                    value={organizationData.representativeFiscalCode}
-                    onChange={handleChange}
-                  />
-                </div>
+                <AssistedFiscalCodeField
+                  id="representativeFiscalCode"
+                  label="Codice Fiscale"
+                  value={organizationData.representativeFiscalCode}
+                  onChange={(value) =>
+                    setOrganizationData((prev) => ({
+                      ...prev,
+                      representativeFiscalCode: value,
+                    }))
+                  }
+                  person={{
+                    firstName: organizationData.representativeName,
+                    lastName: organizationData.representativeSurname,
+                  }}
+                  enableCompute={false}
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -2043,13 +2253,31 @@ const [federations, setFederations] = useState<any[]>([]);
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end mt-6">
-          <Button
-            className="bg-blue-600 hover:bg-blue-700"
-            onClick={handleSave}
-          >
-            Salva Modifiche
-          </Button>
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+          {autosaveSection ? (
+            <>
+              <span className="mr-auto text-sm text-slate-500">
+                {activeSectionDefinition?.reason}
+              </span>
+              <SaveStatus state={saveState} savedAt={savedAt} />
+            </>
+          ) : null}
+
+          {autosaveSection && hasPendingManualChanges ? (
+            <span className="text-sm text-amber-700">
+              Ci sono modifiche non salvate in una sezione che richiede
+              conferma.
+            </span>
+          ) : null}
+
+          {!autosaveSection || hasPendingManualChanges ? (
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={handleSave}
+            >
+              Salva Modifiche
+            </Button>
+          ) : null}
         </div>
       </DashboardPageContainer>
     </main>

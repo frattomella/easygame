@@ -202,10 +202,12 @@ risorse reali. Raddoppiano la superficie API senza aggiungere valore.
 Nessuna di queste finisce nel bundle client (il tree-shaking le esclude perche
 i moduli non sono raggiungibili): l'impatto e su `npm install`, non a runtime.
 
-### D17 — 53 warning ESLint
+### D17 — 46 warning ESLint
 
 Prevalentemente `@next/next/no-img-element` e
 `react-hooks/exhaustive-deps`. Nessun errore. Non farli crescere.
+(Erano 53; sono scesi con la rimozione di due componenti account morti nel
+Blocco 4, non con una campagna di pulizia.)
 
 ### D18 — `.gitignore` con voci discutibili — MIGLIORATO (2026-08-22)
 
@@ -240,3 +242,38 @@ Resta inoltre che `db-guard` protegge gli script npm, non un `npx prisma`
 invocato a mano.
 
 → WP-09
+
+### D23 — Manca la tabella dei comuni italiani
+
+`src/lib/italian-registry.ts` conosce le 107 province con la loro regione, ma
+non i comuni. Conseguenze concrete:
+
+- il CAP si valida (cinque cifre) ma non si risolve in comune e provincia;
+- il codice fiscale si calcola solo se qualcuno fornisce il codice catastale
+  del comune di nascita, o se esiste gia un codice fiscale valido da cui
+  ricavarlo.
+
+E una scelta, non una svista: inventare i codici catastali produrrebbe codici
+fiscali formalmente validi e sostanzialmente falsi
+([ADR-0027](18-decision-log.md)). Si chiude importando una fonte ufficiale
+(ANPR o ISTAT) con la sua licenza, e aggiornandola quando i comuni cambiano —
+il che succede ogni anno.
+
+### D24 — La casella IMAP si configura ma non si legge
+
+Dal Blocco 4 la console di piattaforma configura host, porta, cifratura e
+credenziali IMAP, e ne verifica la connessione. **Nessuna funzione applicativa
+legge la posta**: non c'e ricezione, ne parsing dei messaggi, ne collegamento
+con notifiche o moduli.
+
+E il presupposto, non la funzione. Chi la completera trovera gia il trasporto
+(`imap-client.ts`) e la macchina a stati (`imap-protocol.ts`), che oggi
+implementano solo `LOGIN` e `LOGOUT`.
+
+### D25 — Due immagini decorative non piu referenziate
+
+`public/images/account/account-team.png` non e piu usato da nessuna pagina
+dopo il rifacimento della home account.
+`public/images/account/account-hero.png` resta, ma solo da 1280 px in su.
+Sono asset statici: non pesano sul bundle, pesano sul repository. Da valutare
+insieme agli altri residui di `public/`.

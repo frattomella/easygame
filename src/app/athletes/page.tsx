@@ -98,6 +98,11 @@ const AthleteQuickCreateDialog = dynamic(
   { ssr: false },
 );
 
+import type {
+  AthleteImportOutcome,
+  AthleteImportPayload,
+} from "@/lib/athlete-import";
+
 const AthleteImportDialog = dynamic(
   () =>
     import("@/components/forms/AthleteImportDialog").then(
@@ -497,187 +502,204 @@ export default function AthletesPage() {
     }
   };
 
+  /**
+   * Import riga per riga, con avanzamento reale.
+   *
+   * Ogni atleta e una scrittura indipendente: se una fallisce, le precedenti
+   * restano valide e la riga fallita finisce nel riepilogo con il motivo. Le
+   * categorie create per l'occasione ma rimaste senza nemmeno un atleta
+   * vengono rimosse: sono l'unica scrittura che l'import puo lasciare a meta.
+   */
   const handleImportAthletes = async (
-    importedRows: {
-      firstName: string;
-      lastName: string;
-      birthDate: string;
-      categoryId: string | null;
-      categoryLabel: string;
-    }[],
-  ) =>
-    runWithLoader(
-      "Importazione atleti in corso, attendi il completamento dell'operazione...",
-      async () => {
-        const clubId = resolveCurrentClubId();
+    importedRows: AthleteImportPayload[],
+    { onProgress }: { onProgress: (completed: number) => void },
+  ): Promise<AthleteImportOutcome> => {
+    const clubId = resolveCurrentClubId();
 
-        if (!clubId || !user) {
-          throw new Error("Club o utente non trovato");
-        }
+    if (!clubId || !user) {
+      throw new Error("Club o utente non trovato");
+    }
 
-        let currentCategories = [...categories];
-        const categoryIdByKey = new Map<string, string>();
+    let currentCategories = [...categories];
+    const categoryIdByKey = new Map<string, string>();
 
-        currentCategories.forEach((category) => {
-          const normalizedKey = normalizeCategoryKey(
-            category.name || category.id || "",
-          );
-          if (normalizedKey) {
-            categoryIdByKey.set(normalizedKey, category.id);
-          }
-        });
+    currentCategories.forEach((category) => {
+      const normalizedKey = normalizeCategoryKey(
+        category.name || category.id || "",
+      );
+      if (normalizedKey) {
+        categoryIdByKey.set(normalizedKey, category.id);
+      }
+    });
 
-        const categoriesToCreate = new Map<
-          string,
-          {
-            id: string;
-            name: string;
-            birthYearFrom: number;
-            birthYearTo: number;
-          }
-        >();
+    const categoriesToCreate = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        birthYearFrom: number;
+        birthYearTo: number;
+      }
+    >();
 
-        importedRows.forEach((row) => {
-          const normalizedLabel = normalizeCategoryKey(row.categoryLabel || "");
-          const hasExistingCategory =
-            Boolean(
-              row.categoryId &&
-                currentCategories.some(
-                  (category) => category.id === row.categoryId,
-                ),
-            ) ||
+    importedRows.forEach((row) => {
+      const normalizedLabel = normalizeCategoryKey(row.categoryLabel || "");
+      const hasExistingCategory =
+        Boolean(
+          row.categoryId &&
             currentCategories.some(
-              (category) =>
-                normalizeCategoryKey(category.name || "") === normalizedLabel,
-            );
-
-          if (
-            !normalizedLabel ||
-            hasExistingCategory ||
-            categoryIdByKey.has(normalizedLabel)
-          ) {
-            return;
-          }
-
-          const birthYear = new Date(row.birthDate).getFullYear();
-          const safeBirthYear = Number.isFinite(birthYear)
-            ? birthYear
-            : new Date().getFullYear();
-          const existingGroup = categoriesToCreate.get(normalizedLabel);
-
-          if (existingGroup) {
-            existingGroup.birthYearFrom = Math.min(
-              existingGroup.birthYearFrom,
-              safeBirthYear,
-            );
-            existingGroup.birthYearTo = Math.max(
-              existingGroup.birthYearTo,
-              safeBirthYear,
-            );
-            return;
-          }
-
-          categoriesToCreate.set(normalizedLabel, {
-            id: createCategoryIdFromName(
-              row.categoryLabel || "categoria-importata",
+              (category) => category.id === row.categoryId,
             ),
-            name: row.categoryLabel.trim(),
-            birthYearFrom: safeBirthYear,
-            birthYearTo: safeBirthYear,
-          });
+        ) || categoryIdByKey.has(normalizedLabel);
+
+      if (!normalizedLabel || hasExistingCategory) {
+        return;
+      }
+
+      const birthYear = new Date(row.birthDate).getFullYear();
+      const safeBirthYear = Number.isFinite(birthYear)
+        ? birthYear
+        : new Date().getFullYear();
+      const existingGroup = categoriesToCreate.get(normalizedLabel);
+
+      if (existingGroup) {
+        existingGroup.birthYearFrom = Math.min(
+          existingGroup.birthYearFrom,
+          safeBirthYear,
+        );
+        existingGroup.birthYearTo = Math.max(
+          existingGroup.birthYearTo,
+          safeBirthYear,
+        );
+        return;
+      }
+
+      categoriesToCreate.set(normalizedLabel, {
+        id: createCategoryIdFromName(row.categoryLabel || "categoria-importata"),
+        name: row.categoryLabel.trim(),
+        birthYearFrom: safeBirthYear,
+        birthYearTo: safeBirthYear,
+      });
+    });
+
+    const createdCategoryIds = new Set<string>();
+
+    if (categoriesToCreate.size) {
+      for (const category of categoriesToCreate.values()) {
+        const { error } = await supabase.from("categories").upsert({
+          id: category.id,
+          club_id: clubId,
+          name: category.name,
+          description: "Categoria importata",
+          sport: "Categoria importata",
+          ageRange:
+            category.birthYearFrom === category.birthYearTo
+              ? String(category.birthYearFrom)
+              : `${category.birthYearFrom}-${category.birthYearTo}`,
+          birthYearFrom: category.birthYearFrom,
+          birthYearTo: category.birthYearTo,
+          color: "bg-blue-500 text-white",
         });
 
-        if (categoriesToCreate.size) {
-          for (const category of categoriesToCreate.values()) {
-            const { error } = await supabase.from("categories").upsert({
-              id: category.id,
-              club_id: clubId,
-              name: category.name,
-              description: "Categoria importata",
-              sport: "Categoria importata",
-              ageRange:
-                category.birthYearFrom === category.birthYearTo
-                  ? String(category.birthYearFrom)
-                  : `${category.birthYearFrom}-${category.birthYearTo}`,
-              birthYearFrom: category.birthYearFrom,
-              birthYearTo: category.birthYearTo,
-              color: "bg-blue-500 text-white",
-            });
-
-            if (error) {
-              throw error;
-            }
-
-            categoryIdByKey.set(normalizeCategoryKey(category.name), category.id);
-          }
-
-          const { data: categoriesData, error: categoriesError } = await supabase
-            .from("categories")
-            .select("*")
-            .eq("club_id", clubId)
-            .order("created_at", { ascending: true });
-
-          if (categoriesError) {
-            throw categoriesError;
-          }
-
-          currentCategories = buildCategoryList(categoriesData || []);
-          setCategories(currentCategories);
-          currentCategories.forEach((category) => {
-            const normalizedKey = normalizeCategoryKey(
-              category.name || category.id || "",
-            );
-            if (normalizedKey) {
-              categoryIdByKey.set(normalizedKey, category.id);
-            }
-          });
+        if (error) {
+          throw new Error(
+            `Creazione della categoria "${category.name}" non riuscita: nessun atleta e stato importato`,
+          );
         }
 
-        let successCount = 0;
-        const failedRows: string[] = [];
+        createdCategoryIds.add(category.id);
+        categoryIdByKey.set(normalizeCategoryKey(category.name), category.id);
+      }
 
-        for (const row of importedRows) {
-          try {
-            const importedCategoryId =
-              row.categoryId &&
-              currentCategories.some((category) => category.id === row.categoryId)
-                ? row.categoryId
-                : categoryIdByKey.get(
-                    normalizeCategoryKey(row.categoryLabel || ""),
-                  ) || null;
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from("categories")
+        .select("*")
+        .eq("club_id", clubId)
+        .order("created_at", { ascending: true });
 
-            const linkedCategory =
-              currentCategories.find(
-                (category) => category.id === importedCategoryId,
-              ) || findCategoryForBirthDate(row.birthDate, currentCategories);
+      if (categoriesError) {
+        throw categoriesError;
+      }
 
-            await addClubAthlete(clubId, {
-              firstName: row.firstName,
-              lastName: row.lastName,
-              birthDate: row.birthDate,
-              category: linkedCategory?.id || null,
-              categoryName: linkedCategory?.name || row.categoryLabel || null,
-              status: "active",
-            });
-
-            successCount += 1;
-          } catch (error: any) {
-            console.error("Error importing athlete row:", row, error);
-            failedRows.push(
-              `${row.firstName} ${row.lastName}`.trim() ||
-                `riga import ${successCount + failedRows.length + 1}`,
-            );
-          }
+      currentCategories = buildCategoryList(categoriesData || []);
+      setCategories(currentCategories);
+      currentCategories.forEach((category) => {
+        const normalizedKey = normalizeCategoryKey(
+          category.name || category.id || "",
+        );
+        if (normalizedKey) {
+          categoryIdByKey.set(normalizedKey, category.id);
         }
+      });
+    }
 
-        await refreshAthletesData();
+    const failed: AthleteImportOutcome["failed"] = [];
+    const usedCategoryIds = new Set<string>();
+    let imported = 0;
 
-        return {
-          successCount,
-          failedRows,
-        };
-      },
-    );
+    for (const row of importedRows) {
+      try {
+        const importedCategoryId =
+          row.categoryId &&
+          currentCategories.some((category) => category.id === row.categoryId)
+            ? row.categoryId
+            : categoryIdByKey.get(
+                normalizeCategoryKey(row.categoryLabel || ""),
+              ) || null;
+
+        const linkedCategory =
+          currentCategories.find(
+            (category) => category.id === importedCategoryId,
+          ) || findCategoryForBirthDate(row.birthDate, currentCategories);
+
+        await addClubAthlete(clubId, {
+          firstName: row.firstName,
+          lastName: row.lastName,
+          birthDate: row.birthDate,
+          category: linkedCategory?.id || null,
+          categoryName: linkedCategory?.name || row.categoryLabel || null,
+          status: "active",
+          data: {
+            gender: row.gender || "",
+            fiscalCode: row.fiscalCode || "",
+            email: row.email || "",
+            phone: row.phone || "",
+          },
+        });
+
+        if (linkedCategory?.id) {
+          usedCategoryIds.add(linkedCategory.id);
+        }
+        imported += 1;
+      } catch (error: any) {
+        console.error("Error importing athlete row:", row, error);
+        failed.push({
+          rowNumber: row.rowNumber,
+          label:
+            `${row.lastName} ${row.firstName}`.trim() || "riga senza nominativo",
+          reason: error?.message || "Scrittura non riuscita",
+        });
+      } finally {
+        onProgress(imported + failed.length);
+      }
+    }
+
+    for (const categoryId of createdCategoryIds) {
+      if (usedCategoryIds.has(categoryId)) {
+        continue;
+      }
+
+      await supabase
+        .from("categories")
+        .delete()
+        .eq("id", categoryId)
+        .eq("club_id", clubId);
+    }
+
+    await refreshAthletesData();
+
+    return { imported, failed };
+  };
 
   const formatDate = (dateString: string) => {
     if (!dateString) {
@@ -1988,6 +2010,11 @@ export default function AthletesPage() {
           open={showImportAthletesModal}
           onOpenChange={setShowImportAthletesModal}
           categories={categories}
+          existingAthletes={athletes.map((athlete) => ({
+            firstName: athlete.firstName,
+            lastName: athlete.lastName,
+            birthDate: athlete.birthDate,
+          }))}
           onImport={handleImportAthletes}
         />
       ) : null}

@@ -64,7 +64,7 @@ Il cookie `easygame_session` e l'alternativa usata dal Web.
 |--------|------|
 | Auth | `/api/v1/auth/**` (vedi [07](07-authentication.md)) |
 | Risorse generiche | `/api/v1/[resource]` e `/api/v1/[resource]/[id]` |
-| Admin piattaforma | `/api/v1/admin/overview`, `/admin/clubs/[id]`, `/admin/users/[id]`, `/admin/email`, `/admin/email/test` |
+| Admin piattaforma | `/api/v1/admin/overview`, `/admin/clubs/[id]`, `/admin/users/[id]`, `/admin/email`, `/admin/email/test`, `/admin/imap`, `/admin/imap/test` |
 | Registro | `/api/v1/registry` |
 | Trainer | `/api/v1/trainer/operational-alerts` |
 | Automazioni | `/api/v1/training-automation` |
@@ -208,11 +208,34 @@ l'`organization_id` del record sia in `scope.allowedOrganizationIds`.
 ## Validazione input
 
 Oggi la validazione e **manuale** e disomogenea: coercizione con
-`String(x || "").trim()`, controlli espliciti, `zod` usato in un solo punto
-(`src/lib/email/smtp-config.ts`).
+`String(x || "").trim()`, controlli espliciti, `zod` usato negli endpoint
+provider (`src/lib/email/smtp-config.ts`, `src/lib/email/imap-config.ts`).
 
 `zod` e gia una dipendenza: preferiscilo per gli endpoint nuovi. Uniformare
 l'esistente e [WP-05](20-work-packages.md).
+
+### Anagrafica: la stessa regola sul client e sul server
+
+Dal Blocco 4 le scritture su `clubs`, `organizations`, `athletes` e
+`simplified_athletes` passano da `assertAnagraficaIsValid`
+(`src/lib/server/anagrafica.ts`), invocata dentro `createResource` e
+`updateResource`. Le regole vengono dallo stesso modulo puro che usa
+l'interfaccia, `src/lib/italian-registry.ts`: non possono divergere.
+
+Cosa viene rifiutato con **400**, con `error.message` che nomina il campo:
+
+| Campo | Regola |
+|-------|--------|
+| `postal_code`, `legal_postal_code`, `data.postalCode` | cinque cifre, solo se il paese e l'Italia |
+| `province`, `legal_province`, `data.province` | sigla o nome fra le 107 province |
+| `fiscal_code` (club) | 11 cifre **oppure** codice fiscale di 16 caratteri con controllo valido |
+| `representative_fiscal_code`, `data.fiscalCode` | codice fiscale di 16 caratteri, carattere di controllo verificato |
+
+**Una sola indulgenza, deliberata:** su un aggiornamento un campo il cui valore
+non cambia non viene ri-validato. Senza questa regola l'introduzione della
+validazione avrebbe reso immodificabile ogni scheda gia in archivio con un CAP
+o un codice fiscale sbagliato — bloccando la correzione di tutto il resto
+proprio a chi ne ha piu bisogno. Su una creazione tutto viene validato.
 
 ## Registro API
 

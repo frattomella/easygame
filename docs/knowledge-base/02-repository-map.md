@@ -27,6 +27,9 @@ easygame/
 | `src/components/dashboard/` | 15 file. Sidebar, Header, widget dashboard club | |
 | `src/components/providers/` | `AuthProvider`, `ThemeProvider`, `GlobalLoadingProvider`, `AppClientProviders` | Montati in `src/app/layout.tsx` |
 | `src/components/auth/` | `auth-shell.tsx` (login+registrazione), `access-area-guard.tsx` | |
+| `src/components/account/` | Home account e le sue dialog (crea club, profilo, riscatta accesso) | Ridisegnata nel Blocco 4 |
+| `src/components/brand/` | Marchio SVG e identita di club | |
+| `src/components/platform-admin/` | Shell della console di piattaforma | Nessun riferimento alle risorse di club |
 | `src/lib/` | 77 file. Logica di dominio, utility, policy | Vedi tabella sotto |
 | `src/lib/server/` | Codice **solo server**: Prisma client, auth, resources, email, workflow | Non importare dal client |
 | `src/pages/` | 4 file residui del Pages Router: `_app`, `_document`, `_error`, `404` | Legacy, vedi [16](16-technical-debt.md) |
@@ -44,7 +47,12 @@ easygame/
 | `auth/*.ts` | — | Policy pure e testabili: password, OTP, rate limit, registrazione, provider. |
 | `api/client.ts` | 178 | `apiRequest`: envelope, header di contesto, invalidazione sessione su 401. |
 | `api/registry.ts` | 211 | Registro endpoint per il client mobile. |
-| `server/email/` | — | Provider SMTP, cifratura credenziali, invio transazionale. |
+| `server/email/` | — | Provider SMTP e IMAP, cifratura credenziali (contesti separati), invio transazionale. `imap-protocol.ts` e la macchina a stati IMAP, pura e testabile; `imap-client.ts` il solo pezzo che tocca il socket. |
+| `italian-registry.ts` | 530 | Province, CAP e codice fiscale. Puro. Fonte unica delle regole anagrafiche, usata sia dai form sia da `server/anagrafica.ts`. |
+| `athlete-import.ts` | 761 | Parser CSV e XML scritti in casa, mappatura colonne, validazione riga per riga. Puro: nessun DOM. |
+| `club-profile.ts` | 402 | Sezioni della scheda club, quali sono in autosave e cosa scrive ognuna. Include `patchClubSettings`. |
+| `onboarding.ts` | 220 | Stato della configurazione iniziale del club. Puro. |
+| `server/anagrafica.ts` | 209 | Validazione anagrafica lato server, chiamata da `resources.ts`. |
 | `payments/` | — | Tipi, fee di piattaforma, registro provider (nessuno implementato). |
 
 ## Mobile App — `easygamemobile/`

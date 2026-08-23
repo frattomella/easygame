@@ -74,6 +74,7 @@ const MANAGEMENT_PATH_PREFIXES = [
   "/modulistica",
   "/movements",
   "/notifications",
+  "/onboarding",
   "/organization",
   "/payments",
   "/permissions",
@@ -93,6 +94,9 @@ const MANAGEMENT_PATH_PREFIXES = [
 const MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES = [
   "/create-club",
   "/dashboard/access-management",
+  // La configurazione iniziale scrive dati societari: stesso perimetro di
+  // /organization, quindi proprietario e club manager.
+  "/onboarding",
   "/organization",
   "/permissions",
   "/settings",

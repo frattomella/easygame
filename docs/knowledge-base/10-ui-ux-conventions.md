@@ -85,6 +85,40 @@ Breakpoint di riferimento: **375, 768, 1280 px**.
 
 Tutti dichiarano `role="status"` e `aria-live="polite"`.
 
+### Quando una schermata puo salvarsi da sola (Blocco 4)
+
+Il pulsante «Salva» non e gratis: chi lo dimentica perde il lavoro, e in una
+pagina a schede uno solo in fondo a nove schede e una trappola. Ma l'autosave
+non e sempre lecito. La regola:
+
+| Puo essere in autosave | Deve restare a conferma esplicita |
+|------------------------|-----------------------------------|
+| Dati descrittivi: nome, sport, recapiti, link pubblici | Dati economici: quote, listini, IBAN, abbonamento |
+| Contenuti che si riscrivono senza conseguenze (programma settimanale) | Dati fiscali che finiscono in fattura |
+| | Operazioni **distruttive**: rimozione di elementi da un elenco |
+| | Scelte che cambiano il perimetro dei dati: la stagione attiva (WP-32) |
+
+Chi implementa un autosave deve fornire tutte e tre le cose insieme:
+
+1. **debounce** (1 s nella scheda Club, 1,5 s nel programma settimanale);
+2. **accorpamento** con `createCoalescingSaver` — due PATCH sovrapposte
+   arrivano in ordine non garantito e l'ultima modifica puo perdersi;
+3. **stato visibile** con `SaveStatus`, mai una scritta fissa "salvato".
+
+L'elenco vero delle sezioni della scheda Club, con la motivazione di ciascuna,
+sta in `src/lib/club-profile.ts` ed e verificato da
+`tests/lib/club-profile-autosave.test.mjs`: la classificazione e codice, non
+una convenzione da ricordare.
+
+### Anagrafica assistita
+
+`AssistedAddressFields` e `AssistedFiscalCodeField`
+(`src/components/forms/assisted-anagrafica.tsx`) sono i campi da usare per
+CAP, comune, provincia e codice fiscale. Regola unica: **suggerire, non
+decidere**. L'assistenza compila solo cio che e vuoto e segnala cio che non
+torna; non riscrive mai un valore digitato, e il pulsante «Calcola» del codice
+fiscale non compare nemmeno quando il campo e gia valorizzato.
+
 ---
 ## Design system
 
@@ -167,6 +201,18 @@ parte delle pagine. La convergenza a uno solo e [WP-14](20-work-packages.md).
   spinner Lucide (`Loader2` con `animate-spin`). Non c'e libreria di skeleton
   in uso (`skeleton.tsx` esiste ma non e referenziato).
 
+**Tre stati, non due.** Dal Blocco 4 la home account distingue esplicitamente
+_caricamento_, _vuoto_ ed _errore_, e la distinzione va mantenuta ovunque si
+carichi un elenco: raccontare un errore di rete come "non hai nessun club" e
+il modo piu veloce per far pensare a un utente che i suoi dati sono spariti.
+
+- caricamento: uno **scheletro con la forma del contenuto**, non uno spinner a
+  tutta pagina;
+- vuoto: cosa manca, perche, e l'azione che lo risolve;
+- errore: il messaggio del server, un `role="alert"` e un pulsante «Riprova».
+  Se dei dati erano gia a schermo restano visibili, con un avviso sopra: un
+  aggiornamento fallito non deve svuotare la pagina.
+
 ## Icone e immagini
 
 - Icone: **`lucide-react`**. `@radix-ui/react-icons` e presente ma marginale.
@@ -192,6 +238,11 @@ introduca `react-hook-form` in modo sistematico.
 Breakpoint Tailwind standard. Il pattern ricorrente e duplicare il markup:
 `hidden lg:flex` per desktop e `lg:hidden` per mobile, con `MobileTopBar` al
 posto di `Sidebar`+`Header`.
+
+Nelle schermate nuove (account, onboarding, import) il markup **non** viene
+duplicato: una sola struttura che si riorganizza con `grid`/`flex` e i
+breakpoint. E meno codice e non puo divergere fra le due copie. Le tre misure
+di riferimento restano 375, 768 e 1280 px ([ADR-0025](18-decision-log.md)).
 
 ## Accessibilita
 

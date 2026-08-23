@@ -26,9 +26,12 @@ Classificazione:
 | Logout | COMPLETE | Cancella la riga `sessions` e il cookie |
 | Multi-club per account | COMPLETE | `/account`, `memberships`, attivazione club |
 | Multi-ruolo nello stesso club | COMPLETE | Unique `(org, user, role)`, header `x-active-access-role` |
-| Creazione club | COMPLETE | `/create-club` → `create-club-redirect` |
+| Creazione club | COMPLETE | `/create-club` → `create-club-redirect`; dalla home account porta all'onboarding |
+| Configurazione iniziale guidata | COMPLETE | `/onboarding`: cinque passi, saltabile e riprendibile. Stato in `clubs.settings.onboarding`, banner di ripresa in dashboard |
 | Accesso via token condiviso | PARTIAL | `POST /api/v1/auth/access/redeem` + risorsa `access_tokens`; nessun test |
 | Platform admin | COMPLETE | `/private/easygame-platform-admin-0c7a`, API `/api/v1/admin/*` protette da `requirePlatformAdmin` |
+| Configurazione SMTP da pannello | COMPLETE | Host, porta, TLS, credenziali cifrate, invio di prova |
+| Configurazione IMAP da pannello | PARTIAL | Host, porta, TLS, credenziali cifrate **separate da SMTP**, test di connessione reale. La casella **non viene ancora letta** da nessuna funzione: e configurazione, non ricezione |
 
 ## Anagrafiche
 
@@ -36,7 +39,8 @@ Classificazione:
 |-----------|-------|------|
 | Atleti | COMPLETE | Lista, dettaglio, modifica, profilo. `athletes/[id]/page.tsx` e la pagina piu grande del progetto (~340 KB) |
 | Multi-categoria atleta | COMPLETE | `athlete_category_memberships`, migrazione dedicata |
-| Import atleti | PARTIAL | `src/lib/athlete-import.ts` + `xlsx`; nessun test |
+| Import atleti | COMPLETE | CSV e XML con parser propri, XLS/XLSX con `xlsx`. Mappatura colonne, anteprima con esito per riga, barra di avanzamento reale, riepilogo importati/scartati/errori. 9 test in `tests/lib/athlete-import.test.mjs` |
+| Anagrafica assistita | PARTIAL | 107 province con regione, validazione CAP, calcolo e verifica del codice fiscale (client **e** server). **Manca la tabella dei comuni**: il codice catastale lo fornisce l'utente o si ricava da un codice fiscale gia noto |
 | Allenatori | COMPLETE | Lista, dettaglio, contratti, upload |
 | Staff | COMPLETE | Lista, dettaglio, modifica |
 | Soci | COMPLETE | Lista, dettaglio, creazione |

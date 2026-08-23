@@ -81,6 +81,10 @@ import {
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AddCertificateForm } from "@/components/forms/AddCertificateForm";
+import {
+  AssistedAddressFields,
+  AssistedFiscalCodeField,
+} from "@/components/forms/assisted-anagrafica";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import {
@@ -6681,18 +6685,24 @@ export default function AthleteProfilePage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <Label>Codice Fiscale</Label>
-                  <Input
-                    value={editFormData.fiscalCode || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        fiscalCode: e.target.value,
-                      })
-                    }
-                  />
-                </div>
+                <AssistedFiscalCodeField
+                  id="athlete-fiscal-code"
+                  label="Codice Fiscale"
+                  value={editFormData.fiscalCode || ""}
+                  onChange={(value) =>
+                    setEditFormData({ ...editFormData, fiscalCode: value })
+                  }
+                  person={{
+                    firstName: editFormData.name,
+                    lastName: editFormData.surname,
+                    birthDate: editFormData.birthDate,
+                    gender: editFormData.gender,
+                  }}
+                  belfioreCode={editFormData.birthPlaceCode || ""}
+                  onBelfioreCodeChange={(value) =>
+                    setEditFormData({ ...editFormData, birthPlaceCode: value })
+                  }
+                />
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Data di Nascita</Label>
@@ -6882,70 +6892,19 @@ export default function AthleteProfilePage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Comune</Label>
-                    <Input
-                      value={editFormData.city || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          city: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>CAP</Label>
-                    <Input
-                      value={editFormData.postalCode || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          postalCode: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Regione</Label>
-                    <Input
-                      value={editFormData.region || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          region: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>Provincia</Label>
-                    <Input
-                      value={editFormData.province || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          province: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label>Paese</Label>
-                  <Input
-                    value={editFormData.country || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        country: e.target.value,
-                      })
-                    }
-                  />
-                </div>
+                <AssistedAddressFields
+                  idPrefix="athlete-residence"
+                  values={{
+                    postalCode: editFormData.postalCode,
+                    city: editFormData.city,
+                    province: editFormData.province,
+                    region: editFormData.region,
+                    country: editFormData.country,
+                  }}
+                  onChange={(patch) =>
+                    setEditFormData((current: any) => ({ ...current, ...patch }))
+                  }
+                />
               </>
             )}
 

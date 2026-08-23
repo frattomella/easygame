@@ -18,6 +18,7 @@ import {
   Loader2,
   Plus,
 } from "lucide-react";
+import { AssistedAddressFields } from "@/components/forms/assisted-anagrafica";
 import {
   CLUB_TYPE_PRESETS,
   ClubCreateFormState,
@@ -230,16 +231,6 @@ export function AccountCreateClubDialog({
                           placeholder="Es. 2012"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="club-country">Nazione</Label>
-                        <Input
-                          id="club-country"
-                          value={form.country}
-                          onChange={(event) =>
-                            onFieldChange("country", event.target.value)
-                          }
-                        />
-                      </div>
                       <div className="space-y-2 md:col-span-2">
                         <Label htmlFor="club-address">Indirizzo *</Label>
                         <Input
@@ -251,46 +242,23 @@ export function AccountCreateClubDialog({
                           required
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="club-city">Citta *</Label>
-                        <Input
-                          id="club-city"
-                          value={form.city}
-                          onChange={(event) =>
-                            onFieldChange("city", event.target.value)
-                          }
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="club-province">Provincia *</Label>
-                        <Input
-                          id="club-province"
-                          value={form.province}
-                          onChange={(event) =>
-                            onFieldChange("province", event.target.value)
-                          }
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="club-region">Regione</Label>
-                        <Input
-                          id="club-region"
-                          value={form.region}
-                          onChange={(event) =>
-                            onFieldChange("region", event.target.value)
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="club-postal-code">CAP</Label>
-                        <Input
-                          id="club-postal-code"
-                          value={form.postalCode}
-                          onChange={(event) =>
-                            onFieldChange("postalCode", event.target.value)
-                          }
+                      <div className="md:col-span-2">
+                        <AssistedAddressFields
+                          idPrefix="club"
+                          values={{
+                            postalCode: form.postalCode,
+                            city: form.city,
+                            province: form.province,
+                            region: form.region,
+                            country: form.country,
+                          }}
+                          onChange={(patch) => {
+                            (
+                              Object.keys(patch) as (keyof typeof patch)[]
+                            ).forEach((key) => {
+                              onFieldChange(key, patch[key]);
+                            });
+                          }}
                         />
                       </div>
                     </div>

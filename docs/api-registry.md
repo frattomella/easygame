@@ -30,6 +30,19 @@ Fonte ufficiale da mantenere aggiornata:
 - `POST /api/v1/auth/password/forgot`
 - `POST /api/v1/auth/password/reset`
 
+## Endpoint amministrazione piattaforma
+
+Riservati a `platform_admin` (`requirePlatformAdmin`). Non fanno parte della
+superficie mobile.
+
+- `GET /api/v1/admin/overview`
+- `DELETE /api/v1/admin/clubs/:id`
+- `DELETE /api/v1/admin/users/:id`
+- `GET|PUT /api/v1/admin/email` — provider SMTP
+- `POST /api/v1/admin/email/test`
+- `GET|PUT /api/v1/admin/imap` — casella IMAP, credenziali separate da SMTP
+- `POST /api/v1/admin/imap/test`
+
 ## Flusso auth applicativo
 
 - Login password classico

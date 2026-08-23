@@ -113,7 +113,7 @@ invocato a mano.
 
 | Variabile | Effetto dell'assenza |
 |-----------|----------------------|
-| `SMTP_CREDENTIALS_SECRET` | Fallback su `AUTH_RATE_LIMIT_SECRET` — funziona, ma la password SMTP e legata a quel segreto |
+| `SMTP_CREDENTIALS_SECRET` | Fallback su `AUTH_RATE_LIMIT_SECRET` — funziona, ma le password SMTP **e IMAP** restano legate a quel segreto: cambiarlo le rende indecifrabili e vanno riconfigurate dal pannello |
 | `CRON_SECRET` | Job automatico allenamenti «tutti i club» non invocabile |
 | `TWILIO_*` | Verifica telefono disattivata |
 | `GOOGLE_*`, `MICROSOFT_*` | OAuth disattivato |

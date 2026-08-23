@@ -16,7 +16,10 @@ lo e**, e i rischi operativi da conoscere prima di toccare il codice.
 | Isolamento tenant | Server-side: `x-active-club-id` validato contro `allowedOrganizationIds`; `listResource` impone `organization_id` |
 | Autorizzazione risorse | `assertClubResourceAccess` su ogni chiamata al CRUD generico; parent e athlete esclusi dalle API di club |
 | Segreti SMTP | AES-GCM autenticato; la password non e mai restituita dalle API (test dedicato) |
-| Errori provider | Normalizzati in codici, nessun leak di dettagli SMTP |
+| Segreti IMAP | Stessa cifratura, **contesto crittografico separato** (`purpose: "imap"`): una credenziale non e decifrabile come l'altra. Password mai restituita |
+| Trasporto IMAP | Sempre cifrato: SSL implicito, oppure STARTTLS con chiusura della sessione se l'upgrade fallisce. Mai `LOGIN` in chiaro |
+| Iniezione di comandi IMAP | Username e password con CR o LF vengono rifiutati prima di toccare il socket; il resto e quotato secondo RFC 3501 |
+| Errori provider | Normalizzati in codici (`SMTP_*`, `IMAP_*`), nessun leak di dettagli del server di posta |
 | Segreti nel repository | **Nessuno**: scansione dei file tracciati negativa; `.env` e `.env.local` non sono mai stati committati |
 | TypeScript | `strict: true`, e `ignoreBuildErrors` **non** e attivo in `next.config.js` |
 
@@ -185,3 +188,10 @@ disattivando `ensureOrganizationAccess` ne falliscono 11). Vedi
    repository, mai in `NEXT_PUBLIC_*`.
 7. Ogni modifica ad `access-roles.ts` richiede l'aggiornamento di
    `tests/auth/role-authorization.test.mjs`.
+8. Ogni **nuova rotta di pagina** va aggiunta sia a `PROTECTED_PREFIXES` in
+   `src/middleware.ts` sia alla matrice di `access-roles.ts`: il middleware
+   ferma chi non ha sessione, la matrice chi ha il ruolo sbagliato. Ne serve
+   una senza l'altra. (`/onboarding` e l'ultima aggiunta, Blocco 4.)
+9. Un valore che arriva da un form e finisce dentro un **protocollo testuale**
+   (SMTP, IMAP, LDAP, CSV) va ripulito dai terminatori di riga prima di essere
+   scritto sul canale: e la stessa classe di problema dell'iniezione SQL.

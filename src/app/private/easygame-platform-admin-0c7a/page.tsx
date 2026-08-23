@@ -19,8 +19,10 @@ import {
   BarChart3,
   Building2,
   BookOpen,
+  Inbox,
   Loader2,
   Mail,
+  PlugZap,
   Save,
   Send,
   ShieldCheck,
@@ -74,6 +76,18 @@ type SmtpConfiguration = {
   lastTestStatus: string | null;
 };
 
+type ImapConfiguration = {
+  configured: boolean;
+  enabled: boolean;
+  host: string;
+  port: number;
+  securityMode: "ssl" | "starttls";
+  username: string;
+  passwordConfigured: boolean;
+  lastTestAt: string | null;
+  lastTestStatus: string | null;
+};
+
 const emptySmtpConfiguration: SmtpConfiguration = {
   configured: false,
   enabled: false,
@@ -83,6 +97,18 @@ const emptySmtpConfiguration: SmtpConfiguration = {
   username: "",
   fromEmail: "",
   fromName: "EasyGame",
+  passwordConfigured: false,
+  lastTestAt: null,
+  lastTestStatus: null,
+};
+
+const emptyImapConfiguration: ImapConfiguration = {
+  configured: false,
+  enabled: false,
+  host: "",
+  port: 993,
+  securityMode: "ssl",
+  username: "",
   passwordConfigured: false,
   lastTestAt: null,
   lastTestStatus: null,
@@ -122,7 +148,7 @@ const PLATFORM_SECTIONS: PlatformAdminSection[] = [
   {
     id: "email",
     label: "Provider email",
-    description: "SMTP per OTP e notifiche",
+    description: "SMTP in uscita e IMAP in entrata",
     icon: Mail,
   },
 ];
@@ -142,6 +168,11 @@ export default function PlatformAdminPage() {
   const [smtpPassword, setSmtpPassword] = useState("");
   const [smtpTestRecipient, setSmtpTestRecipient] = useState("");
   const [smtpBusy, setSmtpBusy] = useState<"save" | "test" | null>(null);
+  const [imapConfig, setImapConfig] = useState<ImapConfiguration>(
+    emptyImapConfiguration,
+  );
+  const [imapPassword, setImapPassword] = useState("");
+  const [imapBusy, setImapBusy] = useState<"save" | "test" | null>(null);
 
   const canAccess = useMemo(() => isPlatformAdminUser(user), [user]);
 
@@ -175,6 +206,18 @@ export default function PlatformAdminPage() {
     if (response.data) setSmtpConfig(response.data);
   };
 
+  const loadImapConfiguration = async () => {
+    const response = await apiRequest<ImapConfiguration>("/api/v1/admin/imap");
+    if (response.error) {
+      showToast(
+        "error",
+        response.error.message || "Errore caricamento configurazione IMAP",
+      );
+      return;
+    }
+    if (response.data) setImapConfig(response.data);
+  };
+
   useEffect(() => {
     if (loading) {
       return;
@@ -192,6 +235,7 @@ export default function PlatformAdminPage() {
 
     void loadOverview();
     void loadSmtpConfiguration();
+    void loadImapConfiguration();
   }, [canAccess, loading, router, user?.id]);
 
   useEffect(() => {
@@ -248,6 +292,53 @@ export default function PlatformAdminPage() {
     }
     showToast("success", "Email di test inviata");
     await loadSmtpConfiguration();
+  };
+
+  const updateImapField = <Key extends keyof ImapConfiguration>(
+    key: Key,
+    value: ImapConfiguration[Key],
+  ) => setImapConfig((current) => ({ ...current, [key]: value }));
+
+  const handleSaveImap = async () => {
+    setImapBusy("save");
+    const response = await apiRequest<ImapConfiguration>("/api/v1/admin/imap", {
+      method: "PUT",
+      body: {
+        enabled: imapConfig.enabled,
+        host: imapConfig.host,
+        port: imapConfig.port,
+        securityMode: imapConfig.securityMode,
+        username: imapConfig.username,
+        ...(imapPassword ? { password: imapPassword } : {}),
+      },
+    });
+    setImapBusy(null);
+    if (response.error) {
+      showToast(
+        "error",
+        response.error.message || "Salvataggio IMAP non riuscito",
+      );
+      return;
+    }
+    if (response.data) setImapConfig(response.data);
+    setImapPassword("");
+    showToast("success", "Configurazione IMAP salvata in modo sicuro");
+  };
+
+  const handleTestImap = async () => {
+    setImapBusy("test");
+    const response = await apiRequest<{ connected: boolean }>(
+      "/api/v1/admin/imap/test",
+      { method: "POST", body: {} },
+    );
+    setImapBusy(null);
+    if (response.error) {
+      showToast("error", response.error.message || "Test IMAP non riuscito");
+      await loadImapConfiguration();
+      return;
+    }
+    showToast("success", "Connessione IMAP riuscita");
+    await loadImapConfiguration();
   };
 
   const filteredUsers = useMemo(() => {
@@ -580,6 +671,144 @@ export default function PlatformAdminPage() {
                   Ultimo test:{" "}
                   {new Date(smtpConfig.lastTestAt).toLocaleString("it-IT")} ·{" "}
                   {smtpConfig.lastTestStatus}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="border-sky-100">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Inbox className="h-5 w-5 text-sky-600" />
+                    Casella IMAP
+                  </CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Opzionale. Credenziali separate da SMTP: qui si legge la
+                    posta in arrivo, non si invia.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Badge variant={imapConfig.enabled ? "secondary" : "outline"}>
+                    {imapConfig.enabled ? "Attivo" : "Disattivato"}
+                  </Badge>
+                  {imapConfig.passwordConfigured ? (
+                    <Badge variant="secondary">Password cifrata</Badge>
+                  ) : null}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <label className="flex items-center gap-3 rounded-xl border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={imapConfig.enabled}
+                  onChange={(event) =>
+                    updateImapField("enabled", event.target.checked)
+                  }
+                  className="h-4 w-4"
+                />
+                Abilita la casella IMAP
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="imap-host">Host</Label>
+                  <Input
+                    id="imap-host"
+                    value={imapConfig.host}
+                    onChange={(event) =>
+                      updateImapField("host", event.target.value)
+                    }
+                    placeholder="imap.example.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="imap-port">Porta</Label>
+                  <Input
+                    id="imap-port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={imapConfig.port}
+                    onChange={(event) =>
+                      updateImapField("port", Number(event.target.value))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="imap-security">Sicurezza</Label>
+                  <select
+                    id="imap-security"
+                    value={imapConfig.securityMode}
+                    onChange={(event) =>
+                      updateImapField(
+                        "securityMode",
+                        event.target.value as "ssl" | "starttls",
+                      )
+                    }
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="ssl">SSL/TLS (993)</option>
+                    <option value="starttls">STARTTLS (143)</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="imap-username">Username</Label>
+                  <Input
+                    id="imap-username"
+                    value={imapConfig.username}
+                    onChange={(event) =>
+                      updateImapField("username", event.target.value)
+                    }
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="imap-password">
+                    Password{" "}
+                    {imapConfig.passwordConfigured
+                      ? "(lascia vuoto per mantenerla)"
+                      : ""}
+                  </Label>
+                  <Input
+                    id="imap-password"
+                    type="password"
+                    value={imapPassword}
+                    onChange={(event) => setImapPassword(event.target.value)}
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:justify-end">
+                <Button
+                  variant="outline"
+                  onClick={handleTestImap}
+                  disabled={imapBusy !== null || !imapConfig.configured}
+                >
+                  {imapBusy === "test" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <PlugZap className="mr-2 h-4 w-4" />
+                  )}
+                  Test connessione
+                </Button>
+                <Button onClick={handleSaveImap} disabled={imapBusy !== null}>
+                  {imapBusy === "save" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Salva IMAP
+                </Button>
+              </div>
+              {imapConfig.lastTestAt ? (
+                <p className="text-xs text-muted-foreground">
+                  Ultimo test:{" "}
+                  {new Date(imapConfig.lastTestAt).toLocaleString("it-IT")} ·{" "}
+                  {imapConfig.lastTestStatus}
                 </p>
               ) : null}
             </CardContent>

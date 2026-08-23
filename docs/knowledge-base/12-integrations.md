@@ -18,7 +18,9 @@ Campi: `host`, `port`, `security_mode` (`starttls` | `tls` | `none`),
 (`password_ciphertext`, `password_iv`, `password_tag`).
 
 - Cifratura **AES-GCM autenticata** (`credential-crypto.ts`). Chiave da
-  `SMTP_CREDENTIALS_SECRET`, con fallback su `AUTH_RATE_LIMIT_SECRET`.
+  `SMTP_CREDENTIALS_SECRET`, con fallback su `AUTH_RATE_LIMIT_SECRET`. Lo
+  stesso segreto serve anche a IMAP, ma con un contesto crittografico diverso:
+  vedi la sezione IMAP piu sotto.
 - `toPublicSmtpConfiguration` garantisce che la password **non venga mai
   restituita** dalle API (coperto da test).
 - `POST /api/v1/admin/email/test` prova l'invio e salva `last_test_at` /
@@ -36,6 +38,46 @@ Campi: `host`, `port`, `security_mode` (`starttls` | `tls` | `none`),
   dalla dashboard.
 - La configurazione e **per database**: staging e produzione ne hanno una
   ciascuno.
+
+## IMAP — casella in entrata, opzionale (Blocco 4)
+
+Codice: `src/lib/email/imap-config.ts`, `src/lib/server/email/imap-service.ts`,
+`imap-client.ts`, `imap-protocol.ts`, `src/app/api/v1/admin/imap/**`.
+**Nessuna libreria nuova**: il test di connessione parla IMAP direttamente su
+`node:tls` / `node:net`.
+
+Come SMTP, la configurazione sta nel database — tabella
+`imap_provider_configs`, riga singola `IMAP_CONFIG_ID` — e si gestisce dalla
+console di piattaforma, sezione «Provider email».
+
+Campi: `host`, `port` (993 con SSL, 143 con STARTTLS), `security_mode`
+(`ssl` | `starttls`), `username`, `enabled`, piu la password cifrata nelle
+solite tre colonne.
+
+**SMTP e IMAP restano separati**, e la separazione e strutturale, non solo
+convenzionale:
+
+- tabelle diverse: la riga SMTP ha un CHECK `provider = 'smtp'` e richiede
+  mittente e nome mittente, che per la posta in entrata non esistono;
+- **contesti crittografici diversi**: `credential-crypto.ts` accetta un
+  `purpose` (`smtp` | `imap`) che entra nella derivazione della chiave e nel
+  dato autenticato. Una credenziale IMAP non e decifrabile come SMTP e
+  viceversa (test in `tests/email/imap-config.test.mjs`);
+- interfacce e handler distinti: la password di un provider non puo finire nel
+  corpo della richiesta dell'altro.
+
+Il test di connessione (`POST /api/v1/admin/imap/test`) apre la sessione,
+esegue `LOGIN`, chiude con `LOGOUT` e **non legge nessun messaggio**. Con
+`starttls`, se il server rifiuta l'upgrade la sessione viene chiusa invece di
+autenticarsi in chiaro. Salva `last_test_at` / `last_test_status` e ha lo
+stesso tetto di frequenza del test SMTP.
+
+Codici di errore normalizzati: `IMAP_AUTH_FAILED`, `IMAP_CONNECTION_FAILED`,
+`IMAP_TLS_REQUIRED`, `IMAP_CONFIGURATION_INVALID`.
+
+**Oggi la casella non viene letta da nessuna funzione applicativa**: il Blocco 4
+chiedeva la configurazione, non un client di posta. E il presupposto per una
+futura ricezione (protocolli, ricevute di lettura, risposte automatiche).
 
 ## Twilio Verify — SMS OTP, opzionale
 

@@ -9,6 +9,7 @@ import UpcomingTrainings from "@/components/dashboard/UpcomingTrainings";
 import CertificationAlerts from "@/components/dashboard/CertificationAlerts";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { PageHeading } from "@/components/dashboard/page-heading";
+import { OnboardingResumeCard } from "@/components/dashboard/onboarding-resume-card";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
 import { getClubAthletes, getClubData } from "@/lib/simplified-db";
@@ -409,6 +410,8 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+          <OnboardingResumeCard />
+
           <PageHeading
             title="Dashboard"
             subtitle={

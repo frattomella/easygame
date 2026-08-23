@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 186 test, 18 file
+## Cosa e coperto oggi — 249 test, 28 file
 
 | File | Test | Copre |
 |------|------|-------|
@@ -58,6 +58,7 @@ endpoint nuovo che dimentica il controllo.
 | `tests/auth/session-sync.test.mjs` | 3 | Invalidazione cache e handler `unauthorized` |
 | `tests/auth/membership-load-result.test.mjs` | 3 | Normalizzazione del caricamento membership |
 | `tests/email/smtp-config.test.mjs` | 4 | Validazione config SMTP, **la password non e mai esposta**, cifratura autenticata e rilevamento manomissioni |
+| `tests/email/imap-config.test.mjs` | 10 | Validazione config IMAP, password mai esposta, **credenziali SMTP e IMAP non intercambiabili**, conversazione IMAP su SSL e STARTTLS, rifiuto dell'autenticazione in chiaro, iniezione di comandi via CR/LF |
 | `tests/server/multi-tenant-isolation.test.mjs` | 29 | **Isolamento multi-tenant a runtime**: lettura, dettaglio, creazione, update e delete cross-tenant sulle funzioni vere di `resources.ts` |
 | `tests/server/audit-log.test.mjs` | 14 | Registrazione degli eventi sensibili e assenza di dati riservati nel log |
 | `tests/server/web-v1-regressions.test.mjs` | 16 | Proiezione `view=summary` della lista atleti, filtro e stampa della stagione attiva, sincronizzazione transazionale delle risorse club |
@@ -68,7 +69,13 @@ endpoint nuovo che dimentica il controllo.
 | `tests/lib/trainer-delete.test.mjs` | 8 | L'eliminazione di un allenatore e persistita su tutte le origini che la lettura rimette insieme |
 | `tests/lib/coalescing-saver.test.mjs` | 6 | L'autosave scrive una volta alla volta e accorpa le modifiche fatte durante l'attesa |
 | `tests/lib/club-write-requests.test.mjs` | 8 | Quante richieste costa ogni operazione sul club e con quale proiezione di colonne |
+| `tests/lib/italian-registry.test.mjs` | 11 | 107 province con regione, validazione CAP, coerenza provincia/regione, **carattere di controllo del codice fiscale verificato su quattro codici reali**, calcolo che dichiara cosa manca invece di improvvisare |
+| `tests/lib/athlete-import.test.mjs` | 9 | CSV con punto e virgola, BOM e virgolette; XML senza DOMParser; date italiane non lette all'americana; mappatura automatica; righe scartate, duplicati nel file e nel club |
+| `tests/lib/onboarding.test.mjs` | 8 | Configurazione iniziale: stato illeggibile che non rompe la pagina, saltare senza perdere i passi, riprendere dopo aver saltato, innesto in `settings` senza toccare il resto |
+| `tests/lib/club-profile-autosave.test.mjs` | 6 | **Quali sezioni possono salvarsi da sole**, e che una sezione in autosave non scriva IBAN, dati fiscali, stagioni o listini |
+| `tests/server/anagrafica-validation.test.mjs` | 10 | Validazione anagrafica lato server, con l'eccezione esplicita per i dati gia in archivio |
 | `tests/ui/brand-and-chrome.test.mjs` | 11 | Marchio senza dipendenze esterne, topbar senza chat/azioni rapide/assistenza, console di piattaforma separata dal club, modali che stanno nello schermo, font self-hosted |
+| `tests/ui/account-onboarding-and-admin.test.mjs` | 9 | Home account senza tavolozza propria e con i tre stati distinti, area onboarding protetta e saltabile, import con avanzamento reale e riepilogo, IMAP separato da SMTP nella console |
 
 ## Isolamento multi-tenant: cosa dimostrano i test
 

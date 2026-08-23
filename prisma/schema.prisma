@@ -108,6 +108,31 @@ model EmailProviderConfig {
   @@map("email_provider_configs")
 }
 
+/// Casella IMAP di piattaforma.
+///
+/// Tabella separata da `email_provider_configs` di proposito: SMTP e IMAP sono
+/// due servizi distinti e le credenziali non vanno condivise ne riutilizzate
+/// l'una per l'altro. La riga SMTP porta anche mittente e nome mittente, che
+/// per la lettura della posta non hanno senso.
+model ImapProviderConfig {
+  id                  String    @id
+  enabled             Boolean   @default(false)
+  host                String
+  port                Int
+  security_mode       String    @default("ssl")
+  username            String
+  password_ciphertext String
+  password_iv         String
+  password_tag        String
+  last_test_at        DateTime?
+  last_test_status    String?
+  updated_by          String?   @db.Uuid
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  @@map("imap_provider_configs")
+}
+
 model Session {
   id         String   @id @default(uuid()) @db.Uuid
   token      String   @unique

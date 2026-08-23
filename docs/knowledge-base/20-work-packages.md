@@ -548,6 +548,12 @@ pagamenti, categorie, allenatori e gestione club va fatta a mano in staging.
 - [x] La regola e in [10 — UI/UX](10-ui-ux-conventions.md)
 - [ ] Verifica pagina per pagina delle aree gestionali (richiede sessione)
 
+**Avanzamento (Blocco 4).** Home account, onboarding, dialog di import e
+sezione «Provider email» della console sono state scritte con una sola
+struttura che si riorganizza ai breakpoint, invece del doppio markup
+`hidden lg:flex` / `lg:hidden`. Restano da verificare a mano in staging le
+pagine gestionali dense: scheda atleta, pagamenti, categorie, allenatori.
+
 **File.** `src/components/ui/dialog.tsx`, `src/components/ui/alert-dialog.tsx`,
 `src/app/globals.css`, `src/components/layout/MobileTopBar.tsx`,
 [10](10-ui-ux-conventions.md).
@@ -602,6 +608,228 @@ sezioni proprie; `AppLoadingScreen` + `ListSkeleton` + `CardsSkeleton`;
 [10](10-ui-ux-conventions.md).
 
 **Test.** `tests/ui/brand-and-chrome.test.mjs`.
+
+---
+
+### WP-38 · Home account ridisegnata — `DONE` (2026-08-23)
+
+**Obiettivo.** Portare la porta d'ingresso dell'applicazione dentro l'identita
+del Blocco 3 e renderla usabile con molti accessi.
+
+**Cause radice individuate.**
+
+1. La pagina viveva su una **tavolozza tutta sua**, ~40 colori esadecimali
+   scritti dentro le classi (`#075eee`, `#07112f`, `#5f6b84`...). Nessun altro
+   schermo la usava: ogni modifica al tema non la raggiungeva.
+2. Un errore di rete nel caricamento delle membership veniva mostrato come
+   pannelli vuoti con scritto «Vuoi creare un nuovo club?»: a un utente con
+   dieci club sembravano spariti tutti.
+3. Nessun filtro: con molti accessi si scorreva a occhio. Il club aperto per
+   ultimo non era riconoscibile.
+4. Il caricamento era uno spinner a tutta pagina, quindi ogni ritorno alla home
+   nascondeva l'interfaccia intera.
+5. Due componenti (`account-club-card.tsx`, `account-empty-state.tsx`)
+   rimasti orfani dalla pagina precedente: 182 righe che nessuno importava.
+
+**Scope.** Riscrittura di `account-home-screen.tsx` con token e tipografia
+condivisi; righe di club con ruolo, sede, stagione e indicatore «Aperto»;
+filtro sopra le cinque voci; scheletro di caricamento; stato vuoto e stato di
+errore distinti, con «Riprova» che non svuota i dati gia a schermo.
+
+**Acceptance criteria.**
+- [x] Nessun colore esadecimale nel file (verificato da test)
+- [x] Caricamento, vuoto ed errore sono tre stati distinti
+- [x] Un errore di aggiornamento non cancella i club gia visibili
+- [x] Filtro per nome, citta e ruolo
+- [x] Usabile a 375, 768 e 1280 px senza duplicare il markup
+- [x] I due componenti orfani rimossi
+
+**Test.** `tests/ui/account-onboarding-and-admin.test.mjs`.
+
+**File.** `src/components/account/**`, [10](10-ui-ux-conventions.md).
+
+---
+
+### WP-39 · Onboarding del club, breve e riprendibile — `DONE` (2026-08-23)
+
+**Obiettivo.** Dare un primo passo a chi ha appena creato un club.
+
+**Contesto.** Dopo la creazione si arrivava direttamente alla dashboard: vuota,
+senza stagione, senza categorie, senza atleti. Niente era rotto, semplicemente
+non c'era un punto di partenza — e la stagione, che dal WP-32 decide quali dati
+esistono, non era ancora stata creata da nessuno.
+
+**Scope.** `/onboarding` con cinque passi (dati club, stagione, categorie,
+primi atleti, mappa delle aree), stato in `clubs.settings.onboarding`
+([ADR-0028](18-decision-log.md)), banner di ripresa in dashboard, ingresso
+automatico dopo la creazione del club.
+
+**Acceptance criteria.**
+- [x] Saltabile in un click, da qualunque passo
+- [x] Riprendibile: riparte dal primo passo non completato
+- [x] Saltare non ripropone l'invito, ma non chiude il percorso
+- [x] Ogni passo scrive solo su conferma; nessun autosave
+- [x] Nessun passo e obbligatorio
+- [x] `/onboarding` protetto da middleware **e** matrice ruoli (owner e club manager)
+- [x] Uno stato salvato male non rompe la dashboard
+
+**Test.** `tests/lib/onboarding.test.mjs` (8),
+`tests/ui/account-onboarding-and-admin.test.mjs`.
+
+**File.** `src/lib/onboarding.ts`, `src/app/onboarding/**`,
+`src/components/dashboard/onboarding-resume-card.tsx`, `src/middleware.ts`,
+`src/lib/access-roles.ts`.
+
+---
+
+### WP-40 · Anagrafica assistita: CAP, provincia e codice fiscale — `PARZIALE` (2026-08-23)
+
+**Obiettivo.** Ridurre gli errori di trascrizione nelle anagrafiche, senza
+introdurre dati inventati.
+
+**Scope.** `src/lib/italian-registry.ts` (107 province con regione, validazione
+CAP, algoritmo completo del codice fiscale con carattere di controllo);
+`AssistedAddressFields` e `AssistedFiscalCodeField`; validazione server in
+`src/lib/server/anagrafica.ts`, invocata da `resources.ts` su creazione e
+aggiornamento.
+
+**Fatto.**
+- [x] Provincia da elenco chiuso, regione compilata solo se vuota
+- [x] CAP validato, mai inventato
+- [x] Codice fiscale calcolato **solo** a campo vuoto; mai sovrascritto
+- [x] Codice fiscale inserito a mano verificato e, se incoerente, segnalato
+- [x] Stesse regole su client e server (stesso modulo puro)
+- [x] I dati gia in archivio restano modificabili (vedi [09](09-api-conventions.md))
+- [x] Agganciato a scheda atleta, scheda club (sede operativa e legale,
+      legale rappresentante) e dialog di creazione club
+
+**Resta aperto.**
+- [ ] Tabella dei comuni italiani: senza, «CAP → comune» non esiste e il codice
+      catastale lo fornisce l'utente. Vedi D23 e
+      [ADR-0027](18-decision-log.md)
+
+**In piu rispetto allo scope.** La scheda Club non aveva un campo «Comune» per
+la sede operativa: `updateClub` scriveva quindi `city: null` **a ogni
+salvataggio**, azzerando il comune del club. Aggiungendo il campo il difetto si
+chiude.
+
+**Test.** `tests/lib/italian-registry.test.mjs` (11),
+`tests/server/anagrafica-validation.test.mjs` (10).
+
+---
+
+### WP-41 · Import atleti completo e verificabile — `DONE` (2026-08-23)
+
+**Obiettivo.** Rendere l'import un'operazione di cui ci si puo fidare.
+
+**Cause radice individuate.**
+
+1. **CSV**: letto da SheetJS, che indovina il separatore. Un export italiano
+   con `;` finiva in una sola colonna e l'import «riusciva» scrivendo righe
+   senza nome ne data.
+2. **XML**: letto con `DOMParser`, che esiste solo nel browser. Nessuna parte
+   di quel percorso era eseguibile dai test.
+3. **Intestazioni**: i sinonimi erano scritti con underscore
+   (`data_di_nascita`) e confrontati con intestazioni da cui gli underscore
+   erano appena stati tolti. «Data di nascita» — l'intestazione piu comune —
+   **non veniva mai riconosciuta**.
+4. **Date**: il fallback era `new Date(testo)`, che legge `12/03/2010` come 3
+   dicembre. Giorno e mese si scambiavano in silenzio.
+5. **Avanzamento**: una tendina con un messaggio fisso. Su 200 righe non si
+   sapeva se stesse procedendo.
+6. **Esito**: un toast con «N riuscite, M da rivedere». Quali fossero le M, e
+   perche, non lo diceva nessuno.
+7. **Categorie**: create prima delle righe; se poi tutte le righe di quella
+   categoria fallivano, restava una categoria vuota.
+
+**Scope.** Parser CSV e XML propri e puri; validazione riga per riga con
+duplicati (nel file e nel club), codice fiscale ed email; anteprima con esito;
+barra di avanzamento alimentata dalle righe realmente scritte; riepilogo finale
+con importati, scartati in anteprima ed errori in scrittura; rimozione delle
+categorie create e rimaste senza atleti.
+
+**Acceptance criteria.**
+- [x] CSV con `;`, `,`, tab o `|`, BOM, virgolette e separatore dentro il campo
+- [x] XML con attributi, CDATA ed entita, senza DOMParser
+- [x] XLS/XLSX invariati (`xlsx`)
+- [x] Mappatura colonne proposta e correggibile
+- [x] Anteprima **prima** di scrivere, con il motivo di ogni scarto
+- [x] Barra di avanzamento reale, non indeterminata
+- [x] Riepilogo con importati / scartati / errori e l'elenco delle righe
+- [x] Nessuna scrittura parziale incoerente: ogni riga e atomica, le categorie
+      inutilizzate vengono rimosse
+- [x] Test su ciascun punto
+
+**Non fatto.** L'import resta **una richiesta HTTP per atleta**: su 200 righe
+sono 200 richieste. Renderlo un endpoint unico transazionale e un cambio di
+contratto che appartiene a WP-07.
+
+**Test.** `tests/lib/athlete-import.test.mjs` (9).
+
+**File.** `src/lib/athlete-import.ts`,
+`src/components/forms/AthleteImportDialog.tsx`, `src/app/athletes/page.tsx`.
+
+---
+
+### WP-42 · Autosave per sezione nella scheda Club — `DONE` (2026-08-23)
+
+**Obiettivo.** Ridurre la dipendenza dal pulsante «Salva» dove e sicuro farlo,
+e solo li.
+
+**Scope.** `src/lib/club-profile.ts`: classificazione delle nove sezioni,
+costruzione della scrittura per sezione, `patchClubSettings`. Nella pagina:
+debounce di 1 s, accorpamento con `createCoalescingSaver`, `SaveStatus`.
+
+**Decisione.** [ADR-0026](18-decision-log.md). In autosave: Generale,
+Contatti, Social. A conferma esplicita: Dati Fiscali, Dati Bancari,
+Federazione, Stagioni, Pagamenti, Account e Fatturazione.
+
+**Acceptance criteria.**
+- [x] Nessun autosave su dati economici, fiscali, stagioni o rimozioni
+- [x] Debounce e accorpamento: modifiche continue non generano PATCH sovrapposte
+- [x] Stato `Salvataggio / Salvato / Errore` visibile
+- [x] Il pulsante Salva resta dove serve, e ricompare sulle schede in autosave
+      se ci sono modifiche pendenti altrove
+- [x] Una sezione in autosave non puo scrivere campi di un'altra (test)
+
+**Test.** `tests/lib/club-profile-autosave.test.mjs` (6).
+
+**File.** `src/lib/club-profile.ts`, `src/app/organization/page.tsx`.
+
+---
+
+### WP-43 · Casella IMAP di piattaforma — `DONE` (2026-08-23)
+
+**Obiettivo.** Configurare una casella IMAP accanto a SMTP, con credenziali
+separate.
+
+**Scope.** Modello `ImapProviderConfig` e migrazione
+`20260823090000_imap_provider_config`; `src/lib/email/imap-config.ts`;
+`imap-protocol.ts` (macchina a stati pura), `imap-client.ts` (socket),
+`imap-service.ts`; `GET|PUT /api/v1/admin/imap` e
+`POST /api/v1/admin/imap/test`; sezione «Provider email» della console.
+
+**Decisione.** [ADR-0029](18-decision-log.md): tabella e contesto crittografico
+separati, nessuna libreria IMAP nuova.
+
+**Acceptance criteria.**
+- [x] Host, porta, username, password cifrata, SSL/TLS o STARTTLS, abilita/disabilita
+- [x] Test di connessione reale (LOGIN + LOGOUT, nessun messaggio letto)
+- [x] Credenziali SMTP e IMAP separate, e **non intercambiabili** (test)
+- [x] La password non esce mai da un'API
+- [x] Rate limit sul test, come per SMTP
+- [x] Nessuna dipendenza nuova
+
+**Non fatto.** La casella non viene **letta**: vedi D24 in
+[16](16-technical-debt.md).
+
+**Test.** `tests/email/imap-config.test.mjs` (10).
+
+**File.** `prisma/schema.prisma`, `prisma/migrations/20260823090000_*`,
+`src/lib/email/imap-config.ts`, `src/lib/server/email/imap-*.ts`,
+`src/app/api/v1/admin/imap/**`,
+`src/app/private/easygame-platform-admin-0c7a/page.tsx`,
+[12](12-integrations.md), [14](14-security.md).
 
 ---
 
