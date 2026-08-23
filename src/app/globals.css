@@ -692,6 +692,22 @@
   text-transform: uppercase;
 }
 
+/*
+ * Occhiello ridotto, per le targhette dentro una riga gia densa (stagione,
+ * "Aperto", "Piattaforma").
+ *
+ * Esiste perche quelle targhette si scrivevano la taglia a mano con valori
+ * arbitrari diversi fra loro (0.5625rem qui, 0.625rem la): tre misure per la
+ * stessa cosa. Le taglie di occhiello sono due, e sono queste.
+ */
+.eg-eyebrow-sm {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 /* Contenitore che scorre da solo invece di far scorrere la pagina. */
 .eg-scroll-x {
   overflow-x: auto;

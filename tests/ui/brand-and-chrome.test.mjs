@@ -73,20 +73,20 @@ const readCode = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-test("la topbar del club non contiene chat, azioni rapide o assistenza", () => {
-  const header = readCode(HEADER);
-
-  for (const [pattern, cosa] of [
-    [/ChatButton/, "il pulsante chat"],
-    [/quickActions|QuickActions|Azioni rapide/i, "le azioni rapide"],
-    [/HelpCircle|Assistenza/, "il pulsante assistenza"],
-  ]) {
-    assert.equal(
-      pattern.test(header),
-      false,
-      `${cosa} deve restare fuori dalla topbar del club`,
-    );
-  }
+/*
+ * Azioni rapide e assistenza sono **tornate** sulla topbar del club: la loro
+ * rimozione era richiesta per la sola console `platform_admin`. Cosa deve
+ * esserci sull'una e non sull'altra e in
+ * `tests/ui/topbar-club-vs-platform.test.mjs`.
+ *
+ * Qui resta la sola regola che non e cambiata.
+ */
+test("la topbar del club non contiene la chat", () => {
+  assert.equal(
+    /ChatButton/.test(readCode(HEADER)),
+    false,
+    "la chat non ha un backend: finche non esiste, non ha un comando",
+  );
 });
 
 test("le topbar mostrano club e stagione", () => {

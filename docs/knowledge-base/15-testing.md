@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 280 test, 32 file
+## Cosa e coperto oggi — 296 test, 33 file
 
 | File | Test | Copre |
 |------|------|-------|
@@ -74,7 +74,8 @@ endpoint nuovo che dimentica il controllo.
 | `tests/lib/onboarding.test.mjs` | 8 | Configurazione iniziale: stato illeggibile che non rompe la pagina, saltare senza perdere i passi, riprendere dopo aver saltato, innesto in `settings` senza toccare il resto |
 | `tests/lib/club-profile-autosave.test.mjs` | 6 | **Quali sezioni possono salvarsi da sole**, e che una sezione in autosave non scriva IBAN, dati fiscali, stagioni o listini |
 | `tests/server/anagrafica-validation.test.mjs` | 10 | Validazione anagrafica lato server, con l'eccezione esplicita per i dati gia in archivio |
-| `tests/ui/brand-and-chrome.test.mjs` | 11 | Marchio senza dipendenze esterne, topbar senza chat/azioni rapide/assistenza, console di piattaforma separata dal club, modali che stanno nello schermo, font self-hosted |
+| `tests/ui/brand-and-chrome.test.mjs` | 9 | Marchio senza dipendenze esterne, chat fuori dalla topbar, console di piattaforma separata dal club, modali che stanno nello schermo, font self-hosted |
+| `tests/ui/topbar-club-vs-platform.test.mjs` | 16 | **Cosa distingue la chrome del club da quella di piattaforma**: azioni rapide e assistenza sul club e non sulla console, chat fuori da entrambe, gerarchia logo/nome/stagione, due soli font e nessuna taglia inventata sulle superfici dell'identita |
 | `tests/lib/sorting.test.mjs` | 8 | Comparatore nominale unico: maiuscole ignorate, numeri ordinati da numeri, valori vuoti in fondo, stabilita, Cognome poi Nome per le persone |
 | `tests/lib/category-compatibility.test.mjs` | 8 | Compatibilita **esplicita, orientata e non transitiva**; categorie personalizzate e riferimenti per nome; primaria, appartenenze ed eleggibilita restano insiemi distinti |
 | `tests/lib/jersey-numbering-groups.test.mjs` | 10 | Atleti che rientrano nel gruppo con la categoria registrata solo per nome, nome atleta non duplicato, righe ordinate, numeri duplicati e riservati, indice costruito in una passata |

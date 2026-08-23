@@ -486,7 +486,7 @@ export function AuthShell({
                 <span className="eg-eyebrow text-slate-400">
                   Programma settimanale
                 </span>
-                <span className="eg-tabular rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[0.625rem] font-semibold text-amber-300">
+                <span className="eg-tabular rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-xs font-semibold text-amber-300">
                   2026/2027
                 </span>
               </div>

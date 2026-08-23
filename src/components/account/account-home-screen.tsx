@@ -164,7 +164,7 @@ function ClubRow({
               {club.name}
             </span>
             {isActive ? (
-              <span className="eg-eyebrow rounded bg-slate-900 px-1.5 py-0.5 text-[0.5625rem] leading-none text-white">
+              <span className="eg-eyebrow-sm rounded bg-slate-900 px-1.5 py-0.5 leading-none text-white">
                 Aperto
               </span>
             ) : null}

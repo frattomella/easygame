@@ -112,7 +112,7 @@ export function PlatformAdminShell({
               <span className="block font-display text-sm font-semibold text-white">
                 EasyGame
               </span>
-              <span className="eg-eyebrow block text-[0.5625rem] text-blue-300">
+              <span className="eg-eyebrow-sm block text-blue-300">
                 Piattaforma
               </span>
             </span>
@@ -137,7 +137,7 @@ export function PlatformAdminShell({
 
           <span className="flex min-w-0 items-center gap-2">
             <EasyGameLogo className="h-7 w-7 shrink-0 md:hidden" />
-            <span className="eg-eyebrow shrink-0 rounded bg-slate-900 px-1.5 py-1 text-[0.5625rem] leading-none text-white">
+            <span className="eg-eyebrow-sm shrink-0 rounded bg-slate-900 px-1.5 py-1 leading-none text-white">
               Piattaforma
             </span>
             <span className="truncate font-display text-sm font-semibold text-slate-900">

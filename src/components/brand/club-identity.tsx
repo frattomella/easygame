@@ -8,8 +8,15 @@ import { cn } from "@/lib/utils";
  *
  * La stagione non e un'etichetta decorativa: da WP-32 e il perimetro dei dati
  * che stai guardando. Categorie, piani e listini di un'altra stagione non
- * compaiono. Per questo ha un colore suo — l'unico ambra della chrome — e le
- * cifre tabellari: si legge come una targa, non come un badge fra tanti.
+ * compaiono. Per questo mantiene il suo colore — l'unico ambra della chrome —
+ * e le cifre tabellari.
+ *
+ * Gerarchia della riga (regola fissata dopo il Blocco 5): il **logo del club**
+ * e l'elemento piu grande e non ha cornice, perche una cornice attorno a un
+ * marchio gia squadrato lo fa sembrare una miniatura di elenco; il **nome del
+ * club** e il testo piu grande della barra; la **stagione** e una targhetta
+ * che sta accanto al nome e va a capo quando lo spazio manca, cosi non spinge
+ * mai logo, nome o comandi fuori posto.
  */
 export function ClubIdentity({
   clubName,
@@ -35,10 +42,12 @@ export function ClubIdentity({
 
   return (
     <span className={cn("flex min-w-0 items-center gap-3", className)}>
+      {/* Nessun bordo e nessuna piastra attorno al logo: solo il marchio. */}
       <span
         className={cn(
-          "relative grid shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-white",
-          compact ? "h-9 w-9" : "h-11 w-11",
+          "relative grid shrink-0 place-items-center overflow-hidden",
+          logoUrl ? "" : "rounded-lg bg-slate-100",
+          compact ? "h-10 w-10" : "h-12 w-12",
         )}
       >
         {logoUrl ? (
@@ -46,22 +55,27 @@ export function ClubIdentity({
             src={logoUrl}
             alt=""
             fill
-            sizes="44px"
-            className="object-contain p-1"
+            sizes="48px"
+            className="object-contain"
             unoptimized
           />
         ) : (
-          <span className="font-display text-sm font-semibold text-slate-500">
+          <span
+            className={cn(
+              "font-display font-semibold text-slate-500",
+              compact ? "text-sm" : "text-base",
+            )}
+          >
             {initials || "EG"}
           </span>
         )}
       </span>
 
-      <span className="flex min-w-0 flex-col leading-tight">
+      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 leading-tight">
         <span
           className={cn(
             "truncate font-display font-semibold tracking-tight text-slate-900",
-            compact ? "text-sm" : "text-base",
+            compact ? "text-base" : "text-xl",
           )}
           title={clubName}
         >
@@ -89,18 +103,18 @@ export function SeasonPlate({
 }) {
   const content = (
     <>
-      <span className="eg-eyebrow text-[0.5625rem] leading-none opacity-70">
-        Stagione
-      </span>
+      <span className="eg-eyebrow-sm leading-none opacity-70">Stagione</span>
       <span className="eg-tabular text-xs font-semibold leading-none">
         {label}
       </span>
     </>
   );
 
+  // Piu discreta di prima: niente bordo, altezza di una riga sola, e sta
+  // accanto al nome invece che sotto.
   const shared = cn(
-    "mt-0.5 inline-flex w-fit items-center gap-1.5 rounded-md border px-1.5 py-1",
-    "border-amber-200 bg-[var(--eg-season-soft)] text-[var(--eg-season)]",
+    "inline-flex w-fit shrink-0 items-center gap-1 rounded px-1.5 py-0.5",
+    "bg-[var(--eg-season-soft)] text-[var(--eg-season)]",
     className,
   );
 

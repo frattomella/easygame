@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import {
   Menu,
   UserCircle,
+  HelpCircle,
+  UserPlus,
+  Zap,
   Home,
   Building,
   Users,
@@ -32,6 +35,39 @@ import {
 } from "@/components/ui/sheet";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { ClubIdentity } from "@/components/brand/club-identity";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import { canAccessPath } from "@/lib/access-roles";
+
+/**
+ * Le stesse azioni rapide della topbar desktop.
+ *
+ * Su telefono non hanno un pulsante proprio nella barra — lo spazio va speso
+ * su club e stagione — ma vivono in cima al menu, dove non costano larghezza.
+ */
+const quickActions = [
+  { id: "new-athlete", label: "Nuovo atleta", icon: UserPlus, href: "/athletes?action=new" },
+  {
+    id: "register-certificate",
+    label: "Registra certificato medico",
+    icon: FileHeart,
+    href: "/medical?action=new",
+  },
+  {
+    id: "new-training",
+    label: "Nuovo allenamento",
+    icon: Calendar,
+    href: "/training?action=new",
+  },
+  { id: "new-match", label: "Nuova gara", icon: Trophy, href: "/matches?action=new" },
+  {
+    id: "new-payment",
+    label: "Registra pagamento",
+    icon: CreditCard,
+    href: "/movements?action=new",
+  },
+] as const;
+
+const HELP_URL = "https://www.cedisoft.it/contatti/";
 
 const navSections = [
   {
@@ -162,6 +198,20 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
     }
   };
 
+  const handleQuickAction = (href: string) => {
+    setMenuOpen(false);
+    router.push(buildUrl(href));
+  };
+
+  const activeRole = activeClub?.role || user?.user_metadata?.role;
+  const visibleQuickActions = useMemo(
+    () =>
+      quickActions.filter((action) =>
+        canAccessPath(activeRole, action.href.split("?")[0]),
+      ),
+    [activeRole],
+  );
+
   const visibleNavSections = navSectionsOverride || navSections;
 
   return (
@@ -211,9 +261,31 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="left" className="w-72 max-w-[86vw] p-0">
           <SheetHeader className="shrink-0 border-b px-5 py-4 pr-12">
-            <SheetTitle>Menu</SheetTitle>
+            <SheetTitle className="flex items-center gap-2">
+              <EasyGameLogo className="h-6 w-6 shrink-0" />
+              EasyGame
+            </SheetTitle>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-6">
+            {visibleQuickActions.length ? (
+              <div className="mb-4">
+                <p className="eg-eyebrow px-2 text-gray-500">Azioni rapide</p>
+                <div className="mt-1 space-y-1">
+                  {visibleQuickActions.map((action) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={() => handleQuickAction(action.href)}
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                    >
+                      <action.icon className="h-4 w-4" />
+                      <span className="font-medium">{action.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {showHubLink ? (
               <div className="mb-4">
                 <Link
@@ -228,7 +300,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
                     <span className="text-sm font-bold text-white">
                       EasyGame HUB
                     </span>
-                    <span className="text-[11px] text-white/80">
+                    <span className="text-xs text-white/80">
                       Marketplace e servizi per il tuo club
                     </span>
                   </div>
@@ -239,7 +311,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
             <nav className="space-y-4">
               {visibleNavSections.map((section) => (
                 <div key={section.id}>
-                  <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <p className="eg-eyebrow px-2 text-gray-500 dark:text-gray-400">
                     {section.label}
                   </p>
                   <div className="mt-1 space-y-1">
@@ -263,6 +335,19 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
                 </div>
               ))}
             </nav>
+
+            <div className="mt-4 border-t pt-4">
+              <a
+                href={HELP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+              >
+                <HelpCircle className="h-4 w-4" />
+                <span className="font-medium">Assistenza</span>
+              </a>
+            </div>
           </div>
         </SheetContent>
       </Sheet>

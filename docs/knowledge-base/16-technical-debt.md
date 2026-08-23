@@ -270,6 +270,22 @@ E il presupposto, non la funzione. Chi la completera trovera gia il trasporto
 (`imap-client.ts`) e la macchina a stati (`imap-protocol.ts`), che oggi
 implementano solo `LOGIN` e `LOGOUT`.
 
+### D26 — Taglie di testo scritte a mano fuori dalla chrome
+
+Quindici occorrenze di `text-[11px]`, `text-[10px]` e `text-[15px]` in
+griglie dense (programma settimanale, calendario allenamenti, prenotazioni
+strutture, badge notifiche) e tre `text-[0.8rem]` dentro le primitive shadcn
+vendorizzate (`ui/calendar.tsx`, `ui/form.tsx`).
+
+Sono precedenti alla regola tipografica fissata dopo il Blocco 5. Le superfici
+che definiscono l'identita — marchio, chrome, accesso, console di piattaforma
+— sono gia pulite e un test lo impedisce
+(`tests/ui/topbar-club-vs-platform.test.mjs`).
+
+**Come si chiude:** si normalizzano quando si tocca quella pagina per altro
+motivo, non con un rifacimento di massa. Le primitive vendorizzate si lasciano
+come sono: allinearle vuol dire perderne l'aggiornabilita.
+
 ### D25 — Due immagini decorative non piu referenziate
 
 `public/images/account/account-team.png` non e piu usato da nessuna pagina

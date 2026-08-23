@@ -595,6 +595,9 @@ sezioni proprie; `AppLoadingScreen` + `ListSkeleton` + `CardsSkeleton`;
 **Acceptance criteria.**
 - [x] Nessun riferimento a host esterni o a PNG inesistenti
 - [x] Topbar club senza chat, azioni rapide e assistenza
+      — **rettificato da WP-45**: la rimozione valeva per la sola console
+      `platform_admin`. Azioni rapide e assistenza sono tornate sulla topbar
+      del club; la chat resta fuori
 - [x] Club e stagione visibili su desktop **e** su telefono
 - [x] La console di piattaforma non monta la chrome del club
 - [x] Attese e salvataggi hanno una forma sola, annunciata agli screen reader
@@ -923,6 +926,75 @@ significato funzionale. L'elenco e in
 `src/components/account/account-shared.ts`,
 [06](06-data-model.md), [10](10-ui-ux-conventions.md),
 [11](11-capabilities.md), [18](18-decision-log.md).
+
+---
+
+### WP-45 · Topbar del club ripristinata e regole grafiche definitive — `DONE` (2026-08-23)
+
+**Obiettivo.** Rimettere sulla topbar del club i comandi che il Blocco 3 aveva
+tolto per errore di perimetro, e scrivere le regole grafiche in modo che il
+malinteso non si ripeta.
+
+**Causa radice.** Il requisito «togli chat, azioni rapide e assistenza»
+riguardava la dashboard `platform_admin`, che non amministra un club e non deve
+avere scorciatoie di club. WP-37 lo ha applicato a **tutte** le chrome: la
+topbar del club ha perso due funzioni che servivano. La chat, invece, va tolta
+davvero: non ha un backend.
+
+Cause secondarie sulla riga identita, tutte introdotte insieme:
+
+1. il logo del club era chiuso in una cornice (`rounded-xl border`) da 44 px:
+   letto come la miniatura di una riga di elenco, non come il marchio della
+   societa;
+2. il nome del club era `text-base`, piu piccolo del titolo di una card della
+   pagina sotto;
+3. la stagione era una targa a due righe **sotto** il nome: occupava l'altezza
+   di due righe nella barra e comprimeva tutto il resto.
+
+**Scope.**
+
+- `Header.tsx`: marchio EasyGame (l'SVG gia in repo) collegato a `/account`;
+  azioni rapide con pannello laterale, filtrate da `canAccessPath`; assistenza;
+  barra riportata a 80 px. La chat **non** torna.
+- `MobileTopBar.tsx`: azioni rapide e assistenza dentro il menu, dove non
+  costano larghezza — sulla barra lo spazio resta a club e stagione; marchio
+  nell'intestazione del menu.
+- `club-identity.tsx`: logo senza cornice e piu grande, nome `text-xl`,
+  targhetta stagione discreta e accanto al nome, con ritorno a capo.
+- `platform-admin-shell.tsx`: invariata, resta senza funzioni di club.
+- `globals.css`: seconda taglia di occhiello (`.eg-eyebrow-sm`) al posto di tre
+  valori arbitrari scritti a mano.
+
+**Audit tipografico.** Nessun font nuovo: restano `Inter` e `Archivo`,
+dichiarati solo in `app/layout.tsx`. Eliminate le variazioni arbitrarie sulle
+superfici dell'identita (tre taglie di occhiello diverse per la stessa cosa,
+etichette di sezione riscritte a mano nel menu mobile). Le taglie a mano
+rimaste nelle griglie dense sono debito dichiarato (D26) e non sono state
+toccate: non era un rifacimento.
+
+**Acceptance criteria.**
+- [x] Azioni rapide e assistenza tornate sulla topbar del club
+- [x] Le azioni rapide non propongono aree vietate dal ruolo
+- [x] Chat fuori da entrambe le chrome
+- [x] Marchio EasyGame sulla topbar del club
+- [x] Logo del club senza cornice e piu grande
+- [x] Nome del club piu grande e leggibile
+- [x] Stagione discreta, accanto al nome, senza spingere via logo o comandi
+- [x] La console `platform_admin` resta separata e senza funzioni di club
+- [x] Nessun font nuovo; due sole taglie di occhiello
+- [x] Le regole sono vincolanti per i WP successivi ([10](10-ui-ux-conventions.md))
+
+**Test.** `tests/ui/topbar-club-vs-platform.test.mjs` (16);
+`tests/ui/brand-and-chrome.test.mjs` aggiornato (la regola invertita e stata
+riscritta, non cancellata).
+
+**File.** `src/components/dashboard/Header.tsx`,
+`src/components/layout/MobileTopBar.tsx`,
+`src/components/brand/club-identity.tsx`, `src/app/globals.css`,
+`src/components/account/account-home-screen.tsx`,
+`src/components/auth/auth-shell.tsx`,
+`src/components/platform-admin/platform-admin-shell.tsx`,
+[10](10-ui-ux-conventions.md), [16](16-technical-debt.md).
 
 ---
 

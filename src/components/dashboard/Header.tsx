@@ -1,7 +1,19 @@
 "use client";
 
-import React, { memo, useCallback } from "react";
-import { ArrowLeft, LogOut, UserCircle } from "lucide-react";
+import React, { memo, useCallback, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  Calendar,
+  CreditCard,
+  FileHeart,
+  HelpCircle,
+  LogOut,
+  Trophy,
+  UserCircle,
+  UserPlus,
+  Zap,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -25,7 +37,14 @@ import {
   MobileTopBar,
   type MobileNavSection,
 } from "@/components/layout/MobileTopBar";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { ClubIdentity } from "@/components/brand/club-identity";
+import { EasyGameLogo } from "@/components/brand/easygame-logo";
 import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   canAccessPath,
@@ -43,6 +62,55 @@ import {
  */
 const topBarButtonClassName =
   "relative h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-white p-0 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900";
+
+/**
+ * Variante con etichetta dello stesso comando: stesso bordo, stesso fondo,
+ * stesso colore. Prima le azioni rapide erano un pulsante in gradiente animato
+ * che si mangiava l'attenzione di tutta la barra.
+ */
+const topBarActionClassName =
+  "relative h-10 shrink-0 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900";
+
+/**
+ * Azioni rapide del club.
+ *
+ * Non duplicano la sidebar: ognuna apre direttamente il form di creazione
+ * (`?action=new`), che dalla sidebar richiede comunque un secondo clic. Sono
+ * filtrate dalla matrice permessi, cosi un allenatore non vede scorciatoie
+ * verso aree che non puo aprire.
+ */
+const QUICK_ACTIONS = [
+  {
+    id: "new-athlete",
+    label: "Nuovo atleta",
+    icon: UserPlus,
+    href: "/athletes?action=new",
+  },
+  {
+    id: "register-certificate",
+    label: "Registra certificato medico",
+    icon: FileHeart,
+    href: "/medical?action=new",
+  },
+  {
+    id: "new-training",
+    label: "Nuovo allenamento",
+    icon: Calendar,
+    href: "/training?action=new",
+  },
+  {
+    id: "new-match",
+    label: "Nuova gara",
+    icon: Trophy,
+    href: "/matches?action=new",
+  },
+  {
+    id: "new-payment",
+    label: "Registra pagamento",
+    icon: CreditCard,
+    href: "/movements?action=new",
+  },
+] as const;
 
 interface HeaderProps {
   title?: string;
@@ -66,6 +134,7 @@ const Header = memo(
   }: HeaderProps) => {
     const router = useRouter();
     const pathname = usePathname();
+    const [quickActionsOpen, setQuickActionsOpen] = useState(false);
     const [orgName, setOrgName] = React.useState("EasyGame");
     const [activeSeasonLabel, setActiveSeasonLabel] = React.useState<
       string | null
@@ -332,6 +401,31 @@ const Header = memo(
       router.back();
     }, [router]);
 
+    const handleQuickAction = useCallback(
+      (href: string) => {
+        setQuickActionsOpen(false);
+        router.push(href);
+      },
+      [router],
+    );
+
+    const handleHelpClick = useCallback(() => {
+      window.open(
+        "https://www.cedisoft.it/contatti/",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    }, []);
+
+    const activeRole =
+      activeClub?.role || userRole || user?.user_metadata?.role;
+    const visibleQuickActions = React.useMemo(
+      () =>
+        QUICK_ACTIONS.filter((action) =>
+          canAccessPath(activeRole, action.href.split("?")[0]),
+        ),
+      [activeRole],
+    );
 
     return (
       <>
@@ -344,12 +438,23 @@ const Header = memo(
         </div>
 
         {/*
-          Tre cose e basta: dove torni, dove sei, chi sei.
-          Chat, azioni rapide e assistenza sono state tolte: la chat non
-          aveva un backend, le azioni rapide duplicavano voci gia presenti
-          nella sidebar e l'assistenza era un link a un sito esterno.
+          Marchio, dove torni, dove sei, cosa fai in fretta, chi sei.
+
+          La chat resta fuori finche non esiste una funzione vera: era un
+          pannello senza backend. Azioni rapide e assistenza invece servono e
+          sono tornate — erano state tolte per la sola console di piattaforma,
+          che ha una shell tutta sua e non deve averle.
         */}
-        <header className="sticky top-0 z-10 hidden h-16 w-full items-center gap-3 border-b border-slate-200 bg-white px-4 md:px-6 lg:flex">
+        <header className="sticky top-0 z-10 hidden h-20 w-full items-center gap-3 border-b border-slate-200 bg-white px-4 md:px-6 lg:flex">
+          <Link
+            href="/account"
+            aria-label="EasyGame: torna all'elenco dei club"
+            title="EasyGame"
+            className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+          >
+            <EasyGameLogo className="h-9 w-9" />
+          </Link>
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -377,11 +482,86 @@ const Header = memo(
             className="min-w-0 flex-1"
           />
 
-          <span className="hidden min-w-0 max-w-[16rem] truncate text-sm text-slate-500 xl:block">
+          <span className="hidden min-w-0 max-w-[12rem] truncate text-sm text-slate-500 2xl:block">
             {title}
           </span>
 
           <div className="flex shrink-0 items-center gap-2">
+            {visibleQuickActions.length ? (
+              <>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        className={topBarActionClassName}
+                        onClick={() => setQuickActionsOpen(true)}
+                        aria-label="Azioni rapide"
+                      >
+                        <Zap className="h-5 w-5" />
+                        <span className="ml-2 hidden xl:inline">
+                          Azioni rapide
+                        </span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Azioni rapide</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
+                <Sheet
+                  open={quickActionsOpen}
+                  onOpenChange={setQuickActionsOpen}
+                >
+                  <SheetContent side="right" className="w-80 max-w-[92vw] p-0">
+                    <SheetHeader className="shrink-0 border-b px-5 py-4 pr-12">
+                      <SheetTitle className="flex items-center gap-2">
+                        <Zap className="h-5 w-5 text-slate-500" />
+                        Azioni rapide
+                      </SheetTitle>
+                    </SheetHeader>
+                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-4 pb-6">
+                      {visibleQuickActions.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          onClick={() => handleQuickAction(action.href)}
+                          className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-left transition-colors hover:bg-slate-50"
+                        >
+                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                            <action.icon className="h-4 w-4" />
+                          </span>
+                          <span className="text-sm font-medium text-slate-900">
+                            {action.label}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </>
+            ) : null}
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleHelpClick}
+                    className={topBarButtonClassName}
+                    aria-label="Assistenza"
+                  >
+                    <HelpCircle className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Assistenza</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
             <NotificationsDropdown
               buttonClassName={topBarButtonClassName}
               notificationCount={notificationCount}
@@ -391,7 +571,6 @@ const Header = memo(
                   : "/notifications"
               }
             />
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button

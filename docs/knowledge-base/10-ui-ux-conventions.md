@@ -120,6 +120,98 @@ torna; non riscrive mai un valore digitato, e il pulsante «Calcola» del codice
 fiscale non compare nemmeno quando il campo e gia valorizzato.
 
 ---
+## Chrome: club e piattaforma sono due cose diverse (regola definitiva)
+
+Esistono **due** chrome, e non vanno confuse. Un requisito scritto per l'una
+non si applica mai all'altra: e cosi che nel Blocco 3 la topbar del club ha
+perso comandi che servivano.
+
+| | Topbar **Club** (`components/dashboard/Header.tsx`, `components/layout/MobileTopBar.tsx`) | Console **Piattaforma** (`components/platform-admin/platform-admin-shell.tsx`) |
+|---|---|---|
+| Marchio EasyGame | si | si |
+| Identita club + stagione | si (`ClubIdentity`) | **no**: non amministra un club |
+| Azioni rapide | si, filtrate da `canAccessPath` | **no** |
+| Assistenza | si | **no** |
+| Notifiche, account | si | account |
+| Chat | **no** (nessun backend) | **no** |
+| Voci di navigazione di club (`/athletes`, `/training`, …) | si | **no** |
+
+`tests/ui/topbar-club-vs-platform.test.mjs` verifica ogni riga di questa
+tabella. Se un WP futuro deve togliere un comando, deve dire **da quale delle
+due**.
+
+### Gerarchia della riga identita
+
+Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
+
+1. **logo del club** — l'elemento piu grande (48 px desktop, 40 px compatto) e
+   **senza cornice**: un bordo attorno a un marchio gia squadrato lo fa
+   sembrare la miniatura di un elenco. Solo il ripiego con le iniziali ha una
+   piastra neutra, per non lasciare due lettere a mezz'aria;
+2. **nome del club** — il testo piu grande della barra (`text-xl`, `text-base`
+   in compatto), in `font-display`;
+3. **stagione** — targhetta discreta, senza bordo, su una riga sola, **accanto**
+   al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
+   logo, nome o comandi. Mantiene l'ambra, che nella chrome e riservata alla
+   stagione.
+
+### Un solo stile per i comandi della topbar
+
+Due varianti e basta, entrambe in `Header.tsx`:
+
+- `topBarButtonClassName` — comando a sola icona, tondo;
+- `topBarActionClassName` — stesso bordo, stesso fondo, stesso colore, con
+  etichetta a partire da `xl`.
+
+**Niente gradienti, niente pulsanti animati, niente varianti per contesto.** Le
+azioni rapide erano un pulsante in gradiente animato: si mangiava l'attenzione
+di tutta la barra e nessun altro comando aveva piu il suo peso.
+
+## Tipografia: le regole definitive
+
+**Due font, dichiarati una volta sola.** `Inter` (`--font-sans`) per testo e
+dati, `Archivo` (`--font-display`) per i titoli, self-hosted con `next/font` in
+`src/app/layout.tsx`. **Non se ne aggiungono altri e non si dichiarano
+altrove**: un test lo impedisce.
+
+| Serve | Si usa |
+|---|---|
+| Testo, etichette, dati | `font-sans` (predefinito su `body`) |
+| Titoli, nomi propri, marchio | `font-display` |
+| Colonne di date, importi, numeri, stagioni | `.eg-tabular` |
+| Etichetta di sezione | `.eg-eyebrow` |
+| Etichetta dentro una riga gia densa (stagione, «Aperto», «Piattaforma») | `.eg-eyebrow-sm` |
+
+**Le taglie di occhiello sono due**, definite in `globals.css`. Prima erano
+tre, scritte a mano con valori arbitrari diversi (`0.5625rem` qui, `0.625rem`
+la): la stessa cosa in tre misure.
+
+**Le taglie di testo vengono dalla scala Tailwind.** Nessun `text-[13px]`,
+nessun `text-[0.9rem]`. Due eccezioni dichiarate, entrambe verificate dai test:
+
+- i **documenti generati** per stampa, PDF ed email hanno il loro font di
+  sistema: `next/font` non arriva dentro un PDF ne dentro un client di posta;
+- le **primitive shadcn vendorizzate** (`ui/calendar.tsx`, `ui/form.tsx`)
+  restano come sono: allinearle vuol dire perderne l'aggiornabilita.
+
+Il resto dell'applicazione porta ancora una quindicina di taglie scritte a mano
+in griglie dense: e debito noto (D26 in [16](16-technical-debt.md)) e si
+normalizza toccando quelle pagine per altro motivo, **non** con un rifacimento
+di massa.
+
+## Vincolo per i WP successivi
+
+Queste regole non si rinegoziano pagina per pagina:
+
+1. **non si introducono font**, ne via `next/font` ne via CSS;
+2. **non si ridisegna** cio che e gia allineato: si toglie solo la variazione
+   arbitraria, cioe quella che fa la stessa cosa in un modo diverso senza un
+   motivo scritto;
+3. **una modifica alla chrome dichiara a quale delle due si applica** (club o
+   piattaforma) e aggiorna `tests/ui/topbar-club-vs-platform.test.mjs`;
+4. **una pagina nuova usa i componenti e i token esistenti.** Se serve davvero
+   una variante nuova, va aggiunta qui prima di essere usata.
+
 ## Design system
 
 - **Tailwind CSS 3** + **shadcn/ui** su Radix. Config in
