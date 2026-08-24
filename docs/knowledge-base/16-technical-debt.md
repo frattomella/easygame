@@ -42,11 +42,14 @@ payload. I record senza `seasonId` appartengono alla stagione baseline (la piu
 vecchia del club), cosi le stagioni restano separate senza far sparire i dati
 storici. Il filtro client resta come rete di sicurezza.
 
-**Resta aperto:** non esiste una funzione per **riportare** categorie, piani o
-listini da una stagione all'altra. Aprire una stagione nuova significa oggi
-ricrearli a mano. Vedi WP-35.
+**Chiuso anche il riporto (2026-08-24, WP-35):** `/api/v1/seasons` crea la
+stagione e ne popola la configurazione partendo da quella scelta. Restava
+aperto un difetto simmetrico, ora corretto: il salvataggio generale della
+scheda Club rimandava al server la fotografia delle stagioni tenuta in stato
+React, quindi salvare un recapito poteva far riapparire una stagione
+cancellata o rimettere attiva l'annata precedente.
 
-→ WP-11 (chiuso), WP-32
+→ WP-11 (chiuso), WP-32 (chiuso), WP-35 (chiuso)
 
 ### D4 — Nessuna paginazione, ordinamento o ricerca server-side
 

@@ -64,6 +64,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 |---------|-------------------|--------|
 | Ruoli e permessi | `src/lib/access-roles.ts` | Nessuna logica di ruolo altrove |
 | Sessioni e scope | `src/lib/server/auth.ts` | Ogni endpoint passa da `requireAuthenticatedUser` + `resolveOrganizationScopeForUser` |
+| Stagioni sportive | `src/lib/club-seasons.ts` (modello) + `src/lib/server/seasons.ts` (scrittura) | Una sola stagione attiva; nessuna scrittura di `settings.seasons` altrove |
 | Accesso dati server | `src/lib/server/resources.ts` | Nessuna query Prisma club-scoped fuori da qui senza filtro esplicito |
 | Client Prisma | `src/lib/server/prisma.ts` | Mai istanziare un secondo `PrismaClient` |
 | Email | `src/lib/server/email/` | Unico punto di invio |
@@ -93,7 +94,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 Prima di ogni commit:
 
 ```bash
-npm test           # tutti verdi (296 al 2026-08-23)
+npm test           # tutti verdi (336 al 2026-08-24)
 npm run typecheck  # nessun output
 npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare

@@ -776,3 +776,78 @@ interamente dentro la configurazione del club.
 - Un club che non configura nulla non vede alcun cambiamento.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0031 — Le stagioni hanno tre stati, una sola attiva, e si popolano per riporto
+
+**Data:** 2026-08-24 · **Contesto:** Blocco 6, WP-35
+
+**Problema.** Con WP-32 le stagioni erano davvero separate ma restavano due
+buchi. Il primo: aprire una stagione nuova significava ricreare a mano
+categorie, piani e sconti. Il secondo, meno visibile: lo stato di una stagione
+non era governato. `normalizeClubSeasons` promuoveva ad `active` qualunque
+stato non riconosciuto, quindi un club poteva ritrovarsi con tre stagioni
+dichiarate attive e nessun modo di sapere quale contasse davvero.
+
+La creazione, inoltre, viveva tutta nel browser: `handleCreateSeason` leggeva
+le collezioni del club dallo stato React, ne clonava una parte con id
+`Math.random()` e rimandava indietro l'intero oggetto club. Copiava anche
+allenamenti, gare e movimenti, e rieseguirla duplicava tutto.
+
+**Decisione.**
+
+1. **Tre stati, una invariante.** `upcoming`, `active`, `archived`. La
+   stagione puntata da `activeSeasonId` e l'unica `active`;
+   `applySeasonStatuses` lo riafferma a ogni lettura e a ogni scrittura, e
+   deduce dallo stato mancante il valore corretto dalle date. `draft` resta
+   leggibile come `upcoming` per i club gia esistenti.
+2. **Non si archivia la stagione attiva.** Si attiva un'altra stagione e
+   quella viene archiviata di conseguenza. Cosi non esiste un istante in cui
+   il club e senza perimetro dei dati.
+3. **Le stagioni escono dal CRUD generico.** Endpoint dedicati
+   `/api/v1/seasons`, dominio in `src/lib/server/seasons.ts`. Una stagione non
+   e una risorsa: vive in `settings`, ha un'invariante propria e la sua
+   creazione puo trascinarsi dietro una copia di dati.
+4. **Il riporto copia la configurazione, mai la storia.** Categorie, sconti,
+   piani, gruppi numerazione, programma settimanale, previsionale. Allenamenti,
+   gare, presenze, movimenti e assegnazioni restano nella stagione in cui sono
+   nati: chiederli e un errore dell'API, non un no-op.
+5. **Riporto idempotente con record nuovi.** Ogni elemento copiato ha un id
+   nuovo e porta `rolloverSourceId`; una seconda esecuzione riconosce cio che
+   ha gia creato e non lo ricrea. I riferimenti fra elementi copiati vengono
+   rimappati sui nuovi id.
+6. **La stagione di un record e immutabile in aggiornamento.** Una PATCH con
+   un `seasonId` diverso viene ignorata dal CRUD generico.
+
+**Alternative scartate.**
+
+- *Una tabella `seasons`.* Avrebbe richiesto una migrazione e un secondo
+  luogo dove vive lo stesso concetto, mentre tutto il prodotto legge gia
+  `clubs.settings.seasons`. Il modello e piccolo e la sua invariante e
+  applicata in un punto solo: la tabella non risolveva un problema esistente.
+- *Riusare gli stessi id nella stagione nuova.* Le due stagioni avrebbero
+  condiviso la stessa riga: modificare la quota del 2027 avrebbe cambiato
+  quella del 2026.
+- *Riporto come copia integrale della stagione.* Falserebbe bilanci e
+  presenze, e trasformerebbe l'archivio in una collezione di duplicati.
+- *Consentire lo spostamento di un record fra stagioni.* Riscrive la storia di
+  un'annata chiusa a fronte di una PATCH sbagliata. Chi vuole lo stesso
+  elemento in due stagioni usa il riporto.
+- *Rendere `trainers` e `staff_members` stagionali.* Sono anagrafiche globali
+  del club: renderle stagionali avrebbe attribuito ogni allenatore esistente
+  alla stagione baseline, facendoli sparire dall'annata corrente. Restano
+  globali, e la procedura guidata lo dice esplicitamente invece di lasciarlo
+  dedurre da un'assenza.
+
+**Conseguenze.**
+
+- Chi apre una stagione nuova vede, prima di confermare, quanti elementi
+  verranno creati per ogni tipo: il numero viene dallo stesso calcolo che poi
+  esegue la copia (`preview`), non da una stima.
+- Il salvataggio generale della scheda Club non scrive piu le stagioni: era la
+  strada per cui il salvataggio di un recapito poteva rimettere attiva
+  l'annata precedente.
+- Creazione, attivazione, archiviazione e riporto finiscono nell'audit log.
+
+**Stato:** ATTIVA.

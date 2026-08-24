@@ -35,9 +35,42 @@ const routeId = (file) =>
     .join("/")
     .replace(/\/route\.ts$/, "");
 
+/**
+ * Sorgente da ispezionare per un route handler: il file piu i moduli **dentro
+ * `src/app/api`** che importa con un percorso relativo.
+ *
+ * Un handler puo delegare la guardia a un contesto condiviso colocato (e cosi
+ * fanno le rotte `v1/seasons/**`). Seguire quegli import tiene il controllo
+ * vero: la guardia continua a essere letta, solo in un file dichiarato dalla
+ * rotta stessa. Un import verso `@/lib/...` non viene seguito, quindi non
+ * esiste modo di nascondere l'assenza di autenticazione dietro un alias.
+ */
+const readRouteSource = (file, seen = new Set()) => {
+  const resolved = path.resolve(file);
+  if (seen.has(resolved) || !fs.existsSync(resolved)) {
+    return "";
+  }
+  seen.add(resolved);
+
+  const source = fs.readFileSync(resolved, "utf8");
+  const localImports = [...source.matchAll(/from\s+"(\.[^"]+)"/g)].map(
+    (match) => match[1],
+  );
+
+  const dependencies = localImports
+    .map((specifier) =>
+      path.resolve(path.dirname(resolved), `${specifier}.ts`),
+    )
+    .filter((candidate) => candidate.startsWith(API_DIR));
+
+  return [source, ...dependencies.map((dep) => readRouteSource(dep, seen))].join(
+    "\n",
+  );
+};
+
 const ROUTES = listRouteFiles(API_DIR).map((file) => ({
   id: routeId(file),
-  source: fs.readFileSync(file, "utf8"),
+  source: readRouteSource(file),
 }));
 
 /**

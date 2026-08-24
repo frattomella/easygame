@@ -48,7 +48,8 @@ Classificazione:
 | Strutture e campi | COMPLETE | `/structures`, orari di apertura, prenotazioni |
 | Categorie | COMPLETE | `/categories`, statistiche atleti per categoria. Il secondo anno di nascita e facoltativo: una categoria puo coprire un solo anno |
 | Compatibilita fra categorie | COMPLETE | Configurazione esplicita per categoria (`compatibleCategoryIds`), orientata e non transitiva ([ADR-0030](18-decision-log.md)). Consumata oggi dai gruppi numerazione; non crea appartenenze |
-| Stagioni sportive | PARTIAL | `clubs.settings.seasons`, `/organization`. Il filtro e applicato dal server su `x-active-season-id`; **manca il riporto** di categorie e piani da una stagione all'altra (WP-35) |
+| Stagioni sportive | COMPLETE | `clubs.settings.seasons`, `/organization?tab=stagioni`. Tre stati (futura, attiva, archiviata) con una sola attiva; filtro server su `x-active-season-id`; creazione guidata con riporto della configurazione dalla stagione scelta (WP-32, WP-35) |
+| Riporto fra stagioni | COMPLETE | `/api/v1/seasons/:id/rollover`. Copia categorie, sconti, piani, gruppi numerazione, programma settimanale e previsionale; idempotente, rimappa i riferimenti, non tocca i dati operativi |
 
 ## Attivita sportiva
 

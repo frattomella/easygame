@@ -74,9 +74,11 @@ accetta il valore **solo se compreso in `allowedOrganizationIds`**; altrimenti
 solleva «Accesso negato alla risorsa del club». Il client non puo scavalcare il
 tenant.
 
-**Nota:** `x-active-season-id` viene inviato dal client ma **nessun endpoint lo
-legge**. Il filtro per stagione e interamente client-side. Vedi
-[16 — Debito tecnico](16-technical-debt.md).
+**Nota:** `x-active-season-id` e letto dal CRUD generico (WP-32): in lettura
+esclude le risorse di altre stagioni, in creazione stampa la stagione attiva
+sul payload. Non e un confine di sicurezza — quello resta `organization_id` —
+e in aggiornamento non puo spostare un record fra stagioni. Le stagioni si
+governano da `/api/v1/seasons` ([ADR-0031](18-decision-log.md)).
 
 ## Layering (stato reale)
 

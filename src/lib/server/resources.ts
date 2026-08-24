@@ -1066,6 +1066,55 @@ const syncClubResourceItemsFromField = async (
   });
 };
 
+const assertKnownClubResourceType = (resource_type: string) => {
+  if (!CLUB_RESOURCE_TYPES.includes(resource_type)) {
+    throw new Error(`Risorsa di club sconosciuta: ${resource_type}`);
+  }
+};
+
+/**
+ * Legge una collezione di club **senza** filtro di stagione.
+ *
+ * Il riporto (WP-35) ha bisogno di vedere tutte le stagioni insieme: quella di
+ * origine per copiarne la configurazione e quella di destinazione per sapere
+ * cosa c'e gia. Passa da qui e non da Prisma diretto perche `resources.ts` e
+ * il proprietario dell'accesso ai dati di club.
+ */
+export const readClubResourceCollection = async (
+  organization_id: string,
+  resource_type: string,
+) => {
+  assertKnownClubResourceType(resource_type);
+
+  const items = await prisma.clubResourceItem.findMany({
+    where: { organization_id, resource_type },
+    orderBy: { created_at: "asc" },
+  });
+
+  return items.map((item) => serializeClubResourceItem(item));
+};
+
+/**
+ * Riscrive una collezione di club mantenendo allineati `club_resource_items` e
+ * il campo JSON aggregato. Gli elementi gia esistenti conservano riga e
+ * `created_at`: senza, un riporto rigenererebbe l'identita di tutte le
+ * stagioni, non solo di quella nuova.
+ */
+export const replaceClubResourceCollection = async (
+  organization_id: string,
+  resource_type: string,
+  items: any[],
+) => {
+  assertKnownClubResourceType(resource_type);
+
+  if (!Array.isArray(items)) {
+    throw new Error(`Collezione non valida per ${resource_type}`);
+  }
+
+  await syncClubResourceItemsFromField(organization_id, resource_type, items);
+  return items;
+};
+
 const normalizeClubResourceInput = (
   resource: string,
   input: Record<string, any>,
@@ -1268,15 +1317,29 @@ const resolveRequestSeason = async (
  * Senza questo, una categoria creata mentre e attiva la stagione 2026/2027
  * resterebbe senza `seasonId` e finirebbe nella stagione baseline.
  * Una stagione gia presente sul payload non viene mai sovrascritta.
+ *
+ * `existingSeasonId` rende la stagione **immutabile in aggiornamento**: un
+ * record nato in una stagione ci resta. Spostarlo non e un'operazione che il
+ * prodotto offre, e concederla al CRUD generico significherebbe che una PATCH
+ * con un `seasonId` sbagliato riscrive la storia di un'annata chiusa. Chi vuole
+ * lo stesso elemento in due stagioni usa il riporto, che ne crea uno nuovo.
  */
 const applySeasonStamp = async (
   resource: string,
   payload: Record<string, any>,
   organizationId: string | null | undefined,
   options: ResourceRequestOptions | undefined,
+  existingSeasonId?: string | null,
 ) => {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return payload;
+  }
+
+  const preservedSeasonId = String(existingSeasonId || "").trim();
+  if (preservedSeasonId) {
+    return payload.seasonId === preservedSeasonId
+      ? payload
+      : { ...payload, seasonId: preservedSeasonId };
   }
 
   if (String(payload.seasonId || "").trim()) {
@@ -2170,6 +2233,7 @@ export const updateResource = async (
       nextPayload,
       existing.organization_id,
       options,
+      String((existingPayload as any)?.seasonId || "").trim() || null,
     );
 
     normalized.organization_id = resolveScopedOrganizationId(

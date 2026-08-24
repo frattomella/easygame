@@ -115,8 +115,10 @@ club, con quale esito ([ADR-0019](18-decision-log.md)).
 
 Tracciate: login riuscito e fallito, logout, richiesta e completamento del
 reset password, attivazione membership, creazione/modifica/cancellazione delle
-risorse economiche e di accesso (`AUDITED_RESOURCES`), e **tutti** i dinieghi
-di autorizzazione su qualunque risorsa.
+risorse economiche e di accesso (`AUDITED_RESOURCES`), il ciclo di vita delle
+stagioni (`season.created`, `season.activated`, `season.archived`,
+`season.rollover` — Blocco 6), e **tutti** i dinieghi di autorizzazione su
+qualunque risorsa.
 
 Registrati: azione, esito, actor (id, email, ruolo), organizzazione, risorsa e
 id, IP, user agent, metadati filtrati, timestamp.

@@ -37,6 +37,31 @@ Da WP-32 la stagione e il perimetro dei dati visibili. `SeasonPlate` e
 colore proprio e cifre tabellari, in topbar desktop e mobile. Chi apre una
 pagina deve sempre poter rispondere a «quale club, quale stagione».
 
+### La scheda Stagioni (Blocco 6)
+
+`src/components/organization/season-manager.tsx`, montata da
+`/organization?tab=stagioni`. Regole che valgono anche per chi la modifichera:
+
+- **niente logica in `page.tsx`.** La pagina Organizzazione ha nove schede: la
+  gestione delle stagioni sta nel suo componente e parla solo con
+  `@/lib/api/seasons`;
+- **una procedura guidata, non un modulo.** Periodo → cosa riportare →
+  riepilogo. Il riepilogo mostra i numeri veri, calcolati dal server in
+  `preview`: annunciare una stima e peggio che non annunciare nulla;
+- **si dice anche cosa non viene copiato.** Due riquadri fissi elencano i dati
+  globali del club (restano disponibili, non si duplicano) e i dati operativi
+  (non si riportano mai). Un'assenza non spiegata sembra un difetto;
+- **conferma solo per cio che conta.** Cambio di stagione attiva e
+  archiviazione passano da `ConfirmDialog`; spuntare cosa riportare no. Il
+  cambio di stagione **non e autosalvabile**: cambia il perimetro dei dati;
+- **stato visibile con un'etichetta, non con un colore soltanto.** Futura,
+  Attiva, Archiviata sono scritte per esteso sul `Badge`;
+- **375 / 768 / 1280.** Le righe della stagione impilano sotto `lg` e i
+  comandi vanno a piena larghezza sotto `sm`; l'elenco di cosa riportare passa
+  da una a due colonne a `md`. Nessuna larghezza fissa in pixel.
+
+Verificato da `tests/ui/seasons-tab.test.mjs`.
+
 ### Chrome separate
 
 | Contesto | Shell |

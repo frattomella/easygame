@@ -30,6 +30,7 @@ easygame/
 | `src/components/account/` | Home account e le sue dialog (crea club, profilo, riscatta accesso) | Ridisegnata nel Blocco 4 |
 | `src/components/brand/` | Marchio SVG e identita di club | |
 | `src/components/platform-admin/` | Shell della console di piattaforma | Nessun riferimento alle risorse di club |
+| `src/components/organization/` | Scheda Stagioni della pagina Organizzazione (`season-manager.tsx`) | Blocco 6, vedi [10](10-ui-ux-conventions.md) |
 | `src/lib/` | 77 file. Logica di dominio, utility, policy | Vedi tabella sotto |
 | `src/lib/server/` | Codice **solo server**: Prisma client, auth, resources, email, workflow | Non importare dal client |
 | `src/pages/` | 4 file residui del Pages Router: `_app`, `_document`, `_error`, `404` | Legacy, vedi [16](16-technical-debt.md) |
@@ -53,6 +54,9 @@ easygame/
 | `club-profile.ts` | 402 | Sezioni della scheda club, quali sono in autosave e cosa scrive ognuna. Include `patchClubSettings`. |
 | `onboarding.ts` | 220 | Stato della configurazione iniziale del club. Puro. |
 | `server/anagrafica.ts` | 209 | Validazione anagrafica lato server, chiamata da `resources.ts`. |
+| `club-seasons.ts` | 700 | Modello delle stagioni: stati, invariante «una sola attiva», filtro per stagione, pianificatore del riporto. **Puro.** |
+| `server/seasons.ts` | 320 | Scrittura delle stagioni: creazione, attivazione, archiviazione, riporto, conteggi. Unico punto che scrive `settings.seasons`. |
+| `api/seasons.ts` | 90 | Trasporto client delle stagioni verso `/api/v1/seasons`. |
 | `payments/` | — | Tipi, fee di piattaforma, registro provider (nessuno implementato). |
 
 ## Mobile App — `easygamemobile/`

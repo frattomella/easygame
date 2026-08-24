@@ -34,6 +34,10 @@ export const AUDIT_ACTIONS = {
   resourceUpdated: "resource.updated",
   resourceDeleted: "resource.deleted",
   resourceAccessDenied: "resource.access.denied",
+  seasonCreated: "season.created",
+  seasonActivated: "season.activated",
+  seasonArchived: "season.archived",
+  seasonRollover: "season.rollover",
   adminEmailConfigUpdated: "admin.email_config.updated",
   adminEmailTestSent: "admin.email_config.test_sent",
 } as const;

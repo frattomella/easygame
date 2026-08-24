@@ -998,31 +998,78 @@ riscritta, non cancellata).
 
 ---
 
-### WP-35 · Riportare i dati da una stagione all'altra — `READY`
+### WP-35 · Gestione completa delle stagioni sportive — `DONE` (2026-08-24)
 
-**Obiettivo.** Aprire una stagione nuova senza ricreare tutto a mano.
+**Obiettivo.** Aprire una stagione nuova senza ricreare tutto a mano, e
+governare lo stato delle stagioni invece di subirlo.
 
-**Contesto.** Con WP-32 le stagioni sono davvero separate: una categoria
-creata nella stagione 2026/2027 non compare nella 2025/2026, e viceversa.
-Manca il complemento: una funzione che **duplichi** nella stagione nuova le
-categorie, i piani di pagamento e gli sconti della stagione precedente,
-lasciando scegliere cosa riportare.
+**Contesto.** Con WP-32 le stagioni erano separate ma la gestione restava
+incompleta su due fronti. La creazione viveva nel browser
+(`handleCreateSeason`): leggeva le collezioni dallo stato React, clonava con
+id `Math.random()`, copiava anche allenamenti, gare e movimenti, e rieseguirla
+duplicava tutto. Lo stato, poi, non era governato: qualunque valore non
+riconosciuto diventava `active`, quindi tre stagioni potevano dichiararsi
+attive insieme.
 
-**Scope.** Azione «Riporta dalla stagione precedente» in `/organization`;
-duplicazione lato server delle `club_resource` soggette a stagione, con nuovi
-`id` e `seasonId` della stagione di destinazione. Nessuna copia di dati
-operativi (allenamenti, partite, presenze, incassi).
+**Cosa e stato fatto.**
 
-**Dipendenze.** WP-32.
+1. **Modello a tre stati** in `src/lib/club-seasons.ts`: `upcoming`, `active`,
+   `archived`, con l'invariante «una sola attiva» riapplicata da
+   `applySeasonStatuses` a ogni lettura e a ogni scrittura. `draft` resta
+   leggibile come `upcoming`.
+2. **Dominio server isolato** in `src/lib/server/seasons.ts`: creazione,
+   attivazione, archiviazione, riporto e conteggi. L'accesso alle collezioni
+   passa da `readClubResourceCollection` / `replaceClubResourceCollection`
+   esportate da `resources.ts`, cosi `club_resource_items` e l'aggregato JSON
+   restano allineati.
+3. **Endpoint dedicati** `/api/v1/seasons`, riservati a `owner` e
+   `club_manager`, con audit su ogni operazione.
+4. **Riporto idempotente**: id nuovi, `rolloverSourceId` come chiave di
+   riconoscimento, riferimenti rimappati anche dentro le strutture annidate,
+   riepilogo calcolato dallo stesso codice che poi esegue la copia
+   (`preview`).
+5. **Procedura guidata** in `/organization?tab=stagioni`
+   (`src/components/organization/season-manager.tsx`): periodo → cosa
+   riportare → riepilogo → conferma, con l'elenco esplicito di cio che resta
+   globale e di cio che non viene mai riportato.
+
+**Bug corretti nello stesso lavoro.**
+
+- il salvataggio generale della scheda Club rimandava al server la fotografia
+  delle stagioni tenuta in stato React: salvare un recapito poteva far
+  riapparire una stagione rimossa o rimettere attiva l'annata precedente;
+- il CRUD generico permetteva a una PATCH di **spostare** un record in
+  un'altra stagione;
+- `normalizeClubSeasons` promuoveva ad `active` ogni stato non riconosciuto.
+
+**Dipendenze.** WP-32. Decisione: [ADR-0031](18-decision-log.md#adr-0031).
 
 **Acceptance criteria.**
-- [ ] Si sceglie quali tipi riportare
-- [ ] Gli elementi duplicati portano la stagione di destinazione
-- [ ] Rieseguire il riporto non crea duplicati
-- [ ] Test dedicati
+- [x] Si sceglie quali tipi riportare, con i conteggi della stagione di origine
+- [x] Il riepilogo mostra cosa verra copiato prima della conferma
+- [x] Gli elementi duplicati portano la stagione di destinazione e id nuovi
+- [x] Rieseguire il riporto non crea duplicati
+- [x] I dati operativi e storici non sono riportabili
+- [x] Tre stati gestiti, con una sola stagione attiva
+- [x] Le stagioni archiviate non ricevono riporti
+- [x] Audit su creazione, attivazione, archiviazione e riporto
+- [x] Test di regressione e multi-tenant
 
-**File.** `src/lib/server/resources.ts`, `src/app/organization/page.tsx`,
-[06](06-data-model.md), [09](09-api-conventions.md).
+**Test.** `tests/lib/season-model.test.mjs` (7),
+`tests/lib/season-rollover.test.mjs` (8),
+`tests/server/season-management.test.mjs` (17),
+`tests/ui/seasons-tab.test.mjs` (8);
+`tests/auth/api-authorization.test.mjs` esteso per seguire la guardia
+condivisa colocata alle rotte.
+
+**File.** `src/lib/club-seasons.ts`, `src/lib/server/seasons.ts`,
+`src/lib/server/resources.ts`, `src/lib/server/audit.ts`,
+`src/app/api/v1/seasons/**`, `src/lib/api/seasons.ts`,
+`src/lib/api/registry.ts`, `src/components/organization/season-manager.tsx`,
+`src/app/organization/page.tsx`, [06](06-data-model.md),
+[09](09-api-conventions.md), [10](10-ui-ux-conventions.md),
+[11](11-capabilities.md), [15](15-testing.md), [16](16-technical-debt.md),
+[18](18-decision-log.md), `docs/api-registry.md`.
 
 ---
 

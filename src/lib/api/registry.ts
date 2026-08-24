@@ -236,6 +236,37 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     description: "Prova di connessione e autenticazione sulla casella IMAP",
     mobile_ready: false,
   },
+  {
+    name: "seasons.list",
+    method: "GET",
+    path: "/api/v1/seasons",
+    description:
+      "Stagioni del club attivo, con quante voci riportabili contiene ciascuna",
+    mobile_ready: false,
+  },
+  {
+    name: "seasons.create",
+    method: "POST",
+    path: "/api/v1/seasons",
+    description:
+      "Creazione stagione, con l'eventuale riporto dalla stagione scelta",
+    mobile_ready: false,
+  },
+  {
+    name: "seasons.status",
+    method: "PATCH",
+    path: "/api/v1/seasons/:seasonId",
+    description: "Attivazione o archiviazione di una stagione",
+    mobile_ready: false,
+  },
+  {
+    name: "seasons.rollover",
+    method: "POST",
+    path: "/api/v1/seasons/:seasonId/rollover",
+    description:
+      "Riporto della configurazione verso la stagione indicata; `preview` calcola senza scrivere",
+    mobile_ready: false,
+  },
   ...resourceNames.flatMap((resource) => [
     {
       name: `${resource}.list`,

@@ -41,7 +41,7 @@ colonna dedicata. Le chiavi con un significato per il codice:
 
 | Chiave | Scritta da | Significato |
 |--------|------------|-------------|
-| `seasons`, `activeSeasonId` | scheda Club → Stagioni | Perimetro dei dati visibili (WP-32) |
+| `seasons`, `activeSeasonId` | `POST/PATCH /api/v1/seasons` | Perimetro dei dati visibili (WP-32, WP-35) |
 | `paymentSettings`, `subscription`, `extraServices` | scheda Club → Pagamenti | Listini e abbonamento |
 | `types`, `sports`, `foundingYear` | scheda Club → Generale | Descrittivi, in autosave |
 | `contact1*`, `contact2*`, `companyEmail`, `companyPec` | scheda Club → Contatti | Recapiti, in autosave |
@@ -52,6 +52,47 @@ colonna dedicata. Le chiavi con un significato per il codice:
 Poiche la colonna e unica, ogni scrittura parziale e un **read-modify-write**:
 `patchClubSettings` in `src/lib/club-profile.ts` rilegge la sola colonna
 `settings` prima di riscriverla, per non azzerare le chiavi che non tocca.
+
+#### Stagioni sportive
+
+Una stagione non ha una tabella: e un elemento di `clubs.settings.seasons`.
+Il modello sta in `src/lib/club-seasons.ts`, la scrittura in
+`src/lib/server/seasons.ts` ([ADR-0031](18-decision-log.md)).
+
+```
+{ id, label, startDate, endDate, status, createdAt, archivedAt }
+```
+
+| Stato | Significato |
+|-------|-------------|
+| `upcoming` | Futura: preparata, non ancora il perimetro dei dati |
+| `active` | Attiva: e cio che l'applicazione mostra |
+| `archived` | Archiviata: consultabile riattivandola, non riceve riporti |
+
+**Invariante unica.** La stagione puntata da `activeSeasonId` e l'unica
+`active`. `applySeasonStatuses` la riapplica a ogni lettura e a ogni
+scrittura: un elenco incoerente arrivato dal passato viene corretto, non
+propagato. Le altre stagioni diventano `archived` se cominciano prima di
+quella attiva e `upcoming` se cominciano dopo, a meno che non portino gia uno
+stato esplicito diverso da `active`.
+
+`draft` era il nome storico di «futura» e continua a essere letto come
+`upcoming`: i club creati prima non vanno riscritti.
+
+**Appartenenza dei record.** Le risorse in `SEASON_SCOPED_DATA_TYPES` portano
+`payload.seasonId`. Quelle senza appartengono alla **stagione baseline**, cioe
+la piu vecchia del club (WP-32). La stagione di un record e **immutabile in
+aggiornamento**: una PATCH con un `seasonId` diverso viene ignorata, perche
+spostare un elemento riscriverebbe la storia di un'annata chiusa.
+
+**Record riportati.** Un elemento nato da un riporto porta due chiavi in piu:
+
+| Chiave | Significato |
+|--------|-------------|
+| `rolloverSourceId` | Id dell'elemento di origine. E cio che rende il riporto idempotente |
+| `rolloverSourceSeasonId` | Stagione da cui e stato riportato |
+
+Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 
 ### Dominio sportivo
 

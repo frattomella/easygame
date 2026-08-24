@@ -37,7 +37,6 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { LogoUpload } from "@/components/ui/avatar-upload";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -54,13 +53,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import {
-  applySeasonIdToCollection,
-  buildSeasonLabelFromDates,
-  createSeasonDraft,
-  normalizeClubSeasons,
-  type ClubSeason,
-} from "@/lib/club-seasons";
+import { SeasonManager } from "@/components/organization/season-manager";
 import { cn } from "@/lib/utils";
 import { createCoalescingSaver } from "@/lib/performance";
 import { SaveStatus, type SaveState } from "@/components/ui/save-status";
@@ -181,19 +174,6 @@ interface ClubStructure {
   payments: StructurePayment[];
 }
 
-const SEASON_COPYABLE_FIELDS = [
-  { key: "categories", label: "Categorie" },
-  { key: "trainings", label: "Allenamenti" },
-  { key: "weekly_schedule", label: "Programma settimanale" },
-  { key: "matches", label: "Gare" },
-  { key: "payment_plans", label: "Piani pagamento" },
-  { key: "discounts", label: "Sconti" },
-  { key: "transactions", label: "Movimenti" },
-  { key: "sponsor_payments", label: "Pagamenti sponsor" },
-] as const;
-
-type SeasonCopyField = (typeof SEASON_COPYABLE_FIELDS)[number]["key"];
-
 /**
  * Attesa prima di scrivere una sezione in autosave. Un secondo e la pausa
  * naturale fra due parole digitate: piu corto genera una scrittura per
@@ -231,26 +211,6 @@ export default function OrganizationPage() {
   const [extraServices, setExtraServices] = useState<HubExtraService[]>(() =>
     normalizeExtraServices([]),
   );
-  const [seasons, setSeasons] = useState<ClubSeason[]>([]);
-  const [activeSeasonId, setActiveSeasonId] = useState<string | null>(null);
-  const [seasonForm, setSeasonForm] = useState({
-    label: "",
-    startDate: "",
-    endDate: "",
-  });
-  const [seasonCopyOptions, setSeasonCopyOptions] = useState<
-    Record<SeasonCopyField, boolean>
-  >({
-    categories: true,
-    trainings: false,
-    weekly_schedule: false,
-    matches: false,
-    payment_plans: true,
-    discounts: true,
-    transactions: false,
-    sponsor_payments: false,
-  });
-
   const [activeTab, setActiveTab] = useState("generale");
 
   const organizationTabs = [
@@ -405,19 +365,11 @@ const [federations, setFederations] = useState<any[]>([]);
             typeof (clubData as any).settings === "object" && (clubData as any).settings
               ? ((clubData as any).settings as Record<string, any>)
               : {};
-          const seasonState = normalizeClubSeasons(settings);
-          setSeasons(seasonState.seasons);
-          setActiveSeasonId(seasonState.activeSeasonId);
           setPaymentSettings(normalizePaymentSettings(settings.paymentSettings));
           setSubscriptionSettings(
             normalizeSubscriptionSettings(settings.subscription),
           );
           setExtraServices(normalizeExtraServices(settings.extraServices));
-          setSeasonForm({
-            label: "",
-            startDate: "",
-            endDate: "",
-          });
 
           setOrganizationData({
             name: clubData.name || "",
@@ -706,133 +658,6 @@ const [federations, setFederations] = useState<any[]>([]);
       );
     } catch (error) {
       console.error("Error syncing active season locally:", error);
-    }
-  };
-
-  const persistSeasonSettings = async (
-    nextSeasons: ClubSeason[],
-    nextActiveSeasonId: string,
-    extraUpdates: Record<string, any> = {},
-  ) => {
-    if (!clubId) {
-      throw new Error("Club non trovato");
-    }
-
-    const { getClub, updateClub } = await import("@/lib/simplified-db");
-    const latestClub = clubSnapshot || (await getClub(clubId));
-    const latestSettings =
-      typeof latestClub?.settings === "object" && latestClub.settings
-        ? latestClub.settings
-        : {};
-    const data = await updateClub(clubId, {
-      seasons: nextSeasons,
-      activeSeasonId: nextActiveSeasonId,
-      settings: {
-        ...latestSettings,
-        seasons: nextSeasons,
-        activeSeasonId: nextActiveSeasonId,
-      },
-      ...extraUpdates,
-    });
-
-    setClubSnapshot(data);
-    setSeasons(nextSeasons);
-    setActiveSeasonId(nextActiveSeasonId);
-
-    const activeSeason =
-      nextSeasons.find((season) => season.id === nextActiveSeasonId) ||
-      nextSeasons[0];
-    if (activeSeason) {
-      syncActiveSeasonLocally(activeSeason.id, activeSeason.label);
-    }
-
-    return data;
-  };
-
-  const handleActivateSeason = async (seasonId: string) => {
-    const selectedSeason = seasons.find((season) => season.id === seasonId);
-    if (!selectedSeason) {
-      return;
-    }
-
-    try {
-      await persistSeasonSettings(seasons, selectedSeason.id);
-      showToast("success", `Stagione attiva impostata su ${selectedSeason.label}`);
-    } catch (error) {
-      console.error("Error updating active season:", error);
-      showToast("error", "Errore nel cambio stagione");
-    }
-  };
-
-  const handleCreateSeason = async () => {
-    if (!clubId) {
-      showToast("error", "Club non trovato");
-      return;
-    }
-
-    const label =
-      seasonForm.label.trim() ||
-      buildSeasonLabelFromDates(seasonForm.startDate, seasonForm.endDate);
-
-    if (!seasonForm.startDate || !seasonForm.endDate) {
-      showToast("error", "Inserisci data inizio e data fine stagione");
-      return;
-    }
-
-    if (new Date(seasonForm.startDate) >= new Date(seasonForm.endDate)) {
-      showToast("error", "La data di fine deve essere successiva alla data di inizio");
-      return;
-    }
-
-    const nextSeason = createSeasonDraft(label, seasonForm.startDate, seasonForm.endDate);
-    const currentSeasonId =
-      activeSeasonId ||
-      normalizeClubSeasons(clubSnapshot?.settings || {}).activeSeasonId;
-    const baseSnapshot =
-      clubSnapshot || (await (await import("@/lib/simplified-db")).getClub(clubId));
-    const extraUpdates: Record<string, any> = {};
-
-    SEASON_COPYABLE_FIELDS.forEach(({ key }) => {
-      const currentItems = Array.isArray(baseSnapshot?.[key]) ? baseSnapshot[key] : [];
-      const seasonAwareItems = currentSeasonId
-        ? applySeasonIdToCollection(currentItems, currentSeasonId)
-        : currentItems;
-
-      const shouldCopy = seasonCopyOptions[key];
-      if (!shouldCopy) {
-        extraUpdates[key] = seasonAwareItems;
-        return;
-      }
-
-      const itemsToClone = seasonAwareItems.filter(
-        (item: any) => item?.seasonId === currentSeasonId,
-      );
-      const clonedItems = itemsToClone.map((item: any, index: number) => ({
-        ...item,
-        id: `${key}-${nextSeason.id}-${index}-${Math.random().toString(36).slice(2, 7)}`,
-        seasonId: nextSeason.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }));
-
-      extraUpdates[key] = [...seasonAwareItems, ...clonedItems];
-    });
-
-    try {
-      const nextSeasons = [nextSeason, ...seasons].map((season) => ({
-        ...season,
-        status: season.id === nextSeason.id ? "active" : season.status,
-      }));
-      await persistSeasonSettings(nextSeasons, nextSeason.id, extraUpdates);
-      setSeasonForm({
-        label: "",
-        startDate: "",
-        endDate: "",
-      });
-      showToast("success", `Nuova stagione ${nextSeason.label} creata correttamente`);
-    } catch (error) {
-      console.error("Error creating season:", error);
-      showToast("error", "Errore nella creazione della stagione");
     }
   };
 
@@ -1157,8 +982,11 @@ const [federations, setFederations] = useState<any[]>([]);
         website: organizationData.website,
         logo_url: logoPreview || "",
         federations: federations,
-        seasons,
-        activeSeasonId,
+        // `seasons` e `activeSeasonId` non passano piu da qui: le stagioni
+        // hanno un endpoint proprio (`/api/v1/seasons`). Rimandare qui la
+        // fotografia tenuta in stato React sovrascriveva le stagioni create
+        // nel frattempo, e il salvataggio di un recapito rimetteva attiva
+        // l'annata precedente.
         paymentSettings: normalizedPaymentSettings,
         subscription: normalizedSubscriptionSettings,
         extraServices: normalizedExtraServices,
@@ -1176,11 +1004,6 @@ const [federations, setFederations] = useState<any[]>([]);
       }
       localStorage.setItem("organization-name", organizationData.name);
 
-      const activeSeason = seasons.find((season) => season.id === activeSeasonId);
-      if (activeSeason) {
-        syncActiveSeasonLocally(activeSeason.id, activeSeason.label);
-      }
-
       const activeClub = localStorage.getItem("activeClub");
       if (activeClub) {
         try {
@@ -1188,10 +1011,6 @@ const [federations, setFederations] = useState<any[]>([]);
           if (parsedClub.id === currentClubId) {
             parsedClub.name = organizationData.name;
             parsedClub.logo_url = logoPreview || parsedClub.logo_url;
-            parsedClub.activeSeasonId = activeSeasonId || parsedClub.activeSeasonId;
-            parsedClub.activeSeasonLabel =
-              seasons.find((season) => season.id === activeSeasonId)?.label ||
-              parsedClub.activeSeasonLabel;
             localStorage.setItem("activeClub", JSON.stringify(parsedClub));
           }
         } catch (e) {
@@ -1204,7 +1023,6 @@ const [federations, setFederations] = useState<any[]>([]);
           clubId: currentClubId,
           name: organizationData.name,
           logo_url: logoPreview,
-          activeSeasonLabel: activeSeason?.label || null,
         },
       });
       window.dispatchEvent(event);
@@ -2005,172 +1823,11 @@ const [federations, setFederations] = useState<any[]>([]);
             </Card>
           </TabsContent>
           <TabsContent value="stagioni" className="space-y-4 mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Stagione attiva</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto]">
-                  <div className="space-y-2">
-                    <Label>Annualità selezionata per la dashboard</Label>
-                    <Select
-                      value={activeSeasonId || undefined}
-                      onValueChange={setActiveSeasonId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleziona stagione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {seasons.map((season) => (
-                          <SelectItem key={season.id} value={season.id}>
-                            {season.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-end">
-                    <Button
-                      onClick={() =>
-                        activeSeasonId ? handleActivateSeason(activeSeasonId) : null
-                      }
-                      disabled={!activeSeasonId}
-                    >
-                      Applica stagione
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                  Ogni club può gestire più stagioni. Cambiando stagione attiva,
-                  la dashboard e le configurazioni stagionali leggono l&apos;annualità
-                  selezionata mantenendo separati i dati storici.
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Crea una nuova stagione</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="seasonLabel">Nome stagione</Label>
-                    <Input
-                      id="seasonLabel"
-                      value={seasonForm.label}
-                      onChange={(e) =>
-                        setSeasonForm((current) => ({
-                          ...current,
-                          label: e.target.value,
-                        }))
-                      }
-                      placeholder="Es. 2026/2027"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="seasonStart">Data inizio</Label>
-                    <Input
-                      id="seasonStart"
-                      type="date"
-                      value={seasonForm.startDate}
-                      onChange={(e) =>
-                        setSeasonForm((current) => ({
-                          ...current,
-                          startDate: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="seasonEnd">Data fine</Label>
-                    <Input
-                      id="seasonEnd"
-                      type="date"
-                      value={seasonForm.endDate}
-                      onChange={(e) =>
-                        setSeasonForm((current) => ({
-                          ...current,
-                          endDate: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <p className="font-medium text-slate-900">
-                      Importa dati dalla stagione corrente
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Seleziona quali dati duplicare nella nuova stagione. Le
-                      anagrafiche generali del club restano comunque disponibili.
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {SEASON_COPYABLE_FIELDS.map((field) => (
-                      <div
-                        key={field.key}
-                        className="flex items-center justify-between rounded-xl border p-3"
-                      >
-                        <span className="text-sm font-medium">{field.label}</span>
-                        <Switch
-                          checked={seasonCopyOptions[field.key]}
-                          onCheckedChange={(checked) =>
-                            setSeasonCopyOptions((current) => ({
-                              ...current,
-                              [field.key]: Boolean(checked),
-                            }))
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button onClick={handleCreateSeason}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Crea nuova stagione
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Archivio stagioni</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {seasons.map((season) => (
-                  <div
-                    key={season.id}
-                    className="flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-slate-900">{season.label}</h3>
-                        {season.id === activeSeasonId ? (
-                          <Badge className="bg-blue-600">Attiva</Badge>
-                        ) : null}
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {season.startDate} - {season.endDate}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleActivateSeason(season.id)}
-                      disabled={season.id === activeSeasonId}
-                    >
-                      {season.id === activeSeasonId ? "Stagione attiva" : "Apri stagione"}
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <SeasonManager
+              onActiveSeasonChange={(season) =>
+                syncActiveSeasonLocally(season.id, season.label)
+              }
+            />
           </TabsContent>
           <TabsContent value="pagamenti" className="space-y-4 mt-4">
             <ClubPaymentSettings

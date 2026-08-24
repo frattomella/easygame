@@ -43,6 +43,21 @@ superficie mobile.
 - `GET|PUT /api/v1/admin/imap` — casella IMAP, credenziali separate da SMTP
 - `POST /api/v1/admin/imap/test`
 
+## Endpoint stagioni
+
+Configurazione di club: solo `owner` e `club_manager`
+(`canManageClubConfiguration`). Non fanno parte della superficie mobile
+(ADR-0025).
+
+- `GET /api/v1/seasons` — stagioni del club attivo, catalogo di cio che si puo
+  riportare e conteggio delle voci per stagione
+- `POST /api/v1/seasons` — crea una stagione; `activate` la rende subito
+  attiva, `rollover: { sourceSeasonId, types }` ne popola la configurazione
+- `PATCH /api/v1/seasons/:seasonId` — `{ action: "activate" | "archive" }`
+- `POST /api/v1/seasons/:seasonId/rollover` —
+  `{ sourceSeasonId, types, preview }`; con `preview: true` non scrive nulla e
+  restituisce lo stesso conteggio dell'esecuzione
+
 ## Flusso auth applicativo
 
 - Login password classico

@@ -163,8 +163,11 @@ Se la richiesta porta `x-active-season-id` e la risorsa e una `club_resource`
 soggetta a stagione (`SEASON_SCOPED_DATA_TYPES` in `src/lib/club-seasons.ts`):
 
 - in lettura la risposta esclude le risorse di altre stagioni;
-- in scrittura `payload.seasonId` viene stampato con la stagione attiva, se il
+- in creazione `payload.seasonId` viene stampato con la stagione attiva, se il
   payload non ne porta gia una;
+- in **aggiornamento** la stagione del record esistente vince sempre: una
+  PATCH non puo spostare un elemento in un'altra stagione. Chi vuole lo stesso
+  elemento in due stagioni usa il riporto, che ne crea uno nuovo;
 - le risorse **senza** `seasonId` (create prima delle stagioni) appartengono
   alla **stagione baseline**, cioe la piu vecchia del club;
 - un id di stagione che il club non ha **non filtra nulla**: meglio mostrare
@@ -172,6 +175,35 @@ soggetta a stagione (`SEASON_SCOPED_DATA_TYPES` in `src/lib/club-seasons.ts`):
 - senza l'header il comportamento e invariato.
 
 Non e un confine di sicurezza: il confine resta `organization_id`.
+
+### Gestione delle stagioni (Blocco 6)
+
+Le stagioni non sono una risorsa del CRUD generico: vivono in
+`clubs.settings`, hanno un'invariante propria e la loro creazione puo
+trascinarsi dietro una copia di dati. Endpoint dedicati sotto
+`/api/v1/seasons`, autorizzati da `canManageClubConfiguration` — quindi solo
+`owner` e `club_manager`.
+
+| Metodo | Percorso | Corpo | Effetto |
+|--------|----------|-------|---------|
+| `GET` | `/api/v1/seasons` | — | Stagioni, catalogo dei tipi riportabili e conteggi per stagione |
+| `POST` | `/api/v1/seasons` | `{ label?, startDate, endDate, activate?, rollover? }` | Crea la stagione; con `rollover` ne popola la configurazione |
+| `PATCH` | `/api/v1/seasons/:seasonId` | `{ action: "activate" \| "archive" }` | Cambia stato |
+| `POST` | `/api/v1/seasons/:seasonId/rollover` | `{ sourceSeasonId, types, preview? }` | Riporta verso la stagione del percorso |
+
+Regole applicate dal server, non dall'interfaccia:
+
+- non si archivia la stagione attiva: prima se ne attiva un'altra, e questa
+  passa ad archiviata da sola;
+- non si riporta dentro una stagione archiviata;
+- origine e destinazione devono essere due stagioni diverse ed esistenti;
+- `types` accetta solo le chiavi di `SEASON_ROLLOVER_TYPES`. Chiedere
+  `trainings` o `transactions` e un errore, non un no-op silenzioso;
+- `preview: true` non scrive e restituisce **lo stesso conteggio**
+  dell'esecuzione: il riepilogo mostrato prima della conferma non e una stima.
+
+Ogni operazione scrive nell'audit log: `season.created`, `season.activated`,
+`season.archived`, `season.rollover`.
 
 ### Effetti collaterali da conoscere
 

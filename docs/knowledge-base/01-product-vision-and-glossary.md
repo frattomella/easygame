@@ -40,7 +40,8 @@ italiano: e una scelta deliberata, non un difetto (vedi
 | **Active club** | Il club selezionato dall'utente nella sessione corrente. Trasmesso alle API con l'header `x-active-club-id`. |
 | **Active access role** | Il ruolo con cui l'utente sta operando nel club attivo. Header `x-active-access-role`. Serve perche un utente puo avere piu ruoli nello stesso club. |
 | **Access area** | Macro-area di navigazione derivata dal ruolo: `management`, `trainer`, `parent`, `athlete`, `account`, `public`. Vedi `src/lib/access-roles.ts`. |
-| **Season** | Stagione sportiva. Vive dentro `clubs.settings` (JSON), non in una tabella. Header `x-active-season-id`. |
+| **Season** | Stagione sportiva. Vive dentro `clubs.settings` (JSON), non in una tabella. Tre stati — futura, attiva, archiviata — con **una sola attiva** per club. Header `x-active-season-id`. Vedi [ADR-0031](18-decision-log.md). |
+| **Riporto** | Copia della **configurazione** (categorie, sconti, piani, gruppi, programma, previsionale) da una stagione all'altra. Crea record nuovi, e idempotente, e non tocca mai i dati operativi della stagione di origine. |
 | **Club resource** | Entita del club salvata in modo generico nella tabella `club_resource_items` (`resource_type` + `payload` JSON): categorie, allenamenti, partite, sponsor, strutture, ecc. |
 | **Simplified\_\*** | Alias di compatibilita nel registro risorse (`simplified_athletes`, `simplified_payments`, ...). Puntano agli stessi delegate Prisma delle risorse non-alias. Retaggio, vedi [16 — Debito tecnico](16-technical-debt.md). |
 | **Registry** | `src/lib/api/registry.ts` + `GET /api/v1/registry`: elenco macchina-leggibile degli endpoint, pensato per il client mobile. |
