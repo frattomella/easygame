@@ -62,6 +62,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { FormShareDialog } from "@/components/forms/FormShareDialog";
 import { apiRequest } from "@/lib/api/client";
+import { buildAttachmentFileName } from "@/lib/attachment-names";
+import { openClientFileUrl } from "@/lib/client-files";
 import { cn } from "@/lib/utils";
 import {
   ONLINE_FORM_FIELD_OPTIONS,
@@ -537,7 +539,10 @@ export function OnlineFormsDashboard({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "risposte-moduli-online.csv";
+    link.download = buildAttachmentFileName({
+      documentType: "Risposte moduli online",
+      mimeType: "text/csv",
+    });
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -884,16 +889,25 @@ export function OnlineFormsDashboard({
                           {relatedFiles.length > 0 ? (
                             <div className="mt-3 flex flex-wrap gap-2">
                               {relatedFiles.map((file) => (
-                                <a
+                                // Un <a href="data:…"> non apre niente: gli
+                                // allegati dei moduli sono data URL come tutti
+                                // gli altri (Blocco 7).
+                                <button
+                                  type="button"
                                   key={file.assetId || file.fileUrl}
-                                  href={file.fileUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
+                                  onClick={() => {
+                                    if (!openClientFileUrl(file.fileUrl)) {
+                                      showToast(
+                                        "error",
+                                        "Questo allegato non puo essere aperto",
+                                      );
+                                    }
+                                  }}
                                   className="inline-flex items-center rounded-md border px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-50"
                                 >
                                   <FileText className="mr-2 h-4 w-4" />
                                   {file.fileName || "File"}
-                                </a>
+                                </button>
                               ))}
                             </div>
                           ) : null}

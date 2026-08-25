@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { downloadAttachment } from "@/lib/client-files";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   formatOpeningHourSlots,
@@ -1212,11 +1213,23 @@ export function ParentDocumentsPage() {
                       {getStatusLabel(document.status)}
                     </Badge>
                     {document.fileUrl ? (
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={document.fileUrl} target="_blank" rel="noreferrer">
-                          <Download className="mr-2 h-4 w-4" />
-                          Scarica
-                        </a>
+                      // Un <a href="data:…"> non scarica niente su nessun
+                      // browser recente: va convertito in object URL.
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          downloadAttachment(document.fileUrl, {
+                            documentType: document.title || "Documento",
+                            fullName: data.athlete?.name,
+                            date: document.uploadedAt || document.createdAt,
+                            fileName: document.fileName,
+                            mimeType: document.mimeType,
+                          })
+                        }
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        Scarica
                       </Button>
                     ) : null}
                     {["required", "rejected"].includes(String(document.status || "")) ? (

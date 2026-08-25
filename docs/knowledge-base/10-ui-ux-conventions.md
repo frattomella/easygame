@@ -196,6 +196,48 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
    al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
    logo, nome o comandi. Dal Blocco 7 e **grigia**: vedi sotto.
 
+## Allegati: se compare «Visualizza», il file si deve vedere (Blocco 7)
+
+EasyGame salva gli allegati come **data URL** dentro il record. I browser
+bloccano da anni la navigazione di primo livello verso `data:` — era il
+vettore classico del phishing — quindi `window.open(dataUrl)` e
+`<a href={dataUrl}>` non aprono e non scaricano niente. Non era un difetto di
+un allegato o di un formato: era il meccanismo, e rendeva morto **ogni**
+pulsante «Visualizza» dell'applicazione.
+
+Regole:
+
+- si passa sempre da `src/lib/client-files.ts`, che converte il data URL in
+  un `Blob` e apre un **object URL** — non bloccato, e con il tipo MIME giusto,
+  quindi il PDF si apre nel visualizzatore e l'immagine si vede;
+- `openClientFileUrl` e `downloadClientFileUrl` restituiscono `false` quando
+  non ci riescono: chi le chiama **deve** dirlo. Un pulsante che non fa niente
+  e peggio di un messaggio di errore;
+- il nome del file scaricato si costruisce con `buildAttachmentFileName`
+  (`src/lib/attachment-names.ts`), mai a mano — vedi sotto;
+- il blocco «allega / guarda / scarica / elimina» e un componente solo,
+  `CertificateAttachmentField`. Era scritto sei volte, con gli stessi tre
+  difetti in tutte e sei.
+
+Quattro test in `tests/lib/attachment-names.test.mjs` falliscono se qualcuno
+rimette un `window.open` su un allegato, un `<a href={…fileUrl}>`, un nome di
+download scritto a mano, o un finto documento generato al posto del file vero.
+
+### Come si chiama un file scaricato
+
+```
+<TipoDocumento>_<Cognome>_<Nome>_<data>.<estensione>
+BLSD_Rossi_Mario_2026-08-25.pdf
+```
+
+Le parti mancanti si **saltano**, non si riempiono con segnaposto. L'estensione
+viene dal MIME del data URL — che l'ha scritto il browser leggendo il file — e
+solo in mancanza di quello dal nome originale. Un tipo sconosciuto non produce
+estensione: meglio nessuna che una inventata.
+
+Il file memorizzato non viene toccato: il nome e una decorazione del momento
+del download.
+
 ### Il marchio EasyGame sta in un posto solo (Blocco 7)
 
 Su desktop la sidebar e la topbar del club sono adiacenti e sempre entrambe

@@ -36,6 +36,7 @@ import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import { athleteMatchesAnyCategory } from "@/lib/category-utils";
 import { getClubCategories } from "@/lib/simplified-db";
 import {
+  downloadAttachment,
   downloadClientFileUrl,
   openClientFileUrl,
 } from "@/lib/client-files";
@@ -733,10 +734,13 @@ export default function MedicalPage() {
                                   className="text-green-600 border-green-600 hover:bg-green-50"
                                   onClick={() => {
                                     if (
-                                      !downloadClientFileUrl(
-                                        certificate.fileUrl,
-                                        `certificato-${certificate.athleteName}-${certificate.certificateType}`,
-                                      )
+                                      !downloadAttachment(certificate.fileUrl, {
+                                        documentType: `Certificato ${certificate.certificateType || "medico"}`,
+                                        fullName: certificate.athleteName,
+                                        date:
+                                          certificate.expiryDate ||
+                                          certificate.issueDate,
+                                      })
                                     ) {
                                       showToast(
                                         "error",

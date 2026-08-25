@@ -91,7 +91,9 @@ import {
   getLatestMedicalCertificateExpiry,
   getMedicalCertificateStatus,
 } from "@/lib/medical-certificates";
+import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
 import {
+  downloadAttachment,
   downloadClientFileUrl,
   fileToDataUrl,
   openClientFileUrl,
@@ -769,9 +771,6 @@ export default function AthleteProfilePage() {
 
   useEffect(() => () => stopDocumentScannerCamera(), [stopDocumentScannerCamera]);
 
-  const blsdFileRef = useRef<HTMLInputElement>(null);
-  const firstAidFileRef = useRef<HTMLInputElement>(null);
-  const fireSafetyFileRef = useRef<HTMLInputElement>(null);
 
   const refreshSharedDocuments = React.useCallback(async () => {
     if (!athleteId) return [];
@@ -1355,6 +1354,22 @@ export default function AthleteProfilePage() {
         });
       }
     }
+  };
+
+  /**
+   * Salva un attestato e lo **persiste**.
+   *
+   * Prima l'upload chiamava solo `setCertificateFiles`: il file compariva, e
+   * spariva al primo refresh. `persistAthleteCollections` scriveva
+   * `certificateFiles` sull'atleta, ma nessuno la chiamava da qui.
+   */
+  const saveCertificateFile = async (key: string, next: string | null) => {
+    const nextFiles = { ...certificateFiles };
+    if (next) nextFiles[key] = next;
+    else delete nextFiles[key];
+
+    await persistAthleteCollections({ certificateFilesOverride: nextFiles });
+    setCertificateFiles(nextFiles);
   };
 
   const persistAthleteCollections = async ({
@@ -4337,9 +4352,17 @@ export default function AthleteProfilePage() {
                                             size="sm"
                                             onClick={() => {
                                               if (
-                                                !downloadClientFileUrl(
+                                                !downloadAttachment(
                                                   certificate.fileUrl,
-                                                  `certificato-${athlete.name || athleteId}-${certificate.type}`,
+                                                  {
+                                                    documentType: `Certificato ${certificate.type || "medico"}`,
+                                                    firstName: athlete?.name,
+                                                    lastName: athlete?.surname,
+                                                    fullName: athlete?.fullName,
+                                                    date:
+                                                      certificate.expiryDate ||
+                                                      certificate.issueDate,
+                                                  },
                                                 )
                                               ) {
                                                 showToast(
@@ -4539,74 +4562,17 @@ export default function AthleteProfilePage() {
                           />
                         </div>
                         {athlete.blsd && (
-                          <div className="mt-4 pt-4 border-t space-y-3">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="file"
-                                ref={blsdFileRef}
-                                className="hidden"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setCertificateFiles({
-                                        ...certificateFiles,
-                                        blsd: reader.result as string,
-                                      });
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => blsdFileRef.current?.click()}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                {certificateFiles.blsd
-                                  ? "Sostituisci File"
-                                  : "Allega File"}
-                              </Button>
-                              {certificateFiles.blsd && (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      window.open(
-                                        certificateFiles.blsd,
-                                        "_blank",
-                                      )
-                                    }
-                                  >
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Visualizza
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const link = document.createElement("a");
-                                      link.href = certificateFiles.blsd;
-                                      link.download = "attestato_blsd";
-                                      link.click();
-                                    }}
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Scarica
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                            {certificateFiles.blsd && (
-                              <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                                <CheckCircle2 className="h-4 w-4" />
-                                File allegato
-                              </p>
-                            )}
+                          <div className="mt-4 border-t pt-4">
+                            <CertificateAttachmentField
+                              documentType="BLSD"
+                              value={certificateFiles.blsd}
+                              onChange={(next) => saveCertificateFile("blsd", next)}
+                              person={{
+                                firstName: athlete?.name,
+                                lastName: athlete?.surname,
+                                fullName: athlete?.fullName,
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -4630,75 +4596,17 @@ export default function AthleteProfilePage() {
                           />
                         </div>
                         {athlete.firstAid && (
-                          <div className="mt-4 pt-4 border-t space-y-3">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="file"
-                                ref={firstAidFileRef}
-                                className="hidden"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setCertificateFiles({
-                                        ...certificateFiles,
-                                        firstAid: reader.result as string,
-                                      });
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => firstAidFileRef.current?.click()}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                {certificateFiles.firstAid
-                                  ? "Sostituisci File"
-                                  : "Allega File"}
-                              </Button>
-                              {certificateFiles.firstAid && (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      window.open(
-                                        certificateFiles.firstAid,
-                                        "_blank",
-                                      )
-                                    }
-                                  >
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Visualizza
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const link = document.createElement("a");
-                                      link.href = certificateFiles.firstAid;
-                                      link.download =
-                                        "attestato_primo_soccorso";
-                                      link.click();
-                                    }}
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Scarica
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                            {certificateFiles.firstAid && (
-                              <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                                <CheckCircle2 className="h-4 w-4" />
-                                File allegato
-                              </p>
-                            )}
+                          <div className="mt-4 border-t pt-4">
+                            <CertificateAttachmentField
+                              documentType="Primo soccorso"
+                              value={certificateFiles.firstAid}
+                              onChange={(next) => saveCertificateFile("firstAid", next)}
+                              person={{
+                                firstName: athlete?.name,
+                                lastName: athlete?.surname,
+                                fullName: athlete?.fullName,
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -4722,76 +4630,17 @@ export default function AthleteProfilePage() {
                           />
                         </div>
                         {athlete.fireSafety && (
-                          <div className="mt-4 pt-4 border-t space-y-3">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="file"
-                                ref={fireSafetyFileRef}
-                                className="hidden"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setCertificateFiles({
-                                        ...certificateFiles,
-                                        fireSafety: reader.result as string,
-                                      });
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  fireSafetyFileRef.current?.click()
-                                }
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                {certificateFiles.fireSafety
-                                  ? "Sostituisci File"
-                                  : "Allega File"}
-                              </Button>
-                              {certificateFiles.fireSafety && (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      window.open(
-                                        certificateFiles.fireSafety,
-                                        "_blank",
-                                      )
-                                    }
-                                  >
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Visualizza
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const link = document.createElement("a");
-                                      link.href = certificateFiles.fireSafety;
-                                      link.download = "attestato_antincendio";
-                                      link.click();
-                                    }}
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Scarica
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                            {certificateFiles.fireSafety && (
-                              <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                                <CheckCircle2 className="h-4 w-4" />
-                                File allegato
-                              </p>
-                            )}
+                          <div className="mt-4 border-t pt-4">
+                            <CertificateAttachmentField
+                              documentType="Antincendio"
+                              value={certificateFiles.fireSafety}
+                              onChange={(next) => saveCertificateFile("fireSafety", next)}
+                              person={{
+                                firstName: athlete?.name,
+                                lastName: athlete?.surname,
+                                fullName: athlete?.fullName,
+                              }}
+                            />
                           </div>
                         )}
                       </div>

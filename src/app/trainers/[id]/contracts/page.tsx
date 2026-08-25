@@ -31,6 +31,13 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { addTrainerContract, deleteTrainerContract } from "@/lib/simplified-db";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { resolveActiveClubId } from "@/lib/active-club";
+import {
+  downloadAttachment,
+  fileToDataUrl,
+  openClientFileUrl,
+} from "@/lib/client-files";
 
 interface Contract {
   id: string;
@@ -39,6 +46,8 @@ interface Contract {
   fileName: string;
   uploadDate: string;
   expiryDate?: string;
+  /** Il file vero. Assente sui contratti registrati prima del Blocco 7. */
+  fileUrl?: string;
 }
 
 export default function TrainerContractsPage({
@@ -50,7 +59,14 @@ export default function TrainerContractsPage({
   const searchParams = useSearchParams();
   const { showToast } = useToast();
   const trainerId = params.id;
-  const clubId = searchParams?.get("clubId");
+  const { activeClub } = useAuth();
+  /*
+    Il club non arriva solo dalla query: aprire questa pagina da un link senza
+    `?clubId=` lasciava l'elenco vuoto per sempre, senza dire perche.
+  */
+  const clubId = resolveActiveClubId(
+    searchParams?.get("clubId") || activeClub?.id,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [trainer, setTrainer] = useState<any>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -64,6 +80,8 @@ export default function TrainerContractsPage({
     title: "",
     description: "",
     fileName: "",
+    /** Il file vero: prima si teneva solo il nome. */
+    fileUrl: "",
     expiryDate: "",
   });
 
@@ -134,10 +152,21 @@ export default function TrainerContractsPage({
     setNewContract({ ...newContract, [name]: value });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setNewContract({ ...newContract, fileName: e.target.files[0].name });
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileUrl = await fileToDataUrl(file);
+    if (!fileUrl) {
+      showToast("error", "Non sono riuscito a leggere il file");
+      return;
     }
+
+    setNewContract((current) => ({
+      ...current,
+      fileName: file.name,
+      fileUrl,
+    }));
   };
 
   const handleAddContract = async () => {
@@ -157,6 +186,7 @@ export default function TrainerContractsPage({
         title: newContract.title,
         description: newContract.description,
         fileName: newContract.fileName,
+        fileUrl: newContract.fileUrl,
         uploadDate: new Date().toISOString().split("T")[0],
         expiryDate: newContract.expiryDate || undefined,
       };
@@ -172,6 +202,7 @@ export default function TrainerContractsPage({
         title: "",
         description: "",
         fileName: "",
+        fileUrl: "",
         expiryDate: "",
       });
 
@@ -195,9 +226,21 @@ export default function TrainerContractsPage({
     }
   };
 
+  /** «Visualizza» apre il documento; il dialog resta per chi il file non ce l'ha. */
   const handleViewContract = (contract: Contract) => {
+    if (contract.fileUrl && openClientFileUrl(contract.fileUrl)) {
+      return;
+    }
+
     setSelectedContract(contract);
     setIsViewContractOpen(true);
+
+    if (!contract.fileUrl) {
+      showToast(
+        "error",
+        "Questo contratto e stato caricato senza il file: ricaricalo per poterlo aprire",
+      );
+    }
   };
 
   const formatDate = (dateString?: string) => {
@@ -330,20 +373,21 @@ export default function TrainerContractsPage({
                             size="sm"
                             className="text-green-600 border-green-600"
                             onClick={() => {
-                              // Create a download link for the contract
-                              const element = document.createElement("a");
-                              element.setAttribute(
-                                "href",
-                                `data:text/plain;charset=utf-8,${encodeURIComponent(`Contratto: ${contract.title}\nDescrizione: ${contract.description}\nFile: ${contract.fileName}\nData caricamento: ${formatDate(contract.uploadDate)}${contract.expiryDate ? `\nScadenza: ${formatDate(contract.expiryDate)}` : ""}`)}`,
-                              );
-                              element.setAttribute(
-                                "download",
-                                `${contract.fileName}`,
-                              );
-                              element.style.display = "none";
-                              document.body.appendChild(element);
-                              element.click();
-                              document.body.removeChild(element);
+                              if (
+                                !downloadAttachment(contract.fileUrl, {
+                                  documentType: "Contratto",
+                                  fullName: trainer?.name,
+                                  date: contract.uploadDate,
+                                  fileName: contract.fileName,
+                                })
+                              ) {
+                                showToast(
+                                  "error",
+                                  "Questo contratto non ha un file allegato: ricaricalo",
+                                );
+                                return;
+                              }
+
                               showToast(
                                 "success",
                                 "Download del contratto iniziato",
@@ -465,20 +509,21 @@ export default function TrainerContractsPage({
                   className="text-green-600 border-green-600"
                   onClick={() => {
                     if (selectedContract) {
-                      // Create a download link for the contract
-                      const element = document.createElement("a");
-                      element.setAttribute(
-                        "href",
-                        `data:text/plain;charset=utf-8,${encodeURIComponent(`Contratto: ${selectedContract.title}\nDescrizione: ${selectedContract.description}\nFile: ${selectedContract.fileName}\nData caricamento: ${formatDate(selectedContract.uploadDate)}${selectedContract.expiryDate ? `\nScadenza: ${formatDate(selectedContract.expiryDate)}` : ""}`)}`,
-                      );
-                      element.setAttribute(
-                        "download",
-                        `${selectedContract.fileName}`,
-                      );
-                      element.style.display = "none";
-                      document.body.appendChild(element);
-                      element.click();
-                      document.body.removeChild(element);
+                      if (
+                        !downloadAttachment(selectedContract.fileUrl, {
+                          documentType: "Contratto",
+                          fullName: trainer?.name,
+                          date: selectedContract.uploadDate,
+                          fileName: selectedContract.fileName,
+                        })
+                      ) {
+                        showToast(
+                          "error",
+                          "Questo contratto non ha un file allegato: ricaricalo",
+                        );
+                        return;
+                      }
+
                       showToast("success", "Download del contratto iniziato");
                     }
                   }}

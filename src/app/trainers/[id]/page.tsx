@@ -30,7 +30,6 @@ import {
   CheckCircle,
   X,
   Plus,
-  Upload,
   Search,
   ArrowLeft,
   CreditCard,
@@ -63,6 +62,20 @@ import { apiRequest } from "@/lib/api/client";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
+import { buildAttachmentFileName } from "@/lib/attachment-names";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DEFAULT_MEDICAL_VISIT_TYPE,
+  medicalVisitTypeOptions,
+  normalizeMedicalVisitType,
+} from "@/lib/medical-visits";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -199,12 +212,19 @@ export default function TrainerDetailsPage() {
 
   // Add state for contracts and documents
   const [contracts, setContracts] = useState<any[]>([]);
-  const [medicalVisitFile, setMedicalVisitFile] = useState<string | null>(null);
-  const [showMedicalFileViewer, setShowMedicalFileViewer] = useState(false);
+  /**
+   * Visita medica: tipologia, scadenza e certificato.
+   *
+   * Prima erano tre cose scollegate — due campi di sola lettura che nessun
+   * form impostava e un file in uno stato React mai salvato. Ora sono uno
+   * stato solo, che si carica dal record e si riscrive nel record.
+   */
+  const [medicalVisit, setMedicalVisit] = useState<{
+    type: string;
+    expiry: string;
+    file: string | null;
+  }>({ type: DEFAULT_MEDICAL_VISIT_TYPE, expiry: "", file: null });
   const [certificateFiles, setCertificateFiles] = useState<{[key: string]: string}>({});
-  const blsdFileRef = React.useRef<HTMLInputElement>(null);
-  const firstAidFileRef = React.useRef<HTMLInputElement>(null);
-  const fireSafetyFileRef = React.useRef<HTMLInputElement>(null);
 
   // Add state for edit modals
   const [editingSection, setEditingSection] = useState<string | null>(null);
@@ -422,6 +442,13 @@ export default function TrainerDetailsPage() {
           // Load certificate files from trainerData if available
           const trainerCertificateFiles = trainerData.certificateFiles || {};
           setCertificateFiles(trainerCertificateFiles);
+          // Il certificato non veniva **mai** riletto dal record: chi lo
+          // caricava lo vedeva sparire al refresh successivo.
+          setMedicalVisit({
+            type: normalizeMedicalVisitType(trainerData.medicalVisitType),
+            expiry: trainerData.medicalVisitExpiry || "",
+            file: trainerData.medicalVisitFile || null,
+          });
         }
       } catch (error) {
         console.error("Error fetching trainer data:", error);
@@ -1095,33 +1122,79 @@ export default function TrainerDetailsPage() {
     }
   };
 
-  // Add handlers for contracts
+  /*
+    Il club viaggia nel link.
+
+    Era la meta della causa di «ID del club non trovato»: questa pagina apriva
+    il caricamento contratti senza `?clubId=`, e quella pagina il club lo
+    cercava **solo** li. Ora lo passa, e la pagina di destinazione ha comunque
+    i ripieghi che usa il resto dell'applicazione.
+  */
+  const contractsHref = (suffix: string) =>
+    `/trainers/${trainerId}/contracts${suffix}${
+      clubId ? `?clubId=${encodeURIComponent(clubId)}` : ""
+    }`;
+
   const handleAddContract = () => {
-    router.push(`/trainers/${trainerId}/contracts/upload`);
+    router.push(contractsHref("/upload"));
   };
 
   const handleViewContracts = () => {
-    router.push(`/trainers/${trainerId}/contracts`);
+    router.push(contractsHref(""));
   };
 
-  const handleUploadMedicalVisit = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  /**
+   * Salva tipologia, scadenza o certificato della visita medica.
+   *
+   * Scrive prima nel record e poi nello stato: se la scrittura fallisce, cio
+   * che si vede resta cio che e in archivio, invece di mostrare un valore che
+   * nessuno ha salvato.
+   */
+  const saveMedicalVisit = async (updates: {
+    medicalVisitType?: string;
+    medicalVisitExpiry?: string;
+    medicalVisitFile?: string | null;
+  }) => {
+    try {
+      await updateTrainerRecord(updates);
 
-    // In a real app, upload to storage and save URL
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setMedicalVisitFile(result);
-      showToast("success", "File visita medica caricato con successo");
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleViewMedicalFile = () => {
-    if (medicalVisitFile) {
-      setShowMedicalFileViewer(true);
+      setMedicalVisit((current) => ({
+        type:
+          updates.medicalVisitType !== undefined
+            ? updates.medicalVisitType
+            : current.type,
+        expiry:
+          updates.medicalVisitExpiry !== undefined
+            ? updates.medicalVisitExpiry
+            : current.expiry,
+        file:
+          updates.medicalVisitFile !== undefined
+            ? updates.medicalVisitFile
+            : current.file,
+      }));
+      setTrainer((current: any) =>
+        current ? { ...current, ...updates } : current,
+      );
+    } catch (error) {
+      console.error("Errore nel salvataggio della visita medica", error);
+      showToast("error", "Salvataggio della visita medica non riuscito");
+      throw error;
     }
+  };
+
+  /**
+   * Salva un attestato e lo persiste.
+   *
+   * L'upload chiamava solo `setCertificateFiles`: il file compariva e spariva
+   * al primo refresh, perche nessuno lo scriveva nel record.
+   */
+  const saveCertificateFile = async (key: string, next: string | null) => {
+    const nextFiles = { ...certificateFiles };
+    if (next) nextFiles[key] = next;
+    else delete nextFiles[key];
+
+    await updateTrainerRecord({ certificateFiles: nextFiles });
+    setCertificateFiles(nextFiles);
   };
 
   // Show loading state
@@ -1576,7 +1649,14 @@ export default function TrainerDetailsPage() {
                                             const a =
                                               document.createElement("a");
                                             a.href = url;
-                                            a.download = `ricevuta-${payment.month.replace(/\s+/g, "-").toLowerCase()}.txt`;
+                                            a.download = buildAttachmentFileName({
+                                              documentType: "Ricevuta compenso",
+                                              lastName: trainer?.lastName,
+                                              firstName: trainer?.firstName,
+                                              fullName: trainer?.name,
+                                              date: payment.date,
+                                              mimeType: "text/plain",
+                                            });
                                             document.body.appendChild(a);
                                             a.click();
                                             document.body.removeChild(a);
@@ -1626,7 +1706,14 @@ export default function TrainerDetailsPage() {
                                             const a =
                                               document.createElement("a");
                                             a.href = url;
-                                            a.download = `fattura-${payment.month.replace(/\s+/g, "-").toLowerCase()}.txt`;
+                                            a.download = buildAttachmentFileName({
+                                              documentType: "Fattura compenso",
+                                              lastName: trainer?.lastName,
+                                              firstName: trainer?.firstName,
+                                              fullName: trainer?.name,
+                                              date: payment.date,
+                                              mimeType: "text/plain",
+                                            });
                                             document.body.appendChild(a);
                                             a.click();
                                             document.body.removeChild(a);
@@ -2054,69 +2141,90 @@ export default function TrainerDetailsPage() {
 
               {/* DATI MEDICI TAB */}
               <TabsContent value="medici" className="mt-4 space-y-6">
+                {/*
+                  Visita medica: prima era una card di sola lettura con un
+                  caricamento che non salvava.
+
+                  «Tipologia» e «Data di scadenza» si vedevano ma nessun form
+                  le impostava: mostravano `-` per sempre. Il file caricato
+                  viveva in uno stato React mai persistito, quindi spariva al
+                  primo refresh, e «Visualizza» apriva un dialog con un `iframe`
+                  su un data URL — che i browser bloccano.
+
+                  Ora i tre campi si modificano e si salvano nello stesso posto,
+                  e l'allegato usa il componente condiviso: guarda, scarica,
+                  sostituisci, elimina.
+                */}
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
+                  <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Heart className="h-5 w-5" />
                       Visita Medica
                     </CardTitle>
-                    <div className="flex gap-2">
-                      {medicalVisitFile && (
-                        <Button 
-                          variant="outline"
-                          onClick={handleViewMedicalFile}
-                          className="flex items-center gap-2"
-                        >
-                          <Eye className="h-4 w-4" />
-                          Visualizza
-                        </Button>
-                      )}
-                      <Button 
-                        variant="outline"
-                        onClick={() => document.getElementById('medical-file-input')?.click()}
-                        className="flex items-center gap-2"
-                      >
-                        <Upload className="h-4 w-4" />
-                        {medicalVisitFile ? "Sostituisci File" : "Carica File"}
-                      </Button>
-                      <input
-                        id="medical-file-input"
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        className="hidden"
-                        onChange={handleUploadMedicalVisit}
-                      />
-                    </div>
                   </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Tipologia</h3>
-                        <p className="mt-1">{trainer.medicalVisitType || "-"}</p>
+                  <CardContent className="space-y-6">
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="medical-visit-type">Tipologia</Label>
+                        <Select
+                          value={medicalVisit.type}
+                          onValueChange={(value) =>
+                            saveMedicalVisit({ medicalVisitType: value })
+                          }
+                        >
+                          <SelectTrigger id="medical-visit-type">
+                            <SelectValue placeholder="Seleziona la tipologia" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {medicalVisitTypeOptions(medicalVisit.type).map(
+                              (option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ),
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {medicalVisitTypeOptions(medicalVisit.type).find(
+                            (option) => option.value === medicalVisit.type,
+                          )?.hint || ""}
+                        </p>
                       </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Data di Scadenza</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                          <p>{formatDate(trainer.medicalVisitExpiry) || "-"}</p>
-                        </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="medical-visit-expiry">
+                          Data di scadenza
+                        </Label>
+                        <Input
+                          id="medical-visit-expiry"
+                          type="date"
+                          value={medicalVisit.expiry}
+                          onChange={(event) =>
+                            saveMedicalVisit({
+                              medicalVisitExpiry: event.target.value,
+                            })
+                          }
+                        />
                       </div>
-                      {medicalVisitFile && (
-                        <div className="md:col-span-2">
-                          <h3 className="text-sm font-medium text-muted-foreground mb-2">File Allegato</h3>
-                          <div className="flex items-center gap-3 p-3 border rounded-lg bg-green-50 dark:bg-green-900/20">
-                            <CheckCircle className="h-5 w-5 text-green-600" />
-                            <div className="flex-1">
-                              <p className="font-medium text-green-700 dark:text-green-400">
-                                File visita medica caricato
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                Clicca su &quot;Visualizza&quot; per aprire il documento
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Certificato</Label>
+                      <CertificateAttachmentField
+                        documentType="Visita medica"
+                        value={medicalVisit.file}
+                        date={medicalVisit.expiry}
+                        onChange={(next) =>
+                          saveMedicalVisit({ medicalVisitFile: next })
+                        }
+                        person={{
+                          firstName: trainer?.firstName,
+                          lastName: trainer?.lastName,
+                          fullName: trainer?.name,
+                        }}
+                        emptyLabel="Nessun certificato allegato"
+                      />
                     </div>
                   </CardContent>
                 </Card>
@@ -2149,64 +2257,17 @@ export default function TrainerDetailsPage() {
                           </Badge>
                         </div>
                         {trainer.hasBlsd && (
-                          <div className="mt-4 pt-4 border-t space-y-3">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <input
-                                type="file"
-                                ref={blsdFileRef}
-                                className="hidden"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setCertificateFiles({...certificateFiles, blsd: reader.result as string});
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => blsdFileRef.current?.click()}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                {certificateFiles.blsd ? 'Sostituisci File' : 'Allega File'}
-                              </Button>
-                              {certificateFiles.blsd && (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => window.open(certificateFiles.blsd, '_blank')}
-                                  >
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Visualizza
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const link = document.createElement('a');
-                                      link.href = certificateFiles.blsd;
-                                      link.download = 'attestato_blsd';
-                                      link.click();
-                                    }}
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Scarica
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                            {certificateFiles.blsd && (
-                              <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                                <CheckCircle className="h-4 w-4" />
-                                File allegato
-                              </p>
-                            )}
+                          <div className="mt-4 border-t pt-4">
+                            <CertificateAttachmentField
+                              documentType="BLSD"
+                              value={certificateFiles.blsd}
+                              onChange={(next) => saveCertificateFile("blsd", next)}
+                              person={{
+                                firstName: trainer?.firstName,
+                                lastName: trainer?.lastName,
+                                fullName: trainer?.name,
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -2223,64 +2284,17 @@ export default function TrainerDetailsPage() {
                           </Badge>
                         </div>
                         {trainer.hasFirstAid && (
-                          <div className="mt-4 pt-4 border-t space-y-3">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <input
-                                type="file"
-                                ref={firstAidFileRef}
-                                className="hidden"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setCertificateFiles({...certificateFiles, firstAid: reader.result as string});
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => firstAidFileRef.current?.click()}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                {certificateFiles.firstAid ? 'Sostituisci File' : 'Allega File'}
-                              </Button>
-                              {certificateFiles.firstAid && (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => window.open(certificateFiles.firstAid, '_blank')}
-                                  >
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Visualizza
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const link = document.createElement('a');
-                                      link.href = certificateFiles.firstAid;
-                                      link.download = 'attestato_primo_soccorso';
-                                      link.click();
-                                    }}
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Scarica
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                            {certificateFiles.firstAid && (
-                              <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                                <CheckCircle className="h-4 w-4" />
-                                File allegato
-                              </p>
-                            )}
+                          <div className="mt-4 border-t pt-4">
+                            <CertificateAttachmentField
+                              documentType="Primo soccorso"
+                              value={certificateFiles.firstAid}
+                              onChange={(next) => saveCertificateFile("firstAid", next)}
+                              person={{
+                                firstName: trainer?.firstName,
+                                lastName: trainer?.lastName,
+                                fullName: trainer?.name,
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -2297,64 +2311,17 @@ export default function TrainerDetailsPage() {
                           </Badge>
                         </div>
                         {trainer.hasFireSafety && (
-                          <div className="mt-4 pt-4 border-t space-y-3">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <input
-                                type="file"
-                                ref={fireSafetyFileRef}
-                                className="hidden"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setCertificateFiles({...certificateFiles, fireSafety: reader.result as string});
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => fireSafetyFileRef.current?.click()}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                {certificateFiles.fireSafety ? 'Sostituisci File' : 'Allega File'}
-                              </Button>
-                              {certificateFiles.fireSafety && (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => window.open(certificateFiles.fireSafety, '_blank')}
-                                  >
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Visualizza
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const link = document.createElement('a');
-                                      link.href = certificateFiles.fireSafety;
-                                      link.download = 'attestato_antincendio';
-                                      link.click();
-                                    }}
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Scarica
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                            {certificateFiles.fireSafety && (
-                              <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                                <CheckCircle className="h-4 w-4" />
-                                File allegato
-                              </p>
-                            )}
+                          <div className="mt-4 border-t pt-4">
+                            <CertificateAttachmentField
+                              documentType="Antincendio"
+                              value={certificateFiles.fireSafety}
+                              onChange={(next) => saveCertificateFile("fireSafety", next)}
+                              person={{
+                                firstName: trainer?.firstName,
+                                lastName: trainer?.lastName,
+                                fullName: trainer?.name,
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -2528,36 +2495,15 @@ export default function TrainerDetailsPage() {
         description="Inserisci il PIN di 4 cifre per accedere alla sezione pagamenti"
       />
 
-      {/* NEW: Medical File Viewer Modal */}
-      {showMedicalFileViewer && medicalVisitFile && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowMedicalFileViewer(false)}
-        >
-          <div 
-            className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold">Visita Medica</h3>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => setShowMedicalFileViewer(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="p-4 overflow-auto max-h-[calc(90vh-80px)]">
-              <img 
-                src={medicalVisitFile} 
-                alt="Visita Medica" 
-                className="w-full h-auto"
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/*
+        Il visualizzatore della visita medica e stato rimosso (Blocco 7).
+
+        Mostrava il certificato con un `<img src={dataUrl}>`: funzionava solo
+        se il file era un'immagine, e i certificati sono quasi sempre PDF —
+        dove restava un riquadro rotto. Ora l'allegato si apre con
+        `openClientFileUrl`, che lo passa al visualizzatore del browser con il
+        suo tipo MIME.
+      */}
 
       {/* NEW: Edit Section Modal */}
       {editingSection && (

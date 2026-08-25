@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { PinInput } from "@/components/ui/pin-input";
 import { useToast } from "@/components/ui/toast-notification";
 import { CheckCircle, Clock, DollarSign, FileText } from "lucide-react";
+import { buildAttachmentFileName } from "@/lib/attachment-names";
 
 interface Payment {
   id: string;
@@ -17,6 +18,8 @@ interface Payment {
 }
 
 interface TrainerPaymentsProps {
+  /** Serve solo a dare un nome leggibile ai file scaricati. */
+  trainerName?: string;
   payments?: Payment[];
   showSalary?: boolean;
   onViewSalary?: () => void;
@@ -24,6 +27,7 @@ interface TrainerPaymentsProps {
 }
 
 export function TrainerPayments({
+  trainerName = "",
   payments = [],
   showSalary = false,
   onViewSalary = () => {},
@@ -157,9 +161,12 @@ export function TrainerPayments({
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement("a");
                             a.href = url;
-                            a.download = `ricevuta-${payment.month
-                              .replace(/\s+/g, "-")
-                              .toLowerCase()}.txt`;
+                            a.download = buildAttachmentFileName({
+                              documentType: "Ricevuta compenso",
+                              fullName: trainerName,
+                              date: payment.date,
+                              mimeType: "text/plain",
+                            });
                             document.body.appendChild(a);
                             a.click();
                             document.body.removeChild(a);
