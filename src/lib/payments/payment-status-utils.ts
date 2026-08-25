@@ -59,7 +59,11 @@ export const isPaymentPaidLike = (payment: unknown) => {
   return Boolean(record.paid_at || record.paidAt) || isPaidPaymentStatus(record.status);
 };
 
-export type InstallmentPaymentState = "paid" | "pending" | "unbilled";
+export type InstallmentPaymentState =
+  | "paid"
+  | "partial"
+  | "pending"
+  | "unbilled";
 
 const asText = (value: unknown) => String(value ?? "").trim().toLowerCase();
 
@@ -124,14 +128,39 @@ export const resolveInstallmentPaymentStatus = (
   }
 
   const paid = related.find((payment) => isPaymentPaidLike(payment));
+  if (paid) {
+    return {
+      state: "paid" as InstallmentPaymentState,
+      label: "Pagato",
+      payment: paid,
+    };
+  }
 
-  return paid
-    ? { state: "paid" as InstallmentPaymentState, label: "Pagato", payment: paid }
-    : {
-        state: "pending" as InstallmentPaymentState,
-        label: "In attesa",
-        payment: related[0],
-      };
+  /*
+    Un incasso parziale non e ne «pagato» ne «in attesa»: `data.ledger` porta
+    quanto ne e stato incassato, scritto dal servizio incassi nella stessa
+    transazione che aggiorna la rata (ADR-0036). Senza quel campo la riga e
+    anteriore al registro e vale il comportamento di prima.
+  */
+  const partial = related.find((payment) => {
+    const ledger = asRecord(getPaymentDataRecord(payment).ledger);
+    return Number(ledger.paidAmount || 0) > 0;
+  });
+
+  if (partial) {
+    const ledger = asRecord(getPaymentDataRecord(partial).ledger);
+    return {
+      state: "partial" as InstallmentPaymentState,
+      label: `Parziale — residuo ${Number(ledger.residualAmount || 0).toFixed(2)} EUR`,
+      payment: partial,
+    };
+  }
+
+  return {
+    state: "pending" as InstallmentPaymentState,
+    label: "In attesa",
+    payment: related[0],
+  };
 };
 
 export const normalizePaymentAccountingStatus = (payment: unknown) => {

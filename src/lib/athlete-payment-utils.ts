@@ -26,6 +26,15 @@ type NormalizedPaymentRecord = {
   amount: number;
   status: string;
   statusKey: "paid" | "pending" | "cancelled";
+  /**
+   * Quanto di questa voce e stato davvero incassato.
+   *
+   * Non e derivabile da `statusKey`: una rata parzialmente pagata non e ne
+   * «pagata» ne «da incassare» per intero. Il valore lo scrive il server in
+   * `data.ledger` a ogni incasso registrato (ADR-0036); per le righe piu
+   * vecchie vale l'importo pieno se risultano saldate.
+   */
+  paidAmount: number;
   method?: string | null;
   notes?: string | null;
   reference?: string | null;
@@ -142,6 +151,18 @@ const normalizePaymentStatus = (
   }
 
   const normalized = toLowerText(value);
+
+  if (
+    normalized === "partially_paid" ||
+    normalized === "partial" ||
+    normalized.includes("parzial")
+  ) {
+    return {
+      statusKey: "pending" as const,
+      status: "Parzialmente pagato",
+    };
+  }
+
   return {
     statusKey: "pending" as const,
     status:
@@ -149,6 +170,32 @@ const normalizePaymentStatus = (
         ? "Scaduto"
         : "Da incassare",
   };
+};
+
+/**
+ * Quanto e stato incassato su una voce.
+ *
+ * `data.ledger.paidAmount` e la somma dei movimenti, scritta dal servizio
+ * incassi nella stessa transazione che aggiorna la rata: e il valore
+ * autorevole. Senza di esso si ricade sul comportamento precedente — tutto o
+ * niente — che per le righe mai toccate dal registro e ancora corretto.
+ */
+const resolvePaidAmount = (
+  data: Record<string, any>,
+  amount: number,
+  statusKey: "paid" | "pending" | "cancelled",
+) => {
+  if (statusKey === "cancelled") {
+    return 0;
+  }
+
+  const ledgerPaid = getRecord(data.ledger).paidAmount;
+  if (ledgerPaid !== undefined && ledgerPaid !== null) {
+    const parsed = toFiniteNumber(ledgerPaid);
+    return Math.min(amount, Math.max(0, Number(parsed.toFixed(2))));
+  }
+
+  return statusKey === "paid" ? amount : 0;
 };
 
 const normalizeStoredPayment = (
@@ -191,6 +238,7 @@ const normalizeStoredPayment = (
     amount,
     status: normalizedStatus.status,
     statusKey: normalizedStatus.statusKey,
+    paidAmount: resolvePaidAmount(data, amount, normalizedStatus.statusKey),
     method: getFirstString(record.method) || null,
     notes: getFirstString(record.notes, data.notes) || null,
     reference: getFirstString(record.reference, data.reference) || null,
@@ -545,12 +593,19 @@ export const calculateAthleteExpectedIncome = ({
   const accountingPayments = normalizedPayments.filter(
     (payment) => !isPaymentExcludedFromTotals(payment),
   );
-  const recordedPaid = accountingPayments
-    .filter((payment) => payment.statusKey === "paid")
-    .reduce((total, payment) => total + payment.amount, 0);
-  const recordedPending = accountingPayments
-    .filter((payment) => payment.statusKey === "pending")
-    .reduce((total, payment) => total + payment.amount, 0);
+  /*
+    Il totale incassato si somma **per importo**, non per stato: una rata da
+    130 con 50 gia in cassa contribuisce 50, non 0 e non 130. Contarla per
+    stato era il difetto che rendeva invisibile un acconto (ADR-0036).
+  */
+  const recordedPaid = accountingPayments.reduce(
+    (total, payment) => total + payment.paidAmount,
+    0,
+  );
+  const recordedPending = accountingPayments.reduce(
+    (total, payment) => total + Math.max(0, payment.amount - payment.paidAmount),
+    0,
+  );
   const recordedTotal = accountingPayments.reduce(
     (total, payment) => total + payment.amount,
     0,
