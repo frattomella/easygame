@@ -35,11 +35,8 @@ import { supabase } from "@/lib/supabase";
 import { addTrainerContract, deleteTrainerContract } from "@/lib/simplified-db";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { resolveActiveClubId } from "@/lib/active-club";
-import {
-  downloadAttachment,
-  fileToDataUrl,
-  openClientFileUrl,
-} from "@/lib/client-files";
+import { downloadAttachment, openClientFileUrl } from "@/lib/client-files";
+import { uploadAttachmentReference } from "@/lib/api/attachments";
 
 interface Contract {
   id: string;
@@ -200,9 +197,20 @@ export default function TrainerContractsUploadPage({
 
   /** Legge il file **e lo tiene**: prima se ne ricavavano solo i metadati. */
   const acceptFile = async (file: File) => {
-    const fileUrl = await fileToDataUrl(file);
-    if (!fileUrl) {
-      showToast("error", "Non sono riuscito a leggere il file");
+    /*
+      Il contratto **non** entra nel record dell'allenatore: viene caricato e
+      il record ne conserva il riferimento (WP-15, ADR-0034).
+    */
+    let fileUrl = "";
+    try {
+      fileUrl = await uploadAttachmentReference(file, {
+        ownerType: "trainer",
+        ownerId: trainerId,
+        organizationId: clubId,
+        category: "contratto",
+      });
+    } catch (error: any) {
+      showToast("error", error?.message || "Non sono riuscito a caricare il file");
       return;
     }
 

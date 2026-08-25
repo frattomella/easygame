@@ -91,6 +91,7 @@ import {
   getMedicalCertificateStatus,
 } from "@/lib/medical-certificates";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
+import { uploadAttachmentReference } from "@/lib/api/attachments";
 import {
   CLOTHING_SIZE_OPTIONS,
   DEFAULT_CLOTHING_SIZES,
@@ -1609,11 +1610,25 @@ export default function AthleteProfilePage() {
     }
   };
 
+  /**
+   * Un allegato pronto da salvare nel record.
+   *
+   * Il file **non** entra nel record: `uploadAttachmentReference` lo carica e
+   * torna `attachment:<id>`, poche decine di caratteri al posto di qualche
+   * megabyte di base64 (WP-15, ADR-0034). `fileName` resta perche e il nome
+   * con cui l'operatore lo ha caricato, e serve a riconoscerlo nell'elenco.
+   */
   const buildStoredAttachment = async (
     input: { name: string; type: string; notes?: string; file: File | null },
     fallbackType: string,
+    category: string,
   ) => {
-    const fileUrl = await fileToDataUrl(input.file);
+    const fileUrl = await uploadAttachmentReference(input.file, {
+      ownerType: "athlete",
+      ownerId: athleteId,
+      organizationId: clubId,
+      category,
+    });
 
     return {
       id: Date.now().toString(),
@@ -2193,6 +2208,7 @@ export default function AthleteProfilePage() {
           file: newDocument.file,
         },
         newDocument.type,
+        "documento",
       );
       const nextDocuments = [...documents, doc];
 
@@ -2679,7 +2695,15 @@ export default function AthleteProfilePage() {
     }
 
     try {
-      const attachmentUrl = await fileToDataUrl(newMedicalVisit.file);
+      const attachmentUrl = await uploadAttachmentReference(
+        newMedicalVisit.file,
+        {
+          ownerType: "athlete",
+          ownerId: athleteId,
+          organizationId: clubId,
+          category: "visita-medica",
+        },
+      );
       const visit = {
         id: Date.now().toString(),
         title: newMedicalVisit.title,
@@ -2723,7 +2747,15 @@ export default function AthleteProfilePage() {
     }
 
     try {
-      const attachmentUrl = await fileToDataUrl(newRegistration.file);
+      const attachmentUrl = await uploadAttachmentReference(
+        newRegistration.file,
+        {
+          ownerType: "athlete",
+          ownerId: athleteId,
+          organizationId: clubId,
+          category: "tesseramento",
+        },
+      );
       const registration = {
         id: Date.now().toString(),
         federation: newRegistration.federation,
@@ -2787,6 +2819,7 @@ export default function AthleteProfilePage() {
           file: newIdentityDocument.file,
         },
         "Documento Identità",
+        "documento-identita",
       );
       const nextIdentityDocuments = [...identityDocuments, documentRecord];
 
@@ -2997,6 +3030,7 @@ export default function AthleteProfilePage() {
           file: newEnrollmentDocument.file,
         },
         "Documento Iscrizione",
+        "documento-iscrizione",
       );
       const nextEnrollmentDocuments = [
         ...enrollmentDocuments,

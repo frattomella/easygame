@@ -146,3 +146,31 @@ export const listAttachmentsFor = async (
 
   return error || !Array.isArray(data) ? [] : data;
 };
+
+/**
+ * Carica un file e restituisce **il riferimento da salvare nel record**.
+ *
+ * E la forma che serve alle decine di posti in cui prima si scriveva
+ * `const fileUrl = await fileToDataUrl(file)`: una riga per una riga, stesso
+ * tipo di ritorno, e il file non entra piu nel record.
+ *
+ * Un file assente da stringa vuota, come faceva `fileToDataUrl`: e il caso
+ * normale di un allegato facoltativo, non un errore. Un caricamento fallito
+ * invece **lancia**, perche salvare il resto del record fingendo che il file
+ * ci sia e il modo in cui si perde un certificato.
+ */
+export const uploadAttachmentReference = async (
+  file: File | Blob | null | undefined,
+  owner: Omit<UploadAttachmentInput, "file" | "fileName"> & {
+    fileName?: string | null;
+  },
+): Promise<string> => {
+  if (!file) return "";
+
+  const result = await uploadAttachment({ ...owner, file });
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+
+  return result.attachment.reference;
+};
