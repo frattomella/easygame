@@ -226,6 +226,11 @@ model Club {
   training_attendance          TrainingAttendance[]
   athlete_category_memberships AthleteCategoryMembership[]
   attachments                  Attachment[]
+  funding_programs             FundingProgram[]
+  funding_enrollments          FundingEnrollment[]
+  funding_accruals             FundingAccrual[]
+  funding_settlements          FundingSettlement[]
+  funding_settlement_lines     FundingSettlementLine[]
 
   @@map("clubs")
 }
@@ -280,6 +285,7 @@ model Athlete {
   user                 User?                       @relation(fields: [user_id], references: [id], onDelete: SetNull)
   payments             AthletePayment[]
   payment_transactions PaymentTransaction[]
+  funding_enrollments  FundingEnrollment[]
   invoices             Invoice[]
   receipts             Receipt[]
   medical_certificates MedicalCertificate[]
@@ -473,6 +479,183 @@ model Receipt {
   @@index([athlete_id])
   @@index([payment_id])
   @@map("receipts")
+}
+
+/// Un **programma di contributo**: un bando, un voucher, un contributo di ente.
+///
+/// Tutto cio che distingue un bando dall'altro e **configurazione**, non
+/// codice: importo per periodo, frequenza del periodo, requisito minimo, unita
+/// del requisito, cosa succede se il requisito non e raggiunto, tetti. Il
+/// Voucher per lo Sport della Regione Lazio 2025 e uno dei valori possibili di
+/// queste colonne, non un ramo dentro il calcolo. Vedi ADR-0037.
+model FundingProgram {
+  id                 String              @id @default(uuid()) @db.Uuid
+  organization_id    String              @db.Uuid
+  name               String
+  /// Chi finanzia: «Regione Lazio», «Sport e Salute», il comune, un privato.
+  funder_name        String
+  /// draft | active | closed
+  status             String              @default("draft")
+  valid_from         DateTime
+  valid_to           DateTime
+  /// Plafond predefinito per atleta. Il singolo beneficiario puo averne uno diverso.
+  athlete_plafond    Float
+  /// Importo riconosciuto per un periodo che matura per intero.
+  period_amount      Float
+  /// monthly | days
+  period_frequency   String              @default("monthly")
+  /// Lunghezza del periodo quando la frequenza e `days`.
+  period_length_days Int?
+  /// hours | sessions
+  requirement_unit   String              @default("hours")
+  /// Quanto serve per far maturare il periodo, nell'unita dichiarata.
+  requirement_min    Float               @default(0)
+  /// none | prorata | full — cosa succede sotto la soglia.
+  unmet_behavior     String              @default("none")
+  /// Tetto opzionale al numero di periodi che possono maturare.
+  max_periods        Int?
+  /// Tetto opzionale all'importo complessivo del programma, su tutti i beneficiari.
+  max_total_amount   Float?
+  notes              String?
+  data               Json?
+  created_by         String?             @db.Uuid
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+  organization       Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  enrollments        FundingEnrollment[]
+  settlements        FundingSettlement[]
+
+  @@index([organization_id])
+  @@map("funding_programs")
+}
+
+/// Un **atleta ammesso** a un programma: il suo plafond e il suo codice voucher.
+///
+/// `assigned_amount` e quanto gli e stato *assegnato*, che non e denaro
+/// incassato ne denaro maturato: e il tetto entro cui potra maturare.
+model FundingEnrollment {
+  id              String           @id @default(uuid()) @db.Uuid
+  organization_id String           @db.Uuid
+  program_id      String           @db.Uuid
+  athlete_id      String           @db.Uuid
+  /// Codice individuale del voucher, quando l'ente ne assegna uno.
+  voucher_code    String?
+  assigned_amount Float
+  /// active | suspended | closed
+  status          String           @default("active")
+  enrolled_at     DateTime
+  ends_at         DateTime?
+  notes           String?
+  data            Json?
+  created_by      String?          @db.Uuid
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+  organization    Club             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  program         FundingProgram   @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  athlete         Athlete          @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+  accruals        FundingAccrual[]
+
+  @@unique([program_id, athlete_id])
+  @@index([organization_id])
+  @@index([athlete_id])
+  @@map("funding_enrollments")
+}
+
+/// Il **maturato di un periodo** per un beneficiario.
+///
+/// Il periodo non ha una tabella propria: e un intervallo di date che si
+/// ricava dalla configurazione del programma (`generateFundingPeriods`), e
+/// salvarlo sarebbe una seconda fonte di verita per qualcosa di derivabile —
+/// con il rischio classico, che le due divergano quando il programma cambia.
+/// Qui il periodo e denormalizzato **dentro il maturato**, dove serve a
+/// spiegare un importo che e gia stato calcolato.
+///
+/// `measured_value` e cio che le presenze dicono; `accrued_amount` e cio che
+/// ne matura. Sono due numeri diversi di proposito: sotto la soglia il primo
+/// puo essere alto e il secondo zero.
+model FundingAccrual {
+  id               String                  @id @default(uuid()) @db.Uuid
+  organization_id  String                  @db.Uuid
+  enrollment_id    String                  @db.Uuid
+  period_index     Int
+  period_start     DateTime
+  period_end       DateTime
+  period_label     String
+  requirement_min  Float
+  requirement_unit String
+  measured_value   Float                   @default(0)
+  requirement_met  Boolean                 @default(false)
+  /// Importo che il periodo varrebbe se maturasse per intero.
+  eligible_amount  Float                   @default(0)
+  /// Importo effettivamente maturato, dopo soglia e plafond.
+  accrued_amount   Float                   @default(0)
+  /// Quanto e andato perso: `eligible_amount - accrued_amount`.
+  unaccrued_amount Float                   @default(0)
+  /// not_accrued | accrued | reported | settled
+  status           String                  @default("not_accrued")
+  reported_at      DateTime?
+  reported_by      String?                 @db.Uuid
+  computed_at      DateTime
+  data             Json?
+  created_at       DateTime                @default(now())
+  updated_at       DateTime                @updatedAt
+  organization     Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  enrollment       FundingEnrollment       @relation(fields: [enrollment_id], references: [id], onDelete: Cascade)
+  settlement_lines FundingSettlementLine[]
+
+  @@unique([enrollment_id, period_index])
+  @@index([organization_id])
+  @@map("funding_accruals")
+}
+
+/// Una **liquidazione dell'ente**: denaro che il finanziatore versa al club.
+///
+/// E l'unico momento in cui il contributo diventa denaro reale. Fino a qui il
+/// maturato e un credito, e il Riepilogo Incassi lo tiene separato da cio che
+/// e stato davvero incassato.
+model FundingSettlement {
+  id              String                  @id @default(uuid()) @db.Uuid
+  organization_id String                  @db.Uuid
+  program_id      String                  @db.Uuid
+  reference       String?
+  settled_at      DateTime
+  amount          Float
+  method          String?
+  notes           String?
+  created_by      String?                 @db.Uuid
+  created_at      DateTime                @default(now())
+  updated_at      DateTime                @updatedAt
+  organization    Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  program         FundingProgram          @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  lines           FundingSettlementLine[]
+
+  @@index([organization_id])
+  @@index([program_id])
+  @@map("funding_settlements")
+}
+
+/// La **riconciliazione**: quanto di una liquidazione copre quale periodo di
+/// quale atleta.
+///
+/// Esiste perche un ente liquida in blocco — un bonifico solo per venti atleti
+/// e tre mesi — e senza queste righe «liquidato» sarebbe un totale che non si
+/// puo attribuire a nessuno.
+model FundingSettlementLine {
+  id              String            @id @default(uuid()) @db.Uuid
+  organization_id String            @db.Uuid
+  settlement_id   String            @db.Uuid
+  accrual_id      String            @db.Uuid
+  amount          Float
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  organization    Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  settlement      FundingSettlement @relation(fields: [settlement_id], references: [id], onDelete: Cascade)
+  accrual         FundingAccrual    @relation(fields: [accrual_id], references: [id], onDelete: Cascade)
+
+  @@unique([settlement_id, accrual_id])
+  @@index([organization_id])
+  @@index([accrual_id])
+  @@map("funding_settlement_lines")
 }
 
 model TrainerPayment {
