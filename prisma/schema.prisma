@@ -239,6 +239,7 @@ model Club {
   funding_settlement_lines     FundingSettlementLine[]
   form_templates               FormTemplate[]
   form_submissions             FormSubmission[]
+  document_number_sequences    DocumentNumberSequence[]
 
   @@map("clubs")
 }
@@ -424,7 +425,7 @@ model Invoice {
   organization_id String          @db.Uuid
   athlete_id      String?         @db.Uuid
   payment_id      String?         @unique @db.Uuid
-  invoice_number  String          @unique
+  invoice_number  String
   issue_date      DateTime
   amount          Float
   description     String
@@ -448,6 +449,7 @@ model Invoice {
   payment         AthletePayment? @relation(fields: [payment_id], references: [id], onDelete: SetNull)
   receipts        Receipt[]
 
+  @@unique([organization_id, invoice_number])
   @@index([organization_id])
   @@index([athlete_id])
   @@map("invoices")
@@ -467,7 +469,7 @@ model Receipt {
   payment_id      String?             @db.Uuid
   transaction_id  String?             @unique @db.Uuid
   invoice_id      String?             @db.Uuid
-  receipt_number  String?             @unique
+  receipt_number  String?
   issue_date      DateTime
   amount          Float
   description     String
@@ -483,10 +485,38 @@ model Receipt {
   transaction     PaymentTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
   invoice         Invoice?            @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
 
+  @@unique([organization_id, receipt_number])
   @@index([organization_id])
   @@index([athlete_id])
   @@index([payment_id])
   @@map("receipts")
+}
+
+/// La **sequenza** di numerazione di un tipo di documento, per club e anno.
+///
+/// **Perche una tabella e non un conteggio.** Contare le righe gia emesse non
+/// e sicuro sotto concorrenza — due operatori che incassano nello stesso
+/// istante contano lo stesso numero — e non e nemmeno corretto: una ricevuta
+/// annullata non deve far riusare il suo numero. La sequenza si incrementa,
+/// non si ricava.
+///
+/// **Perche la chiave e (club, tipo, anno).** Un numero di documento
+/// appartiene a un club e a un esercizio: la societa Alfa e la societa Beta
+/// hanno entrambe la loro ricevuta 1 del 2026, e devono averla. Vedi
+/// ADR-0044.
+model DocumentNumberSequence {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  /// `receipt` | `invoice`. Vedi `DOCUMENT_NUMBER_KINDS`.
+  kind            String
+  year            Int
+  last_number     Int      @default(0)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, kind, year])
+  @@map("document_number_sequences")
 }
 
 /// Un **programma di contributo**: un bando, un voucher, un contributo di ente.

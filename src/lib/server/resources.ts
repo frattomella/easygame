@@ -2304,12 +2304,29 @@ const resolveUpsertWhere = (resource: string, input: Record<string, any>) => {
     return { email: input.email };
   }
 
-  if (resource === "invoices" && input.invoice_number) {
-    return { invoice_number: input.invoice_number };
+  /*
+    Il numero di un documento e univoco **dentro un club**, non fra tutti
+    (ADR-0044): la chiave e la coppia. Con la sola colonna, un upsert non
+    troverebbe piu una chiave univoca — e, prima che il vincolo cambiasse,
+    avrebbe potuto aggiornare la fattura di un'altra societa che per caso
+    portava lo stesso numero.
+  */
+  if (resource === "invoices" && input.invoice_number && input.organization_id) {
+    return {
+      organization_id_invoice_number: {
+        organization_id: input.organization_id,
+        invoice_number: input.invoice_number,
+      },
+    };
   }
 
-  if (resource === "receipts" && input.receipt_number) {
-    return { receipt_number: input.receipt_number };
+  if (resource === "receipts" && input.receipt_number && input.organization_id) {
+    return {
+      organization_id_receipt_number: {
+        organization_id: input.organization_id,
+        receipt_number: input.receipt_number,
+      },
+    };
   }
 
   if (resource === "clubs" || resource === "organizations") {

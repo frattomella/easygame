@@ -1802,3 +1802,73 @@ scritta sul modulo, ed e la sola cosa che quel campo dichiara.
 
 **Stato:** ATTIVA. Chiude R-14 e B9-18, e completa ADR-0038 dal lato dei
 moduli.
+
+## ADR-0044 — Un numero di documento appartiene a un club e a un esercizio, e si incrementa
+
+**Data:** 2026-08-26
+**Contesto:** Blocco Finale B, chiusura di D28.
+
+`receipts.receipt_number` e `invoices.invoice_number` erano univoci su **tutta
+la tabella**. Due societa che emettevano la loro prima ricevuta dell'anno
+chiedevano entrambe `R-2026-0001`, e la seconda falliva per un motivo che non
+aveva niente a che vedere con lei. La mitigazione in uso — riprovare con il
+numero successivo, fino a venticinque volte — funzionava, e produceva
+numerazioni con buchi appena due club emettevano nello stesso momento.
+
+**La decisione, in due parti.**
+
+*Il vincolo diventa composto:* `(organization_id, receipt_number)` e
+`(organization_id, invoice_number)`. Alfa e Beta hanno entrambe la loro
+ricevuta 1 del 2026, e devono averla. La conversione e sicura sul dato
+esistente proprio perche il vincolo era globale: due club non hanno potuto
+avere lo stesso numero.
+
+*La sequenza diventa una riga con un contatore*
+(`document_number_sequences`, chiave `(club, tipo, anno)`), e il numero si
+**incrementa** invece di ricavarsi contando.
+
+**Perche contare non era un'alternativa.** Due operatori della stessa societa
+che incassano nello stesso secondo leggono lo stesso conteggio e chiedono lo
+stesso numero: uno dei due incassi non si documenta, oppure due incassi
+portano lo stesso numero. Non e un caso da laboratorio, e il sabato mattina di
+una segreteria con due sportelli. E contare non e nemmeno corretto in
+tranquillita: una ricevuta annullata farebbe riusare il suo numero.
+
+**Come si evita la corsa.** L'incremento e `UPDATE ... SET last_number =
+last_number + 1` in una sola istruzione, dentro una transazione. Postgres
+blocca quella riga fino al commit: la seconda richiesta non legge un valore
+vecchio, **aspetta**. Il valore assegnato si rilegge nella stessa transazione,
+quindi si vede il proprio incremento e nessun altro. Un test presidia la
+**forma** dell'istruzione — un doppio di Prisma non ha i lock di Postgres, e
+fingere di provare la concorrenza sarebbe peggio che non provarla.
+
+**L'unico punto in cui si riprova.** Se la riga della sequenza non esiste
+ancora va creata, e due richieste possono provarci insieme: in Postgres un
+errore di chiave duplicata annulla l'intera transazione e non si recupera da
+dentro. Si riprova l'operazione intera, al massimo tre volte. La finestra e
+larga quanto il primo documento di un club in un anno.
+
+**Un buco e preferibile a un duplicato.** La sequenza conta cio che e stato
+**assegnato**, non cio che esiste. Se la scrittura del documento fallisce dopo
+l'assegnazione, quel numero resta consumato: un buco nella numerazione e
+leggibile e spiegabile, lo stesso numero su due documenti no.
+
+**Conseguenze.**
+
+- la forma del numero (`R-2026-0001`, `FT-2026-0001`) sta in un modulo puro,
+  `src/lib/documents/numbering.ts`, con la funzione che la rilegge — perche
+  nei dati esistono numeri di fattura scritti a mano, che fino a oggi
+  arrivavano dal client;
+- la pagina Movimenti aveva una **seconda implementazione**: scriveva la riga
+  della ricevuta dal browser e si calcolava il numero contando quelle
+  scaricate in pagina, per giunta in una forma diversa (`R-2026-001`). Adesso
+  passa dalla stessa rotta della scheda atleta. Un test impedisce che
+  ricompaia;
+- `resolveUpsertWhere` usa la chiave composta: con la sola colonna un upsert
+  avrebbe potuto aggiornare la fattura di un'altra societa;
+- **il numero di fattura lo digita ancora una persona** in `AddInvoiceForm`.
+  Il vincolo per club lo rende innocuo fra societa diverse, ma la numerazione
+  server-side delle fatture non e chiusa da questo ADR: serve prima il flusso
+  di emissione del documento.
+
+**Stato:** ATTIVA. Chiude D28.

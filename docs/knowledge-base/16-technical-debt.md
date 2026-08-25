@@ -416,25 +416,33 @@ classificate prima, e rimosse in un commit proprio.
 
 → WP-18
 
-### D28 — `receipts.receipt_number` e univoco su tutta la tabella, non per club
+### D28 — ~~`receipts.receipt_number` e univoco su tutta la tabella, non per club~~ CHIUSO
 
-Il vincolo e `@unique` globale. Due societa che emettono la loro prima
-ricevuta dell'anno chiedono entrambe `R-2026-0001`, e la seconda fallisce per
-un motivo che non ha niente a che vedere con lei. E un difetto di modello
-preesistente, reso visibile dall'emissione automatica delle ricevute per
-incasso (Workstream A, [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)).
+**Chiuso dal Blocco Finale B** ([ADR-0044](18-decision-log.md#adr-0044--un-numero-di-documento-appartiene-a-un-club-e-a-un-esercizio-e-si-incrementa)),
+migrazione `20260826170000_document_numbering`.
 
-**Come e mitigato oggi.** `issueReceiptForTransaction` riprova con il numero
-successivo, fino a 25 tentativi, invece di far fallire l'emissione. Funziona,
-ma produce numerazioni con buchi quando piu club emettono nello stesso
-momento, e con molti club i tentativi crescono.
+Il vincolo e composto — `(organization_id, receipt_number)` e
+`(organization_id, invoice_number)` — e la sequenza sta in
+`document_number_sequences`, incrementata con una sola istruzione dentro una
+transazione. I venticinque tentativi non ci sono piu.
 
-**Cosa lo chiude.** Un unique composto `(organization_id, receipt_number)` al
-posto di quello globale, e una sequenza per club. E una migrazione che tocca
-un vincolo su dati esistenti: va verificato prima che non ci siano numeri
-duplicati fra club — oggi non possono esserci, proprio per via del vincolo
-globale, quindi la conversione e sicura. Lo stesso vale per
-`invoices.invoice_number`, che ha esattamente la stessa forma.
+Emerso chiudendolo: la pagina Movimenti aveva una **seconda** numerazione, nel
+browser, che contava le ricevute scaricate in pagina. Rimossa.
+
+**Resta aperto** il numero di fattura digitato a mano in `AddInvoiceForm`:
+vedi D36.
+
+### D36 — Il numero di fattura lo scrive una persona
+
+`AddInvoiceForm` chiede il numero all'operatore e lo manda al server. Con il
+vincolo per club ([ADR-0044](18-decision-log.md#adr-0044--un-numero-di-documento-appartiene-a-un-club-e-a-un-esercizio-e-si-incrementa))
+due societa non si scontrano piu, ma dentro la stessa societa nulla impedisce
+di ripetere un numero, di saltarne uno o di scriverlo in una forma che poi
+nessuno rilegge.
+
+`allocateDocumentNumber` sa gia numerare le fatture (`kind: "invoice"`): manca
+il **flusso di emissione** che lo chiami, cioe la scelta esplicita fra
+ricevuta e fattura a partire da un incasso.
 
 → nessun WP ancora
 

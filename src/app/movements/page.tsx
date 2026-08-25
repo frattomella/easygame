@@ -25,6 +25,7 @@ import { AddInvoiceForm } from "@/components/forms/AddInvoiceForm";
 import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { apiRequest } from "@/lib/api/client";
 import {
   addClubData,
   deleteClubDataItem,
@@ -932,9 +933,6 @@ export default function MovementsPage() {
     }
   };
 
-  const buildReceiptNumber = () =>
-    `R-${new Date().getFullYear()}-${String(receipts.length + 1).padStart(3, "0")}`;
-
   const getCompatiblePayment = (movement: NormalizedClubMovement | null) => {
     if (!movement?.paymentId) {
       return null;
@@ -1064,26 +1062,52 @@ export default function MovementsPage() {
     }
 
     try {
-      const linkedInvoice = invoiceByPaymentId.get(String(payment.id));
-      const { error } = await supabase.from("receipts").insert({
-        organization_id: activeClubId,
-        athlete_id: payment.athlete_id || null,
-        payment_id: payment.id,
-        invoice_id: linkedInvoice?.id || null,
-        receipt_number: buildReceiptNumber(),
-        issue_date: payment.paid_at || new Date().toISOString(),
-        amount: Number(payment.amount),
-        description: `Ricevuta ${payment.description || ""}`.trim(),
-        status: "issued",
-        method: payment.method || payment.paymentMethod || null,
-      });
+      /*
+        La ricevuta la emette il server, e la emette **sull'incasso**.
+
+        Qui dentro c'era una seconda implementazione: la riga veniva scritta
+        dal browser, e il numero se lo calcolava contando le ricevute gia
+        caricate in pagina. Due conseguenze, entrambe reali. Il numero
+        dipendeva da cosa quella pagina aveva scaricato — due operatori
+        collegati insieme ne producevano due uguali — e usava una forma
+        (`R-2026-001`) diversa da quella del server. Adesso passa da
+        `document-numbering`, che e il proprietario della numerazione
+        (ADR-0044), attraverso la stessa rotta che usa la scheda atleta.
+      */
+      const { data: transactions, error: listError } = await apiRequest<any[]>(
+        `/api/v1/payment-transactions?payment_id=${encodeURIComponent(payment.id)}`,
+      );
+
+      if (listError) {
+        throw new Error(listError.message);
+      }
+
+      const settled = (transactions || []).find(
+        (transaction: any) => !transaction.reversedAt && !transaction.reversed_at,
+      );
+
+      if (!settled) {
+        showToast(
+          "error",
+          "Nessun incasso registrato su questa rata: la ricevuta si emette da un incasso",
+        );
+        return;
+      }
+
+      const { data, error } = await apiRequest<any>(
+        `/api/v1/payment-transactions/${encodeURIComponent(settled.id)}`,
+        { method: "POST", body: { action: "issue-receipt" } },
+      );
 
       if (error) {
         throw new Error(error.message);
       }
 
       await loadData();
-      showToast("success", "Ricevuta generata correttamente");
+      showToast(
+        "success",
+        `Ricevuta ${data?.receipt_number || ""} emessa`.trim(),
+      );
     } catch (error: any) {
       showToast(
         "error",

@@ -17,6 +17,31 @@ const matchesJsonPath = (value, condition) => {
   return current === condition.equals;
 };
 
+/**
+ * Applica `data` a una riga con la semantica di Prisma.
+ *
+ * L'unico operatore implementato e `increment`, e non per completezza: senza,
+ * un test sulla numerazione dei documenti scriverebbe `{ increment: 1 }`
+ * dentro la colonna e passerebbe lo stesso, provando il contrario di cio che
+ * deve provare.
+ */
+const applyData = (record, data = {}) => {
+  for (const [key, value] of Object.entries(data)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      if ("increment" in value) {
+        record[key] = Number(record[key] || 0) + Number(value.increment);
+        continue;
+      }
+      if ("decrement" in value) {
+        record[key] = Number(record[key] || 0) - Number(value.decrement);
+        continue;
+      }
+    }
+    record[key] = value;
+  }
+  return record;
+};
+
 const matchesWhere = (record, where) => {
   if (!where) return true;
 
@@ -140,15 +165,13 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       calls.push({ delegate: name, method: "update", args });
       const row = rowsOf(name).find((r) => matchesWhere(r, args.where));
       if (!row) throw new Error("Record to update not found");
-      Object.assign(row, args.data);
-      return row;
+      return applyData(row, args.data);
     },
     upsert: async (args = {}) => {
       calls.push({ delegate: name, method: "upsert", args });
       const row = rowsOf(name).find((r) => matchesWhere(r, args.where));
       if (row) {
-        Object.assign(row, args.update);
-        return row;
+        return applyData(row, args.update);
       }
       const created = { id: args.where?.id || `${name}-generated`, ...args.create };
       rowsOf(name).push(created);
@@ -172,7 +195,7 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       let count = 0;
       for (const row of rowsOf(name)) {
         if (matchesWhere(row, args.where)) {
-          Object.assign(row, args.data);
+          applyData(row, args.data);
           count += 1;
         }
       }

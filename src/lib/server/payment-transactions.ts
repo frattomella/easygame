@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { allocateDocumentNumber } from "./document-numbering";
+import { documentYearOf } from "@/lib/documents/numbering";
 import {
   isSettledTransaction,
   normalizePaymentTransaction,
@@ -499,56 +501,43 @@ export const issueReceiptForTransaction = async (
     : null;
 
   const issueDate = transaction.paid_at || new Date();
-  const year = new Date(issueDate).getFullYear();
   const description =
     asText(input.description) ||
     `Ricevuta ${charge?.description || "incasso"}`.trim();
 
   /*
-    `receipt_number` e univoco su **tutta** la tabella, non per club: due
-    societa che emettono la loro prima ricevuta dell'anno chiederebbero lo
-    stesso numero. Finche il vincolo e questo, si riprova con il numero
-    successivo invece di far fallire l'emissione (vedi 16 — debito tecnico).
+    Il numero lo assegna `document-numbering`, che e il proprietario del
+    dominio. Prima si contavano le ricevute gia emesse e si riprovava fino a
+    venticinque volte: funzionava, ma il conteggio era globale — due societa
+    che emettevano insieme la loro prima ricevuta dell'anno si contendevano
+    lo stesso numero — e produceva buchi proprio quando c'era traffico
+    (ADR-0044, chiude D28).
   */
-  const baseSequence = await receiptClient().count({
-    where: { organization_id: transaction.organization_id },
+  const allocation = await allocateDocumentNumber({
+    organizationId: transaction.organization_id,
+    kind: "receipt",
+    year: documentYearOf(issueDate),
   });
 
-  for (let attempt = 0; attempt < 25; attempt += 1) {
-    const sequence = baseSequence + 1 + attempt;
-    const receiptNumber = `R-${year}-${String(sequence).padStart(4, "0")}`;
-
-    try {
-      return await receiptClient().create({
-        data: {
-          organization_id: transaction.organization_id,
-          athlete_id: transaction.athlete_id,
-          payment_id: transaction.payment_id,
-          transaction_id: transaction.id,
-          receipt_number: receiptNumber,
-          issue_date: issueDate,
-          amount: toPaymentAmount(transaction.amount),
-          description,
-          status: "issued",
-          method: transaction.payment_method,
-          data: {
-            source: "payment_transaction",
-            transactionId: transaction.id,
-            issuedBy: scope?.userId || null,
-          },
-        },
-      });
-    } catch (error: any) {
-      const isDuplicate =
-        error?.code === "P2002" ||
-        String(error?.message || "").includes("receipt_number");
-      if (!isDuplicate) throw error;
-    }
-  }
-
-  throw new Error(
-    "Numerazione ricevute non disponibile: riprova fra qualche istante",
-  );
+  return receiptClient().create({
+    data: {
+      organization_id: transaction.organization_id,
+      athlete_id: transaction.athlete_id,
+      payment_id: transaction.payment_id,
+      transaction_id: transaction.id,
+      receipt_number: allocation.number,
+      issue_date: issueDate,
+      amount: toPaymentAmount(transaction.amount),
+      description,
+      status: "issued",
+      method: transaction.payment_method,
+      data: {
+        source: "payment_transaction",
+        transactionId: transaction.id,
+        issuedBy: scope?.userId || null,
+      },
+    },
+  });
 };
 
 /** Il totale incassato su una rata, letto dal registro. */
