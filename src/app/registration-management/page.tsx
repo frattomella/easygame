@@ -61,8 +61,10 @@ import {
   Percent,
   Tag,
   ExternalLink,
+  HandCoins,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { FundingProgramsPanel } from "@/components/funding/FundingProgramsPanel";
 import { useAuth } from "@/components/providers/AuthProvider";
 import {
   getClubData,
@@ -1184,7 +1186,25 @@ export default function RegistrationManagementPage() {
                   <Tag className="h-4 w-4" />
                   Sconti e Promozioni
                 </TabsTrigger>
+                <TabsTrigger
+                  value="funding"
+                  className="flex items-center gap-2"
+                >
+                  <HandCoins className="h-4 w-4" />
+                  Voucher e Contributi
+                </TabsTrigger>
               </TabsList>
+
+              {/*
+                I programmi di contributo stanno qui perche sono
+                configurazione economica del club, accanto a piani e sconti.
+                Il pannello e un componente a se: questa pagina e una delle
+                tre monolitiche che WP-19 sta scomponendo, e non deve
+                crescere di settecento righe per una scheda in piu.
+              */}
+              <TabsContent value="funding">
+                <FundingProgramsPanel />
+              </TabsContent>
 
               {/* Payment Plans Tab */}
               <TabsContent value="payment-plans">

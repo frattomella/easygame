@@ -159,6 +159,7 @@ import {
 import { AthleteCategoryAnalyticsSection } from "@/components/athletes/AthleteCategoryAnalyticsSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
+import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
 import { AthletePaymentDialogs } from "@/components/athletes/profile/athlete-payment-dialogs";
 import {
   calculateAthleteCategoryAnalytics,
@@ -4980,6 +4981,27 @@ export default function AthleteProfilePage() {
                       methodChoices={clubPaymentMethodChoices}
                       onLedgerChanged={handleLedgerChanged}
                     />
+                  </CardContent>
+                </Card>
+
+                {/*
+                  I contributi stanno in un riquadro **separato** dagli
+                  incassi, e non nella loro somma: uno e denaro della
+                  famiglia, l'altro e un credito verso un ente. Il momento in
+                  cui si sommano e il momento in cui smettono di essere
+                  leggibili (ADR-0037).
+                */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Voucher e contributi</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Un voucher assegnato non e denaro incassato: matura con la
+                      frequenza, si rendiconta, e solo alla fine l&apos;ente lo
+                      liquida.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <AthleteFundingSummary athleteId={athleteId} />
                   </CardContent>
                 </Card>
 

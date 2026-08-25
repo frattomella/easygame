@@ -177,7 +177,10 @@ export function AthletePaymentLedger({
 
     applyResult(data);
     setSelectedLedger(null);
-    showToast("success", `Incasso di ${formatCurrency(submission.amount)} registrato`);
+    showToast(
+      "success",
+      `Incasso di ${formatCurrency(submission.amount)} registrato`,
+    );
   };
 
   const handleReverse = async (transaction: NormalizedPaymentTransaction) => {
@@ -227,35 +230,51 @@ export function AthletePaymentLedger({
   return (
     <div className="space-y-4">
       {showTotals ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/40">
-            <p className="text-xs font-medium text-muted-foreground">
-              Totale rate
-            </p>
-            <p className="mt-1 text-xl font-bold">
-              {formatCurrency(totals.dueAmount)}
-            </p>
-          </div>
-          <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/20">
-            <p className="text-xs font-medium text-muted-foreground">
-              Incassato
-            </p>
-            <p className="mt-1 text-xl font-bold text-emerald-700 dark:text-emerald-300">
-              {formatCurrency(totals.paidAmount)}
-            </p>
-          </div>
-          <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
-            <p className="text-xs font-medium text-muted-foreground">Residuo</p>
-            <p className="mt-1 text-xl font-bold text-amber-700 dark:text-amber-300">
-              {formatCurrency(totals.residualAmount)}
-            </p>
-            {totals.overdueCount > 0 ? (
-              <p className="mt-1 text-xs text-red-600">
-                {totals.overdueCount} rate scadute per{" "}
-                {formatCurrency(totals.overdueAmount)}
+        <div className="space-y-2">
+          {/*
+            L'etichetta dice di chi e il denaro. I contributi degli enti
+            vivono in un riquadro separato e **non** entrano in questi totali:
+            un contributo maturato e un credito, non cassa (ADR-0037).
+          */}
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Pagamenti della famiglia
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/40">
+              <p className="text-xs font-medium text-muted-foreground">
+                Totale rate
               </p>
-            ) : null}
+              <p className="mt-1 text-xl font-bold">
+                {formatCurrency(totals.dueAmount)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/20">
+              <p className="text-xs font-medium text-muted-foreground">
+                Incassato
+              </p>
+              <p className="mt-1 text-xl font-bold text-emerald-700 dark:text-emerald-300">
+                {formatCurrency(totals.paidAmount)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
+              <p className="text-xs font-medium text-muted-foreground">
+                Residuo
+              </p>
+              <p className="mt-1 text-xl font-bold text-amber-700 dark:text-amber-300">
+                {formatCurrency(totals.residualAmount)}
+              </p>
+              {totals.overdueCount > 0 ? (
+                <p className="mt-1 text-xs text-red-600">
+                  {totals.overdueCount} rate scadute per{" "}
+                  {formatCurrency(totals.overdueAmount)}
+                </p>
+              ) : null}
+            </div>
           </div>
+          <p className="text-xs text-slate-500">
+            Voucher e contributi degli enti sono contati a parte: un contributo
+            maturato e un credito, non denaro incassato.
+          </p>
         </div>
       ) : null}
 
@@ -274,7 +293,9 @@ export function AthletePaymentLedger({
           canManage={allowManagement}
           busyTransactionId={busyTransactionId}
           onRegisterPayment={setSelectedLedger}
-          onReverseTransaction={(transaction) => void handleReverse(transaction)}
+          onReverseTransaction={(transaction) =>
+            void handleReverse(transaction)
+          }
           onGenerateReceipt={(transaction) =>
             void handleGenerateReceipt(transaction)
           }
