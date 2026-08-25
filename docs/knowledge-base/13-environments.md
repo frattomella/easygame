@@ -205,6 +205,120 @@ riporta indietro il file. Gli allegati legacy non sono toccati in nessun caso.
 Prima di un rollback su un ambiente in uso conviene quindi guardare
 `SELECT count(*) FROM attachments`: se e zero, il rollback e gratuito.
 
+### Le quattro migrazioni dell'integrazione Web V1: audit e rollback (2026-08-25)
+
+Entrano insieme, in quest'ordine. I timestamp sono stati **rinominati**
+all'integrazione perche tre workstream ne avevano prodotti tre identici
+(`20260826090000`); il contenuto SQL non e stato toccato
+([ADR-0041](18-decision-log.md#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)).
+
+| Ordine | Migrazione | Cosa fa |
+|--------|-----------|---------|
+| 1 | `20260826090000_payment_transactions` | `CREATE TABLE payment_transactions`, tre indici, quattro FK. Su `receipts`: aggiunge `transaction_id`, **rimuove** l'unique su `payment_id` e lo sostituisce con un indice non unico |
+| 2 | `20260826140000_funding_programs` | Cinque `CREATE TABLE` (`funding_programs`, `funding_enrollments`, `funding_accruals`, `funding_settlements`, `funding_settlement_lines`), nove indici, undici FK |
+| 3 | `20260826150000_multisite` | Tre `ADD COLUMN IF NOT EXISTS` (`clubs.club_sites`, `clubs.category_groups`, `athlete_category_memberships.site_id`) e un indice |
+| 4 | `20260826160000_forms_v2` | Tre `CREATE TABLE` (`form_templates`, `form_template_versions`, `form_submissions`), cinque indici, cinque FK |
+
+**Sono tutte additive.** Nessuna legge, converte o riscrive una riga
+esistente. Le colonne nuove nascono `NULL`, e per la multi-sede `NULL` ha un
+significato dichiarato — «sede non dichiarata», cioe visibile ovunque
+([ADR-0038](18-decision-log.md)) — quindi un club che non configura le sedi
+non si accorge della migrazione.
+
+**L'unica operazione non additiva** e `DROP INDEX IF EXISTS
+"receipts_payment_id_key"` nella prima. Rimuovere un vincolo di unicita non
+puo invalidare nessuna riga: cio che era valido con il vincolo lo resta senza.
+Serve perche una rata incassata a rate ha piu ricevute, una per incasso
+([ADR-0036](18-decision-log.md)).
+
+**Verifica fatta prima del deploy**, su un database *shadow* locale e
+usa e getta, mai su staging:
+
+```bash
+npx prisma migrate diff \
+  --from-migrations prisma/migrations \
+  --to-schema-datamodel prisma/schema.prisma \
+  --shadow-database-url "<dev locale>/easygame_shadow"
+```
+
+Le tredici migrazioni si applicano in ordine su un database vuoto e producono
+lo schema atteso. L'unica differenza segnalata riguarda
+`athlete_category_memberships` (default di `id` e `updated_at`, nomi di due
+indici) ed e **preesistente**: lo stesso comando eseguito sulla baseline
+`d78e047` produce una differenza identica. Le quattro migrazioni nuove non
+aggiungono deriva. La voce e [D33](16-technical-debt.md).
+
+**Rollback.** Nell'ordine inverso, e dentro le singole migrazioni nell'ordine
+imposto dalle chiavi esterne:
+
+```sql
+-- 4. Modulistica V2
+DROP TABLE IF EXISTS "form_submissions";
+DROP TABLE IF EXISTS "form_template_versions";
+DROP TABLE IF EXISTS "form_templates";
+
+-- 3. Multi-sede
+DROP INDEX IF EXISTS "athlete_category_memberships_organization_id_site_id_idx";
+ALTER TABLE "athlete_category_memberships" DROP COLUMN IF EXISTS "site_id";
+ALTER TABLE "clubs" DROP COLUMN IF EXISTS "category_groups";
+ALTER TABLE "clubs" DROP COLUMN IF EXISTS "club_sites";
+
+-- 2. Contributi
+DROP TABLE IF EXISTS "funding_settlement_lines";
+DROP TABLE IF EXISTS "funding_settlements";
+DROP TABLE IF EXISTS "funding_accruals";
+DROP TABLE IF EXISTS "funding_enrollments";
+DROP TABLE IF EXISTS "funding_programs";
+
+-- 1. Incassi
+ALTER TABLE "receipts" DROP CONSTRAINT IF EXISTS "receipts_transaction_id_fkey";
+DROP INDEX IF EXISTS "receipts_transaction_id_key";
+DROP INDEX IF EXISTS "receipts_payment_id_idx";
+ALTER TABLE "receipts" DROP COLUMN IF EXISTS "transaction_id";
+CREATE UNIQUE INDEX "receipts_payment_id_key" ON "receipts"("payment_id");
+DROP TABLE IF EXISTS "payment_transactions";
+
+DELETE FROM "_prisma_migrations" WHERE migration_name IN (
+  '20260826090000_payment_transactions',
+  '20260826140000_funding_programs',
+  '20260826150000_multisite',
+  '20260826160000_forms_v2'
+);
+```
+
+**Cosa si perde facendo rollback**, e va guardato prima di deciderlo:
+
+- **gli incassi registrati dopo il deploy.** Le rate tornano a portare solo
+  `status`, `paid_at` e `method`, cioe la cache derivata: una rata incassata
+  in tre volte tornerebbe a mostrare un solo stato, e i tre movimenti
+  sparirebbero. Le rate **precedenti** al deploy non sono toccate, perche
+  nessuna e stata convertita;
+- **i contributi**: programmi, beneficiari, maturato, rendicontazioni e
+  liquidazioni. Nessuno di questi dati esiste altrove;
+- **sedi e gruppi operativi**, e la sede sulle appartenenze. Le appartenenze
+  restano: perdono solo `site_id`;
+- **i moduli V2 e le compilazioni.** I modelli V1 in
+  `clubs.document_templates` non sono toccati — il travaso e una copia, non
+  uno spostamento (B9-15) — quindi la Modulistica V1 tornerebbe funzionante.
+  Gli allegati caricati dai moduli restano in `attachments`, orfani del
+  modulo che li ha raccolti.
+
+`CREATE UNIQUE INDEX "receipts_payment_id_key"` in coda al rollback **puo
+fallire**, ed e giusto che fallisca: se dopo il deploy una rata ha ricevuto
+piu di una ricevuta, il vincolo che si sta ripristinando non e piu vero. In
+quel caso il rollback va fermato e le ricevute in eccesso decise a mano.
+
+Prima di un rollback su un ambiente in uso conviene contare:
+
+```sql
+SELECT count(*) FROM payment_transactions;
+SELECT count(*) FROM funding_enrollments;
+SELECT count(*) FROM form_submissions;
+SELECT count(*) FROM athlete_category_memberships WHERE site_id IS NOT NULL;
+```
+
+Se sono tutti a zero il rollback e gratuito.
+
 ## Build e deploy
 
 `vercel.json`:
