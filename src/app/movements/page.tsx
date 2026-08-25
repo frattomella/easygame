@@ -69,6 +69,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { paymentDateOf, sortByDateDesc } from "@/lib/sorting";
 import {
   Tooltip,
   TooltipContent,
@@ -427,7 +428,8 @@ export default function MovementsPage() {
       setTransactions(transactionsData);
       setExpectedIncome(expectedIncomeData);
       setExpectedExpenses(expectedExpensesData);
-      setTransfers(transfersData);
+      // Anche i bonifici sono una cronologia: dal piu recente.
+      setTransfers(sortByDateDesc(transfersData, paymentDateOf));
       setInvoices(invoicesData);
       setReceipts(receiptsData);
       setPayments(paymentsData);

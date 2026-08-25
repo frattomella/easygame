@@ -30,7 +30,6 @@ export function ClubCreationForm({
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    pin: "",
     phone: "",
     address: "",
     country: "Italia",
@@ -108,12 +107,6 @@ export function ClubCreationForm({
         return;
       }
 
-      if (formData.pin && formData.pin.length !== 4) {
-        showToast("error", "Il PIN deve essere di 4 cifre");
-        setLoading(false);
-        return;
-      }
-
       console.log("Creating club with data:", {
         name: formData.name,
         email: formData.email,
@@ -134,7 +127,6 @@ export function ClubCreationForm({
             province: formData.province,
             city: formData.city,
             postal_code: formData.postalCode,
-            payment_pin: formData.pin,
             created_at: new Date().toISOString(),
             creator_id: userId,
             slug: `club-${Math.random().toString(36).substring(2, 15)}-${Date.now()}`,
@@ -324,35 +316,10 @@ export function ClubCreationForm({
           />
         </div>
 
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="pin" className="text-sm">
-              PIN di 4 cifre
-            </Label>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <InfoIcon className="h-3 w-3 text-blue-500 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent className="bg-white text-gray-800 p-2 rounded shadow-lg text-xs max-w-xs">
-                  Il PIN viene utilizzato per autorizzare i pagamenti e le
-                  operazioni sensibili all&apos;interno dell&apos;app.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <Input
-            id="pin"
-            name="pin"
-            type="text"
-            maxLength={4}
-            pattern="[0-9]{4}"
-            placeholder="1234"
-            value={formData.pin}
-            onChange={handleChange}
-            className="h-9"
-          />
-        </div>
+        {/*
+          Il PIN di club non si chiede piu (Blocco 7, punto 17): non
+          autorizzava niente. Vedi ADR-0033.
+        */}
 
         <div className="space-y-2">
           <Label htmlFor="phone">Telefono Aziendale (opzionale)</Label>

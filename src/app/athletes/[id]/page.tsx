@@ -19,7 +19,6 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { PinInput } from "@/components/ui/pin-input";
 import {
   Dialog,
   DialogContent,
@@ -2117,7 +2116,20 @@ export default function AthleteProfilePage() {
     });
   };
 
-  const executePaymentPinAction = async (pin: string) => {
+  /*
+    Il PIN di club e stato rimosso (Blocco 7, punto 17).
+
+    La rotta `/api/athlete-payments/:id` chiedeva un PIN che aveva valore
+    predefinito `"1234"` in chiaro nel codice, era leggibile dalle API del
+    club (`?fields=payment_pin`) ed era lo stesso per tutti: non diceva chi
+    avesse agito ne impediva a chi non doveva di agire.
+
+    Al suo posto la rotta controlla il **ruolo**, cosa che il PIN non ha mai
+    fatto: prima un allenatore con accesso al club poteva modificare un
+    pagamento conoscendo quattro cifre note a tutti. Restano sessione,
+    appartenenza al club, regole di dominio e traccia di audit.
+  */
+  const executePaymentAction = async () => {
     if (!paymentPinAction) {
       return;
     }
@@ -2130,7 +2142,6 @@ export default function AthleteProfilePage() {
           method: "PATCH",
           body: {
             action: paymentPinAction.action,
-            pin,
             updates: paymentPinAction.updates,
             reason: paymentPinAction.reason,
           },
@@ -7490,30 +7501,58 @@ export default function AthleteProfilePage() {
             <Button variant="outline" onClick={() => setEditingPayment(null)}>
               Annulla
             </Button>
-            <Button onClick={requestPaymentUpdate}>Richiedi PIN</Button>
+            <Button onClick={requestPaymentUpdate}>Salva modifiche</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <PinInput
-        isOpen={Boolean(paymentPinAction)}
-        onClose={() => {
-          if (!isPaymentActionSaving) {
+      {/*
+        Conferma normale al posto del PIN: e la conferma a proteggere dal gesto
+        involontario. Chi puo davvero agire lo decide il server, dal ruolo.
+      */}
+      <AlertDialog
+        open={Boolean(paymentPinAction)}
+        onOpenChange={(open) => {
+          if (!open && !isPaymentActionSaving) {
             setPaymentPinAction(null);
           }
         }}
-        onSubmit={(pin) => {
-          void executePaymentPinAction(pin);
-        }}
-        title="Conferma con PIN club"
-        description={
-          paymentPinAction?.action === "update"
-            ? "Inserisci il PIN numerico del club per modificare il pagamento."
-            : paymentPinAction?.action === "delete"
-              ? "Inserisci il PIN numerico del club per eliminare il pagamento in attesa."
-              : "Inserisci il PIN numerico del club per annullare il pagamento saldato."
-        }
-      />
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {paymentPinAction?.action === "update"
+                ? "Modificare il pagamento?"
+                : paymentPinAction?.action === "delete"
+                  ? "Eliminare il pagamento in attesa?"
+                  : "Annullare il pagamento saldato?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              L&apos;operazione viene registrata nello storico del pagamento con
+              il tuo nome.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPaymentActionSaving}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isPaymentActionSaving}
+              className={
+                paymentPinAction?.action === "update"
+                  ? undefined
+                  : "bg-red-600 hover:bg-red-700"
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                void executePaymentAction();
+              }}
+            >
+              Conferma
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Add Payment Modal */}
       <Dialog open={showAddPaymentModal} onOpenChange={setShowAddPaymentModal}>

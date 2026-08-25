@@ -2260,26 +2260,6 @@ export async function deleteTrainerContract(
 }
 
 /**
- * Ottiene il PIN di pagamento del club
- */
-export async function getClubPaymentPin(clubId: string) {
-  try {
-    const { data: clubData, error } = await supabase
-      .from("clubs")
-      .select("payment_pin")
-      .eq("id", clubId)
-      .single();
-
-    if (error) throw error;
-
-    return clubData?.payment_pin || "1234"; // fallback to default
-  } catch (error) {
-    console.error("Error fetching club payment pin:", error);
-    return "1234"; // fallback to default
-  }
-}
-
-/**
  * Aggiunge dati al club (generico per qualsiasi tipo di dato)
  */
 export async function addClubData(

@@ -55,7 +55,16 @@ import {
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
-import { PinInput } from "@/components/ui/pin-input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AddTrainerPaymentForm } from "@/components/forms/AddTrainerPaymentForm";
 import { supabase } from "@/lib/supabase";
 import { apiRequest } from "@/lib/api/client";
@@ -64,6 +73,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
 import { buildAttachmentFileName } from "@/lib/attachment-names";
+import { paymentDateOf, sortByDateDesc } from "@/lib/sorting";
 import {
   Select,
   SelectContent,
@@ -76,16 +86,6 @@ import {
   medicalVisitTypeOptions,
   normalizeMedicalVisitType,
 } from "@/lib/medical-visits";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   deleteStaffMember,
   updateStaffMember,
@@ -208,7 +208,6 @@ export default function TrainerDetailsPage() {
 
   // Expand trainer data structure to include all fields
   const [trainer, setTrainer] = React.useState<any>(null);
-  const [clubPaymentPin, setClubPaymentPin] = React.useState<string>("1234");
 
   // Add state for contracts and documents
   const [contracts, setContracts] = useState<any[]>([]);
@@ -271,7 +270,7 @@ export default function TrainerDetailsPage() {
         // Fetch club data - removed trainer_payments from select
         const { data: clubData, error: clubError } = await supabase
           .from("clubs")
-          .select("categories, trainers, payment_pin, staff_members")
+          .select("categories, trainers, staff_members")
           .eq("id", clubId)
           .maybeSingle();
 
@@ -292,7 +291,6 @@ export default function TrainerDetailsPage() {
         console.log("Club data loaded successfully:", clubData);
 
         // Set payment pin
-        setClubPaymentPin(clubData?.payment_pin || "1234");
 
         // Set categories
         const clubCategories = clubData?.categories || [];
@@ -441,11 +439,24 @@ export default function TrainerDetailsPage() {
           });
 
           // Load trainer payments from trainerData if available
-          const trainerPayments = trainerData.payments || [];
+          /*
+            Compensi e contratti sono eventi nel tempo: si leggono dall'ultimo.
+
+            Comparivano nell'ordine in cui erano stati scritti nel JSON — cioe
+            di inserimento, che per una segreteria non significa niente
+            (Blocco 7, punto 16).
+          */
+          const trainerPayments = sortByDateDesc(
+            trainerData.payments || [],
+            paymentDateOf,
+          );
           setPayments(trainerPayments);
           
           // Load contracts from trainerData if available
-          const trainerContracts = trainerData.contracts || [];
+          const trainerContracts = sortByDateDesc(
+            trainerData.contracts || [],
+            paymentDateOf,
+          );
           setContracts(trainerContracts);
 
           // Load certificate files from trainerData if available
@@ -470,16 +481,14 @@ export default function TrainerDetailsPage() {
     fetchTrainerData();
   }, [clubId, trainerId, showToast]);
 
-  // State for modals
-  const [showPinDialog, setShowPinDialog] = useState(false);
-  const [showSalary, setShowSalary] = useState(() => {
-    // Check if there's a saved preference in localStorage
-    if (typeof window !== "undefined") {
-      const savedState = localStorage.getItem("show-salary-" + trainerId);
-      return savedState === "true";
-    }
-    return false;
-  });
+  /*
+    Il compenso non e piu nascosto dietro un PIN (Blocco 7, punto 17).
+
+    Chi puo aprire la scheda di un allenatore ha gia accesso ai suoi dati
+    economici: e la matrice permessi a decidere chi entra nell'area, non un
+    codice di quattro cifre uguale per tutto il club e con valore predefinito
+    `1234`. Restava un gesto in piu, non una protezione.
+  */
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
   const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false);
   const [showChangeStatusDialog, setShowChangeStatusDialog] = useState(false);
@@ -507,8 +516,12 @@ export default function TrainerDetailsPage() {
   const [newMessage, setNewMessage] = React.useState("");
 
   // Filter payments based on search value
-  const filteredPayments = payments.filter((payment) =>
-    payment.month.toLowerCase().includes(searchValue.toLowerCase()),
+  // Il filtro non deve poter cambiare l'ordine: si riordina anche qui.
+  const filteredPayments = sortByDateDesc(
+    payments.filter((payment) =>
+      String(payment?.month || "").toLowerCase().includes(searchValue.toLowerCase()),
+    ),
+    paymentDateOf,
   );
 
   // Calculate attendance statistics
@@ -1038,102 +1051,86 @@ export default function TrainerDetailsPage() {
         trainerId,
         paymentData,
       );
-      setPayments([...payments, newPayment]);
+      setPayments(sortByDateDesc([...payments, newPayment], paymentDateOf));
       showToast("success", "Pagamento aggiunto con successo");
     } catch (error) {
       showToast("error", "Errore nell'aggiunta del pagamento");
     }
   };
 
-  const handleDeletePayment = async (pin: string) => {
-    if (pin === clubPaymentPin) {
-      if (selectedPaymentId && clubId) {
-        try {
-          await deleteTrainerPayment(clubId, trainerId, selectedPaymentId);
-          setPayments(payments.filter((p) => p.id !== selectedPaymentId));
-          showToast("success", "Pagamento eliminato con successo");
-          setSelectedPaymentId(null);
-        } catch (error) {
-          showToast("error", "Errore nell'eliminazione del pagamento");
-        }
+  /*
+    Il PIN di club e stato rimosso (Blocco 7, punto 17).
+
+    Non proteggeva niente: era un segreto condiviso da tutto il club, con
+    valore predefinito `"1234"` scritto in chiaro nel codice di un repository
+    pubblico, e `payment_pin` era leggibile dalle API del club. In piu era una
+    barriera **solo** nell'interfaccia: le stesse operazioni erano gia
+    raggiungibili chiamando le API.
+
+    Al suo posto restano i controlli veri: sessione, appartenenza al club,
+    ruolo, e la matrice permessi che decide chi apre l'area pagamenti.
+  */
+  const handleDeletePayment = async () => {
+    if (!selectedPaymentId || !clubId) return;
+
+    try {
+      await deleteTrainerPayment(clubId, trainerId, selectedPaymentId);
+      setPayments(payments.filter((p) => p.id !== selectedPaymentId));
+      showToast("success", "Pagamento eliminato con successo");
+      setSelectedPaymentId(null);
+    } catch (error) {
+      showToast("error", "Errore nell'eliminazione del pagamento");
+    }
+
+    setShowDeletePaymentDialog(false);
+  };
+
+  const handleChangePaymentStatus = async () => {
+    if (!selectedPaymentId || !clubId) return;
+
+    try {
+      const payment = payments.find((p) => p.id === selectedPaymentId);
+      if (payment) {
+        const newStatus = payment.status === "paid" ? "pending" : "paid";
+        const updates = {
+          status: newStatus,
+          date:
+            newStatus === "paid" ? new Date().toISOString().split("T")[0] : "",
+        };
+
+        await updateTrainerPayment(
+          clubId,
+          trainerId,
+          selectedPaymentId,
+          updates,
+        );
+
+        setPayments(
+          payments.map((p) =>
+            p.id === selectedPaymentId ? { ...p, ...updates } : p,
+          ),
+        );
+        showToast("success", "Stato del pagamento modificato con successo");
+        setSelectedPaymentId(null);
       }
-      setShowDeletePaymentDialog(false);
-    } else {
-      showToast("error", "PIN non valido");
+    } catch (error) {
+      showToast("error", "Errore nella modifica dello stato del pagamento");
     }
+
+    setShowChangeStatusDialog(false);
   };
 
-  const handleChangePaymentStatus = async (pin: string) => {
-    if (pin === clubPaymentPin) {
-      if (selectedPaymentId && clubId) {
-        try {
-          const payment = payments.find((p) => p.id === selectedPaymentId);
-          if (payment) {
-            const newStatus = payment.status === "paid" ? "pending" : "paid";
-            const updates = {
-              status: newStatus,
-              date:
-                newStatus === "paid"
-                  ? new Date().toISOString().split("T")[0]
-                  : "",
-            };
+  /*
+    Compenso e scheda pagamenti erano dietro il PIN.
 
-            await updateTrainerPayment(
-              clubId,
-              trainerId,
-              selectedPaymentId,
-              updates,
-            );
-
-            setPayments(
-              payments.map((p) =>
-                p.id === selectedPaymentId ? { ...p, ...updates } : p,
-              ),
-            );
-            showToast("success", "Stato del pagamento modificato con successo");
-            setSelectedPaymentId(null);
-          }
-        } catch (error) {
-          showToast("error", "Errore nella modifica dello stato del pagamento");
-        }
-      }
-      setShowChangeStatusDialog(false);
-    } else {
-      showToast("error", "PIN non valido");
-    }
-  };
-
-  const handlePinSubmit = (pin: string) => {
-    if (pin === clubPaymentPin) {
-      setShowSalary(true);
-      setShowPinDialog(false);
-      // Save preference to localStorage
-      localStorage.setItem("show-salary-" + trainerId, "true");
-      showToast("success", "PIN corretto");
-    } else {
-      showToast("error", "PIN errato");
-    }
-  };
-
-  // Function to handle PIN verification for payments tab
-  const [showPaymentsTab, setShowPaymentsTab] = useState(false);
-  const [showPaymentsTabPinDialog, setShowPaymentsTabPinDialog] =
-    useState(false);
+    Chi puo aprire la scheda di un allenatore puo gia vedere il suo compenso:
+    la matrice permessi (`canAccessPath`) decide chi entra nell'area, e un PIN
+    uguale per tutto il club non aggiungeva nulla. Restava solo il gesto.
+  */
+  const [showPaymentsTab, setShowPaymentsTab] = useState(true);
 
   const handlePaymentsTabAccess = () => {
-    if (!showPaymentsTab) {
-      setShowPaymentsTabPinDialog(true);
-    }
-  };
-
-  const handlePaymentsTabPinSubmit = (pin: string) => {
-    if (pin === clubPaymentPin) {
-      setShowPaymentsTab(true);
-      setShowPaymentsTabPinDialog(false);
-      showToast("success", "Accesso ai pagamenti consentito");
-    } else {
-      showToast("error", "PIN errato");
-    }
+    setShowPaymentsTab(true);
   };
 
   /*
@@ -1517,13 +1514,7 @@ export default function TrainerDetailsPage() {
                         <h3 className="text-sm font-medium text-muted-foreground">Stipendio Mensile</h3>
                         <div className="flex items-center gap-2 mt-1">
                           <DollarSign className="h-4 w-4 text-muted-foreground" />
-                          {showSalary ? (
-                            <p>€{trainer.salary}</p>
-                          ) : (
-                            <Button variant="outline" size="sm" onClick={() => setShowPinDialog(true)}>
-                              Visualizza stipendio
-                            </Button>
-                          )}
+                          <p>€{trainer.salary}</p>
                         </div>
                       </div>
                     </div>
@@ -1591,18 +1582,7 @@ export default function TrainerDetailsPage() {
                               >
                                 <td className="py-3 px-4">{payment.month}</td>
                                 <td className="py-3 px-4">
-                                  {showSalary ? (
-                                    <span>€{payment.amount}</span>
-                                  ) : (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => setShowPinDialog(true)}
-                                      className="text-xs"
-                                    >
-                                      Visualizza importo
-                                    </Button>
-                                  )}
+                                  <span>€{payment.amount}</span>
                                 </td>
                                 <td className="py-3 px-4">
                                   {formatDate(payment.date) || "-"}
@@ -2476,43 +2456,74 @@ export default function TrainerDetailsPage() {
         </main>
       </div>
       
-      <PinInput
-        isOpen={showPinDialog}
-        onClose={() => setShowPinDialog(false)}
-        onSubmit={handlePinSubmit}
-        title="Inserisci PIN"
-        description="Inserisci il PIN di 4 cifre per visualizzare i dati sensibili"
-      />
-
       <AddTrainerPaymentForm
         isOpen={showAddPaymentModal}
         onClose={() => setShowAddPaymentModal(false)}
         onSubmit={handleAddPayment}
       />
 
-      <PinInput
-        isOpen={showDeletePaymentDialog}
-        onClose={() => setShowDeletePaymentDialog(false)}
-        onSubmit={handleDeletePayment}
-        title="Conferma eliminazione"
-        description="Inserisci il PIN di 4 cifre per confermare l'eliminazione del pagamento"
-      />
+      {/*
+        Eliminazione e cambio di stato di un compenso restano confermati, ma da
+        una conferma normale: e la conferma a proteggere dal gesto involontario,
+        non quattro cifre uguali per tutto il club.
+      */}
+      <AlertDialog
+        open={showDeletePaymentDialog}
+        onOpenChange={(open) => {
+          if (!open) setShowDeletePaymentDialog(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare il compenso?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Il compenso verra rimosso dalla scheda dell&apos;allenatore.
+              L&apos;operazione non puo essere annullata.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeletePayment();
+              }}
+            >
+              Elimina
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <PinInput
-        isOpen={showChangeStatusDialog}
-        onClose={() => setShowChangeStatusDialog(false)}
-        onSubmit={handleChangePaymentStatus}
-        title="Conferma modifica stato"
-        description="Inserisci il PIN di 4 cifre per confermare la modifica dello stato del pagamento"
-      />
-
-      <PinInput
-        isOpen={showPaymentsTabPinDialog}
-        onClose={() => setShowPaymentsTabPinDialog(false)}
-        onSubmit={handlePaymentsTabPinSubmit}
-        title="Accesso ai pagamenti"
-        description="Inserisci il PIN di 4 cifre per accedere alla sezione pagamenti"
-      />
+      <AlertDialog
+        open={showChangeStatusDialog}
+        onOpenChange={(open) => {
+          if (!open) setShowChangeStatusDialog(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Cambiare lo stato del compenso?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Lo stato passera da pagato a in attesa, o viceversa.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleChangePaymentStatus();
+              }}
+            >
+              Conferma
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/*
         Il visualizzatore della visita medica e stato rimosso (Blocco 7).

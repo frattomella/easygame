@@ -923,3 +923,65 @@ il file in repo e ancora allineato; senza `--check` lo rigenera e il diff e
 leggibile.
 
 **Stato:** ATTIVA.
+
+
+---
+
+## ADR-0033 — Il PIN di club viene rimosso: non era una misura di sicurezza
+
+**Data:** 2026-08-25 · **Contesto:** Blocco 7, punto 17
+
+**Contesto.** EasyGame chiedeva un «PIN di 4 cifre» alla creazione del club e
+lo usava per sbloccare il compenso di un allenatore, la scheda pagamenti,
+l'eliminazione di un allenamento e la modifica di un pagamento atleta.
+
+**Dependency audit.** Prima di rimuoverlo:
+
+| Dove | Cosa c'era |
+|------|------------|
+| UI | `components/ui/pin-input.tsx`, montato in scheda allenatore (4 volte), scheda atleta (1), pagina allenamenti (1) |
+| UI morta | `components/trainer/TrainerPayments.tsx`, mai importato, con `const correctPin = "1234"` |
+| Creazione club | Campo «PIN di 4 cifre» in `ClubCreationForm` |
+| API | `verifyClubPin` in `/api/athlete-payments/:id` |
+| Client | `getClubPaymentPin` in `simplified-db.ts` |
+| Database | `clubs.payment_pin`, e `payment_pin` fra i campi **proiettabili** di `/api/v1/clubs/:id` |
+| Mobile | nessun riferimento |
+| Seed, test, documentazione | nessun riferimento |
+
+**Perche non era sicurezza.**
+
+1. il valore predefinito era `"1234"`, scritto in chiaro **sia** nel client
+   **sia** nel server, in un repository pubblico;
+2. `payment_pin` era proiettabile: chiunque potesse leggere il club poteva
+   leggere il PIN con `?fields=payment_pin`;
+3. era un segreto **condiviso da tutto il club**: non diceva chi avesse agito,
+   e chi lo conosceva lo conosceva per sempre;
+4. quattro delle sei barriere erano **solo nell'interfaccia**: le stesse
+   operazioni erano gia raggiungibili chiamando le API;
+5. il componente morto lo confrontava con una costante, ignorando del tutto il
+   PIN del club.
+
+**Decisione.** Rimosso da UI, API e client. Al suo posto:
+
+- la rotta `/api/athlete-payments/:id` controlla il **ruolo**
+  (`canManageClubConfiguration`), cosa che il PIN non ha mai fatto: prima un
+  allenatore con accesso al club poteva modificare un pagamento conoscendo
+  quattro cifre note a tutti;
+- dove il PIN era una conferma contro il clic sbagliato — eliminare un
+  allenamento, eliminare un compenso — resta una **conferma esplicita**, che e
+  cio che serviva davvero;
+- dove nascondeva un dato che chi apre la pagina puo gia vedere — il compenso
+  di un allenatore — non resta niente: e la matrice permessi a decidere chi
+  entra nell'area.
+
+**Cosa NON e stato toccato.** Access key, token di accesso genitore/allenatore
+e membership sono concetti **diversi** e restano intatti: sono segreti
+individuali, revocabili e con una scadenza. Il PIN non era nessuna di queste
+cose.
+
+**Dati legacy.** La colonna `clubs.payment_pin` resta nello schema. Toglierla
+richiede una migrazione distruttiva e non serve a niente farlo: non la legge
+piu nessuno e non e piu esposta dalle API. Un test lo dichiara, cosi la sua
+presenza non sembra una dimenticanza.
+
+**Stato:** ATTIVA.

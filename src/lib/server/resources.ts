@@ -1381,7 +1381,6 @@ const CLUB_PROJECTABLE_FIELDS = new Set([
   "contact_phone",
   "city",
   "province",
-  "payment_pin",
   "created_at",
   "updated_at",
 ]);

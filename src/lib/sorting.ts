@@ -117,3 +117,85 @@ export const sortByNameKeys = <T>(
     )
     .map((entry) => entry.item);
 };
+
+// --- ordinamento cronologico -------------------------------------------------
+
+/**
+ * Elenchi di eventi nel tempo: pagamenti, rate, bonifici, contratti, ricevute.
+ *
+ * L'alfabetico qui e una regressione (vedi sopra), ma «non alfabetico» non
+ * vuol dire «nessun ordine»: prima del Blocco 7 alcuni di questi elenchi
+ * comparivano nell'ordine in cui erano stati scritti nel JSON — cioe
+ * nell'ordine in cui erano stati inseriti, che per una segreteria non
+ * significa niente.
+ *
+ * **La direzione predefinita e decrescente**: in un registro amministrativo si
+ * guarda l'ultimo movimento, non il primo. L'ascendente resta per gli elenchi
+ * che si leggono come una scaletta — le rate di un piano, che si pagano in
+ * ordine.
+ *
+ * Le voci senza data vanno **in fondo** in entrambe le direzioni: una riga
+ * senza data non e ne recente ne vecchia, e metterla in cima la farebbe
+ * sembrare l'ultimo movimento.
+ */
+
+const toTimestamp = (value: unknown): number | null => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+export type DateAccessor<T> = (item: T) => unknown;
+
+const compareTimestamps = (
+  left: number | null,
+  right: number | null,
+  direction: "asc" | "desc",
+) => {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return direction === "asc" ? left - right : right - left;
+};
+
+/** Comparatore cronologico su una data letta da `getDate`. */
+export const compareByDate = <T>(
+  getDate: DateAccessor<T>,
+  direction: "asc" | "desc" = "desc",
+) => (left: T, right: T) =>
+  compareTimestamps(toTimestamp(getDate(left)), toTimestamp(getDate(right)), direction);
+
+/**
+ * Copia ordinata dal piu recente al meno recente.
+ *
+ * Non ordina in posto: `Array.prototype.sort` muta, e mutare un array che
+ * viene da uno stato React e un difetto silenzioso.
+ */
+export const sortByDateDesc = <T>(items: T[], getDate: DateAccessor<T>): T[] =>
+  [...items].sort(compareByDate(getDate, "desc"));
+
+/** Copia ordinata dal meno recente al piu recente. */
+export const sortByDateAsc = <T>(items: T[], getDate: DateAccessor<T>): T[] =>
+  [...items].sort(compareByDate(getDate, "asc"));
+
+/**
+ * La data di un record di pagamento, qualunque nome abbia.
+ *
+ * I payload non hanno schema e negli anni hanno usato tutte queste chiavi. Si
+ * prende la prima valorizzata, nell'ordine in cui conta per un registro: la
+ * data di incasso batte la scadenza, che batte la data di creazione.
+ */
+export const paymentDateOf = (payment: any): string =>
+  String(
+    payment?.paidAt ||
+      payment?.paid_at ||
+      payment?.date ||
+      payment?.dueDate ||
+      payment?.due_date ||
+      payment?.uploadDate ||
+      payment?.createdAt ||
+      payment?.created_at ||
+      "",
+  );

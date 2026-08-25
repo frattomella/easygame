@@ -28,7 +28,16 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { PinInput } from "@/components/ui/pin-input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   getParticipationCategoryBadgeLabel,
   getParticipationCategoryContext,
@@ -53,7 +62,6 @@ import {
   deleteClubDataItem,
   saveTrainingAttendance,
   getClubAthletes,
-  getClubPaymentPin,
 } from "@/lib/simplified-db";
 import {
   buildTrainingLocationOptions,
@@ -389,7 +397,16 @@ export default function TrainingPage() {
   const [showEditTrainingModal, setShowEditTrainingModal] = useState(false);
   const [editingTraining, setEditingTraining] =
     useState<TrainingSession | null>(null);
-  const [showPinInput, setShowPinInput] = useState(false);
+  /*
+    Il PIN di club e stato rimosso (Blocco 7, punto 17).
+
+    Eliminare un allenamento chiedeva quattro cifre uguali per tutto il club,
+    con valore predefinito `1234` scritto in chiaro: non diceva chi stesse
+    cancellando e non impediva a nessuno di farlo, perche l'API era comunque
+    raggiungibile. Resta una conferma esplicita, che e cio che serve davvero
+    contro il clic sbagliato.
+  */
+  const [showDeleteTraining, setShowDeleteTraining] = useState(false);
   const [trainingToDelete, setTrainingToDelete] =
     useState<TrainingSession | null>(null);
   const [attendanceModalState, setAttendanceModalState] =
@@ -1552,7 +1569,7 @@ export default function TrainingPage() {
                                             () => {
                                               dropdown.remove();
                                               setTrainingToDelete(training);
-                                              setShowPinInput(true);
+                                              setShowDeleteTraining(true);
                                             },
                                           );
 
@@ -2150,49 +2167,57 @@ export default function TrainingPage() {
         />
       )}
 
-      {/* PIN Input Modal for Training Deletion */}
-      <PinInput
-        isOpen={showPinInput}
-        onClose={() => {
-          setShowPinInput(false);
-          setTrainingToDelete(null);
-        }}
-        onSubmit={async (pin: string) => {
-          if (!trainingToDelete || !activeClub?.id) return;
-
-          try {
-            // Get the club's payment PIN from database
-            const clubPin = await getClubPaymentPin(activeClub.id);
-
-            if (pin !== clubPin) {
-              showToast("error", "PIN non corretto");
-              return;
-            }
-
-            // Delete training from database
-            await deleteClubDataItem(
-              activeClub.id,
-              "trainings",
-              trainingToDelete.id,
-            );
-
-            // Update local state
-            const updatedTrainings = trainings.filter(
-              (t) => t.id !== trainingToDelete.id,
-            );
-            setTrainings(updatedTrainings);
-
-            setShowPinInput(false);
+      <AlertDialog
+        open={showDeleteTraining}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowDeleteTraining(false);
             setTrainingToDelete(null);
-            showToast("success", "Allenamento eliminato con successo");
-          } catch (error) {
-            console.error("Error deleting training:", error);
-            showToast("error", "Errore durante l'eliminazione");
           }
         }}
-        title="Conferma eliminazione"
-        description="Inserisci il PIN del club per eliminare definitivamente questo allenamento."
-      />
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare l&apos;allenamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {trainingToDelete?.title
+                ? `«${trainingToDelete.title}» verra rimosso dal calendario. L'operazione non puo essere annullata.`
+                : "L'allenamento verra rimosso dal calendario. L'operazione non puo essere annullata."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={async (event) => {
+                event.preventDefault();
+                if (!trainingToDelete || !activeClub?.id) return;
+
+                try {
+                  await deleteClubDataItem(
+                    activeClub.id,
+                    "trainings",
+                    trainingToDelete.id,
+                  );
+
+                  setTrainings(
+                    trainings.filter((t) => t.id !== trainingToDelete.id),
+                  );
+                  showToast("success", "Allenamento eliminato con successo");
+                } catch (error) {
+                  console.error("Error deleting training:", error);
+                  showToast("error", "Errore durante l'eliminazione");
+                } finally {
+                  setShowDeleteTraining(false);
+                  setTrainingToDelete(null);
+                }
+              }}
+            >
+              Elimina
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

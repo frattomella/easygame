@@ -539,6 +539,28 @@ partenza, cosi le chiavi successive (il nome dopo il cognome) possono decidere.
 solo campo `name` (succede per allenatori e staff) si ricade sull'etichetta
 completa: non si indovina dove finisca il cognome dentro un campo unico.
 
+### Elenchi cronologici: quale direzione (Blocco 7)
+
+«Non alfabetico» non vuol dire «nessun ordine». Alcuni elenchi comparivano
+nell'ordine in cui erano stati scritti nel JSON — cioe di inserimento, che per
+una segreteria non significa niente. Si usano `sortByDateDesc` e
+`sortByDateAsc` da `@/lib/sorting`, con `paymentDateOf` come lettore della
+data (i payload non hanno schema: incasso, poi scadenza, poi creazione).
+
+| Vista | Direzione | Perche |
+|---|---|---|
+| Movimenti del club (incassi e uscite) | **decrescente** | Registro amministrativo: si guarda l'ultimo movimento |
+| Bonifici fra conti | **decrescente** | Idem |
+| Compensi di un allenatore | **decrescente** | Si controlla l'ultimo pagato |
+| Contratti di un allenatore | **decrescente** | Il contratto in vigore e l'ultimo caricato |
+| Storico pagamenti di un atleta | **decrescente** | Idem |
+| Rate di un piano di pagamento | **crescente** | Si legge come una scaletta: si pagano in ordine |
+| Allenamenti e gare in calendario | **crescente** | E un'agenda, non un registro |
+
+**Le voci senza data vanno in fondo in entrambe le direzioni**: una riga senza
+data non e ne recente ne vecchia, e metterla in cima la farebbe sembrare
+l'ultimo movimento.
+
 ### Dove l'ordinamento alfabetico NON va applicato
 
 Elenchi in cui l'ordine ha un significato funzionale. Applicarvi l'alfabetico e

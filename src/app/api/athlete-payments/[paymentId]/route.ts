@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import {
   isPaymentExcludedFromTotals,
   isPaymentPaidLike,
@@ -36,14 +37,24 @@ const toAmount = (value: unknown) => {
   return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : NaN;
 };
 
-const verifyClubPin = async (organizationId: string, pin: unknown) => {
-  const club = await prisma.club.findUnique({
-    where: { id: organizationId },
-    select: { payment_pin: true },
-  });
-  const expectedPin = String(club?.payment_pin || "1234").trim();
-  return Boolean(expectedPin) && String(pin || "").trim() === expectedPin;
-};
+/*
+  Il PIN di club e stato rimosso (Blocco 7, punto 17).
+
+  Non era un meccanismo di sicurezza:
+
+  - il valore predefinito era `"1234"`, scritto in chiaro sia qui sia nel
+    client, in un repository pubblico;
+  - `payment_pin` era fra i campi proiettabili di `/api/v1/clubs/:id`, quindi
+    chiunque potesse leggere il club poteva **leggere il PIN**;
+  - era un segreto condiviso da tutto il club: non diceva chi avesse agito.
+
+  Cio che protegge davvero questa rotta c'era gia e resta: sessione valida,
+  appartenenza all'organizzazione, regole di dominio (un pagamento gia pagato
+  non si modifica ne si elimina) e traccia di audit con l'id di chi ha agito.
+  In piu ora c'e un controllo di **ruolo**, che il PIN non ha mai fatto: prima
+  un allenatore con accesso al club poteva modificare un pagamento conoscendo
+  quattro cifre uguali per tutti.
+*/
 
 const jsonError = (message: string, status = 400) =>
   NextResponse.json({ data: null, error: { message } }, { status });
@@ -70,10 +81,14 @@ export async function PATCH(request: Request, context: Context) {
       return jsonError("Accesso negato al pagamento", 403);
     }
 
-    const body = await request.json().catch(() => ({}));
-    if (!(await verifyClubPin(payment.organization_id, body?.pin))) {
-      return jsonError("PIN non corretto", 403);
+    if (!canManageClubConfiguration(scope.activeRole)) {
+      return jsonError(
+        "Accesso negato: solo il proprietario o un gestore del club puo modificare un pagamento",
+        403,
+      );
     }
+
+    const body = await request.json().catch(() => ({}));
 
     const action = String(body?.action || "update").trim();
     const currentData = asRecord(payment.data);
@@ -121,7 +136,7 @@ export async function PATCH(request: Request, context: Context) {
           paid_at: nextPaidAt,
           data: {
             ...currentData,
-            updatedWithPinAt: now.toISOString(),
+            updatedAt: now.toISOString(),
             updatedBy: session.db.user_id,
             audit: [
               ...(Array.isArray(currentData.audit) ? currentData.audit : []),
