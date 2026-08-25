@@ -457,6 +457,100 @@ export const reversePaymentTransaction = async (
   };
 };
 
+/* --------------------------------------------------------------- ricevute */
+
+const receiptClient = () => (prisma as any).receipt;
+
+/**
+ * Emette la ricevuta di un incasso.
+ *
+ * **Perche per incasso e non per rata.** Una ricevuta attesta che del denaro e
+ * arrivato: se il livello fosse la rata, una rata pagata in tre volte
+ * produrrebbe una ricevuta sola, e le altre due somme resterebbero senza
+ * documento. E la ragione per cui `receipts.payment_id` ha perso il vincolo di
+ * unicita (ADR-0036).
+ *
+ * Resta **fuori scope** una contabilita fiscale: qui si emette il documento e
+ * lo si numera, non si tiene un registro IVA. La fattura (`invoices`) e un
+ * oggetto distinto e non viene toccata.
+ */
+export const issueReceiptForTransaction = async (
+  input: { transactionId: string; description?: unknown },
+  scope?: PaymentTransactionScope,
+) => {
+  const transaction = await getPaymentTransactionById(input.transactionId, scope);
+
+  if (transaction.reversed_at || transaction.reverses_transaction_id) {
+    throw new Error(
+      "Un incasso stornato non produce una ricevuta: registra di nuovo l'incasso",
+    );
+  }
+
+  const existing = await receiptClient().findUnique({
+    where: { transaction_id: transaction.id },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const charge = transaction.payment_id
+    ? await chargeClient().findUnique({ where: { id: transaction.payment_id } })
+    : null;
+
+  const issueDate = transaction.paid_at || new Date();
+  const year = new Date(issueDate).getFullYear();
+  const description =
+    asText(input.description) ||
+    `Ricevuta ${charge?.description || "incasso"}`.trim();
+
+  /*
+    `receipt_number` e univoco su **tutta** la tabella, non per club: due
+    societa che emettono la loro prima ricevuta dell'anno chiederebbero lo
+    stesso numero. Finche il vincolo e questo, si riprova con il numero
+    successivo invece di far fallire l'emissione (vedi 16 — debito tecnico).
+  */
+  const baseSequence = await receiptClient().count({
+    where: { organization_id: transaction.organization_id },
+  });
+
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const sequence = baseSequence + 1 + attempt;
+    const receiptNumber = `R-${year}-${String(sequence).padStart(4, "0")}`;
+
+    try {
+      return await receiptClient().create({
+        data: {
+          organization_id: transaction.organization_id,
+          athlete_id: transaction.athlete_id,
+          payment_id: transaction.payment_id,
+          transaction_id: transaction.id,
+          receipt_number: receiptNumber,
+          issue_date: issueDate,
+          amount: toPaymentAmount(transaction.amount),
+          description,
+          status: "issued",
+          method: transaction.payment_method,
+          data: {
+            source: "payment_transaction",
+            transactionId: transaction.id,
+            issuedBy: scope?.userId || null,
+          },
+        },
+      });
+    } catch (error: any) {
+      const isDuplicate =
+        error?.code === "P2002" ||
+        String(error?.message || "").includes("receipt_number");
+      if (!isDuplicate) throw error;
+    }
+  }
+
+  throw new Error(
+    "Numerazione ricevute non disponibile: riprova fra qualche istante",
+  );
+};
+
 /** Il totale incassato su una rata, letto dal registro. */
 export const getSettledAmountForCharge = async (
   paymentId: string,

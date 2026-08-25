@@ -122,11 +122,11 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
-    name: "payment_transactions.reverse",
+    name: "payment_transactions.actions",
     method: "POST",
     path: "/api/v1/payment-transactions/:id",
     description:
-      "Storna un incasso: l'originale resta, il movimento di segno opposto lo compensa",
+      "Azioni su un incasso: `reverse` lo storna senza cancellarlo, `issue-receipt` ne emette la ricevuta",
     mobile_ready: true,
   },
   {

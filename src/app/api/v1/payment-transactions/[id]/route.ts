@@ -3,14 +3,18 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { reversePaymentTransaction } from "@/lib/server/payment-transactions";
+import {
+  issueReceiptForTransaction,
+  reversePaymentTransaction,
+} from "@/lib/server/payment-transactions";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
- * Storno di un incasso.
+ * Le due azioni su un incasso gia registrato.
  *
- *   POST /api/v1/payment-transactions/:id/reverse  →  qui, come `action`
+ *   POST /api/v1/payment-transactions/:id  {"action":"reverse"}
+ *   POST /api/v1/payment-transactions/:id  {"action":"issue-receipt"}
  *
  * Non esiste un `DELETE`, ed e una scelta: un incasso cancellato non lascia
  * traccia di essere esistito, e cio che si vuole sapere di un errore di cassa
@@ -18,6 +22,10 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  * movimento di segno opposto (ADR-0036).
  *
  * Per correggere un importo sbagliato: si storna e si registra di nuovo.
+ *
+ * La ricevuta si emette **per incasso**, non per rata: e l'incasso che va
+ * documentato, e una rata pagata in tre volte ne produce tre. L'emissione e
+ * idempotente — chiederla due volte restituisce la stessa ricevuta.
  */
 
 export const runtime = "nodejs";
@@ -67,13 +75,38 @@ export async function POST(request: Request, context: Context) {
     const body = await request.json().catch(() => ({}));
     const action = String(body?.action || "reverse").trim();
 
+    if (action === "issue-receipt") {
+      const receipt = await issueReceiptForTransaction(
+        { transactionId: context.params.id, description: body?.description },
+        scope,
+      );
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.resourceCreated,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: receipt.organization_id,
+        resource: "receipts",
+        resourceId: receipt.id,
+        request,
+        metadata: {
+          transactionId: context.params.id,
+          receiptNumber: receipt.receipt_number,
+          amount: receipt.amount,
+        },
+      });
+
+      return NextResponse.json({ data: receipt, error: null }, { status: 201 });
+    }
+
     if (action !== "reverse") {
       return NextResponse.json(
         {
           data: null,
           error: {
             message:
-              "Azione non supportata: un incasso si storna, non si modifica",
+              "Azione non supportata: un incasso si storna o produce una ricevuta, non si modifica",
           },
         },
         { status: 400 },

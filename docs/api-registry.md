@@ -26,7 +26,8 @@ Fonte ufficiale da mantenere aggiornata:
   movimenti (`?athlete_id=`, `?payment_id=`) e registrazione di un incasso su
   una rata. La rata viene ricalcolata nella stessa transazione
 - `POST /api/v1/payment-transactions/:id` — `{"action":"reverse"}` storna un
-  incasso. Non esiste `DELETE`: un incasso non si cancella
+  incasso, `{"action":"issue-receipt"}` ne emette la ricevuta (idempotente).
+  Non esiste `DELETE`: un incasso non si cancella
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/logout`
