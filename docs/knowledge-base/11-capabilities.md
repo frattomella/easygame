@@ -82,6 +82,7 @@ Classificazione:
 | Compilazione dalla scheda atleta | COMPLETE | «Compila modulo»: atleta gia selezionato, scelta esplicita del tutore, campi precompilati e dichiarati, stessa revisione della coda pubblica |
 | Procure | COMPLETE | `/procura`, risorsa `procure` |
 | Documenti atleta | COMPLETE | `/api/athletes/[athleteId]/documents` |
+| Pagamenti online (CediPay) | PARTIAL | Il contratto provider-agnostico, l'adapter Stripe (addebiti diretti, commissione di piattaforma, rimborsi, attivazione del club) e la **verifica della firma dei webhook** ci sono e sono coperti dai test. **Non collaudato contro Stripe**: nel repository non ci sono credenziali. Vedi [ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce) |
 | Storage file | PARTIAL | Modello `Asset` con `data_base64`: **i binari possono finire nel database**. Nessun object storage. Vedi [16](16-technical-debt.md) |
 | Export PDF | PARTIAL | Generazione client-side (`athletes-pdf-export.ts`, `clothing-supplier-order-pdf.ts`); `public/report-template.pdf` non e referenziato |
 

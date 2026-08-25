@@ -151,6 +151,7 @@ export const createDefaultPaymentSettings = (
     platformFeeFixedCents: Math.max(0, Number(value.platformFeeFixedCents || 0)),
     platformFeePaidBy: value.platformFeePaidBy || "club",
     providers: {
+      stripe: createDefaultProviderConfig("stripe", now),
       paypal: createDefaultProviderConfig("paypal", now),
       postepay: createDefaultProviderConfig("postepay", now),
       mastercard: createDefaultProviderConfig("mastercard", now),
@@ -193,6 +194,7 @@ export const normalizePaymentSettings = (
     platformFeeFixedCents: Math.max(0, Number(defaults.platformFeeFixedCents || 0)),
     platformFeePaidBy: record.platformFeePaidBy === "payer" ? "payer" : "club",
     providers: {
+      stripe: normalizeProviderConfig("stripe", providersRecord.stripe),
       paypal: normalizeProviderConfig("paypal", providersRecord.paypal),
       postepay: normalizeProviderConfig("postepay", providersRecord.postepay),
       mastercard: normalizeProviderConfig("mastercard", providersRecord.mastercard),

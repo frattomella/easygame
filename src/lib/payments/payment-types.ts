@@ -1,4 +1,16 @@
-export type PaymentProviderKey = "paypal" | "postepay" | "mastercard";
+/**
+ * I provider che le impostazioni di un club possono nominare.
+ *
+ * `stripe` e il primo con un adapter vero sotto CediPay (ADR-0045). Gli
+ * altri tre restano perche stanno gia nei dati dei club: dichiarati,
+ * configurabili, e senza adapter — il registro di CediPay lo dice
+ * esplicitamente invece di lasciarlo scoprire a chi preme «Paga».
+ */
+export type PaymentProviderKey =
+  | "stripe"
+  | "paypal"
+  | "postepay"
+  | "mastercard";
 
 export type PaymentProviderStatus =
   | "not_configured"

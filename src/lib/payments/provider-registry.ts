@@ -4,6 +4,7 @@ import type {
 } from "./payment-types";
 
 export const PAYMENT_PROVIDER_ORDER: PaymentProviderKey[] = [
+  "stripe",
   "paypal",
   "postepay",
   "mastercard",
@@ -13,6 +14,17 @@ export const PAYMENT_PROVIDER_REGISTRY: Record<
   PaymentProviderKey,
   PaymentProviderDefinition
 > = {
+  stripe: {
+    key: "stripe",
+    label: "CediPay (Stripe)",
+    description:
+      "Carte, wallet e SEPA. Il denaro entra sul conto della societa; la commissione della piattaforma resta sull'incasso.",
+    type: "gateway",
+    supportsOnlineCheckout: true,
+    supportsPlatformFee: true,
+    requiresOnboarding: true,
+    isImplemented: true,
+  },
   paypal: {
     key: "paypal",
     label: "PayPal",

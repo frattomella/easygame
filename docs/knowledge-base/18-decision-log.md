@@ -1872,3 +1872,98 @@ leggibile e spiegabile, lo stesso numero su due documenti no.
   di emissione del documento.
 
 **Stato:** ATTIVA. Chiude D28.
+
+## ADR-0045 — CediPay e il livello di prodotto, il PSP sta sotto e si sostituisce
+
+**Data:** 2026-08-26
+**Contesto:** Blocco Finale B, R-05. Gli endpoint dei pagamenti online
+rispondevano 501 con un `TODO`, e l'interfaccia offriva comunque il pulsante.
+
+Una funzione che l'interfaccia promette e il server rifiuta non e una funzione
+a meta: e una promessa rotta **davanti a chi sta pagando**.
+
+**La decisione, in una riga.**
+
+    EasyGame → CediPay → Payment Provider
+
+CediPay e il livello di **prodotto**: il nome che una societa legge, le regole
+che EasyGame applica, la commissione che la piattaforma trattiene. Non e un
+processore e non lo diventera: sotto c'e sempre un PSP.
+
+**Perche il nome del PSP non entra nel dominio.** Se `stripe` comparisse
+dentro le rate, le ricevute o le impostazioni del club, sostituirlo vorrebbe
+dire riscrivere quei tre domini. Nel dominio esiste «un incasso online», il
+suo stato e il suo riferimento esterno; il provider e un valore di
+configurazione piu un adapter che implementa `CediPayProvider` — sette
+operazioni: creare il negozio, attivarlo, leggerne lo stato, creare un
+checkout, leggere un pagamento, rimborsare, interpretare un webhook.
+
+**Il primo provider: Stripe, addebiti diretti.** La documentazione Stripe
+indica l'addebito diretto come il modello delle piattaforme SaaS, ed e anche
+quello giusto per come stanno le cose qui: chi paga sta pagando **la sua
+societa sportiva**, non EasyGame. Sull'estratto conto della famiglia compare
+il club, la pagina di pagamento porta il branding del club, e il denaro entra
+sul saldo del club senza passare da un conto di Cedi.
+
+Il modello alternativo — addebito indiretto, con il denaro che transita dalla
+piattaforma — e quello dei marketplace. EasyGame non vende lo sport, lo
+amministra: far transitare le quote da un conto Cedi cambierebbe la natura del
+rapporto, e con essa gli obblighi.
+
+**Le altre scelte Connect, e chi le deve confermare.**
+
+| Scelta | Valore | Chi decide |
+|--------|--------|-----------|
+| Tipo di addebito | Diretto, `Stripe-Account` sulla richiesta | tecnica, presa |
+| Commissione | `payment_intent_data[application_fee_amount]` | tecnica, presa |
+| Attivazione del club | Flusso in hosting su Stripe (`account_links`) | tecnica, presa |
+| Dashboard dell'account connesso | **Stripe completa** — ed e *immutabile* dopo la creazione | **decisione di prodotto** |
+| Responsabilita dei saldi negativi | **Stripe** — che Stripe indica come impostazione migliore per una piattaforma SaaS nuova | **decisione di prodotto e legale** |
+| Percentuale e quota fissa | Configurazione, mai codice | **accordo commerciale** |
+
+Le tre righe in grassetto **non si chiudono scrivendo codice**: la prima e
+irreversibile senza ricreare gli account, la seconda e un'assunzione di
+rischio, la terza e un contratto. Sono scritte qui perche vanno decise, non
+perche siano state decise.
+
+**Perche non c'e la libreria `stripe`.** Le operazioni sono sette chiamate
+HTTP con corpo `form-urlencoded`. L'SDK legherebbe l'astrazione
+provider-agnostica alla forma degli oggetti di un provider — cioe farebbe
+perdere esattamente cio per cui l'astrazione esiste. La parte in cui l'SDK
+vale davvero e la verifica della firma, ed e implementata a parte, su
+`node:crypto`, con diciassette test.
+
+**La firma e la sola cosa collaudabile senza credenziali, ed e collaudata.**
+L'endpoint del webhook e pubblico: senza verifica, «il pagamento e riuscito» e
+una frase che puo scrivere chiunque conosca l'indirizzo, e un incasso mai
+avvenuto entra in contabilita. Sono presidiati: solo lo schema `v1` (accettare
+`v0` e un downgrade), confronto a tempo costante, tolleranza di cinque minuti
+sul timestamp contro il replay, e **zero non e un valore ammesso** perche zero
+disabilita il controllo.
+
+**Cosa NON e collaudato, e va detto.** Tutto cio che parla con
+`api.stripe.com`. In questo repository non ci sono credenziali Stripe e non se
+ne inventano. Il codice e scritto sulla documentazione ufficiale consultata il
+2026-08-26; finche non gira contro un account vero e **da collaudare**, non
+funzionante. Il registro lo dichiara: `isConfigured()` distingue «non c'e
+l'adapter» da «non ci sono le credenziali», e `describeCediPayReadiness`
+distingue quattro blocchi diversi — nessun adapter, ambiente non configurato,
+club che li ha disattivati, conto del club non ancora abilitato — perche li
+risolvono quattro persone diverse.
+
+**Conseguenze.**
+
+- `paypal`, `postepay` e `mastercard` restano nelle impostazioni perche stanno
+  gia nei dati dei club, e sono dichiarati **senza adapter**: il registro lo
+  dice, invece di lasciarlo scoprire a chi preme «Paga»;
+- `postepay` e `mastercard` non sono provider ma un metodo e un circuito: si
+  raggiungono comunque attraverso un PSP. Restano per compatibilita del dato;
+- un rimborso chiede indietro anche la commissione (`refund_application_fee`).
+  Senza, la commissione resta alla piattaforma e a rimetterla e il club, che
+  ha rimborsato tutto;
+- ogni chiamata che crea qualcosa porta una chiave di idempotenza: un doppio
+  clic o un tentativo dopo un timeout di rete non deve produrre due addebiti a
+  una famiglia.
+
+**Stato:** ATTIVA. Chiude la parte architetturale di R-05; la parte
+collaudabile solo con credenziali resta aperta e dichiarata.
