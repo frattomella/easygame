@@ -47,6 +47,8 @@ test("il resto sta in sezioni, non in una pagina infinita", () => {
     "Residenza",
     "Dati sanitari",
     "Taglie e numero di maglia",
+    "Genitori e tutori",
+    "Tesseramento",
     "Note",
   ]) {
     assert.ok(
@@ -139,4 +141,74 @@ test("le chiavi scritte sono quelle che la scheda atleta legge", () => {
       `la scheda atleta deve leggere ${key}`,
     );
   }
+});
+
+/* ----------------------------------------------- Blocco 8: le due sezioni mancanti */
+
+/**
+ * Il Blocco 7 aveva chiuso il ciclo «crea con tre campi, riapri e ricompila»
+ * per quasi tutto. Restavano fuori le due cose che una segreteria ha davanti
+ * proprio nel momento dell'iscrizione: **chi e il genitore** e **con che ente
+ * l'atleta e tesserato**. Erano anche le due che costringevano a riaprire la
+ * scheda subito dopo averla creata.
+ */
+test("genitori e tesseramento si inseriscono alla creazione", () => {
+  const source = readCode(DIALOG);
+
+  assert.ok(
+    source.includes("Aggiungi genitore/tutore"),
+    "si deve poterne aggiungere piu di uno",
+  );
+  assert.ok(
+    source.includes("guardians: formData.guardians.filter(guardianHasContent)"),
+    "una riga vuota lasciata aperta non deve diventare un tutore senza nome",
+  );
+
+  assert.match(
+    source,
+    /registrationFederation/,
+    "la federazione e il campo che rende utile il record",
+  );
+  assert.ok(
+    source.includes("registrations: formData.registrationFederation.trim()"),
+    "senza federazione il tesseramento non si salva",
+  );
+});
+
+/**
+ * Il numero di tessera resta facoltativo anche qui (Blocco 7, punto 9): un
+ * tesseramento si registra a inizio stagione e la federazione emette il
+ * numero dopo. Pretenderlo costringe a inventarlo.
+ */
+test("il numero di tessera non diventa obbligatorio nella creazione", () => {
+  const source = read(DIALOG);
+
+  assert.match(
+    source,
+    /Numero tessera[\s\S]{0,200}non obbligatorio/,
+    "il form deve dirlo, non lasciarlo intuire",
+  );
+  assert.equal(
+    /id="registrationNumber"[\s\S]{0,300}required/.test(source),
+    false,
+    "il numero di tessera non puo essere required",
+  );
+});
+
+test("le categorie secondarie si scelgono alla creazione e vengono scritte", () => {
+  const dialog = readCode(DIALOG);
+  const list = readCode(LIST);
+
+  assert.match(dialog, /secondaryCategoryIds/, "il form deve raccoglierle");
+  assert.ok(
+    dialog.includes("categories.filter((category) => category.id !== primaryId)"),
+    "la primaria non si offre anche come secondaria",
+  );
+
+  assert.match(
+    list,
+    /categoryMemberships/,
+    "senza memberships le categorie secondarie non arrivano in archivio",
+  );
+  assert.match(list, /is_primary: false/);
 });

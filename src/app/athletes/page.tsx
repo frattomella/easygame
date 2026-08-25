@@ -469,6 +469,40 @@ export default function AthletesPage() {
         `data` usa le stesse chiavi che legge la scheda atleta, quindi non
         c'e nessuna mappatura intermedia da tenere allineata.
       */
+      /*
+        Le categorie secondarie si scrivono alla creazione (Blocco 8). Un
+        atleta che si allena con due gruppi lo fa dal primo giorno, e finora
+        la seconda categoria si poteva aggiungere solo riaprendo la scheda:
+        cioe il secondo giro che questo form esiste per togliere.
+      */
+      const secondaryIds: string[] = Array.isArray(
+        athleteData.secondaryCategoryIds,
+      )
+        ? athleteData.secondaryCategoryIds
+        : [];
+
+      const categoryMemberships = [
+        ...(linkedCategory
+          ? [
+              {
+                category_id: linkedCategory.id,
+                category_name: linkedCategory.name,
+                is_primary: true,
+              },
+            ]
+          : []),
+        ...secondaryIds
+          .filter((id) => id && id !== linkedCategory?.id)
+          .map((id) => {
+            const category = categories.find((item) => item.id === id);
+            return {
+              category_id: id,
+              category_name: category?.name || id,
+              is_primary: false,
+            };
+          }),
+      ];
+
       const newAthleteData = {
         firstName: athleteData.firstName,
         lastName: athleteData.lastName,
@@ -478,6 +512,7 @@ export default function AthletesPage() {
         medicalCertExpiry: athleteData.medicalCertExpiry || null,
         status: "active",
         data: athleteData.data || {},
+        ...(categoryMemberships.length ? { categoryMemberships } : {}),
       };
 
       const savedAthlete = await addClubAthlete(clubId, newAthleteData);
@@ -492,7 +527,9 @@ export default function AthletesPage() {
         categoryLabel: linkedCategory?.name || "Senza categoria",
         membershipType: "primary",
         primaryCategoryLabel: linkedCategory?.name || "Senza categoria",
-        allCategoryLabels: linkedCategory?.name ? [linkedCategory.name] : [],
+        allCategoryLabels: categoryMemberships.map(
+          (membership) => membership.category_name,
+        ),
         age: Number.isFinite(birthYear)
           ? new Date().getFullYear() - birthYear
           : 0,
