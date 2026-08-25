@@ -144,6 +144,23 @@ decidere**. L'assistenza compila solo cio che e vuoto e segnala cio che non
 torna; non riscrive mai un valore digitato, e il pulsante «Calcola» del codice
 fiscale non compare nemmeno quando il campo e gia valorizzato.
 
+Dal Blocco 7 ([ADR-0032](18-decision-log.md#adr-0032--larchivio-dei-comuni-e-istat-generato-da-uno-script-servito-dal-server)):
+
+- il comune si sceglie da `ComuneAutocomplete`, che interroga l'archivio
+  ISTAT via `/api/v1/comuni` e porta con se sigla della provincia e **codice
+  catastale**. Resta un campo di testo libero: una localita estera o un comune
+  soppresso si scrivono ancora a mano;
+- il **comune di nascita vive dentro** `AssistedFiscalCodeField`, non accanto
+  ad esso: e li che serve, ed e li che si vede a quale comune corrisponde il
+  codice catastale in uso. Dove esisteva un campo «Luogo di nascita» separato
+  e stato assorbito, non duplicato;
+- il **codice fiscale sta dopo il blocco anagrafico**, mai prima: si calcola da
+  cognome, nome, data di nascita, sesso e comune, e un campo che chiede di
+  calcolare qualcosa che il form non sa ancora e solo un campo vuoto piu in
+  alto;
+- un codice che non corrisponde ai dati puo essere sostituito, ma **in due
+  tempi**: il primo clic dichiara l'intenzione, il secondo scrive.
+
 ---
 ## Chrome: club e piattaforma sono due cose diverse (regola definitiva)
 

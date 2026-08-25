@@ -34,6 +34,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { addStaffMember } from "@/lib/simplified-db";
+import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 
@@ -49,6 +50,8 @@ interface StaffFormData {
   birthDate: string;
   nationality: string;
   birthPlace: string;
+  /** Codice catastale del comune di nascita: lo compila la ricerca ISTAT. */
+  birthPlaceCode: string;
   gender: string;
   address: string;
   city: string;
@@ -72,6 +75,7 @@ const initialFormData: StaffFormData = {
   birthDate: "",
   nationality: "Italiana",
   birthPlace: "",
+  birthPlaceCode: "",
   gender: "",
   address: "",
   city: "",
@@ -331,15 +335,6 @@ function NewStaffMemberPageContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="birthPlace">Luogo di Nascita</Label>
-                    <Input
-                      id="birthPlace"
-                      value={formData.birthPlace}
-                      onChange={(e) => handleInputChange("birthPlace", e.target.value)}
-                      placeholder="Inserisci il luogo di nascita"
-                    />
-                  </div>
-                  <div>
                     <Label htmlFor="nationality">Nazionalità</Label>
                     <Input
                       id="nationality"
@@ -364,16 +359,32 @@ function NewStaffMemberPageContent() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
-                    <Label htmlFor="fiscalCode">Codice Fiscale</Label>
-                    <Input
-                      id="fiscalCode"
-                      value={formData.fiscalCode}
-                      onChange={(e) => handleInputChange("fiscalCode", e.target.value.toUpperCase())}
-                      placeholder="Inserisci il codice fiscale"
-                      maxLength={16}
-                    />
-                  </div>
+                  {/*
+                    Il codice fiscale chiude il blocco anagrafico perche da
+                    quel blocco si calcola, e porta con se il comune di
+                    nascita: e da li che arriva il codice catastale.
+                  */}
+                  <AssistedFiscalCodeField
+                    id="fiscalCode"
+                    label="Codice Fiscale"
+                    className="md:col-span-2"
+                    value={formData.fiscalCode}
+                    onChange={(value) => handleInputChange("fiscalCode", value)}
+                    person={{
+                      firstName: formData.name,
+                      lastName: formData.surname,
+                      birthDate: formData.birthDate,
+                      gender: formData.gender,
+                    }}
+                    belfioreCode={formData.birthPlaceCode}
+                    onBelfioreCodeChange={(value) =>
+                      handleInputChange("birthPlaceCode", value)
+                    }
+                    birthPlace={formData.birthPlace}
+                    onBirthPlaceChange={(value) =>
+                      handleInputChange("birthPlace", value)
+                    }
+                  />
                 </CardContent>
               </Card>
 

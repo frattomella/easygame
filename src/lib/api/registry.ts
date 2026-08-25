@@ -67,6 +67,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "comuni.search",
+    method: "GET",
+    path: "/api/v1/comuni",
+    description:
+      "Archivio ISTAT dei comuni italiani: ricerca per nome, per codice catastale o per omonimia",
+    mobile_ready: true,
+  },
+  {
     name: "auth.login",
     method: "POST",
     path: "/api/v1/auth/login",

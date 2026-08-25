@@ -620,7 +620,8 @@ invece di tirare a indovinare.
 - Se un domani arriva la tabella dei comuni, l'unico punto da toccare e
   `italian-registry.ts`: la firma di `computeCodiceFiscale` non cambia.
 
-**Stato:** ATTIVA.
+**Stato:** ATTIVA, **emendata dall'ADR-0032** (Blocco 7): la tabella dei comuni
+e arrivata. Il divieto di inventarla resta, ed e ora verificabile.
 
 ---
 
@@ -849,5 +850,76 @@ allenamenti, gare e movimenti, e rieseguirla duplicava tutto.
   strada per cui il salvataggio di un recapito poteva rimettere attiva
   l'annata precedente.
 - Creazione, attivazione, archiviazione e riporto finiscono nell'audit log.
+
+**Stato:** ATTIVA.
+
+
+---
+
+## ADR-0032 — L'archivio dei comuni e ISTAT, generato da uno script, servito dal server
+
+**Data:** 2026-08-25 · **Contesto:** Blocco 7, punto 2
+
+**Contesto.** [ADR-0027](#adr-0027--il-codice-fiscale-si-calcola-i-comuni-non-si-inventano)
+aveva vietato la tabella dei comuni perche non ne esisteva una attendibile nel
+repository, e generarla a memoria avrebbe prodotto codici fiscali
+**formalmente validi e sostanzialmente falsi**. La conseguenza era che il
+codice catastale lo digitava l'operatore, una volta per anagrafica: un dato di
+quattro caratteri che nessuno ha in testa e che si va a cercare altrove.
+
+Il Blocco 7 chiede di eliminare quella digitazione. La condizione posta da
+ADR-0027 — «finche non arriva da una fonte ufficiale (ANPR o ISTAT)» — e ora
+soddisfatta.
+
+**Decisione.**
+
+1. **La fonte e ISTAT**, l'elenco dei codici delle unita amministrative
+   territoriali. Nella stessa riga porta denominazione, sigla della provincia,
+   regione e **codice catastale (Belfiore)**, cioe lo stesso codice che
+   l'Agenzia delle Entrate usa per il codice fiscale: non serve riconciliare
+   due fonti.
+2. **Il file in repo e generato, non scritto.**
+   `scripts/build-comuni-dataset.mjs` scarica la fonte, verifica che le
+   colonne siano quelle attese, che ogni codice catastale sia ben formato e
+   unico, che ogni sigla sia una delle 107 note e che il numero di righe sia
+   nell'ordine di grandezza giusto — e **fallisce senza scrivere** se qualcosa
+   non torna. Il risultato, `src/data/comuni-istat.json`, dichiara URL,
+   licenza, sha256 della fonte e numero di righe.
+3. **La ricerca sta sul server.** Il dataset e circa 220 kB: nel bundle del
+   client verrebbe scaricato da ogni pagina con un campo anagrafico. Vive
+   dietro `GET /api/v1/comuni` (`src/lib/server/comuni.ts`), che risponde
+   con le poche righe che servono. Il bundle condiviso non e cambiato.
+4. **La logica di ricerca e un modulo puro** (`src/lib/comuni-model.ts`): il
+   server gli passa 7.896 righe, i test sei. E la stessa separazione di
+   `italian-registry.ts`.
+
+**Cosa non e cambiato.** Il codice catastale **non si indovina mai**. Nessuna
+funzione lo costruisce: o lo trova nell'archivio, o dice che non c'e. Un nome
+di comune ambiguo senza provincia (`Castro` esiste in BG e in LE) non
+restituisce il primo dei due: non restituisce niente, perche scegliere per
+conto dell'utente vorrebbe dire scrivere il codice sbagliato dentro un codice
+fiscale.
+
+**Cosa e cambiato rispetto ad ADR-0027.** Un codice fiscale gia inserito puo
+ora essere **sostituito**, ma solo con una conferma esplicita in due tempi e
+solo quando non corrisponde ai dati anagrafici. Prima non esisteva il gesto; il
+risultato pero era che una segnalazione di incoerenza non era azionabile e
+l'operatore correggeva a mano ricopiando 16 caratteri.
+
+**Cosa l'archivio non copre, e va detto.**
+
+- **Il CAP.** ISTAT non lo pubblica in questo file e non e derivabile dal
+  comune (i comuni grandi ne hanno decine). Resta digitato e validato nella
+  forma, come prima.
+- **I comuni soppressi** e **gli stati esteri** (codici `Z***`). Chi e nato a
+  Zurigo o in un comune accorpato ha un codice fiscale valido che questa
+  tabella non sa spiegare: per questo la casella manuale del codice catastale
+  **resta**, chiusa dietro un collegamento, e un codice assente
+  dall'archivio non viene mai segnalato come errore.
+
+**Manutenzione.** ISTAT aggiorna l'elenco quando i comuni cambiano (fusioni,
+cambi di provincia). `node scripts/build-comuni-dataset.mjs --check` dice se
+il file in repo e ancora allineato; senza `--check` lo rigenera e il diff e
+leggibile.
 
 **Stato:** ATTIVA.

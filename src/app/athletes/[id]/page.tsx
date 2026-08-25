@@ -602,6 +602,11 @@ export default function AthleteProfilePage() {
     relationship: "",
     fiscalCode: "",
     birthDate: "",
+    // Il genitore e una persona come le altre: dal Blocco 7 anche il suo
+    // codice fiscale si calcola, e per calcolarlo servono sesso e comune.
+    gender: "",
+    birthPlace: "",
+    birthPlaceCode: "",
     phone: "",
     email: "",
   });
@@ -2263,6 +2268,9 @@ export default function AthleteProfilePage() {
       relationship: "",
       fiscalCode: "",
       birthDate: "",
+      gender: "",
+      birthPlace: "",
+      birthPlaceCode: "",
       phone: "",
       email: "",
     });
@@ -2275,8 +2283,28 @@ export default function AthleteProfilePage() {
 
   // Open guardian edit modal
   const openEditGuardianModal = (index: number) => {
+    const guardian = guardians[index] || {};
     setEditingGuardianIndex(index);
-    setNewGuardian(guardians[index]);
+    /*
+      I tutori gia in archivio non hanno le chiavi aggiunte dal Blocco 7
+      (sesso, comune di nascita): passarli cosi com'erano renderebbe quei
+      campi non controllati, e React se ne lamenta in console mentre l'utente
+      digita. Si parte dai vuoti e si sovrascrive con cio che c'e.
+    */
+    setNewGuardian({
+      id: "",
+      name: "",
+      surname: "",
+      relationship: "",
+      fiscalCode: "",
+      birthDate: "",
+      gender: "",
+      birthPlace: "",
+      birthPlaceCode: "",
+      phone: "",
+      email: "",
+      ...guardian,
+    });
     setShowAddGuardianModal(true);
   };
 
@@ -2455,6 +2483,9 @@ export default function AthleteProfilePage() {
       relationship: "",
       fiscalCode: "",
       birthDate: "",
+      gender: "",
+      birthPlace: "",
+      birthPlaceCode: "",
       phone: "",
       email: "",
     });
@@ -6685,24 +6716,6 @@ export default function AthleteProfilePage() {
                     />
                   </div>
                 </div>
-                <AssistedFiscalCodeField
-                  id="athlete-fiscal-code"
-                  label="Codice Fiscale"
-                  value={editFormData.fiscalCode || ""}
-                  onChange={(value) =>
-                    setEditFormData({ ...editFormData, fiscalCode: value })
-                  }
-                  person={{
-                    firstName: editFormData.name,
-                    lastName: editFormData.surname,
-                    birthDate: editFormData.birthDate,
-                    gender: editFormData.gender,
-                  }}
-                  belfioreCode={editFormData.birthPlaceCode || ""}
-                  onBelfioreCodeChange={(value) =>
-                    setEditFormData({ ...editFormData, birthPlaceCode: value })
-                  }
-                />
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Data di Nascita</Label>
@@ -6732,18 +6745,6 @@ export default function AthleteProfilePage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label>Luogo di Nascita</Label>
-                    <Input
-                      value={editFormData.birthPlace || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          birthPlace: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
                     <Label>Sesso</Label>
                     <Select
                       value={editFormData.gender || ""}
@@ -6761,6 +6762,35 @@ export default function AthleteProfilePage() {
                     </Select>
                   </div>
                 </div>
+                {/*
+                  Blocco 7: il codice fiscale sta **dopo** i dati anagrafici,
+                  perche da quelli si calcola. Prima stava in cima e chiedeva
+                  di calcolare qualcosa che il form non sapeva ancora.
+                  Il comune di nascita vive dentro questo campo: e da li che
+                  arriva il codice catastale.
+                */}
+                <AssistedFiscalCodeField
+                  id="athlete-fiscal-code"
+                  label="Codice Fiscale"
+                  value={editFormData.fiscalCode || ""}
+                  onChange={(value) =>
+                    setEditFormData({ ...editFormData, fiscalCode: value })
+                  }
+                  person={{
+                    firstName: editFormData.name,
+                    lastName: editFormData.surname,
+                    birthDate: editFormData.birthDate,
+                    gender: editFormData.gender,
+                  }}
+                  belfioreCode={editFormData.birthPlaceCode || ""}
+                  onBelfioreCodeChange={(value) =>
+                    setEditFormData({ ...editFormData, birthPlaceCode: value })
+                  }
+                  birthPlace={editFormData.birthPlace || ""}
+                  onBirthPlaceChange={(value) =>
+                    setEditFormData({ ...editFormData, birthPlace: value })
+                  }
+                />
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
                   <div>
                     <Label>Categoria primaria</Label>
@@ -8717,14 +8747,11 @@ export default function AthleteProfilePage() {
                 </Select>
               </div>
               <div>
-                <Label>Codice Fiscale</Label>
+                <Label>Telefono</Label>
                 <Input
-                  value={newGuardian.fiscalCode}
+                  value={newGuardian.phone}
                   onChange={(e) =>
-                    setNewGuardian({
-                      ...newGuardian,
-                      fiscalCode: e.target.value,
-                    })
+                    setNewGuardian({ ...newGuardian, phone: e.target.value })
                   }
                 />
               </div>
@@ -8744,15 +8771,45 @@ export default function AthleteProfilePage() {
                 />
               </div>
               <div>
-                <Label>Telefono</Label>
-                <Input
-                  value={newGuardian.phone}
-                  onChange={(e) =>
-                    setNewGuardian({ ...newGuardian, phone: e.target.value })
+                <Label>Sesso</Label>
+                <Select
+                  value={newGuardian.gender}
+                  onValueChange={(value) =>
+                    setNewGuardian({ ...newGuardian, gender: value })
                   }
-                />
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="M">Maschio</SelectItem>
+                    <SelectItem value="F">Femmina</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
+            <AssistedFiscalCodeField
+              id="guardian-fiscal-code"
+              label="Codice Fiscale"
+              value={newGuardian.fiscalCode}
+              onChange={(value) =>
+                setNewGuardian({ ...newGuardian, fiscalCode: value })
+              }
+              person={{
+                firstName: newGuardian.name,
+                lastName: newGuardian.surname,
+                birthDate: newGuardian.birthDate,
+                gender: newGuardian.gender,
+              }}
+              belfioreCode={newGuardian.birthPlaceCode}
+              onBelfioreCodeChange={(value) =>
+                setNewGuardian({ ...newGuardian, birthPlaceCode: value })
+              }
+              birthPlace={newGuardian.birthPlace}
+              onBirthPlaceChange={(value) =>
+                setNewGuardian({ ...newGuardian, birthPlace: value })
+              }
+            />
             <div>
               <Label>Email</Label>
               <Input

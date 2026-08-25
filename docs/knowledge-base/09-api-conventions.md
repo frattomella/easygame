@@ -176,6 +176,25 @@ soggetta a stagione (`SEASON_SCOPED_DATA_TYPES` in `src/lib/club-seasons.ts`):
 
 Non e un confine di sicurezza: il confine resta `organization_id`.
 
+### Archivio dei comuni (Blocco 7)
+
+`GET /api/v1/comuni` e l'unica rotta di **sola lettura su un dato che non
+appartiene a nessun club**: e la tabella ISTAT dei comuni italiani. Non ha
+`organization_id`, non passa da `resolveOrganizationScopeForUser`, non tocca
+Prisma. Richiede comunque una sessione: l'anagrafica assistita e una funzione
+dell'applicazione.
+
+| Query | Significato |
+|-------|-------------|
+| `?q=abano` | Ricerca per nome, per nome nell'altra lingua ufficiale o per codice catastale |
+| `?q=…&province=MI` | Come sopra, ristretta a una provincia |
+| `?belfiore=A001` | Il comune di un codice catastale; elenco vuoto se non e in archivio (estero o soppresso) |
+| `?name=Castro` | **Tutti** gli omonimi, per disambiguare |
+
+Il client passa da `src/lib/api/comuni.ts`, che tiene una cache in memoria:
+l'archivio e immutabile per la vita del processo, quindi la stessa query dara
+sempre la stessa risposta.
+
 ### Gestione delle stagioni (Blocco 6)
 
 Le stagioni non sono una risorsa del CRUD generico: vivono in

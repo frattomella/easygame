@@ -164,3 +164,81 @@ test("le risorse senza anagrafica non vengono toccate dalla validazione", () => 
     assertAnagraficaIsValid("trainings", { postal_code: "non-un-cap" }),
   );
 });
+
+/**
+ * Blocco 7 — allenatori, staff e soci sono persone anche loro.
+ *
+ * Vivono in `club_resource_items` e fino a qui nessuno ne validava il codice
+ * fiscale: quello del club si controllava, quello di un socio no. Non era una
+ * scelta, era un buco.
+ */
+
+const personInput = (payload) => ({ payload });
+
+for (const resource of ["trainers", "staff_members", "members"]) {
+  test(`un ${resource} valido passa senza obiezioni`, () => {
+    assert.doesNotThrow(() =>
+      assertAnagraficaIsValid(
+        resource,
+        personInput({
+          name: "Mario",
+          fiscalCode: "MRTMTT25D09F205Z",
+          postalCode: "20121",
+          province: "MI",
+        }),
+      ),
+    );
+  });
+
+  test(`un ${resource} con codice fiscale inventato viene rifiutato`, () => {
+    assert.throws(
+      () =>
+        assertAnagraficaIsValid(
+          resource,
+          personInput({ fiscalCode: "AAAAAA00A00A000A" }),
+        ),
+      (error) =>
+        error instanceof AnagraficaValidationError &&
+        error.field === "fiscalCode",
+    );
+  });
+
+  test(`un ${resource} gia in archivio con dati sbagliati resta modificabile`, () => {
+    assert.doesNotThrow(() =>
+      assertAnagraficaIsValid(
+        resource,
+        personInput({ fiscalCode: "CODICE-FINTO", phone: "3331234567" }),
+        personInput({ fiscalCode: "CODICE-FINTO" }),
+      ),
+    );
+  });
+}
+
+test("il codice fiscale si accetta con qualunque nome di chiave storico", () => {
+  for (const key of ["fiscalCode", "fiscal_code", "codiceFiscale"]) {
+    assert.throws(
+      () => assertAnagraficaIsValid("trainers", personInput({ [key]: "XXX" })),
+      (error) => error instanceof AnagraficaValidationError,
+      `la chiave ${key} deve essere validata come le altre`,
+    );
+  }
+});
+
+test("fuori dall'Italia CAP e provincia non si applicano", () => {
+  assert.doesNotThrow(() =>
+    assertAnagraficaIsValid(
+      "staff_members",
+      personInput({ country: "Svizzera", postalCode: "8001", province: "ZH" }),
+    ),
+  );
+});
+
+test("un CAP di quattro cifre in Italia viene rifiutato anche per un socio", () => {
+  assert.throws(
+    () =>
+      assertAnagraficaIsValid("members", personInput({ postalCode: "2012" })),
+    (error) =>
+      error instanceof AnagraficaValidationError &&
+      error.field === "postalCode",
+  );
+});

@@ -1999,6 +1999,7 @@ export const createResource = async (
 
       if (existing) {
         assertRecordAccess(resource, existing, scope);
+        assertAnagraficaIsValid(resource, data, existing);
         const preservedLogicalId =
           (!isUuid(input?.id) &&
             typeof input?.id === "string" &&
@@ -2057,6 +2058,8 @@ export const createResource = async (
         return serializeRecord(resource, record);
       }
     }
+
+    assertAnagraficaIsValid(resource, data);
 
     data.payload = await applySeasonStamp(
       resource,
@@ -2222,6 +2225,8 @@ export const updateResource = async (
             ...clone(normalized.payload),
           }
         : existingPayload;
+    assertAnagraficaIsValid(resource, { payload: nextPayload }, existing);
+
     const logicalIdToPreserve = inputLogicalId || existingLogicalId;
 
     if (logicalIdToPreserve && !nextPayload.id) {

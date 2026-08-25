@@ -111,9 +111,19 @@ export default function EditTrainerPage() {
             address: trainerFound.address || "",
             city: trainerFound.city || "",
             postalCode: trainerFound.postalCode || "",
-            birthDate: trainerFound.birthYear
-              ? `${trainerFound.birthYear}-01-01`
-              : trainerFound.birthDate || "",
+            /*
+              La data vera viene prima dell'anno.
+
+              Questa riga faceva il contrario: se il record aveva `birthYear`
+              — e ce l'hanno tutti, perche il form di creazione scriveva solo
+              quello — la data reale veniva buttata e rimpiazzata da un 1°
+              gennaio. Bastava aprire la modifica e salvare perche la data di
+              nascita di un allenatore diventasse fittizia, e con essa il
+              codice fiscale calcolato da lei (Blocco 7).
+            */
+            birthDate:
+              trainerFound.birthDate ||
+              (trainerFound.birthYear ? `${trainerFound.birthYear}-01-01` : ""),
             startDate: trainerFound.hireDate || trainerFound.startDate || "",
             bio: trainerFound.bio || "",
             avatar: trainerFound.avatar || "",
@@ -206,8 +216,10 @@ export default function EditTrainerPage() {
         address: trainerData.address,
         city: trainerData.city,
         postalCode: trainerData.postalCode,
+        // Si scrive la data intera; l'anno resta, derivato, per chi lo legge.
+        birthDate: trainerData.birthDate || null,
         birthYear: trainerData.birthDate
-          ? new Date(trainerData.birthDate).getFullYear()
+          ? Number(String(trainerData.birthDate).slice(0, 4))
           : null,
         hireDate: trainerData.startDate,
         bio: trainerData.bio,

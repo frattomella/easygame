@@ -17,6 +17,15 @@ import {
 } from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DEFAULT_MEMBER_TYPE, MEMBER_TYPES } from "@/lib/member-types";
 
 function NewSocioPageContent() {
   const router = useRouter();
@@ -33,6 +42,15 @@ function NewSocioPageContent() {
     phone: "",
     fiscalCode: "",
     birthDate: "",
+    gender: "",
+    birthPlace: "",
+    birthPlaceCode: "",
+    /**
+     * Il tipo di socio si decide alla creazione (Blocco 7, punto 8): prima
+     * esisteva solo nella dialog della scheda, e per assegnarlo bisognava
+     * creare il socio e poi riaprirlo.
+     */
+    type: DEFAULT_MEMBER_TYPE as string,
     address: "",
     city: "",
     postalCode: "",
@@ -116,6 +134,10 @@ function NewSocioPageContent() {
         phone: formData.phone || null,
         fiscalCode: formData.fiscalCode || null,
         birthDate: formData.birthDate || null,
+        gender: formData.gender || null,
+        birthPlace: formData.birthPlace || null,
+        birthPlaceCode: formData.birthPlaceCode || null,
+        type: formData.type || DEFAULT_MEMBER_TYPE,
         address: formData.address || null,
         city: formData.city || null,
         postalCode: formData.postalCode || null,
@@ -242,17 +264,6 @@ function NewSocioPageContent() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="fiscalCode">Codice Fiscale</Label>
-                        <Input
-                          id="fiscalCode"
-                          name="fiscalCode"
-                          value={formData.fiscalCode}
-                          onChange={handleChange}
-                          placeholder="RSSMRA80A01H501U"
-                          className="uppercase"
-                        />
-                      </div>
-                      <div className="space-y-2">
                         <Label htmlFor="birthDate">Data di Nascita</Label>
                         <Input
                           id="birthDate"
@@ -261,6 +272,72 @@ function NewSocioPageContent() {
                           value={formData.birthDate}
                           onChange={handleChange}
                         />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="gender">Sesso</Label>
+                        <Select
+                          value={formData.gender}
+                          onValueChange={(value) =>
+                            setFormData((previous) => ({ ...previous, gender: value }))
+                          }
+                        >
+                          <SelectTrigger id="gender">
+                            <SelectValue placeholder="Seleziona" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="M">Maschio</SelectItem>
+                            <SelectItem value="F">Femmina</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <AssistedFiscalCodeField
+                      id="fiscalCode"
+                      label="Codice Fiscale"
+                      value={formData.fiscalCode}
+                      onChange={(value) =>
+                        setFormData((previous) => ({ ...previous, fiscalCode: value }))
+                      }
+                      person={{
+                        firstName: formData.firstName,
+                        lastName: formData.lastName,
+                        birthDate: formData.birthDate,
+                        gender: formData.gender,
+                      }}
+                      belfioreCode={formData.birthPlaceCode}
+                      onBelfioreCodeChange={(value) =>
+                        setFormData((previous) => ({
+                          ...previous,
+                          birthPlaceCode: value,
+                        }))
+                      }
+                      birthPlace={formData.birthPlace}
+                      onBirthPlaceChange={(value) =>
+                        setFormData((previous) => ({ ...previous, birthPlace: value }))
+                      }
+                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="type">Tipo socio</Label>
+                        <Select
+                          value={formData.type}
+                          onValueChange={(value) =>
+                            setFormData((previous) => ({ ...previous, type: value }))
+                          }
+                        >
+                          <SelectTrigger id="type">
+                            <SelectValue placeholder="Seleziona il tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MEMBER_TYPES.map((memberType) => (
+                              <SelectItem key={memberType} value={memberType}>
+                                {memberType}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   </div>

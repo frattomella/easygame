@@ -35,6 +35,11 @@ import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { deleteClubDataItem } from "@/lib/simplified-db";
 import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
+import {
+  DEFAULT_MEMBER_TYPE,
+  MEMBER_TYPES,
+  normalizeMemberType,
+} from "@/lib/member-types";
 
 const getMemberIdentity = (memberData: Record<string, any>) => {
   const sanitizeText = (value: any) => {
@@ -184,7 +189,7 @@ export default function MemberDetailsPage() {
           phone: memberData.phone || "",
           
           // Dati associativi
-          type: memberData.type || "Socio Ordinario",
+          type: normalizeMemberType(memberData.type),
           status: memberData.status || "active",
           registrationDate:
             memberData.registrationDate || memberData.membershipDate || "",
@@ -556,12 +561,16 @@ export default function MemberDetailsPage() {
                       <Label>Tipo Socio</Label>
                       <select 
                         className="w-full h-10 rounded-md border border-input bg-background px-3"
-                        value={editFormData.type || 'Socio Ordinario'}
+                        value={editFormData.type || DEFAULT_MEMBER_TYPE}
                         onChange={(e) => setEditFormData({...editFormData, type: e.target.value})}
                       >
-                        <option value="Socio Ordinario">Socio Ordinario</option>
-                        <option value="Socio Sostenitore">Socio Sostenitore</option>
-                        <option value="Socio Onorario">Socio Onorario</option>
+                        {/* L'elenco vive in lib/member-types.ts: lo usa anche
+                            il form di creazione, che prima non lo conosceva. */}
+                        {MEMBER_TYPES.map((memberType) => (
+                          <option key={memberType} value={memberType}>
+                            {memberType}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div>

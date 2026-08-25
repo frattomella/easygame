@@ -122,6 +122,23 @@ Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 | `Asset` | `assets` | File. Unique `(bucket, path)`. `data_base64` = **i binari possono essere salvati nel database**. Vedi [16](16-technical-debt.md). |
 | `AuditLog` | `audit_logs` | Traccia delle operazioni sensibili: `action`, `outcome`, actor, `organization_id`, risorsa, IP, user agent, `metadata` filtrati. Nessuna FK, per sopravvivere alla cancellazione dell'attore. Quattro indici per interrogazione e purge. Vedi [ADR-0019](18-decision-log.md) |
 
+## Dati di riferimento non transazionali
+
+Non tutto cio che EasyGame legge sta nel database. `src/data/` contiene le
+tabelle di riferimento pubbliche, versionate nel repository perche non
+cambiano per club e non devono viaggiare su una query.
+
+| File | Contenuto | Origine |
+|------|-----------|---------|
+| `comuni-istat.json` | 7.896 comuni italiani: denominazione, sigla provincia, codice catastale (Belfiore), nome nell'altra lingua ufficiale dove esiste | Generato da `scripts/build-comuni-dataset.mjs` dall'elenco ISTAT. Vedi [ADR-0032](18-decision-log.md) |
+
+Le 107 province con regione restano dov'erano, in `src/lib/italian-registry.ts`:
+sono un insieme chiuso e piccolo, e servono anche al client.
+
+**Il file non si modifica a mano.** Si rigenera:
+`node scripts/build-comuni-dataset.mjs` (con `--check` verifica soltanto).
+Lo script fallisce senza scrivere se la fonte cambia forma.
+
 ## `club_resource_items`: i 27 tipi
 
 `access_tokens`, `appointments`, `bank_accounts`, `categories`,

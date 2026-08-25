@@ -190,6 +190,80 @@ const validateAthleteAnagrafica = (
 };
 
 /**
+ * Anagrafiche di persona che vivono in `club_resource_items`.
+ *
+ * Allenatori, staff e soci sono persone come gli atleti: hanno un codice
+ * fiscale, una residenza e una provincia, e fino al Blocco 7 nessuno li
+ * validava. Il codice fiscale del club veniva controllato, quello di un socio
+ * no — una disparita senza ragione, non una scelta.
+ *
+ * Le chiavi del payload non hanno schema (vedi 06 — Modello dati): si accetta
+ * ogni forma con cui i form le hanno scritte nel tempo, invece di imporne una
+ * nuova e invalidare l'archivio esistente.
+ */
+const PERSON_RESOURCE_TYPES = new Set(["trainers", "staff_members", "members"]);
+
+const PERSON_LABELS: Record<string, string> = {
+  trainers: "Allenatore",
+  staff_members: "Staff",
+  members: "Socio",
+};
+
+/** Prima chiave valorizzata: i form storici non usano tutti lo stesso nome. */
+const pick = (record: Record<string, any>, keys: string[]) => {
+  for (const key of keys) {
+    const value = record?.[key];
+    if (value !== null && value !== undefined && String(value).trim()) {
+      return value;
+    }
+  }
+  return "";
+};
+
+const FISCAL_CODE_KEYS = ["fiscalCode", "fiscal_code", "codiceFiscale"];
+const POSTAL_CODE_KEYS = ["postalCode", "postal_code", "cap", "zipCode"];
+const PROVINCE_KEYS = ["province", "provincia"];
+const COUNTRY_KEYS = ["country", "paese", "nazione"];
+
+const validatePersonResource = (
+  resource: string,
+  input: Record<string, any>,
+  existing: Record<string, any> | null,
+) => {
+  const payload = asRecord(input.payload);
+  if (!Object.keys(payload).length) return;
+
+  const previous = asRecord(existing?.payload);
+  const label = PERSON_LABELS[resource] || "Anagrafica";
+
+  runCheck({
+    field: "fiscalCode",
+    label,
+    value: pick(payload, FISCAL_CODE_KEYS),
+    previous: pick(previous, FISCAL_CODE_KEYS),
+    kind: "personalFiscalCode",
+  });
+
+  const country = pick(payload, COUNTRY_KEYS) || pick(previous, COUNTRY_KEYS);
+  if (!isItalianCountry(country)) return;
+
+  runCheck({
+    field: "postalCode",
+    label: `${label} — residenza`,
+    value: pick(payload, POSTAL_CODE_KEYS),
+    previous: pick(previous, POSTAL_CODE_KEYS),
+    kind: "postalCode",
+  });
+  runCheck({
+    field: "province",
+    label: `${label} — residenza`,
+    value: pick(payload, PROVINCE_KEYS),
+    previous: pick(previous, PROVINCE_KEYS),
+    kind: "province",
+  });
+};
+
+/**
  * Punto di ingresso unico: chiamato da `resources.ts` su creazione e
  * aggiornamento. Su creazione `existing` e `null` e tutto viene validato.
  */
@@ -205,5 +279,10 @@ export const assertAnagraficaIsValid = (
 
   if (resource === "athletes" || resource === "simplified_athletes") {
     validateAthleteAnagrafica(input, existing);
+    return;
+  }
+
+  if (PERSON_RESOURCE_TYPES.has(resource)) {
+    validatePersonResource(resource, input, existing);
   }
 };

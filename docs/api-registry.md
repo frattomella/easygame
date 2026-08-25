@@ -14,6 +14,8 @@ Fonte ufficiale da mantenere aggiornata:
 ## Endpoint auth
 
 - `GET /api/v1/registry`
+- `GET /api/v1/comuni` — archivio ISTAT dei comuni italiani (sola lettura,
+  non e un dato di club)
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/logout`

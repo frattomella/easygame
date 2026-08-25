@@ -19,6 +19,14 @@ import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { addClubData } from "@/lib/simplified-db";
+import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ArrowLeft, Calendar, Euro, Mail, Phone, Save, User } from "lucide-react";
 
 type TrainerFormState = {
@@ -26,7 +34,19 @@ type TrainerFormState = {
   lastName: string;
   email: string;
   phone: string;
-  birthYear: string;
+  /**
+   * La data intera, non il solo anno.
+   *
+   * Il form chiedeva l'anno di nascita, che non basta a calcolare un codice
+   * fiscale: la scheda dell'allenatore invece la data intera ce l'aveva gia e
+   * la rotta di modifica la degradava ad anno e la ricostruiva come 1° gennaio
+   * (Blocco 7). `birthYear` resta scritto, derivato, per non rompere le
+   * schede esistenti.
+   */
+  birthDate: string;
+  gender: string;
+  birthPlace: string;
+  birthPlaceCode: string;
   fiscalCode: string;
   address: string;
   city: string;
@@ -42,7 +62,10 @@ const initialFormState: TrainerFormState = {
   lastName: "",
   email: "",
   phone: "",
-  birthYear: "",
+  birthDate: "",
+  gender: "",
+  birthPlace: "",
+  birthPlaceCode: "",
   fiscalCode: "",
   address: "",
   city: "",
@@ -191,7 +214,14 @@ function NewTrainerPageContent() {
         surname: lastName,
         email: formData.email.trim().toLowerCase(),
         phone: formData.phone.trim(),
-        birthYear: formData.birthYear ? Number(formData.birthYear) : null,
+        birthDate: formData.birthDate || null,
+        // Derivato: chi legge ancora l'anno lo trova dov'era.
+        birthYear: formData.birthDate
+          ? Number(formData.birthDate.slice(0, 4))
+          : null,
+        gender: formData.gender || null,
+        birthPlace: formData.birthPlace.trim(),
+        birthPlaceCode: formData.birthPlaceCode.trim(),
         fiscalCode: formData.fiscalCode.trim(),
         address: formData.address.trim(),
         city: formData.city.trim(),
@@ -307,30 +337,57 @@ function NewTrainerPageContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="birthYear">Anno di nascita</Label>
+                    <Label htmlFor="birthDate">Data di nascita</Label>
                     <Input
-                      id="birthYear"
-                      type="number"
-                      min="1900"
-                      max={new Date().getFullYear()}
-                      value={formData.birthYear}
+                      id="birthDate"
+                      type="date"
+                      value={formData.birthDate}
                       onChange={(event) =>
-                        handleInputChange("birthYear", event.target.value)
+                        handleInputChange("birthDate", event.target.value)
                       }
-                      placeholder="Es. 1988"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="fiscalCode">Codice fiscale</Label>
-                    <Input
-                      id="fiscalCode"
-                      value={formData.fiscalCode}
-                      onChange={(event) =>
-                        handleInputChange("fiscalCode", event.target.value)
-                      }
-                      placeholder="Es. RSSMRA80A01H501Z"
-                    />
+                    <Label htmlFor="gender">Sesso</Label>
+                    <Select
+                      value={formData.gender}
+                      onValueChange={(value) => handleInputChange("gender", value)}
+                    >
+                      <SelectTrigger id="gender">
+                        <SelectValue placeholder="Seleziona" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="M">Maschio</SelectItem>
+                        <SelectItem value="F">Femmina</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
+                  {/*
+                    Il codice fiscale chiude il blocco anagrafico: da quei
+                    campi si calcola, e il comune di nascita che gli serve sta
+                    dentro il campo stesso.
+                  */}
+                  <AssistedFiscalCodeField
+                    id="fiscalCode"
+                    label="Codice fiscale"
+                    className="md:col-span-2"
+                    value={formData.fiscalCode}
+                    onChange={(value) => handleInputChange("fiscalCode", value)}
+                    person={{
+                      firstName: formData.firstName,
+                      lastName: formData.lastName,
+                      birthDate: formData.birthDate,
+                      gender: formData.gender,
+                    }}
+                    belfioreCode={formData.birthPlaceCode}
+                    onBelfioreCodeChange={(value) =>
+                      handleInputChange("birthPlaceCode", value)
+                    }
+                    birthPlace={formData.birthPlace}
+                    onBirthPlaceChange={(value) =>
+                      handleInputChange("birthPlace", value)
+                    }
+                  />
                 </CardContent>
               </Card>
 

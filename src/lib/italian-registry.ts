@@ -133,7 +133,8 @@ export const ITALIAN_REGIONS = Array.from(
   new Set(ITALIAN_PROVINCES.map((province) => province.region)),
 ).sort((left, right) => left.localeCompare(right, "it"));
 
-const stripDiacritics = (value: string) =>
+/** Senza segni diacritici. Lo riusa `comuni-model.ts`: una definizione sola. */
+export const stripDiacritics = (value: string) =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 const normalizeName = (value: string) =>
