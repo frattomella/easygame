@@ -78,7 +78,30 @@ export const createFakePrisma = (seedByDelegate = {}) => {
   const makeDelegate = (name) => ({
     findMany: async (args = {}) => {
       calls.push({ delegate: name, method: "findMany", args });
-      return rowsOf(name).filter((r) => matchesWhere(r, args.where));
+      let rows = rowsOf(name).filter((r) => matchesWhere(r, args.where));
+
+      // `orderBy`, `skip` e `take` vanno onorati: un doppio che li ignora
+      // farebbe passare una paginazione che non pagina.
+      const orderBy = args.orderBy;
+      if (orderBy && typeof orderBy === "object" && !Array.isArray(orderBy)) {
+        const [field, direction] = Object.entries(orderBy)[0] || [];
+        if (field) {
+          const sign = direction === "desc" ? -1 : 1;
+          rows = [...rows].sort((left, right) => {
+            const a = left[field];
+            const b = right[field];
+            if (a === b) return 0;
+            if (a === undefined || a === null) return 1;
+            if (b === undefined || b === null) return -1;
+            return a > b ? sign : -sign;
+          });
+        }
+      }
+
+      if (Number.isInteger(args.skip)) rows = rows.slice(args.skip);
+      if (Number.isInteger(args.take)) rows = rows.slice(0, args.take);
+
+      return rows;
     },
     findFirst: async (args = {}) => {
       calls.push({ delegate: name, method: "findFirst", args });

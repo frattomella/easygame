@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   RESOURCE_CONFIG,
   createResource,
-  listResource,
+  listResourcePage,
 } from "@/lib/server/resources";
 import {
   requireAuthenticatedUser,
@@ -82,11 +82,22 @@ export async function GET(request: Request, context: Context) {
       });
       throw denied;
     }
-    const data = await listResource(resource, url.searchParams, scope, {
-      activeSeasonId: request.headers.get("x-active-season-id"),
-    });
+    const { records, meta } = await listResourcePage(
+      resource,
+      url.searchParams,
+      scope,
+      { activeSeasonId: request.headers.get("x-active-season-id") },
+    );
 
-    return NextResponse.json({ data, error: null });
+    /*
+      `meta` compare **solo** quando la pagina e stata chiesta (WP-12). Chi
+      legge una lista intera riceve la stessa risposta di sempre: aggiungere
+      un campo a tutte le risposte avrebbe obbligato ogni chiamante a
+      ignorarlo, e prima o poi qualcuno non lo avrebbe ignorato.
+    */
+    return NextResponse.json(
+      meta ? { data: records, meta, error: null } : { data: records, error: null },
+    );
   } catch (error: any) {
     const status = String(error?.message || "").includes("Accesso negato")
       ? 403

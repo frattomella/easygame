@@ -75,6 +75,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "athletes.avatar",
+    method: "GET",
+    path: "/api/v1/athletes/:id/avatar",
+    description:
+      "La foto di un atleta come immagine: la lista riceve un indirizzo, non un base64",
+    mobile_ready: true,
+  },
+  {
     name: "attachments.list",
     method: "GET",
     path: "/api/v1/attachments",

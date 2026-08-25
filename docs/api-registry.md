@@ -16,6 +16,8 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/registry`
 - `GET /api/v1/comuni` — archivio ISTAT dei comuni italiani (sola lettura,
   non e un dato di club)
+- `GET /api/v1/athletes/:id/avatar` — la foto di un atleta come immagine.
+  La lista riceve questo indirizzo al posto del base64
 - `GET|POST /api/v1/attachments` — allegati: elenco dei metadati e
   caricamento (multipart). Il file non passa mai dentro un record JSON
 - `GET|PUT|DELETE /api/v1/attachments/:id` — contenuto di un allegato.

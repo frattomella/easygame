@@ -1,5 +1,12 @@
 import { notifyUnauthorized } from "@/lib/auth/session-sync";
 
+export type ListPageMeta = {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
 export type ApiEnvelope<T> = {
   data: T;
   error: null | {
@@ -8,6 +15,11 @@ export type ApiEnvelope<T> = {
     code?: string;
     [key: string]: any;
   };
+  /**
+   * Presente solo nelle risposte a una lista paginata (WP-12). Chi non chiede
+   * una pagina non lo riceve, e non deve controllarlo.
+   */
+  meta?: ListPageMeta;
 };
 
 type ApiRequestOptions = Omit<RequestInit, "body"> & {
@@ -161,6 +173,7 @@ export async function apiRequest<T = any>(
       error: payload?.error
         ? { ...payload.error, status: response.status }
         : null,
+      ...(payload?.meta ? { meta: payload.meta } : {}),
     };
   } catch (error: any) {
     if (error?.name === "AbortError") {

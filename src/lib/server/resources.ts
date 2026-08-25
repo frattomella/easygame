@@ -1231,6 +1231,140 @@ const buildWhereFromSearchParams = (
   return where;
 };
 
+/**
+ * Campi su cui `?q=` cerca, per risorsa (WP-12).
+ *
+ * E un elenco esplicito per risorsa e non «tutte le colonne di testo»: una
+ * ricerca che guarda anche il codice di accesso o le note interne restituisce
+ * risultati che chi cerca non sa spiegarsi, e su Postgres costa una scansione
+ * in piu per colonna.
+ *
+ * Una risorsa che non e in elenco ignora `?q=`: meglio una ricerca che non
+ * filtra che una che filtra su un campo a caso.
+ */
+const SEARCHABLE_FIELDS: Record<string, string[]> = {
+  athletes: ["first_name", "last_name", "access_code", "jersey_number"],
+  simplified_athletes: ["first_name", "last_name", "access_code", "jersey_number"],
+  users: ["email", "first_name", "last_name"],
+  clubs: ["name", "slug"],
+  organizations: ["name", "slug"],
+  invoices: ["invoice_number"],
+  receipts: ["receipt_number"],
+};
+
+/** Le risorse di club hanno il nome estratto in colonna: si cerca li. */
+const CLUB_RESOURCE_SEARCHABLE_FIELDS = ["name"];
+
+/**
+ * Colonne su cui si puo ordinare, per risorsa.
+ *
+ * Anche questo e un elenco chiuso: `orderBy` arriva dalla query string, e
+ * passarlo a Prisma senza filtrarlo vuol dire lasciare che il client scelga
+ * su cosa il database deve lavorare.
+ */
+const SORTABLE_FIELDS: Record<string, string[]> = {
+  athletes: ["last_name", "first_name", "birth_date", "status", "created_at", "updated_at"],
+  simplified_athletes: ["last_name", "first_name", "birth_date", "status", "created_at", "updated_at"],
+  users: ["email", "last_name", "created_at"],
+  clubs: ["name", "created_at"],
+  organizations: ["name", "created_at"],
+};
+
+const CLUB_RESOURCE_SORTABLE_FIELDS = ["name", "date", "status", "created_at"];
+
+/** Oltre questo una «pagina» non e piu una pagina. */
+const MAX_PAGE_SIZE = 200;
+
+const searchableFieldsFor = (resource: string) =>
+  RESOURCE_CONFIG[resource]?.kind === "club_resource"
+    ? CLUB_RESOURCE_SEARCHABLE_FIELDS
+    : SEARCHABLE_FIELDS[resource] || [];
+
+const sortableFieldsFor = (resource: string) =>
+  RESOURCE_CONFIG[resource]?.kind === "club_resource"
+    ? CLUB_RESOURCE_SORTABLE_FIELDS
+    : SORTABLE_FIELDS[resource] || [];
+
+/**
+ * Il `where` della ricerca testuale.
+ *
+ * `contains` con `insensitive`: chi cerca «rossi» deve trovare «Rossi». Non
+ * e una ricerca full-text e non pretende di esserlo — per un archivio di
+ * qualche migliaio di anagrafiche una `ILIKE` con indice sull'organizzazione
+ * e la cosa giusta, e non richiede di installare niente.
+ */
+const buildSearchFilter = (resource: string, query: string) => {
+  const fields = searchableFieldsFor(resource);
+  const trimmed = query.trim();
+  if (!fields.length || !trimmed) return null;
+
+  /*
+    «Mario Rossi» va cercato come due termini: cognome e nome stanno in due
+    colonne diverse, e una `contains` sulla frase intera non trova mai
+    niente. Ogni termine deve comparire in almeno un campo.
+  */
+  const terms = trimmed.split(/\s+/).filter(Boolean).slice(0, 5);
+
+  return {
+    AND: terms.map((term) => ({
+      OR: fields.map((field) => ({
+        [field]: { contains: term, mode: "insensitive" },
+      })),
+    })),
+  };
+};
+
+/** Ordinamento richiesto, se e uno di quelli ammessi. */
+const buildOrderBy = (resource: string, searchParams: URLSearchParams) => {
+  const requested = String(searchParams.get("order_by") || "").trim();
+  const direction =
+    String(searchParams.get("order") || "asc").trim().toLowerCase() === "desc"
+      ? "desc"
+      : "asc";
+
+  if (requested && sortableFieldsFor(resource).includes(requested)) {
+    return { [requested]: direction };
+  }
+
+  return RESOURCE_CONFIG[resource]?.kind === "club_resource"
+    ? { created_at: "asc" as const }
+    : undefined;
+};
+
+export type ListPagination = {
+  limit: number;
+  offset: number;
+};
+
+/**
+ * La pagina richiesta, oppure `null` per «tutto».
+ *
+ * **Il default resta «tutto»** e non e una svista. Ogni pagina della Web App
+ * legge oggi liste intere, e un default paginato le troncherebbe in silenzio:
+ * una lista di 200 atleti che ne mostra 50 senza dirlo e peggio di una lista
+ * lenta. La paginazione si chiede.
+ */
+const resolvePagination = (
+  searchParams: URLSearchParams,
+): ListPagination | null => {
+  const rawLimit = Number(searchParams.get("limit"));
+  if (!Number.isFinite(rawLimit) || rawLimit <= 0) return null;
+
+  const limit = Math.min(Math.floor(rawLimit), MAX_PAGE_SIZE);
+
+  const rawPage = Number(searchParams.get("page"));
+  const rawOffset = Number(searchParams.get("offset"));
+
+  const offset =
+    Number.isFinite(rawPage) && rawPage > 1
+      ? (Math.floor(rawPage) - 1) * limit
+      : Number.isFinite(rawOffset) && rawOffset > 0
+        ? Math.floor(rawOffset)
+        : 0;
+
+  return { limit, offset };
+};
+
 const getDelegate = (resource: string) => {
   const config = RESOURCE_CONFIG[resource];
   if (!config) {
@@ -1468,24 +1602,62 @@ const ATHLETE_SUMMARY_OMITTED_DATA_KEYS = new Set([
 /** Oltre questa soglia un data URL non e piu un valore, e un file. */
 const SUMMARY_INLINE_FILE_MIN_LENGTH = 1024;
 
-/** L'avatar resta: la lista atleti lo mostra. */
-const SUMMARY_PRESERVED_INLINE_FILE_KEYS = new Set(["avatar", "avatar_url"]);
+/**
+ * Le chiavi che contengono la foto dell'atleta.
+ *
+ * Non vengono tolte come gli altri allegati: vengono **sostituite con un
+ * URL**, perche la lista la foto la mostra davvero (vedi `toAvatarUrl`).
+ */
+const SUMMARY_AVATAR_KEYS = new Set(["avatar", "avatar_url"]);
 
 const isInlineFileValue = (key: string, value: unknown) =>
   typeof value === "string" &&
   value.length >= SUMMARY_INLINE_FILE_MIN_LENGTH &&
   value.startsWith("data:") &&
-  !SUMMARY_PRESERVED_INLINE_FILE_KEYS.has(key);
+  !SUMMARY_AVATAR_KEYS.has(key);
+
+/**
+ * La foto di un atleta, come indirizzo invece che come contenuto.
+ *
+ * **Il numero che ha reso necessaria questa funzione** (Blocco 8, punto E).
+ * Portati gli allegati fuori dai record, la lista di 200 atleti e stata
+ * rimisurata: 23,7 MB, praticamente identica a prima. `view=summary` toglieva
+ * tutti gli allegati tranne l'avatar — 90 kB di base64 a testa, 18 MB per
+ * club, dentro il JSON che il browser deve scaricare **tutto** prima di
+ * disegnare la prima riga.
+ *
+ * Sostituendolo con `/api/v1/athletes/:id/avatar` la stessa lista scende a
+ * poche centinaia di kB, e le foto arrivano in parallelo, in cache, e solo
+ * per le righe che si guardano davvero.
+ *
+ * Un URL gia corto (una foto caricata altrove, o un riferimento ad allegato)
+ * resta com'e: non c'e niente da guadagnare a sostituirlo.
+ */
+const toAvatarUrl = (recordId: string, value: unknown) => {
+  const raw = String(value || "");
+  if (!raw.startsWith("data:")) return value;
+  if (!recordId) return value;
+
+  return `/api/v1/athletes/${encodeURIComponent(recordId)}/avatar`;
+};
 
 const toAthleteSummaryRecord = (record: Record<string, any>) => {
+  const recordId = String(record?.id || "");
+  const avatarUrl = toAvatarUrl(recordId, record?.avatar_url);
+
   const data = record?.data;
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return record;
+    return { ...record, avatar_url: avatarUrl };
   }
 
   const summaryData: Record<string, any> = {};
   for (const [key, value] of Object.entries(data)) {
     if (ATHLETE_SUMMARY_OMITTED_DATA_KEYS.has(key)) {
+      continue;
+    }
+
+    if (SUMMARY_AVATAR_KEYS.has(key)) {
+      summaryData[key] = toAvatarUrl(recordId, value);
       continue;
     }
 
@@ -1496,7 +1668,7 @@ const toAthleteSummaryRecord = (record: Record<string, any>) => {
     summaryData[key] = value;
   }
 
-  return { ...record, data: summaryData };
+  return { ...record, avatar_url: avatarUrl, data: summaryData };
 };
 
 /**
@@ -1846,20 +2018,57 @@ const filterTrainerDashboardRecords = async (
   });
 };
 
-export const listResource = async (
+export type ListResourceResult = {
+  records: Record<string, any>[];
+  /**
+   * Presente **solo** quando la pagina e stata chiesta. Chi non la chiede
+   * riceve tutto, come prima, e non deve interpretare niente di nuovo.
+   */
+  meta: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  } | null;
+};
+
+/**
+ * Lettura di una lista, con paginazione, ricerca e ordinamento opzionali.
+ *
+ * **Perche il filtro non puo stare tutto nel database** (WP-12). Due filtri di
+ * questa applicazione vivono fuori dalle colonne: la **stagione**, che sta
+ * dentro il payload JSON e si applica confrontando la stagione attiva con
+ * quella del record, e il **perimetro dell'allenatore**, che dipende dalle
+ * categorie a lui assegnate. Entrambi si applicano dopo la query.
+ *
+ * Di conseguenza la paginazione e onesta solo quando nessuno dei due e
+ * attivo. Quando lo sono, si legge tutto e si impagina in memoria — e il
+ * `total` resta quello vero, cioe quello dopo i filtri, non quello del
+ * database. Un conteggio che non corrisponde a cio che si vede e un difetto
+ * peggiore di una query in piu.
+ */
+export const listResourcePage = async (
   resource: string,
   searchParams: URLSearchParams,
   scope?: ResourceAccessScope,
   options?: ResourceRequestOptions,
-) => {
+): Promise<ListResourceResult> => {
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
   const where = buildWhereFromSearchParams(resource, searchParams);
 
+  const searchFilter = buildSearchFilter(
+    resource,
+    searchParams.get("q") || searchParams.get("search") || "",
+  );
+  if (searchFilter) {
+    Object.assign(where, searchFilter);
+  }
+
   if (resource === "clubs" || resource === "organizations") {
     if (scope) {
       if (!scope.allowedOrganizationIds.length) {
-        return [];
+        return { records: [], meta: null };
       }
 
       if (typeof where.id === "string") {
@@ -1880,20 +2089,42 @@ export const listResource = async (
   // indipendente e in serie aggiungerebbe un round trip a ogni lista.
   const clubProjection = resolveClubProjection(resource, searchParams);
 
-  const [records, season] = await Promise.all([
-    delegate.findMany({
-      where,
-      ...(clubProjection
-        ? { select: clubProjection }
-        : { include: getModelInclude(resource) }),
-      orderBy:
-        config.kind === "club_resource" ? { created_at: "asc" } : undefined,
-    }),
-    resolveRequestSeason(
-      resource,
-      where.organization_id || scope?.activeOrganizationId,
-      options,
-    ),
+  const pagination = resolvePagination(searchParams);
+  const orderBy = buildOrderBy(resource, searchParams);
+
+  /*
+    La stagione decide se la pagina si puo chiedere al database. Va risolta
+    prima, non in parallelo: sapere che c'e un filtro applicato dopo la query
+    cambia la query stessa.
+  */
+  const season = await resolveRequestSeason(
+    resource,
+    where.organization_id || scope?.activeOrganizationId,
+    options,
+  );
+
+  const hasPostQueryFilters =
+    Boolean(season) ||
+    Boolean(searchParams.get("trainer_scope") || searchParams.get("trainer_id"));
+
+  const canPaginateInDatabase = Boolean(pagination) && !hasPostQueryFilters;
+
+  const findManyArgs: Record<string, any> = {
+    where,
+    ...(clubProjection
+      ? { select: clubProjection }
+      : { include: getModelInclude(resource) }),
+    ...(orderBy ? { orderBy } : {}),
+  };
+
+  if (canPaginateInDatabase && pagination) {
+    findManyArgs.take = pagination.limit;
+    findManyArgs.skip = pagination.offset;
+  }
+
+  const [records, databaseTotal] = await Promise.all([
+    delegate.findMany(findManyArgs),
+    canPaginateInDatabase ? delegate.count({ where }) : Promise.resolve(null),
   ]);
 
   const serializedRecords = records
@@ -1913,7 +2144,68 @@ export const listResource = async (
     scope,
   );
 
-  return applyListView(resource, trainerScopedRecords, searchParams);
+  const viewed = applyListView(resource, trainerScopedRecords, searchParams);
+
+  if (!pagination) {
+    return { records: viewed, meta: null };
+  }
+
+  if (canPaginateInDatabase) {
+    const total = Number(databaseTotal || 0);
+    return {
+      records: viewed,
+      meta: {
+        total,
+        limit: pagination.limit,
+        offset: pagination.offset,
+        hasMore: pagination.offset + viewed.length < total,
+      },
+    };
+  }
+
+  /*
+    Filtri applicati dopo la query: la pagina si ritaglia qui. Costa una
+    lettura intera, ma il `total` e quello vero — e un conteggio che non
+    corrisponde a cio che si vede e il modo piu rapido di far perdere fiducia
+    in un elenco.
+  */
+  const total = viewed.length;
+  const page = viewed.slice(
+    pagination.offset,
+    pagination.offset + pagination.limit,
+  );
+
+  return {
+    records: page,
+    meta: {
+      total,
+      limit: pagination.limit,
+      offset: pagination.offset,
+      hasMore: pagination.offset + page.length < total,
+    },
+  };
+};
+
+/**
+ * La lettura di sempre: l'array e basta.
+ *
+ * Resta la forma usata da tutto cio che non chiede una pagina, perche
+ * cambiare la firma di `listResource` avrebbe voluto dire toccare ogni
+ * chiamante per un valore che a quasi tutti non serve.
+ */
+export const listResource = async (
+  resource: string,
+  searchParams: URLSearchParams,
+  scope?: ResourceAccessScope,
+  options?: ResourceRequestOptions,
+) => {
+  const { records } = await listResourcePage(
+    resource,
+    searchParams,
+    scope,
+    options,
+  );
+  return records;
 };
 
 export const getResourceById = async (

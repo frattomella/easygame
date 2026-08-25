@@ -176,7 +176,16 @@ Se `EASYGAME_PLATFORM_ADMIN_EMAILS` e vuota, chiunque abbia
 `users.role` e una stringa libera senza vincoli. **Tenere sempre valorizzata la
 lista email** negli ambienti condivisi.
 
-### 11. Nessuna paginazione sulle liste — BASSO (disponibilita)
+### 11. Paginazione sulle liste — MITIGATO (2026-08-25, Blocco 8)
+
+Il server sa impaginare, cercare e ordinare (`?limit=`, `?page=`, `?q=`,
+`?order_by=`), con un tetto di 200 righe per pagina che il client non puo
+alzare. La pagina piu pesante — la lista Atleti — e scesa da 23,7 MB a 140 kB
+avendo tolto i binari dalla risposta. Resta che il **default** e ancora la
+lista intera, quindi il rischio non e nullo: e ridotto di due ordini di
+grandezza.
+
+Testo originale, che resta valido per le liste non convertite:
 
 `/api/v1/<resource>` restituisce tutti i record del club. Con club grandi
 diventa un problema di memoria e latenza, non di riservatezza.

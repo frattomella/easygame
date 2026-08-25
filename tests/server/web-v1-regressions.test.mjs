@@ -132,10 +132,16 @@ test("view=summary toglie gli allegati dalla lista atleti", async () => {
     "2027-01-31",
     "i campi che la lista mostra devono restare",
   );
+  /*
+    L'avatar resta — la lista lo mostra — ma dal Blocco 8 come **indirizzo**
+    e non come contenuto. Con il base64 dentro, la lista di 200 atleti
+    pesava 23,7 MB anche dopo aver tolto tutti gli altri allegati: era
+    l'ultimo binario rimasto nella risposta.
+  */
   assert.equal(
     atleta.data.avatar,
-    "data:image/png;base64,AAAA",
-    "l'avatar resta: la lista lo mostra",
+    `/api/v1/athletes/${ATHLETE}/avatar`,
+    "l'avatar resta, servito come immagine invece che incollato nel JSON",
   );
 
   for (const chiave of [

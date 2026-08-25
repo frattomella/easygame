@@ -51,12 +51,32 @@ cancellata o rimettere attiva l'annata precedente.
 
 → WP-11 (chiuso), WP-32 (chiuso), WP-35 (chiuso)
 
-### D4 — Nessuna paginazione, ordinamento o ricerca server-side
+### D4 — Paginazione, ordinamento e ricerca server-side — **DISPONIBILI** (2026-08-25, Blocco 8)
 
-`buildWhereFromSearchParams` supporta 13 campi in uguaglianza esatta e basta.
-Le liste tornano complete.
+Il server sa fare tutto: `?limit=`, `?page=` / `?offset=`, `?q=`,
+`?order_by=` + `?order=`, piu i filtri per uguaglianza gia esistenti. La
+risposta porta un `meta` con `total`, `limit`, `offset` e `hasMore`.
 
-→ WP-12
+Tre scelte che vale la pena conoscere prima di usarlo:
+
+- **il default e ancora «tutto».** Senza `limit` non cambia niente e non c'e
+  `meta`. Un default paginato avrebbe troncato in silenzio ogni lista della
+  Web App;
+- **i campi cercabili e ordinabili sono elenchi chiusi per risorsa.** `orderBy`
+  arriva dalla query string: passarlo a Prisma senza filtrarlo vuol dire
+  lasciare che il client scelga su cosa lavora il database;
+- **con il filtro stagione o quello allenatore attivi la pagina si taglia in
+  memoria**, non con `take`/`skip`. Quei due filtri vivono dentro il payload
+  JSON e non sono esprimibili in un `where`: chiedendo la pagina al database
+  si otterrebbe una pagina mezza vuota e un `total` che non corrisponde a cio
+  che si vede.
+
+**Resta aperto: la lista Atleti non la usa ancora.** La pagina raggruppa per
+categoria, conta per stato, esporta e seleziona in blocco su tutto
+l'archivio: consumarla a pagine e una scelta di interfaccia, non una modifica
+meccanica. Vedi il punto corrispondente in [21 — Backlog](21-backlog.md).
+
+→ WP-12 (server fatto, interfaccia da decidere)
 
 ### D5 — Copertura test — MOLTO MIGLIORATO (2026-08-22)
 
@@ -187,9 +207,13 @@ una riga di configurazione.
 - **i data URL legacy gia in archivio.** Continuano a funzionare e migrano
   quando qualcuno li tocca. Non esiste, e non deve esistere, un comando che
   riscriva l'archivio in blocco;
-- **gli avatar.** Sono il residuo principale del payload della lista atleti e
-  non passano ancora dal servizio: l'avatar viaggia `view=summary` compreso,
-  perche la lista lo mostra;
+- ~~**gli avatar**~~ — **chiuso il 2026-08-25**. Erano il residuo principale, e
+  misurandolo si e visto quanto: la lista di 200 atleti pesava **23,7 MB**
+  anche dopo aver tolto tutti gli altri allegati, perche `view=summary`
+  conservava l'avatar in base64. Ora la lista riceve
+  `/api/v1/athletes/:id/avatar` e le foto arrivano come immagini, in
+  parallelo e in cache: **23,7 MB → 140 kB** (99,4%), 35 kB con una pagina da
+  50. La misura si rifa con `scripts/measure-athletes-payload.mjs`;
 - **la tabella `assets`**, ancora usata da logo di club e immagini dei form.
 
 → WP-15 (chiuso per gli allegati di persona), resta aperto per avatar e `assets`
