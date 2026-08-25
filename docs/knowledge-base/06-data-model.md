@@ -100,7 +100,7 @@ Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 | Modello | Tabella | Note |
 |---------|---------|------|
 | `Athlete` | `athletes` | `organization_id`, `user_id?` (collegamento all'account), `category_id`/`category_name` denormalizzati, `data` JSON per il resto |
-| `AthleteCategoryMembership` | `athlete_category_memberships` | Multi-categoria per atleta. Unique `(organization_id, athlete_id, category_id)`, flag `is_primary` |
+| `AthleteCategoryMembership` | `athlete_category_memberships` | Multi-categoria per atleta. Unique `(organization_id, athlete_id, category_id)`, flag `is_primary`, `site_id?` (sede in cui l'atleta svolge **quella** categoria, [ADR-0036](18-decision-log.md)) |
 | `MedicalCertificate` | `medical_certificates` | `issue_date`, `expiry_date`, `status` |
 | `TrainingAttendance` | `training_attendance` | Presenze. `training_id` e `athlete_id` sono **stringhe non vincolate** (no FK), perche gli allenamenti vivono in `club_resource_items` |
 
@@ -142,10 +142,11 @@ sono un insieme chiuso e piccolo, e servono anche al client.
 `node scripts/build-comuni-dataset.mjs` (con `--check` verifica soltanto).
 Lo script fallisce senza scrivere se la fonte cambia forma.
 
-## `club_resource_items`: i 27 tipi
+## `club_resource_items`: i 29 tipi
 
 `access_tokens`, `appointments`, `bank_accounts`, `categories`,
-`clothing_inventory`, `clothing_kits`, `clothing_products`, `discounts`,
+`category_groups`, `clothing_inventory`, `clothing_kits`, `clothing_products`,
+`club_sites`, `discounts`,
 `document_templates`, `expected_expenses`, `expected_income`,
 `jersey_assignments`, `jersey_groups`, `kit_assignments`, `matches`, `members`,
 `opening_hours`, `payment_plans`, `procure`, `secretariat_notes`,
@@ -163,6 +164,8 @@ da moduli applicativi e vanno trattati come parte del contratto:
 |---|---|---|
 | `categories` | `compatibleCategoryIds: string[]` | categorie in cui gli atleti di questa categoria possono essere utilizzati. Esplicito, orientato, **non transitivo** ([ADR-0030](18-decision-log.md)). Letto da `src/lib/category-compatibility.ts`. |
 | `jersey_groups` | `includeCompatibleCategories: boolean` | se il gruppo numerazione accoglie anche gli atleti eleggibili per compatibilita. Default `false`. |
+| `club_sites` | `id`, `name`, `city`, `active` | sedi operative del club. Con meno di due sedi attive il club **non** e multi-sede e l'interfaccia non mostra il concetto ([ADR-0036](18-decision-log.md)). Letto da `src/lib/club-sites.ts`. |
+| `category_groups` | `categoryId`, `siteId`, `structureId?` | gruppo operativo: la coppia (categoria, sede). Non duplica la categoria, la colloca. Una categoria senza gruppi ne riceve uno **implicito** in lettura. |
 
 L'eleggibilita per compatibilita **non e persistita**: si calcola a ogni
 lettura. Le appartenenze reali restano in `athlete_category_memberships`, che
@@ -227,7 +230,7 @@ applicativo**.
 
 ## Migrazioni
 
-9 migrazioni in `prisma/migrations/`:
+10 migrazioni in `prisma/migrations/`:
 
 | Migrazione | Contenuto |
 |------------|-----------|
@@ -240,6 +243,7 @@ applicativo**.
 | `20260822180000_audit_log` | `audit_logs` |
 | `20260823090000_imap_provider_config` | `imap_provider_configs` |
 | `20260825120000_attachments` | `attachments` + `attachment_blobs` (WP-15). **Additiva**: non legge e non riscrive nessun dato esistente |
+| `20260826090000_multisite` | `clubs.club_sites`, `clubs.category_groups`, `athlete_category_memberships.site_id` ([ADR-0036](18-decision-log.md)). **Additiva**: tutte le colonne nascono `NULL` e `NULL` significa «sede non dichiarata», cioe visibile ovunque |
 
 Stato verificato su Neon staging il 2026-08-22:
 `npx prisma migrate status` → **Database schema is up to date**. La settima

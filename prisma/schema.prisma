@@ -207,6 +207,12 @@ model Club {
   kit_assignments              Json?
   jersey_groups                Json?
   jersey_assignments           Json?
+  /// Sedi operative del club (ADR-0036). Vuoto o con una sola voce = club
+  /// mono-sede: l'interfaccia non mostra nessun filtro sede.
+  club_sites                   Json?
+  /// Gruppi operativi: la coppia (categoria, sede). Non duplicano la
+  /// categoria, la collocano.
+  category_groups              Json?
   dashboard_data               Json?
   created_at                   DateTime                    @default(now())
   updated_at                   DateTime                    @updatedAt
@@ -488,6 +494,9 @@ model AthleteCategoryMembership {
   category_id     String
   category_name   String?
   is_primary      Boolean  @default(false)
+  /// Sede in cui l'atleta svolge questa categoria (ADR-0036). `null` sul dato
+  /// precedente alle sedi e su ogni club mono-sede.
+  site_id         String?
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
@@ -497,6 +506,7 @@ model AthleteCategoryMembership {
   @@index([organization_id])
   @@index([athlete_id])
   @@index([organization_id, athlete_id, is_primary])
+  @@index([organization_id, site_id])
   @@map("athlete_category_memberships")
 }
 

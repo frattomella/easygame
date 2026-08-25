@@ -386,6 +386,9 @@ const addEventDerivedCategory = (
     categoryId: identity.id,
     categoryName: identity.name,
     isPrimary: false,
+    // La categoria dedotta da un evento non porta una sede: la sede sta
+    // sull'appartenenza dell'atleta, non sulla partecipazione.
+    siteId: "",
     source: "data",
   };
 

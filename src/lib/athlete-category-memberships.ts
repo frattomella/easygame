@@ -5,6 +5,13 @@ export type AthleteCategoryMembership = {
   categoryId: string;
   categoryName: string;
   isPrimary: boolean;
+  /**
+   * Sede in cui l'atleta svolge **questa** categoria. Vuota su un club
+   * mono-sede e su tutto il dato precedente alle sedi: la stessa categoria in
+   * due sedi resta una categoria sola, e cio che cambia e questo campo.
+   * Vedi `@/lib/club-sites`.
+   */
+  siteId: string;
   source: "membership" | "data" | "legacy";
 };
 
@@ -94,6 +101,7 @@ const toMembership = (
       categoryId: identity.categoryId,
       categoryName: identity.categoryName,
       isPrimary: primaryHint,
+      siteId: "",
       source,
     };
   }
@@ -130,6 +138,7 @@ const toMembership = (
         value.isPrimaryCategory ??
         primaryHint,
     ),
+    siteId: firstNonEmptyString(value.site_id, value.siteId, value.sede_id),
     source,
   };
 };
@@ -214,6 +223,7 @@ const dedupeMemberships = (memberships: AthleteCategoryMembership[]) => {
       organizationId: existing.organizationId || membership.organizationId,
       athleteId: existing.athleteId || membership.athleteId,
       isPrimary: existing.isPrimary || membership.isPrimary,
+      siteId: existing.siteId || membership.siteId,
       source: existing.source === "legacy" ? membership.source : existing.source,
     });
   });
@@ -302,6 +312,7 @@ export const normalizeAthleteCategoryMemberships = (
           athlete.category ??
           data.category,
         is_primary: true,
+        site_id: athlete.site_id ?? athlete.siteId ?? data.site_id ?? data.siteId,
         athlete_id: athlete.id,
         organization_id: athlete.organization_id || athlete.club_id,
       },

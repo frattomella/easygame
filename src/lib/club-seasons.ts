@@ -14,6 +14,10 @@ const FALLBACK_DATE = new Date();
 
 export const SEASON_SCOPED_DATA_TYPES = new Set([
   "categories",
+  // I gruppi operativi seguono le categorie: sono la coppia (categoria, sede)
+  // e una categoria appartiene a una stagione. Le **sedi** invece no: un
+  // impianto a Roma resta a Roma anche l'anno dopo (ADR-0036).
+  "category_groups",
   "discounts",
   "expected_expenses",
   "expected_income",
@@ -458,6 +462,12 @@ export const SEASON_ROLLOVER_TYPES: SeasonRolloverTypeDescriptor[] = [
     defaultSelected: true,
   },
   {
+    key: "category_groups",
+    label: "Gruppi operativi",
+    description: "Abbinamento fra categoria e sede, con l'impianto abituale",
+    defaultSelected: true,
+  },
+  {
     key: "jersey_groups",
     label: "Gruppi numerazione",
     description: "Raggruppamenti per l'assegnazione dei numeri di maglia",
@@ -505,6 +515,7 @@ export const SEASON_GLOBAL_DATA_TYPES = [
   { key: "trainers", label: "Allenatori e staff" },
   { key: "athletes", label: "Atleti" },
   { key: "sponsors", label: "Sponsor" },
+  { key: "club_sites", label: "Sedi" },
   { key: "structures", label: "Strutture" },
   { key: "clothing_products", label: "Magazzino abbigliamento" },
   { key: "document_templates", label: "Modulistica" },

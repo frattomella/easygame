@@ -1139,3 +1139,79 @@ su `GET /api/v1/comuni`. Nessun form cambia.
 cerca per nome — che e la direzione che l'archivio ISTAT copre davvero.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0036 — La sede e un concetto separato dalla categoria, e il gruppo operativo e la loro coppia
+
+**Data:** 2026-08-26 · **Contesto:** Web V1, Workstream B · voce di backlog P-01
+
+**Problema.** Lo stesso club svolge la **stessa** categoria in luoghi diversi:
+i Pulcini si allenano a Roma e ad Aprilia. L'unico modo di dirlo era duplicare
+la categoria — `Pulcini - Roma`, `Pulcini - Aprilia` — e con la categoria si
+duplica tutto quello che le sta attaccato:
+
+- due fasce di anni di nascita da tenere allineate a mano;
+- due configurazioni di compatibilita ([ADR-0030](#adr-0030--la-compatibilita-fra-categorie-e-configurata-non-dedotta)),
+  che vanno scritte due volte e in due direzioni;
+- due righe in ogni elenco che ragiona per categoria, comprese quelle dove la
+  sede non c'entra niente (magazzino, quote, certificati);
+- un atleta che «cambia categoria» quando in realta ha solo cambiato citta,
+  perdendo la continuita della sua appartenenza.
+
+**Decisione.** Quattro concetti distinti, ognuno con una domanda sola.
+
+| Concetto | Domanda a cui risponde | Dove vive |
+|---|---|---|
+| **Categoria** | in che fascia gioca? | `categories` — **invariata** |
+| **Sede** | in che citta opera il club? | `clubs.club_sites` |
+| **Struttura** | in che impianto? | `structures[].siteId` |
+| **Gruppo operativo** | quale squadra concreta? | `clubs.category_groups` |
+
+Il gruppo operativo e la coppia **(categoria, sede)**: `Pulcini` a `Roma`, che
+si mostra `Pulcini · Roma`. Non e una categoria, non ne crea una e non ne
+eredita nessuna proprieta: la categoria resta una sola, con una sola fascia
+d'anno e una sola compatibilita.
+
+La sede dell'atleta sta sull'**appartenenza**, non sull'anagrafica
+(`athlete_category_memberships.site_id`): e la risposta esatta alla domanda
+«dove svolge *questa* categoria», e permette a un atleta di essere Pulcino a
+Roma e fuori quota ad Aprilia senza che le due cose si contraddicano.
+
+**Tre proprieta volute.**
+
+1. **Niente deduzione dal nome.** Una sede non si riconosce dal suffisso di
+   una categoria. `Pulcini - Scauri` resta una categoria che si chiama cosi:
+   il collegamento a una sede esiste **solo** se qualcuno lo configura. E la
+   stessa scelta di ADR-0030 e per la stessa ragione — i nomi reali non sono
+   parsabili, e sbagliare a parsarli significa spostare atleti.
+2. **Il club mono-sede non paga niente.** Con meno di due sedi attive
+   `isMultiSiteClub` e falsa: i gruppi restano **impliciti** (uno per
+   categoria, con l'etichetta della categoria) e nessuna interfaccia mostra un
+   filtro sede. Chi non ha il problema non vede la soluzione.
+3. **Il dato storico non sparisce.** Sede vuota su un record significa «sede
+   non dichiarata», **non** «nessuna sede»: il record resta visibile con
+   qualunque filtro sede. E l'invariante che rende la migrazione sicura, ed e
+   verificata dai test — nessun atleta, nessuna struttura e nessun gruppo puo
+   uscire da un elenco perche le sedi sono state introdotte.
+
+**Alternative scartate.**
+
+- *Categoria con campo sede.* Rende la categoria non unica: `Pulcini` a Roma e
+  `Pulcini` ad Aprilia diventano due categorie con lo stesso nome, e ogni
+  elenco per categoria le mostra entrambe. E la duplicazione di prima, con un
+  campo in piu.
+- *Sede sull'anagrafica dell'atleta.* Un atleta che partecipa a due gruppi in
+  due sedi non e rappresentabile, e la sede diventa un attributo della persona
+  invece che dell'attivita.
+- *Sede dedotta dalla struttura dell'allenamento.* Funziona finche un gruppo
+  si allena sempre nello stesso impianto. Il primo allenamento in trasferta lo
+  sposta di sede.
+
+**Cosa e stagionale e cosa no.** `category_groups` segue le categorie: e
+stagionale e riportabile fra stagioni. `club_sites` **no**: un impianto a Roma
+resta a Roma anche l'anno dopo, e duplicarlo a ogni stagione moltiplicherebbe
+le sedi. Vedi `SEASON_SCOPED_DATA_TYPES` e `SEASON_GLOBAL_DATA_TYPES` in
+`src/lib/club-seasons.ts`.
+
+**Stato:** ATTIVA.
