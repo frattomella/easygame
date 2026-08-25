@@ -92,6 +92,28 @@ import {
 } from "@/lib/medical-certificates";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
 import { uploadAttachmentReference } from "@/lib/api/attachments";
+import {
+  PARENT_TOKEN_EXPIRY_HOURS,
+  createParentAccessToken,
+  formatParentAccessToken,
+  getGuardianAccessStatus,
+  getGuardianDisplayName,
+  getGuardianTokenTiming,
+  normalizeGuardianRows,
+} from "@/lib/athlete-guardians";
+import {
+  buildAthleteKitBuilderComponents,
+  calculateAgeFromBirthDate,
+  coerceBooleanField,
+  createEmptyAttachment,
+  createEmptyMedicalVisit,
+  createEmptyRegistration,
+  getTodayDateString,
+  normalizeClubFederations,
+} from "@/lib/athlete-profile-fields";
+import { AthleteProfileHeader } from "@/components/athletes/profile/athlete-profile-header";
+import { AthleteProfileTabsBar } from "@/components/athletes/profile/athlete-profile-tabs";
+import { resolveAthleteProfileTab } from "@/lib/athlete-profile-tabs";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
 import {
@@ -193,254 +215,6 @@ const EMPTY_ATHLETE_CATEGORY_ANALYTICS: AthleteCategoryAnalyticsResult = {
   unclassifiedEvents: [],
 };
 
-const createEmptyMedicalVisit = () => ({
-  title: "",
-  description: "",
-  type: "Agonistica",
-  paidBy: "atleta",
-  location: "",
-  date: "",
-  outcome: "",
-  file: null as File | null,
-});
-
-const createEmptyRegistration = () => ({
-  federation: "",
-  number: "",
-  status: "In corso",
-  issueDate: "",
-  expiryDate: "",
-  notes: "",
-  file: null as File | null,
-});
-
-const createEmptyAttachment = () => ({
-  name: "",
-  type: "",
-  notes: "",
-  file: null as File | null,
-});
-
-const normalizeClubFederations = (clubData: any): string[] => {
-  const rawFederations = Array.isArray(clubData?.federations)
-    ? clubData.federations
-    : Array.isArray(clubData?.settings?.federations)
-      ? clubData.settings.federations
-      : [];
-
-  const names: string[] = rawFederations
-    .map((federation: any) =>
-      typeof federation === "string"
-        ? federation
-        : federation?.name || federation?.title || "",
-    )
-    .map((name: string) => String(name || "").trim())
-    .filter(Boolean);
-
-  return Array.from(new Set<string>(names));
-};
-
-const calculateAgeFromBirthDate = (birthDate?: string) => {
-  if (!birthDate) {
-    return 0;
-  }
-
-  const today = new Date();
-  const birth = new Date(birthDate);
-  let age = today.getFullYear() - birth.getFullYear();
-  const monthDiff = today.getMonth() - birth.getMonth();
-
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age -= 1;
-  }
-
-  return age;
-};
-
-const coerceBooleanField = (value: unknown) => {
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-
-  if (!normalized) {
-    return false;
-  }
-
-  return ["true", "1", "yes", "si", "sì", "active", "enabled"].includes(
-    normalized,
-  );
-};
-
-const getTodayDateString = () => new Date().toISOString().slice(0, 10);
-
-const PARENT_TOKEN_EXPIRY_HOURS = 72;
-
-const createParentAccessToken = () => {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const randomValues = new Uint32Array(9);
-
-  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
-    window.crypto.getRandomValues(randomValues);
-  } else {
-    for (let index = 0; index < randomValues.length; index += 1) {
-      randomValues[index] = Math.floor(Math.random() * alphabet.length);
-    }
-  }
-
-  return `PAR${Array.from(
-    randomValues,
-    (value) => alphabet[value % alphabet.length],
-  ).join("")}`;
-};
-
-const formatParentAccessToken = (value?: string | null) => {
-  const normalized = String(value || "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "")
-    .replace(/-/g, "");
-
-  if (!normalized) {
-    return "-";
-  }
-
-  return normalized.match(/.{1,4}/g)?.join("-") || normalized;
-};
-
-const getGuardianDisplayName = (guardian: any) =>
-  [guardian?.name, guardian?.surname].filter(Boolean).join(" ").trim() ||
-  guardian?.email ||
-  "Genitore/Tutore";
-
-const normalizeGuardianRows = (items: any[]) =>
-  items.map((guardian, index) => ({
-    ...guardian,
-    id:
-      guardian?.id ||
-      `guardian-${index}-${String(
-        guardian?.email || guardian?.phone || guardian?.name || Date.now(),
-      )
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")}`,
-  }));
-
-const getGuardianAccessStatus = (guardian: any) => {
-  const linkedUserId = String(
-    guardian?.linkedUserId || guardian?.linked_user_id || "",
-  ).trim();
-  const status = String(
-    guardian?.parentAccessTokenStatus ||
-      guardian?.parent_access_token_status ||
-      guardian?.accessTokenStatus ||
-      "",
-  )
-    .trim()
-    .toLowerCase();
-  const expiresAtRaw =
-    guardian?.parentAccessTokenExpiresAt ||
-    guardian?.parent_access_token_expires_at ||
-    guardian?.accessTokenExpiresAt ||
-    null;
-  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null;
-  const isExpired = Boolean(
-    expiresAt &&
-      !Number.isNaN(expiresAt.getTime()) &&
-      expiresAt.getTime() < Date.now(),
-  );
-
-  if (linkedUserId) {
-    return {
-      label: "Account collegato",
-      className:
-        "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
-    };
-  }
-
-  if (status === "revoked" || status === "disconnected") {
-    return {
-      label: "Account non collegato",
-      className:
-        "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
-    };
-  }
-
-  if ((status === "expired" || isExpired) && expiresAtRaw) {
-    return {
-      label: "Token scaduto",
-      className:
-        "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
-    };
-  }
-
-  if (
-    guardian?.parentAccessTokenValue ||
-    guardian?.parent_access_token_value ||
-    guardian?.accessTokenValue
-  ) {
-    return {
-      label: "Token attivo",
-      className: "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
-    };
-  }
-
-  return {
-    label: "Account non collegato",
-    className:
-      "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
-  };
-};
-
-const getGuardianTokenTiming = (guardian: any, nowMs: number) => {
-  const expiresAtRaw =
-    guardian?.parentAccessTokenExpiresAt ||
-    guardian?.parent_access_token_expires_at ||
-    guardian?.accessTokenExpiresAt ||
-    null;
-  const generatedAtRaw =
-    guardian?.parentAccessTokenGeneratedAt ||
-    guardian?.parent_access_token_generated_at ||
-    guardian?.accessTokenGeneratedAt ||
-    null;
-  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw).getTime() : 0;
-  const generatedAt = generatedAtRaw ? new Date(generatedAtRaw).getTime() : 0;
-
-  if (!expiresAt || Number.isNaN(expiresAt)) {
-    return {
-      label: "Scadenza non disponibile",
-      progress: 0,
-      isExpired: false,
-    };
-  }
-
-  const remainingMs = Math.max(expiresAt - nowMs, 0);
-  const totalMs =
-    generatedAt && !Number.isNaN(generatedAt)
-      ? Math.max(expiresAt - generatedAt, 1)
-      : PARENT_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000;
-  const hours = Math.floor(remainingMs / (60 * 60 * 1000));
-  const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
-
-  return {
-    label:
-      remainingMs > 0 ? `${hours}h ${minutes}m rimanenti` : "Token scaduto",
-    progress: Math.max(0, Math.min(100, (remainingMs / totalMs) * 100)),
-    isExpired: remainingMs <= 0,
-  };
-};
-
-const buildAthleteKitBuilderComponents = (components: any[]): KitComponent[] =>
-  normalizeKitComponents(components).map((componentName, index) => ({
-    id: `athlete-kit-component-${index}-${componentName.replace(/\s+/g, "-").toLowerCase()}`,
-    name: componentName,
-    selected: true,
-    deliveryStatus: "pending" as const,
-  }));
-
 export default function AthleteProfilePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -449,19 +223,7 @@ export default function AthleteProfilePage() {
   const athleteId = params?.id as string;
   const clubId = searchParams?.get("clubId");
   const requestedTab = searchParams?.get("tab");
-  const initialTab =
-    requestedTab &&
-    [
-      "generale",
-      "contatti",
-      "sanitari",
-      "pagamenti",
-      "abbigliamento",
-      "documenti",
-      "analitiche",
-    ].includes(requestedTab)
-      ? requestedTab
-      : "generale";
+  const initialTab = resolveAthleteProfileTab(requestedTab);
   const [isLoading, setIsLoading] = useState(true);
   const [athlete, setAthlete] = useState<any>(null);
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
@@ -3610,101 +3372,18 @@ export default function AthleteProfilePage() {
         <Header title="Profilo Atleta" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer className="max-w-7xl">
-            {/* Header with avatar and actions */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div className="flex items-center gap-4">
-                <AvatarUpload
-                  currentImage={athlete.avatar}
-                  onImageChange={handleAvatarChange}
-                  name={`${athlete.name} ${athlete.surname || ""}`}
-                  size="xl"
-                  shape="square"
-                  type="athlete"
-                />
-                <div>
-                  <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">
-                    {athlete.name} {athlete.surname}
-                  </h1>
-                  <div className="flex flex-wrap items-center gap-2 mt-1">
-                    {athleteCategoryMemberships.map((membership) => (
-                      <Badge
-                        key={`athlete-header-category-${membership.categoryId}`}
-                        className={
-                          membership.isPrimary
-                            ? "bg-blue-500 text-white"
-                            : "border border-sky-200 bg-sky-50 text-sky-700"
-                        }
-                      >
-                        {membership.categoryName}
-                        {membership.isPrimary ? " • Primaria" : " • Secondaria"}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2 w-full md:w-auto">
-                <Button
-                  variant="outline"
-                  className="flex-1 md:flex-none"
-                  onClick={() => setShowDocumentScannerModal(true)}
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Scansiona documento
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 md:flex-none"
-                  onClick={handleShareCredentials}
-                >
-                  <Share2 className="h-4 w-4 mr-2" />
-                  Invia Credenziali
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="flex-1 md:flex-none"
-                  onClick={handleDeleteAthlete}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Elimina
-                </Button>
-              </div>
-            </div>
+            <AthleteProfileHeader
+              athlete={athlete}
+              categories={athleteCategoryMemberships}
+              onAvatarChange={handleAvatarChange}
+              onScanDocument={() => setShowDocumentScannerModal(true)}
+              onShareCredentials={handleShareCredentials}
+              onDelete={handleDeleteAthlete}
+            />
 
             {/* Tabs */}
             <Tabs defaultValue={initialTab} className="min-w-0">
-              <div className="-mx-4 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-              <TabsList className="inline-flex h-auto min-w-max flex-nowrap items-stretch gap-1 rounded-xl bg-muted/80 p-1">
-                <TabsTrigger value="generale" className="shrink-0 gap-2 whitespace-nowrap">
-                  <User className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Generale</span>
-                </TabsTrigger>
-                <TabsTrigger value="contatti" className="shrink-0 gap-2 whitespace-nowrap">
-                  <Phone className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Contatti</span>
-                </TabsTrigger>
-                <TabsTrigger value="sanitari" className="shrink-0 gap-2 whitespace-nowrap">
-                  <Heart className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Dati Sanitari</span>
-                </TabsTrigger>
-                <TabsTrigger value="pagamenti" className="shrink-0 gap-2 whitespace-nowrap">
-                  <DollarSign className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Iscrizione</span>
-                </TabsTrigger>
-                <TabsTrigger value="abbigliamento" className="shrink-0 gap-2 whitespace-nowrap">
-                  <Shirt className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Abbigliamento</span>
-                </TabsTrigger>
-
-                <TabsTrigger value="documenti" className="shrink-0 gap-2 whitespace-nowrap">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Documenti
-                </TabsTrigger>
-                <TabsTrigger value="analitiche" className="shrink-0 gap-2 whitespace-nowrap">
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Analitiche
-                </TabsTrigger>
-              </TabsList>
-              </div>
+              <AthleteProfileTabsBar />
 
               {/* GENERALE TAB */}
               <TabsContent value="generale" className="mt-4 space-y-6">

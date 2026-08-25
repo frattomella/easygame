@@ -157,7 +157,37 @@ Elenco completo e classificazione in [cleanup-report](cleanup-report.md).
 
 → WP-18
 
-### D10 — Pagine monolitiche
+### D10 — Pagine monolitiche — **SCOMPOSIZIONE COMINCIATA** (2026-08-25, Blocco 8)
+
+`athletes/[id]/page.tsx` e passata da **8.751 a 8.429 righe**. Non e un
+risultato: e un inizio, ed e dichiarato come tale.
+
+Cosa e uscito, e perche proprio quello:
+
+| Estratto | Dove | Perche per primo |
+|----------|------|------------------|
+| Genitori e tutori: stato dell'accesso, scadenza del token, nomi, id stabili | `src/lib/athlete-guardians.ts` | E dominio puro, e non era verificato da niente. 13 test ora lo esercitano |
+| Stati iniziali dei form, eta compiuta, booleani, federazioni, kit | `src/lib/athlete-profile-fields.ts` | Funzioni pure che stavano dentro un componente solo perche le si era scritte li |
+| Le sette sezioni e la loro risoluzione da `?tab=` | `src/lib/athlete-profile-tabs.ts` | E la struttura della pagina: era a riga 3.445 di ottomila |
+| Intestazione (foto, nome, categorie, azioni) | `src/components/athletes/profile/athlete-profile-header.tsx` | E la parte che **non dipende da nient'altro** |
+| Barra delle sezioni | `src/components/athletes/profile/athlete-profile-tabs.tsx` | Idem |
+
+**La regola di lavoro**, piu importante del numero: un test verifica che il
+file **non superi le 8.500 righe**. Chi aggiunge una funzione alla scheda
+atleta e sfora deve prima portare fuori una sezione. E il modo in cui una
+scomposizione incrementale non si ferma al primo giro.
+
+**Cosa resta dentro:** i sette pannelli (`TabsContent`), i venti dialoghi e i
+circa novanta `useState`. Ogni pannello dipende da decine di variabili di
+stato dichiarate in cima: estrarne uno vuol dire prima raggruppare quello
+stato in un hook, ed e il prossimo passo, non un dettaglio di questo.
+
+**Nota su cio che il refactor non ha fatto**, deliberatamente: nessun
+cambiamento di comportamento, nessuna classe CSS toccata, nessun testo
+riscritto. Un refactor che ne approfitta per sistemare anche la grafica non e
+piu verificabile.
+
+### D10bis — Le altre pagine monolitiche
 
 `athletes/[id]/page.tsx` ≈ 340 KB, `clothing/page.tsx` ≈ 176 KB,
 `registration-management/page.tsx` ≈ 150 KB. Contengono markup, stato e logica
