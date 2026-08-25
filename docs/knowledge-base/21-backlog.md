@@ -34,10 +34,10 @@ succede.
 |-------|------|
 | `DONE` | 143 |
 | `IN PROGRESS` | 15 |
-| `OPEN` | 27 |
+| `OPEN` | 28 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **195** |
+| **Totale** | **196** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -273,31 +273,48 @@ e [ADR-0040](18-decision-log.md#adr-0040--una-compilazione-cita-una-versione-imm
 | B9-14 | Documenti generati dai form collegati alla scheda | `DONE` | Blocco 9 — allegati del servizio del Blocco 8, ricollegati ai documenti di iscrizione all'approvazione |
 | B9-15 | Ripulire `clubs.document_templates` dai residui dei moduli V1 | `OPEN` | Il travaso e una copia, non uno spostamento: cancellare il dato di partenza e una decisione di chi lo possiede |
 | B9-16 | Eseguire il travaso sugli ambienti | `OPEN` | `scripts/migrate-forms-v2.mjs` esiste ed e idempotente. Richiede autorizzazione esplicita: non e stato eseguito |
-| B9-17 | Logica condizionale fra campi (mostra B se A vale X) | `OPEN` | Fuori scope dichiarato di WP-47: aggiunge un modello di dipendenze al modulo, e va disegnato a parte |
+| B9-17 | Logica condizionale fra campi (mostra B se A vale X) | `OPEN` | Fuori scope dichiarato di WP-50: aggiunge un modello di dipendenze al modulo, e va disegnato a parte |
+| B9-18 | La sede di un atleta creato da un modulo online | `OPEN` | Emerso nell'integrazione: il dominio dei moduli non conosce le sedi (ADR-0038), quindi un atleta approvato da una compilazione nasce con `site_id` nullo. Non si rompe niente — `null` significa «non dichiarata» e resta visibile a ogni filtro — ma in un club multi-sede la segreteria deve assegnarla a mano. **Manca** la decisione fra promemoria e campo dedicato |
 
 ---
 
-## Remaining Web V1 before release
+## Remaining Web V1 after integration
 
-Cio che manca perche la Web V1 si possa dichiarare rilasciabile. E la base del
-prossimo blocco, e non contiene niente delle proposte grandi piu sotto: quelle
-vengono **dopo** il rilascio.
+Cio che manca perche la Web V1 si possa dichiarare **release candidate**, dopo
+l'integrazione dei tre workstream paralleli (Pagamenti V2 e Contributi,
+multi-sede e abbigliamento, Modulistica V2).
+
+Sostituisce «Remaining Web V1 before release» del Blocco 8. Le voci uscite
+dall'elenco perche chiuse nell'integrazione sono citate in coda, cosi non
+sembra che siano state dimenticate. Non contiene niente delle proposte grandi
+piu sotto: quelle vengono **dopo** il rilascio.
 
 | # | Cosa manca | Perche blocca | Dove |
 |---|-----------|---------------|------|
-| R-01 | Verifica su schermo di tutte le pagine a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Oggi e verificato staticamente, e su schermo solo pagina per pagina | B3-03, B8-23 |
+| R-01 | Verifica su schermo di tutte le pagine a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Oggi e verificato staticamente, e su schermo solo per una parte. L'integrazione ha aggiunto pagine nuove — Contributi, Sedi, Moduli, modulo pubblico — che non sono mai state guardate su un telefono vero | B8-20, ADR-0025 |
 | R-02 | La lista Atleti deve consumare la paginazione | Il server e pronto; finche la pagina scarica tutto, l'archivio grande resta il caso peggiore | F1-12, B8-21 |
-| R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon | B8-13, ADR-0034 |
-| R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica | F1-05, WP-05 |
-| R-05 | Pagamenti online: implementarli o togliere la promessa | Gli endpoint rispondono 501. Una funzione che l'interfaccia offre e il server rifiuta non e rilasciabile. **Il ciclo manuale non e piu un ostacolo**: dal Workstream A si incassa, si incassa a rate, si storna e si emette ricevuta senza nessun provider (WP-47) | F3-01, ADR-0013 |
+| R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon, e la Modulistica V2 ne aggiunge uno per ogni certificato caricato da un modulo pubblico | B8-13, ADR-0034 |
+| R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica, e la superficie pubblica e appena cresciuta con `/api/forms/public` | F1-05, WP-05 |
+| R-05 | Pagamenti online: implementarli o togliere la promessa | Gli endpoint rispondono 501. Una funzione che l'interfaccia offre e il server rifiuta non e rilasciabile | F4-03, WP-13 |
 | R-06 | Unificare i due sistemi di toast | Due sistemi montati insieme: due comportamenti per lo stesso avviso | F3-02, WP-14 |
-| R-07 | Completare l'audit log sulle anagrafiche | ADR-0019 lo dichiara bloccante per la produzione | F3-04 |
+| R-07 | Completare l'audit log sulle anagrafiche | ADR-0019 lo dichiara bloccante per la produzione. L'approvazione di una compilazione scrive in anagrafica: senza audit non si sa chi ha approvato cosa | F3-04 |
 | R-08 | Scheduler dei promemoria certificati | Un certificato scaduto e un atleta che non puo scendere in campo, e oggi nessuno avvisa | F3-09 |
-| R-09 | Rimuovere i residui legacy classificati | 19 componenti `ui/*` non usati, e due route di modifica orfane — una costruita su dati inventati (vedi D27 in [16](16-technical-debt.md)) | F3-06, WP-18 |
+| R-09 | Rimuovere i residui legacy classificati | 19 componenti `ui/*` non usati, due route di modifica orfane (D27) e `AddPaymentForm`, che e una terza finestra di pagamento mai montata e verosimile (D31) | F3-06, WP-18 |
 | R-10 | Ambiente di produzione, error tracking, backup provati, UAT | E la fase F5 per intero: senza, «rilasciato» non ha un significato operativo | F5-01, F5-02, F5-03, F5-04 |
-| R-11 | Voucher e contributi: verifica su schermo e primo bando reale caricato | Il modello e i calcoli sono coperti dai test, ma un contributo pubblico si rendiconta a un ente: il primo caricamento va fatto con un bando vero e riconciliato a mano una volta | A2-18, WP-48 |
-| R-12 | Le scritture dell'abbigliamento devono passare da `resources.ts` | `/api/clothing/assignments` scrive `clubs.<json>` con Prisma: `club_resource_items` resta indietro e il disallineamento e silenzioso | D32 in [16](16-technical-debt.md), WP-49 |
+| R-11 | Voucher e contributi: primo bando reale caricato e riconciliato a mano | Il modello e i calcoli sono coperti dai test, ma un contributo pubblico si rendiconta a un ente: il primo caricamento va fatto con un bando vero e verificato una volta da chi lo rendiconta | A2-18, WP-48 |
+| R-12 | Multi-sede: primo club con due sedi vere, configurato e usato | Il modello, i filtri e i gruppi operativi sono coperti dai test, ma «due sedi» diventa reale solo quando una segreteria assegna atleti veri e usa i filtri per una settimana | P-01, WP-49 |
+| R-13 | Modulistica V2: primo modulo pubblicato e primo ciclo di approvazione reale | Il builder, la coda e l'approvazione sono coperti dai test. Un modulo pubblico e pero l'unica superficie che sta su Internet senza autenticazione: il primo giro va fatto con un modulo vero e una compilazione vera prima di dichiararlo rilasciabile | B9-01, WP-50 |
+| R-14 | La sede di un atleta iscritto da un modulo online si assegna a mano | Il dominio dei moduli non conosce le sedi: un atleta creato approvando una compilazione nasce senza sede. `null` significa «non dichiarata» e resta visibile ovunque, quindi non si rompe niente — ma in un club multi-sede la segreteria deve ricordarsi di assegnarla. Va deciso se basta un promemoria o serve un campo | B9-18, ADR-0038 |
 
+**Uscite dall'elenco con l'integrazione.** Erano due, entrambe chiuse in questo
+blocco e non rinviate:
+
+- *Le scritture dell'abbigliamento devono passare da `resources.ts`* — chiusa:
+  `/api/clothing/assignments` usa `replaceClubResourceCollections`, e
+  [D32](16-technical-debt.md) e RISOLTO;
+- *Il test della topbar dipende dai fine riga del checkout* — chiusa da
+  `.gitattributes` piu la normalizzazione a LF nel test;
+  [D30](16-technical-debt.md) e RISOLTO.
 ---
 
 ## Fase F3 — Completamento funzionale

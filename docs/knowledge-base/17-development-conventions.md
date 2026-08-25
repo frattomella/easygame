@@ -97,6 +97,26 @@ includere o aggiornare un test. La discovery e **automatica** su
   screenshot di debug, snapshot del repository.
 - Non committare file generati in `.codex-tmp/`, `.codex-run/`, `.codex-logs/`.
 
+### Fine riga
+
+Il repository e in **LF**, e la convenzione sta in `.gitattributes`
+(`* text=auto eol=lf`). I file che Windows esegue — `.bat`, `.cmd`, `.ps1` —
+restano CRLF di proposito.
+
+Non cambiare `core.autocrlf` per far passare un test. Se un test dipende dai
+fine riga, il difetto e nel test: deve normalizzare cio che legge
+(`replace(/\r\n/g, "\n")`). Cambiare la configurazione della propria macchina
+lo fa passare li e lo lascia rotto per la macchina successiva, CI compresa.
+Vedi [ADR-0041](18-decision-log.md#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)
+e D30 in [16 — Debito tecnico](16-technical-debt.md).
+
+### Numerazione quando si lavora in parallelo
+
+ADR, Work Package, voci di debito e di backlog numerati dentro un workstream
+sono **provvisori**: chi integra li rinumera in ordine di merge. Non
+difenderli al momento del merge, e non riservarsi intervalli in anticipo.
+Vedi [ADR-0041](18-decision-log.md#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo).
+
 ## Database e ambienti — regole non negoziabili
 
 - **Finche il branch Neon di sviluppo non esiste, il `.env` locale punta al

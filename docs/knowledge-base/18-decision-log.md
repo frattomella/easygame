@@ -1567,3 +1567,72 @@ si somigliano. Unire due anagrafiche e una decisione che costa, e chi la
 prende deve essere una persona.
 
 **Stato:** ATTIVA.
+
+## ADR-0041 — Numerazione e fine riga quando piu workstream lavorano in parallelo
+
+**Data:** 2026-08-25 · **Contesto:** integrazione Web V1 (Workstream A, B e C)
+
+**Problema.** Tre workstream sono partiti dallo stesso commit e hanno lavorato
+in parallelo per giorni senza vedersi. Ognuno ha fatto la cosa giusta e ha
+numerato il proprio lavoro dal primo numero libero **che vedeva**. Al momento
+del merge c'erano tre `ADR-0036`, tre `WP-47`, due `D28`, due `R-11` e tre
+migrazioni con lo stesso timestamp `20260826090000`.
+
+Nessuno di questi e un conflitto che Git segnala: sono due significati diversi
+per la stessa etichetta in file che si fondono puliti. Un riferimento
+`ADR-0036` in un commento del codice diventa ambiguo, e resta ambiguo per
+sempre, perche nessuno rilegge un commento per chiedersi a quale delle tre
+decisioni si riferisse.
+
+Un quarto problema e emerso dallo stesso lavoro parallelo: il Workstream B ha
+incontrato un test che falliva nel suo worktree e non nella copia principale,
+e ha reagito cambiando `core.autocrlf` sulla propria macchina. Il test
+misurava una distanza in caratteri nel sorgente, e in un checkout CRLF ogni
+riga in mezzo ne aggiunge uno.
+
+**Decisione.**
+
+1. **Le etichette si assegnano all'integrazione, non allo sviluppo.** Un
+   workstream numera come crede mentre lavora; chi integra rinumera in ordine
+   **di merge**, che e l'ordine in cui le decisioni entrano nella storia del
+   repository. Qui: Workstream A tiene 0036-0037, B diventa 0038, C diventa
+   0039-0040. Lo stesso per i WP (47-48, 49, 50), per il debito tecnico e per
+   le voci di backlog.
+2. **La rinumerazione non e completa finche non e verificata da un test.**
+   `tests/ui/kb-link-integrity.test.mjs` controlla i link interni della KB e
+   che gli ADR non abbiano doppioni ne salti. Rinumerare a mano trentatre
+   riferimenti sparsi in venticinque file senza una verifica automatica
+   significa spostare il problema, non risolverlo: ha infatti fatto emergere
+   due link gia rotti dalla baseline.
+3. **Le migrazioni si rinominano, non si riscrivono.** Timestamp distinti e
+   crescenti nell'ordine di merge; il contenuto SQL resta identico byte per
+   byte. Il timestamp di una migrazione dice quando entra nella catena, non
+   quando qualcuno l'ha scritta.
+4. **I fine riga sono una proprieta del repository, non della macchina.**
+   `.gitattributes` con `* text=auto eol=lf`, piu i file eseguiti da Windows
+   (`.bat`, `.cmd`, `.ps1`) tenuti a CRLF di proposito. In piu, i test che
+   leggono il sorgente lo normalizzano a LF: la convenzione fissa il
+   checkout, la normalizzazione difende comunque.
+
+**Perche non lasciare a ogni workstream un intervallo riservato** (A: 0036-39,
+B: 0040-43, C: 0044-47). Sembra piu semplice e ha due difetti. Lascia buchi
+quando un workstream ne usa meno di quanti gliene erano stati assegnati, e un
+registro con i buchi non si legge piu in ordine cronologico. E soprattutto
+richiede di sapere in anticipo quanti workstream partiranno e quanto
+decideranno: e una previsione, e una previsione sbagliata torna a produrre
+collisioni.
+
+**Perche l'ordine di merge e non quello cronologico delle date.** Le date sono
+tutte lo stesso giorno, e comunque descrivono quando qualcuno ha scritto il
+documento, non quando la decisione e entrata nel prodotto. L'ordine di merge
+e verificabile dalla storia di Git, che e la sola cronologia su cui due
+persone non possono essere in disaccordo.
+
+**Conseguenze.**
+
+- Chi apre un workstream parallelo sa che la sua numerazione e **provvisoria**
+  e non deve difenderla al merge;
+- chi integra ha una regola invece di un giudizio caso per caso, e un test che
+  gli dice quando ha finito;
+- un checkout su una macchina nuova produce gli stessi byte di uno su una
+  macchina vecchia, e un test che fallisce dice qualcosa del codice.

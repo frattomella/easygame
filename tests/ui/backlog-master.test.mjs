@@ -169,17 +169,17 @@ test("la backlog e raggiungibile dall'indice della KB", () => {
 });
 
 /**
- * «Remaining Web V1 before release» — Blocco 8.
+ * «Remaining Web V1 after integration» — integrazione Web V1.
  *
  * E la sezione che risponde alla domanda che viene dopo «a che punto e?»:
  * **cosa manca per rilasciare**. Senza, la backlog dice lo stato di ogni voce
  * e non dice mai quando si e finito. Ogni riga deve puntare alla voce che la
  * spiega, altrimenti torna a essere un elenco di buoni propositi.
  */
-test("la sezione «Remaining Web V1 before release» esiste ed e collegata", () => {
+test("la sezione «Remaining Web V1 after integration» esiste ed e collegata", () => {
   assert.match(
     source,
-    /^## Remaining Web V1 before release$/m,
+    /^## Remaining Web V1 after integration$/m,
     "senza questa sezione la backlog non dice mai quando si e finito",
   );
 
