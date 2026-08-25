@@ -69,6 +69,12 @@ export type ClubStructure = {
   id: string;
   name: string;
   address: string;
+  /**
+   * Sede a cui l'impianto appartiene (ADR-0036). Vuota su un club mono-sede e
+   * su tutte le strutture create prima delle sedi: in quel caso la struttura
+   * resta visibile con qualunque filtro sede.
+   */
+  siteId: string;
   isPublic: boolean;
   isVisibleToMembers: boolean;
   isRentable: boolean;
@@ -230,6 +236,7 @@ export function normalizeStructure(raw: any): ClubStructure {
     id: structureId,
     name: firstText(raw?.name),
     address: firstText(raw?.address),
+    siteId: firstText(raw?.siteId, raw?.site_id),
     city: firstText(raw?.city),
     type: firstText(raw?.type),
     contactName: firstText(raw?.contactName),
