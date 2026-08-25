@@ -689,7 +689,7 @@ automatico dopo la creazione del club.
 
 ---
 
-### WP-40 · Anagrafica assistita: CAP, provincia e codice fiscale — `PARZIALE` (2026-08-23)
+### WP-40 · Anagrafica assistita: CAP, provincia e codice fiscale — `DONE` (2026-08-25)
 
 **Obiettivo.** Ridurre gli errori di trascrizione nelle anagrafiche, senza
 introdurre dati inventati.
@@ -710,10 +710,12 @@ aggiornamento.
 - [x] Agganciato a scheda atleta, scheda club (sede operativa e legale,
       legale rappresentante) e dialog di creazione club
 
-**Resta aperto.**
-- [ ] Tabella dei comuni italiani: senza, «CAP → comune» non esiste e il codice
-      catastale lo fornisce l'utente. Vedi D23 e
-      [ADR-0027](18-decision-log.md)
+**Chiuso nel Blocco 7** ([WP-46](#wp-46--blocco-7--anagrafiche-staff-allegati-e-coerenza-ui--done-2026-08-25)).
+- [x] Tabella dei comuni italiani, dalla fonte ufficiale ISTAT, con il codice
+      catastale. Vedi [ADR-0032](18-decision-log.md)
+- [ ] «CAP → comune» resta impossibile: ISTAT non pubblica il CAP e non e
+      derivabile dal comune. Tracciato come `B7-07` in
+      [21 — Backlog master](21-backlog.md)
 
 **In piu rispetto allo scope.** La scheda Club non aveva un campo «Comune» per
 la sede operativa: `updateClub` scriveva quindi `city: null` **a ogni
@@ -1078,6 +1080,67 @@ condivisa colocata alle rotte.
 ---
 
 ## Fase F3 — Completamento funzionale
+
+### WP-46 · Blocco 7 — anagrafiche, staff, allegati e coerenza UI — `DONE` (2026-08-25)
+
+**Obiettivo.** Chiudere i difetti che si incontrano compilando e consultando
+un'anagrafica, e le promesse che l'interfaccia faceva senza mantenerle.
+
+**Cause radice trovate** (una per gruppo di sintomi, non una per sintomo):
+
+1. **Gli allegati.** EasyGame li salva come *data URL*, e i browser bloccano
+   da anni la navigazione verso `data:`. Non era il difetto di un allegato o
+   di un formato: **ogni** pulsante «Visualizza» dell'applicazione apriva una
+   scheda vuota. Vedi [10](10-ui-ux-conventions.md).
+2. **I reparti staff avevano due fonti.** Un reparto creato con «Altro»
+   finiva solo sul membro; l'elenco lo mostrava lo stesso perche lo deduceva,
+   quindi sembrava salvato, ma i form leggevano `settings.staffDepartments`,
+   dove non era mai arrivato.
+3. **Lo snapshot di `settings`.** Le schermate staff riscrivevano l'intera
+   colonna JSON dallo snapshot letto al montaggio: salvare un reparto poteva
+   riportare indietro la stagione attiva.
+4. **Chiavi doppie per lo stesso dato.** `hireDate`/`startDate` e
+   `birthYear`/`birthDate` sull'allenatore: si leggeva l'una e si scriveva
+   l'altra, e la modifica tornava indietro al refresh.
+5. **Il PIN di club non era sicurezza.** Default `"1234"` in chiaro, valore
+   leggibile dalle API del club, segreto condiviso. Vedi
+   [ADR-0033](18-decision-log.md).
+6. **Il codice catastale lo digitava l'operatore**, perche la tabella dei
+   comuni non c'era. Ora c'e, ufficiale. Vedi
+   [ADR-0032](18-decision-log.md).
+
+**Scope.** 18 richieste, tracciate una per una come `B7-*` in
+[21 — Backlog master](21-backlog.md).
+
+**Moduli nuovi.** `comuni-model.ts`, `server/comuni.ts`,
+`attachment-names.ts`, `staff-directory.ts`, `api/staff-departments.ts`,
+`member-types.ts`, `medical-visits.ts`, `clothing-sizes.ts`,
+`person-export.ts`, `phone-numbers.ts`, `text-capitalization.ts`,
+`active-club.ts`, `document-extraction.ts`, `document-extraction-ocr.ts`,
+piu i componenti condivisi in `components/forms/`.
+
+**Rimossi.** `app/staff/page-modals.tsx` e
+`components/trainer/TrainerPayments.tsx` (mai importati),
+`components/ui/pin-input.tsx`.
+
+**Acceptance criteria.**
+- [x] Nessun pulsante «Visualizza» senza un file che si vede
+- [x] Un reparto creato con «Altro» compare nella select successiva e dopo il refresh
+- [x] Il codice catastale non si digita piu, e non si indovina mai
+- [x] Nessuna schermata riscrive l'intero blob `settings`
+- [x] Il PIN di club non esiste piu, e al suo posto c'e un controllo di ruolo
+- [x] Elenchi temporali ordinati, con la direzione documentata per vista
+- [x] Backlog master con lo stato di ogni richiesta ricevuta
+
+**Test.** +136 (da 336 a 472). Fra questi, i test sul sorgente che impediscono
+il ritorno di ciascuna causa radice: nessun `window.open` su un allegato,
+nessun nome di download scritto a mano, nessuna definizione locale di
+`Department`, nessun `settings: clubSettings`, nessun `payment_pin`.
+
+**Nessuna migrazione.** `prisma/migrations/` non e stata toccata: la colonna
+`clubs.payment_pin` resta come dato legacy, non piu letto ne esposto.
+
+---
 
 ### WP-13 · Pagamenti online via CediPay / Platform.Payments — `PIANIFICATO`
 
