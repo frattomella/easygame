@@ -37,7 +37,12 @@ test("il filtro sede non si monta se il club non e multi-sede", () => {
 });
 
 test("le pagine che filtrano per sede usano il componente, non una tendina propria", () => {
-  for (const file of ["app/categories/page.tsx", "app/structures/page.tsx"]) {
+  for (const file of [
+    "app/categories/page.tsx",
+    "app/structures/page.tsx",
+    "app/athletes/page.tsx",
+    "app/training/page.tsx",
+  ]) {
     const source = read(file);
     assert.match(
       source,
@@ -77,6 +82,25 @@ test("nessuna griglia delle schermate sede resta a due colonne a 375 px", () => 
     offenders,
     [],
     "usare grid-cols-1 sm:grid-cols-2: a 375 px due colonne non ci stanno",
+  );
+});
+
+/**
+ * Un allenamento **non** porta una sede propria: si allena in una struttura, e
+ * la struttura appartiene a una sede. Un secondo campo si disallineerebbe al
+ * primo allenamento in trasferta — ed e l'alternativa scartata da ADR-0036.
+ */
+test("la sede di un allenamento viene dalla sua struttura", () => {
+  const source = read("app/training/page.tsx");
+
+  assert.match(
+    source,
+    /siteIdByStructureId\[String\(training\.structureId\)\]/,
+  );
+  assert.equal(
+    /training\.siteId|training\.site_id/.test(source),
+    false,
+    "l'allenamento non deve avere un campo sede proprio",
   );
 });
 

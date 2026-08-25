@@ -32,12 +32,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 93 |
+| `DONE` | 94 |
 | `IN PROGRESS` | 12 |
 | `OPEN` | 24 |
 | `DEFERRED` | 6 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **137** |
+| **Totale** | **138** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -265,7 +265,8 @@ Non sono cancellate: riprendono quando Web V1 e completa.
 | WB-08 | Niente stagione sul kit | `DONE` | `clothing_kits` non e un tipo stagionale: il campo sembrava un filtro e non filtrava |
 | WB-09 | Numerazione per sede senza regressioni | `DONE` | `siteIds` sul gruppo; vuoto = tutte le sedi, cioe ogni gruppo esistente |
 | WB-10 | Performance con 200+ atleti e piu sedi | `DONE` | Rapporto sotto 3x raddoppiando gli atleti; `scripts/measure-multisite-performance.mjs` stampa i tempi |
-| WB-11 | Consegne usabili da smartphone | `IN PROGRESS` | Il dialogo consegne e a schede impilate e le invarianti statiche sono verdi. **Manca** la verifica su schermo: il database di sviluppo non e in esecuzione in questo ambiente (vedi B3-03) |
+| WB-11 | Filtro sede sugli allenamenti | `DONE` | La sede viene dalla struttura, non da un campo proprio: un secondo campo si disallineerebbe al primo allenamento in trasferta |
+| WB-12 | Consegne usabili da smartphone | `IN PROGRESS` | Il dialogo consegne e a schede impilate e le invarianti statiche sono verdi. **Manca** la verifica su schermo: il database di sviluppo non e in esecuzione in questo ambiente (vedi B3-03) |
 
 ---
 
