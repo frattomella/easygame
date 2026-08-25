@@ -55,6 +55,7 @@ import {
   getClubTrainings,
   getClubTrainers,
   getClubWeeklySchedule,
+  getClubData,
   getClubStructures,
   addClubData,
   cleanupOrphanScheduledTrainings,
@@ -69,6 +70,13 @@ import {
   getFallbackTrainingLocationOptions,
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
+import {
+  normalizeClubSites,
+  readSiteReference,
+  recordMatchesSite,
+  type ClubSite,
+} from "@/lib/club-sites";
+import { SiteFilter } from "@/components/sites/site-filter";
 import {
   canRecordTrainingAttendance,
   compareTrainingsByStart,
@@ -390,6 +398,11 @@ export default function TrainingPage() {
   const [trainers, setTrainers] = useState<TrainingPersonOption[]>([]);
   const [categories, setCategories] = useState<TrainingCategoryOption[]>([]);
   const [locations, setLocations] = useState<TrainingLocationOption[]>([]);
+  const [sites, setSites] = useState<ClubSite[]>([]);
+  const [siteFilter, setSiteFilter] = useState("");
+  const [siteIdByStructureId, setSiteIdByStructureId] = useState<
+    Record<string, string>
+  >({});
   const [trainings, setTrainings] = React.useState<TrainingSession[]>([]);
   const [weeklySchedule, setWeeklySchedule] = React.useState<any[]>([]);
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
@@ -533,6 +546,7 @@ export default function TrainingPage() {
         getClubAthletes(activeClub.id),
         getClubTrainings(activeClub.id),
         getClubWeeklySchedule(activeClub.id),
+        getClubData(activeClub.id, "club_sites"),
       ]);
 
       const failedSections: string[] = [];
@@ -556,6 +570,7 @@ export default function TrainingPage() {
       const allAthletes = readArrayResult(3, "atleti");
       const clubTrainings = readArrayResult(4, "allenamenti");
       const clubWeeklySchedule = readArrayResult(5, "programma settimanale");
+      const clubSites = readArrayResult(6, "sedi");
 
       const normalizedCategories = Array.isArray(clubCategories)
         ? clubCategories
@@ -573,6 +588,21 @@ export default function TrainingPage() {
       setTrainers(normalizedTrainers);
       setClubAthletes(normalizedAthletes);
       setWeeklySchedule(normalizedWeeklySchedule);
+
+      setSites(normalizeClubSites(clubSites));
+      // Un allenamento non porta una sede propria: si allena in una struttura,
+      // e la struttura appartiene a una sede (ADR-0038). Un secondo campo si
+      // disallineerebbe al primo allenamento in trasferta.
+      setSiteIdByStructureId(
+        Object.fromEntries(
+          (Array.isArray(clubStructures) ? clubStructures : [])
+            .map((structure) => [
+              String(structure?.id || ""),
+              readSiteReference(structure),
+            ])
+            .filter(([id]) => Boolean(id)),
+        ),
+      );
 
       const builtLocations = buildTrainingLocationOptions(clubStructures);
       const normalizedLocations =
@@ -985,6 +1015,14 @@ export default function TrainingPage() {
   // Filter trainings for the selected date (including all statuses)
   const filteredTrainings = trainings
     .filter((training) => Boolean(date && isTrainingOnDate(training, date)))
+    .filter((training) => {
+      const siteId = training.structureId
+        ? siteIdByStructureId[String(training.structureId)] || ""
+        : "";
+      // Sede vuota = non dichiarata: l'allenamento resta visibile con
+      // qualunque filtro.
+      return recordMatchesSite(siteId ? [siteId] : [], siteFilter);
+    })
     .sort(compareTrainingsByStart);
 
   const getDerivedStatus = (training: TrainingSession) =>
@@ -1227,6 +1265,14 @@ export default function TrainingPage() {
                         <ChevronRight className="h-4 w-4" />
                       </Button>
                     </div>
+
+                    <SiteFilter
+                      sites={sites}
+                      value={siteFilter}
+                      onChange={setSiteFilter}
+                      label="Sede"
+                      id="trainings-site-filter"
+                    />
 
                     <div className="flex items-center gap-2 sm:self-end">
                       {/* Quick day navigation */}

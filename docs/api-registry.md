@@ -117,9 +117,11 @@ Configurazione di club: solo `owner` e `club_manager`
 - `appointments`
 - `bank_accounts`
 - `categories`
+- `category_groups`
 - `clothing_inventory`
 - `clothing_kits`
 - `clothing_products`
+- `club_sites`
 - `discounts`
 - `document_templates`
 - `expected_expenses`

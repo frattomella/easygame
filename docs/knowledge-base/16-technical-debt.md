@@ -480,3 +480,30 @@ classificati `SAFE TO DELETE` in [cleanup-report](cleanup-report.md), dove
 questa non compare. Va classificata prima, e rimossa in un commit proprio.
 
 → WP-18
+
+### D32 — L'API assegnazioni scrive `clubs.<json>` aggirando `resources.ts`
+
+`src/app/api/clothing/assignments/route.ts` legge e scrive **direttamente**
+`clubs.clothing_inventory`, `clubs.kit_assignments` e
+`clubs.jersey_assignments` con `prisma.club.update`. E la trappola numero 3 di
+[CLAUDE.md](../../CLAUDE.md): la scrittura non passa da
+`syncClubResourceItemsFromField`, quindi le righe corrispondenti in
+`club_resource_items` **restano quelle di prima**.
+
+**Cosa rompe oggi:** niente di visibile. Le pagine leggono le colonne JSON
+tramite `getClubData`, che legge `clubs.<campo>`; `club_resource_items` e la
+copia normalizzata che nessun percorso di lettura dell'abbigliamento usa. Il
+disallineamento e reale e silenzioso.
+
+**Cosa rompera:** il giorno in cui una lettura passa dal CRUD generico
+(`/api/v1/kit_assignments`) — per esempio per impaginare le assegnazioni come
+si e fatto per gli atleti (WP-12) — vedra dati vecchi.
+
+**Perche non e stato corretto nel Workstream B:** il route handler e nello
+scope del workstream ma la correzione non lo e. Spostarlo su `resources.ts`
+significa riscrivere il percorso di scrittura di tre risorse insieme, e va
+fatto con i suoi test di isolamento multi-tenant, non di passaggio dentro un
+commit che parla di consegne. Lo stesso vale per `saveClubJson` nella pagina
+Abbigliamento, che ha la stessa forma.
+
+→ nuovo WP da aprire; correlato a WP-07 (riduzione di `simplified-db`)

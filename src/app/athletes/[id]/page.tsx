@@ -122,6 +122,8 @@ import {
   DEFAULT_CLOTHING_SIZES,
   deriveClothingProfile,
 } from "@/lib/clothing-sizes";
+import { normalizeClubSites, type ClubSite } from "@/lib/club-sites";
+import { AthleteCategoriesPanel } from "@/components/athletes/profile/athlete-categories-panel";
 import {
   downloadAttachment,
   downloadClientFileUrl,
@@ -225,6 +227,7 @@ export default function AthleteProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [athlete, setAthlete] = useState<any>(null);
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
+  const [clubSites, setClubSites] = useState<ClubSite[]>([]);
   const [athleteCategoryAnalytics, setAthleteCategoryAnalytics] =
     useState<AthleteCategoryAnalyticsResult>(EMPTY_ATHLETE_CATEGORY_ANALYTICS);
   const [editingSection, setEditingSection] = useState<string | null>(null);
@@ -854,6 +857,7 @@ export default function AthleteProfilePage() {
               groups,
               assignments,
               jersey,
+              sites,
             ] = await Promise.all([
               getClubData(effectiveClubId, "payment_plans"),
               getClubData(effectiveClubId, "discounts"),
@@ -864,7 +868,9 @@ export default function AthleteProfilePage() {
               getClubData(effectiveClubId, "jersey_groups"),
               getClubData(effectiveClubId, "kit_assignments"),
               getClubData(effectiveClubId, "jersey_assignments"),
+              getClubData(effectiveClubId, "club_sites"),
             ]);
+            setClubSites(normalizeClubSites(sites));
             setClothingProducts(Array.isArray(products) ? products : []);
             setClothingKits(
               Array.isArray(kits) ? kits.map(normalizeKitRecord) : [],
@@ -983,6 +989,26 @@ export default function AthleteProfilePage() {
   const primaryEditCategoryId =
     getPrimaryAthleteCategoryMembership(editCategoryMemberships, clubCategoryOptions)
       ?.categoryId || "";
+  const primaryEditSiteId =
+    getPrimaryAthleteCategoryMembership(editCategoryMemberships, clubCategoryOptions)
+      ?.siteId || "";
+
+  /**
+   * La sede sta sull'appartenenza, non sull'anagrafica (ADR-0038): dice dove
+   * l'atleta svolge **quella** categoria. Cambiarla non tocca la categoria e
+   * non tocca le appartenenze secondarie.
+   */
+  const handlePrimarySiteChange = (siteId: string) => {
+    setEditFormData({
+      ...editFormData,
+      categoryMemberships: editCategoryMemberships.map((membership) => ({
+        category_id: membership.categoryId,
+        category_name: membership.categoryName,
+        is_primary: membership.isPrimary,
+        site_id: membership.isPrimary ? siteId : membership.siteId || "",
+      })),
+    });
+  };
 
   const handlePrimaryCategoryChange = (categoryId: string) => {
     const category = clubCategoryOptions.find((item) => item.id === categoryId);
@@ -996,6 +1022,7 @@ export default function AthleteProfilePage() {
         category_id: membership.categoryId,
         category_name: membership.categoryName,
         is_primary: false,
+        site_id: membership.siteId || "",
       }));
 
     setEditFormData({
@@ -1005,6 +1032,9 @@ export default function AthleteProfilePage() {
           category_id: category.id,
           category_name: category.name,
           is_primary: true,
+          // La sede non si perde cambiando categoria: l'atleta resta dove si
+          // allena, cambia solo in che fascia gioca (ADR-0038).
+          site_id: primaryEditSiteId,
         },
         ...existingSecondaryMemberships,
       ],
@@ -1035,6 +1065,7 @@ export default function AthleteProfilePage() {
         category_id: membership.categoryId,
         category_name: membership.categoryName,
         is_primary: false,
+        site_id: membership.siteId || "",
       }));
 
     if (enabled) {
@@ -1042,6 +1073,9 @@ export default function AthleteProfilePage() {
         category_id: category.id,
         category_name: category.name,
         is_primary: false,
+        // Una categoria secondaria nasce senza sede: dichiararla per conto
+        // dell'utente vorrebbe dire indovinare dove si allena.
+        site_id: "",
       });
     }
 
@@ -1052,6 +1086,7 @@ export default function AthleteProfilePage() {
               category_id: primaryMembership.categoryId,
               category_name: primaryMembership.categoryName,
               is_primary: true,
+              site_id: primaryMembership.siteId || "",
             },
           ]
         : []),
@@ -6445,63 +6480,16 @@ export default function AthleteProfilePage() {
                     setEditFormData({ ...editFormData, birthPlace: value })
                   }
                 />
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <div>
-                    <Label>Categoria primaria</Label>
-                    <select
-                      value={primaryEditCategoryId}
-                      onChange={(event) =>
-                        handlePrimaryCategoryChange(event.target.value)
-                      }
-                      className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="">Seleziona categoria primaria</option>
-                      {clubCategoryOptions.map((category) => (
-                        <option key={`athlete-primary-category-${category.id}`} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Categorie secondarie</Label>
-                    {clubCategoryOptions.length > 0 ? (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {clubCategoryOptions.map((category) => {
-                          const isPrimary = primaryEditCategoryId === category.id;
-                          const isSelected = editCategoryMemberships.some(
-                            (membership) =>
-                              membership.categoryId === category.id &&
-                              !membership.isPrimary,
-                          );
-
-                          return (
-                            <label
-                              key={`athlete-secondary-category-${category.id}`}
-                              className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${isPrimary ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400" : "cursor-pointer border-slate-200 bg-white"}`}
-                            >
-                              <Checkbox
-                                checked={isSelected}
-                                disabled={isPrimary}
-                                onCheckedChange={(checked) =>
-                                  handleToggleSecondaryCategory(
-                                    category.id,
-                                    Boolean(checked),
-                                  )
-                                }
-                              />
-                              <span>{category.name}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Nessuna categoria disponibile per il club.
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <AthleteCategoriesPanel
+                  categories={clubCategoryOptions}
+                  memberships={editCategoryMemberships}
+                  primaryCategoryId={primaryEditCategoryId}
+                  primarySiteId={primaryEditSiteId}
+                  sites={clubSites}
+                  onPrimaryCategoryChange={handlePrimaryCategoryChange}
+                  onPrimarySiteChange={handlePrimarySiteChange}
+                  onToggleSecondaryCategory={handleToggleSecondaryCategory}
+                />
                 <div>
                   <Label>Note</Label>
                   <Textarea

@@ -31,8 +31,10 @@ easygame/
 | `src/components/brand/` | Marchio SVG e identita di club | |
 | `src/components/platform-admin/` | Shell della console di piattaforma | Nessun riferimento alle risorse di club |
 | `src/components/organization/` | Scheda Stagioni della pagina Organizzazione (`season-manager.tsx`) | Blocco 6, vedi [10](10-ui-ux-conventions.md) |
+| `src/components/sites/` | Filtro sede, anagrafica sedi, editor dei gruppi operativi | Workstream B, [ADR-0038](18-decision-log.md). `SiteFilter` non si monta se il club non e multi-sede |
+| `src/components/clothing/` | Dialogo consegne di un kit, a schede impilate | Workstream B. Usabile da telefono: le consegne si registrano in magazzino |
 | `src/data/` | Tabelle di riferimento pubbliche versionate (comuni ISTAT) | Blocco 7, generate da `scripts/`, vedi [06](06-data-model.md) |
-| `src/lib/` | 77 file. Logica di dominio, utility, policy | Vedi tabella sotto |
+| `src/lib/` | 93 file (esclusa `server/`). Logica di dominio, utility, policy | Vedi tabella sotto |
 | `src/lib/server/` | Codice **solo server**: Prisma client, auth, resources, email, workflow | Non importare dal client |
 | `src/pages/` | 4 file residui del Pages Router: `_app`, `_document`, `_error`, `404` | Legacy, vedi [16](16-technical-debt.md) |
 | `src/types/` | `bcryptjs.d.ts` — dichiarazione ambient necessaria (non esistono `@types/bcryptjs` installati) | **Non cancellare** |
@@ -64,6 +66,12 @@ easygame/
 | `funding/funding-model.ts` | 724 | Voucher e contributi: periodi, maturato, i cinque importi, validazione della configurazione e della riconciliazione. **Puro**, e senza nessuna regola di un singolo bando. Vedi [ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati). |
 | `funding/attendance-measure.ts` | 193 | Dalle presenze EasyGame alla misura che un bando chiede: ore o sessioni per periodo. **Puro**: riceve allenamenti e presenze, non li cerca. |
 | `server/funding.ts` | 760 | Scrittura dei contributi: programmi, beneficiari, ricalcolo del maturato, rendicontazione, liquidazioni. **Non importa i pagamenti**, di proposito. |
+| `club-sites.ts` | 466 | **Sedi, strutture e gruppi operativi** ([ADR-0038](18-decision-log.md)). Il gruppo e la coppia (categoria, sede): la categoria non si duplica mai. Puro. |
+| `category-compatibility.ts` | 372 | Compatibilita fra categorie: esplicita, orientata, **non transitiva** ([ADR-0030](18-decision-log.md)). Puro. |
+| `jersey-numbering-utils.ts` | 524 | Chi e in un gruppo numerazione e con che numero. Indici costruiti una volta per pagina: O(N + G), non O(N x G). |
+| `clothing-inventory-utils.ts` | 1.694 | Catalogo, kit, magazzino e assegnazioni: normalizzazione, serializzazione, riserva di stock. |
+| `clothing-delivery.ts` | 354 | **Ciclo di consegna**: quattro stati per articolo, stato del kit **derivato**, taglia proposta dall'anagrafica. Puro. |
+| `structures-utils.ts` | 314 | Strutture, campi, disponibilita e prenotazioni. Porta `siteId`. |
 
 ## Mobile App — `easygamemobile/`
 

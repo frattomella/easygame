@@ -301,7 +301,9 @@ test("la sezione richiesta si accetta solo se esiste", () => {
  * spazio e estrarre il prossimo pannello, e il modo giusto di abbassare il
  * limite e farlo insieme a quell'estrazione.
  */
-const MAX_ATHLETE_PAGE_LINES = 8500;
+// Abbassato insieme all'estrazione di `AthleteCategoriesPanel` (Workstream B):
+// il blocco categoria primaria / sede / secondarie e uscito dalla pagina.
+const MAX_ATHLETE_PAGE_LINES = 8470;
 
 test("la scheda atleta non torna a crescere", () => {
   const source = readFileSync(

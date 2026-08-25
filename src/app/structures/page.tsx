@@ -66,6 +66,15 @@ import {
 } from "lucide-react";
 import { normalizeStructure } from "@/lib/structures-utils";
 import { sortByName } from "@/lib/sorting";
+import {
+  filterStructuresBySite,
+  isMultiSiteClub,
+  normalizeClubSites,
+  serializeClubSite,
+  type ClubSite,
+} from "@/lib/club-sites";
+import { ClubSitesSection } from "@/components/sites/club-sites-section";
+import { SiteFilter, SiteSelect } from "@/components/sites/site-filter";
 
 type PaymentStatus = "Pagato" | "In attesa" | "Scaduto";
 
@@ -107,6 +116,9 @@ type ClubStructure = {
   id: string;
   name: string;
   address: string;
+  // Sede dell'impianto (ADR-0038). Il tipo proprietario resta quello di
+  // `@/lib/structures-utils`: questa copia locale lo rispecchia.
+  siteId: string;
 
   // Struttura options
   isPublic: boolean; // Pubblica/Privata
@@ -244,12 +256,27 @@ export default function StrutturePage() {
   const [activeClubId, setActiveClubId] = useState<string | null>(null);
 
   const [structures, setStructures] = useState<ClubStructure[]>([]);
+  const [sites, setSites] = useState<ClubSite[]>([]);
+  const [siteFilter, setSiteFilter] = useState("");
   // L'elenco strutture si mostra in ordine alfabetico; `structures` resta la
   // sorgente per le modifiche, che indicizzano per id.
   const sortedStructures = useMemo(
-    () => sortByName(structures, (structure) => structure.name),
-    [structures],
+    () =>
+      sortByName(
+        filterStructuresBySite(structures, siteFilter),
+        (structure) => structure.name,
+      ),
+    [structures, siteFilter],
   );
+  const structureCountBySiteId = useMemo(() => {
+    const counts: Record<string, number> = {};
+    structures.forEach((structure) => {
+      const siteId = String(structure.siteId || "");
+      if (!siteId) return;
+      counts[siteId] = (counts[siteId] || 0) + 1;
+    });
+    return counts;
+  }, [structures]);
 
   // Structure create/edit modal
   const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
@@ -259,6 +286,7 @@ export default function StrutturePage() {
   const [structureForm, setStructureForm] = useState({
     name: "",
     address: "",
+    siteId: "",
     isPublic: true,
     isVisibleToMembers: true,
     isRentable: false,
@@ -348,14 +376,20 @@ export default function StrutturePage() {
 
         setClubId(id);
 
-        const { getClubStructures } = await import("@/lib/simplified-db");
-        const dbStructures = await getClubStructures(id);
+        const { getClubStructures, getClubData } = await import(
+          "@/lib/simplified-db"
+        );
+        const [dbStructures, dbSites] = await Promise.all([
+          getClubStructures(id),
+          getClubData(id, "club_sites"),
+        ]);
 
         const normalized: ClubStructure[] = (dbStructures || []).map((s: any) =>
           normalizeStructure(s),
         );
 
         setStructures(normalized);
+        setSites(normalizeClubSites(dbSites));
       } catch (e) {
         console.error(e);
         showToast("error", "Errore nel caricamento delle strutture");
@@ -374,11 +408,26 @@ export default function StrutturePage() {
     return ok;
   };
 
+  const persistSites = async (next: ClubSite[]) => {
+    if (!clubId) return;
+    const { updateClubData } = await import("@/lib/simplified-db");
+    const previous = sites;
+    setSites(next);
+    try {
+      await updateClubData(clubId, "club_sites", next.map(serializeClubSite));
+      showToast("success", "Sedi aggiornate");
+    } catch {
+      setSites(previous);
+      showToast("error", "Salvataggio sedi fallito");
+    }
+  };
+
   const resetStructureForm = () => {
     setEditingStructureId(null);
     setStructureForm({
       name: "",
       address: "",
+      siteId: "",
       isPublic: true,
       isVisibleToMembers: true,
       isRentable: false,
@@ -398,6 +447,7 @@ export default function StrutturePage() {
     setStructureForm({
       name: s.name,
       address: s.address,
+      siteId: s.siteId || "",
       isPublic: s.isPublic,
       isVisibleToMembers: (s as any).isVisibleToMembers ?? true,
       isRentable: s.isRentable,
@@ -432,6 +482,7 @@ export default function StrutturePage() {
               ...s,
               name: structureForm.name.trim(),
               address: structureForm.address.trim(),
+              siteId: structureForm.siteId,
               isPublic: structureForm.isPublic,
               isVisibleToMembers: structureForm.isVisibleToMembers,
               isRentable: structureForm.isRentable,
@@ -443,6 +494,7 @@ export default function StrutturePage() {
         id: uid("structure"),
         name: structureForm.name.trim(),
         address: structureForm.address.trim(),
+        siteId: structureForm.siteId,
         isPublic: structureForm.isPublic,
         isVisibleToMembers: structureForm.isVisibleToMembers,
         isRentable: structureForm.isRentable,
@@ -774,6 +826,25 @@ export default function StrutturePage() {
                       />
                     </div>
 
+                    {sites.length ? (
+                      <div className="space-y-1">
+                        <Label htmlFor="structure-site">Sede</Label>
+                        <SiteSelect
+                          id="structure-site"
+                          sites={sites}
+                          value={structureForm.siteId}
+                          onChange={(siteId) =>
+                            setStructureForm((prev) => ({ ...prev, siteId }))
+                          }
+                          emptyLabel="Nessuna sede"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Senza sede la struttura resta visibile con qualunque
+                          filtro.
+                        </p>
+                      </div>
+                    ) : null}
+
                     <div className="flex items-center justify-between gap-4">
                       <div className="space-y-1">
                         <Label>Struttura pubblica</Label>
@@ -849,6 +920,24 @@ export default function StrutturePage() {
             </div>
 
             {emptyState}
+
+            {!loading && clubId ? (
+              <ClubSitesSection
+                sites={sites}
+                structureCountBySiteId={structureCountBySiteId}
+                onChange={persistSites}
+              />
+            ) : null}
+
+            {!loading && isMultiSiteClub(sites) ? (
+              <SiteFilter
+                sites={sites}
+                value={siteFilter}
+                onChange={setSiteFilter}
+                label="Mostra le strutture di"
+                id="structures-site-filter"
+              />
+            ) : null}
 
             {loading ? (
               <Card>

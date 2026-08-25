@@ -1763,3 +1763,68 @@ parent, athlete), preparare i dati su staging con
 Regola: **due WP che toccano lo stesso file non si eseguono in parallelo.**
 `src/lib/server/resources.ts` e `src/lib/simplified-db.ts` sono i due file a
 maggior contesa.
+
+---
+
+### WP-49 · Workstream B — multi-sede, categorie, abbigliamento, kit e consegne — `DONE` (2026-08-26)
+
+**Obiettivo.** Chiudere due difetti di modello che si pagavano ogni giorno: la
+categoria duplicata per dire «sede», e il kit con un solo stato quando gli
+articoli si consegnano uno alla volta.
+
+**Cause radice trovate** (due, non una per sintomo):
+
+1. **Mancava il concetto di sede.** Una societa che svolge i Pulcini a Roma e
+   ad Aprilia poteva dirlo solo duplicando la categoria, e con la categoria si
+   duplicava tutto quello che le sta attaccato: fascia d'anno, compatibilita,
+   ogni riga di ogni elenco che ragiona per categoria. Un atleta che si
+   spostava «cambiava categoria». Chiusa da [ADR-0038](18-decision-log.md):
+   categoria, sede, struttura e **gruppo operativo** sono quattro concetti, e
+   il gruppo e la coppia (categoria, sede).
+2. **Lo stato stava sul kit invece che sull'articolo.** «Maglia e pantaloncino
+   consegnati, felpa in arrivo, borsa esaurita» non era rappresentabile:
+   l'operatore doveva scegliere fra dire una cosa falsa e non dire niente, e
+   *a chi manca ancora qualcosa?* non aveva risposta. Chiusa da
+   `src/lib/clothing-delivery.ts`, dove lo stato del kit si **deriva**.
+
+**Scope.** `src/lib/club-sites.ts` (nuovo), `src/lib/clothing-delivery.ts`
+(nuovo), `src/components/sites/*` (nuovi),
+`src/components/clothing/kit-delivery-dialog.tsx` (nuovo),
+`src/components/athletes/profile/athlete-categories-panel.tsx` (nuovo),
+`athlete-category-memberships.ts`, `structures-utils.ts`,
+`clothing-inventory-utils.ts`, `jersey-numbering-utils.ts`, `club-seasons.ts`,
+`server/resources.ts`, `api/registry.ts`, `simplified-db.ts`,
+`prisma/schema.prisma` + migrazione `20260826090000_multisite`, e le pagine
+Categorie, Atleti (elenco e scheda), Strutture, Abbigliamento.
+
+**Acceptance criteria.**
+- [x] La stessa categoria si svolge in due sedi senza essere duplicata
+- [x] Il club mono-sede non vede il concetto di sede in nessuna schermata
+- [x] Sede vuota significa «non dichiarata»: nessun dato storico esce dagli
+      elenchi quando si filtra per sede
+- [x] La compatibilita resta esplicita, orientata e non transitiva anche con
+      piu sedi
+- [x] I gruppi numerazione si restringono a una sede; un gruppo senza sedi si
+      comporta come prima
+- [x] Tutti i fix precedenti sui gruppi numerazione restano verdi (categorie
+      simili, nome singolo, collapsed, duplicati, ordinamento, persistenza)
+- [x] L'assegnazione kit propone la taglia dell'anagrafica e l'override non
+      scrive l'anagrafica
+- [x] Consegne parziali con stato del kit derivato e conteggio «2/4 consegnati»
+- [x] Il kit non chiede piu una stagione; catalogo e kit restano globali, le
+      assegnazioni restano stagionali
+- [x] Il costo cresce linearmente con gli atleti (test di scaling, < 3x
+      raddoppiando l'ingresso)
+
+**Test.** `tests/lib/multisite-model.test.mjs` (15),
+`tests/lib/jersey-numbering-multisite.test.mjs` (9),
+`tests/ui/multisite-ux.test.mjs` (6),
+`tests/lib/clothing-delivery.test.mjs` (13),
+`tests/ui/clothing-delivery-ux.test.mjs` (10),
+`tests/lib/multisite-performance.test.mjs` (2).
+
+**Cosa resta aperto.** La verifica **su schermo** a 375/768/1280 px: le
+invarianti statiche coprono le griglie e la forma del dialogo consegne, ma un
+test statico non dice se una pagina e leggibile (voce B3-03). E
+[D28](16-technical-debt.md): l'API assegnazioni scrive `clubs.<json>`
+aggirando `resources.ts` — difetto trovato nello scope, corretto fuori.

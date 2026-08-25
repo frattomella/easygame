@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { CategoryAthletesDialog } from "@/components/dialogs/CategoryAthletesDialog";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -65,6 +65,17 @@ import {
 } from "@/components/ui/dialog";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { updateClubAthlete } from "@/lib/simplified-db";
+import {
+  buildCategoryGroups,
+  isMultiSiteClub,
+  normalizeClubSites,
+  serializeCategoryGroup,
+  type CategoryGroup,
+  type ClubSite,
+} from "@/lib/club-sites";
+import { SiteFilter } from "@/components/sites/site-filter";
+import { CategoryGroupsEditor } from "@/components/sites/category-groups-editor";
+import { MapPin } from "lucide-react";
 
 interface Category {
   id: string;
@@ -460,6 +471,12 @@ export default function CategoriesPage() {
   >([]);
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
   const [clubTrainers, setClubTrainers] = useState<ClubTrainer[]>([]);
+  const [sites, setSites] = useState<ClubSite[]>([]);
+  const [rawCategoryGroups, setRawCategoryGroups] = useState<any[]>([]);
+  const [clubStructures, setClubStructures] = useState<any[]>([]);
+  const [siteFilter, setSiteFilter] = useState("");
+  const [groupsEditorCategory, setGroupsEditorCategory] =
+    useState<Category | null>(null);
   const { showToast } = useToast();
   const router = useRouter();
 
@@ -497,7 +514,9 @@ export default function CategoriesPage() {
               .eq("club_id", activeClub.id),
             supabase
               .from("clubs")
-              .select("trainers, weekly_schedule, settings")
+              .select(
+                "trainers, weekly_schedule, settings, club_sites, category_groups, structures",
+              )
               .eq("id", activeClub.id)
               .single(),
           ]);
@@ -530,6 +549,15 @@ export default function CategoriesPage() {
 
         setClubAthletes(athletes);
         setClubTrainers(trainers);
+        setSites(normalizeClubSites(clubData?.club_sites));
+        setRawCategoryGroups(
+          Array.isArray(clubData?.category_groups)
+            ? clubData.category_groups
+            : [],
+        );
+        setClubStructures(
+          Array.isArray(clubData?.structures) ? clubData.structures : [],
+        );
         setCategories(transformedCategories);
       } catch (error) {
         console.error("Error loading categories:", error);
@@ -910,12 +938,75 @@ const buildDialogAthletesForCategory = (category: Category) =>
     }
   };
 
+  /**
+   * Gruppi operativi del club: la coppia (categoria, sede). Le categorie senza
+   * gruppi configurati ne ricevono uno implicito, quindi questa lista copre
+   * sempre tutte le categorie (ADR-0038).
+   */
+  const categoryGroups = useMemo(
+    () =>
+      buildCategoryGroups({
+        categories,
+        sites,
+        groups: rawCategoryGroups,
+      }),
+    [categories, sites, rawCategoryGroups],
+  );
+
+  const groupsByCategoryId = useMemo(() => {
+    const byCategory = new Map<string, CategoryGroup[]>();
+    categoryGroups.forEach((group) => {
+      const bucket = byCategory.get(group.categoryId);
+      if (bucket) {
+        bucket.push(group);
+      } else {
+        byCategory.set(group.categoryId, [group]);
+      }
+    });
+    return byCategory;
+  }, [categoryGroups]);
+
+  const persistCategoryGroups = async (
+    categoryId: string,
+    nextForCategory: CategoryGroup[],
+  ) => {
+    if (!activeClub) return;
+
+    const others = rawCategoryGroups.filter(
+      (group: any) =>
+        String(group?.categoryId || group?.category_id || "") !== categoryId,
+    );
+    const next = [...others, ...nextForCategory.map(serializeCategoryGroup)];
+    const previous = rawCategoryGroups;
+
+    setRawCategoryGroups(next);
+    try {
+      const { updateClubData } = await import("@/lib/simplified-db");
+      await updateClubData(activeClub.id, "category_groups", next);
+      showToast("success", "Gruppi operativi aggiornati");
+    } catch {
+      setRawCategoryGroups(previous);
+      showToast("error", "Salvataggio dei gruppi operativi fallito");
+    }
+  };
+
   const filteredCategories = sortByName(
-    categories.filter(
-      (category) =>
+    categories.filter((category) => {
+      const matchesQuery =
         category.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        category.sport.toLowerCase().includes(searchQuery.toLowerCase()),
-    ),
+        category.sport.toLowerCase().includes(searchQuery.toLowerCase());
+
+      if (!matchesQuery || !siteFilter) {
+        return matchesQuery;
+      }
+
+      // Una categoria appartiene alla sede se ha un gruppo in quella sede.
+      // Il gruppo implicito (categoria senza sede) resta visibile ovunque:
+      // filtrare per sede non deve nascondere cio che non e ancora collocato.
+      return (groupsByCategoryId.get(category.id) || []).some(
+        (group) => !group.siteId || group.siteId === siteFilter,
+      );
+    }),
     (category) => category.name,
   );
 
@@ -990,6 +1081,14 @@ const buildDialogAthletesForCategory = (category: Category) =>
               </div>
             </div>
 
+            <SiteFilter
+              sites={sites}
+              value={siteFilter}
+              onChange={setSiteFilter}
+              label="Mostra le categorie svolte a"
+              id="categories-site-filter"
+            />
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {loading || authLoading ? (
                 <div className="col-span-full flex justify-center py-12">
@@ -1053,6 +1152,34 @@ const buildDialogAthletesForCategory = (category: Category) =>
                       <p className="text-sm text-muted-foreground">
                         Anni di nascita: {category.birthYearsLabel}
                       </p>
+                      {isMultiSiteClub(sites) ? (
+                        <div className="flex flex-wrap items-center gap-1 pt-1">
+                          {(groupsByCategoryId.get(category.id) || [])
+                            .filter((group) => !group.implicit)
+                            .map((group) => (
+                              <Badge
+                                key={group.id}
+                                variant="outline"
+                                className="gap-1 text-slate-600"
+                              >
+                                <MapPin className="h-3 w-3" />
+                                {group.siteName}
+                              </Badge>
+                            ))}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-blue-600"
+                            onClick={() => setGroupsEditorCategory(category)}
+                          >
+                            {(groupsByCategoryId.get(category.id) || []).some(
+                              (group) => !group.implicit,
+                            )
+                              ? "Cambia sedi"
+                              : "Assegna sedi"}
+                          </Button>
+                        </div>
+                      ) : null}
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
@@ -1125,6 +1252,27 @@ const buildDialogAthletesForCategory = (category: Category) =>
           </DashboardPageContainer>
         </main>
       </div>
+
+      {groupsEditorCategory ? (
+        <CategoryGroupsEditor
+          open={Boolean(groupsEditorCategory)}
+          onOpenChange={(open) => {
+            if (!open) setGroupsEditorCategory(null);
+          }}
+          categoryId={groupsEditorCategory.id}
+          categoryName={groupsEditorCategory.name}
+          sites={sites}
+          structures={clubStructures.map((structure: any) => ({
+            id: String(structure?.id || ""),
+            name: String(structure?.name || "Struttura"),
+            siteId: String(structure?.siteId || structure?.site_id || ""),
+          }))}
+          groups={categoryGroups}
+          onSave={(next) =>
+            persistCategoryGroups(groupsEditorCategory.id, next)
+          }
+        />
+      ) : null}
 
       <CategoryEditorDialog
         isOpen={showAddCategoryModal}

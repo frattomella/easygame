@@ -23,16 +23,19 @@ const STATES = ["DONE", "IN PROGRESS", "OPEN", "DEFERRED", "SUPERSEDED"];
 /** Righe di voce: quelle che cominciano con un identificativo. */
 const entryLines = lines.filter((line) =>
   /*
-    `[A-Z]\d+-\d+` e non un elenco di prefissi noti: il prefisso cresce a ogni
-    blocco (`B8`) e ora anche a ogni workstream (`A1`), e un elenco chiuso
-    avrebbe smesso di contare le voci nuove **in silenzio** — che e il modo in
-    cui un riepilogo verificato smette di verificare qualcosa.
+    Il prefisso non e un elenco chiuso: cresce a ogni blocco (`B9`) e a ogni
+    workstream (`A1`, `A2`, `WB`). Un elenco chiuso avrebbe smesso di contare
+    le voci nuove **in silenzio** — che e il modo in cui un riepilogo
+    verificato smette di verificare qualcosa.
 
-    La cifra prima del trattino e obbligatoria di proposito: tiene fuori le
-    righe `R-01` di «Remaining Web V1 before release», che sono una lista di
-    cio che manca al rilascio e non portano uno stato.
+    Le tre forme ammesse sono quindi: lettera + cifra (`B9-01`, `A1-07`),
+    doppia lettera di workstream (`WB-03`), e i prefissi storici `P-` e `S-`.
+
+    `R-` resta fuori di proposito: le righe di «Remaining Web V1 after
+    integration» sono una lista di cio che manca al rilascio e non portano
+    uno stato.
   */
-  /^\|\s*([A-Z]\d+-\d+|P-\d+|S-\d+)\s*\|/.test(line),
+  /^\|\s*([A-Z]\d+-\d+|W[A-Z]-\d+|P-\d+|S-\d+)\s*\|/.test(line),
 );
 
 const statusOf = (line) => {

@@ -53,6 +53,8 @@ import {
 
 const CLUB_DIRECT_UPDATE_FIELDS = [
   "categories",
+  "category_groups",
+  "club_sites",
   "trainings",
   "weekly_schedule",
   "matches",
@@ -115,6 +117,7 @@ const serializeAthleteMemberships = (
     category_id: membership.categoryId,
     category_name: membership.categoryName,
     is_primary: membership.isPrimary,
+    site_id: membership.siteId || null,
   }));
 
 const hydrateAthleteWithMemberships = (

@@ -83,6 +83,13 @@ import {
   deleteClubAthlete,
 } from "@/lib/simplified-db";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
+import {
+  buildSiteIndex,
+  normalizeClubSites,
+  recordMatchesSite,
+  type ClubSite,
+} from "@/lib/club-sites";
+import { SiteFilter } from "@/components/sites/site-filter";
 import { supabase } from "@/lib/supabase";
 import {
   Collapsible,
@@ -119,6 +126,9 @@ interface Athlete {
   categoryId: string | null;
   categoryLabel: string;
   membershipType: "primary" | "secondary";
+  /** Sede in cui l'atleta svolge la categoria di questa riga (ADR-0038). */
+  siteId: string;
+  siteName: string;
   primaryCategoryLabel?: string;
   allCategoryLabels: string[];
   age: number;
@@ -216,6 +226,9 @@ export default function AthletesPage() {
   const [showBulkCategoryDialog, setShowBulkCategoryDialog] = useState(false);
   const [bulkCategoryTargetId, setBulkCategoryTargetId] = useState("");
 
+  const [sites, setSites] = useState<ClubSite[]>([]);
+  const [siteFilter, setSiteFilter] = useState("");
+
   // Status filter: "active" | "inactive" | "suspended" | "all"
   const [statusFilter, setStatusFilter] = useState<
     "active" | "inactive" | "suspended" | "all"
@@ -304,12 +317,18 @@ export default function AthletesPage() {
     try {
       setLoading(true);
 
-      const [{ data: categoriesData }, athletesData] = await Promise.all([
+      const [{ data: categoriesData }, { data: clubData }, athletesData] =
+        await Promise.all([
         supabase
           .from("categories")
           .select("*")
           .eq("club_id", clubId)
           .order("created_at", { ascending: true }),
+        supabase
+          .from("clubs")
+          .select("club_sites")
+          .eq("id", clubId)
+          .single(),
         // La lista mostra anagrafica, categoria e stato: non serve trasportare
         // gli allegati base64 di 200 schede atleta (WP-31).
         getClubAthletes(clubId, { view: "summary" }),
@@ -317,6 +336,10 @@ export default function AthletesPage() {
 
       const normalizedCategories = buildCategoryList(categoriesData || []);
       setCategories(normalizedCategories);
+
+      const normalizedSites = normalizeClubSites(clubData?.club_sites);
+      const siteIndex = buildSiteIndex(normalizedSites);
+      setSites(normalizedSites);
 
       const transformedAthletes = athletesData.flatMap((athlete: any) => {
         const memberships = normalizeAthleteCategoryMemberships(
@@ -335,6 +358,7 @@ export default function AthletesPage() {
                   categoryId: null,
                   categoryName: "Senza categoria",
                   isPrimary: true,
+                  siteId: "",
                 },
               ];
 
@@ -354,6 +378,10 @@ export default function AthletesPage() {
             categoryId,
             categoryLabel,
             membershipType: membership.isPrimary ? "primary" : "secondary",
+            siteId: siteIndex.resolveSiteId(membership.siteId),
+            siteName: membership.siteId
+              ? siteIndex.getSiteName(membership.siteId)
+              : "",
             primaryCategoryLabel:
               primaryMembership?.categoryName || categoryLabel || "Senza categoria",
             allCategoryLabels: rowMemberships.map((item) => item.categoryName),
@@ -526,6 +554,10 @@ export default function AthletesPage() {
         categoryId: linkedCategory?.id || null,
         categoryLabel: linkedCategory?.name || "Senza categoria",
         membershipType: "primary",
+        // Un atleta appena creato non ha ancora una sede dichiarata: resta
+        // visibile con qualunque filtro finche non gliene si assegna una.
+        siteId: "",
+        siteName: "",
         primaryCategoryLabel: linkedCategory?.name || "Senza categoria",
         allCategoryLabels: categoryMemberships.map(
           (membership) => membership.category_name,
@@ -899,7 +931,14 @@ export default function AthletesPage() {
     const matchesStatus =
       statusFilter === "all" || athlete.status === statusFilter;
 
-    return matchesSearch && matchesStatus;
+    // Sede vuota sulla riga significa «non dichiarata», non «nessuna»: resta
+    // visibile con qualunque filtro sede (ADR-0038).
+    const matchesSite = recordMatchesSite(
+      athlete.siteId ? [athlete.siteId] : [],
+      siteFilter,
+    );
+
+    return matchesSearch && matchesStatus && matchesSite;
   });
 
   const selectedAthletesCount = selectedAthleteIds.size;
@@ -1502,6 +1541,14 @@ export default function AthletesPage() {
                   </Button>
                 </div>
               </div>
+
+              <SiteFilter
+                sites={sites}
+                value={siteFilter}
+                onChange={setSiteFilter}
+                label="Sede"
+                id="athletes-site-filter"
+              />
 
               <div className="flex items-center gap-2 lg:ml-auto">
                 <DropdownMenu>

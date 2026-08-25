@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 743 test, 63 file
+## Cosa e coperto oggi — 799 test, 69 file
 
 **La tabella sotto ne elenca 44 e non 63**: e rimasta indietro rispetto al
 Blocco 8, ed e onesto dirlo invece di lasciar credere che sia completa. Le
@@ -98,6 +98,12 @@ Il conteggio in testa e invece verificato a ogni esecuzione.
 | `tests/lib/jersey-numbering-groups.test.mjs` | 10 | Atleti che rientrano nel gruppo con la categoria registrata solo per nome, nome atleta non duplicato, righe ordinate, numeri duplicati e riservati, indice costruito in una passata |
 | `tests/lib/numbering-group-persistence.test.mjs` | 5 | I gruppi e la compatibilita sopravvivono al giro serializza/normalizza, compresi i numeri riservati salvati come numeri |
 | `tests/ui/account-onboarding-and-admin.test.mjs` | 9 | Home account senza tavolozza propria e con i tre stati distinti, area onboarding protetta e saltabile, import con avanzamento reale e riepilogo, IMAP separato da SMTP nella console |
+| `tests/lib/multisite-model.test.mjs` | 15 | **Multi-sede**: la stessa categoria in due sedi resta una categoria sola, gruppi impliciti, mono-sede che non vede il concetto, sede vuota che non fa sparire il dato storico, compatibilita non transitiva con piu sedi |
+| `tests/lib/jersey-numbering-multisite.test.mjs` | 9 | Numerazione per sede: il 10 di Roma non e il 10 di Aprilia, gruppo senza sedi che non restringe, atleta senza sede che resta dentro, duplicati che restano duplicati nella stessa sede |
+| `tests/ui/multisite-ux.test.mjs` | 6 | Il filtro sede non si monta senza due sedi attive, le pagine usano il componente unico, una sede con strutture non si elimina, l'editor scrive gruppi e non categorie |
+| `tests/lib/clothing-delivery.test.mjs` | 13 | **Consegne parziali**: stati indipendenti per articolo, «2/4 consegnati», stato del kit derivato e non scritto, taglia proposta dall'anagrafica, override che non tocca l'anagrafica |
+| `tests/ui/clothing-delivery-ux.test.mjs` | 10 | La tendina taglia mostra e salva la proposta, lo stato in elenco e derivato, le consegne non passano dal cambio di stato globale, il kit non chiede piu una stagione |
+| `tests/lib/multisite-performance.test.mjs` | 2 | **Il costo cresce con gli atleti, non con il loro quadrato**: rapporto fra 200 e 400 atleti sotto 3x su riepilogo gruppi e progresso consegne |
 
 ## Isolamento multi-tenant: cosa dimostrano i test
 
