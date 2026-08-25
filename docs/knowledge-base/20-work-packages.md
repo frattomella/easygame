@@ -1270,6 +1270,100 @@ era stato pagato (`status`, `paid_at`, `method`). Da qui, e solo da qui:
 
 ---
 
+### WP-48 · Workstream A — Voucher e contributi legati alla frequenza — `DONE` (2026-08-26)
+
+**Obiettivo.** Dare a EasyGame un posto dove tenere il denaro che **non** viene
+dalle famiglie: voucher regionali, contributi comunali, bandi. Caso reale di
+riferimento: il **Voucher per lo Sport della Regione Lazio 2025** (Sport e
+Salute).
+
+**Il problema, in una frase.** Un voucher assegnato non e denaro incassato, e
+fra «assegnato» e «arrivato in banca» ci sono tre passaggi che possono fallire
+separatamente — frequentare abbastanza, rendicontare, incassare. Senza un
+modello che li tenga distinti, l'unico modo di registrare un contributo sarebbe
+inventare un incasso: la rata della famiglia risulterebbe saldata da soldi che
+il club non ha.
+
+**Scope.**
+
+1. **Modello.** Cinque tabelle: `funding_programs` (le regole del bando in
+   colonne), `funding_enrollments` (chi ne beneficia, con quale plafond e quale
+   codice voucher), `funding_accruals` (il maturato periodo per periodo),
+   `funding_settlements` e `funding_settlement_lines` (il versamento dell'ente
+   e la sua riconciliazione).
+2. **Dominio.** `src/lib/funding/funding-model.ts`, puro: generazione dei
+   periodi, maturazione, i **cinque importi**, validazione della configurazione
+   e della ripartizione. `attendance-measure.ts` collega il tutto alle presenze
+   EasyGame.
+3. **Servizio.** `src/lib/server/funding.ts`: ricalcolo idempotente dalle
+   presenze, rendicontazione, liquidazioni riconciliate.
+4. **API.** `/api/v1/funding/{programs,enrollments,accruals,settlements}`.
+5. **UI.** `AthleteFundingSummary` nella scheda atleta,
+   `FundingProgramsPanel` in Gestione iscrizioni.
+
+**Le cinque decisioni, e perche.**
+
+| Decisione | Perche |
+|---|---|
+| Le regole del bando sono **colonne**, non codice | Un dominio che si dice configurabile e porta 500, 60 o 8 dentro un modulo non lo e. Un test verifica che nessuna costante del bando viva in `src/` |
+| **Cinque importi**, non un totale | Assegnato, maturato, rendicontato, liquidato, residuo falliscono in momenti diversi. Il liquidato si legge dalle **righe**, non dallo stato del periodo: con versamenti parziali i due numeri differiscono |
+| Il maturato lo **calcola il server**, dalle presenze | Un importo digitato sarebbe un'opinione da rendicontare a un ente pubblico. Idempotente per costruzione: si rifa a ogni correzione di appello |
+| Il **periodo non e una tabella** | Si ricava dalla configurazione; salvarlo sarebbe una seconda fonte di verita che diverge il giorno in cui le date del bando cambiano. Viene congelato **dentro** il maturato, dove serve a spiegarlo |
+| Le due contabilita **non si toccano** | Il servizio dei contributi non importa `payment_transactions`, e il dominio dei pagamenti non sa cosa sia un contributo. Due test statici lo difendono |
+
+**Tre sottigliezze che il codice da solo non spiega.**
+
+- Un periodo **gia liquidato non si riscrive** — l'ente ha versato su quel
+  numero — ma il suo maturato **consuma comunque plafond**: saltarlo del tutto
+  farebbe trovare ai periodi successivi un residuo che non esiste.
+- Un periodo **rendicontato torna «maturato»** se il ricalcolo ne cambia
+  l'importo: cio che era stato dichiarato all'ente non corrisponde piu.
+- Il mensile segue il **mese di calendario** e il confronto con le presenze si
+  fa sul **giorno**, non sull'istante: le date degli allenamenti sono locali e
+  i periodi UTC, e un allenamento del primo ottobre finiva dentro settembre.
+
+**Cosa e stato deliberatamente lasciato fuori.**
+
+- **La compensazione automatica contributo → rata della famiglia.** E la cosa
+  che sembra piu comoda e la piu pericolosa: quale parte della quota il voucher
+  copre lo decide il club insieme alla famiglia, non l'importo maturato.
+  Compensare in automatico farebbe risultare saldate rate che nessuno ha
+  pagato, e la scoperta arriverebbe a fine stagione.
+- **La trasmissione telematica delle rendicontazioni.** `reported` e una
+  marcatura interna; il canale verso il finanziatore e quello che il bando
+  prescrive, e cambia da bando a bando.
+- **La contabilita fiscale.** Come per WP-47.
+
+**Acceptance criteria.**
+- [x] Nessuna regola di un singolo bando nel codice, verificato da un test
+- [x] Programma configurabile su nome, ente, validita, plafond, importo per
+      periodo, frequenza, requisito minimo, unita, comportamento sotto soglia,
+      tetti, stato e codice voucher individuale
+- [x] Maturato calcolato dalle presenze, periodo per periodo, senza calcoli
+      manuali
+- [x] Assegnato, maturato, rendicontato, liquidato e residuo sempre distinti
+- [x] Liquidazione registrabile e riconciliabile con piu periodi e piu atleti
+- [x] Il Riepilogo Incassi distingue denaro incassato da contributi maturati
+- [x] Convivenza con rate, pagamenti parziali, «Registra pagamento», ricevute,
+      pro-rata e servizi opzionali: nessuno dei due domini importa l'altro
+- [x] Scenario Voucher Lazio 2025 coperto da test, con soglia configurata
+- [x] Multi-tenant, autorizzazioni e audit su ogni scrittura
+- [x] Gate verdi: 742/743 test, typecheck, build, warning di lint invariati
+
+**Test.** `tests/lib/funding-model.test.mjs` (31),
+`tests/server/funding-service.test.mjs` (27),
+`tests/ui/funding-flow.test.mjs` (16).
+
+**File.** `prisma/schema.prisma`,
+`prisma/migrations/20260826140000_funding_programs/`,
+`src/lib/funding/{funding-model,attendance-measure}.ts`,
+`src/lib/server/funding.ts`, `src/app/api/v1/funding/**`,
+`src/components/funding/{AthleteFundingSummary,FundingProgramsPanel}.tsx`,
+`src/app/athletes/[id]/page.tsx`, `src/app/registration-management/page.tsx`,
+`src/components/payments/AthletePaymentLedger.tsx`.
+
+---
+
 ### WP-13 · Pagamenti online via CediPay / Platform.Payments — `PIANIFICATO`
 
 **Obiettivo.** Decidere e chiudere: implementare davvero o rimuovere la

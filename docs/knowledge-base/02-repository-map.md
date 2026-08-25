@@ -61,6 +61,9 @@ easygame/
 | `payments/installment-ledger.ts` | 526 | Il registro incassi: dovuto, incassato, residuo e stato di una rata si **calcolano** dai movimenti. **Puro.** Vedi [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una). |
 | `server/payment-transactions.ts` | 561 | Scrittura degli incassi: registrazione, storno, emissione ricevuta. Unico punto che scrive `payment_transactions`, e l'unico che riscrive `payments.status`. |
 | `payments/` (resto) | — | Tipi, fee di piattaforma, registro provider (nessuno implementato), metodi di incasso configurati dal club. |
+| `funding/funding-model.ts` | 724 | Voucher e contributi: periodi, maturato, i cinque importi, validazione della configurazione e della riconciliazione. **Puro**, e senza nessuna regola di un singolo bando. Vedi [ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati). |
+| `funding/attendance-measure.ts` | 193 | Dalle presenze EasyGame alla misura che un bando chiede: ore o sessioni per periodo. **Puro**: riceve allenamenti e presenze, non li cerca. |
+| `server/funding.ts` | 760 | Scrittura dei contributi: programmi, beneficiari, ricalcolo del maturato, rendicontazione, liquidazioni. **Non importa i pagamenti**, di proposito. |
 
 ## Mobile App — `easygamemobile/`
 

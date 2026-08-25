@@ -44,9 +44,9 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 669 test, 60 file
+## Cosa e coperto oggi — 743 test, 63 file
 
-**La tabella sotto ne elenca 41 e non 60**: e rimasta indietro rispetto al
+**La tabella sotto ne elenca 44 e non 63**: e rimasta indietro rispetto al
 Blocco 8, ed e onesto dirlo invece di lasciar credere che sia completa. Le
 righe che ci sono descrivono correttamente cio che coprono; le mancanti si
 leggono da `tests/`, dove la discovery e automatica su `tests/**/*.test.mjs`.
@@ -79,6 +79,9 @@ Il conteggio in testa e invece verificato a ogni esecuzione.
 | `tests/server/payment-transactions.test.mjs` | 23 | **Gli incassi a runtime**: ogni operazione provata dal club sbagliato deve fallire con «Accesso negato»; lo stato della rata lo riscrive il servizio e non il client; rata annullata che non torna in vita; storno, doppio storno, correzione; provider online rifiutati |
 | `tests/lib/payment-partial-regressions.test.mjs` | 9 | Che un acconto arrivi fino ai totali dell'atleta, e che **non** cambi cio che gia funzionava: servizi opzionali, pro-rata, rate annullate |
 | `tests/ui/payment-registration-flow.test.mjs` | 13 | Un solo flusso «Registra pagamento» fra scheda atleta e Movimenti; nessuna scelta di stato; metodo dai metodi del club; importo precompilato e modificabile; nessuna griglia a due colonne a 375 px |
+| `tests/lib/funding-model.test.mjs` | 31 | **Voucher e contributi**: il caso di riferimento configurato solo come dati, un secondo bando con regole opposte sullo stesso calcolo, periodi mensili di calendario e parziali, soglia, pro-rata, plafond che si consuma in ordine, i cinque importi, riconciliazione delle liquidazioni, misura delle ore dalle presenze |
+| `tests/server/funding-service.test.mjs` | 27 | **I contributi a runtime**: isolamento multi-tenant su ogni operazione, maturato calcolato dalle presenze, ricalcolo idempotente, periodo liquidato che non si riscrive ma consuma plafond, liquidazioni parziali, e che **nessuna liquidazione crea un incasso della famiglia** |
+| `tests/ui/funding-flow.test.mjs` | 16 | Che **nessuna costante del bando di riferimento viva in `src/`**, che le due contabilita non si tocchino, i cinque importi a schermo, il dettaglio per periodo, la configurabilita completa dal pannello |
 | `tests/lib/api-adapter-requests.test.mjs` | 4 | L'adapter fa **una** richiesta per select senza relazioni, e carica le relazioni solo quando servono |
 | `tests/lib/trainer-delete.test.mjs` | 8 | L'eliminazione di un allenatore e persistita su tutte le origini che la lettura rimette insieme |
 | `tests/lib/coalescing-saver.test.mjs` | 6 | L'autosave scrive una volta alla volta e accorpa le modifiche fatte durante l'attesa |

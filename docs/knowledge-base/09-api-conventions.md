@@ -69,6 +69,7 @@ Il cookie `easygame_session` e l'alternativa usata dal Web.
 | Comuni | `/api/v1/comuni` (sola lettura, non e un dato di club) |
 | Allegati | `/api/v1/attachments` e `/api/v1/attachments/[id]` |
 | Incassi | `/api/v1/payment-transactions` e `/api/v1/payment-transactions/[id]` |
+| Contributi | `/api/v1/funding/programs`, `/programs/[id]`, `/enrollments`, `/accruals`, `/settlements` |
 | Trainer | `/api/v1/trainer/operational-alerts` |
 | Automazioni | `/api/v1/training-automation` |
 
@@ -139,6 +140,31 @@ Tre conseguenze da conoscere:
   `MANUAL | STRIPE | CEDIPAY | IMPORT | OTHER` perche il modello sia pronto,
   ma accettare un incasso dichiarato `STRIPE` senza un webhook verificato
   vorrebbe dire registrare denaro che nessuno ha incassato.
+
+## Contributi: due contabilita, due superfici
+
+| Metodo | Path | Cosa fa |
+|--------|------|---------|
+| `GET|POST` | `/api/v1/funding/programs` | I bandi del club. Le regole sono colonne |
+| `GET|PATCH` | `/api/v1/funding/programs/:id` | Nessun `DELETE`: un programma con maturati si porta a `closed` |
+| `GET|POST` | `/api/v1/funding/enrollments` | Beneficiari. `?view=overview&athlete_id=` restituisce i **cinque importi gia calcolati** |
+| `GET|POST` | `/api/v1/funding/accruals` | `recompute` ricalcola dalle presenze, `report` rendiconta all'ente |
+| `GET|POST` | `/api/v1/funding/settlements` | Il versamento dell'ente, con la ripartizione sui periodi |
+
+**Perche `view=overview` e non un calcolo nel client.** I cinque importi
+richiedono di leggere maturati e righe di liquidazione insieme; farli calcolare
+al client vorrebbe dire riscrivere il dominio in TypeScript di interfaccia, che
+e il debito [D1](16-technical-debt.md) che EasyGame sta riducendo.
+
+**Perche il ricalcolo e una `POST` e non un effetto della `GET`.** Scansiona
+presenze e allenamenti del club: farlo a ogni apertura di scheda costerebbe una
+scansione per visita. L'unico `(enrollment_id, period_index)` lo rende
+idempotente, quindi si puo rifare quante volte serve.
+
+**Questi endpoint non toccano i pagamenti.** Una liquidazione dell'ente non
+genera nessun incasso della famiglia: confonderli farebbe risultare saldate
+rate che nessuno ha pagato. Vedi
+[ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati).
 
 ## Il CRUD generico `/api/v1/[resource]`
 

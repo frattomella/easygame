@@ -41,6 +41,7 @@ Un dominio ha un solo punto di ingresso. Non crearne un secondo.
 | Ruoli e permessi | `src/lib/access-roles.ts` |
 | Sessioni e scope organizzativo | `src/lib/server/auth.ts` |
 | Incassi (movimenti di denaro) | `src/lib/server/payment-transactions.ts` |
+| Voucher e contributi da enti | `src/lib/server/funding.ts` |
 | Accesso dati server | `src/lib/server/resources.ts` |
 | Client Prisma | `src/lib/server/prisma.ts` |
 | Email | `src/lib/server/email/` |
