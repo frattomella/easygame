@@ -135,6 +135,36 @@ Riferimento completo: [`.env.example`](../../.env.example).
 | `EASYGAME_PLATFORM_ADMIN_EMAILS` | CSV di email admin di piattaforma. Se **vuota**, chiunque abbia `role in ("platform_admin","admin")` diventa admin: tenerla sempre valorizzata |
 | `AUTH_ALLOW_TEST_CODES` | Espone gli OTP in risposta. **Mai `true` in un ambiente condiviso** |
 
+### I deploy di anteprima falliscono, e non e una regressione (rilevato 2026-08-25)
+
+Ogni push su un branch fa partire un deploy di **anteprima** su Vercel, e ogni
+deploy di anteprima **fallisce**:
+
+```
+Error code: P1012
+error: Environment variable not found: DIRECT_URL.
+```
+
+**Causa.** Nessuna variabile del progetto `easygame-staging` e assegnata
+all'ambiente **Preview**: `npx vercel env ls` le mostra tutte su
+`Development` e `Production`, impostate 129 giorni fa. Il build di anteprima
+esegue `npm run vercel-build`, che comincia con `prisma generate`, e senza
+`DIRECT_URL` lo schema non valida.
+
+**Non e un difetto del codice** e non e stato introdotto dal Blocco 7: e cosi
+da sempre, e i deploy espliciti (`npx vercel --prod`, che su questo progetto
+pubblica **staging**) funzionano perche usano l'ambiente Production.
+
+**Conseguenza pratica.** L'anteprima automatica per branch non e utilizzabile:
+la verifica su staging va fatta con un deploy esplicito dopo che i gate sono
+verdi, come prescrive [CLAUDE.md](../../CLAUDE.md).
+
+**Come si chiuderebbe.** Assegnando `DATABASE_URL` e `DIRECT_URL` anche
+all'ambiente Preview. **Non e stato fatto**: cambiare una variabile d'ambiente
+Vercel richiede autorizzazione esplicita, e va deciso a quale database far
+puntare le anteprime — farle puntare a staging significa che un branch
+qualunque puo scriverci.
+
 ## Build e deploy
 
 `vercel.json`:
