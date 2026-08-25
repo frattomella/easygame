@@ -16,6 +16,7 @@ import {
 import {
   fieldIsFile,
   formatAnswer,
+  getSchemaSubjects,
   normalizeFormSchema,
   type FormSchema,
   type FormSubmissionFile,
@@ -36,6 +37,7 @@ import {
   type DuplicateCandidate,
   type FormChangeSet,
 } from "@/lib/forms/changes";
+import { buildPrefilledAnswers } from "@/lib/forms/prefill";
 import {
   FORM_LIMITS,
   isPublicFormUploadMimeType,
@@ -1055,4 +1057,91 @@ export const describeSubmission = (submission: FormSubmissionRecord) => {
     .find((value) => value !== "—");
 
   return firstAnswer || "Compilazione senza nome";
+};
+
+/* ------------------------------------------------- compilazione interna */
+
+export type CompileSubjectOption = {
+  recordId: string;
+  label: string;
+  hint: string;
+};
+
+export type CompileContext = {
+  templateId: string;
+  templateTitle: string;
+  version: number;
+  schema: FormSchema;
+  /** I soggetti gia decisi: l'atleta da cui si e aperto il modulo. */
+  selections: FormSubjectSelection[];
+  /** Le scelte ancora da fare, per soggetto. */
+  options: Partial<Record<FormSubjectKey, CompileSubjectOption[]>>;
+  answers: Record<string, unknown>;
+  prefilledFieldIds: string[];
+};
+
+/**
+ * Tutto cio che serve per compilare un modulo dalla scheda di una persona.
+ *
+ * **Perche la precompilazione la calcola il server.** I valori stanno in
+ * colonne e in campi JSON dell'anagrafica, con nomi che il client non conosce
+ * e non deve conoscere. Farla calcolare al browser vorrebbe dire mandargli il
+ * record intero — cioe piu dati di quelli che il modulo chiede — e duplicare
+ * la mappa dei percorsi in un secondo posto.
+ *
+ * **Perche i tutori si scelgono e non si indovinano.** Un atleta puo avere
+ * madre, padre e un tutore: prendere il primo dell'elenco significa scrivere
+ * il numero di telefono sbagliato su un modulo firmato.
+ */
+export const buildCompileContext = async (
+  scope: FormsAccessScope,
+  input: { templateId: string; subjects?: unknown },
+): Promise<CompileContext> => {
+  const compilable = await resolveCompilableVersion(scope, input.templateId);
+  const organizationId = compilable.row.organization_id;
+  const requested = normalizeSelections(input.subjects);
+  const needed = getSchemaSubjects(compilable.schema);
+
+  /*
+    Si tengono solo i soggetti che il modulo nomina davvero: un `subjects`
+    che citasse un atleta per un modulo dello staff non aprirebbe nulla, ma
+    farebbe leggere un record che quel modulo non riguarda.
+  */
+  const selections = requested.filter((selection) =>
+    needed.includes(selection.subject),
+  );
+
+  const { records, athlete } = await loadSubjectRecords(
+    organizationId,
+    selections,
+  );
+
+  const options: CompileContext["options"] = {};
+
+  if (needed.includes("guardian")) {
+    const guardians = Array.isArray(athlete?.data?.guardians)
+      ? athlete!.data.guardians
+      : [];
+
+    options.guardian = guardians.map((guardian: any, index: number) => ({
+      recordId: String(index),
+      label:
+        `${asText(guardian?.name)} ${asText(guardian?.surname)}`.trim() ||
+        `Tutore ${index + 1}`,
+      hint: asText(guardian?.relationship),
+    }));
+  }
+
+  const answers = buildPrefilledAnswers(compilable.schema, records);
+
+  return {
+    templateId: compilable.row.id,
+    templateTitle: compilable.schema.title,
+    version: compilable.version,
+    schema: compilable.schema,
+    selections,
+    options,
+    answers,
+    prefilledFieldIds: Object.keys(answers),
+  };
 };

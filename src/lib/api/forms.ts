@@ -98,6 +98,37 @@ export const deleteForm = async (id: string) =>
     ),
   );
 
+/* --------------------------------------------------- compilazione guidata */
+
+export type CompileSubjectOption = {
+  recordId: string;
+  label: string;
+  hint: string;
+};
+
+export type CompileContext = {
+  templateId: string;
+  templateTitle: string;
+  version: number;
+  schema: FormSchema;
+  selections: FormSubjectSelection[];
+  options: Partial<Record<string, CompileSubjectOption[]>>;
+  answers: Record<string, unknown>;
+  prefilledFieldIds: string[];
+};
+
+export const fetchCompileContext = async (
+  templateId: string,
+  subjects: FormSubjectSelection[],
+) =>
+  unwrap(
+    await apiRequest<CompileContext>(
+      `/api/v1/forms/${encodeURIComponent(templateId)}/compile?subjects=${encodeURIComponent(
+        JSON.stringify(subjects),
+      )}`,
+    ),
+  );
+
 /* -------------------------------------------------------- compilazioni */
 
 export const fetchFormSubmissions = async (options: {

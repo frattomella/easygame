@@ -58,7 +58,7 @@ import {
   updateDocumentTemplate,
   deleteDocumentTemplate,
 } from "@/lib/simplified-db";
-import { getDocumentTemplatesFromClub } from "@/lib/online-forms";
+import { getDocumentTemplatesFromClub } from "@/lib/document-templates";
 import { useToast } from "@/components/ui/use-toast";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 

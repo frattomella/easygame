@@ -734,3 +734,125 @@ test("un modulo con compilazioni si archivia, non si cancella", async () => {
     "cancellare avrebbe reso illeggibile una risposta gia raccolta",
   );
 });
+
+/* -------------------------------------------- compilazione dalla segreteria */
+
+const ATHLETE_ROW = {
+  id: "atleta-1",
+  organization_id: CLUB_A,
+  first_name: "Mario",
+  last_name: "Rossi",
+  birth_date: null,
+  data: {
+    fiscalCode: "RSSMRA85M01H501Q",
+    guardians: [
+      { name: "Maria", surname: "Bianchi", relationship: "Madre", phone: "3331234567" },
+      { name: "Luca", surname: "Rossi", relationship: "Padre", phone: "3339876543" },
+    ],
+  },
+};
+
+test("compilare dalla scheda precompila cio che EasyGame sa gia", async () => {
+  fake.rows("athlete").push({ ...ATHLETE_ROW });
+  const template = await publishedTemplate();
+
+  const context = await submissions.buildCompileContext(scopeA(), {
+    templateId: template.id,
+    subjects: [
+      { subject: "athlete", recordId: "atleta-1", label: "Mario Rossi" },
+      { subject: "guardian", recordId: "0", label: "" },
+    ],
+  });
+
+  assert.equal(context.answers.f_nome, "Mario");
+  assert.equal(context.answers.f_cognome, "Rossi");
+  assert.equal(context.answers.f_tel, "3331234567");
+  assert.deepEqual(context.prefilledFieldIds.sort(), [
+    "f_cognome",
+    "f_nome",
+    "f_tel",
+  ]);
+});
+
+test("con piu tutori la scelta e esplicita, non si prende il primo", async () => {
+  fake.rows("athlete").push({ ...ATHLETE_ROW });
+  const template = await publishedTemplate();
+
+  const context = await submissions.buildCompileContext(scopeA(), {
+    templateId: template.id,
+    subjects: [{ subject: "athlete", recordId: "atleta-1", label: "Mario Rossi" }],
+  });
+
+  assert.deepEqual(
+    context.options.guardian.map((option) => [option.recordId, option.label]),
+    [
+      ["0", "Maria Bianchi"],
+      ["1", "Luca Rossi"],
+    ],
+  );
+  assert.equal(
+    context.answers.f_tel,
+    undefined,
+    "nessun tutore scelto: nessun telefono precompilato",
+  );
+});
+
+test("un soggetto che il modulo non nomina non viene nemmeno letto", async () => {
+  fake.rows("athlete").push({ ...ATHLETE_ROW });
+  const template = await publishedTemplate([
+    { id: "f_note", type: "long_text", label: "Note", binding: "" },
+  ]);
+
+  const context = await submissions.buildCompileContext(scopeA(), {
+    templateId: template.id,
+    subjects: [{ subject: "athlete", recordId: "atleta-1", label: "Mario Rossi" }],
+  });
+
+  assert.deepEqual(context.selections, []);
+  assert.deepEqual(context.answers, {});
+});
+
+test("non si prepara la compilazione di un modulo di un altro club", async () => {
+  const template = await publishedTemplate();
+
+  await assert.rejects(
+    () =>
+      submissions.buildCompileContext(scopeB(), { templateId: template.id }),
+    /Accesso negato/,
+  );
+});
+
+test("la compilazione interna finisce in coda come quella pubblica", async () => {
+  fake.rows("athlete").push({ ...ATHLETE_ROW });
+  const template = await publishedTemplate();
+
+  await submissions.submitInternalForm(scopeA(), {
+    templateId: template.id,
+    answers: { f_nome: "Mario", f_cognome: "Rossi", f_tel: "3331234567" },
+    files: [],
+    subjects: [
+      { subject: "athlete", recordId: "atleta-1", label: "Mario Rossi" },
+      { subject: "guardian", recordId: "0", label: "Maria Bianchi" },
+    ],
+  });
+
+  const row = fake.rows("formSubmission")[0];
+  assert.equal(row.source, "internal");
+  assert.equal(row.status, "pending");
+  assert.equal(row.submitted_by, scopeA().userId);
+  assert.equal(row.subjects[0].recordId, "atleta-1");
+  assert.equal(
+    fake.rows("athlete").length,
+    1,
+    "nemmeno la segreteria scrive senza passare dall'approvazione",
+  );
+});
+
+test("un modulo mai pubblicato non si compila dalla scheda", async () => {
+  const created = await createTemplate(scopeA(), "online_enrollment");
+
+  await assert.rejects(
+    () => submissions.buildCompileContext(scopeA(), { templateId: created.id }),
+    /non e ancora pubblicato/,
+  );
+});

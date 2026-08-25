@@ -187,7 +187,7 @@ import {
   getSharedDocumentStatusLabel,
   getSharedDocumentTypeLabel,
 } from "@/lib/shared-documents";
-import type { OnlineForm } from "@/lib/online-forms";
+import { CompileFormDialog } from "@/components/forms/compile-form-dialog";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { apiRequest } from "@/lib/api/client";
 import type { KitComponent } from "@/components/forms/CustomKitComponentsBuilder";
@@ -245,9 +245,13 @@ export default function AthleteProfilePage() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [sharedDocuments, setSharedDocuments] = useState<any[]>([]);
   const [sharedDocumentBusy, setSharedDocumentBusy] = useState(false);
-  const [onlineForms, setOnlineForms] = useState<OnlineForm[]>([]);
-  const [selectedOnlineFormId, setSelectedOnlineFormId] = useState("");
-  const [onlineFormsBusy, setOnlineFormsBusy] = useState(false);
+  const [compileFormOpen, setCompileFormOpen] = useState(false);
+  /*
+    Cambia quando una compilazione approvata ha scritto nella scheda: fa
+    ricaricare i dati dell'atleta senza ricaricare la pagina, che perderebbe
+    la scheda aperta e la posizione nello scorrimento.
+  */
+  const [athleteDataVersion, setAthleteDataVersion] = useState(0);
   const [payments, setPayments] = useState<any[]>([]);
   const [athletePaymentRecords, setAthletePaymentRecords] = useState<any[]>([]);
   const [expectedIncomeEntries, setExpectedIncomeEntries] = useState<any[]>([]);
@@ -542,25 +546,6 @@ export default function AthleteProfilePage() {
     return nextDocuments;
   }, [athleteId]);
 
-  const refreshOnlineForms = React.useCallback(async () => {
-    if (!clubId) return [];
-    setOnlineFormsBusy(true);
-    const response = await apiRequest<{ forms: OnlineForm[] }>(
-      `/api/online-forms?clubId=${encodeURIComponent(clubId)}`,
-    );
-    setOnlineFormsBusy(false);
-    if (response.error) {
-      throw new Error(response.error.message);
-    }
-
-    const publishedForms = Array.isArray(response.data?.forms)
-      ? response.data.forms.filter((form) => form.status === "published")
-      : [];
-    setOnlineForms(publishedForms);
-    setSelectedOnlineFormId((current) => current || publishedForms[0]?.id || "");
-    return publishedForms;
-  }, [clubId]);
-
   // Fetch athlete data from database
   useEffect(() => {
     const fetchAthleteData = async () => {
@@ -822,10 +807,6 @@ export default function AthleteProfilePage() {
           console.warn("Error loading shared documents:", error);
           setSharedDocuments([]);
         });
-        await refreshOnlineForms().catch((error) => {
-          console.warn("Error loading online forms:", error);
-          setOnlineForms([]);
-        });
         setPayments(normalizedCollections.payments);
         setAthletePaymentRecords(
           Array.isArray(athletePaymentRows) ? athletePaymentRows : [],
@@ -900,7 +881,7 @@ export default function AthleteProfilePage() {
     };
 
     fetchAthleteData();
-  }, [clubId, athleteId, refreshSharedDocuments, refreshOnlineForms, showToast]);
+  }, [clubId, athleteId, athleteDataVersion, refreshSharedDocuments, showToast]);
 
   const handleEditSection = (section: string) => {
     setEditingSection(section);
@@ -2249,18 +2230,6 @@ export default function AthleteProfilePage() {
     } finally {
       setSharedDocumentBusy(false);
     }
-  };
-
-  const handleCopyOnlineFormLink = async () => {
-    const form = onlineForms.find((item) => item.id === selectedOnlineFormId);
-    if (!form) {
-      showToast("error", "Seleziona un modulo pubblicato");
-      return;
-    }
-
-    const link = `${window.location.origin}/forms/${form.publicSlug}`;
-    await navigator.clipboard.writeText(link);
-    showToast("success", "Link modulo copiato");
   };
 
   const formatDate = (dateString: string) => {
@@ -4819,18 +4788,28 @@ export default function AthleteProfilePage() {
                 </Card>
 
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <CardTitle>Documenti Iscrizione</CardTitle>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setNewEnrollmentDocument(createEmptyAttachment());
-                        setShowAddEnrollmentDocumentModal(true);
-                      }}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi Documento
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCompileFormOpen(true)}
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        Compila modulo
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setNewEnrollmentDocument(createEmptyAttachment());
+                          setShowAddEnrollmentDocumentModal(true);
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Aggiungi Documento
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="overflow-x-auto">
@@ -5793,59 +5772,19 @@ export default function AthleteProfilePage() {
                       </div>
 
                       <div className="rounded-lg border p-4">
-                        <h3 className="font-semibold text-slate-900">Condividi modulo online</h3>
+                        <h3 className="font-semibold text-slate-900">Compila un modulo</h3>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Copia un link pubblico pubblicato in Modulistica.
+                          L&apos;atleta e gia selezionato e i dati che EasyGame
+                          conosce arrivano precompilati.
                         </p>
-                        <div className="mt-4 grid gap-3">
-                          <Select
-                            value={selectedOnlineFormId}
-                            onValueChange={setSelectedOnlineFormId}
+                        <div className="mt-4">
+                          <Button
+                            className="w-full"
+                            onClick={() => setCompileFormOpen(true)}
                           >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Seleziona modulo" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {onlineForms.length === 0 ? (
-                                <SelectItem value="no-online-forms" disabled>
-                                  Nessun modulo pubblicato
-                                </SelectItem>
-                              ) : (
-                                onlineForms.map((form) => (
-                                  <SelectItem key={form.id} value={form.id}>
-                                    {form.title}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              className="flex-1"
-                              onClick={() => void refreshOnlineForms()}
-                              disabled={onlineFormsBusy}
-                            >
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Aggiorna
-                            </Button>
-                            <Button
-                              className="flex-1"
-                              onClick={handleCopyOnlineFormLink}
-                              disabled={
-                                onlineFormsBusy ||
-                                !selectedOnlineFormId ||
-                                selectedOnlineFormId === "no-online-forms"
-                              }
-                            >
-                              <Copy className="mr-2 h-4 w-4" />
-                              Copia link
-                            </Button>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Il link e generico e non contiene dati sensibili
-                            dell&apos;atleta.
-                          </p>
+                            <FileText className="mr-2 h-4 w-4" />
+                            Compila modulo
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -8223,6 +8162,19 @@ export default function AthleteProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/*
+        La compilazione non scrive: apre la stessa revisione della coda
+        pubblica. Un solo percorso di scrittura, anche quando chi compila e
+        la segreteria stessa.
+      */}
+      <CompileFormDialog
+        athleteId={athleteId}
+        athleteName={`${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim()}
+        open={compileFormOpen}
+        onClose={() => setCompileFormOpen(false)}
+        onCompleted={() => setAthleteDataVersion((current) => current + 1)}
+      />
 
       <Dialog
         open={showAddEnrollmentDocumentModal}

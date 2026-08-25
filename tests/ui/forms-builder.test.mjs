@@ -283,3 +283,71 @@ test("la firma non fa scorrere la pagina mentre si disegna", () => {
 
   assert.match(source, /touch-none/);
 });
+
+/* ------------------------------------------------ compilazione dalla scheda */
+
+test("dalla scheda atleta si compila un modulo, con l'atleta gia selezionato", () => {
+  const page = readCode("app/athletes/[id]/page.tsx");
+  const dialog = readCode("components/forms/compile-form-dialog.tsx");
+
+  assert.match(page, /<CompileFormDialog/);
+  assert.match(page, /Compila modulo/);
+  assert.match(dialog, /atleta gia selezionato/);
+  assert.ok(
+    !dialog.includes("Scegli l'atleta"),
+    "si e gia dentro la scheda: l'atleta non si sceglie una seconda volta",
+  );
+});
+
+test("se il modulo nomina un genitore, quale genitore si sceglie", () => {
+  const dialog = readCode("components/forms/compile-form-dialog.tsx");
+
+  assert.match(dialog, /guardianOptions/);
+  assert.match(dialog, /Genitore o tutore/);
+  assert.match(dialog, /Scegli chi firma/);
+});
+
+test("la compilazione dalla segreteria passa dalla stessa revisione", () => {
+  const dialog = readCode("components/forms/compile-form-dialog.tsx");
+
+  assert.match(dialog, /<SubmissionReviewDialog/);
+  assert.ok(
+    !/decideSubmission/.test(dialog),
+    "un secondo percorso di scrittura sarebbe una seconda implementazione",
+  );
+});
+
+test("i campi precompilati sono dichiarati, non nascosti", () => {
+  const dialog = readCode("components/forms/compile-form-dialog.tsx");
+  const renderer = readCode("components/forms/form-renderer.tsx");
+
+  assert.match(dialog, /prefilledFieldIds=\{context\.prefilledFieldIds\}/);
+  assert.match(renderer, /Dato gia in archivio/);
+});
+
+test("la prima modulistica online e uscita dalla scheda atleta", () => {
+  const page = readCode("app/athletes/[id]/page.tsx");
+
+  for (const residuo of [
+    "/api/online-forms",
+    "refreshOnlineForms",
+    "selectedOnlineFormId",
+    "handleCopyOnlineFormLink",
+  ]) {
+    assert.ok(!page.includes(residuo), `${residuo} e un residuo della V1`);
+  }
+});
+
+test("la prima modulistica online non esiste piu nel repository", () => {
+  for (const rimosso of [
+    "lib/online-forms.ts",
+    "lib/server/online-forms.ts",
+    "app/api/online-forms/route.ts",
+  ]) {
+    assert.equal(
+      existsSync(path.join(SRC, ...rimosso.split("/"))),
+      false,
+      `${rimosso} esiste ancora`,
+    );
+  }
+});
