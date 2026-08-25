@@ -12,14 +12,25 @@ export type InventoryUnitStatus =
   | "lost"
   | "damaged";
 export type ClothingAssignmentSource = "inventory" | "supplier_order" | "manual";
+/**
+ * Stato di un articolo assegnato.
+ *
+ * Gli stati operativi che l'utente vede sono quattro — DA PREPARARE, PRONTO,
+ * CONSEGNATO, NON DISPONIBILE — e la mappatura sta in
+ * `@/lib/clothing-delivery`. Qui restano tutti gli stati del ciclo, compresi
+ * quelli dell'ordine al fornitore, perche il magazzino distingue «da ordinare»
+ * da «ordinato» anche quando la segreteria vede solo «da preparare».
+ */
 export type ClothingAssignmentStatus =
   | "reserved"
   | "assigned"
+  | "ready"
   | "delivered"
   | "to_order"
   | "ordered"
   | "in_production"
   | "received"
+  | "unavailable"
   | "cancelled";
 
 export type ClothingCatalogItem = {
@@ -37,9 +48,18 @@ export type ClothingCatalogItem = {
   requiresNumber: boolean;
   numberMode: ClothingNumberMode;
   stockMode: ClothingStockMode;
+  /**
+   * Quale taglia dell'anagrafica proporre per questo articolo. Configurata
+   * sull'articolo, con un ripiego sul tipo quando non c'e — vedi
+   * `resolveItemSizeSource` in `@/lib/clothing-delivery`.
+   */
+  sizeSource: ClothingSizeSource;
   active: boolean;
   raw?: any;
 };
+
+/** Campo dell'anagrafica taglie da cui un articolo prende la sua. */
+export type ClothingSizeSource = "shirt" | "pants" | "shoes" | "none";
 
 export type ClothingKitComponent = {
   itemId: string;
@@ -204,6 +224,8 @@ const AVAILABLE_STOCK_STATUSES = new Set(["available"]);
 const ACTIVE_ASSIGNMENT_STATUSES = new Set([
   "reserved",
   "assigned",
+  "ready",
+  "unavailable",
   "delivered",
   "to_order",
   "ordered",
@@ -446,6 +468,18 @@ const normalizeStockMode = (value: unknown, fallback: ClothingStockMode) => {
   return fallback;
 };
 
+const SIZE_SOURCES = new Set(["shirt", "pants", "shoes", "none"]);
+
+/**
+ * Legge la configurazione esplicita, senza inventarla. La deduzione dal tipo
+ * dell'articolo esiste, ma sta in `clothing-delivery`: qui si normalizza solo
+ * cio che l'utente ha scritto, e stringa vuota significa «non configurato».
+ */
+const normalizeSizeSource = (value: unknown): ClothingSizeSource => {
+  const token = normalizeToken(value);
+  return SIZE_SOURCES.has(token) ? (token as ClothingSizeSource) : "none";
+};
+
 const itemName = (item: any) =>
   firstString(item?.name, item?.title, item?.label, item?.code, "Articolo");
 
@@ -486,6 +520,7 @@ export const normalizeClothingItem = (item: any): ClothingCatalogItem => {
       item?.stockMode ?? item?.stock_mode,
       item?.qty !== undefined ? "bulk_quantity" : "both",
     ),
+    sizeSource: normalizeSizeSource(item?.sizeSource ?? item?.size_source),
     active: item?.active === false ? false : true,
     raw: item,
   };
@@ -850,11 +885,13 @@ export const normalizeAssignmentStatus = (
     [
       "reserved",
       "assigned",
+      "ready",
       "delivered",
       "to_order",
       "ordered",
       "in_production",
       "received",
+      "unavailable",
       "cancelled",
     ].includes(token)
   ) {
@@ -862,6 +899,12 @@ export const normalizeAssignmentStatus = (
   }
   if (["completed", "complete", "consegnato"].includes(token)) {
     return "delivered";
+  }
+  if (["pronto", "ready_to_deliver", "prepared"].includes(token)) {
+    return "ready";
+  }
+  if (["not_available", "out_of_stock", "non_disponibile"].includes(token)) {
+    return "unavailable";
   }
   return "assigned";
 };
@@ -906,6 +949,7 @@ export const serializeClothingItem = (item: ClothingCatalogItem) => ({
   name: item.name,
   title: item.name,
   type: item.type,
+  sizeSource: item.sizeSource,
   description: item.description || "",
   code: item.code || "",
   sizes: item.sizes,
@@ -1629,11 +1673,13 @@ export const supplierOrderStatuses: ClothingAssignmentStatus[] = [
 export const assignmentStatusLabels: Record<ClothingAssignmentStatus, string> = {
   reserved: "Riservato",
   assigned: "Assegnato",
+  ready: "Pronto",
   delivered: "Consegnato",
   to_order: "Da ordinare",
   ordered: "Ordinato",
   in_production: "In produzione",
   received: "Ricevuto",
+  unavailable: "Non disponibile",
   cancelled: "Annullato",
 };
 
