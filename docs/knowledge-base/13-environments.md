@@ -308,6 +308,32 @@ fallire**, ed e giusto che fallisca: se dopo il deploy una rata ha ricevuto
 piu di una ricevuta, il vincolo che si sta ripristinando non e piu vero. In
 quel caso il rollback va fermato e le ricevute in eccesso decise a mano.
 
+**Applicate su staging il 2026-08-25.** Deployment `dpl_DecP5z7KfH4UXzoWA4U9W98xSjdo`
+(`easygame-staging`, stato `READY`, alias `easygame-staging-pi.vercel.app`),
+dal branch `integration/web-v1` con CI verde su tutti e tre i job. Il log di
+build mostra le quattro migrazioni applicate nell'ordine previsto, senza
+errori:
+
+```
+13 migrations found in prisma/migrations
+Applying migration `20260826090000_payment_transactions`
+Applying migration `20260826140000_funding_programs`
+Applying migration `20260826150000_multisite`
+Applying migration `20260826160000_forms_v2`
+```
+
+Il deployment precedente, a cui tornare in caso di rollback applicativo, e
+`easygame-staging-nc8q5sxws`. Attenzione: tornare al deployment precedente
+**non** annulla le migrazioni, che restano applicate al database. Essendo
+additive questo non rompe il codice vecchio — nessuna tabella o colonna che
+usava e stata rimossa o cambiata — ma se serve annullare anche lo schema va
+eseguito l'SQL di rollback qui sopra.
+
+Smoke test dopo il deploy: nessun 5xx. Le pagine richieste rispondono 200,
+`/api/v1/registry` serve 301 voci comprese quelle dei tre domini nuovi
+(3 incassi, 5 contributi, 4 moduli), e le API protette rispondono 401 senza
+sessione.
+
 Prima di un rollback su un ambiente in uso conviene contare:
 
 ```sql
