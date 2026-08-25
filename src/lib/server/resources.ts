@@ -999,7 +999,17 @@ const newResourceItemId = () =>
  * 3. **una sola scrittura di massa**: `createMany` al posto di una `create`
  *    per elemento. Salvare una categoria non costa piu N round trip.
  */
-const syncClubResourceItemsFromField = async (
+/**
+ * Il cuore della sincronizzazione, **dentro** una transazione gia aperta.
+ *
+ * E separato dal wrapper perche un'operazione sola puo dover riscrivere piu
+ * collezioni insieme: assegnare un kit tocca magazzino, assegnazioni e numeri
+ * di maglia, e sono tre scritture che devono riuscire o fallire insieme. Con
+ * una transazione per collezione, un errore a meta lascerebbe il magazzino
+ * scalato e l'assegnazione mai registrata.
+ */
+const applyClubResourceSync = async (
+  tx: Prisma.TransactionClient,
   organization_id: string,
   resource_type: string,
   items: any,
@@ -1011,7 +1021,7 @@ const syncClubResourceItemsFromField = async (
     return;
   }
 
-  const existingItems = await prisma.clubResourceItem.findMany({
+  const existingItems = await tx.clubResourceItem.findMany({
     where: { organization_id, resource_type },
     orderBy: { created_at: "asc" },
   });
@@ -1050,22 +1060,34 @@ const syncClubResourceItemsFromField = async (
   // di massa condivide lo stesso istante.
   const aggregate = rows.map((row) => serializeClubResourceItem(row));
 
-  await prisma.$transaction(async (tx) => {
-    await tx.clubResourceItem.deleteMany({
-      where: { organization_id, resource_type },
-    });
-
-    if (rows.length > 0) {
-      await tx.clubResourceItem.createMany({ data: rows });
-    }
-
-    if (CLUB_JSON_FIELDS.includes(resource_type)) {
-      await tx.club.update({
-        where: { id: organization_id },
-        data: { [resource_type]: aggregate },
-      });
-    }
+  await tx.clubResourceItem.deleteMany({
+    where: { organization_id, resource_type },
   });
+
+  if (rows.length > 0) {
+    await tx.clubResourceItem.createMany({ data: rows });
+  }
+
+  if (CLUB_JSON_FIELDS.includes(resource_type)) {
+    await tx.club.update({
+      where: { id: organization_id },
+      data: { [resource_type]: aggregate },
+    });
+  }
+};
+
+const syncClubResourceItemsFromField = async (
+  organization_id: string,
+  resource_type: string,
+  items: any,
+) => {
+  if (!Array.isArray(resource_type === "members" ? normalizeClubMembers(items) : items)) {
+    return;
+  }
+
+  await prisma.$transaction((tx) =>
+    applyClubResourceSync(tx, organization_id, resource_type, items),
+  );
 };
 
 const assertKnownClubResourceType = (resource_type: string) => {
@@ -1115,6 +1137,45 @@ export const replaceClubResourceCollection = async (
 
   await syncClubResourceItemsFromField(organization_id, resource_type, items);
   return items;
+};
+
+/**
+ * Riscrive **piu** collezioni di club in una transazione sola.
+ *
+ * Serve alle operazioni che per loro natura ne toccano diverse insieme:
+ * assegnare un kit a un atleta scala il magazzino, aggiunge l'assegnazione e
+ * puo assegnare un numero di maglia. Chiamare tre volte
+ * `replaceClubResourceCollection` sarebbe corretto sul singolo campo e
+ * sbagliato sull'operazione, perche un errore sulla seconda lascerebbe la
+ * prima gia scritta: magazzino scalato per un kit che nessuno risulta avere.
+ *
+ * Ogni collezione mantiene la stessa garanzia della versione singola —
+ * `club_resource_items` e il campo JSON aggregato restano allineati.
+ */
+export const replaceClubResourceCollections = async (
+  organization_id: string,
+  collections: Array<{ resource_type: string; items: any[] }>,
+) => {
+  for (const collection of collections) {
+    assertKnownClubResourceType(collection.resource_type);
+
+    if (!Array.isArray(collection.items)) {
+      throw new Error(`Collezione non valida per ${collection.resource_type}`);
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const collection of collections) {
+      await applyClubResourceSync(
+        tx,
+        organization_id,
+        collection.resource_type,
+        collection.items,
+      );
+    }
+  });
+
+  return collections;
 };
 
 const normalizeClubResourceInput = (

@@ -11,6 +11,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { replaceClubResourceCollections } from "@/lib/server/resources";
 
 export async function POST(request: Request) {
   try {
@@ -96,16 +97,32 @@ export async function POST(request: Request) {
       state,
     });
 
-    await prisma.club.update({
-      where: { id: organizationId },
-      data: {
-        clothing_inventory: result.inventory.map(serializeInventoryStock),
-        kit_assignments: result.assignments.map(serializeClothingAssignment),
-        jersey_assignments: result.jerseyAssignments.map(
-          serializeJerseyNumberAssignment,
-        ),
+    /*
+      Le tre collezioni passano da `resources.ts`, non da `prisma.club.update`.
+
+      Scrivendo le colonne JSON con Prisma diretto, `club_resource_items`
+      restava alla versione precedente: le pagine dell'abbigliamento leggono
+      il JSON e non se ne accorgevano, ma il CRUD generico
+      (`/api/v1/kit_assignments`) serviva dati vecchi, e il disallineamento
+      cresceva a ogni assegnazione. E la trappola numero 3 di CLAUDE.md.
+
+      Una sola transazione per tutte e tre: magazzino, assegnazioni e numeri
+      di maglia cambiano insieme o non cambiano.
+    */
+    await replaceClubResourceCollections(organizationId, [
+      {
+        resource_type: "clothing_inventory",
+        items: result.inventory.map(serializeInventoryStock),
       },
-    });
+      {
+        resource_type: "kit_assignments",
+        items: result.assignments.map(serializeClothingAssignment),
+      },
+      {
+        resource_type: "jersey_assignments",
+        items: result.jerseyAssignments.map(serializeJerseyNumberAssignment),
+      },
+    ]);
 
     return NextResponse.json({
       data: {

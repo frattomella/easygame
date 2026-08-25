@@ -515,29 +515,85 @@ questa non compare. Va classificata prima, e rimossa in un commit proprio.
 
 → WP-18
 
-### D32 — L'API assegnazioni scrive `clubs.<json>` aggirando `resources.ts`
+### D32 — ~~L'API assegnazioni scrive `clubs.<json>` aggirando `resources.ts`~~ — RISOLTO (2026-08-25, integrazione Web V1)
 
-`src/app/api/clothing/assignments/route.ts` legge e scrive **direttamente**
+`src/app/api/clothing/assignments/route.ts` scriveva **direttamente**
 `clubs.clothing_inventory`, `clubs.kit_assignments` e
-`clubs.jersey_assignments` con `prisma.club.update`. E la trappola numero 3 di
-[CLAUDE.md](../../CLAUDE.md): la scrittura non passa da
+`clubs.jersey_assignments` con `prisma.club.update`. Era la trappola numero 3
+di [CLAUDE.md](../../CLAUDE.md): la scrittura non passava da
 `syncClubResourceItemsFromField`, quindi le righe corrispondenti in
-`club_resource_items` **restano quelle di prima**.
+`club_resource_items` restavano quelle di prima. Non rompeva niente di
+visibile — le pagine leggono le colonne JSON — ma il CRUD generico
+(`/api/v1/kit_assignments`) serviva dati vecchi, e il disallineamento cresceva
+a ogni assegnazione.
 
-**Cosa rompe oggi:** niente di visibile. Le pagine leggono le colonne JSON
-tramite `getClubData`, che legge `clubs.<campo>`; `club_resource_items` e la
-copia normalizzata che nessun percorso di lettura dell'abbigliamento usa. Il
-disallineamento e reale e silenzioso.
+**Come e stato chiuso.** La route usa ora
+`replaceClubResourceCollections(organizationId, [...])`, aggiunto a
+`resources.ts` insieme all'estrazione di `applyClubResourceSync`, il cuore
+della sincronizzazione che accetta una transazione gia aperta.
 
-**Cosa rompera:** il giorno in cui una lettura passa dal CRUD generico
-(`/api/v1/kit_assignments`) — per esempio per impaginare le assegnazioni come
-si e fatto per gli atleti (WP-12) — vedra dati vecchi.
+**Perche una funzione nuova e non tre chiamate a quella esistente.** Chiamare
+tre volte `replaceClubResourceCollection` sarebbe stato corretto sul singolo
+campo e sbagliato sull'operazione: assegnare un kit scala il magazzino,
+aggiunge l'assegnazione e puo assegnare un numero di maglia, e un errore sulla
+seconda avrebbe lasciato la prima gia scritta — magazzino scalato per un kit
+che nessuno risulta avere. Con una transazione sola le tre collezioni
+riescono o falliscono insieme.
 
-**Perche non e stato corretto nel Workstream B:** il route handler e nello
-scope del workstream ma la correzione non lo e. Spostarlo su `resources.ts`
-significa riscrivere il percorso di scrittura di tre risorse insieme, e va
-fatto con i suoi test di isolamento multi-tenant, non di passaggio dentro un
-commit che parla di consegne. Lo stesso vale per `saveClubJson` nella pagina
-Abbigliamento, che ha la stessa forma.
+**Compatibilita con le assegnazioni esistenti.** L'aggregato scritto in
+`clubs.<campo>` e un **sovrainsieme** dell'elemento originale: i campi di
+dominio restano dove erano, quindi le pagine che li leggono non cambiano. Alla
+prima scrittura dopo la correzione, `club_resource_items` viene riallineato
+dall'aggregato completo: i club che avevano usato solo questa route si
+riparano da soli, senza uno script di travaso. Le righe gia presenti
+conservano `created_at`, cosi una riscrittura non rigenera l'identita di cio
+che c'era gia.
 
-→ nuovo WP da aprire; correlato a WP-07 (riduzione di `simplified-db`)
+**Su `saveClubJson` nella pagina Abbigliamento** — indicato qui come «stessa
+forma» quando la voce e stata aperta — la verifica ha mostrato che il sospetto
+era infondato: passa da `updateClubData` → `writeClubFields` →
+`PATCH /api/v1/clubs/:id`, cioe dal CRUD generico, che
+`syncClubResourceItemsFromField` lo chiama gia. Non c'era una seconda
+scrittura da correggere.
+
+Otto test runtime in `tests/server/clothing-assignments-resources.test.mjs`
+presidiano allineamento, transazione unica, validazione prima della
+scrittura, isolamento multi-tenant e conservazione delle date.
+
+→ chiuso, nessun WP
+
+### D33 — `athlete_category_memberships`: la migrazione e lo schema non dicono la stessa cosa
+
+`npx prisma migrate diff --from-migrations prisma/migrations
+--to-schema-datamodel prisma/schema.prisma` non e vuoto. La differenza e
+tutta su una tabella:
+
+- `id` — lo schema dichiara `@default(dbgenerated("gen_random_uuid()"))`, la
+  migrazione `20260409113000_athlete_category_memberships` crea la colonna
+  **senza** default;
+- `updated_at` — stessa forma: `now()` nello schema, nessun default nel SQL;
+- due indici hanno nomi diversi per il troncamento a 63 caratteri
+  di PostgreSQL (`..._ca_key` contro `..._cat_key`).
+
+**Quanto pesa oggi:** poco. Prisma genera gli id dal client e scrive
+`updated_at` a ogni `update`, quindi l'assenza dei default non si manifesta.
+I nomi degli indici sono cosmetici finche nessuno li cita per nome.
+
+**Cosa rompera:** un `INSERT` che non passi da Prisma — uno script di
+importazione, una correzione a mano in SQL — fallirebbe su `id` invece di
+riceverne uno generato. E un `prisma migrate dev` su una macchina nuova
+genererebbe una migrazione «di allineamento» che nessuno ha chiesto,
+confondendo la cronologia.
+
+**Perche non e stato corretto nell'integrazione Web V1:** e un difetto
+**preesistente**, verificato eseguendo lo stesso `migrate diff` sulla baseline
+`d78e047`, che produce una differenza identica. Le quattro migrazioni dei tre
+workstream non aggiungono deriva: correggere questa qui avrebbe mescolato una
+riparazione vecchia con un'integrazione, e reso impossibile dire quale delle
+due avesse rotto qualcosa.
+
+**Cosa lo chiude:** una migrazione additiva che fa `ALTER COLUMN ... SET
+DEFAULT` sulle due colonne, e la rinomina dei due indici ai nomi che Prisma si
+aspetta. Nessuna riga esistente viene letta o riscritta.
+
+→ nuovo WP da aprire
