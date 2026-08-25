@@ -65,6 +65,8 @@ import {
   type ClubProfileDraft,
   type ClubProfileSectionId,
 } from "@/lib/club-profile";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
+import { PhoneField } from "@/components/forms/phone-field";
 import {
   AssistedAddressFields,
   AssistedFiscalCodeField,
@@ -1135,11 +1137,12 @@ const [federations, setFederations] = useState<any[]>([]);
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Nome</Label>
-                    <Input
+                    <CapitalizedInput
                       id="name"
                       name="name"
                       value={organizationData.name}
                       onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("name", value)}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1294,12 +1297,13 @@ const [federations, setFederations] = useState<any[]>([]);
 
                 <div className="space-y-2">
                   <Label htmlFor="address">Indirizzo</Label>
-                  <Input
-                    id="address"
-                    name="address"
-                    value={organizationData.address}
-                    onChange={handleChange}
-                  />
+                  <CapitalizedInput
+                      id="address"
+                      name="address"
+                      value={organizationData.address}
+                      onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("address", value)}
+                    />
                 </div>
 
                 <AssistedAddressFields
@@ -1329,11 +1333,12 @@ const [federations, setFederations] = useState<any[]>([]);
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="businessName">Ragione Sociale</Label>
-                    <Input
+                    <CapitalizedInput
                       id="businessName"
                       name="businessName"
                       value={organizationData.businessName}
                       onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("businessName", value)}
                     />
                   </div>
                 </div>
@@ -1431,12 +1436,13 @@ const [federations, setFederations] = useState<any[]>([]);
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="legalAddress">Indirizzo</Label>
-                  <Input
-                    id="legalAddress"
-                    name="legalAddress"
-                    value={organizationData.legalAddress}
-                    onChange={handleChange}
-                  />
+                  <CapitalizedInput
+                      id="legalAddress"
+                      name="legalAddress"
+                      value={organizationData.legalAddress}
+                      onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("legalAddress", value)}
+                    />
                 </div>
 
                 <AssistedAddressFields
@@ -1480,20 +1486,22 @@ const [federations, setFederations] = useState<any[]>([]);
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="representativeName">Nome</Label>
-                    <Input
+                    <CapitalizedInput
                       id="representativeName"
                       name="representativeName"
                       value={organizationData.representativeName}
                       onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("representativeName", value)}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="representativeSurname">Cognome</Label>
-                    <Input
+                    <CapitalizedInput
                       id="representativeSurname"
                       name="representativeSurname"
                       value={organizationData.representativeSurname}
                       onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("representativeSurname", value)}
                     />
                   </div>
                 </div>
@@ -1537,12 +1545,13 @@ const [federations, setFederations] = useState<any[]>([]);
 
                 <div className="space-y-2">
                   <Label htmlFor="bankName">Nome Banca</Label>
-                  <Input
-                    id="bankName"
-                    name="bankName"
-                    value={organizationData.bankName}
-                    onChange={handleChange}
-                  />
+                  <CapitalizedInput
+                      id="bankName"
+                      name="bankName"
+                      value={organizationData.bankName}
+                      onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("bankName", value)}
+                    />
                 </div>
               </CardContent>
             </Card>
@@ -1604,11 +1613,12 @@ const [federations, setFederations] = useState<any[]>([]);
                   <Label htmlFor="contact1Name">Nome Contatto</Label>
                   <div className="relative">
                     <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
+                    <CapitalizedInput
                       id="contact1Name"
                       name="contact1Name"
                       value={organizationData.contact1Name}
                       onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("contact1Name", value)}
                       className="pl-10"
                       placeholder="Nome e Cognome"
                     />
@@ -1616,18 +1626,12 @@ const [federations, setFederations] = useState<any[]>([]);
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="contact1Phone">Telefono</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="contact1Phone"
-                      name="contact1Phone"
-                      type="tel"
-                      value={organizationData.contact1Phone}
-                      onChange={handleChange}
-                      className="pl-10"
-                    />
-                  </div>
+                  <PhoneField
+                    id="contact1Phone"
+                    label="Telefono"
+                    value={organizationData.contact1Phone}
+                    onChange={(value) => handleSelectChange("contact1Phone", value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -1659,11 +1663,12 @@ const [federations, setFederations] = useState<any[]>([]);
                   <Label htmlFor="contact2Name">Nome Contatto</Label>
                   <div className="relative">
                     <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
+                    <CapitalizedInput
                       id="contact2Name"
                       name="contact2Name"
                       value={organizationData.contact2Name}
                       onChange={handleChange}
+                      onValueChange={(value) => handleSelectChange("contact2Name", value)}
                       className="pl-10"
                       placeholder="Nome e Cognome"
                     />
@@ -1671,18 +1676,12 @@ const [federations, setFederations] = useState<any[]>([]);
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="contact2Phone">Telefono</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="contact2Phone"
-                      name="contact2Phone"
-                      type="tel"
-                      value={organizationData.contact2Phone}
-                      onChange={handleChange}
-                      className="pl-10"
-                    />
-                  </div>
+                  <PhoneField
+                    id="contact2Phone"
+                    label="Telefono"
+                    value={organizationData.contact2Phone}
+                    onChange={(value) => handleSelectChange("contact2Phone", value)}
+                  />
                 </div>
 
                 <div className="space-y-2">

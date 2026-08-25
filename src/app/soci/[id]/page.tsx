@@ -35,6 +35,8 @@ import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { deleteClubDataItem } from "@/lib/simplified-db";
 import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
+import { PhoneField } from "@/components/forms/phone-field";
 import {
   DEFAULT_MEMBER_TYPE,
   MEMBER_TYPES,
@@ -82,6 +84,27 @@ export default function MemberDetailsPage() {
   const [member, setMember] = useState<any>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
+
+  /**
+   * Nome e cognome del socio, tenendo allineato il nome composto.
+   *
+   * Esisteva gia, scritto due volte dentro gli `onChange`. Con la
+   * capitalizzazione al blur i punti di scrittura diventavano quattro: se
+   * restassero in linea, la prossima modifica ne allineerebbe tre su quattro.
+   */
+  const applyMemberName = (patch: { firstName?: string; lastName?: string }) => {
+    setEditFormData((current: any) => {
+      const next = { ...current, ...patch };
+      return {
+        ...next,
+        name: formatPersonNameLastFirst({
+          firstName: next.firstName,
+          lastName: next.lastName,
+          name: current.name,
+        }),
+      };
+    });
+  };
 
   // Get clubId from URL or localStorage
   useEffect(() => {
@@ -499,32 +522,18 @@ export default function MemberDetailsPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Nome</Label>
-                      <Input 
-                        value={editFormData.firstName || ''} 
-                        onChange={(e) => setEditFormData({
-                          ...editFormData,
-                          firstName: e.target.value,
-                          name: formatPersonNameLastFirst({
-                            firstName: e.target.value,
-                            lastName: editFormData.lastName,
-                            name: editFormData.name,
-                          }),
-                        })}
+                      <CapitalizedInput
+                        value={editFormData.firstName || ''}
+                        onChange={(e) => applyMemberName({ firstName: e.target.value })}
+                        onValueChange={(value) => applyMemberName({ firstName: value })}
                       />
                     </div>
                     <div>
                       <Label>Cognome</Label>
-                      <Input 
-                        value={editFormData.lastName || ''} 
-                        onChange={(e) => setEditFormData({
-                          ...editFormData,
-                          lastName: e.target.value,
-                          name: formatPersonNameLastFirst({
-                            firstName: editFormData.firstName,
-                            lastName: e.target.value,
-                            name: editFormData.name,
-                          }),
-                        })}
+                      <CapitalizedInput
+                        value={editFormData.lastName || ''}
+                        onChange={(e) => applyMemberName({ lastName: e.target.value })}
+                        onValueChange={(value) => applyMemberName({ lastName: value })}
                       />
                     </div>
                     <div>
@@ -536,10 +545,10 @@ export default function MemberDetailsPage() {
                       />
                     </div>
                     <div>
-                      <Label>Telefono</Label>
-                      <Input 
-                        value={editFormData.phone || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, phone: e.target.value})}
+                      <PhoneField
+                        label="Telefono"
+                        value={editFormData.phone || ''}
+                        onChange={(value) => setEditFormData({...editFormData, phone: value})}
                       />
                     </div>
                     <div className="col-span-2">

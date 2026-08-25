@@ -43,6 +43,9 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { deleteStaffMember } from "@/lib/simplified-db";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
+import { PhoneField } from "@/components/forms/phone-field";
+import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import {
   CUSTOM_OPTION_VALUE,
   collectStaffRoles,
@@ -765,37 +768,73 @@ export default function StaffMemberDetailsPage() {
                     </div>
                     <div>
                       <Label>Nazionalità</Label>
-                      <Input 
-                        value={editFormData.nationality || ''} 
+                      <CapitalizedInput
+                        value={editFormData.nationality || ''}
                         onChange={(e) => setEditFormData({...editFormData, nationality: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, nationality: value})}
                       />
                     </div>
                     <div>
                       <Label>Luogo di Nascita</Label>
-                      <Input 
-                        value={editFormData.birthPlace || ''} 
+                      <CapitalizedInput
+                        value={editFormData.birthPlace || ''}
                         onChange={(e) => setEditFormData({...editFormData, birthPlace: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
                       />
                     </div>
                     <div>
+                      {/*
+                        Il sesso era testo libero: ci finiva «M», «maschio»,
+                        «Maschile». Il codice fiscale ha bisogno di una delle
+                        due lettere, e con tre grafie non si calcolava.
+                      */}
                       <Label>Sesso</Label>
-                      <Input 
-                        value={editFormData.gender || ''} 
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={
+                          String(editFormData.gender || '').trim().toUpperCase().startsWith('M')
+                            ? 'M'
+                            : String(editFormData.gender || '').trim().toUpperCase().startsWith('F')
+                              ? 'F'
+                              : ''
+                        }
                         onChange={(e) => setEditFormData({...editFormData, gender: e.target.value})}
-                      />
+                      >
+                        <option value="">Non indicato</option>
+                        <option value="M">Maschio</option>
+                        <option value="F">Femmina</option>
+                      </select>
                     </div>
                     <div>
                       <Label>Formazione Scolastica</Label>
-                      <Input 
-                        value={editFormData.education || ''} 
+                      <CapitalizedInput
+                        value={editFormData.education || ''}
                         onChange={(e) => setEditFormData({...editFormData, education: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, education: value})}
                       />
                     </div>
+                    {/*
+                      Stesso campo assistito del modulo di creazione: il
+                      comune di nascita si cerca e porta con se il codice
+                      catastale. La scheda di dettaglio era l'ultimo posto in
+                      cui il codice fiscale si digitava a mano.
+                    */}
                     <div className="col-span-2">
-                      <Label>Codice Fiscale</Label>
-                      <Input 
-                        value={editFormData.fiscalCode || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, fiscalCode: e.target.value})}
+                      <AssistedFiscalCodeField
+                        id="staff-edit-fiscal-code"
+                        label="Codice fiscale"
+                        value={editFormData.fiscalCode || ''}
+                        onChange={(value) => setEditFormData({...editFormData, fiscalCode: value})}
+                        person={{
+                          firstName: editFormData.name,
+                          lastName: editFormData.surname,
+                          birthDate: editFormData.birthDate,
+                          gender: editFormData.gender,
+                        }}
+                        belfioreCode={editFormData.birthPlaceCode || ''}
+                        onBelfioreCodeChange={(value) => setEditFormData({...editFormData, birthPlaceCode: value})}
+                        birthPlace={editFormData.birthPlace || ''}
+                        onBirthPlaceChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
                       />
                     </div>
                     <div className="col-span-2">
@@ -822,24 +861,26 @@ export default function StaffMemberDetailsPage() {
                       />
                     </div>
                     <div>
-                      <Label>Telefono</Label>
-                      <Input 
-                        value={editFormData.phone || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, phone: e.target.value})}
+                      <PhoneField
+                        label="Telefono"
+                        value={editFormData.phone || ''}
+                        onChange={(value) => setEditFormData({...editFormData, phone: value})}
                       />
                     </div>
                     <div className="col-span-2">
                       <Label>Indirizzo</Label>
-                      <Input 
-                        value={editFormData.address || ''} 
+                      <CapitalizedInput
+                        value={editFormData.address || ''}
                         onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, address: value})}
                       />
                     </div>
                     <div>
                       <Label>Città</Label>
-                      <Input 
-                        value={editFormData.city || ''} 
+                      <CapitalizedInput
+                        value={editFormData.city || ''}
                         onChange={(e) => setEditFormData({...editFormData, city: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, city: value})}
                       />
                     </div>
                     <div>

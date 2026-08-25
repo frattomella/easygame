@@ -92,6 +92,8 @@ import {
 } from "@/lib/medical-certificates";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
 import { uploadAttachmentReference } from "@/lib/api/attachments";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
+import { PhoneField } from "@/components/forms/phone-field";
 import {
   CLOTHING_SIZE_OPTIONS,
   DEFAULT_CLOTHING_SIZES,
@@ -6555,7 +6557,7 @@ export default function AthleteProfilePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Nome</Label>
-                    <Input
+                    <CapitalizedInput
                       value={editFormData.name || ""}
                       onChange={(e) =>
                         setEditFormData({
@@ -6563,17 +6565,23 @@ export default function AthleteProfilePage() {
                           name: e.target.value,
                         })
                       }
+                      onValueChange={(value) =>
+                        setEditFormData({ ...editFormData, name: value })
+                      }
                     />
                   </div>
                   <div>
                     <Label>Cognome</Label>
-                    <Input
+                    <CapitalizedInput
                       value={editFormData.surname || ""}
                       onChange={(e) =>
                         setEditFormData({
                           ...editFormData,
                           surname: e.target.value,
                         })
+                      }
+                      onValueChange={(value) =>
+                        setEditFormData({ ...editFormData, surname: value })
                       }
                     />
                   </div>
@@ -6594,13 +6602,16 @@ export default function AthleteProfilePage() {
                   </div>
                   <div>
                     <Label>Nazionalità</Label>
-                    <Input
+                    <CapitalizedInput
                       value={editFormData.nationality || ""}
                       onChange={(e) =>
                         setEditFormData({
                           ...editFormData,
                           nationality: e.target.value,
                         })
+                      }
+                      onValueChange={(value) =>
+                        setEditFormData({ ...editFormData, nationality: value })
                       }
                     />
                   </div>
@@ -6729,14 +6740,11 @@ export default function AthleteProfilePage() {
             {editingSection === "contact" && (
               <>
                 <div>
-                  <Label>Telefono</Label>
-                  <Input
+                  <PhoneField
+                    label="Telefono"
                     value={editFormData.phone || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        phone: e.target.value,
-                      })
+                    onChange={(value) =>
+                      setEditFormData({ ...editFormData, phone: value })
                     }
                   />
                 </div>
@@ -6761,13 +6769,16 @@ export default function AthleteProfilePage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="col-span-2">
                     <Label>Indirizzo</Label>
-                    <Input
+                    <CapitalizedInput
                       value={editFormData.address || ""}
                       onChange={(e) =>
                         setEditFormData({
                           ...editFormData,
                           address: e.target.value,
                         })
+                      }
+                      onValueChange={(value) =>
+                        setEditFormData({ ...editFormData, address: value })
                       }
                     />
                   </div>
@@ -6868,7 +6879,7 @@ export default function AthleteProfilePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Contatto di Emergenza</Label>
-                    <Input
+                    <CapitalizedInput
                       value={editFormData.emergencyContact || ""}
                       onChange={(e) =>
                         setEditFormData({
@@ -6876,17 +6887,17 @@ export default function AthleteProfilePage() {
                           emergencyContact: e.target.value,
                         })
                       }
+                      onValueChange={(value) =>
+                        setEditFormData({ ...editFormData, emergencyContact: value })
+                      }
                     />
                   </div>
                   <div>
-                    <Label>Telefono di Emergenza</Label>
-                    <Input
+                    <PhoneField
+                      label="Telefono di Emergenza"
                       value={editFormData.emergencyPhone || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          emergencyPhone: e.target.value,
-                        })
+                      onChange={(value) =>
+                        setEditFormData({ ...editFormData, emergencyPhone: value })
                       }
                     />
                   </div>
@@ -8597,19 +8608,25 @@ export default function AthleteProfilePage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Nome *</Label>
-                <Input
+                <CapitalizedInput
                   value={newGuardian.name}
                   onChange={(e) =>
                     setNewGuardian({ ...newGuardian, name: e.target.value })
+                  }
+                  onValueChange={(value) =>
+                    setNewGuardian({ ...newGuardian, name: value })
                   }
                 />
               </div>
               <div>
                 <Label>Cognome *</Label>
-                <Input
+                <CapitalizedInput
                   value={newGuardian.surname}
                   onChange={(e) =>
                     setNewGuardian({ ...newGuardian, surname: e.target.value })
+                  }
+                  onValueChange={(value) =>
+                    setNewGuardian({ ...newGuardian, surname: value })
                   }
                 />
               </div>
@@ -8637,11 +8654,11 @@ export default function AthleteProfilePage() {
                 </Select>
               </div>
               <div>
-                <Label>Telefono</Label>
-                <Input
+                <PhoneField
+                  label="Telefono"
                   value={newGuardian.phone}
-                  onChange={(e) =>
-                    setNewGuardian({ ...newGuardian, phone: e.target.value })
+                  onChange={(value) =>
+                    setNewGuardian({ ...newGuardian, phone: value })
                   }
                 />
               </div>

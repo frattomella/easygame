@@ -73,6 +73,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
 import { buildAttachmentFileName } from "@/lib/attachment-names";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
+import { PhoneField } from "@/components/forms/phone-field";
+import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import { paymentDateOf, sortByDateDesc } from "@/lib/sorting";
 import {
   Select,
@@ -2565,16 +2568,18 @@ export default function TrainerDetailsPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Nome</Label>
-                      <Input 
-                        value={editFormData.name || ''} 
+                      <CapitalizedInput
+                        value={editFormData.name || ''}
                         onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, name: value})}
                       />
                     </div>
                     <div>
                       <Label>Cognome</Label>
-                      <Input 
-                        value={editFormData.surname || ''} 
+                      <CapitalizedInput
+                        value={editFormData.surname || ''}
                         onChange={(e) => setEditFormData({...editFormData, surname: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, surname: value})}
                       />
                     </div>
                     <div>
@@ -2595,37 +2600,74 @@ export default function TrainerDetailsPage() {
                     </div>
                     <div>
                       <Label>Nazionalità</Label>
-                      <Input 
-                        value={editFormData.nationality || ''} 
+                      <CapitalizedInput
+                        value={editFormData.nationality || ''}
                         onChange={(e) => setEditFormData({...editFormData, nationality: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, nationality: value})}
                       />
                     </div>
                     <div>
                       <Label>Luogo di Nascita</Label>
-                      <Input 
-                        value={editFormData.birthPlace || ''} 
+                      <CapitalizedInput
+                        value={editFormData.birthPlace || ''}
                         onChange={(e) => setEditFormData({...editFormData, birthPlace: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
                       />
                     </div>
                     <div>
+                      {/*
+                        Il sesso era un campo di testo libero: ci finiva
+                        «M», «maschio», «Maschile». Il calcolo del codice
+                        fiscale ha bisogno di una delle due lettere, e con
+                        tre grafie non poteva funzionare.
+                      */}
                       <Label>Sesso</Label>
-                      <Input 
-                        value={editFormData.gender || ''} 
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={
+                          String(editFormData.gender || '').trim().toUpperCase().startsWith('M')
+                            ? 'M'
+                            : String(editFormData.gender || '').trim().toUpperCase().startsWith('F')
+                              ? 'F'
+                              : ''
+                        }
                         onChange={(e) => setEditFormData({...editFormData, gender: e.target.value})}
-                      />
+                      >
+                        <option value="">Non indicato</option>
+                        <option value="M">Maschio</option>
+                        <option value="F">Femmina</option>
+                      </select>
                     </div>
                     <div>
                       <Label>Formazione Scolastica</Label>
-                      <Input 
-                        value={editFormData.education || ''} 
+                      <CapitalizedInput
+                        value={editFormData.education || ''}
                         onChange={(e) => setEditFormData({...editFormData, education: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, education: value})}
                       />
                     </div>
+                    {/*
+                      Stesso campo assistito del modulo di creazione: il
+                      comune di nascita si cerca e porta con se il codice
+                      catastale. Prima la scheda di dettaglio era l'unico
+                      posto in cui il codice fiscale si digitava a mano.
+                    */}
                     <div className="col-span-2">
-                      <Label>Codice Fiscale</Label>
-                      <Input 
-                        value={editFormData.fiscalCode || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, fiscalCode: e.target.value})}
+                      <AssistedFiscalCodeField
+                        id="trainer-edit-fiscal-code"
+                        label="Codice fiscale"
+                        value={editFormData.fiscalCode || ''}
+                        onChange={(value) => setEditFormData({...editFormData, fiscalCode: value})}
+                        person={{
+                          firstName: editFormData.name,
+                          lastName: editFormData.surname,
+                          birthDate: editFormData.birthDate,
+                          gender: editFormData.gender,
+                        }}
+                        belfioreCode={editFormData.birthPlaceCode || ''}
+                        onBelfioreCodeChange={(value) => setEditFormData({...editFormData, birthPlaceCode: value})}
+                        birthPlace={editFormData.birthPlace || ''}
+                        onBirthPlaceChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
                       />
                     </div>
                     <div className="col-span-2">
@@ -2697,24 +2739,26 @@ export default function TrainerDetailsPage() {
                       />
                     </div>
                     <div>
-                      <Label>Telefono</Label>
-                      <Input 
-                        value={editFormData.phone || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, phone: e.target.value})}
+                      <PhoneField
+                        label="Telefono"
+                        value={editFormData.phone || ''}
+                        onChange={(value) => setEditFormData({...editFormData, phone: value})}
                       />
                     </div>
                     <div className="col-span-2">
                       <Label>Indirizzo</Label>
-                      <Input 
-                        value={editFormData.address || ''} 
+                      <CapitalizedInput
+                        value={editFormData.address || ''}
                         onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, address: value})}
                       />
                     </div>
                     <div>
                       <Label>Città</Label>
-                      <Input 
-                        value={editFormData.city || ''} 
+                      <CapitalizedInput
+                        value={editFormData.city || ''}
                         onChange={(e) => setEditFormData({...editFormData, city: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, city: value})}
                       />
                     </div>
                     <div>

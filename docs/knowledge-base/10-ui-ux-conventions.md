@@ -291,7 +291,19 @@ Le colonne **rispettano quelle visibili in elenco**, dove la pagina le
 configura. Le colonne senza interruttore (codice fiscale, taglie) restano
 sempre: in tabella non ci stanno, in un PDF servono.
 
-## Telefoni e maiuscole: due regole condivise (Blocco 7)
+## Telefoni e maiuscole: due regole condivise (Blocco 7, estese nel Blocco 8)
+
+**Dove valgono.** Su **tutte** le anagrafiche e in **entrambi** i momenti:
+creazione e modifica. Il Blocco 7 le aveva portate solo nei moduli di
+creazione, e chi apriva una scheda esistente ritrovava i campi liberi di
+prima: due comportamenti per lo stesso dato, a seconda di come ci si era
+arrivati. Il Blocco 8 le ha portate anche su scheda atleta (atleta e
+genitore/tutore), allenatore, staff, socio e **club**, che era rimasto fuori
+del tutto.
+
+L'elenco delle superfici e un test
+(`tests/ui/anagrafiche-coverage.test.mjs`): una sesta anagrafica non puo
+essere aggiunta senza passare di li.
 
 ### `PhoneField` — prefisso a tendina, numero a parte
 
@@ -329,7 +341,20 @@ Cosa **non** fa:
   `codiceFiscale`);
 - non «corregge» le sigle: `ASD`, `US`, `U15`, `McDonald` restano come sono;
 - le particelle in mezzo a un nome restano minuscole — `Mario de Luca`,
-  `Van der Berg` — ma non se aprono il nome: `De Luca`;
+  `Van der Berg` — ma non se aprono il nome: `De Luca`. Dal Blocco 8 la
+  particella si riconosce anche **prima di un apostrofo**: `reggio
+  nell'emilia` → `Reggio nell'Emilia`, non `Nell'Emilia`;
+- **non tocca un valore che ha gia una maiuscola dentro.** E la regola che il
+  Blocco 8 ha dovuto aggiungere, e la ragione e misurata: applicando la
+  capitalizzazione ai 7.896 comuni ISTAT, **30 nomi ufficiali venivano
+  cambiati in peggio** — `Alcara li Fusi` → `Alcara Li Fusi`, `Morra De
+  Sanctis` → `Morra de Sanctis`, `Riva presso Chieri` → `Riva Presso
+  Chieri`. Nessun elenco di particelle chiude quel caso, perche non e una
+  regola: `Alcara li Fusi` vuole `li` minuscolo e `Torre Le Nocelle` lo vuole
+  maiuscolo. Sono nomi propri. Un valore scritto tutto minuscolo e «come
+  capitava» e si sistema; un valore con una maiuscola dentro e gia una
+  decisione di qualcuno — o dell'archivio ISTAT — e si lascia stare. Un test
+  verifica i 7.896 nomi a ogni esecuzione;
 - note e descrizioni prendono la maiuscola solo sulla prima lettera.
 
 Nel dubbio la risposta e «non capitalizzare»: non farlo e reversibile, farlo

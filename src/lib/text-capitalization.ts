@@ -24,8 +24,22 @@
  *
  * `Mario de Luca`, `Piazza dei Mestieri`, `Van der Berg`. Sono le stesse
  * particelle che l'anagrafe italiana scrive minuscole in mezzo a un nome.
+ *
+ * Ci sono anche le preposizioni articolate dei nomi di comune, che il Blocco 8
+ * ha reso necessarie: dal momento in cui la capitalizzazione arriva sulle
+ * schede di modifica, tocca i comuni scelti dall'archivio ISTAT. `Reggio
+ * nell'Emilia` diventava `Reggio Nell'Emilia`, cioe un nome ufficiale
+ * corretto veniva peggiorato dalla regola che doveva migliorarlo.
  */
 const LOWERCASE_PARTICLES = new Set([
+  "a",
+  "al",
+  "all",
+  "alla",
+  "alle",
+  "allo",
+  "col",
+  "con",
   "d",
   "da",
   "dal",
@@ -53,6 +67,20 @@ const LOWERCASE_PARTICLES = new Set([
   "la",
   "le",
   "lo",
+  "nei",
+  "negli",
+  "nel",
+  "nell",
+  "nella",
+  "nelle",
+  "nello",
+  "su",
+  "sui",
+  "sul",
+  "sull",
+  "sulla",
+  "sulle",
+  "sullo",
   "ter",
   "van",
   "von",
@@ -88,16 +116,65 @@ const capitalizeWord = (word: string) => {
  *
  * `anna-maria` → `Anna-Maria`, `d'angelo` → `D'Angelo`, `sant'agata` →
  * `Sant'Agata`. Sono separatori interni a un nome, non spazi.
+ *
+ * **La particella si riconosce prima dell'apostrofo, non dopo.** `nell'emilia`
+ * e una parola sola per chi la legge separando gli spazi, ma sono due:
+ * `nell` + `emilia`. Confrontare l'intera parola con l'elenco delle
+ * particelle non trovava niente e produceva `Nell'Emilia`; lo stesso valeva
+ * per `de'` di `Cava de' Tirreni`, dove l'apostrofo e in coda.
  */
 const capitalizeSegment = (segment: string, isFirstWord: boolean) => {
-  if (!isFirstWord && LOWERCASE_PARTICLES.has(segment.toLowerCase())) {
-    return isIntentional(segment) ? segment : segment.toLowerCase();
-  }
+  const parts = segment.split(/([-'’])/);
 
-  return segment
-    .split(/([-'’])/)
-    .map((part, index) => (index % 2 === 1 ? part : capitalizeWord(part)))
+  return parts
+    .map((part, index) => {
+      // Gli indici dispari sono i separatori: restano com'erano.
+      if (index % 2 === 1) return part;
+
+      // Solo il primo pezzo puo essere una particella: in `nell'emilia` e
+      // `nell`, non `emilia`.
+      const isLeadingPart = index === 0;
+      if (
+        isLeadingPart &&
+        !isFirstWord &&
+        LOWERCASE_PARTICLES.has(part.toLowerCase())
+      ) {
+        return isIntentional(part) ? part : part.toLowerCase();
+      }
+
+      return capitalizeWord(part);
+    })
     .join("");
+};
+
+/**
+ * Il valore e stato scritto «come capitava»?
+ *
+ * Tutto minuscolo — `mario rossi`, `reggio nell'emilia` — e il modo in cui un
+ * dato entra senza che nessuno abbia deciso come scriverlo. E il caso per cui
+ * questo modulo esiste. (Il tutto maiuscolo non si tocca gia oggi: un cognome
+ * in stampatello e come viene scritto sui documenti, e `isIntentional` lo
+ * riconosce parola per parola.)
+ *
+ * **Un valore con una maiuscola gia dentro e gia una decisione**, e non si
+ * tocca. La prova che questa distinzione serve arriva dall'archivio ISTAT: su
+ * 7.896 comuni, applicare la regola a un nome ufficiale ne cambiava **30** —
+ * `Alcara li Fusi` → `Alcara Li Fusi`, `Morra De Sanctis` → `Morra de
+ * Sanctis`, `Riva presso Chieri` → `Riva Presso Chieri`. Trenta nomi giusti
+ * peggiorati dalla regola che doveva sistemarli, e nessuno dei trenta era un
+ * errore di chi li aveva scritti: erano il nome ufficiale.
+ *
+ * Nessun elenco di particelle chiude quel caso, perche non e una regola:
+ * `Alcara li Fusi` vuole `li` minuscolo e `Torre Le Nocelle` lo vuole
+ * maiuscolo. Sono nomi propri, e l'elenco dei nomi propri ce l'abbiamo gia —
+ * e proprio quello. Con questa condizione i comuni alterati sono **zero**, ed
+ * e verificato su tutto il dataset.
+ */
+const looksUnformatted = (value: string) => {
+  const letters = value.replace(/[^A-Za-zÀ-ÿ]/g, "");
+  if (!letters) return false;
+
+  return letters === letters.toLowerCase();
 };
 
 /**
@@ -109,6 +186,9 @@ const capitalizeSegment = (segment: string, isFirstWord: boolean) => {
 export const capitalizeName = (value?: string | null): string => {
   const raw = String(value ?? "");
   if (!raw.trim()) return raw;
+
+  // Gia formattato da qualcuno o da qualcosa: non e compito nostro rifarlo.
+  if (!looksUnformatted(raw)) return raw;
 
   let wordIndex = 0;
   return raw
