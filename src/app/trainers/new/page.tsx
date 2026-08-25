@@ -20,6 +20,8 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { addClubData } from "@/lib/simplified-db";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import { PhoneField } from "@/components/forms/phone-field";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   Select,
   SelectContent,
@@ -316,23 +318,27 @@ function NewTrainerPageContent() {
                 <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <Label htmlFor="firstName">Nome *</Label>
-                    <Input
+                    <CapitalizedInput
                       id="firstName"
+                      name="firstName"
                       value={formData.firstName}
                       onChange={(event) =>
                         handleInputChange("firstName", event.target.value)
                       }
+                      onValueChange={(value) => handleInputChange("firstName", value)}
                       placeholder="Es. Marco"
                     />
                   </div>
                   <div>
                     <Label htmlFor="lastName">Cognome *</Label>
-                    <Input
+                    <CapitalizedInput
                       id="lastName"
+                      name="lastName"
                       value={formData.lastName}
                       onChange={(event) =>
                         handleInputChange("lastName", event.target.value)
                       }
+                      onValueChange={(value) => handleInputChange("lastName", value)}
                       placeholder="Es. Bianchi"
                     />
                   </div>
@@ -412,14 +418,10 @@ function NewTrainerPageContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="phone">Telefono</Label>
-                    <Input
+                    <PhoneField
                       id="phone"
                       value={formData.phone}
-                      onChange={(event) =>
-                        handleInputChange("phone", event.target.value)
-                      }
-                      placeholder="Es. +39 333 1234567"
+                      onChange={(value) => handleInputChange("phone", value)}
                     />
                   </div>
                   <div>

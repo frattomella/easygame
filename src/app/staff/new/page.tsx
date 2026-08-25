@@ -35,6 +35,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { addStaffMember } from "@/lib/simplified-db";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import { PhoneField } from "@/components/forms/phone-field";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   CUSTOM_OPTION_VALUE,
   collectStaffRoles,
@@ -307,20 +309,24 @@ function NewStaffMemberPageContent() {
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="name">Nome *</Label>
-                    <Input
+                    <CapitalizedInput
                       id="name"
+                      name="name"
                       value={formData.name}
                       onChange={(e) => handleInputChange("name", e.target.value)}
+                      onValueChange={(value) => handleInputChange("name", value)}
                       placeholder="Inserisci il nome"
                       required
                     />
                   </div>
                   <div>
                     <Label htmlFor="surname">Cognome *</Label>
-                    <Input
+                    <CapitalizedInput
                       id="surname"
+                      name="surname"
                       value={formData.surname}
                       onChange={(e) => handleInputChange("surname", e.target.value)}
+                      onValueChange={(value) => handleInputChange("surname", value)}
                       placeholder="Inserisci il cognome"
                       required
                     />
@@ -408,12 +414,11 @@ function NewStaffMemberPageContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="phone">Telefono *</Label>
-                    <Input
+                    <PhoneField
                       id="phone"
+                      label="Telefono *"
                       value={formData.phone}
-                      onChange={(e) => handleInputChange("phone", e.target.value)}
-                      placeholder="+39 123 456 7890"
+                      onChange={(value) => handleInputChange("phone", value)}
                     />
                     <p className="text-xs text-gray-500 mt-1">* Almeno un contatto è obbligatorio</p>
                   </div>

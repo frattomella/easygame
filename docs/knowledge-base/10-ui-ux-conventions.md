@@ -196,6 +196,50 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
    al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
    logo, nome o comandi. Dal Blocco 7 e **grigia**: vedi sotto.
 
+## Telefoni e maiuscole: due regole condivise (Blocco 7)
+
+### `PhoneField` — prefisso a tendina, numero a parte
+
+Ogni anagrafica aveva un campo di testo libero, e dentro ci finiva di tutto:
+`333 1234567`, `+39 333 1234567`, `0039 3331234567`, `333-123-4567`.
+
+`src/components/forms/phone-field.tsx` con `src/lib/phone-numbers.ts`:
+bandiera emoji, prefisso internazionale, numero separato, default 🇮🇹 `+39`.
+Il valore memorizzato e sempre `+<prefisso> <numero>`.
+
+**Va usato solo dove c'e davvero un numero di telefono.** Non su partita IVA,
+numero di tessera o IBAN: sono campi numerici, non telefonici, e un selettore
+di prefisso li peggiora.
+
+**I dati legacy non si riscrivono.** `parsePhoneNumber` legge tutte le forme
+di sopra; un numero che non dichiara un prefisso resta com'e e la tendina
+mostra l'Italia solo come **ipotesi** (`assumedDefault`). Viene riscritto solo
+se qualcuno lo modifica davvero: una normalizzazione di massa sui telefoni e
+il tipo di operazione che si scopre di aver sbagliato quando un genitore non
+riceve piu gli avvisi.
+
+### `CapitalizedInput` — maiuscola dove ha senso
+
+`src/lib/text-capitalization.ts` decide, `CapitalizedInput` applica **al blur**
+— non mentre si digita: chi scrive `deLuca` e a meta di `De Luca`, e
+correggerlo al terzo carattere gli sposta il cursore sotto le dita.
+
+Cosa **non** fa:
+
+- nessun `.toUpperCase()` indiscriminato;
+- non tocca mai email, password, URL, username, codice fiscale, IBAN, partita
+  IVA, numero di tessera, telefono, token. La regola e per parole in una
+  lingua, non per identificatori. L'elenco e per sottostringa, perche gli
+  stessi campi si chiamano in molti modi (`fiscalCode`, `fiscal_code`,
+  `codiceFiscale`);
+- non «corregge» le sigle: `ASD`, `US`, `U15`, `McDonald` restano come sono;
+- le particelle in mezzo a un nome restano minuscole — `Mario de Luca`,
+  `Van der Berg` — ma non se aprono il nome: `De Luca`;
+- note e descrizioni prendono la maiuscola solo sulla prima lettera.
+
+Nel dubbio la risposta e «non capitalizzare»: non farlo e reversibile, farlo
+no.
+
 ## Il numero di tessera non e obbligatorio (Blocco 7)
 
 Vale per **atleta** e **allenatore**, ed e la scelta documentata per staff e

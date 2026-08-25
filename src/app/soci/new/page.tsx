@@ -18,6 +18,8 @@ import {
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import { PhoneField } from "@/components/forms/phone-field";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   Select,
   SelectContent,
@@ -215,22 +217,28 @@ function NewSocioPageContent() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="firstName">Nome *</Label>
-                        <Input
+                        <CapitalizedInput
                           id="firstName"
                           name="firstName"
                           value={formData.firstName}
                           onChange={handleChange}
+                          onValueChange={(value) =>
+                            setFormData((previous) => ({ ...previous, firstName: value }))
+                          }
                           placeholder="Es. Mario"
                           required
                         />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="lastName">Cognome *</Label>
-                        <Input
+                        <CapitalizedInput
                           id="lastName"
                           name="lastName"
                           value={formData.lastName}
                           onChange={handleChange}
+                          onValueChange={(value) =>
+                            setFormData((previous) => ({ ...previous, lastName: value }))
+                          }
                           placeholder="Es. Rossi"
                           required
                         />
@@ -249,17 +257,13 @@ function NewSocioPageContent() {
                           placeholder="mario.rossi@email.com"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="phone">Telefono</Label>
-                        <Input
-                          id="phone"
-                          name="phone"
-                          type="tel"
-                          value={formData.phone}
-                          onChange={handleChange}
-                          placeholder="+39 333 1234567"
-                        />
-                      </div>
+                      <PhoneField
+                        id="phone"
+                        value={formData.phone}
+                        onChange={(value) =>
+                          setFormData((previous) => ({ ...previous, phone: value }))
+                        }
+                      />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
