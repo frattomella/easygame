@@ -257,6 +257,17 @@ export type CreatePaymentTransactionInput = {
   externalReference?: unknown;
   /** Consente di incassare piu del residuo: lo decide chi chiama, non il default. */
   allowOverpayment?: boolean;
+  /**
+   * Vero **solo** per un incasso confermato da un evento firmato dal
+   * provider (`src/lib/server/cedipay.ts`).
+   *
+   * Non e un parametro dell'API: nessuna rotta HTTP lo imposta, e le rotte
+   * costruiscono il loro input campo per campo proprio perche un corpo di
+   * richiesta non possa portarlo. Senza questo confine, chiunque potesse
+   * chiamare la rotta degli incassi potrebbe dichiarare «pagato online» un
+   * denaro che nessuno ha versato.
+   */
+  confirmedByProvider?: boolean;
 };
 
 /**
@@ -319,15 +330,16 @@ export const createPaymentTransaction = async (
     input.source,
   );
 
-  if (source !== "MANUAL") {
+  if (source !== "MANUAL" && !input.confirmedByProvider) {
     /*
-      I provider non sono implementati (ADR-0013, ADR-0036): accettare qui un
-      incasso dichiarato «STRIPE» vorrebbe dire registrare denaro che nessuno
-      ha incassato. Il campo esiste perche il modello sia pronto, non perche
-      sia gia utilizzabile.
+      Un incasso dichiarato «online» da chi chiama e denaro che nessuno ha
+      visto arrivare. L'unico modo per registrarne uno e passare da
+      `handleCediPayWebhookEvent`, che agisce su un evento la cui firma e
+      stata verificata (ADR-0045) — e che e l'unico punto del codice a
+      impostare `confirmedByProvider`.
     */
     throw new Error(
-      "Solo gli incassi manuali sono registrabili: i provider di pagamento online non sono ancora attivi",
+      "Solo gli incassi manuali sono registrabili da qui: un incasso online lo conferma il provider",
     );
   }
 

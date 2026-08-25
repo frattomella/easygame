@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco Finale B: la sede nei moduli online)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco Finale B: sede nei moduli, numerazione documenti, CediPay)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -33,8 +33,8 @@ succede.
 | Stato | Voci |
 |-------|------|
 | `DONE` | 179 |
-| `IN PROGRESS` | 15 |
-| `OPEN` | 25 |
+| `IN PROGRESS` | 17 |
+| `OPEN` | 23 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
 | **Totale** | **229** |
@@ -351,7 +351,7 @@ piu sotto: quelle vengono **dopo** il rilascio.
 | R-02 | La lista Atleti deve consumare la paginazione | Il server e pronto; finche la pagina scarica tutto, l'archivio grande resta il caso peggiore | F1-12, B8-21 |
 | R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon, e la Modulistica V2 ne aggiunge uno per ogni certificato caricato da un modulo pubblico | B8-13, ADR-0034 |
 | R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica, e la superficie pubblica e appena cresciuta con `/api/forms/public` | F1-05, WP-05 |
-| R-05 | Pagamenti online: implementarli o togliere la promessa | Gli endpoint rispondono 501. Una funzione che l'interfaccia offre e il server rifiuta non e rilasciabile | F4-03, WP-13 |
+| R-05 | Pagamenti online: implementarli o togliere la promessa | **Parzialmente chiuso dal Blocco Finale B** (ADR-0045). Il contratto provider-agnostico, l'adapter Stripe, la verifica della firma, la deduplica degli eventi e le rotte ci sono, e la promessa non e piu rotta: dove manca una configurazione l'interfaccia lo **dice**, con un messaggio diverso per ognuno dei quattro blocchi. **Resta aperto** cio che non si puo collaudare senza credenziali Stripe: un checkout vero, un webhook vero, un rimborso vero. Piu tre decisioni di prodotto elencate nell'ADR | F4-03, WP-13, ADR-0045 |
 | R-06 | Unificare i due sistemi di toast | Due sistemi montati insieme: due comportamenti per lo stesso avviso | F3-02, WP-14 |
 | R-07 | Completare l'audit log sulle anagrafiche | ADR-0019 lo dichiara bloccante per la produzione. L'approvazione di una compilazione scrive in anagrafica: senza audit non si sa chi ha approvato cosa | F3-04 |
 | R-08 | Scheduler dei promemoria certificati | Un certificato scaduto e un atleta che non puo scendere in campo, e oggi nessuno avvisa | F3-09 |
@@ -377,7 +377,7 @@ blocco e non rinviate:
 
 | # | Richiesta | Stato | Note |
 |---|-----------|-------|------|
-| F3-01 | Pagamenti online reali | `OPEN` | WP-13. Oggi gli endpoint rispondono 501: la promessa **non** e dichiarata completa da nessuna parte |
+| F3-01 | Pagamenti online reali | `IN PROGRESS` | **Blocco Finale B**, ADR-0045 — CediPay: contratto provider-agnostico, adapter Stripe (addebiti diretti, commissione, rimborsi, attivazione del club), firma dei webhook verificata e collaudata, deduplica degli eventi, rotte agganciate. **Manca** cio che richiede credenziali vere: un checkout, un webhook e un rimborso provati contro Stripe |
 | F3-02 | Unificare i sistemi di toast | `OPEN` | WP-14. Ne convivono due |
 | F3-03 | Spostare i file fuori dai record | `IN PROGRESS` | **Blocco 8**, ADR-0034 — un allegato e ora una riga di `attachments` e il record ne conserva solo il riferimento. **Mancano**: la tabella `assets` (logo club, moduli online) e la scelta di un provider esterno, che e una decisione del proprietario del prodotto (opzioni e raccomandazione nell'ADR) |
 | F3-04 | Audit log | `IN PROGRESS` | WP-16, ADR-0019. Copre auth, risorse economiche, stagioni e **tutti** i dinieghi. Manca la copertura delle anagrafiche |
@@ -442,7 +442,7 @@ elenco. Nessuna e cominciata; ognuna vale un blocco o piu.
 | P-03 | **Modulistica V2** | `DONE` | Blocco 9, WP-50 — campi, versioni immutabili, firma, e i documenti generati collegati alla scheda della persona |
 | P-04 | **Moduli online** | `IN PROGRESS` | Blocco 9 — collegamento all'anagrafica e iscrizione online **fatti**. **Mancano** la validazione condizionale (B9-17) e il pagamento contestuale, che dipende da WP-13 |
 | P-05 | **Scanner documenti** | `IN PROGRESS` | La foundation e del Blocco 7 (ADR e KB). Restano: PDF, provider remoto, migrazione della scheda atleta. Vedi B7-32/33/34 |
-| P-06 | **Stripe / CediPay** | `OPEN` | WP-13. Il webhook **non va attivato** prima della verifica di firma (vedi [14](14-security.md), rischio 6) |
+| P-06 | **Stripe / CediPay** | `IN PROGRESS` | **Blocco Finale B**, ADR-0045. La verifica di firma che bloccava l'attivazione del webhook adesso c'e ed e coperta da diciassette test; il rischio 6 di [14](14-security.md) e passato a PRESIDIATO. **Mancano** le credenziali e il primo giro reale |
 | P-07 | **SaaS ed entitlements** | `OPEN` | Presuppone un ambiente di produzione vero (F5-01) e un modello di abbonamento che oggi non esiste |
 | P-08 | **Bonus Sport e Salute** | `OPEN` | **Il modello c'e** dal Workstream A (WP-48, ADR-0037): un bando si descrive con la configurazione, e il Voucher Lazio 2025 e gia coperto come scenario. Resta aperta la parte che **non si puo implementare a memoria**: la fonte dati esterna, le regole annuali del bando e il canale di trasmissione delle rendicontazioni, che cambia da ente a ente |
 | P-09 | **AI per gli allenamenti** | `OPEN` | Nessun requisito scritto. Va definito cosa deve produrre prima di scegliere come |

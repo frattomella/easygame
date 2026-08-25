@@ -240,6 +240,7 @@ model Club {
   form_templates               FormTemplate[]
   form_submissions             FormSubmission[]
   document_number_sequences    DocumentNumberSequence[]
+  payment_webhook_events       PaymentWebhookEvent[]
 
   @@map("clubs")
 }
@@ -504,6 +505,38 @@ model Receipt {
 /// appartiene a un club e a un esercizio: la societa Alfa e la societa Beta
 /// hanno entrambe la loro ricevuta 1 del 2026, e devono averla. Vedi
 /// ADR-0044.
+/// Un evento gia ricevuto da un provider di pagamento.
+///
+/// **Perche non basta la firma.** La firma dice che l'evento viene davvero
+/// dal provider; non dice che sia la prima volta che arriva. Stripe riprova
+/// la consegna per tre giorni finche non riceve un 2xx, e un rinvio manuale e
+/// a un clic di distanza. Senza questa tabella, un evento consegnato due
+/// volte registra l'incasso due volte. Vedi ADR-0045.
+///
+/// Il corpo dell'evento **non** si conserva: contiene l'email di chi paga e
+/// i riferimenti dell'account connesso, e nessuno lo rilegge.
+model PaymentWebhookEvent {
+  id                 String   @id @default(uuid()) @db.Uuid
+  /// `stripe` | `paypal` | ... Vedi `CediPayProviderKey`.
+  provider           String
+  /// L'identificativo dell'evento presso il provider: la chiave di deduplica.
+  event_id           String
+  event_type         String
+  organization_id    String?  @db.Uuid
+  external_reference String?
+  /// `processed` | `ignored` | `failed`
+  status             String   @default("processed")
+  error              String?
+  received_at        DateTime @default(now())
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  organization       Club?    @relation(fields: [organization_id], references: [id], onDelete: SetNull)
+
+  @@unique([provider, event_id])
+  @@index([organization_id])
+  @@map("payment_webhook_events")
+}
+
 model DocumentNumberSequence {
   id              String   @id @default(uuid()) @db.Uuid
   organization_id String   @db.Uuid

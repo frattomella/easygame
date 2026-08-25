@@ -3,37 +3,28 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { prisma } from "@/lib/server/prisma";
-import { calculatePlatformFee } from "@/lib/payments/platform-fees";
-import {
-  getAvailableRegistrationPaymentMethods,
-  normalizePaymentSettings,
-} from "@/lib/payments/payment-config-utils";
-import { getPaymentProviderDefinition } from "@/lib/payments/provider-registry";
-import type { PaymentProviderKey } from "@/lib/payments/payment-types";
+import { openCediPayCheckout } from "@/lib/server/cedipay";
+import { CediPayError } from "@/lib/payments/cedipay";
+
+/**
+ * Apre un checkout online per una rata.
+ *
+ *   POST /api/payments/create-checkout-session
+ *
+ * **Cosa arriva dal client e cosa no.** Dal client arrivano la rata, l'importo
+ * e dove tornare. **Non** arrivano — e non verrebbero creduti — il provider,
+ * il conto su cui il denaro finisce e la commissione della piattaforma:
+ * quelli li dicono le impostazioni del club. Un client che potesse scegliere
+ * il provider sceglierebbe quello con meno controlli; un client che potesse
+ * scegliere il conto sceglierebbe il proprio.
+ *
+ * **Perche il ritorno del browser non conclude niente.** L'URL di successo
+ * mostra una pagina, non registra un incasso: chi paga puo chiudere la
+ * finestra, e con SEPA o bonifico il denaro arriva giorni dopo. L'incasso lo
+ * registra il webhook, su un evento firmato (ADR-0045).
+ */
 
 export const runtime = "nodejs";
-
-type CheckoutRequestBody = {
-  clubId?: string;
-  paymentId?: string;
-  amountCents?: number;
-  description?: string;
-  provider?: PaymentProviderKey;
-  payer?: {
-    id?: string;
-    type?: string;
-    name?: string;
-    email?: string;
-  };
-  successUrl?: string;
-  cancelUrl?: string;
-};
-
-const asRecord = (value: unknown): Record<string, any> =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, any>)
-    : {};
 
 const jsonError = (
   message: string,
@@ -41,25 +32,18 @@ const jsonError = (
   details: Record<string, unknown> = {},
 ) => NextResponse.json({ data: null, error: { message, ...details } }, { status });
 
-const normalizeProvider = (value: unknown): PaymentProviderKey | null => {
-  const provider = String(value || "").trim().toLowerCase();
-  if (
-    provider === "paypal" ||
-    provider === "postepay" ||
-    provider === "mastercard"
-  ) {
-    return provider;
-  }
-
-  return null;
-};
-
-const hasRequiredProviderEnv = (provider: PaymentProviderKey) => {
-  if (provider === "paypal") {
-    return Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET);
-  }
-
-  return Boolean(process.env.STRIPE_SECRET_KEY);
+/*
+  Un blocco per gradino, con lo stato HTTP che gli corrisponde. `501` resta
+  soltanto per «quel provider non e stato scritto»: gli altri tre non sono
+  funzioni mancanti, sono configurazioni mancanti, e dirlo con lo stesso
+  codice li farebbe sembrare tutti un problema di chi scrive il software.
+*/
+const STATUS_BY_CODE: Record<string, number> = {
+  not_implemented: 501,
+  not_configured: 503,
+  merchant_not_ready: 409,
+  provider_error: 502,
+  invalid_signature: 400,
 };
 
 export async function POST(request: Request) {
@@ -69,119 +53,67 @@ export async function POST(request: Request) {
       return jsonError("Sessione non valida", 401);
     }
 
-    const body = (await request.json().catch(() => ({}))) as CheckoutRequestBody;
-    const clubId = String(body.clubId || "").trim();
-    const provider = normalizeProvider(body.provider);
-    const amountCents = Math.round(Number(body.amountCents || 0));
+    const body = (await request.json().catch(() => ({}))) as Record<string, any>;
+    const clubId = String(body.clubId || body.club_id || "").trim();
+    const successUrl = String(body.successUrl || body.success_url || "").trim();
+    const cancelUrl = String(body.cancelUrl || body.cancel_url || "").trim();
 
     if (!clubId) {
       return jsonError("Club non disponibile");
     }
 
-    if (!provider) {
-      return jsonError("Provider pagamento non valido");
-    }
-
-    if (!Number.isFinite(amountCents) || amountCents <= 0) {
-      return jsonError("Importo pagamento non valido");
-    }
-
-    if (!String(body.successUrl || "").trim() || !String(body.cancelUrl || "").trim()) {
-      return jsonError("URL successo/annullo obbligatori");
+    if (!successUrl || !cancelUrl) {
+      return jsonError("URL di ritorno obbligatori");
     }
 
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
       request.headers.get("x-active-club-id") || clubId,
     );
+
     if (!scope.allowedOrganizationIds.includes(clubId)) {
       return jsonError("Accesso negato al club", 403);
     }
 
-    const club = await prisma.club.findUnique({
-      where: { id: clubId },
-      select: { settings: true },
-    });
-    if (!club) {
-      return jsonError("Club non trovato", 404);
-    }
-
-    const settings = normalizePaymentSettings(
-      asRecord(club.settings).paymentSettings,
-    );
-    const providerConfig = settings.providers[provider];
-    const availableMethods = getAvailableRegistrationPaymentMethods(settings);
-    const isAvailable = availableMethods.some(
-      (method) => method.provider === provider,
-    );
-
-    if (!settings.enabled || !isAvailable) {
-      return jsonError(
-        "Provider non abilitato o non configurato per le iscrizioni",
-        400,
-        {
-          provider,
-          status: providerConfig?.status || "not_configured",
-        },
-      );
-    }
-
-    const fee = calculatePlatformFee({
-      amountCents,
-      percent: settings.platformFeePercent,
-      fixedCents: settings.platformFeeFixedCents,
-    });
-    const definition = getPaymentProviderDefinition(provider);
-    const metadata = {
-      clubId,
-      paymentId: body.paymentId || null,
-      provider,
-      description: String(body.description || "").trim(),
-      payer: body.payer || null,
-      currency: settings.currency,
-      platformFeePercent: settings.platformFeePercent,
-      platformFeeFixedCents: settings.platformFeeFixedCents || 0,
-      grossAmountCents: fee.grossAmountCents,
-      platformFeeAmountCents: fee.platformFeeCents,
-      netAmountCents: fee.clubNetAmountCents,
-    };
-
-    if (!definition.isImplemented || !hasRequiredProviderEnv(provider)) {
-      return NextResponse.json(
-        {
-          data: {
-            checkoutUrl: null,
-            provider,
-            metadata,
-          },
-          error: {
-            message:
-              "Provider non ancora configurato per il checkout online.",
-          },
-        },
-        { status: 501 },
-      );
-    }
-
-    // TODO: creare una Checkout Session reale lato server quando il PSP e configurato.
-    return NextResponse.json(
-      {
-        data: {
-          checkoutUrl: null,
-          provider,
-          metadata,
-        },
-        error: {
-          message: "Checkout reale non ancora implementato per questo provider.",
-        },
+    const { checkout, context } = await openCediPayCheckout({
+      organizationId: clubId,
+      paymentId: body.paymentId || body.payment_id || null,
+      athleteId: body.athleteId || body.athlete_id || null,
+      amountCents: Math.round(Number(body.amountCents || body.amount_cents || 0)),
+      description: String(body.description || ""),
+      successUrl,
+      cancelUrl,
+      payer: {
+        email: body?.payer?.email,
+        name: body?.payer?.name,
       },
-      { status: 501 },
-    );
+      actorUserId: session.db.user_id,
+    });
+
+    return NextResponse.json({
+      data: {
+        checkoutUrl: checkout.url,
+        provider: context.provider,
+        externalId: checkout.externalId,
+        amountCents: checkout.money.amountCents,
+        platformFeeCents: checkout.platformFeeCents,
+      },
+      error: null,
+    });
   } catch (error: any) {
-    console.error("[payments/create-checkout-session]", error);
-    return jsonError(
-      error?.message || "Errore nella creazione della sessione checkout",
-      500,
-    );
+    if (error instanceof CediPayError) {
+      return jsonError(error.message, STATUS_BY_CODE[error.code] || 400, {
+        code: error.code,
+        provider: error.provider,
+      });
+    }
+
+    const message = String(error?.message || "");
+    if (message.includes("Accesso negato")) {
+      return jsonError(message, 403);
+    }
+
+    console.error("[payments/create-checkout-session]", message);
+    return jsonError("Errore nell'apertura del pagamento online", 500);
   }
 }

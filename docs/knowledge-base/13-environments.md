@@ -117,7 +117,10 @@ invocato a mano.
 | `CRON_SECRET` | Job automatico allenamenti «tutti i club» non invocabile |
 | `TWILIO_*` | Verifica telefono disattivata |
 | `GOOGLE_*`, `MICROSOFT_*` | OAuth disattivato |
-| `PAYPAL_*`, `STRIPE_*` | Checkout online comunque non implementato |
+| `STRIPE_SECRET_KEY` | Nessun checkout online. `describeCediPayReadiness` risponde `not_configured` e l'interfaccia lo dice, invece di offrire il pulsante ([ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce)) |
+| `STRIPE_WEBHOOK_SECRET` | `/api/payments/webhook` risponde **503** e non crede a niente. E il comportamento voluto: senza segreto non si distingue un evento del PSP da un POST qualunque |
+| `PLATFORM_FEE_PERCENT` | Si usa il valore predefinito (2,5%). La commissione vera e configurazione per club e dipende da un accordo commerciale |
+| `PAYPAL_*` | PayPal non ha un adapter: il registro CediPay lo dichiara `no_adapter` |
 | `AUTH_ALLOW_TEST_CODES` | Codici OTP non esposti (corretto) |
 | `NEXT_PUBLIC_TEMPO` | Nessun effetto: il codice Tempo e stato rimosso |
 

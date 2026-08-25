@@ -109,20 +109,40 @@ mutazioni. Le API accettano `Content-Type: application/json`, il che riduce
 ulteriormente la superficie (una form cross-site non puo inviare JSON senza
 preflight CORS).
 
-### 6. Webhook pagamenti senza verifica di firma — MEDIO (oggi teorico)
+### 6. Webhook pagamenti — PRESIDIATO (era MEDIO)
 
-`POST /api/payments/webhook` non valida la firma del provider (TODO esplicito).
-Oggi non processa eventi, quindi l'impatto e nullo — **ma non deve essere
-attivato prima di implementare la verifica**. Vedi [WP-13](20-work-packages.md).
+**Chiuso dal Blocco Finale B** ([ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce)).
 
-Il registro incassi (Workstream A, [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una))
-non allarga questa superficie e anzi la chiude da un lato:
-`payment_transactions.source` accetta `STRIPE` e `CEDIPAY` nel **modello**, ma
-`createPaymentTransaction` rifiuta con 400 tutto cio che non e `MANUAL`.
-Finche non c'e un webhook con firma verificata, accettare un incasso
-dichiarato «STRIPE» vorrebbe dire **registrare denaro che nessuno ha
-incassato** — e sarebbe scrivibile da chiunque possa chiamare l'endpoint con
-un ruolo di gestione.
+`POST /api/payments/webhook` e l'**unica superficie di EasyGame che puo far
+comparire denaro**: non ha sessione, non ha ruolo, e chiunque puo mandarci una
+richiesta. Quattro presidi, nell'ordine in cui agiscono:
+
+1. **corpo grezzo.** La firma copre i byte esatti. Il corpo viene letto con
+   `request.text()` prima di qualunque interpretazione: riserializzarlo la
+   invaliderebbe sempre, e chi va a sistemare il problema e tentato di
+   togliere la verifica;
+2. **firma verificata prima di guardare dentro** — HMAC-SHA256 su
+   `timestamp.corpo`, **solo** schema `v1` (accettare `v0` e un attacco di
+   downgrade), confronto a tempo costante, tolleranza di cinque minuti contro
+   il replay. Diciassette test con vettori costruiti a mano, in
+   `tests/lib/cedipay-webhook-signature.test.mjs`;
+3. **deduplica su `(provider, event_id)`.** La firma dice che l'evento viene
+   dal provider; non dice che sia la prima volta che arriva. Stripe riprova la
+   consegna per tre giorni e un rinvio manuale e a un clic di distanza: senza
+   memoria, la seconda consegna incassa una seconda volta;
+4. **niente segreto, niente fiducia.** Senza `STRIPE_WEBHOOK_SECRET`
+   l'endpoint risponde **503** — non 200: un 2xx direbbe al provider «ricevuto,
+   non riprovare», e l'evento andrebbe perso.
+
+Le risposte negative non dicono **quale** controllo non e stato superato:
+spiegarlo a chi ha mandato la richiesta e spiegarlo a chi sta provando. Nei
+log finiscono provider e messaggio, mai il corpo — che contiene l'email di chi
+paga e i riferimenti dell'account connesso.
+
+`createPaymentTransaction` continua a rifiutare qualunque `source` diverso da
+`MANUAL`, con **una sola eccezione**: `confirmedByProvider`, che nessuna rotta
+HTTP puo impostare — le rotte costruiscono il loro input campo per campo — e
+che solo `handleCediPayWebhookEvent` imposta, dopo aver verificato la firma.
 
 ### 6-bis. Chi puo registrare o stornare un incasso — PRESIDIATO
 

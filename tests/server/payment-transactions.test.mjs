@@ -214,9 +214,25 @@ test("una rata inesistente non si incassa", async () => {
   await rejects(registra({ paymentId: "rata-che-non-esiste" }), /Rata non trovata/);
 });
 
-test("i provider online non sono registrabili finche non sono implementati", async () => {
-  await rejects(registra({ source: "STRIPE" }), /non sono ancora attivi/i);
-  await rejects(registra({ source: "CEDIPAY" }), /non sono ancora attivi/i);
+test("un incasso online non lo dichiara chi chiama: lo conferma il provider", async () => {
+  await rejects(registra({ source: "STRIPE" }), /lo conferma il provider/i);
+  await rejects(registra({ source: "CEDIPAY" }), /lo conferma il provider/i);
+});
+
+test("con la conferma del provider l'incasso online si registra", async () => {
+  /*
+    `confirmedByProvider` non e un parametro dell'API: lo imposta soltanto
+    `handleCediPayWebhookEvent`, dopo aver verificato la firma dell'evento
+    (ADR-0045). Qui si prova che il confine sia quello e non un altro.
+  */
+  const result = await registra({
+    source: "CEDIPAY",
+    confirmedByProvider: true,
+    externalReference: "cs_test_1",
+  });
+
+  assert.equal(result.transaction.source, "CEDIPAY");
+  assert.equal(result.transaction.externalReference, "cs_test_1");
 });
 
 test("con allowOverpayment un acconto superiore al residuo e ammesso", async () => {

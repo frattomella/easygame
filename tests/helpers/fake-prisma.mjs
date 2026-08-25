@@ -89,6 +89,35 @@ const matchesWhere = (record, where) => {
   return true;
 };
 
+/**
+ * I vincoli di unicita che il doppio fa rispettare.
+ *
+ * Il doppio non legge lo schema Prisma, quindi non li conosce. Vengono
+ * dichiarati qui, e solo dove **un test dipende da loro**: un vincolo che
+ * nessuno prova sarebbe una promessa in piu da tenere allineata a mano.
+ *
+ * Senza questo, il test sulla deduplica dei webhook passerebbe comunque —
+ * provando esattamente il contrario di cio che deve provare.
+ */
+const UNIQUE_CONSTRAINTS = {
+  paymentWebhookEvent: [["provider", "event_id"]],
+  documentNumberSequence: [["organization_id", "kind", "year"]],
+  athleteCategoryMembership: [
+    ["organization_id", "athlete_id", "category_id"],
+  ],
+  formTemplate: [["public_slug"]],
+};
+
+/** L'errore che Prisma lancia su una chiave duplicata. */
+const duplicateKeyError = (delegate, fields) => {
+  const error = new Error(
+    `Unique constraint failed on the fields: (${fields.join(",")}) [${delegate}]`,
+  );
+  error.code = "P2002";
+  error.meta = { target: fields };
+  return error;
+};
+
 export const createFakePrisma = (seedByDelegate = {}) => {
   const calls = [];
   /*
@@ -106,6 +135,23 @@ export const createFakePrisma = (seedByDelegate = {}) => {
   const rowsOf = (name) => {
     if (!store.has(name)) store.set(name, []);
     return store.get(name);
+  };
+
+  /*
+    Un `create` che violerebbe un vincolo dichiarato fallisce come farebbe
+    Postgres. Le righe del seed non vengono controllate: un seed e uno stato
+    di partenza, non una scrittura.
+  */
+  const assertUnique = (name, data) => {
+    for (const fields of UNIQUE_CONSTRAINTS[name] || []) {
+      if (fields.some((field) => data[field] === undefined)) continue;
+
+      const clash = rowsOf(name).some((row) =>
+        fields.every((field) => row[field] === data[field]),
+      );
+
+      if (clash) throw duplicateKeyError(name, fields);
+    }
   };
 
   const makeDelegate = (name) => ({
@@ -146,6 +192,7 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     },
     create: async (args = {}) => {
       calls.push({ delegate: name, method: "create", args });
+      assertUnique(name, args.data || {});
       const created = {
         id: args.data?.id || `${name}-generated-${(generatedIds += 1)}`,
         ...args.data,
