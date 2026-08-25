@@ -37,6 +37,7 @@ import {
   Globe,
   IdCard,
   CalendarDays,
+  Shirt,
   X,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -44,6 +45,11 @@ import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { deleteStaffMember } from "@/lib/simplified-db";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
+import {
+  ClothingSizesFields,
+  ClothingSizesSummary,
+} from "@/components/forms/clothing-sizes-fields";
+import { normalizeGenderLetter } from "@/lib/italian-registry";
 import { PhoneField } from "@/components/forms/phone-field";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import {
@@ -663,6 +669,37 @@ export default function StaffMemberDetailsPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/*
+                  Le taglie si raccoglievano alla creazione e poi sparivano:
+                  nessuna scheda di dettaglio le mostrava, quindi non si
+                  potevano ne leggere ne correggere (Blocco A, punto 13).
+                  Nessun numero di maglia qui: appartiene a chi scende in campo.
+                */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Shirt className="h-5 w-5" />
+                      Taglie vestiario
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEditSection("clothing")}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <ClothingSizesSummary
+                      value={staffMember.clothingSizes}
+                      person={{
+                        gender: staffMember.gender,
+                        birthDate: staffMember.birthDate,
+                      }}
+                    />
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               {/* DOCUMENTI TAB */}
@@ -791,13 +828,7 @@ export default function StaffMemberDetailsPage() {
                       <Label>Sesso</Label>
                       <select
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={
-                          String(editFormData.gender || '').trim().toUpperCase().startsWith('M')
-                            ? 'M'
-                            : String(editFormData.gender || '').trim().toUpperCase().startsWith('F')
-                              ? 'F'
-                              : ''
-                        }
+                        value={normalizeGenderLetter(editFormData.gender)}
                         onChange={(e) => setEditFormData({...editFormData, gender: e.target.value})}
                       >
                         <option value="">Non indicato</option>
@@ -998,6 +1029,20 @@ export default function StaffMemberDetailsPage() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {editingSection === "clothing" && (
+                <ClothingSizesFields
+                  idPrefix="staff-clothing"
+                  value={editFormData.clothingSizes}
+                  person={{
+                    gender: editFormData.gender,
+                    birthDate: editFormData.birthDate,
+                  }}
+                  onChange={(next) =>
+                    setEditFormData({ ...editFormData, clothingSizes: next })
+                  }
+                />
               )}
 
               {editingSection === 'document' && (

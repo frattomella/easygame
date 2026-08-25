@@ -99,6 +99,13 @@ const FISCAL_CODE_SURFACES = [
   ["app/athletes/[id]/page.tsx", "scheda atleta (atleta e genitore)"],
   ["app/trainers/[id]/page.tsx", "scheda allenatore"],
   ["app/staff/[id]/page.tsx", "scheda staff"],
+  /*
+    La scheda socio era l'ultima anagrafica di persona senza codice fiscale:
+    il modulo di creazione lo raccoglieva, la scheda non lo mostrava e non lo
+    modificava, quindi un codice sbagliato alla creazione era definitivo
+    (Blocco A, punto 10).
+  */
+  ["app/soci/[id]/page.tsx", "scheda socio"],
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
   ["app/staff/new/page.tsx", "nuovo staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],
@@ -147,6 +154,7 @@ test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", ()
   for (const file of [
     "app/trainers/[id]/page.tsx",
     "app/staff/[id]/page.tsx",
+    "app/soci/[id]/page.tsx",
   ]) {
     const source = read(file);
     const freeText =
@@ -226,5 +234,105 @@ test("nessuna superficie applica i dati letti senza passare dalla conferma", () 
         `${label}: senza currentValues non si sa cosa si sta per sovrascrivere`,
       );
     }
+  }
+});
+
+/* ------------------------------------------- taglie di persona (Blocco A, 13) */
+
+/**
+ * Le taglie di una persona non sono un dato di sola scrittura.
+ *
+ * **Il difetto.** Il Blocco 7 aveva aggiunto profilo, maglia, pantalone e
+ * scarpe ai moduli di creazione di allenatore, staff e socio. Nessuna delle
+ * tre schede di dettaglio le mostrava: un dato raccolto una volta e mai piu
+ * raggiungibile, che pero `person-export.ts` continuava a stampare in una
+ * colonna dell'export. Chi aveva sbagliato la taglia al primo inserimento non
+ * aveva nessun modo di correggerla, e chi la leggeva nell'export non sapeva
+ * da dove venisse.
+ *
+ * L'elenco e esplicito per la stessa ragione degli altri di questo file: una
+ * quarta anagrafica con le taglie deve passare di qui.
+ */
+const CLOTHING_SIZE_SURFACES = [
+  ["app/trainers/new/page.tsx", "nuovo allenatore", "create"],
+  ["app/staff/new/page.tsx", "nuovo staff", "create"],
+  ["app/soci/new/page.tsx", "nuovo socio", "create"],
+  ["app/trainers/[id]/page.tsx", "scheda allenatore", "detail"],
+  ["app/staff/[id]/page.tsx", "scheda staff", "detail"],
+  ["app/soci/[id]/page.tsx", "scheda socio", "detail"],
+];
+
+test("le taglie si raccolgono alla creazione e si correggono dalla scheda", () => {
+  for (const [file, label] of CLOTHING_SIZE_SURFACES) {
+    assert.match(
+      read(file),
+      /<ClothingSizesFields/,
+      `${label} (${file}) deve montare il campo taglie condiviso`,
+    );
+  }
+});
+
+test("ogni scheda di persona mostra le taglie che ha in archivio", () => {
+  for (const [file, label, kind] of CLOTHING_SIZE_SURFACES) {
+    if (kind !== "detail") continue;
+
+    assert.match(
+      read(file),
+      /<ClothingSizesSummary/,
+      `${label} (${file}): le taglie si salvano ma non si leggono`,
+    );
+  }
+});
+
+/**
+ * Nessun numero di maglia sulle persone che non scendono in campo.
+ *
+ * Il numero appartiene all'atleta e vive nei gruppi di numerazione (WP-44).
+ * Darlo a un dirigente creerebbe conflitti dentro un gruppo per un dato che
+ * non serve a nessuno.
+ */
+test("le taglie di allenatore, staff e socio non portano un numero di maglia", () => {
+  const field = read("components/forms/clothing-sizes-fields.tsx");
+
+  assert.equal(
+    /jerseyNumber|numero di maglia.*<(Input|select)/i.test(field),
+    false,
+    "il campo taglie non deve raccogliere un numero di maglia",
+  );
+});
+
+/**
+ * Una regola sola per il sesso, non una copia per scheda.
+ *
+ * Era una tripla condizione ricopiata dentro il `value` di due `select`. Tre
+ * copie della stessa regola sono tre occasioni di scriverla diversa, ed e
+ * esattamente cosi che in archivio erano finite «M», «maschio» e «Maschile».
+ */
+test("il sesso si normalizza in un posto solo", () => {
+  const registry = read("lib/italian-registry.ts");
+
+  assert.match(
+    registry,
+    /export const normalizeGenderLetter/,
+    "il normalizzatore del sesso deve essere condiviso, non privato",
+  );
+
+  for (const file of [
+    "app/trainers/[id]/page.tsx",
+    "app/staff/[id]/page.tsx",
+    "app/soci/[id]/page.tsx",
+  ]) {
+    const source = read(file);
+
+    assert.match(
+      source,
+      /normalizeGenderLetter\(editFormData\.gender\)/,
+      `${file}: il sesso deve passare dal normalizzatore condiviso`,
+    );
+    assert.equal(
+      /toUpperCase\(\)\.startsWith\('M'\)/.test(source),
+      false,
+      `${file}: resta una copia inline della normalizzazione del sesso`,
+    );
   }
 });

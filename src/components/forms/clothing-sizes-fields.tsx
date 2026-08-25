@@ -145,3 +145,59 @@ export function ClothingSizesFields({
     </div>
   );
 }
+
+/**
+ * Le stesse taglie, in lettura.
+ *
+ * **Il difetto che chiude** (Blocco A, punto 13). Le taglie si raccoglievano
+ * alla creazione di allenatore, staff e socio — e da li in poi non esistevano
+ * piu: nessuna delle tre schede di dettaglio le mostrava, quindi non si
+ * potevano ne leggere ne correggere. Un dato scritto una volta e mai piu
+ * raggiungibile e peggio di un dato assente, perche l'export lo stampa
+ * (`person-export.ts` ha sempre avuto la colonna) e nessuno sa da dove venga.
+ *
+ * Il riepilogo sta qui, accanto al form che lo modifica, perche le due viste
+ * dello stesso dato non divergano: chi aggiunge un capo alle taglie lo vede
+ * comparire in entrambe.
+ */
+export type ClothingSizesSummaryProps = {
+  value: Partial<ClothingSizes> | null | undefined;
+  person?: { gender?: string | null; birthDate?: string | null } | null;
+  className?: string;
+};
+
+export function ClothingSizesSummary({
+  value,
+  person,
+  className,
+}: ClothingSizesSummaryProps) {
+  const sizes = normalizeClothingSizes(value);
+  const profile = resolveClothingProfile(sizes, person);
+
+  const rows: Array<{ label: string; value: string; tabular?: boolean }> = [
+    {
+      label: "Profilo taglie",
+      value: sizes.profile
+        ? CLOTHING_PROFILE_LABELS[profile]
+        : `Automatico (${CLOTHING_PROFILE_LABELS[profile]})`,
+    },
+    { label: "Taglia maglia", value: sizes.shirtSize },
+    { label: "Taglia pantalone", value: sizes.pantsSize },
+    { label: "Numero scarpe", value: sizes.shoeSize, tabular: true },
+  ];
+
+  return (
+    <div className={cn("grid grid-cols-1 gap-6 sm:grid-cols-2", className)}>
+      {rows.map((row) => (
+        <div key={row.label}>
+          <h3 className="text-sm font-medium text-muted-foreground">
+            {row.label}
+          </h3>
+          <p className={cn("mt-1", row.tabular && "eg-tabular")}>
+            {row.value || "Non indicata"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}

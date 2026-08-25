@@ -28,6 +28,7 @@ import {
   IdCard,
   CalendarDays,
   CreditCard,
+  Shirt,
   X,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -37,6 +38,15 @@ import { deleteClubDataItem } from "@/lib/simplified-db";
 import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
+import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  genderLabel,
+  normalizeGenderLetter,
+} from "@/lib/italian-registry";
+import {
+  ClothingSizesFields,
+  ClothingSizesSummary,
+} from "@/components/forms/clothing-sizes-fields";
 import {
   DEFAULT_MEMBER_TYPE,
   MEMBER_TYPES,
@@ -432,11 +442,98 @@ export default function MemberDetailsPage() {
                           <p>{member.phone}</p>
                         </div>
                       </div>
+                      <div>
+                        <h3 className="text-sm font-medium text-muted-foreground">Data di Nascita</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                          <p>{formatDate(member.birthDate) || "-"}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-medium text-muted-foreground">Sesso</h3>
+                        <p className="mt-1">{genderLabel(member.gender)}</p>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-medium text-muted-foreground">Luogo di Nascita</h3>
+                        <p className="mt-1">{member.birthPlace || "-"}</p>
+                      </div>
+                      {/*
+                        Il codice fiscale sta dopo i dati anagrafici perche da
+                        quelli si ricava: metterlo prima chiede di digitare a
+                        mano cio che il campo sa calcolare (Blocco A, punto 1).
+                      */}
+                      <div>
+                        <h3 className="text-sm font-medium text-muted-foreground">Codice Fiscale</h3>
+                        <p className="mt-1 eg-tabular">{member.fiscalCode || "-"}</p>
+                      </div>
                       <div className="md:col-span-2">
                         <h3 className="text-sm font-medium text-muted-foreground">Note</h3>
                         <p className="mt-1 text-sm">{member.notes || "-"}</p>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/*
+                  Residenza e taglie si raccoglievano alla creazione e da li in
+                  poi non esistevano piu: la scheda non le mostrava e non le
+                  modificava, quindi un indirizzo sbagliato era definitivo
+                  (Blocco A, punti 10 e 13).
+                */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <MapPin className="h-5 w-5" />
+                      Contatti e Residenza
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEditSection("contacts")}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="md:col-span-2">
+                        <h3 className="text-sm font-medium text-muted-foreground">Indirizzo</h3>
+                        <p className="mt-1">{member.address || "-"}</p>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-medium text-muted-foreground">Citta</h3>
+                        <p className="mt-1">{member.city || "-"}</p>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-medium text-muted-foreground">CAP</h3>
+                        <p className="mt-1 eg-tabular">{member.postalCode || "-"}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Shirt className="h-5 w-5" />
+                      Taglie vestiario
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEditSection("clothing")}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <ClothingSizesSummary
+                      value={member.clothingSizes}
+                      person={{
+                        gender: member.gender,
+                        birthDate: member.birthDate,
+                      }}
+                    />
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -551,16 +648,111 @@ export default function MemberDetailsPage() {
                         onChange={(value) => setEditFormData({...editFormData, phone: value})}
                       />
                     </div>
+                    <div>
+                      <Label>Data di Nascita</Label>
+                      <Input
+                        type="date"
+                        value={editFormData.birthDate || ''}
+                        onChange={(e) => setEditFormData({...editFormData, birthDate: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      {/*
+                        Il sesso e una scelta e non testo libero: il codice
+                        fiscale ha bisogno di una delle due lettere, e con tre
+                        grafie non si calcola (Blocco 8, punto B8-05).
+                      */}
+                      <Label>Sesso</Label>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={normalizeGenderLetter(editFormData.gender)}
+                        onChange={(e) => setEditFormData({...editFormData, gender: e.target.value})}
+                      >
+                        <option value="">Non indicato</option>
+                        <option value="M">Maschio</option>
+                        <option value="F">Femmina</option>
+                      </select>
+                    </div>
+                    {/*
+                      Lo stesso campo assistito del modulo di creazione: il
+                      comune di nascita si cerca e porta con se il codice
+                      catastale, e il codice fiscale si calcola invece di
+                      digitarsi.
+                    */}
+                    <div className="col-span-2">
+                      <AssistedFiscalCodeField
+                        id="member-edit-fiscal-code"
+                        label="Codice fiscale"
+                        value={editFormData.fiscalCode || ''}
+                        onChange={(value) => setEditFormData({...editFormData, fiscalCode: value})}
+                        person={{
+                          firstName: editFormData.firstName,
+                          lastName: editFormData.lastName,
+                          birthDate: editFormData.birthDate,
+                          gender: editFormData.gender,
+                        }}
+                        belfioreCode={editFormData.birthPlaceCode || ''}
+                        onBelfioreCodeChange={(value) => setEditFormData({...editFormData, birthPlaceCode: value})}
+                        birthPlace={editFormData.birthPlace || ''}
+                        onBirthPlaceChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
+                      />
+                    </div>
                     <div className="col-span-2">
                       <Label>Note</Label>
-                      <Textarea 
-                        value={editFormData.notes || ''} 
+                      <Textarea
+                        value={editFormData.notes || ''}
                         onChange={(e) => setEditFormData({...editFormData, notes: e.target.value})}
                         rows={3}
                       />
                     </div>
                   </div>
                 </div>
+              )}
+
+              {editingSection === "contacts" && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <Label>Indirizzo</Label>
+                      <CapitalizedInput
+                        value={editFormData.address || ''}
+                        onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, address: value})}
+                      />
+                    </div>
+                    <div>
+                      <Label>Citta</Label>
+                      <CapitalizedInput
+                        value={editFormData.city || ''}
+                        onChange={(e) => setEditFormData({...editFormData, city: e.target.value})}
+                        onValueChange={(value) => setEditFormData({...editFormData, city: value})}
+                      />
+                    </div>
+                    <div>
+                      <Label>CAP</Label>
+                      <Input
+                        inputMode="numeric"
+                        maxLength={5}
+                        value={editFormData.postalCode || ''}
+                        onChange={(e) => setEditFormData({...editFormData, postalCode: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {editingSection === "clothing" && (
+                <ClothingSizesFields
+                  idPrefix="member-clothing"
+                  value={editFormData.clothingSizes}
+                  person={{
+                    gender: editFormData.gender,
+                    birthDate: editFormData.birthDate,
+                  }}
+                  onChange={(next) =>
+                    setEditFormData({ ...editFormData, clothingSizes: next })
+                  }
+                />
               )}
 
               {editingSection === 'membership' && (

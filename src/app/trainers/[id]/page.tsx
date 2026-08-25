@@ -51,6 +51,7 @@ import {
   Link2,
   Loader2,
   RefreshCw,
+  Shirt,
   Unlink2,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -101,6 +102,11 @@ import {
   getTrainerDisplayName,
   normalizeTrainerCategories,
 } from "@/lib/trainer-utils";
+import {
+  ClothingSizesFields,
+  ClothingSizesSummary,
+} from "@/components/forms/clothing-sizes-fields";
+import { normalizeGenderLetter } from "@/lib/italian-registry";
 
 const TOKEN_EXPIRY_HOURS = 72;
 
@@ -2139,6 +2145,37 @@ export default function TrainerDetailsPage() {
                     )}
                   </CardContent>
                 </Card>
+
+                {/*
+                  Le taglie si raccoglievano alla creazione e poi sparivano:
+                  nessuna scheda di dettaglio le mostrava, quindi non si
+                  potevano ne leggere ne correggere (Blocco A, punto 13).
+                  Nessun numero di maglia qui: appartiene a chi scende in campo.
+                */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Shirt className="h-5 w-5" />
+                      Taglie vestiario
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEditSection("clothing")}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <ClothingSizesSummary
+                      value={trainer?.clothingSizes}
+                      person={{
+                        gender: trainer?.gender,
+                        birthDate: trainer?.birthDate,
+                      }}
+                    />
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               {/* DATI MEDICI TAB */}
@@ -2624,13 +2661,7 @@ export default function TrainerDetailsPage() {
                       <Label>Sesso</Label>
                       <select
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={
-                          String(editFormData.gender || '').trim().toUpperCase().startsWith('M')
-                            ? 'M'
-                            : String(editFormData.gender || '').trim().toUpperCase().startsWith('F')
-                              ? 'F'
-                              : ''
-                        }
+                        value={normalizeGenderLetter(editFormData.gender)}
                         onChange={(e) => setEditFormData({...editFormData, gender: e.target.value})}
                       >
                         <option value="">Non indicato</option>
@@ -2879,6 +2910,20 @@ export default function TrainerDetailsPage() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {editingSection === "clothing" && (
+                <ClothingSizesFields
+                  idPrefix="trainer-clothing"
+                  value={editFormData.clothingSizes}
+                  person={{
+                    gender: editFormData.gender,
+                    birthDate: editFormData.birthDate,
+                  }}
+                  onChange={(next) =>
+                    setEditFormData({ ...editFormData, clothingSizes: next })
+                  }
+                />
               )}
 
               {editingSection === 'certificates' && (

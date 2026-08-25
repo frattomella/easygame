@@ -401,7 +401,16 @@ export type CodiceFiscaleResult =
   | { ok: true; value: string }
   | { ok: false; missing: string[] };
 
-const normalizeGender = (value?: string | null) => {
+/**
+ * Il sesso ridotto alla lettera che serve al codice fiscale.
+ *
+ * Era una funzione privata di questo modulo, ricopiata a mano nelle schede di
+ * dettaglio come una tripla condizione dentro il `value` di una `select`
+ * (Blocco A, punto 12). Tre copie della stessa regola sono tre occasioni di
+ * scriverla in modo leggermente diverso: in archivio finivano «M», «maschio»
+ * e «Maschile», e con tre grafie il codice fiscale non si calcolava.
+ */
+export const normalizeGenderLetter = (value?: string | null): "M" | "F" | "" => {
   const letter = String(value || "")
     .trim()
     .charAt(0)
@@ -409,6 +418,14 @@ const normalizeGender = (value?: string | null) => {
   if (letter === "M") return "M";
   if (letter === "F") return "F";
   return "";
+};
+
+/** Come si scrive il sesso in una scheda di sola lettura. */
+export const genderLabel = (value?: string | null): string => {
+  const letter = normalizeGenderLetter(value);
+  if (letter === "M") return "Maschio";
+  if (letter === "F") return "Femmina";
+  return "-";
 };
 
 /**
@@ -423,7 +440,7 @@ export const computeCodiceFiscale = (
 
   const lastName = toLetters(input.lastName);
   const firstName = toLetters(input.firstName);
-  const gender = normalizeGender(input.gender);
+  const gender = normalizeGenderLetter(input.gender);
   const belfiore = String(input.belfioreCode || "")
     .trim()
     .toUpperCase();
