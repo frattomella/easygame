@@ -1139,3 +1139,99 @@ su `GET /api/v1/comuni`. Nessun form cambia.
 cerca per nome — che e la direzione che l'archivio ISTAT copre davvero.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0036 — Una rata e un debito, un incasso e un movimento: due tabelle, non una
+
+**Data:** 2026-08-26 · **Contesto:** Web V1, Workstream A — Pagamenti V2
+
+**Contesto.** La segreteria segnalava quattro cose diverse: che per incassare
+bisognava spostare a mano uno stato da «In attesa» a «Pagata»; che una rata da
+130 EUR pagata in tre volte non era registrabile; che correggere un incasso
+faceva sparire la rata; che lo stato di una rata poteva dire una cosa e gli
+importi un'altra.
+
+Sono lo stesso difetto visto da quattro lati. `payments` faceva **due
+mestieri**: la riga portava l'importo dovuto (`amount`, `due_date`,
+`description`) e, negli stessi campi, il modo in cui era stato pagato
+(`status`, `paid_at`, `method`). Con un solo importo per riga, un incasso
+parziale non e rappresentabile; con lo stato sulla riga del debito, l'unico
+modo di dire «ho incassato» e modificare il debito.
+
+**Decisione.**
+
+1. **`payments` resta il dovuto.** Una riga = una rata, o una voce a debito
+   aggiunta a mano.
+2. **`payment_transactions` e il registro degli incassi.** Ogni riga e un
+   movimento di denaro: importo, data, metodo, note, sorgente, riferimento
+   esterno, chi l'ha registrato.
+3. **Lo stato di una rata non e un dato, e un calcolo.**
+   `resolveInstallmentLedger` confronta la somma degli incassi validi con il
+   dovuto e produce `IN ATTESA`, `PARZIALMENTE PAGATA` o `PAGATA`, piu
+   `SCADUTA` quando la scadenza e passata e la rata e ancora scoperta. Una
+   rata scaduta e parziale porta **entrambe** le etichette.
+4. **`payments.status`, `paid_at` e `method` sopravvivono come cache
+   derivata.** Li riscrive il servizio incassi nella stessa transazione che
+   inserisce il movimento. Restano perche meta applicazione li legge —
+   riepiloghi, report, area Movimenti, app mobile — ma nessuna interfaccia li
+   offre piu come campo modificabile.
+5. **Un incasso non si cancella: si storna.** `reversed_at` marca
+   l'originale, un movimento di segno opposto lo compensa,
+   `reverses_transaction_id` li collega. Correggere significa stornare e
+   registrare di nuovo.
+6. **La ricevuta si emette per incasso**, non per rata: `receipts.payment_id`
+   perde il vincolo di unicita e arriva `receipts.transaction_id`.
+
+**Perche una cache derivata e non la rimozione dei tre campi.** Rimuoverli
+avrebbe toccato l'area Movimenti, i report, la dashboard e il contratto API
+che l'app mobile consuma — cioe un cambiamento di ampiezza sproporzionata
+rispetto al difetto, in un workstream che deve restare confinato ai pagamenti.
+Tenerli come copia scritta **solo dal server** ottiene la proprieta che serve
+davvero: lo stato non puo piu contraddire gli importi, perche nessuno lo
+scrive a mano. Il costo e che due rappresentazioni della stessa cosa
+convivono; il rischio e mitigato dal fatto che una sola funzione le scrive
+entrambe, nella stessa transazione.
+
+**Perche nessuna migrazione dei dati.** Le rate gia marcate come pagate non
+hanno un movimento che lo dimostri, e inventarne uno vorrebbe dire scrivere
+denaro con una data e un metodo che nessuno ha dichiarato. Restano come sono:
+`resolveInstallmentLedger` tratta una rata **senza nessun movimento** e
+marcata pagata come incassata per intero. Al primo incasso registrato comanda
+il registro. La compatibilita e ancorata all'assenza di movimenti, non
+all'assenza di movimenti *validi*: altrimenti stornare l'unico incasso di una
+rata la riporterebbe a «pagata», e lo storno non avrebbe effetto.
+
+**Perche `source` esiste ma accetta solo `MANUAL`.** Il modello dichiara
+`MANUAL | STRIPE | CEDIPAY | IMPORT | OTHER` perche il giorno in cui un
+provider viene attivato non serva una migrazione. Il servizio **rifiuta**
+tutto cio che non e `MANUAL`: accettare un incasso dichiarato `STRIPE` senza
+un webhook verificato vorrebbe dire registrare denaro che nessuno ha
+incassato. Vedi [ADR-0013](#adr-0013--i-pagamenti-restano-in-roadmap-e-passeranno-da-cedipay--platformpayments)
+e il rischio 6 in [14 — Sicurezza](14-security.md).
+
+**Conseguenze.**
+
+- La segreteria registra un incasso con «Registra pagamento»: importo
+  precompilato con il residuo e modificabile, metodo scelto fra quelli
+  configurati dal club, data, note, riepilogo. Lo stato lo ricava il sistema.
+- Una rata mostra sempre dovuto, incassato, residuo, scadenza, stato e barra
+  di avanzamento; il dettaglio elenca gli incassi in ordine **crescente**, che
+  e l'ordine di un estratto conto.
+- Scheda atleta e area Movimenti montano lo **stesso** componente: non
+  esistono due finestre «quasi uguali» che divergono alla prossima modifica.
+- I totali dell'atleta si sommano per **importo**, non per stato: un acconto
+  da 50 su una rata da 200 conta 50. Prima contava zero, perche la rata non
+  era «pagata».
+- Registrare e stornare richiedono il ruolo che governa la configurazione del
+  club e finiscono nell'audit log.
+- `receipt_number` resta univoco su tutta la tabella e non per club: e un
+  difetto di modello preesistente, annotato in
+  [16 — Debito tecnico](16-technical-debt.md). L'emissione lo aggira
+  riprovando con il numero successivo.
+
+**Cosa questa decisione NON fa.** Non introduce una contabilita fiscale: la
+fattura resta l'oggetto che era, la numerazione non e un registro IVA, e non
+si tocca il ciclo attivo. Non attiva nessun pagamento online.
+
+**Stato:** ATTIVA.

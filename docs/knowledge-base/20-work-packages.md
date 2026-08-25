@@ -1178,6 +1178,98 @@ nessun nome di download scritto a mano, nessuna definizione locale di
 
 ---
 
+### WP-47 · Workstream A — Pagamenti V2: rate, incassi e documenti — `DONE` (2026-08-26)
+
+**Obiettivo.** Rendere registrabile un incasso come incasso, invece di
+chiedere alla segreteria di spostare a mano lo stato di una rata.
+
+**Causa radice trovata** — una sola, dietro tutti i sintomi segnalati.
+`payments` faceva **due mestieri**: la riga portava l'importo dovuto
+(`amount`, `due_date`, `description`) e, negli stessi campi, il modo in cui
+era stato pagato (`status`, `paid_at`, `method`). Da qui, e solo da qui:
+
+| Sintomo segnalato | Perche accadeva |
+|---|---|
+| «La segreteria deve cambiare a mano In attesa → Pagata» | Non c'era altro posto in cui dire «ho incassato»: l'unico campo disponibile era sulla riga del debito |
+| «Una rata da 130 EUR incassata in tre volte non e registrabile» | Una riga, un importo. Due incassi sulla stessa rata non erano rappresentabili |
+| «Correggere un incasso fa sparire la rata» | Correggere voleva dire mutare o annullare la riga del debito, che e anche la rata del piano; `syncAthleteEnrollmentInstallmentPayments` la rigenerava, con duplicati |
+| «Lo stato dice una cosa e gli importi un'altra» | Lo stato era un dato scritto da chi guardava, non una conseguenza degli importi |
+| «Un acconto non compare nel riepilogo» | `recordedPaid` sommava **per stato**: una rata non «pagata» valeva zero, anche con 50 EUR gia in cassa |
+| «Il metodo di pagamento e testo libero» | `AddPaymentForm` (mai montato) aveva quattro metodi scritti a mano; il resto scriveva la stringa che arrivava |
+
+**Scope.**
+
+1. **Modello.** `payment_transactions`: un incasso e un movimento di denaro,
+   con importo, data, metodo, note, sorgente, riferimento esterno e autore.
+   `payments` torna a essere solo il dovuto. `receipts.transaction_id` collega
+   la ricevuta all'incasso; `receipts.payment_id` perde l'unique.
+2. **Dominio.** `src/lib/payments/installment-ledger.ts`, puro: dovuto,
+   incassato, residuo e stato si **calcolano**. Quattro stati derivati, somme
+   in centesimi, storni esclusi dai totali ma non dallo storico.
+3. **Servizio.** `src/lib/server/payment-transactions.ts`: unico punto che
+   scrive un movimento. Inserisce l'incasso e riscrive la rata nella **stessa
+   transazione**.
+4. **API.** `GET|POST /api/v1/payment-transactions`,
+   `POST /api/v1/payment-transactions/:id` con `reverse` e `issue-receipt`.
+   Nessun `DELETE`.
+5. **UI.** `RegisterPaymentDialog` + `InstallmentLedgerList` +
+   `AthletePaymentLedger`, montati **identici** in scheda atleta e area
+   Movimenti.
+6. **Regressione.** I totali dell'atleta sommano per importo; il badge della
+   rata conosce lo stato parziale.
+
+**Cosa e stato deliberatamente lasciato fuori.**
+
+- **Nessuna migrazione dei dati esistenti.** Una rata gia marcata pagata non
+  ha un movimento che lo dimostri, e inventarne uno vorrebbe dire scrivere
+  denaro con una data e un metodo che nessuno ha dichiarato. Le righe
+  anteriori al registro valgono «incassate per intero», e al primo incasso
+  registrato comanda il registro.
+- **Nessun pagamento online.** `source` accetta `STRIPE` e `CEDIPAY` nel
+  modello e li **rifiuta** nel servizio: il campo esiste perche il giorno
+  dell'attivazione non serva una migrazione, non perche sia utilizzabile.
+  Resta WP-13.
+- **Nessuna contabilita fiscale.** Si emette e si numera la ricevuta; non si
+  tiene un registro IVA e non si tocca il ciclo attivo.
+- **`payments.status` non e stato rimosso**, solo declassato a cache scritta
+  dal server. Il perche e in [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una);
+  il residuo e in [16 — D29](16-technical-debt.md).
+
+**Acceptance criteria.**
+- [x] Registrare un incasso non richiede di impostare uno stato
+- [x] Una rata accetta N incassi, con metodi diversi
+- [x] L'importo e precompilato con il residuo e resta modificabile
+- [x] Stato derivato: `IN ATTESA`, `PARZIALMENTE PAGATA`, `PAGATA`, `SCADUTA`;
+      scaduta e parziale si mostrano insieme
+- [x] Una rata mostra sempre dovuto, incassato, residuo, scadenza, stato e
+      avanzamento
+- [x] Un incasso non si cancella: si storna, e resta visibile
+- [x] Il metodo si sceglie fra quelli configurati dal club
+- [x] Scheda atleta e area Movimenti usano lo stesso componente
+- [x] Un incasso aggiorna rata, riepilogo, totale e residuo senza refresh
+- [x] Ricevuta emessa per incasso, idempotente
+- [x] Ogni operazione fallisce con «Accesso negato» dal club sbagliato
+- [x] Gate verdi: 668/669 test, typecheck, build, warning di lint invariati
+
+**Test.** `tests/lib/installment-ledger.test.mjs` (25),
+`tests/server/payment-transactions.test.mjs` (23),
+`tests/ui/payment-registration-flow.test.mjs` (13),
+`tests/lib/payment-partial-regressions.test.mjs` (9).
+
+**File.** `prisma/schema.prisma`,
+`prisma/migrations/20260826090000_payment_transactions/`,
+`src/lib/payments/installment-ledger.ts`,
+`src/lib/payments/payment-status-utils.ts`,
+`src/lib/athlete-payment-utils.ts`,
+`src/lib/server/payment-transactions.ts`,
+`src/app/api/v1/payment-transactions/**`,
+`src/components/payments/{RegisterPaymentDialog,InstallmentLedgerList,AthletePaymentLedger,EnrollmentPaymentBreakdown}.tsx`,
+`src/components/athletes/profile/athlete-payment-dialogs.tsx`,
+`src/components/accounting/MovementDetailPanel.tsx`,
+`src/app/athletes/[id]/page.tsx`, `src/app/movements/page.tsx`.
+
+---
+
 ### WP-13 · Pagamenti online via CediPay / Platform.Payments — `PIANIFICATO`
 
 **Obiettivo.** Decidere e chiudere: implementare davvero o rimuovere la

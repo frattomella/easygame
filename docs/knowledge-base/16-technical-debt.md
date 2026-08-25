@@ -392,3 +392,69 @@ limita le eliminazioni ai residui gia classificati `SAFE TO DELETE` in
 classificate prima, e rimosse in un commit proprio.
 
 → WP-18
+
+### D28 — `receipts.receipt_number` e univoco su tutta la tabella, non per club
+
+Il vincolo e `@unique` globale. Due societa che emettono la loro prima
+ricevuta dell'anno chiedono entrambe `R-2026-0001`, e la seconda fallisce per
+un motivo che non ha niente a che vedere con lei. E un difetto di modello
+preesistente, reso visibile dall'emissione automatica delle ricevute per
+incasso (Workstream A, [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)).
+
+**Come e mitigato oggi.** `issueReceiptForTransaction` riprova con il numero
+successivo, fino a 25 tentativi, invece di far fallire l'emissione. Funziona,
+ma produce numerazioni con buchi quando piu club emettono nello stesso
+momento, e con molti club i tentativi crescono.
+
+**Cosa lo chiude.** Un unique composto `(organization_id, receipt_number)` al
+posto di quello globale, e una sequenza per club. E una migrazione che tocca
+un vincolo su dati esistenti: va verificato prima che non ci siano numeri
+duplicati fra club — oggi non possono esserci, proprio per via del vincolo
+globale, quindi la conversione e sicura. Lo stesso vale per
+`invoices.invoice_number`, che ha esattamente la stessa forma.
+
+→ nessun WP ancora
+
+### D29 — `payments.status` e una copia del registro incassi
+
+Dopo [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)
+la verita su quanto e stato incassato sta in `payment_transactions`;
+`payments.status`, `paid_at` e `method` restano come **cache derivata**, piu
+`data.ledger` con incassato e residuo.
+
+**Perche pesa:** due rappresentazioni della stessa cosa possono divergere. Il
+rischio e contenuto — le scrive **una sola** funzione
+(`recomputeChargeFromLedger`), nella stessa transazione dell'incasso — ma
+resta: una scrittura diretta su `payments` che aggirasse il servizio incassi
+lascerebbe la cache disallineata senza che niente lo segnali.
+
+**Perche e stato accettato:** rimuovere i tre campi avrebbe toccato area
+Movimenti, report, dashboard e il contratto API che l'app mobile consuma, cioe
+un'ampiezza sproporzionata rispetto al difetto, dentro un workstream che deve
+restare confinato ai pagamenti. Il ragionamento completo e nell'ADR.
+
+**Cosa lo chiude:** portare i consumatori a leggere il registro (o una vista
+che lo aggrega) e togliere i tre campi. Presuppone WP-07.
+
+→ nessun WP ancora
+
+### D30 — Un test di chrome dipende dai fine riga del checkout
+
+`tests/ui/topbar-club-vs-platform.test.mjs` verifica che dal marchio della
+sidebar si torni all'elenco dei club con
+`/href="\/account"[\s\S]{0,240}<EasyGameLogo/`. Fra i due punti ci sono
+esattamente 240 caratteri con fine riga LF: in un checkout con CRLF — che
+`core.autocrlf=true` produce, ed e la configurazione di questo repository — i
+cinque `\r` in mezzo portano la distanza a 245 e il test fallisce.
+
+Non e un difetto del codice di chrome, che non e cambiato: e un'asserzione
+tarata al carattere su un file il cui contenuto dipende dalla piattaforma. Si
+manifesta in un worktree nuovo e non nella copia di lavoro principale, che ha
+i file in LF perche precede quella configurazione.
+
+**Cosa lo chiude:** normalizzare il testo letto da `readCode` prima di
+applicare le espressioni regolari (`replace(/\r\n/g, "\n")`), oppure un
+`.gitattributes` con `* text=auto eol=lf`. La seconda strada e migliore e piu
+larga, e va valutata con calma: cambia il checkout di tutti.
+
+→ nessun WP ancora

@@ -58,7 +58,9 @@ easygame/
 | `club-seasons.ts` | 700 | Modello delle stagioni: stati, invariante «una sola attiva», filtro per stagione, pianificatore del riporto. **Puro.** |
 | `server/seasons.ts` | 320 | Scrittura delle stagioni: creazione, attivazione, archiviazione, riporto, conteggi. Unico punto che scrive `settings.seasons`. |
 | `api/seasons.ts` | 90 | Trasporto client delle stagioni verso `/api/v1/seasons`. |
-| `payments/` | — | Tipi, fee di piattaforma, registro provider (nessuno implementato). |
+| `payments/installment-ledger.ts` | 526 | Il registro incassi: dovuto, incassato, residuo e stato di una rata si **calcolano** dai movimenti. **Puro.** Vedi [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una). |
+| `server/payment-transactions.ts` | 561 | Scrittura degli incassi: registrazione, storno, emissione ricevuta. Unico punto che scrive `payment_transactions`, e l'unico che riscrive `payments.status`. |
+| `payments/` (resto) | — | Tipi, fee di piattaforma, registro provider (nessuno implementato), metodi di incasso configurati dal club. |
 
 ## Mobile App — `easygamemobile/`
 

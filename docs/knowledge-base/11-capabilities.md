@@ -85,9 +85,12 @@ Classificazione:
 | Quote e pagamenti atleti | COMPLETE | `/payments`, modello `AthletePayment` |
 | Piani di pagamento e sconti | COMPLETE | `payment_plans`, `discounts`, servizi obbligatori e opzionali, rate a percentuale/fisso/saldo |
 | Pro-rata sulla quota | COMPLETE | `calculateProratedTotal`, metodo a giorni o mesi. Quando non e calcolabile la UI dice quale dato manca |
-| Metodi di incasso | COMPLETE | `clubs.settings.paymentMethods` + metodi manuali e provider online; selezione strutturata anche in «Modifica pagamento» |
+| **Registrazione di un incasso** | COMPLETE | `payment_transactions` + `POST /api/v1/payment-transactions`. «Registra pagamento» con importo precompilato al residuo, metodo, data, note e riepilogo. Stesso componente in scheda atleta e area Movimenti ([ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)) |
+| **Incassi parziali su una rata** | COMPLETE | N movimenti per rata, anche con metodi diversi. Stato **derivato**: `IN ATTESA`, `PARZIALMENTE PAGATA`, `PAGATA`, piu `SCADUTA`. Non e piu impostabile a mano |
+| **Storno e correzione di un incasso** | COMPLETE | `{"action":"reverse"}`: l'originale resta marcato, il movimento opposto lo compensa. Nessun `DELETE`. Correggere = stornare e registrare di nuovo |
+| Metodi di incasso | COMPLETE | `clubs.settings.paymentMethods` + metodi manuali e provider online; selezione strutturata in «Modifica pagamento» e in «Registra pagamento». Mai testo libero |
 | Fatture | COMPLETE | Numerazione unica, campi fatturazione elettronica |
-| Ricevute | COMPLETE | Collegabili a pagamento e fattura |
+| Ricevute | COMPLETE | Emesse **per incasso** (`receipts.transaction_id`), non per rata: una rata pagata in tre volte ne produce tre. Emissione idempotente. Collegabili anche a fattura |
 | Metodi di incasso | COMPLETE | `payment_methods` con commissioni configurabili |
 | Movimenti e trasferimenti | COMPLETE | `/movements`, `transactions`, `transfers` |
 | Budget previsionale | COMPLETE | `expected_income`, `expected_expenses` |

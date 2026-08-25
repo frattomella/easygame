@@ -642,7 +642,18 @@ data (i payload non hanno schema: incasso, poi scadenza, poi creazione).
 | Contratti di un allenatore | **decrescente** | Il contratto in vigore e l'ultimo caricato |
 | Storico pagamenti di un atleta | **decrescente** | Idem |
 | Rate di un piano di pagamento | **crescente** | Si legge come una scaletta: si pagano in ordine |
+| Rate di un atleta in «Rate e incassi» | **crescente per scadenza** | Stessa ragione. Le rate senza scadenza chiudono l'elenco |
+| Incassi di una singola rata | **crescente** | E un estratto conto: «50, poi 30, poi 50» ricostruisce come si e arrivati al saldo, e quella ricostruzione si legge in avanti |
 | Allenamenti e gare in calendario | **crescente** | E un'agenda, non un registro |
+
+**Perche gli incassi di una rata vanno controcorrente rispetto ai movimenti
+del club.** Sono due domande diverse. Nel registro del club si chiede «cosa e
+successo per ultimo», e la risposta sta in cima. Dentro una rata si chiede
+«come si e arrivati a questo residuo», e la risposta e una sequenza. Il
+comparatore vive in `sortTransactionsChronologically`
+(`@/lib/payments/installment-ledger`), che il server applica anche alle
+risposte di `/api/v1/payment-transactions`: due cronologie ordinate in modo
+diverso sono peggio di una cronologia non ordinata.
 
 **Le voci senza data vanno in fondo in entrambe le direzioni**: una riga senza
 data non e ne recente ne vecchia, e metterla in cima la farebbe sembrare

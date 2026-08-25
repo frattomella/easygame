@@ -68,6 +68,7 @@ Il cookie `easygame_session` e l'alternativa usata dal Web.
 | Registro | `/api/v1/registry` |
 | Comuni | `/api/v1/comuni` (sola lettura, non e un dato di club) |
 | Allegati | `/api/v1/attachments` e `/api/v1/attachments/[id]` |
+| Incassi | `/api/v1/payment-transactions` e `/api/v1/payment-transactions/[id]` |
 | Trainer | `/api/v1/trainer/operational-alerts` |
 | Automazioni | `/api/v1/training-automation` |
 
@@ -110,6 +111,34 @@ riceve, lo ripulisce, e ci attacca l'estensione giusta ricavata dal MIME —
 perche l'estensione la sa lui, non il client.
 
 Vedi [ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver).
+
+## Incassi: perche non passano dal CRUD generico
+
+| Metodo | Path | Cosa fa |
+|--------|------|---------|
+| `GET` | `/api/v1/payment-transactions?athlete_id=&payment_id=` | Gli incassi, in ordine cronologico **crescente** |
+| `POST` | `/api/v1/payment-transactions` | Registra un incasso su una rata |
+| `POST` | `/api/v1/payment-transactions/:id` | `{"action":"reverse"}` storna, `{"action":"issue-receipt"}` emette la ricevuta |
+
+Registrare un incasso non e scrivere una riga: e scrivere una riga **e**
+ricalcolare lo stato della rata, nella stessa transazione. Il CRUD generico sa
+fare la prima cosa e non la seconda, e con la seconda a carico del client si
+tornerebbe al difetto che [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)
+chiude — lo stato dichiarato dall'interfaccia invece che ricavato dagli
+importi.
+
+Tre conseguenze da conoscere:
+
+- **non esiste `DELETE`.** Un incasso cancellato non lascia traccia di essere
+  esistito, e cio che si vuole sapere di un errore di cassa e proprio che c'e
+  stato. Per correggere: si storna e si registra di nuovo;
+- **`POST` e `reverse` richiedono `canManageClubConfiguration`**, lo stesso
+  ruolo che gia protegge `/api/athlete-payments/:id`. La lettura resta aperta
+  a chi ha accesso al club, perche i riepiloghi la usano ovunque;
+- **`source` diverso da `MANUAL` viene rifiutato con 400.** Il campo accetta
+  `MANUAL | STRIPE | CEDIPAY | IMPORT | OTHER` perche il modello sia pronto,
+  ma accettare un incasso dichiarato `STRIPE` senza un webhook verificato
+  vorrebbe dire registrare denaro che nessuno ha incassato.
 
 ## Il CRUD generico `/api/v1/[resource]`
 

@@ -110,6 +110,32 @@ preflight CORS).
 Oggi non processa eventi, quindi l'impatto e nullo — **ma non deve essere
 attivato prima di implementare la verifica**. Vedi [WP-13](20-work-packages.md).
 
+Il registro incassi (Workstream A, [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una))
+non allarga questa superficie e anzi la chiude da un lato:
+`payment_transactions.source` accetta `STRIPE` e `CEDIPAY` nel **modello**, ma
+`createPaymentTransaction` rifiuta con 400 tutto cio che non e `MANUAL`.
+Finche non c'e un webhook con firma verificata, accettare un incasso
+dichiarato «STRIPE» vorrebbe dire **registrare denaro che nessuno ha
+incassato** — e sarebbe scrivibile da chiunque possa chiamare l'endpoint con
+un ruolo di gestione.
+
+### 6-bis. Chi puo registrare o stornare un incasso — PRESIDIATO
+
+`POST /api/v1/payment-transactions` e lo storno richiedono
+`canManageClubConfiguration` (proprietario o gestore del club), lo stesso
+controllo che protegge `/api/athlete-payments/:id` da quando il PIN e stato
+rimosso ([ADR-0033](18-decision-log.md)). La lettura resta a chi ha accesso al
+club, perche i riepiloghi la usano ovunque.
+
+Il confine di tenant e applicato in `src/lib/server/payment-transactions.ts`:
+ogni operazione risolve `organization_id` dalla **rata**, non dal payload, e
+un club diverso ottiene «Accesso negato» → 403. Ventitre test lo provano
+operazione per operazione.
+
+Un incasso **non si cancella**: si storna, e l'originale resta con
+`reversed_at`, `reversed_by` e il motivo. Registrazione e storno finiscono
+nell'audit log.
+
 ### 7. ~~Nessun audit log~~ — IMPLEMENTATO (2026-08-22)
 
 `src/lib/server/audit.ts` scrive su `audit_logs` chi ha fatto cosa, su quale
