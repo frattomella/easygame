@@ -1,5 +1,9 @@
 # 20 — Work Package
 
+> Cerchi lo stato di **una richiesta** invece del prossimo task da prendere?
+> Vai a [21 — Backlog master](21-backlog.md), che e organizzato per richiesta
+> ricevuta e dice quale WP o quale blocco ha chiuso ciascuna.
+
 Unita di lavoro pensate per essere prese **una per volta**, anche da agenti
 diversi in parallelo. Ogni WP indica esplicitamente i file che tocca, cosi due
 agenti possono lavorare insieme senza collidere.

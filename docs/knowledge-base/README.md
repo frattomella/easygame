@@ -31,6 +31,7 @@ comportamenti desiderati o pianificati.
 | 18 | [Decision log / ADR](18-decision-log.md) | Prima di cambiare una scelta architetturale |
 | 19 | [Roadmap](19-roadmap.md) | Per capire la direzione |
 | 20 | [Work Package](20-work-packages.md) | Per scegliere il prossimo task |
+| 21 | [Backlog master](21-backlog.md) | Per sapere a che punto e una richiesta gia fatta |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)

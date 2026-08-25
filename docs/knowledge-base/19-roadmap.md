@@ -63,6 +63,9 @@ Il lavoro procede a **blocchi**, ognuno chiuso da un commit con i gate verdi:
 | 2 | Costo delle scritture e autosave | WP-36 |
 | 3 | Identita visiva, topbar, console di piattaforma, responsivita sistemica | WP-37, WP-34 |
 | 4 | Account, onboarding, produttivita gestionale | WP-38, WP-39, WP-40, WP-41, WP-42, WP-43 |
+| 5 | Gruppi numerazione, compatibilita categorie, ordinamento | WP-44 |
+| 6 | Gestione completa delle stagioni, topbar definitiva | WP-35, WP-45 |
+| 7 | Anagrafiche, staff, allegati, coerenza UI | vedi [21 — Backlog master](21-backlog.md), voci `B7-*` |
 
 **Criterio di uscita:** le regole di business critiche (permessi, scoping,
 calcoli economici) sono applicate server-side e coperte da test; la pagina
