@@ -29,13 +29,19 @@ const entryLines = lines.filter((line) =>
     verificato smette di verificare qualcosa.
 
     Le tre forme ammesse sono quindi: lettera + cifra (`B9-01`, `A1-07`),
-    doppia lettera di workstream (`WB-03`), e i prefissi storici `P-` e `S-`.
+    due lettere (`WB-03` di workstream, `BA-18` di blocco), e i prefissi
+    storici `P-` e `S-`.
+
+    La seconda forma era `W[A-Z]-`, cioe chiusa sulla W: le 33 voci del
+    Blocco Finale A, che cominciano per `BA-`, non venivano contate. Era
+    esattamente il silenzio contro cui questo commento metteva in guardia,
+    scritto nel commento stesso.
 
     `R-` resta fuori di proposito: le righe di «Remaining Web V1 after
     integration» sono una lista di cio che manca al rilascio e non portano
     uno stato.
   */
-  /^\|\s*([A-Z]\d+-\d+|W[A-Z]-\d+|P-\d+|S-\d+)\s*\|/.test(line),
+  /^\|\s*([A-Z]\d+-\d+|[A-Z]{2}-\d+|P-\d+|S-\d+)\s*\|/.test(line),
 );
 
 const statusOf = (line) => {

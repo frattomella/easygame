@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 936 test, 76 file
+## Cosa e coperto oggi — 971 test, 78 file
 
 **La tabella sotto ne elenca 57 e non 76**: e rimasta indietro, ed e onesto
 dirlo invece di lasciar credere che sia completa. Le righe che ci sono
@@ -105,7 +105,9 @@ e invece verificato a ogni esecuzione.
 | `tests/lib/jersey-numbering-multisite.test.mjs` | 9 | Numerazione per sede: il 10 di Roma non e il 10 di Aprilia, gruppo senza sedi che non restringe, atleta senza sede che resta dentro, duplicati che restano duplicati nella stessa sede |
 | `tests/ui/multisite-ux.test.mjs` | 6 | Il filtro sede non si monta senza due sedi attive, le pagine usano il componente unico, una sede con strutture non si elimina, l'editor scrive gruppi e non categorie |
 | `tests/lib/clothing-delivery.test.mjs` | 13 | **Consegne parziali**: stati indipendenti per articolo, «2/4 consegnati», stato del kit derivato e non scritto, taglia proposta dall'anagrafica, override che non tocca l'anagrafica |
-| `tests/ui/clothing-delivery-ux.test.mjs` | 10 | La tendina taglia mostra e salva la proposta, lo stato in elenco e derivato, le consegne non passano dal cambio di stato globale, il kit non chiede piu una stagione |
+| `tests/ui/clothing-delivery-ux.test.mjs` | 12 | La tendina taglia mostra e salva la proposta, lo stato in elenco e derivato, le consegne non passano dal cambio di stato globale, il kit non chiede ne una stagione ne una compatibilita di categoria — e la compatibilita **resta** dove serve, sui gruppi di numerazione |
+| `tests/lib/clothing-catalog-model.test.mjs` | 7 | Il **modello** del catalogo, non il JSX: stagione e categorie compatibili non entrano da un record legacy, un salvataggio le toglie dal record e il magazzino di un articolo non e mai vuoto per una ragione sportiva. Esiste perche il test della UI verificava che il campo non si vedesse, e un campo che non si vede ma continua a salvarsi e nascosto, non rimosso |
+| `tests/lib/cap-archive.test.mjs` | 14 | Il CAP di un comune: i tre esiti distinti (`unique`, `ambiguous`, `unknown`), l'unione con l'archivio ISTAT che non inventa comuni, la copertura che non si degrada in silenzio, e **Roma, Milano, Napoli, Torino, Genova, Bologna e Firenze fra gli ambigui** — i comuni in cui proporre un CAP sarebbe sbagliato, non solo incompleto |
 | `tests/lib/multisite-performance.test.mjs` | 2 | **Il costo cresce con gli atleti, non con il loro quadrato**: rapporto fra 200 e 400 atleti sotto 3x su riepilogo gruppi e progresso consegne |
 | `tests/server/web-v1-integration.test.mjs` | 16 | **I punti di contatto fra i tre workstream**, che nessuno di loro poteva provare da solo: incasso parziale e voucher sullo stesso atleta senza sommarsi, liquidazione che non tocca la rata, i cinque importi che restano cinque, atleta multi-sede con una rata sola, modulo pubblico che **non** sceglie il tenant, kit valutato sugli articoli e non sulla sede, allegato di un modulo che eredita il club dal modulo, isolamento multi-tenant su tutti i domini nuovi |
 | `tests/server/clothing-assignments-resources.test.mjs` | 8 | Che le assegnazioni passino da `resources.ts` (D32): `club_resource_items` e il JSON del club allineati, **una** transazione per le tre collezioni, validazione prima di qualunque scrittura, isolamento fra club, `created_at` conservato |

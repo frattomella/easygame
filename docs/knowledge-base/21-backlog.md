@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-26 (integrazione Web V1: Workstream A, B e C)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco Finale A: anagrafiche, documenti, abbigliamento)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -32,12 +32,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 144 |
+| `DONE` | 178 |
 | `IN PROGRESS` | 15 |
-| `OPEN` | 27 |
+| `OPEN` | 26 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **196** |
+| **Totale** | **229** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -85,7 +85,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 |---|-----------|-------|-----------|
 | B3-01 | Identita visiva coerente: due font, una scala tipografica, token di colore | `DONE` | WP-37 |
 | B3-02 | Console di piattaforma separata dalla chrome di club | `DONE` | WP-37 |
-| B3-03 | Ogni pagina usabile a 375, 768 e 1280 px | `IN PROGRESS` | WP-34 — **manca**: la verifica su schermo di tutte le pagine. Il Blocco 8 ha corretto 22 griglie che erano a due colonne anche a 375 px e ha aggiunto sette invarianti statiche, ma un test statico non dice se una pagina e leggibile |
+| B3-03 | Ogni pagina usabile a 375, 768 e 1280 px | `IN PROGRESS` | WP-34 — il Blocco 8 ha corretto 22 griglie e aggiunto sette invarianti; il **Blocco A** ha fatto la verifica su schermo delle quattordici pagine dei suoi domini e ne ha corrette tre. **Manca** il resto: Contributi, Sedi, Moduli, modulo pubblico, partite, presenze. Vedi R-01 |
 
 ### Blocco 4 — Account, onboarding, produttivita
 
@@ -128,7 +128,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B7-05 | Archivio ufficiale dei comuni italiani con codice catastale | `DONE` | Blocco 7, ADR-0032 |
 | B7-06 | Ricerca assistita comune e recupero automatico del codice catastale | `DONE` | Blocco 7 |
 | B7-07 | Ricerca assistita per **CAP** | `DONE` | **Blocco A**, ADR-0042 — la fonte mancante era IPA (AgID, CC BY 4.0, giornaliera). Il comune scelto porta con se il CAP dove ne ha uno solo: 7.836 comuni su 7.896. Per i 52 con piu CAP il form lo dice e non compila. La direzione **CAP → comune** resta aperta: vedi B8-06 |
-| B7-08 | Calcolo CF disponibile su atleta, genitore, socio, allenatore, staff | `DONE` | Blocco 7 |
+| B7-08 | Calcolo CF disponibile su atleta, genitore, socio, allenatore, staff | `DONE` | Blocco 7 per i moduli di creazione; **completata dal Blocco A** — la scheda socio era l'ultima superficie senza. Vedi BA-15 |
 | B7-09 | Non sovrascrivere un CF inserito a mano senza conferma | `DONE` | Blocco 7 — conferma in due tempi |
 | B7-10 | Validazione anagrafica client **e** server | `DONE` | Blocco 7 — estesa a allenatori, staff e soci |
 | B7-11 | Reparti staff: una sola fonte dati, persistenza, disponibilita immediata | `DONE` | Blocco 7 |
@@ -149,7 +149,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B7-26 | Applicare il campo telefono a tutte le anagrafiche pertinenti | `DONE` | **Blocco 8** — schede di dettaglio (atleta, genitore/tutore, allenatore, staff, socio) e scheda Club. Un test elenca le nove superfici |
 | B7-27 | Regola condivisa di capitalizzazione dei campi anagrafici | `DONE` | Blocco 7 |
 | B7-28 | Applicare la capitalizzazione a tutte le anagrafiche | `DONE` | **Blocco 8** — stesse nove superfici di B7-26. La regola e stata anche corretta: applicata ai comuni ne peggiorava 30 su 7.896 |
-| B7-29 | Taglie vestiario per allenatori, staff e soci | `DONE` | Blocco 7 |
+| B7-29 | Taglie vestiario per allenatori, staff e soci | `DONE` | Blocco 7 per la raccolta; **riaperta e chiusa dal Blocco A** — erano di sola scrittura: nessuna delle tre schede di dettaglio le mostrava. Vedi BA-18 |
 | B7-30 | Export coerente per allenatori, staff e soci | `DONE` | Blocco 7 |
 | B7-31 | «Nuovo atleta» deve raccogliere tutto cio che si sa gia | `DONE` | Blocco 7 |
 | B7-32 | Foundation per la lettura documenti | `DONE` | Blocco 7 |
@@ -187,7 +187,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B8-20 | La prossima ottimizzazione strutturale | `DONE` | Blocco 8 — la misura ha indicato gli **avatar**: 23,7 MB su 200 atleti. Serviti come immagini, la risposta scende a 140 kB (-99,4%) |
 | B8-21 | Paginazione, ricerca e filtri server-side | `IN PROGRESS` | **Manca** il consumo nella lista Atleti: vedi F1-12 |
 | B8-22 | Griglie a due colonne su schermi da 375 px | `DONE` | Blocco 8 — 22 griglie corrette, sette invarianti a difenderle |
-| B8-23 | Verifica su schermo a 375, 768 e 1280 px | `OPEN` | **Non eseguita**: richiede una sessione autenticata su un database, e in questa working copy il database di sviluppo non e avviato. Le invarianti statiche non la sostituiscono |
+| B8-23 | Verifica su schermo a 375, 768 e 1280 px | `DONE` | **Blocco A** — eseguita con migrazioni e seed applicati in locale e una sessione autenticata, su quattordici pagine dei domini del blocco. Ha trovato tre difetti invisibili alle invarianti statiche, fra cui un guscio di club che cresceva con il contenuto invece di lasciarlo scorrere. Vedi BA-31 |
 
 ### Workstream A — Pagamenti V2: rate, incassi e documenti fiscali (2026-08-26)
 
@@ -278,6 +278,62 @@ e [ADR-0040](18-decision-log.md#adr-0040--una-compilazione-cita-una-versione-imm
 
 ---
 
+### Blocco Finale A — chiusura funzionale delle anagrafiche (2026-08-26)
+
+Il blocco non ha aggiunto un dominio: ha **riaperto e verificato** cio che i
+Blocchi 7, 8 e il Workstream B avevano dichiarato chiuso, chiedendo per ognuno
+la prova nel codice e non la somiglianza. Cinque voci sono tornate indietro, e
+in tre casi il difetto era che la funzione c'era **solo nella UI**.
+
+Le voci di questa tabella non duplicano quelle dei blocchi precedenti: dicono
+che cosa la riverifica ha trovato. Dove non ha trovato niente, la riga lo dice
+e cita chi l'aveva chiusa.
+
+| # | Richiesta | Stato | Esito della verifica |
+|---|-----------|-------|----------------------|
+| BA-01 | Coerenza UI/UX: badge stagione neutro, niente logo EasyGame in topbar club, console piattaforma separata, CF dopo i dati anagrafici | `DONE` | Gia chiuso dai Blocchi 7 e 8; 30 invarianti in `brand-and-chrome` e `topbar-club-vs-platform` lo verificano, e la posizione del CF e stata riguardata a schermo su allenatore, staff e socio |
+| BA-02 | Reparto staff creato con «Altro» subito riutilizzabile | `DONE` | Blocco 7 — `staff-directory.ts` e la fonte unica; la deduzione dai membri e recupero, non secondo canale di creazione |
+| BA-03 | Ruoli Dirigente, Presidente, Vicepresidente | `DONE` | Blocco 7 — presenti in `STAFF_ROLES` |
+| BA-04 | Rimozione del PIN club, non nascondimento | `DONE` | Blocco 7, ADR-0033 — un test statico impedisce a qualunque file di nominare `payment_pin`. La colonna resta nello schema, inutilizzata: rimuoverla e una migrazione distruttiva senza guadagno |
+| BA-05 | Togliere «Ruolo» dai dati societari dell'allenatore | `DONE` | Blocco 7 |
+| BA-06 | Data di inizio dell'allenatore modificabile e persistente | `DONE` | Blocco 7 — `startDate` e `hireDate` restano allineate al salvataggio |
+| BA-07 | «Id club non trovato» all'aggiunta di un contratto | `DONE` | Blocco 7 — `resolveActiveClubId` copre il caso; il messaggio resta come guardia quando nessun club e attivo |
+| BA-08 | Piu allenamenti associabili anche in modifica | `DONE` | Blocco 7 — `trainerIds` non viene piu riscritto con un id solo |
+| BA-09 | Visite mediche: CRUD completo, tipologia con significato | `DONE` | Blocco 7 — agonistica / non agonistica in `medical-visits.ts` |
+| BA-10 | Ogni «Visualizza» apre davvero, ogni «Scarica» scarica | `DONE` | Blocchi 7 e 8, ADR-0034 — quattro test statici impediscono di reintrodurre `window.open` su un data URL o un link diretto a un allegato |
+| BA-11 | Nomi di download leggibili per persona | `DONE` | Blocco 7 per il formato, Blocco 8 per l'estensione, che la mette il server |
+| BA-12 | Tipo di socio scelto alla creazione | `DONE` | Blocco 7 — stessa fonte dati della modifica (`member-types.ts`) |
+| BA-13 | Numero di tessera mai obbligatorio | `DONE` | Blocco 7 — un test verifica che nessuna schermata di persona lo renda `required` |
+| BA-14 | Il comune scelto porta con se il CAP | `DONE` | **Blocco A**, [ADR-0042](18-decision-log.md#adr-0042--il-cap-arriva-da-ipa-e-si-propone-solo-dove-il-comune-ne-ha-uno-solo) — la fonte mancante era IPA di AgID (CC BY 4.0, giornaliera). 7.836 comuni su 7.896; per i 52 con piu CAP il form lo dice e non compila. Chiude B7-07 |
+| BA-15 | Codice fiscale assistito su **ogni** anagrafica di persona | `DONE` | **Blocco A** — la scheda socio era l'ultima senza: raccoglieva il CF alla creazione e non lo mostrava mai piu |
+| BA-16 | Telefono internazionale ovunque | `DONE` | Blocco 8 — nove superfici elencate in `anagrafiche-coverage` |
+| BA-17 | Capitalizzazione condivisa con le esclusioni giuste | `DONE` | Blocchi 7 e 8 — verificata sull'intero dataset ISTAT a ogni esecuzione |
+| BA-18 | Taglie vestiario per allenatori, staff e soci | `DONE` | **Riaperta e chiusa nel Blocco A.** Erano di **sola scrittura**: raccolte dai tre moduli di creazione, mostrate da nessuna scheda, e stampate dall'export. Un dato che si vede solo nell'export e peggio di un dato assente |
+| BA-19 | Nessun campo stagione sul kit | `DONE` | **Riaperta e chiusa nel Blocco A.** Il Workstream B l'aveva tolta dal form; restava nel tipo, nella serializzazione e in una colonna d'export sempre vuota. Era nascosta, non rimossa — e il test guardava il JSX, non il modello |
+| BA-20 | Togliere «categorie compatibili» da articoli e kit | `DONE` | **Nuova nel Blocco A.** Era eleggibilita sportiva applicata a un magazzino: meta delle voci disabilitate in tendina, e `getCompatibleInventoryForAthlete` che rispondeva **zero righe** quando le categorie non coincidevano — magazzino esaurito per una ragione inventata |
+| BA-21 | Taglia dell'anagrafica proposta all'assegnazione, override che non riscrive l'anagrafica | `DONE` | Workstream B, riverificato: `clothing-delivery.test.mjs` copre entrambe le direzioni |
+| BA-22 | Consegne per singolo articolo con stato del kit derivato | `DONE` | Workstream B — quattro stati per articolo, riepilogo derivato e mai scritto |
+| BA-23 | Audit del debito sulle scritture abbigliamento | `DONE` | **Verificato nel Blocco A**: [D32](16-technical-debt.md) e risolto per le assegnazioni, e il catalogo passava gia da `PATCH /api/v1/clubs/:id`, che sincronizza `club_resource_items`. Nessun bypass residuo |
+| BA-24 | Nessuna regressione sui gruppi di numerazione | `DONE` | Gruppi chiusi, nomi non duplicati, compatibilita orientata e non transitiva, filtro sede: quattro file di test verdi dopo le modifiche al catalogo |
+| BA-25 | Export coerente per allenatori, staff e soci | `DONE` | Blocco 7 — `person-export.ts` sopra `people-pdf-export.ts`: un motore solo, tre insiemi di colonne |
+| BA-26 | Lettura documenti nella creazione di atleta, allenatore, staff e socio | `DONE` | Blocchi 7 e 8 — contratto provider-agnostico, conferma obbligatoria, formati dichiarati. Restano aperte le parti che dipendono da un provider esterno: vedi B7-34 (PDF) e B7-33 |
+| BA-27 | «Nuovo atleta» al livello delle nuove form | `DONE` | Blocco 8 — sezioni genitori/tutori, tesseramento e categorie secondarie; obbligatori sempre tre |
+| BA-28 | Nessuna regressione multi-sede | `DONE` | Categoria, sede, struttura e gruppo restano quattro concetti; `multisite-model` e `multisite-ux` verdi |
+| BA-29 | Nessuna regressione su Payment V2 e Contributi | `DONE` | `installment-ledger`, `payment-transactions`, `payment-partial-regressions` e `funding-*` verdi dopo le modifiche alle anagrafiche |
+| BA-30 | Nessuna regressione di performance | `DONE` | Rimisurate: lista Atleti 140 kB su 200 atleti (99,4% in meno degli avatar base64), multi-sede sotto 3x raddoppiando gli atleti. Il Blocco A ha **tolto** lavoro dal percorso abbigliamento, non aggiunto |
+| BA-31 | Verifica su schermo a 375, 768 e 1280 px | `DONE` | **Blocco A** — quattordici pagine dei domini del blocco, con sessione autenticata sul database di sviluppo. Ha trovato tre difetti che nessuna invariante statica poteva vedere. Chiude B8-23; **non** chiude R-01, che comprende anche le pagine nate dall'integrazione |
+| BA-32 | Residenza assistita anche dove il form e semplice | `DONE` | **Nuova nel Blocco A.** Le sei anagrafiche di persona avevano tre `<Input>` liberi ciascuna: nessuna ricerca del comune, nessun CAP. `PersonResidenceFields` e uno solo |
+| BA-33 | La scheda socio deve caricare cio che la creazione scrive | `DONE` | **Nuova nel Blocco A.** `setMember` costruiva un elenco chiuso di dodici chiavi su ventuno: nove campi si scrivevano e non si leggevano mai |
+
+**Le cinque voci che sono tornate indietro.** BA-18 e BA-19 erano `DONE` e non
+lo erano: la funzione esisteva nella UI e non nel modello. BA-15 era `DONE` per
+cinque anagrafiche su sei. BA-31 era `OPEN` da due blocchi per una ragione
+ambientale, non tecnica. BA-14 era `OPEN` per una fonte che si e rivelata
+esistere. Le tre nuove — BA-20, BA-32, BA-33 — sono uscite dalla riverifica,
+non da una richiesta.
+
+---
+
 ## Remaining Web V1 after integration
 
 Cio che manca perche la Web V1 si possa dichiarare **release candidate**, dopo
@@ -291,7 +347,7 @@ piu sotto: quelle vengono **dopo** il rilascio.
 
 | # | Cosa manca | Perche blocca | Dove |
 |---|-----------|---------------|------|
-| R-01 | Verifica su schermo di tutte le pagine a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Oggi e verificato staticamente, e su schermo solo per una parte. L'integrazione ha aggiunto pagine nuove — Contributi, Sedi, Moduli, modulo pubblico — che non sono mai state guardate su un telefono vero | B8-20, ADR-0025 |
+| R-01 | Verifica su schermo delle pagine **restanti** a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Il Blocco A ha verificato le quattordici pagine dei suoi domini — anagrafiche, documenti, abbigliamento, numerazione — e ne ha corrette tre. **Restano** le pagine nate dall'integrazione: Contributi, Sedi, Moduli e il modulo pubblico, piu partite e presenze | BA-31, B3-03, ADR-0025 |
 | R-02 | La lista Atleti deve consumare la paginazione | Il server e pronto; finche la pagina scarica tutto, l'archivio grande resta il caso peggiore | F1-12, B8-21 |
 | R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon, e la Modulistica V2 ne aggiunge uno per ogni certificato caricato da un modulo pubblico | B8-13, ADR-0034 |
 | R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica, e la superficie pubblica e appena cresciuta con `/api/forms/public` | F1-05, WP-05 |
@@ -366,7 +422,7 @@ Non sono cancellate: riprendono quando Web V1 e completa.
 | WB-05 | Kit con stati indipendenti per articolo | `DONE` | Quattro stati: da preparare, pronto, consegnato, non disponibile |
 | WB-06 | La taglia dell'anagrafica arriva sull'assegnazione | `DONE` | Era il difetto: la taglia si mostrava e non si usava. L'override non scrive l'anagrafica |
 | WB-07 | Consegne parziali con stato derivato | `DONE` | «Parziale · 2/4 consegnati · 1 non disponibile». Lo stato del kit non si scrive |
-| WB-08 | Niente stagione sul kit | `DONE` | `clothing_kits` non e un tipo stagionale: il campo sembrava un filtro e non filtrava |
+| WB-08 | Niente stagione sul kit | `DONE` | Workstream B l'aveva tolta dal form; **il Blocco A l'ha tolta dal modello**, dove restava insieme a una colonna d'export sempre vuota. Vedi BA-19 |
 | WB-09 | Numerazione per sede senza regressioni | `DONE` | `siteIds` sul gruppo; vuoto = tutte le sedi, cioe ogni gruppo esistente |
 | WB-10 | Performance con 200+ atleti e piu sedi | `DONE` | Rapporto sotto 3x raddoppiando gli atleti; `scripts/measure-multisite-performance.mjs` stampa i tempi |
 | WB-11 | Filtro sede sugli allenamenti | `DONE` | La sede viene dalla struttura, non da un campo proprio: un secondo campo si disallineerebbe al primo allenamento in trasferta |

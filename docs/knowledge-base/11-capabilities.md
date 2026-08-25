@@ -40,10 +40,10 @@ Classificazione:
 | Atleti | COMPLETE | Lista, dettaglio, modifica, profilo. `athletes/[id]/page.tsx` e la pagina piu grande del progetto (~340 KB) |
 | Multi-categoria atleta | COMPLETE | `athlete_category_memberships`, migrazione dedicata |
 | Import atleti | COMPLETE | CSV e XML con parser propri, XLS/XLSX con `xlsx`. Mappatura colonne, anteprima con esito per riga, barra di avanzamento reale, riepilogo importati/scartati/errori. 9 test in `tests/lib/athlete-import.test.mjs` |
-| Anagrafica assistita | PARTIAL | 107 province con regione, validazione CAP, calcolo e verifica del codice fiscale (client **e** server). **Manca la tabella dei comuni**: il codice catastale lo fornisce l'utente o si ricava da un codice fiscale gia noto |
+| Anagrafica assistita | COMPLETE | 107 province con regione, 7.896 comuni ISTAT con codice catastale ([ADR-0032](18-decision-log.md)), CAP dal comune dove ne ha uno solo — 7.836 su 7.896, da IPA di AgID ([ADR-0042](18-decision-log.md#adr-0042--il-cap-arriva-da-ipa-e-si-propone-solo-dove-il-comune-ne-ha-uno-solo)) — piu calcolo e verifica del codice fiscale, client **e** server. Le superfici sono elencate una per una in `tests/ui/anagrafiche-coverage.test.mjs`; la residenza di una persona passa da `PersonResidenceFields` |
 | Allenatori | COMPLETE | Lista, dettaglio, contratti, upload |
 | Staff | COMPLETE | Lista, dettaglio, modifica |
-| Soci | COMPLETE | Lista, dettaglio, creazione |
+| Soci | COMPLETE | Lista, dettaglio, creazione, export PDF. Dal Blocco A la scheda mostra e modifica **tutto** cio che la creazione scrive: prima ne caricava dodici campi su ventuno, e gli altri nove restavano in archivio invisibili |
 | Sponsor | COMPLETE | Lista, dettaglio, pagamenti sponsor |
 | Strutture e campi | COMPLETE | `/structures`, orari di apertura, prenotazioni |
 | Categorie | COMPLETE | `/categories`, statistiche atleti per categoria. Il secondo anno di nascita e facoltativo: una categoria puo coprire un solo anno |
@@ -116,7 +116,7 @@ Classificazione:
 
 | Capability | Stato | Note |
 |-----------|-------|------|
-| Kit, prodotti, inventario | COMPLETE | `/clothing`, `clothing_*`. Catalogo e kit sono **globali** fra stagioni; le assegnazioni sono stagionali. L'articolo dichiara da quale taglia dell'anagrafica prende (`sizeSource`) |
+| Kit, prodotti, inventario | COMPLETE | `/clothing`, `clothing_*`. Catalogo e kit sono **globali** fra stagioni; le assegnazioni sono stagionali. L'articolo dichiara da quale taglia dell'anagrafica prende (`sizeSource`). Il catalogo **non** ha una stagione ne una compatibilita di categoria: due concetti che un magazzino non ha, tolti dal modello nel Blocco A |
 | Gruppi numerazione | COMPLETE | `jersey_groups`, `jersey-numbering-utils.ts`. Schede chiuse di default, ricerca e paginazione interne; le righe dichiarano perche l'atleta e nel gruppo (`primary`/`secondary`/`compatible`/`external`). Un gruppo si puo restringere a una o piu sedi (`siteIds`): vuoto = tutte |
 | Assegnazioni kit | COMPLETE | `/api/clothing/assignments`, `kit_assignments`. La taglia parte da quella dell'anagrafica per il capo giusto e si puo sovrascrivere **senza** toccare l'anagrafica |
 | **Consegne parziali** | COMPLETE | `clothing-delivery.ts`: quattro stati per articolo (da preparare, pronto, consegnato, non disponibile) e stato del kit **derivato** — «Parziale · 2/4 consegnati · 1 non disponibile». Dialogo consegne a schede impilate, usabile da telefono |

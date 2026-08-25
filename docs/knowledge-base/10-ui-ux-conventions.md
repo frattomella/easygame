@@ -758,6 +758,30 @@ duplicato: una sola struttura che si riorganizza con `grid`/`flex` e i
 breakpoint. E meno codice e non puo divergere fra le due copie. Le tre misure
 di riferimento restano 375, 768 e 1280 px ([ADR-0025](18-decision-log.md)).
 
+### Un contenitore flex deve poter restringersi (Blocco A, 2026-08-26)
+
+**La regola.** Ogni elemento flex che contiene qualcosa di potenzialmente piu
+largo di lui — una barra di schede, una tabella, una riga di comandi — vuole
+`min-w-0`, oppure un `overflow` diverso da `visible`.
+
+**Perche non e un dettaglio.** Un elemento flex ha `min-width: auto`: si
+rifiuta di restringersi sotto la larghezza del proprio contenuto. Un figlio con
+`overflow-x-auto` che dovrebbe scorrere **non scorre**: allarga il genitore, e
+con lui la pagina. E il difetto piu insidioso di questa classe, perche ogni
+singola classe scritta e corretta e sbagliato e cio che manca — nessuna
+invariante statica lo puo vedere, e si scopre solo misurando la pagina.
+
+Nel Blocco A e successo su `/organization` a 768 px: la barra delle nove
+schede allargava il guscio del club a 1022 px e «Salva Modifiche» finiva fuori
+schermo. Vedi [D34](16-technical-debt.md).
+
+### La riga di comandi di un elenco va a capo
+
+`flex w-full flex-wrap gap-2 sm:w-auto`, non `flex gap-2`. Due elenchi
+gemelli con due varianti diverse producono due comportamenti diversi a 375 px,
+ed e successo fra Allenatori e Soci: sei pixel di sfondamento bastavano a
+rendere «Aggiungi Socio» impremibile.
+
 ## Accessibilita
 
 Non esiste oggi una linea guida applicata ne test a11y. Le primitive Radix

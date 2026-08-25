@@ -597,3 +597,52 @@ DEFAULT` sulle due colonne, e la rinomina dei due indici ai nomi che Prisma si
 aspetta. Nessuna riga esistente viene letta o riscritta.
 
 → nuovo WP da aprire
+
+### D34 — Un guscio di club su quattro non puo restringersi
+
+Il contenitore principale del club e un elemento flex dentro una riga. Un
+elemento flex ha `min-width: auto`: **si rifiuta di restringersi sotto la
+larghezza del proprio contenuto**, a meno che non abbia un `overflow` diverso
+da `visible` oppure `min-width: 0`.
+
+Quarantanove pagine usano la variante `flex flex-1 flex-col overflow-hidden` e
+ottengono il comportamento giusto **per effetto collaterale**: `overflow-hidden`
+azzera la dimensione minima automatica. Quattro usavano
+`flex flex-1 flex-col lg:hidden`, che non ha ne l'uno ne l'altro.
+
+**Cosa produceva.** A 768 px su `/organization` la barra delle nove schede —
+che ha gia `overflow-x-auto` e dovrebbe scorrere da sola — allargava il guscio
+a 1022 px invece di scorrere, e con lui tutta la pagina: «Salva Modifiche»
+finiva fuori dallo schermo. Nessuna invariante statica poteva vederlo, perche
+ogni singola classe era corretta: sbagliato era cio che mancava.
+
+**Come e stato chiuso (Blocco A).** `min-w-0` sui quattro gusci, piu
+un'invariante in `tests/ui/responsive-invariants.test.mjs`.
+
+**Cosa resta.** Il debito vero non e la classe, e che la stessa struttura di
+guscio sia **ricopiata in cinquantatre file** invece di stare in un componente.
+Finche e cosi, il cinquantaquattresimo nascera con la variante sbagliata e
+nessuno se ne accorgera fino alla prossima verifica su schermo.
+
+→ WP-19 (scomposizione delle pagine monolitiche), di cui e un caso particolare
+
+### D35 — I due script di misura non sono eseguibili come documentato
+
+`scripts/measure-athletes-payload.mjs` e
+`scripts/measure-multisite-performance.mjs` importano moduli con alias `@/` e
+senza estensione, che Node da solo non risolve: servono
+`--experimental-strip-types` **e** `--import ./tests/helpers/register-hooks.mjs`.
+
+Il primo lo documentava, il secondo no — e quindi il comando scritto nel suo
+stesso commento moriva sull'import invece di misurare. Una misura che non si
+puo rifare torna a essere un numero copiato, che e esattamente cio che quegli
+script esistono per evitare.
+
+**Chiuso a meta nel Blocco A**: il comando e stato corretto nel commento. Resta
+che la conoscenza di come si esegue uno script di questo repository vive in due
+commenti e in nessuno script npm.
+
+**Cosa lo chiude:** due voci in `package.json` (`measure:athletes`,
+`measure:multisite`) che incapsulino i flag.
+
+→ nuovo WP da aprire
