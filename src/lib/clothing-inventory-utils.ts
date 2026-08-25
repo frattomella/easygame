@@ -93,6 +93,14 @@ export type NumberingGroup = {
    * default: l'eleggibilita non e un'appartenenza e va richiesta.
    */
   includeCompatibleCategories: boolean;
+  /**
+   * Sedi a cui il gruppo si restringe. Vuoto significa **tutte le sedi**, che
+   * e anche il comportamento di ogni gruppo esistente: la numerazione non
+   * cambia per un club mono-sede. Serve al club che numera separatamente le
+   * squadre di due citta — «Pulcini · Roma» dal 1 al 20, «Pulcini · Aprilia»
+   * dal 1 al 20, senza che i due si vedano occupati a vicenda (ADR-0036).
+   */
+  siteIds: string[];
   season?: string;
   minNumber: number;
   maxNumber: number;
@@ -659,6 +667,7 @@ export const normalizeNumberingGroup = (group: any): NumberingGroup => ({
       group?.include_compatible_categories ??
       group?.includeCompatible,
   ),
+  siteIds: normalizeList(group?.siteIds ?? group?.site_ids ?? group?.sites),
   season: firstString(group?.season),
   minNumber: toNumber(group?.minNumber ?? group?.min_number, 0),
   maxNumber: toNumber(group?.maxNumber ?? group?.max_number, 99),
@@ -956,6 +965,7 @@ export const serializeNumberingGroup = (group: NumberingGroup) => ({
   categories: group.categoryIds,
   categoryIds: group.categoryIds,
   includeCompatibleCategories: group.includeCompatibleCategories,
+  siteIds: group.siteIds,
   season: group.season || "",
   minNumber: group.minNumber,
   maxNumber: group.maxNumber,

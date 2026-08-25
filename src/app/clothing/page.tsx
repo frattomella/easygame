@@ -119,6 +119,12 @@ import {
   type NormalizedCategoryOption,
 } from "@/lib/category-utils";
 import {
+  getActiveClubSites,
+  isMultiSiteClub,
+  normalizeClubSites,
+  type ClubSite,
+} from "@/lib/club-sites";
+import {
   AlertCircle,
   Boxes,
   Check,
@@ -260,6 +266,24 @@ const emptyAssignmentForm: AssignmentForm = {
   notes: "",
 };
 
+/**
+ * Gruppo numerazione vuoto. Era ripetuto tre volte nella pagina — creazione,
+ * reset dopo il salvataggio, apertura del dialogo — e ogni campo nuovo andava
+ * aggiunto in tre punti.
+ */
+const emptyNumberingGroup: NumberingGroup = {
+  id: "",
+  name: "",
+  categoryIds: [],
+  includeCompatibleCategories: false,
+  siteIds: [],
+  season: "",
+  minNumber: 0,
+  maxNumber: 99,
+  reservedNumbers: [],
+  assignedNumbers: [],
+};
+
 const emptyAssignmentEditForm: AssignmentEditForm = {
   athleteId: "",
   status: "assigned",
@@ -398,6 +422,7 @@ export default function ClothingPage() {
   const [athletes, setAthletes] = useState<any[]>([]);
   // Tipo completo e non `{ id, name }`: i gruppi numerazione hanno bisogno
   // anche di `compatibleCategoryIds`.
+  const [sites, setSites] = useState<ClubSite[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<
     NormalizedCategoryOption[]
   >([]);
@@ -422,17 +447,8 @@ export default function ClothingPage() {
   const [stockForm, setStockForm] = useState<StockForm>(emptyStockForm);
   const [assignmentForm, setAssignmentForm] =
     useState<AssignmentForm>(emptyAssignmentForm);
-  const [groupForm, setGroupForm] = useState<NumberingGroup>({
-    id: "",
-    name: "",
-    categoryIds: [],
-    includeCompatibleCategories: false,
-    season: "",
-    minNumber: 0,
-    maxNumber: 99,
-    reservedNumbers: [],
-    assignedNumbers: [],
-  });
+  const [groupForm, setGroupForm] =
+    useState<NumberingGroup>(emptyNumberingGroup);
   const [inventoryFilter, setInventoryFilter] = useState("all");
   const [inventorySearch, setInventorySearch] = useState("");
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -468,6 +484,7 @@ export default function ClothingPage() {
         groups,
         jerseyAssignments,
         categories,
+        clubSites,
         clubAthletes,
       ] = await Promise.all([
         getClubData(activeClub.id, "clothing_products"),
@@ -477,6 +494,7 @@ export default function ClothingPage() {
         getClubData(activeClub.id, "jersey_groups"),
         getClubData(activeClub.id, "jersey_assignments"),
         getClubData(activeClub.id, "categories"),
+        getClubData(activeClub.id, "club_sites"),
         getClubAthletes(activeClub.id),
       ]);
 
@@ -484,6 +502,7 @@ export default function ClothingPage() {
         ? [...clubAthletes].sort(compareAthletesByLastName)
         : [];
       setAthletes(sortedAthletes);
+      setSites(normalizeClubSites(clubSites));
       setCategoryOptions(
         buildClubCategoryOptions({
           clubCategories: categories,
@@ -867,17 +886,7 @@ export default function ClothingPage() {
       await saveClubJson("jersey_groups", next.map(serializeNumberingGroup));
       setState((current) => ({ ...current, numberingGroups: next }));
       setGroupDialogOpen(false);
-      setGroupForm({
-        id: "",
-        name: "",
-        categoryIds: [],
-        includeCompatibleCategories: false,
-        season: "",
-        minNumber: 0,
-        maxNumber: 99,
-        reservedNumbers: [],
-        assignedNumbers: [],
-      });
+      setGroupForm(emptyNumberingGroup);
       toast({ title: "Salvato", description: "Gruppo numerazione aggiornato." });
     } catch (error: any) {
       toast({
@@ -3642,19 +3651,7 @@ export default function ClothingPage() {
                       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
                         <DialogTrigger asChild>
                           <Button
-                            onClick={() =>
-                              setGroupForm({
-                                id: "",
-                                name: "",
-                                categoryIds: [],
-                                includeCompatibleCategories: false,
-                                season: "",
-                                minNumber: 0,
-                                maxNumber: 99,
-                                reservedNumbers: [],
-                                assignedNumbers: [],
-                              })
-                            }
+                            onClick={() => setGroupForm(emptyNumberingGroup)}
                           >
                             <Plus className="mr-2 h-4 w-4" /> Gruppo
                           </Button>
@@ -3714,6 +3711,44 @@ export default function ClothingPage() {
                                   categoryIds: next,
                                 })),
                             )}
+                            {isMultiSiteClub(sites) ? (
+                              <div className="rounded-md border p-3">
+                                <p className="text-sm font-medium text-slate-900">
+                                  Sedi del gruppo
+                                </p>
+                                <p className="mb-2 text-xs text-slate-500">
+                                  Nessuna sede selezionata significa «tutte».
+                                  Serve a numerare separatamente la stessa
+                                  categoria svolta in due sedi.
+                                </p>
+                                <div className="space-y-2">
+                                  {getActiveClubSites(sites).map((site) => (
+                                    <label
+                                      key={site.id}
+                                      className="flex items-center gap-2 text-sm"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={groupForm.siteIds.includes(
+                                          site.id,
+                                        )}
+                                        onChange={(event) =>
+                                          setGroupForm((current) => ({
+                                            ...current,
+                                            siteIds: event.target.checked
+                                              ? [...current.siteIds, site.id]
+                                              : current.siteIds.filter(
+                                                  (id) => id !== site.id,
+                                                ),
+                                          }))
+                                        }
+                                      />
+                                      {site.name}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
                             <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
                               <input
                                 type="checkbox"

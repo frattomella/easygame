@@ -41,6 +41,8 @@ import {
 } from "@/lib/category-compatibility";
 import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import { compareNameValues } from "@/lib/sorting";
+import { normalizeAthleteCategoryMemberships } from "@/lib/athlete-category-memberships";
+import { readSiteReference } from "@/lib/club-sites";
 
 const ACTIVE_ASSIGNMENT_STATUSES = new Set([
   "reserved",
@@ -110,6 +112,8 @@ export type JerseyNumberIndex = {
 };
 
 const normalizeText = (value: unknown) => String(value || "").trim();
+
+const normalizeSiteKey = (value: unknown) => normalizeText(value).toLowerCase();
 
 const toNumberOrNull = (value: unknown) => {
   if (value === null || value === undefined || value === "") return null;
@@ -217,7 +221,35 @@ type GroupSummaryContext = {
    * ricomporlo dominava il costo del riepilogo.
    */
   displayNameByAthleteId: Map<string, string>;
+  /**
+   * Sedi dell'atleta, gia normalizzate. Si calcolano una volta per atleta e
+   * non una volta per (atleta, gruppo): leggere le appartenenze e la parte
+   * cara, ed e la stessa ragione per cui l'eleggibilita sta in una mappa.
+   */
+  siteIdsByAthleteId: Map<string, Set<string>>;
   athletes: any[];
+};
+
+/**
+ * Un atleta entra in un gruppo ristretto a certe sedi?
+ *
+ * Le due asimmetrie sono volute e sono la stessa di `recordMatchesSite`:
+ * un gruppo **senza** sedi non restringe niente, e un atleta **senza** sede
+ * dichiarata resta dentro. Un gruppo numerazione che perde atleti perche le
+ * sedi sono state introdotte lascerebbe numeri liberi che liberi non sono.
+ */
+const athleteMatchesGroupSites = (
+  athleteSiteIds: Set<string> | undefined,
+  groupSiteKeys: Set<string>,
+) => {
+  if (!groupSiteKeys.size) return true;
+  if (!athleteSiteIds || !athleteSiteIds.size) return true;
+
+  for (const siteId of athleteSiteIds) {
+    if (groupSiteKeys.has(siteId)) return true;
+  }
+
+  return false;
 };
 
 const buildGroupSummary = (
@@ -230,6 +262,7 @@ const buildGroupSummary = (
     athleteById,
     eligibilityByAthleteId,
     displayNameByAthleteId,
+    siteIdsByAthleteId,
     athletes,
   } = context;
 
@@ -249,6 +282,9 @@ const buildGroupSummary = (
   const includeCompatible = Boolean(group.includeCompatibleCategories);
   // L'insieme si normalizza una volta per gruppo, non una volta per atleta.
   const groupCategoryIdSet = buildCategoryIdSet(groupCategoryIds);
+  const groupSiteKeys = new Set(
+    (group.siteIds || []).map(normalizeSiteKey).filter(Boolean),
+  );
 
   const numberAthleteIds = new Map<number, Set<string>>();
   records.forEach((record) => {
@@ -272,6 +308,12 @@ const buildGroupSummary = (
   athletes.forEach((athlete) => {
     const athleteId = normalizeText(athlete?.id);
     if (!athleteId) return;
+
+    if (
+      !athleteMatchesGroupSites(siteIdsByAthleteId.get(athleteId), groupSiteKeys)
+    ) {
+      return;
+    }
 
     // Un gruppo senza categorie configurate copre tutto il club: e la
     // convenzione gia in uso e va preservata.
@@ -379,12 +421,22 @@ const buildSummaryContext = ({
   const athleteById = new Map<string, any>();
   const eligibilityByAthleteId = new Map<string, AthleteCategoryEligibility>();
   const displayNameByAthleteId = new Map<string, string>();
+  const siteIdsByAthleteId = new Map<string, Set<string>>();
 
   athletes.forEach((athlete) => {
     const athleteId = normalizeText(athlete?.id);
     if (!athleteId) return;
     athleteById.set(athleteId, athlete);
     displayNameByAthleteId.set(athleteId, formatAthleteNameLastFirst(athlete));
+
+    const siteKeys = new Set<string>();
+    normalizeAthleteCategoryMemberships(athlete).forEach((membership) => {
+      const key = normalizeSiteKey(membership.siteId);
+      if (key) siteKeys.add(key);
+    });
+    const athleteSiteKey = normalizeSiteKey(readSiteReference(athlete));
+    if (athleteSiteKey) siteKeys.add(athleteSiteKey);
+    siteIdsByAthleteId.set(athleteId, siteKeys);
     // L'eleggibilita si calcola una volta per atleta, non una volta per
     // (atleta, gruppo): normalizzare le membership e la parte cara.
     eligibilityByAthleteId.set(
@@ -399,6 +451,7 @@ const buildSummaryContext = ({
     athleteById,
     eligibilityByAthleteId,
     displayNameByAthleteId,
+    siteIdsByAthleteId,
     athletes,
   };
 };
