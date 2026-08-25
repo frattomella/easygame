@@ -3,33 +3,40 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  downloadAttachment,
-  fileToDataUrl,
-  openClientFileUrl,
-} from "@/lib/client-files";
+import { downloadAttachment, openClientFileUrl } from "@/lib/client-files";
 import { CheckCircle2, Download, Eye, Trash2, Upload } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
+import {
+  ATTACHMENT_ACCEPT_ATTRIBUTE,
+  resolveAttachmentSource,
+  type AttachmentOwnerType,
+} from "@/lib/attachments";
+import {
+  deleteAttachmentById,
+  replaceAttachment,
+  uploadAttachment,
+} from "@/lib/api/attachments";
 
 /**
  * Un allegato con le sue quattro azioni: allega, guarda, scarica, elimina.
  *
  * Esiste perche lo stesso blocco era scritto **sei volte** — BLSD, primo
  * soccorso e antincendio, nella scheda atleta e in quella allenatore — e in
- * tutte e sei aveva gli stessi tre difetti (Blocco 7, punto 6):
+ * tutte e sei aveva gli stessi difetti (Blocco 7, punto 6). Dal Blocco 8 e
+ * anche il punto in cui il file **esce dal record**: quello che il componente
+ * consegna a chi lo ospita non e piu un data URL da 2 MB, e un riferimento
+ * (`attachment:<id>`) di poche decine di caratteri.
  *
- * 1. «Visualizza» faceva `window.open` su un data URL, che i browser bloccano:
- *    apriva una scheda vuota. Ora passa da `openClientFileUrl`, che converte
- *    in object URL;
- * 2. «Scarica» produceva un file chiamato `attestato_blsd`, senza estensione e
- *    senza dire di chi fosse. Ora il nome viene da `buildAttachmentFileName`;
- * 3. non c'era modo di **eliminare** un allegato caricato per sbaglio, ne di
- *    sapere se il caricamento era stato salvato.
+ * **Perche il valore resta una `string`.** Ogni campo che lo ospitava
+ * conteneva gia una stringa. Cambiarne la forma avrebbe richiesto di migrare
+ * ogni record prima di poter usare il componente nuovo; cosi invece i due
+ * formati convivono, e un allegato legacy continua a vedersi e a scaricarsi
+ * senza che nessuno lo abbia toccato.
  *
- * Il componente non salva: chiama `onChange` e chi lo ospita persiste. E cio
- * che permette allo stesso blocco di stare su un atleta (dove i file vivono in
- * `athlete.certificateFiles`) e su un allenatore (dove vivono nel record
- * dell'allenatore) senza saperlo.
+ * **Sostituzione, non cancella-e-ricrea.** Se c'e gia un riferimento, il file
+ * nuovo sostituisce il contenuto **allo stesso id**: chi ospita il campo non
+ * deve nemmeno salvare, e non esiste l'istante in cui il record punta a un
+ * allegato che non c'e piu.
  */
 
 export type CertificateAttachmentFieldProps = {
@@ -38,6 +45,16 @@ export type CertificateAttachmentFieldProps = {
   value?: string | null;
   /** `null` significa «eliminato». */
   onChange: (next: string | null) => void | Promise<void>;
+  /**
+   * A chi appartiene il file. Senza questo l'allegato non puo essere
+   * autorizzato — e per questo non e opzionale: un file senza proprietario e
+   * un file che nessuno sa a chi mostrare.
+   */
+  owner: {
+    type: AttachmentOwnerType;
+    id: string;
+    organizationId?: string | null;
+  };
   person?: {
     firstName?: string | null;
     lastName?: string | null;
@@ -52,15 +69,23 @@ export type CertificateAttachmentFieldProps = {
   emptyLabel?: string;
 };
 
-const DEFAULT_ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.heic";
+/** Un identificativo tecnico stabile per la categoria dell'allegato. */
+const categorySlug = (documentType: string) =>
+  String(documentType || "documento")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "documento";
 
 export function CertificateAttachmentField({
   documentType,
   value,
   onChange,
+  owner,
   person,
   date,
-  accept = DEFAULT_ACCEPT,
+  accept = ATTACHMENT_ACCEPT_ATTRIBUTE,
   disabled = false,
   className,
   emptyLabel = "Nessun file allegato",
@@ -70,7 +95,8 @@ export function CertificateAttachmentField({
   const [busy, setBusy] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const hasFile = Boolean(String(value || "").trim());
+  const source = resolveAttachmentSource(value);
+  const hasFile = source.kind !== "empty";
 
   const nameInput = {
     documentType,
@@ -83,14 +109,44 @@ export function CertificateAttachmentField({
   const handleFile = async (file: File | null | undefined) => {
     if (!file) return;
 
+    if (!owner?.id) {
+      showToast(
+        "error",
+        "Salva prima la scheda: un allegato ha bisogno di sapere a chi appartiene",
+      );
+      return;
+    }
+
     setBusy(true);
     try {
-      const dataUrl = await fileToDataUrl(file);
-      if (!dataUrl) {
-        showToast("error", "Non sono riuscito a leggere il file");
+      /*
+        Un riferimento gia presente si **sostituisce**: l'id resta, quindi il
+        valore salvato nel record non cambia e non c'e niente da riscrivere.
+        Un allegato legacy invece si carica come nuovo, e il record passa dal
+        data URL al riferimento: e cosi che l'archivio migra, un file alla
+        volta, senza una campagna di riscrittura sul database.
+      */
+      const result =
+        source.kind === "reference"
+          ? await replaceAttachment(source.id, file, file.name)
+          : await uploadAttachment({
+              file,
+              ownerType: owner.type,
+              ownerId: owner.id,
+              category: categorySlug(documentType),
+              fileName: file.name,
+              organizationId: owner.organizationId,
+            });
+
+      if (!result.ok) {
+        showToast("error", `${documentType}: ${result.message}`);
         return;
       }
-      await onChange(dataUrl);
+
+      if (source.kind !== "reference") {
+        await onChange(result.attachment.reference);
+      }
+
       showToast("success", `${documentType}: file salvato`);
     } catch (error) {
       console.error(`Errore nel salvataggio dell'allegato ${documentType}`, error);
@@ -105,7 +161,12 @@ export function CertificateAttachmentField({
   const handleDelete = async () => {
     setBusy(true);
     try {
+      // Prima il record, poi il file: se si cancellasse prima il file e poi
+      // il salvataggio fallisse, resterebbe un riferimento a nulla.
       await onChange(null);
+      if (source.kind === "reference") {
+        await deleteAttachmentById(source.id);
+      }
       showToast("success", `${documentType}: allegato eliminato`);
     } catch (error) {
       console.error(`Errore nell'eliminazione dell'allegato ${documentType}`, error);

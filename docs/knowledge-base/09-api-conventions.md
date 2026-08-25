@@ -66,6 +66,8 @@ Il cookie `easygame_session` e l'alternativa usata dal Web.
 | Risorse generiche | `/api/v1/[resource]` e `/api/v1/[resource]/[id]` |
 | Admin piattaforma | `/api/v1/admin/overview`, `/admin/clubs/[id]`, `/admin/users/[id]`, `/admin/email`, `/admin/email/test`, `/admin/imap`, `/admin/imap/test` |
 | Registro | `/api/v1/registry` |
+| Comuni | `/api/v1/comuni` (sola lettura, non e un dato di club) |
+| Allegati | `/api/v1/attachments` e `/api/v1/attachments/[id]` |
 | Trainer | `/api/v1/trainer/operational-alerts` |
 | Automazioni | `/api/v1/training-automation` |
 
@@ -80,6 +82,34 @@ Il cookie `easygame_session` e l'alternativa usata dal Web.
 Sono nate per casi che il CRUD generico non copre. **Convenzione per il nuovo
 codice: crea endpoint sotto `/api/v1/`.** Non spostare quelli esistenti senza un
 WP dedicato: il client mobile e le pagine web li referenziano.
+
+## Allegati: l'unico endpoint che non risponde JSON
+
+`/api/v1/attachments/[id]` in `GET` restituisce **i byte del file**, non
+l'envelope `{ data, error }`. E l'unica eccezione della superficie, ed e
+deliberata: un allegato deve poter essere l'`href` di un link o il `src` di
+un'immagine, e un envelope JSON non lo permette. Gli errori restano in
+envelope, cosi il client li legge come sempre.
+
+| Metodo | Path | Cosa fa |
+|--------|------|---------|
+| `GET` | `/api/v1/attachments?owner_type=&owner_id=&category=` | Metadati, **mai** i byte |
+| `POST` | `/api/v1/attachments` | Caricamento, `multipart/form-data` |
+| `GET` | `/api/v1/attachments/:id` | Il file, `Content-Disposition: inline` |
+| `GET` | `/api/v1/attachments/:id?download=<nome>` | Il file, `Content-Disposition: attachment` con quel nome |
+| `PUT` | `/api/v1/attachments/:id` | Sostituisce il contenuto **mantenendo l'id** |
+| `DELETE` | `/api/v1/attachments/:id` | Elimina metadati e byte |
+
+**Perche `multipart` e non JSON con base64.** Base64 costa il 33% in piu, e
+un PDF da 8 MB come stringa JSON vive in tre copie fra parsing e decodifica.
+
+**Perche il nome del download arriva in query.** Il nome leggibile
+(`BLSD_Rossi_Mario_2026-08-25.pdf`) si costruisce dai dati della persona, che
+stanno nel record di dominio e non nell'allegato. Il server non lo inventa: lo
+riceve, lo ripulisce, e ci attacca l'estensione giusta ricavata dal MIME —
+perche l'estensione la sa lui, non il client.
+
+Vedi [ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver).
 
 ## Il CRUD generico `/api/v1/[resource]`
 

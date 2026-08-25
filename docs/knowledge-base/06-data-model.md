@@ -120,7 +120,9 @@ Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 |---------|---------|------|
 | `Notification` | `notifications` | Per club e/o utente |
 | `ClubResourceItem` | `club_resource_items` | **Contenitore generico**: `resource_type` + `payload` JSON + `name`/`status`/`date` estratti per filtrare |
-| `Asset` | `assets` | File. Unique `(bucket, path)`. `data_base64` = **i binari possono essere salvati nel database**. Vedi [16](16-technical-debt.md). |
+| `Attachment` | `attachments` | **Metadati** di un allegato: proprietario (`owner_type` + `owner_id`), `category`, nome originale, MIME, dimensione, sha256, `storage_driver`, autore. Mai i byte. Vedi [ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver) |
+| `AttachmentBlob` | `attachment_blobs` | I byte di un allegato, quando il driver e `database`. Tabella separata perche non si legge quasi mai: elencare gli allegati non deve costare quanto scaricarli |
+| `Asset` | `assets` | File, **via legacy**. Unique `(bucket, path)`. `data_base64` = i binari nel database. Non e stata sostituita da `attachments`: la usano ancora logo di club e immagini dei form. Vedi [16](16-technical-debt.md) |
 | `AuditLog` | `audit_logs` | Traccia delle operazioni sensibili: `action`, `outcome`, actor, `organization_id`, risorsa, IP, user agent, `metadata` filtrati. Nessuna FK, per sopravvivere alla cancellazione dell'attore. Quattro indici per interrogazione e purge. Vedi [ADR-0019](18-decision-log.md) |
 
 ## Dati di riferimento non transazionali
@@ -225,7 +227,7 @@ applicativo**.
 
 ## Migrazioni
 
-7 migrazioni in `prisma/migrations/`:
+9 migrazioni in `prisma/migrations/`:
 
 | Migrazione | Contenuto |
 |------------|-----------|
@@ -237,13 +239,15 @@ applicativo**.
 | `20260821160000_email_provider_config` | `email_provider_configs` |
 | `20260822180000_audit_log` | `audit_logs` |
 | `20260823090000_imap_provider_config` | `imap_provider_configs` |
+| `20260825120000_attachments` | `attachments` + `attachment_blobs` (WP-15). **Additiva**: non legge e non riscrive nessun dato esistente |
 
 Stato verificato su Neon staging il 2026-08-22:
 `npx prisma migrate status` → **Database schema is up to date**. La settima
 (`audit_logs`) e l'ottava (`imap_provider_configs`) vengono applicate al
 deploy successivo, da `prisma migrate deploy` nel comando `vercel-build`.
 
-La migrazione `20260823090000_imap_provider_config` e stata **scritta a mano**,
+Le migrazioni `20260823090000_imap_provider_config` e
+`20260825120000_attachments` sono state **scritte a mano**,
 nello stesso stile di `20260821160000_email_provider_config`: in locale
 `prisma migrate dev` e bloccato dalla guardia di `scripts/db-guard.mjs`
 (sezione 8 di `CLAUDE.md`) e non e stata chiesta autorizzazione a scrivere sul

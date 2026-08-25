@@ -985,3 +985,95 @@ piu nessuno e non e piu esposta dalle API. Un test lo dichiara, cosi la sua
 presenza non sembra una dimenticanza.
 
 **Stato:** ATTIVA.
+
+
+---
+
+## ADR-0034 — Gli allegati escono dai record e passano da un servizio con driver
+
+**Data:** 2026-08-25 · **Contesto:** Blocco 8, punto B · WP-15
+
+**Contesto.** Fino al Blocco 7 un allegato di EasyGame era una stringa
+`data:application/pdf;base64,…` **dentro** il record di dominio: dentro
+`athletes.data`, dentro il payload di un contratto allenatore, dentro un
+certificato. Il Blocco 7 ha corretto tutto cio che si poteva correggere
+lasciandolo li — apertura, download, eliminazione, nomi dei file — e ha
+confermato che il resto e strutturale:
+
+- una lista di 200 atleti trasferiva decine di MB. `view=summary` (WP-31) lo
+  ha nascosto, non risolto: i byte sono ancora nella riga che si legge per
+  mostrare un nome e una categoria;
+- base64 costa il 33% in piu del binario, e Postgres lo tiene nel TOAST della
+  stessa riga;
+- un allegato non aveva **identita**: niente MIME affidabile, niente
+  dimensione, niente autore, niente data. Nessun limite di dimensione e
+  nessun controllo di tipo: si poteva caricare qualunque cosa;
+- **non c'era autorizzazione sul file**. Il file era dentro un record gia
+  letto: chi poteva leggere il record aveva i byte, sempre, tutti insieme.
+
+**Decisione.**
+
+1. **Un allegato e una riga di `attachments`**, con i suoi metadati
+   (proprietario, categoria, nome originale, MIME, dimensione, sha256, autore,
+   date). Il record di dominio ne conserva **solo un riferimento**, la stringa
+   `attachment:<uuid>`.
+2. **Il riferimento e una stringa** perche i campi che lo ospitano contenevano
+   gia una stringa. Non c'e nessuna migrazione di forma da fare prima di poter
+   usare il sistema nuovo, e i due formati convivono.
+3. **I byte stanno in una tabella separata**, `attachment_blobs`. Se stessero
+   sulla stessa riga dei metadati, elencare gli allegati tornerebbe a costare
+   quanto scaricarli: sarebbe lo stesso difetto in un posto nuovo. Un test lo
+   impedisce, verificando che nessuna `select` sui metadati nomini il
+   contenuto.
+4. **Il servizio e l'unico punto di scrittura e lettura**
+   (`src/lib/server/attachments.ts`) e applica lo scope organizzativo su ogni
+   operazione, con la stringa «Accesso negato» che il route handler mappa su
+   403.
+5. **Lo storage passa da un `StorageDriver`** — tre metodi: `put`, `get`,
+   `remove`. Nessun chiamante sa dove sono i byte.
+
+**Il provider esterno: decisione non presa, e perche.**
+
+Il driver attivo e `database`. **Non e un ripiego**: risolve per intero il
+difetto misurato — il binario non e piu nella riga che si legge per un elenco —
+senza introdurre accoppiamento a un servizio proprietario dell'hosting, che
+[ADR-0007](#adr-0007--nessuna-migrazione-net-ora-ma-nessun-nuovo-lock-in)
+vieta. Per l'ordine di grandezza di una societa sportiva (alcune migliaia di
+documenti, decine di GB nel caso peggiore) e la scelta corretta.
+
+Scegliere un provider esterno **costa denaro e configurazione** ed e una
+decisione del proprietario del prodotto, non di chi scrive il codice. Le
+opzioni, con i loro vincoli:
+
+| Opzione | Costo indicativo | Vincoli |
+|---------|------------------|---------|
+| **Restare su `database`** (attuale) | incluso nel piano Neon | Neon fattura lo storage; il backup del database include i file. Nessuna nuova credenziale |
+| **S3-compatibile** (Cloudflare R2, Backblaze B2, Scaleway) | pochi euro/mese per decine di GB; R2 non fa pagare l'egress | Serve un bucket, due credenziali in Vercel e un driver nuovo (~150 righe). Nessun lock-in: e un protocollo, non un servizio |
+| **Vercel Blob** | a consumo | **Escluso da ADR-0007**: servizio proprietario dell'hosting |
+
+**Raccomandazione:** restare su `database` fino a quando l'archivio di un club
+reale non supera qualche GB, poi passare a un driver S3-compatibile — che e
+esattamente il lavoro che questa architettura riduce a un file nuovo e una
+riga di configurazione. La condizione che fa scattare il cambio e misurabile:
+`SELECT pg_size_pretty(pg_total_relation_size('attachment_blobs'))`.
+
+**Migrazione dei dati legacy: incrementale, mai di massa.**
+
+Un allegato legacy **continua a funzionare** e non e un errore da segnalare
+all'utente. Migra quando qualcuno lo tocca: sostituire un file legacy lo
+carica come allegato e il record passa dal data URL al riferimento. Non
+esiste, e non deve esistere, un comando che riscrive l'archivio in blocco: la
+riscrittura di massa di allegati e l'operazione che si scopre di aver
+sbagliato quando un certificato medico non si apre piu e nessuno ha una copia.
+`importLegacyDataUrl` esiste per convertirne **uno**.
+
+**Cosa questa decisione non fa.**
+
+- Non tocca `Asset.data_base64` e la tabella `assets`: sono la vecchia via del
+  logo di club e delle immagini dei form, che ha un suo percorso e verra
+  ricondotta al servizio quando quelle superfici si toccheranno;
+- non introduce URL firmati. Un URL firmato sposterebbe l'autorizzazione dentro
+  il provider di storage, cioe il lock-in che ADR-0007 vieta. Il file passa
+  dalla sessione EasyGame come ogni altra richiesta.
+
+**Stato:** ATTIVA.

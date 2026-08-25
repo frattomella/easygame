@@ -1,4 +1,8 @@
 import {
+  buildAttachmentUrl,
+  resolveAttachmentSource,
+} from "./attachments";
+import {
   buildAttachmentFileName,
   readMimeFromDataUrl,
   sanitizeFileNamePart,
@@ -8,17 +12,24 @@ import {
 /**
  * Aprire e scaricare un allegato dal browser.
  *
- * **Il difetto che questo modulo chiude** (Blocco 7, punto 6). EasyGame salva
- * gli allegati come *data URL* dentro il record. Aprirli faceva
- * `window.open("data:application/pdf;base64,…")` — e i browser bloccano da
- * anni la navigazione di primo livello verso `data:`, perche era il vettore
- * classico del phishing. Il risultato: **ogni pulsante «Visualizza» apriva una
- * scheda vuota**, o nessuna scheda. Non era un problema di un allegato o di un
- * formato: era il meccanismo.
+ * **Due formati, un comportamento.** Dal Blocco 8 un allegato puo essere due
+ * cose (vedi `src/lib/attachments.ts`):
  *
- * La via che funziona e convertire il data URL in un `Blob` e aprire un
- * *object URL*, che non e bloccato e conserva il tipo MIME — quindi il PDF si
- * apre nel visualizzatore e l'immagine si vede.
+ * - un **riferimento** `attachment:<id>` a una riga della tabella
+ *   `attachments`, che l'API serve come un normale URL http;
+ * - un **data URL legacy**, cioe il file dentro il record, come era prima di
+ *   WP-15.
+ *
+ * Chi chiama non deve distinguerli e non li distingue: `resolveAttachmentSource`
+ * classifica il valore una volta sola e queste funzioni fanno il resto.
+ *
+ * **Il difetto storico che questo modulo chiude** (Blocco 7, punto 6). Aprire
+ * un allegato faceva `window.open("data:application/pdf;base64,…")` — e i
+ * browser bloccano da anni la navigazione di primo livello verso `data:`,
+ * perche era il vettore classico del phishing. Il risultato: **ogni pulsante
+ * «Visualizza» apriva una scheda vuota**. Per i data URL la via che funziona e
+ * convertirli in un `Blob` e aprire un *object URL*; per i riferimenti il
+ * problema non si pone piu, perche non sono `data:`.
  *
  * Regola di prodotto che ne discende: **se compare «Visualizza», il file si
  * deve vedere**. Queste funzioni restituiscono `false` quando non ci riescono,
@@ -35,8 +46,6 @@ const safeFileName = (fileName: string) => {
   const stem = sanitizeDownloadName(trimmed);
   return extension ? `${stem}.${extension.toLowerCase()}` : stem;
 };
-
-const isDataUrl = (url: string) => /^data:/i.test(url);
 
 /**
  * Da data URL a `Blob`.
@@ -79,12 +88,30 @@ export const dataUrlToBlob = (url: string): Blob | null => {
  */
 const toUsableUrl = (
   url: string,
+  downloadName?: string | null,
 ): { href: string; revoke: () => void } | null => {
-  if (!isDataUrl(url)) {
-    return { href: url, revoke: () => {} };
+  const source = resolveAttachmentSource(url);
+
+  if (source.kind === "empty") return null;
+
+  /*
+    Un allegato nuovo e gia un URL http servito dall'API: non c'e niente da
+    convertire, e il browser lo apre come qualunque altra risorsa. E il punto
+    di tutto WP-15 — la conversione a object URL esiste solo per i data URL
+    legacy, e sparira con loro.
+  */
+  if (source.kind === "reference") {
+    return {
+      href: buildAttachmentUrl(source.id, { download: downloadName }),
+      revoke: () => {},
+    };
   }
 
-  const blob = dataUrlToBlob(url);
+  if (source.kind === "remote") {
+    return { href: source.href, revoke: () => {} };
+  }
+
+  const blob = dataUrlToBlob(source.href);
   if (!blob) return null;
 
   const href = URL.createObjectURL(blob);
@@ -138,12 +165,13 @@ export const downloadClientFileUrl = (
     return false;
   }
 
-  const usable = toUsableUrl(href);
+  const safeName = safeFileName(fileName);
+  const usable = toUsableUrl(href, safeName);
   if (!usable) return false;
 
   const link = document.createElement("a");
   link.href = usable.href;
-  link.download = safeFileName(fileName);
+  link.download = safeName;
   link.rel = "noopener noreferrer";
   document.body.appendChild(link);
   link.click();

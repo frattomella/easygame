@@ -75,6 +75,29 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "attachments.list",
+    method: "GET",
+    path: "/api/v1/attachments",
+    description:
+      "Metadati degli allegati di una risorsa del club. Mai i byte",
+    mobile_ready: true,
+  },
+  {
+    name: "attachments.upload",
+    method: "POST",
+    path: "/api/v1/attachments",
+    description: "Caricamento di un allegato (multipart/form-data)",
+    mobile_ready: true,
+  },
+  {
+    name: "attachments.file",
+    method: "GET|PUT|DELETE",
+    path: "/api/v1/attachments/:id",
+    description:
+      "Contenuto di un allegato: visualizzazione, download, sostituzione, eliminazione",
+    mobile_ready: true,
+  },
+  {
     name: "auth.login",
     method: "POST",
     path: "/api/v1/auth/login",

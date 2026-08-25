@@ -139,11 +139,29 @@ variabile non e impostata **non si cancella nulla**: il periodo e una decisione
 di prodotto e compliance, non un default tecnico. Manca ancora lo scheduler che
 invochi la purge, e manca una UI di consultazione: → [WP-16](20-work-packages.md).
 
-### 8. Binari nel database — MEDIO
+### 8. Binari nel database — RIDOTTO (2026-08-25, Blocco 8)
 
-`Asset.data_base64` consente di salvare file interi in Postgres. Rischio di
-crescita incontrollata del DB e di risposte pesanti. Vedi
-[WP-15](20-work-packages.md).
+Il difetto grave non era `Asset.data_base64` ma i data URL **dentro i record
+di dominio**: un allegato non aveva autorizzazione propria — chi poteva
+leggere il record aveva i byte, tutti insieme — ne un limite di dimensione ne
+un controllo di tipo.
+
+Dal Blocco 8 gli allegati passano da `src/lib/server/attachments.ts`
+([ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver)),
+che applica:
+
+- **scope organizzativo su ogni operazione** — leggere, elencare,
+  sostituire, cancellare. 8 test lo verificano dal club sbagliato;
+- **elenco chiuso di tipi MIME**: niente eseguibili, niente archivi;
+- **limite di 10 MB** per file, controllato prima di leggere i byte;
+- `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox` e
+  `Cache-Control: private` sulla risposta che serve il file;
+- nome del download ripulito prima di finire in `Content-Disposition`: un
+  nome con un ritorno a capo non puo aggiungere header.
+
+**Resta aperto:** i data URL legacy gia in archivio, che continuano a
+funzionare e migrano quando qualcuno li tocca; e la tabella `assets`, ancora
+usata dal logo di club e dalle immagini dei form.
 
 ### 9. Path «segreto» del platform admin — BASSO
 

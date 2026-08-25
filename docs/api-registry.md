@@ -16,6 +16,10 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/registry`
 - `GET /api/v1/comuni` — archivio ISTAT dei comuni italiani (sola lettura,
   non e un dato di club)
+- `GET|POST /api/v1/attachments` — allegati: elenco dei metadati e
+  caricamento (multipart). Il file non passa mai dentro un record JSON
+- `GET|PUT|DELETE /api/v1/attachments/:id` — contenuto di un allegato.
+  `?download=<nome>` lo consegna come download con quel nome
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/logout`

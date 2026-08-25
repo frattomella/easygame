@@ -224,6 +224,7 @@ model Club {
   resource_items               ClubResourceItem[]
   training_attendance          TrainingAttendance[]
   athlete_category_memberships AthleteCategoryMembership[]
+  attachments                  Attachment[]
 
   @@map("clubs")
 }
@@ -497,6 +498,53 @@ model AthleteCategoryMembership {
   @@index([athlete_id])
   @@index([organization_id, athlete_id, is_primary])
   @@map("athlete_category_memberships")
+}
+
+/// Allegato: metadati. I byte stanno in `AttachmentBlob`, mai qui.
+///
+/// La separazione non e cosmetica: elencare gli allegati di un atleta deve
+/// costare quanto elencare dei nomi. Se il binario fosse su questa riga, ogni
+/// `findMany` lo trascinerebbe fuori dal TOAST — che e esattamente il difetto
+/// di `athletes.data` che questa tabella esiste per chiudere (WP-15).
+///
+/// `storage_driver` dice **dove** sono i byte. Oggi vale sempre `database`;
+/// il giorno in cui si configura un object storage le righe nuove valgono un
+/// altro driver e portano una `storage_key` invece di un blob, senza che il
+/// resto dell'applicazione cambi. Vedi ADR-0034.
+model Attachment {
+  id              String          @id @default(uuid()) @db.Uuid
+  organization_id String          @db.Uuid
+  owner_type      String
+  owner_id        String
+  category        String
+  file_name       String
+  mime_type       String
+  size_bytes      Int
+  checksum        String
+  storage_driver  String          @default("database")
+  storage_key     String?
+  created_by      String?         @db.Uuid
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  organization    Club            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  blob            AttachmentBlob?
+
+  @@index([organization_id])
+  @@index([organization_id, owner_type, owner_id])
+  @@index([organization_id, checksum])
+  @@map("attachments")
+}
+
+/// I byte di un allegato memorizzato con il driver `database`.
+///
+/// Tabella a se perche non si legge quasi mai: la si tocca solo quando
+/// qualcuno apre o scarica davvero il file.
+model AttachmentBlob {
+  attachment_id String     @id @db.Uuid
+  content       Bytes
+  attachment    Attachment @relation(fields: [attachment_id], references: [id], onDelete: Cascade)
+
+  @@map("attachment_blobs")
 }
 
 model Asset {

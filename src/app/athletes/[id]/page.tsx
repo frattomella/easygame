@@ -4541,6 +4541,7 @@ export default function AthleteProfilePage() {
                           <div className="mt-4 border-t pt-4">
                             <CertificateAttachmentField
                               documentType="BLSD"
+                              owner={{ type: "athlete", id: athleteId, organizationId: clubId }}
                               value={certificateFiles.blsd}
                               onChange={(next) => saveCertificateFile("blsd", next)}
                               person={{
@@ -4575,6 +4576,7 @@ export default function AthleteProfilePage() {
                           <div className="mt-4 border-t pt-4">
                             <CertificateAttachmentField
                               documentType="Primo soccorso"
+                              owner={{ type: "athlete", id: athleteId, organizationId: clubId }}
                               value={certificateFiles.firstAid}
                               onChange={(next) => saveCertificateFile("firstAid", next)}
                               person={{
@@ -4609,6 +4611,7 @@ export default function AthleteProfilePage() {
                           <div className="mt-4 border-t pt-4">
                             <CertificateAttachmentField
                               documentType="Antincendio"
+                              owner={{ type: "athlete", id: athleteId, organizationId: clubId }}
                               value={certificateFiles.fireSafety}
                               onChange={(next) => saveCertificateFile("fireSafety", next)}
                               person={{

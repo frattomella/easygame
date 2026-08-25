@@ -2212,6 +2212,7 @@ export default function TrainerDetailsPage() {
                       <Label>Certificato</Label>
                       <CertificateAttachmentField
                         documentType="Visita medica"
+                        owner={{ type: "trainer", id: trainerId, organizationId: clubId }}
                         value={medicalVisit.file}
                         date={medicalVisit.expiry}
                         onChange={(next) =>
@@ -2259,6 +2260,7 @@ export default function TrainerDetailsPage() {
                           <div className="mt-4 border-t pt-4">
                             <CertificateAttachmentField
                               documentType="BLSD"
+                              owner={{ type: "trainer", id: trainerId, organizationId: clubId }}
                               value={certificateFiles.blsd}
                               onChange={(next) => saveCertificateFile("blsd", next)}
                               person={{
@@ -2286,6 +2288,7 @@ export default function TrainerDetailsPage() {
                           <div className="mt-4 border-t pt-4">
                             <CertificateAttachmentField
                               documentType="Primo soccorso"
+                              owner={{ type: "trainer", id: trainerId, organizationId: clubId }}
                               value={certificateFiles.firstAid}
                               onChange={(next) => saveCertificateFile("firstAid", next)}
                               person={{
@@ -2313,6 +2316,7 @@ export default function TrainerDetailsPage() {
                           <div className="mt-4 border-t pt-4">
                             <CertificateAttachmentField
                               documentType="Antincendio"
+                              owner={{ type: "trainer", id: trainerId, organizationId: clubId }}
                               value={certificateFiles.fireSafety}
                               onChange={(next) => saveCertificateFile("fireSafety", next)}
                               person={{

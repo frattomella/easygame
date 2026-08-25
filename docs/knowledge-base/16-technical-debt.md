@@ -161,7 +161,7 @@ l'App Router. `_app.tsx` contiene ancora riferimenti commentati a
 
 → WP-18
 
-### D13 — File nel database — **PIU GRAVE DI QUANTO SEMBRASSE**
+### D13 — File nel database — **RISOLTO STRUTTURALMENTE** (2026-08-25, Blocco 8)
 
 `Asset.data_base64` permette di salvare binari in Postgres, ma il problema non
 si ferma li: `supabase.storage.upload` produce un **data URL base64** e le
@@ -169,11 +169,30 @@ schede atleta lo salvano dentro `athletes.data` (`identityDocuments`,
 `enrollmentDocuments`, `documents`, `certificateFiles`, `avatar`). Con 200
 atleti la lista trasferiva ~25 MB.
 
-`view=summary` (WP-31) toglie gli allegati dalle liste e porta il payload a
-~2 MB, ma **i file restano nel database** e i ~2 MB residui sono quasi tutti
-avatar base64. La soluzione strutturale resta spostarli su object storage.
+`view=summary` (WP-31) toglieva gli allegati dalle liste e portava il payload
+a ~2 MB, ma i file restavano dentro il record.
 
-→ WP-15
+**Cosa e cambiato con il Blocco 8**
+([ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver)):
+un allegato e ora una riga di `attachments` con i suoi metadati, i byte
+stanno in `attachment_blobs`, e il record di dominio conserva **solo** il
+riferimento `attachment:<uuid>`. Il servizio
+(`src/lib/server/attachments.ts`) e l'unico punto di lettura e scrittura, ha
+un'autorizzazione propria, un limite di dimensione e un elenco chiuso di tipi.
+Lo storage passa da un `StorageDriver`: cambiare provider e un file nuovo e
+una riga di configurazione.
+
+**Cosa resta**, e non e piu strutturale:
+
+- **i data URL legacy gia in archivio.** Continuano a funzionare e migrano
+  quando qualcuno li tocca. Non esiste, e non deve esistere, un comando che
+  riscriva l'archivio in blocco;
+- **gli avatar.** Sono il residuo principale del payload della lista atleti e
+  non passano ancora dal servizio: l'avatar viaggia `view=summary` compreso,
+  perche la lista lo mostra;
+- **la tabella `assets`**, ancora usata da logo di club e immagini dei form.
+
+→ WP-15 (chiuso per gli allegati di persona), resta aperto per avatar e `assets`
 
 ### D14 — Validazione input disomogenea
 
@@ -296,3 +315,22 @@ dopo il rifacimento della home account.
 `public/images/account/account-hero.png` resta, ma solo da 1280 px in su.
 Sono asset statici: non pesano sul bundle, pesano sul repository. Da valutare
 insieme agli altri residui di `public/`.
+
+### D27 — Due route di modifica orfane, una su dati finti
+
+`src/app/athletes/[id]/edit/page.tsx` e
+`src/app/trainers/[id]/edit/page.tsx` non sono raggiungibili: **nessun link,
+nessun `router.push`** in tutto il repository porta li. La prima e peggio che
+orfana — e costruita su dati **inventati a mano nel file** (`+39 123 456
+7890`, `RSSGPP80A01H501Z`), quindi chi ci arrivasse digitando l'indirizzo
+vedrebbe un'anagrafica che non esiste.
+
+La modifica vera avviene nelle schede di dettaglio (`[id]/page.tsx`), che
+hanno le proprie sezioni in modifica.
+
+**Perche non sono state rimosse nel Blocco 8:** [ADR-0016](18-decision-log.md)
+limita le eliminazioni ai residui gia classificati `SAFE TO DELETE` in
+[cleanup-report](cleanup-report.md), dove queste due non compaiono. Vanno
+classificate prima, e rimosse in un commit proprio.
+
+→ WP-18
