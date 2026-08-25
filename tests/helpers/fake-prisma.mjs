@@ -171,6 +171,24 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       calls.push({ delegate: name, method: "count", args });
       return rowsOf(name).filter((r) => matchesWhere(r, args.where)).length;
     },
+    // Solo `_count._all`: e la sola aggregazione che il codice usa, e un
+    // doppio che ne simulasse altre direbbe di supportare cio che non prova.
+    groupBy: async (args = {}) => {
+      calls.push({ delegate: name, method: "groupBy", args });
+      const by = Array.isArray(args.by) ? args.by : [args.by].filter(Boolean);
+      const groups = new Map();
+
+      for (const row of rowsOf(name).filter((r) => matchesWhere(r, args.where))) {
+        const key = JSON.stringify(by.map((field) => row[field]));
+        const group =
+          groups.get(key) ||
+          Object.fromEntries(by.map((field) => [field, row[field]]));
+        group._count = { _all: (group._count?._all || 0) + 1 };
+        groups.set(key, group);
+      }
+
+      return [...groups.values()];
+    },
   });
 
   const delegates = new Map();

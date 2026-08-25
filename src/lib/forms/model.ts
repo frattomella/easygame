@@ -19,6 +19,7 @@
  * i test.
  */
 
+import { buildAttachmentUrl, parseAttachmentReference } from "@/lib/attachments";
 import {
   collectSubjectsFromBindings,
   getDynamicField,
@@ -402,14 +403,18 @@ export type FormSubmissionFile = {
  * cambia solo questa funzione. Entrambi gli endpoint sono autenticati e
  * verificano il club: nessuno dei due e raggiungibile dal modulo pubblico.
  */
+export const LEGACY_FORM_ASSET_PREFIX = "asset:";
+
 export const resolveSubmissionFileUrl = (reference: string) => {
   const value = asText(reference);
 
-  if (value.startsWith("attachment:")) {
-    return `/api/v1/attachments/${encodeURIComponent(value.slice("attachment:".length))}`;
-  }
-  if (value.startsWith("asset:")) {
-    return `/api/forms/assets/${encodeURIComponent(value.slice("asset:".length))}`;
+  const attachmentId = parseAttachmentReference(value);
+  if (attachmentId) return buildAttachmentUrl(attachmentId);
+
+  if (value.startsWith(LEGACY_FORM_ASSET_PREFIX)) {
+    return `/api/forms/assets/${encodeURIComponent(
+      value.slice(LEGACY_FORM_ASSET_PREFIX.length),
+    )}`;
   }
 
   return "";

@@ -210,14 +210,14 @@ test("il valore di un dato si legge dal record senza sapere dove sta", () => {
   const atleta = {
     first_name: "Mario",
     birth_date: "2010-05-04T00:00:00.000Z",
-    data: { fiscalCode: "RSSMRA10E04H501U" },
+    data: { fiscalCode: "RSSMRA85M01H501Q" },
   };
 
   assert.equal(dynamic.readDynamicFieldValue("athlete.firstName", atleta), "Mario");
   assert.equal(dynamic.readDynamicFieldValue("athlete.birthDate", atleta), "2010-05-04");
   assert.equal(
     dynamic.readDynamicFieldValue("athlete.fiscalCode", atleta),
-    "RSSMRA10E04H501U",
+    "RSSMRA85M01H501Q",
   );
   assert.equal(dynamic.readDynamicFieldValue("athlete.city", atleta), "");
   assert.equal(dynamic.readDynamicFieldValue("chiave.inventata", atleta), "");
@@ -418,7 +418,7 @@ test("una compilazione dice cosa cambierebbe, campo per campo", () => {
     schema,
     answers: {
       f_nome: "Mario",
-      f_cf: "RSSMRA10E04H501U",
+      f_cf: "RSSMRA85M01H501Q",
       f_tel: "3331234567",
       f_note: "Allergico alle arachidi",
     },
@@ -489,7 +489,7 @@ test("una risposta vuota non cancella un dato che c'era", () => {
 test("si riconosce un duplicato dal codice fiscale, dal nome o dall'email", () => {
   const probe = {
     subject: "athlete",
-    fiscalCode: "RSSMRA10E04H501U",
+    fiscalCode: "RSSMRA85M01H501Q",
     firstName: "Mario",
     lastName: "Rossi",
     birthDate: "2010-05-04",
@@ -498,7 +498,7 @@ test("si riconosce un duplicato dal codice fiscale, dal nome o dall'email", () =
   };
 
   const matches = changes.matchDuplicates(probe, [
-    { id: "a1", label: "Mario Rossi", fiscalCode: "rssmra10e04h501u" },
+    { id: "a1", label: "Mario Rossi", fiscalCode: "rssmra85m01h501q" },
     {
       id: "a2",
       label: "Mario Rossi",
