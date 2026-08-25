@@ -196,6 +196,43 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
    al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
    logo, nome o comandi. Dal Blocco 7 e **grigia**: vedi sotto.
 
+## Lettura documenti: si propone, non si scrive (Blocco 7)
+
+`DocumentExtractionField` compila un'anagrafica dalla foto di un documento
+d'identita. Quattro passi, e il quarto e il motivo per cui esiste:
+
+1. si carica la foto;
+2. il motore la legge — oggi OCR locale (`tesseract.js`): **il documento non
+   lascia il browser**;
+3. si vede cosa e stato letto, campo per campo, con quanta fiducia;
+4. si sceglie cosa applicare, e solo allora il form cambia.
+
+Un OCR sbaglia, e in un'anagrafica sportiva un dato sbagliato che nessuno ha
+guardato finisce su un tesseramento. **Nessun campo viene scritto senza una
+conferma esplicita.** I campi gia compilati a mano sono deselezionati di
+partenza: chi ha digitato aveva il documento davanti.
+
+I moduli:
+
+| File | Cosa fa |
+|---|---|
+| `lib/document-scan.ts` | Riconosce le etichette di un documento italiano. Esisteva gia |
+| `lib/document-extraction.ts` | Il **contratto**: `DocumentExtractionResult`, mapping verso i campi anagrafici, accettazione selettiva |
+| `lib/document-extraction-ocr.ts` | Il motore OCR, unico provider di oggi |
+| `components/forms/document-extraction-field.tsx` | Caricamento, anteprima, conferma |
+
+**Che cosa resta da integrare** (non e stato dimenticato):
+
+- il campo e montato sui form di **creazione** di staff, allenatore e socio. La
+  scheda atleta ha un suo flusso completo, precedente e funzionante: va
+  migrato su questo contratto, ma e un lavoro a se;
+- **i PDF non si leggono**: `tesseract.js` legge immagini, e rasterizzare un
+  PDF richiede una libreria che oggi non c'e;
+- non esiste un provider remoto. Aggiungerlo significa implementare
+  `DocumentExtractionProvider` — nessun form va toccato — ma mandare la carta
+  d'identita di un minore a un servizio esterno e una decisione di prodotto,
+  non una riga di codice.
+
 ## Taglie ed export valgono per tutte le persone (Blocco 7)
 
 ### Taglie

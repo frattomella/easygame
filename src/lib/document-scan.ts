@@ -85,6 +85,17 @@ const sanitizeDocumentNumber = (value?: string) => {
   return cleaned;
 };
 
+/**
+ * L'etichetta deve cominciare una parola.
+ *
+ * Senza questo controllo `NOME` combaciava dentro `COGNOME`: su una carta
+ * d'identita vera, dove la riga e `COGNOME/SURNAME`, il **nome** veniva letto
+ * come «Surname» e finiva proposto all'operatore (Blocco 7). Il cognome
+ * invece si leggeva bene, perche `COGNOME` una parola la comincia davvero.
+ */
+const startsWord = (line: string, position: number) =>
+  position === 0 || !/[A-Z]/.test(line[position - 1]);
+
 const extractValueNearLabels = (lines: string[], labels: string[]) => {
   const upperLines = toUpperLines(lines);
   const normalizedLabels = labels.map((label) => label.toUpperCase());
@@ -94,7 +105,11 @@ const extractValueNearLabels = (lines: string[], labels: string[]) => {
     const originalLine = lines[index];
 
     for (const label of normalizedLabels) {
-      const position = upperLine.indexOf(label);
+      let position = upperLine.indexOf(label);
+      while (position !== -1 && !startsWord(upperLine, position)) {
+        position = upperLine.indexOf(label, position + 1);
+      }
+
       if (position === -1) {
         continue;
       }

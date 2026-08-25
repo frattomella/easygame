@@ -21,6 +21,7 @@ import { supabase } from "@/lib/supabase";
 import { addClubData } from "@/lib/simplified-db";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
+import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
 import {
   DEFAULT_CLOTHING_SIZES,
@@ -324,6 +325,13 @@ function NewTrainerPageContent() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <DocumentExtractionField
+                    className="md:col-span-2"
+                    currentValues={formData}
+                    onApply={(fieldsPatch) =>
+                      setFormData((previous) => ({ ...previous, ...fieldsPatch }))
+                    }
+                  />
                   <div>
                     <Label htmlFor="firstName">Nome *</Label>
                     <CapitalizedInput

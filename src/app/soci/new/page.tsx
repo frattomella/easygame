@@ -19,6 +19,7 @@ import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
+import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
 import {
   DEFAULT_CLOTHING_SIZES,
@@ -221,6 +222,12 @@ function NewSocioPageContent() {
                   {/* Dati Anagrafici */}
                   <div className="space-y-4">
                     <h3 className="text-lg font-medium">Dati Anagrafici</h3>
+                    <DocumentExtractionField
+                      currentValues={formData}
+                      onApply={(fieldsPatch) =>
+                        setFormData((previous) => ({ ...previous, ...fieldsPatch }))
+                      }
+                    />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="firstName">Nome *</Label>
