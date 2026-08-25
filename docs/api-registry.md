@@ -22,6 +22,11 @@ Fonte ufficiale da mantenere aggiornata:
   caricamento (multipart). Il file non passa mai dentro un record JSON
 - `GET|PUT|DELETE /api/v1/attachments/:id` — contenuto di un allegato.
   `?download=<nome>` lo consegna come download con quel nome
+- `GET|POST /api/v1/payment-transactions` — registro incassi: elenco dei
+  movimenti (`?athlete_id=`, `?payment_id=`) e registrazione di un incasso su
+  una rata. La rata viene ricalcolata nella stessa transazione
+- `POST /api/v1/payment-transactions/:id` — `{"action":"reverse"}` storna un
+  incasso. Non esiste `DELETE`: un incasso non si cancella
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/logout`

@@ -106,6 +106,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "payment_transactions.list",
+    method: "GET",
+    path: "/api/v1/payment-transactions",
+    description:
+      "Registro incassi: i movimenti di denaro di un club, di un atleta o di una rata",
+    mobile_ready: true,
+  },
+  {
+    name: "payment_transactions.create",
+    method: "POST",
+    path: "/api/v1/payment-transactions",
+    description:
+      "Registra un incasso su una rata e ne ricalcola lo stato nella stessa transazione",
+    mobile_ready: true,
+  },
+  {
+    name: "payment_transactions.reverse",
+    method: "POST",
+    path: "/api/v1/payment-transactions/:id",
+    description:
+      "Storna un incasso: l'originale resta, il movimento di segno opposto lo compensa",
+    mobile_ready: true,
+  },
+  {
     name: "auth.login",
     method: "POST",
     path: "/api/v1/auth/login",
