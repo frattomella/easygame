@@ -97,6 +97,7 @@ import {
   type ClothingKit,
   type ClothingKitComponent,
   type ClothingNumberMode,
+  type ClothingSizeSource,
   type ClothingStockMode,
   type ClothingState,
   type InventoryStock,
@@ -124,6 +125,11 @@ import {
   normalizeClubSites,
   type ClubSite,
 } from "@/lib/club-sites";
+import { describeAssignedSize, proposeSizeForItem } from "@/lib/clothing-delivery";
+import {
+  KitDeliveryDialog,
+  KitDeliveryStateBadge,
+} from "@/components/clothing/kit-delivery-dialog";
 import {
   AlertCircle,
   Boxes,
@@ -131,6 +137,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Download,
+  PackageCheck,
   PackagePlus,
   Pencil,
   Plus,
@@ -162,6 +169,7 @@ type ItemForm = {
   requiresNumber: boolean;
   numberMode: ClothingNumberMode;
   stockMode: ClothingStockMode;
+  sizeSource: ClothingSizeSource;
 };
 
 type KitForm = {
@@ -228,6 +236,7 @@ const emptyItemForm: ItemForm = {
   requiresNumber: false,
   numberMode: "none",
   stockMode: "both",
+  sizeSource: "none",
 };
 
 const emptyKitForm: KitForm = {
@@ -460,6 +469,9 @@ export default function ClothingPage() {
   const [selectedSupplierOrderRows, setSelectedSupplierOrderRows] = useState<
     Record<string, boolean>
   >({});
+  const [deliveryAssignmentId, setDeliveryAssignmentId] = useState<string | null>(
+    null,
+  );
   const [assignmentEditOpen, setAssignmentEditOpen] = useState(false);
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(
     null,
@@ -582,6 +594,61 @@ export default function ClothingPage() {
   const selectedAssignmentItem = state.items.find(
     (item) => item.id === assignmentForm.itemId,
   );
+  /**
+   * Taglie proposte per l'atleta selezionato, una per articolo.
+   *
+   * E il difetto che chiude: il modulo di assegnazione mostrava le taglie
+   * dell'anagrafica come testo informativo e poi partiva con le tendine
+   * vuote, quindi la taglia salvata in anagrafica non arrivava mai
+   * sull'assegnazione. La proposta **non** scrive l'anagrafica: se
+   * l'operatore la cambia, cambia solo quel capo.
+   */
+  const proposedSizeByItemId = useMemo(() => {
+    if (!selectedAssignmentAthlete) return {} as Record<string, string>;
+
+    const sizes = getAthleteClothingProfile(selectedAssignmentAthlete).sizes;
+    const proposals: Record<string, string> = {};
+
+    state.items.forEach((item) => {
+      const proposed = proposeSizeForItem({ sizes, item });
+      if (proposed) proposals[item.id] = proposed;
+    });
+
+    return proposals;
+  }, [selectedAssignmentAthlete, state.items]);
+
+  const deliveryAssignment = useMemo(
+    () =>
+      deliveryAssignmentId
+        ? state.assignments.find((entry) => entry.id === deliveryAssignmentId)
+        : undefined,
+    [deliveryAssignmentId, state.assignments],
+  );
+
+  /**
+   * Le taglie previste dall'anagrafica per il kit che si sta consegnando.
+   * Servono a mostrare l'override — «assegnata L, anagrafica M» — senza che
+   * nessuna delle due riscriva l'altra.
+   */
+  const deliveryProposedSizes = useMemo(() => {
+    if (!deliveryAssignment) return {} as Record<string, string>;
+
+    const athlete = athletesById.get(deliveryAssignment.athleteId);
+    if (!athlete) return {} as Record<string, string>;
+
+    const sizes = getAthleteClothingProfile(athlete).sizes;
+    const proposals: Record<string, string> = {};
+
+    deliveryAssignment.items.forEach((item) => {
+      const catalogItem = itemById.get(item.itemId);
+      if (!catalogItem) return;
+      const proposed = proposeSizeForItem({ sizes, item: catalogItem });
+      if (proposed) proposals[item.itemId] = proposed;
+    });
+
+    return proposals;
+  }, [deliveryAssignment, athletesById, itemById]);
+
   const assignmentTargetComponents = useMemo(() => {
     if (assignmentForm.targetType === "kit" && selectedAssignmentKit) {
       return selectedAssignmentKit.components
@@ -764,6 +831,7 @@ export default function ClothingPage() {
         requiresNumber: itemForm.requiresNumber,
         numberMode: itemForm.requiresNumber ? itemForm.numberMode : "none",
         stockMode: itemForm.stockMode,
+        sizeSource: itemForm.sizeSource,
         active: true,
       } as ClothingCatalogItem;
       const next = itemForm.id
@@ -917,10 +985,17 @@ export default function ClothingPage() {
   const createAssignment = async () => {
     try {
       if (!activeClub?.id) throw new Error("Club non trovato");
-      const components = assignmentTargetComponents.map((item) => ({
-        ...(assignmentForm.components[item.id] || {}),
-        itemId: item.id,
-      }));
+      const components = assignmentTargetComponents.map((item) => {
+        const draft = assignmentForm.components[item.id] || {};
+        return {
+          ...draft,
+          itemId: item.id,
+          // Senza scelta esplicita vale la proposta dell'anagrafica: e cio
+          // che l'operatore vede nella tendina, e deve essere cio che si
+          // salva.
+          size: draft.size || proposedSizeByItemId[item.id] || "",
+        };
+      });
 
       if (!assignmentForm.athleteId) throw new Error("Seleziona un atleta");
       if (!components.length) throw new Error("Seleziona kit o articolo");
@@ -970,6 +1045,38 @@ export default function ClothingPage() {
       toast({
         title: "Errore",
         description: error?.message || "Impossibile creare assegnazione",
+        variant: "destructive",
+      });
+    }
+  };
+
+  /**
+   * Registra le consegne di un kit.
+   *
+   * Non passa da `updateClothingAssignmentStatus`: quella funzione muove il
+   * magazzino e riscrive **tutti** gli articoli con lo stesso stato, che e
+   * esattamente cio che le consegne parziali devono smettere di fare. Qui si
+   * salva solo il fatto registrato dalla segreteria; lo stato del kit e gia
+   * derivato da `setAssignmentItemState`.
+   */
+  const saveKitDeliveries = async (updated: ClothingAssignment) => {
+    try {
+      const nextAssignments = state.assignments.map((entry) =>
+        entry.id === updated.id ? updated : entry,
+      );
+      await saveClubJson(
+        "kit_assignments",
+        nextAssignments.map(serializeClothingAssignment),
+      );
+      setState((current) => ({ ...current, assignments: nextAssignments }));
+      toast({
+        title: "Consegne aggiornate",
+        description: "Lo stato del kit e stato ricalcolato dagli articoli.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error?.message || "Impossibile salvare le consegne",
         variant: "destructive",
       });
     }
@@ -1523,13 +1630,20 @@ export default function ClothingPage() {
 
   const renderAssignmentComponent = (item: ClothingCatalogItem) => {
     const draft = assignmentForm.components[item.id] || { itemId: item.id };
+    const proposedSize = proposedSizeByItemId[item.id] || "";
+    const sizeDescription = describeAssignedSize({
+      assignedSize: draft.size,
+      proposedSize,
+    });
     const athlete = selectedAssignmentAthlete;
     const compatibleInventory = athlete
       ? getCompatibleInventoryForAthlete({
           athlete,
           item,
           inventory: state.inventory,
-          size: draft.size,
+          // Anche da magazzino la taglia di partenza e quella dell'anagrafica:
+          // era l'altra meta dello stesso difetto.
+          size: sizeDescription.size,
           color: draft.color,
           variant: draft.variant,
           categories: categoryOptions,
@@ -1616,11 +1730,11 @@ export default function ClothingPage() {
             ) : null}
           </div>
         ) : (
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
             <div>
               <Label>Taglia</Label>
               <Select
-                value={String(draft.size || "")}
+                value={sizeDescription.size}
                 onValueChange={(value) => setComponentDraft(item.id, { size: value })}
               >
                 <SelectTrigger className="mt-2">
@@ -1634,6 +1748,13 @@ export default function ClothingPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {proposedSize ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  {sizeDescription.isOverride
+                    ? `Anagrafica: ${proposedSize} — assegnata a mano, l'anagrafica non cambia`
+                    : `Proposta dall'anagrafica: ${proposedSize}`}
+                </p>
+              ) : null}
             </div>
             <div>
               <Label>Colore</Label>
@@ -2334,12 +2455,20 @@ export default function ClothingPage() {
                                         : "Manuale"}
                                   </td>
                                   <td className="px-3 py-3">
-                                    <Badge
-                                      variant="outline"
-                                      className={statusBadgeClass(assignment.status)}
-                                    >
-                                      {assignmentStatusLabels[assignment.status]}
-                                    </Badge>
+                                    {assignment.items.length ? (
+                                      <KitDeliveryStateBadge
+                                        assignment={assignment}
+                                      />
+                                    ) : (
+                                      <Badge
+                                        variant="outline"
+                                        className={statusBadgeClass(
+                                          assignment.status,
+                                        )}
+                                      >
+                                        {assignmentStatusLabels[assignment.status]}
+                                      </Badge>
+                                    )}
                                   </td>
                                   <td className="px-3 py-3">
                                     <div className="flex flex-wrap gap-1">
@@ -2361,6 +2490,19 @@ export default function ClothingPage() {
                                   </td>
                                   <td className="px-3 py-3">
                                     <div className="flex justify-end gap-1">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8"
+                                        disabled={!assignment.items.length}
+                                        onClick={() =>
+                                          setDeliveryAssignmentId(assignment.id)
+                                        }
+                                        aria-label="Consegne del kit"
+                                        title="Consegne del kit"
+                                      >
+                                        <PackageCheck className="h-4 w-4" />
+                                      </Button>
                                       <Button
                                         size="icon"
                                         variant="ghost"
@@ -3140,6 +3282,46 @@ export default function ClothingPage() {
                                   </SelectContent>
                                 </Select>
                               </div>
+                              <div>
+                                <Label htmlFor="item-size-source">
+                                  Taglia dall&apos;anagrafica
+                                </Label>
+                                <Select
+                                  value={itemForm.sizeSource}
+                                  onValueChange={(value) =>
+                                    setItemForm((current) => ({
+                                      ...current,
+                                      sizeSource: value as ClothingSizeSource,
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger
+                                    id="item-size-source"
+                                    className="mt-2"
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">
+                                      Deduci dal tipo
+                                    </SelectItem>
+                                    <SelectItem value="shirt">
+                                      Taglia maglia
+                                    </SelectItem>
+                                    <SelectItem value="pants">
+                                      Taglia pantaloni
+                                    </SelectItem>
+                                    <SelectItem value="shoes">
+                                      Numero di scarpe
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Quale taglia proporre in assegnazione. La
+                                  proposta si puo sempre sovrascrivere e non
+                                  modifica l&apos;anagrafica.
+                                </p>
+                              </div>
                               <div className="flex justify-end gap-2">
                                 <Button
                                   variant="outline"
@@ -3199,6 +3381,7 @@ export default function ClothingPage() {
                                   requiresNumber: item.requiresNumber,
                                   numberMode: item.numberMode,
                                   stockMode: item.stockMode,
+                                  sizeSource: item.sizeSource,
                                 });
                                 setItemDialogOpen(true);
                               }}
@@ -3297,6 +3480,7 @@ export default function ClothingPage() {
                                         requiresNumber: item.requiresNumber,
                                         numberMode: item.numberMode,
                                         stockMode: item.stockMode,
+                                        sizeSource: item.sizeSource,
                                       });
                                       setItemDialogOpen(true);
                                     }}
@@ -3361,17 +3545,16 @@ export default function ClothingPage() {
                                   }))
                                 }
                               />
-                              <div className="grid gap-3 md:grid-cols-2">
-                                <Input
-                                  placeholder="Stagione"
-                                  value={kitForm.season}
-                                  onChange={(event) =>
-                                    setKitForm((current) => ({
-                                      ...current,
-                                      season: event.target.value,
-                                    }))
-                                  }
-                                />
+                              {/*
+                                Il kit non ha stagione. `clothing_kits` non e
+                                fra i tipi stagionali (`SEASON_SCOPED_DATA_TYPES`):
+                                il catalogo e la sua composizione valgono per
+                                tutte le stagioni, e cio che appartiene a una
+                                stagione sono le **assegnazioni**. Un campo che
+                                sembra un filtro e non filtra niente e peggio
+                                di un campo assente.
+                              */}
+                              <div className="grid grid-cols-1 gap-3">
                                 <Select
                                   value={kitForm.numberMode}
                                   onValueChange={(value) =>
@@ -3556,7 +3739,6 @@ export default function ClothingPage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Nome kit</TableHead>
-                              <TableHead>Stagione</TableHead>
                               <TableHead>Componenti</TableHead>
                               <TableHead>Categorie compatibili</TableHead>
                               <TableHead>Numerazione</TableHead>
@@ -3573,7 +3755,6 @@ export default function ClothingPage() {
                                     {kit.description || "Nessuna descrizione"}
                                   </div>
                                 </TableCell>
-                                <TableCell>{kit.season || "-"}</TableCell>
                                 <TableCell className="min-w-[220px]">
                                   {kit.components
                                     .map(
@@ -3626,7 +3807,7 @@ export default function ClothingPage() {
                             ))}
                             {filteredKits.length === 0 ? (
                               <TableRow>
-                                <TableCell colSpan={7} className="py-8 text-center">
+                                <TableCell colSpan={6} className="py-8 text-center">
                                   Nessun kit configurato.
                                 </TableCell>
                               </TableRow>
@@ -4299,6 +4480,21 @@ export default function ClothingPage() {
                 </Card>
               </TabsContent>
             </Tabs>
+
+            <KitDeliveryDialog
+              open={Boolean(deliveryAssignment)}
+              onOpenChange={(open) => {
+                if (!open) setDeliveryAssignmentId(null);
+              }}
+              assignment={deliveryAssignment || null}
+              athleteName={
+                deliveryAssignment
+                  ? athleteLabel(athletesById.get(deliveryAssignment.athleteId))
+                  : ""
+              }
+              proposedSizeByItemId={deliveryProposedSizes}
+              onSave={saveKitDeliveries}
+            />
 
             {loading ? (
               <div className="fixed inset-x-0 bottom-4 mx-auto flex w-fit items-center gap-2 rounded-full border bg-white px-4 py-2 text-sm shadow">
