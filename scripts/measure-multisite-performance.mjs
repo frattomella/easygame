@@ -8,7 +8,13 @@
  *
  * Si esegue con:
  *
- *   node --experimental-strip-types scripts/measure-multisite-performance.mjs
+ *   node --experimental-strip-types \n *     --import ./tests/helpers/register-hooks.mjs \n *     scripts/measure-multisite-performance.mjs
+ *
+ * Il gancio serve: i moduli misurati importano con alias `@/` e senza
+ * estensione, che Node da solo non risolve. Senza, lo script muore
+ * sull'import invece di misurare, ed e cosi che una misura smette di essere
+ * rifacibile — vedi il gemello measure-athletes-payload.mjs, che il gancio lo
+ * documentava gia.
  *
  * Non tocca il database e non legge `.env`: costruisce i dati in memoria.
  */

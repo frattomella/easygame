@@ -378,3 +378,116 @@ test("il CAP non si compila dove il comune ne ha piu di uno", () => {
     "un comune con piu CAP deve dirlo all'operatore, non tacere",
   );
 });
+
+/**
+ * Un punto di lettura non deve avere un elenco chiuso di campi.
+ *
+ * **Il difetto che questo test impedisce di ripetere.** La scheda socio
+ * costruiva il proprio stato con dodici chiavi scritte a mano. Il modulo di
+ * creazione ne scriveva ventuno: data di nascita, sesso, comune, codice
+ * catastale, codice fiscale, indirizzo, citta, CAP e taglie non arrivavano
+ * mai alla scheda. Il dato non si perdeva — `updateClubDataItem` fonde
+ * l'elemento invece di sostituirlo — ma restava invisibile, e quindi
+ * incorreggibile.
+ *
+ * E un difetto che si vede solo a schermo, con un socio vero davanti: i
+ * campi *esistono* nel JSX, e nessuna invariante statica sul JSX se ne
+ * accorge. Questo test guarda l'altro lato — che i campi mostrati siano anche
+ * quelli caricati.
+ */
+test("la scheda socio carica tutti i campi che la creazione scrive", () => {
+  const detail = read("app/soci/[id]/page.tsx");
+  const create = read("app/soci/new/page.tsx");
+
+  /* I campi che il modulo di creazione mette nel record del socio. */
+  const written = [
+    "fiscalCode",
+    "birthDate",
+    "gender",
+    "birthPlace",
+    "birthPlaceCode",
+    "clothingSizes",
+    "address",
+    "city",
+    "postalCode",
+  ];
+
+  for (const field of written) {
+    assert.match(
+      create,
+      new RegExp(`${field}:`),
+      `il modulo di creazione non scrive piu ${field}: aggiorna questo elenco`,
+    );
+    assert.match(
+      detail,
+      new RegExp(`${field}: memberData\.${field}`),
+      `la scheda socio non carica ${field}: il campo si scrive e non si legge`,
+    );
+  }
+});
+
+/**
+ * La residenza di una persona passa da un componente solo.
+ *
+ * **Il difetto.** `AssistedAddressFields` — con provincia, regione e nazione —
+ * stava sulla scheda del club e su quella dell'atleta. Le sei anagrafiche di
+ * persona chiedono tre campi soli, e per questo ne avevano tre `<Input>`
+ * liberi ciascuna: sei copie dello stesso blocco, nessuna con la ricerca del
+ * comune, nessuna con il CAP. L'assistenza anagrafica arrivava dove il form
+ * era gia complesso e mancava dove era semplice, cioe dove si digita di piu.
+ */
+const RESIDENCE_SURFACES = [
+  ["app/trainers/new/page.tsx", "nuovo allenatore"],
+  ["app/staff/new/page.tsx", "nuovo staff"],
+  ["app/soci/new/page.tsx", "nuovo socio"],
+  ["app/trainers/[id]/page.tsx", "scheda allenatore"],
+  ["app/staff/[id]/page.tsx", "scheda staff"],
+  ["app/soci/[id]/page.tsx", "scheda socio"],
+];
+
+test("la residenza di una persona usa il campo condiviso, non tre input liberi", () => {
+  for (const [file, label] of RESIDENCE_SURFACES) {
+    const source = read(file);
+
+    assert.match(
+      source,
+      /<PersonResidenceFields/,
+      `${label} (${file}) deve montare il campo residenza condiviso`,
+    );
+
+    /*
+      Un `<Input>` o un `<CapitalizedInput>` il cui valore e un `postalCode`:
+      il componente condiviso monta il proprio dentro di se, ma questi file
+      non lo contengono — montano il componente.
+    */
+    assert.equal(
+      /<(Capitalized)?Input\s[^>]*(id="postalCode"|value=\{[^}]*postalCode)/.test(source),
+      false,
+      `${label} (${file}): resta un campo CAP scritto a mano`,
+    );
+  }
+});
+
+/**
+ * Dove si sceglie un comune, il CAP lo porta il comune.
+ *
+ * Il componente condiviso e l'unico posto in cui questa regola vive: se un
+ * domani qualcuno rimettesse un input libero, il test sopra lo direbbe, e se
+ * togliesse la proposta dal componente lo direbbe questo.
+ */
+test("il campo residenza propone il CAP dal comune scelto", () => {
+  const source = read("components/forms/assisted-anagrafica.tsx");
+  const component = source.slice(source.indexOf("export function PersonResidenceFields"));
+
+  assert.match(component, /<ComuneAutocomplete/);
+  assert.match(
+    component,
+    /comune\.postalCodeStatus === "unique"/,
+    "il CAP si compila senza verificare che sia univoco",
+  );
+  assert.match(
+    component,
+    /if \(!current\) patch\.postalCode = comune\.postalCode;/,
+    "il CAP proposto sovrascrive quello inserito a mano",
+  );
+});

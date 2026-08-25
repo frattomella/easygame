@@ -51,7 +51,10 @@ import {
 } from "@/components/forms/clothing-sizes-fields";
 import { normalizeGenderLetter } from "@/lib/italian-registry";
 import { PhoneField } from "@/components/forms/phone-field";
-import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  AssistedFiscalCodeField,
+  PersonResidenceFields,
+} from "@/components/forms/assisted-anagrafica";
 import {
   CUSTOM_OPTION_VALUE,
   collectStaffRoles,
@@ -898,27 +901,18 @@ export default function StaffMemberDetailsPage() {
                         onChange={(value) => setEditFormData({...editFormData, phone: value})}
                       />
                     </div>
+                    {/*
+                      Via, comune e CAP dal componente condiviso: il comune si
+                      cerca nell'archivio ISTAT e porta con se il CAP quando ne
+                      ha uno solo (Blocco A, punti 9 e 10).
+                    */}
                     <div className="col-span-2">
-                      <Label>Indirizzo</Label>
-                      <CapitalizedInput
-                        value={editFormData.address || ''}
-                        onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, address: value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Città</Label>
-                      <CapitalizedInput
-                        value={editFormData.city || ''}
-                        onChange={(e) => setEditFormData({...editFormData, city: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, city: value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>CAP</Label>
-                      <Input 
-                        value={editFormData.postalCode || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, postalCode: e.target.value})}
+                      <PersonResidenceFields
+                        idPrefix="staff-edit"
+                        values={editFormData}
+                        onChange={(patch) =>
+                          setEditFormData({ ...editFormData, ...patch })
+                        }
                       />
                     </div>
                   </div>

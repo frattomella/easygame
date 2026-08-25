@@ -34,7 +34,10 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { addStaffMember } from "@/lib/simplified-db";
-import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  AssistedFiscalCodeField,
+  PersonResidenceFields,
+} from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
@@ -462,32 +465,20 @@ function NewStaffMemberPageContent() {
                     />
                     <p className="text-xs text-gray-500 mt-1">* Almeno un contatto è obbligatorio</p>
                   </div>
+                  {/*
+                    Via, comune e CAP dal componente condiviso: il comune si
+                    cerca nell'archivio ISTAT e porta con se il CAP quando ne
+                    ha uno solo (Blocco A, punti 9 e 10).
+                  */}
                   <div className="md:col-span-2">
-                    <Label htmlFor="address">Indirizzo</Label>
-                    <Input
-                      id="address"
-                      value={formData.address}
-                      onChange={(e) => handleInputChange("address", e.target.value)}
-                      placeholder="Via, numero civico"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="city">Città</Label>
-                    <Input
-                      id="city"
-                      value={formData.city}
-                      onChange={(e) => handleInputChange("city", e.target.value)}
-                      placeholder="Inserisci la città"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="postalCode">CAP</Label>
-                    <Input
-                      id="postalCode"
-                      value={formData.postalCode}
-                      onChange={(e) => handleInputChange("postalCode", e.target.value)}
-                      placeholder="00000"
-                      maxLength={5}
+                    <PersonResidenceFields
+                      idPrefix="staff-new"
+                      values={formData}
+                      onChange={(patch) => {
+                        for (const [field, value] of Object.entries(patch)) {
+                          handleInputChange(field as any, value as string);
+                        }
+                      }}
                     />
                   </div>
                 </CardContent>

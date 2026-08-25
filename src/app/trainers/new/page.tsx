@@ -19,7 +19,10 @@ import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { addClubData } from "@/lib/simplified-db";
-import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  AssistedFiscalCodeField,
+  PersonResidenceFields,
+} from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
@@ -440,39 +443,21 @@ function NewTrainerPageContent() {
                       onChange={(value) => handleInputChange("phone", value)}
                     />
                   </div>
-                  <div>
-                    <Label htmlFor="address">Indirizzo</Label>
-                    <Input
-                      id="address"
-                      value={formData.address}
-                      onChange={(event) =>
-                        handleInputChange("address", event.target.value)
+                  {/*
+                    Via, comune e CAP dal componente condiviso: il comune si
+                    cerca nell'archivio ISTAT e porta con se il CAP quando ne
+                    ha uno solo (Blocco A, punti 9 e 10). Erano tre input
+                    liberi, uguali in sei anagrafiche e assistiti in nessuna.
+                  */}
+                  <PersonResidenceFields
+                    idPrefix="trainer-new"
+                    values={formData}
+                    onChange={(patch) => {
+                      for (const [field, value] of Object.entries(patch)) {
+                        handleInputChange(field as keyof TrainerFormState, value as string);
                       }
-                      placeholder="Es. Via Roma 12"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="city">Città</Label>
-                    <Input
-                      id="city"
-                      value={formData.city}
-                      onChange={(event) =>
-                        handleInputChange("city", event.target.value)
-                      }
-                      placeholder="Es. Milano"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="postalCode">CAP</Label>
-                    <Input
-                      id="postalCode"
-                      value={formData.postalCode}
-                      onChange={(event) =>
-                        handleInputChange("postalCode", event.target.value)
-                      }
-                      placeholder="Es. 20100"
-                    />
-                  </div>
+                    }}
+                  />
                 </CardContent>
               </Card>
 

@@ -19,6 +19,7 @@ import {
 } from "@/lib/italian-registry";
 import { CircleCheck, TriangleAlert, Wand2 } from "lucide-react";
 import { ComuneAutocomplete } from "./comune-autocomplete";
+import { CapitalizedInput } from "./capitalized-input";
 import { lookupComuneByBelfiore } from "@/lib/api/comuni";
 import type { ComuneMatch } from "@/lib/comuni-model";
 
@@ -515,6 +516,120 @@ export function AssistedFiscalCodeField({
           )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Residenza di una persona: via, comune, CAP.
+ *
+ * **Perche esiste** (Blocco A, punti 9 e 10). `AssistedAddressFields` e la
+ * residenza *completa* — provincia, regione, nazione — e sta bene sulla scheda
+ * di un club o di un atleta. Le sei anagrafiche di persona (allenatore, staff,
+ * socio: creazione e scheda) ne chiedono tre campi soli, e per questo avevano
+ * tre `<Input>` liberi ciascuna: sei copie dello stesso blocco, nessuna con la
+ * ricerca del comune e nessuna con il CAP.
+ *
+ * L'effetto pratico era che l'assistenza anagrafica arrivava dove il form era
+ * gia complesso e mancava dove era semplice — cioe esattamente dove una
+ * segreteria digita di piu.
+ *
+ * Il CAP si compila con la stessa regola di tutto questo file: **si propone,
+ * non si impone.** Solo se il campo e vuoto, e solo se il comune ne ha uno
+ * solo; per gli altri lo si dice e si lascia scrivere.
+ */
+export type PersonResidenceValue = {
+  address?: string;
+  city?: string;
+  postalCode?: string;
+};
+
+export function PersonResidenceFields({
+  idPrefix,
+  values,
+  onChange,
+  addressLabel = "Indirizzo",
+  disabled = false,
+  className,
+}: {
+  idPrefix: string;
+  values: PersonResidenceValue;
+  onChange: (patch: PersonResidenceValue) => void;
+  addressLabel?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [postalCodeNote, setPostalCodeNote] = useState("");
+
+  return (
+    <div className={cn("space-y-4", className)}>
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-address`}>{addressLabel}</Label>
+        <CapitalizedInput
+          id={`${idPrefix}-address`}
+          value={values.address || ""}
+          disabled={disabled}
+          placeholder="Via Roma, 1"
+          onChange={(event) => onChange({ address: event.target.value })}
+          onValueChange={(address) => onChange({ address })}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/*
+          Il comune si sceglie dall'archivio ISTAT ma resta un campo libero:
+          una localita estera o un comune soppresso si scrivono a mano.
+        */}
+        <ComuneAutocomplete
+          id={`${idPrefix}-city`}
+          label="Comune"
+          value={values.city || ""}
+          disabled={disabled}
+          onChange={(city) => onChange({ city })}
+          onSelect={(comune) => {
+            const patch: PersonResidenceValue = { city: comune.name };
+            const current = String(values.postalCode || "").trim();
+
+            if (comune.postalCodeStatus === "unique" && comune.postalCode) {
+              if (!current) patch.postalCode = comune.postalCode;
+              setPostalCodeNote("");
+            } else if (comune.postalCodeStatus === "ambiguous") {
+              setPostalCodeNote(
+                current
+                  ? ""
+                  : `${comune.name} ha piu di un CAP: indica quello dell'indirizzo.`,
+              );
+            } else {
+              setPostalCodeNote("");
+            }
+
+            onChange(patch);
+          }}
+        />
+
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-postal-code`}>CAP</Label>
+          <Input
+            id={`${idPrefix}-postal-code`}
+            inputMode="numeric"
+            maxLength={5}
+            className="eg-tabular"
+            disabled={disabled}
+            value={values.postalCode || ""}
+            placeholder="00100"
+            onChange={(event) =>
+              onChange({
+                postalCode: event.target.value
+                  .replace(/[^0-9]/g, "")
+                  .slice(0, 5),
+              })
+            }
+          />
+          {postalCodeNote ? (
+            <p className="text-xs text-slate-500">{postalCodeNote}</p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

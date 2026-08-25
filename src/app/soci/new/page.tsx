@@ -17,7 +17,10 @@ import {
 } from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  AssistedFiscalCodeField,
+  PersonResidenceFields,
+} from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
@@ -360,41 +363,21 @@ function NewSocioPageContent() {
                     </div>
                   </div>
 
-                  {/* Indirizzo */}
+                  {/*
+                    Via, comune e CAP dal componente condiviso: il comune si
+                    cerca nell'archivio ISTAT e porta con se il CAP quando ne
+                    ha uno solo (Blocco A, punti 9 e 10).
+                  */}
                   <div className="space-y-4">
                     <h3 className="text-lg font-medium">Indirizzo</h3>
-                    <div className="space-y-2">
-                      <Label htmlFor="address">Via/Piazza</Label>
-                      <Input
-                        id="address"
-                        name="address"
-                        value={formData.address}
-                        onChange={handleChange}
-                        placeholder="Via Roma, 1"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="city">Città</Label>
-                        <Input
-                          id="city"
-                          name="city"
-                          value={formData.city}
-                          onChange={handleChange}
-                          placeholder="Roma"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="postalCode">CAP</Label>
-                        <Input
-                          id="postalCode"
-                          name="postalCode"
-                          value={formData.postalCode}
-                          onChange={handleChange}
-                          placeholder="00100"
-                        />
-                      </div>
-                    </div>
+                    <PersonResidenceFields
+                      idPrefix="member-new"
+                      addressLabel="Via/Piazza"
+                      values={formData}
+                      onChange={(patch) =>
+                        setFormData((current) => ({ ...current, ...patch }))
+                      }
+                    />
                   </div>
 
                   {/*

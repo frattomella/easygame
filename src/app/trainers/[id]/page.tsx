@@ -76,7 +76,10 @@ import { CertificateAttachmentField } from "@/components/forms/certificate-attac
 import { buildAttachmentFileName } from "@/lib/attachment-names";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
-import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  AssistedFiscalCodeField,
+  PersonResidenceFields,
+} from "@/components/forms/assisted-anagrafica";
 import { paymentDateOf, sortByDateDesc } from "@/lib/sorting";
 import {
   Select,
@@ -2075,23 +2078,34 @@ export default function TrainerDetailsPage() {
 
                 {/* NEW: Contracts and Documents Section */}
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
+                  {/*
+                    A 375 px i due comandi in riga finivano a x=402: «Aggiungi
+                    Contratto» stava **fuori dallo schermo** e non si poteva
+                    premere (Blocco A, punto 22). La pagina non scorreva in
+                    orizzontale — qualcosa piu in alto ritagliava — quindi
+                    nessuna invariante statica se ne era accorta: si vede solo
+                    misurando la posizione dei comandi a schermo stretto.
+
+                    Colonna sotto i 640 px, riga sopra: gli stessi due
+                    pulsanti, uno sotto l'altro finche c'e poco spazio.
+                  */}
+                  <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
                     <CardTitle className="flex items-center gap-2">
                       <FileText className="h-5 w-5" />
                       Contratti e Documenti
                     </CardTitle>
-                    <div className="flex gap-2">
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                       <Button 
                         variant="outline" 
                         onClick={handleViewContracts}
-                        className="flex items-center gap-2"
+                        className="flex items-center justify-center gap-2"
                       >
                         <Eye className="h-4 w-4" />
                         Visualizza Tutti
                       </Button>
                       <Button 
                         onClick={handleAddContract}
-                        className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
+                        className="bg-blue-600 hover:bg-blue-700 flex items-center justify-center gap-2"
                       >
                         <Plus className="h-4 w-4" />
                         Aggiungi Contratto
@@ -2776,27 +2790,18 @@ export default function TrainerDetailsPage() {
                         onChange={(value) => setEditFormData({...editFormData, phone: value})}
                       />
                     </div>
+                    {/*
+                      Via, comune e CAP dal componente condiviso: il comune si
+                      cerca nell'archivio ISTAT e porta con se il CAP quando ne
+                      ha uno solo (Blocco A, punti 9 e 10).
+                    */}
                     <div className="col-span-2">
-                      <Label>Indirizzo</Label>
-                      <CapitalizedInput
-                        value={editFormData.address || ''}
-                        onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, address: value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Città</Label>
-                      <CapitalizedInput
-                        value={editFormData.city || ''}
-                        onChange={(e) => setEditFormData({...editFormData, city: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, city: value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>CAP</Label>
-                      <Input 
-                        value={editFormData.postalCode || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, postalCode: e.target.value})}
+                      <PersonResidenceFields
+                        idPrefix="trainer-edit"
+                        values={editFormData}
+                        onChange={(patch) =>
+                          setEditFormData({ ...editFormData, ...patch })
+                        }
                       />
                     </div>
                   </div>

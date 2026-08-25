@@ -38,7 +38,10 @@ import { deleteClubDataItem } from "@/lib/simplified-db";
 import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
-import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  AssistedFiscalCodeField,
+  PersonResidenceFields,
+} from "@/components/forms/assisted-anagrafica";
 import {
   genderLabel,
   normalizeGenderLetter,
@@ -217,6 +220,29 @@ export default function MemberDetailsPage() {
           firstName: identity.firstName,
           lastName: identity.lastName,
           
+          /*
+            Questi nove campi il modulo di creazione li scriveva gia, e questa
+            funzione li buttava via: costruiva un elenco chiuso di dodici
+            chiavi, e cio che non era nell'elenco non arrivava alla scheda
+            (Blocco A, punti 10 e 13).
+
+            Il dato non si perdeva — `updateClubDataItem` fonde l'elemento
+            invece di sostituirlo, quindi restava in archivio — ma nessuno
+            poteva vederlo ne correggerlo. Un elenco chiuso di campi in un
+            punto di lettura e un modo silenzioso di rendere invisibile meta
+            di un'anagrafica: chi aggiunge un campo al modulo di creazione non
+            ha nessun motivo di sospettare che esista anche qui.
+          */
+          birthDate: memberData.birthDate || "",
+          gender: memberData.gender || "",
+          birthPlace: memberData.birthPlace || "",
+          birthPlaceCode: memberData.birthPlaceCode || "",
+          fiscalCode: memberData.fiscalCode || "",
+          address: memberData.address || "",
+          city: memberData.city || "",
+          postalCode: memberData.postalCode || "",
+          clothingSizes: memberData.clothingSizes || null,
+
           // Contatti
           email: memberData.email || "",
           phone: memberData.phone || "",
@@ -709,36 +735,19 @@ export default function MemberDetailsPage() {
                 </div>
               )}
 
+              {/*
+                Via, comune e CAP dal componente condiviso: il comune si cerca
+                nell'archivio ISTAT e porta con se il CAP quando ne ha uno solo
+                (Blocco A, punti 9 e 10).
+              */}
               {editingSection === "contacts" && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <Label>Indirizzo</Label>
-                      <CapitalizedInput
-                        value={editFormData.address || ''}
-                        onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, address: value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Citta</Label>
-                      <CapitalizedInput
-                        value={editFormData.city || ''}
-                        onChange={(e) => setEditFormData({...editFormData, city: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, city: value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>CAP</Label>
-                      <Input
-                        inputMode="numeric"
-                        maxLength={5}
-                        value={editFormData.postalCode || ''}
-                        onChange={(e) => setEditFormData({...editFormData, postalCode: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                </div>
+                <PersonResidenceFields
+                  idPrefix="member-edit"
+                  values={editFormData}
+                  onChange={(patch) =>
+                    setEditFormData({ ...editFormData, ...patch })
+                  }
+                />
               )}
 
               {editingSection === "clothing" && (
