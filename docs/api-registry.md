@@ -28,6 +28,16 @@ Fonte ufficiale da mantenere aggiornata:
 - `POST /api/v1/payment-transactions/:id` — `{"action":"reverse"}` storna un
   incasso, `{"action":"issue-receipt"}` ne emette la ricevuta (idempotente).
   Non esiste `DELETE`: un incasso non si cancella
+- `GET|POST /api/v1/funding/programs` — programmi di contributo (voucher,
+  bandi). Le regole del bando sono colonne, non codice
+- `GET|PATCH /api/v1/funding/programs/:id` — nessun `DELETE`: un programma con
+  maturati si porta a `closed`
+- `GET|POST /api/v1/funding/enrollments` — beneficiari.
+  `?view=overview&athlete_id=` restituisce i cinque importi gia calcolati
+- `GET|POST /api/v1/funding/accruals` — `{"action":"recompute"}` ricalcola il
+  maturato dalle presenze, `{"action":"report"}` lo rendiconta all'ente
+- `GET|POST /api/v1/funding/settlements` — liquidazioni dell'ente, con la
+  ripartizione obbligatoria sui periodi maturati
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/logout`
