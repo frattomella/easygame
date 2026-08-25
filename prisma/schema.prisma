@@ -237,6 +237,8 @@ model Club {
   funding_accruals             FundingAccrual[]
   funding_settlements          FundingSettlement[]
   funding_settlement_lines     FundingSettlementLine[]
+  form_templates               FormTemplate[]
+  form_submissions             FormSubmission[]
 
   @@map("clubs")
 }
@@ -843,4 +845,107 @@ model AuditLog {
   @@index([action, created_at])
   @@index([created_at])
   @@map("audit_logs")
+}
+
+/// Un modulo — Modulistica V2 (ADR-0039, ADR-0040).
+///
+/// Prima di questa tabella un modulo era un oggetto dentro
+/// `clubs.document_templates`, insieme ai modelli di stampa e alle risposte
+/// gia raccolte. Salvare una risposta riscriveva l'intero array del club, e
+/// trovare il modulo di uno slug pubblico voleva dire un `@>` su tutta la
+/// tabella `clubs`.
+///
+/// `draft` e cio che si sta modificando; cio che il pubblico compila e sempre
+/// una riga di `form_template_versions`. Le due cose sono separate perche
+/// modificare un modulo gia in uso non deve cambiare il significato delle
+/// risposte gia arrivate.
+///
+/// `public_enabled` non e lo stato: e la distribuzione. Un modulo pubblicato
+/// ma non pubblico si compila dalla segreteria e il suo link risponde 404.
+model FormTemplate {
+  id                String                @id @default(uuid()) @db.Uuid
+  organization_id   String                @db.Uuid
+  title             String
+  description       String?
+  /// `draft` | `published` | `archived`
+  status            String                @default("draft")
+  /// Slug leggibile piu dodici caratteri esadecimali: non si indovina a mano.
+  public_slug       String                @unique
+  public_enabled    Boolean               @default(true)
+  draft             Json
+  /// Numero dell'ultima versione pubblicata. Zero se non lo e mai stato.
+  published_version Int                   @default(0)
+  published_at      DateTime?
+  created_by        String?               @db.Uuid
+  created_at        DateTime              @default(now())
+  updated_at        DateTime              @updatedAt
+  organization      Club                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  versions          FormTemplateVersion[]
+  submissions       FormSubmission[]
+
+  @@index([organization_id, status])
+  @@map("form_templates")
+}
+
+/// Una versione pubblicata: immutabile.
+///
+/// Non si aggiorna mai. E l'unica risposta possibile a «con quali domande e
+/// stato compilato questo modulo?» che resti vera dopo che il modulo e stato
+/// modificato — e i moduli si modificano, tutti gli anni, a stagione aperta.
+model FormTemplateVersion {
+  id              String           @id @default(uuid()) @db.Uuid
+  organization_id String           @db.Uuid
+  template_id     String           @db.Uuid
+  version         Int
+  /// Titolo, descrizione, campi e impostazioni, nella forma di `FormSchema`.
+  schema_json     Json
+  published_at    DateTime         @default(now())
+  published_by    String?          @db.Uuid
+  template        FormTemplate     @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  submissions     FormSubmission[]
+
+  @@unique([template_id, version])
+  @@index([organization_id])
+  @@map("form_template_versions")
+}
+
+/// Una compilazione.
+///
+/// **Non e un dato ufficiale.** Nessuna riga di questa tabella modifica da
+/// sola l'anagrafica: la segreteria vede la proposta, la confronta con cio
+/// che c'e gia e approva. Solo l'approvazione scrive.
+///
+/// `version_id` cita la versione con cui e stata compilata. Un modulo con
+/// compilazioni non si cancella — si archivia — proprio perche quella
+/// citazione deve restare risolvibile.
+model FormSubmission {
+  id               String              @id @default(uuid()) @db.Uuid
+  organization_id  String              @db.Uuid
+  template_id      String              @db.Uuid
+  version_id       String              @db.Uuid
+  /// `public` | `internal`
+  source           String              @default("public")
+  /// `pending` | `approved` | `rejected`
+  status           String              @default("pending")
+  /// Quale atleta, quale genitore: `FormSubjectSelection[]`.
+  subjects         Json
+  answers          Json
+  /// Metadati degli allegati caricati: riferimenti, mai byte.
+  files            Json
+  respondent_name  String?
+  respondent_email String?
+  submitted_by     String?             @db.Uuid
+  submitted_at     DateTime            @default(now())
+  reviewed_by      String?             @db.Uuid
+  reviewed_at      DateTime?
+  review_note      String?
+  created_at       DateTime            @default(now())
+  updated_at       DateTime            @updatedAt
+  organization     Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  template         FormTemplate        @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  template_version FormTemplateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, status])
+  @@index([organization_id, template_id, submitted_at])
+  @@map("form_submissions")
 }

@@ -248,9 +248,32 @@ una riga di configurazione.
   `/api/v1/athletes/:id/avatar` e le foto arrivano come immagini, in
   parallelo e in cache: **23,7 MB → 140 kB** (99,4%), 35 kB con una pagina da
   50. La misura si rifa con `scripts/measure-athletes-payload.mjs`;
-- **la tabella `assets`**, ancora usata da logo di club e immagini dei form.
+- **la tabella `assets`**, ancora usata dal logo di club e dagli allegati dei
+  moduli online della **prima** versione. I moduli nuovi passano dal servizio
+  allegati (`owner_type: "form"`); i file legacy restano dove sono e vengono
+  citati come `asset:<id>`, che `resolveSubmissionFileUrl` risolve. Travasare
+  dei binari e un'operazione a se, con un rischio suo.
 
-→ WP-15 (chiuso per gli allegati di persona), resta aperto per avatar e `assets`
+→ WP-15 (chiuso per gli allegati di persona), resta aperto per il logo di club
+e per la tabella `assets`
+
+### D28 — Residui dei moduli V1 in `clubs.document_templates` (2026-08-26)
+
+La Modulistica V2 ha portato moduli, versioni e compilazioni in tre tabelle
+([ADR-0039](18-decision-log.md#adr-0039--i-moduli-escono-da-clubsdocument_templates-e-diventano-tre-tabelle)),
+ma il travaso e una **copia**: `clubs.document_templates` conserva ancora le
+voci `online_form` e `online_form_submission` di prima.
+
+**Non e un difetto di funzionamento**: niente le legge piu, se non
+`src/lib/document-templates.ts` (28 righe) che le salta quando la pagina
+Modulistica elenca i modelli di stampa. E una scelta: cancellare il dato di
+partenza subito dopo un travaso significa non poterlo piu confrontare.
+
+**Cosa serve per chiudere**: eseguire il travaso sugli ambienti, verificare
+che i moduli e le risposte ci siano tutti, e solo allora rimuovere le voci dal
+campo JSON. Finche non succede, `src/lib/document-templates.ts` resta.
+
+→ B9-15 e B9-16 in [21](21-backlog.md)
 
 ### D14 — Validazione input disomogenea
 

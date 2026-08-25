@@ -1,353 +1,142 @@
-import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { findPublicFormBySlug } from "@/lib/server/forms";
 import {
-  asArray,
-  firstText,
-  isFileField,
-  isOnlineFormClosed,
-  isReadOnlyField,
-  isRecord,
-  validateOnlineFormAnswers,
-  type OnlineFormSubmission,
-  type OnlineFormSubmissionFile,
-} from "@/lib/online-forms";
+  FormSubmissionError,
+  submitPublicForm,
+} from "@/lib/server/form-submissions";
+import { readSubmissionPayload } from "@/lib/server/form-request";
 import {
-  findPublicOnlineFormBySlug,
-  savePublicOnlineFormSubmission,
-} from "@/lib/server/online-forms";
-import { getSessionFromRequest } from "@/lib/server/auth";
-import { prisma } from "@/lib/server/prisma";
-import { sendNotificationEmails } from "@/lib/server/email/email-service";
+  AUTH_RATE_LIMITS,
+  consumeAuthRateLimit,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
 
-type Context = {
-  params: {
-    publicSlug: string;
-  };
-};
+/**
+ * Il modulo pubblico: l'unico endpoint di EasyGame che risponde a chi non ha
+ * una sessione e scrive nel database di un club.
+ *
+ *   GET  /api/public/forms/:slug   il modulo da compilare
+ *   POST /api/public/forms/:slug   l'invio
+ *
+ * **Cosa arriva dal client e cosa no.** Dal client arrivano le risposte e i
+ * file. Non arrivano — e non verrebbero creduti — il club, il modulo, la
+ * versione, lo stato o il collegamento a una persona: quelli li ricava il
+ * server dallo slug, che e l'unica cosa che il client sa.
+ *
+ * **Un solo esito negativo.** Slug inesistente, modulo in bozza, link
+ * disabilitato, modulo chiuso: sempre 404. Distinguere i casi direbbe a chi
+ * prova gli slug quali ha indovinato.
+ *
+ * **Rate limiting per indirizzo.** Aprire un modulo e quasi gratuito;
+ * inviarlo crea righe e allegati. I due contatori sono separati perche i due
+ * costi lo sono, e usano lo stesso meccanismo dell'autenticazione — un
+ * secondo sistema di conteggio sarebbe una seconda implementazione della
+ * stessa cosa.
+ */
 
-const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const DEFAULT_ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/heic",
-  "image/heif",
-]);
+export const runtime = "nodejs";
 
-const jsonError = (message: string, status = 400, data: any = null) =>
-  NextResponse.json({ data, error: { message } }, { status });
+type Context = { params: { publicSlug: string } };
 
-const sanitizePathPart = (value: string) =>
-  value
-    .trim()
-    .replace(/[^\w.-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 120);
-
-const estimateDataUrlBytes = (value: string) => {
-  const base64 = value.includes(",") ? value.split(",").pop() || "" : value;
-  return Buffer.byteLength(base64, "base64");
-};
-
-const matchesAcceptedType = ({
-  acceptedTypes,
-  fileName,
-  mimeType,
-}: {
-  acceptedTypes: string[];
-  fileName: string;
-  mimeType: string;
-}) => {
-  if (!acceptedTypes.length) {
-    return DEFAULT_ALLOWED_MIME_TYPES.has(mimeType.toLowerCase());
-  }
-
-  const normalizedName = fileName.toLowerCase();
-  const normalizedMime = mimeType.toLowerCase();
-
-  return acceptedTypes.some((acceptedType) => {
-    const accepted = acceptedType.toLowerCase().trim();
-    if (!accepted) return false;
-    if (accepted.endsWith("/*")) {
-      return normalizedMime.startsWith(accepted.slice(0, -1));
-    }
-    if (accepted.startsWith(".")) {
-      return normalizedName.endsWith(accepted);
-    }
-    return normalizedMime === accepted;
-  });
-};
-
-const getField = (fields: any[], fieldId: string) =>
-  fields.find((field) => field.id === fieldId) || null;
-
-const createClubNotifications = async ({
-  organizationId,
-  formId,
-  formTitle,
-  submissionId,
-  respondentName,
-}: {
-  organizationId: string;
-  formId: string;
-  formTitle: string;
-  submissionId: string;
-  respondentName?: string;
-}) => {
-  const club = await prisma.club.findUnique({
-    where: { id: organizationId },
-    select: {
-      creator_id: true,
-      organization_users: { select: { user_id: true } },
-    },
-  });
-  if (!club) return;
-
-  const recipientIds = Array.from(
-    new Set(
-      [
-        club.creator_id,
-        ...club.organization_users.map((membership) => membership.user_id),
-      ].filter(Boolean),
-    ),
+const notFound = () =>
+  NextResponse.json(
+    { data: null, error: { message: "Modulo non disponibile" } },
+    { status: 404 },
   );
-  if (recipientIds.length === 0) return;
 
-  await prisma.notification.createMany({
-    data: recipientIds.map((userId) => ({
-      organization_id: organizationId,
-      user_id: userId,
-      title: "Nuova risposta modulo",
-      message: `${formTitle}${respondentName ? ` - ${respondentName}` : ""}`,
-      type: "online_form_submission",
-      data: {
-        formId,
-        submissionId,
-        source: "online_forms",
+const tooManyRequests = (result: {
+  limit: number;
+  remaining: number;
+  retryAfterSeconds: number;
+}) =>
+  NextResponse.json(
+    {
+      data: null,
+      error: {
+        message: "Troppe richieste. Riprova fra qualche minuto.",
+        code: "RATE_LIMITED",
       },
-    })),
-  });
-  await sendNotificationEmails(recipientIds);
-};
+    },
+    { status: 429, headers: rateLimitHeaders(result as any) },
+  );
 
 export async function GET(request: Request, context: Context) {
   try {
-    const match = await findPublicOnlineFormBySlug(context.params.publicSlug);
-    if (!match) return jsonError("Modulo non trovato", 404);
+    const limit = await consumeAuthRateLimit(
+      AUTH_RATE_LIMITS.publicFormView,
+      getRequestIp(request),
+    );
+    if (!limit.allowed) return tooManyRequests(limit);
 
-    const { form, club } = match;
-    if (form.status !== "published") {
-      return jsonError("Modulo non disponibile", 403, {
-        form: {
-          title: form.title,
-          status: form.status,
-        },
-      });
-    }
+    const match = await findPublicFormBySlug(context.params.publicSlug);
+    if (!match) return notFound();
 
-    if (isOnlineFormClosed(form)) {
-      return jsonError("Modulo chiuso", 403, {
-        form: {
-          title: form.title,
-          status: form.status,
-        },
-      });
-    }
-
-    if (form.requiresAuth) {
-      const session = await getSessionFromRequest(request);
-      if (!session) {
-        return jsonError("Login richiesto per compilare questo modulo", 401, {
-          requiresAuth: true,
-        });
-      }
-    }
-
+    /*
+      Cosa esce di qui: il modulo e l'identita del club. Mai le compilazioni
+      gia raccolte, mai gli identificativi interni degli atleti, mai una
+      precompilazione — chi apre un link pubblico non e nessuno finche non si
+      dichiara, e mostrargli dati gia in archivio sarebbe un modo per farsi
+      leggere l'anagrafica da chiunque abbia il link.
+    */
     return NextResponse.json({
       data: {
-        form,
+        form: {
+          title: match.schema.title,
+          description: match.schema.description,
+          fields: match.schema.fields,
+          collectRespondentEmail: match.schema.settings.collectRespondentEmail,
+        },
         club: {
-          id: club.id,
-          name: club.name,
-          logoUrl: club.logo_url || "",
-          contactEmail: club.contact_email || "",
+          name: match.club.name,
+          logoUrl: match.club.logoUrl,
+          contactEmail: match.club.contactEmail,
         },
       },
       error: null,
     });
   } catch (error: any) {
-    return jsonError(error?.message || "Errore caricamento modulo", 500);
+    return NextResponse.json(
+      { data: null, error: { message: "Errore nel caricamento del modulo" } },
+      { status: 500 },
+    );
   }
 }
 
 export async function POST(request: Request, context: Context) {
   try {
-    const match = await findPublicOnlineFormBySlug(context.params.publicSlug);
-    if (!match) return jsonError("Modulo non trovato", 404);
-
-    const { form } = match;
-    if (form.status !== "published") {
-      return jsonError("Modulo non disponibile", 403);
-    }
-    if (isOnlineFormClosed(form)) {
-      return jsonError("Modulo chiuso", 403);
-    }
-
-    const session = await getSessionFromRequest(request);
-    if (form.requiresAuth && !session) {
-      return jsonError("Login richiesto per compilare questo modulo", 401);
-    }
-
-    const body = await request.json().catch(() => ({}));
-    const rawAnswers = isRecord(body?.answers) ? body.answers : {};
-    const uploadedFiles = asArray(body?.files);
-    const submissionId = randomUUID();
-    const savedFiles: OnlineFormSubmissionFile[] = [];
-    const answers = { ...rawAnswers };
-
-    for (const rawFile of uploadedFiles) {
-      const fileRecord = isRecord(rawFile) ? rawFile : {};
-      const fieldId = firstText(fileRecord.fieldId, fileRecord.field_id);
-      const field = getField(form.fields, fieldId);
-      if (!field || !isFileField(field.type)) {
-        continue;
-      }
-
-      const fileName =
-        firstText(fileRecord.fileName, fileRecord.file_name) ||
-        `${field.label}.png`;
-      const mimeType =
-        firstText(fileRecord.mimeType, fileRecord.mime_type) || "image/png";
-      const dataBase64 = firstText(
-        fileRecord.dataBase64,
-        fileRecord.data_base64,
-      );
-
-      if (!dataBase64) {
-        if (field.required) return jsonError(`File mancante: ${field.label}`);
-        continue;
-      }
-
-      const maxBytes =
-        Number(field.validation?.maxFileSizeMb || 0) > 0
-          ? Number(field.validation?.maxFileSizeMb) * 1024 * 1024
-          : DEFAULT_MAX_UPLOAD_BYTES;
-      if (estimateDataUrlBytes(dataBase64) > maxBytes) {
-        return jsonError(`File troppo grande: ${field.label}`);
-      }
-
-      const acceptedTypes = Array.isArray(field.validation?.acceptedFileTypes)
-        ? field.validation?.acceptedFileTypes || []
-        : [];
-      if (
-        field.type !== "signature" &&
-        !matchesAcceptedType({ acceptedTypes, fileName, mimeType })
-      ) {
-        return jsonError(`Formato file non supportato: ${field.label}`);
-      }
-
-      const assetId = randomUUID();
-      const path = `${form.organizationId}/${form.id}/${submissionId}/${assetId}-${sanitizePathPart(fileName) || "file"}`;
-      const publicUrl = `/api/forms/assets/${assetId}`;
-      const asset = await prisma.asset.create({
-        data: {
-          id: assetId,
-          bucket: "online-form-submissions",
-          path,
-          public_url: publicUrl,
-          file_name: fileName,
-          mime_type: mimeType,
-          data_base64: dataBase64,
-        },
-      });
-
-      const savedFile = {
-        fieldId,
-        fieldLabel: field.label,
-        fileName,
-        fileUrl: publicUrl,
-        assetId: asset.id,
-        mimeType,
-        size: estimateDataUrlBytes(dataBase64),
-      };
-      savedFiles.push(savedFile);
-      answers[fieldId] = publicUrl;
-    }
-
-    const requiredValidation = validateOnlineFormAnswers(
-      form,
-      answers,
-      savedFiles,
+    const limit = await consumeAuthRateLimit(
+      AUTH_RATE_LIMITS.publicFormSubmit,
+      getRequestIp(request),
     );
-    if (!requiredValidation.valid) {
-      return jsonError("Compila tutti i campi obbligatori", 422, {
-        errors: requiredValidation.errors,
-      });
-    }
+    if (!limit.allowed) return tooManyRequests(limit);
 
-    if (form.settings.collectEmail && !firstText(body?.respondentEmail)) {
-      return jsonError("Email obbligatoria", 422, {
-        errors: { respondentEmail: "Email obbligatoria" },
-      });
-    }
+    const payload = await readSubmissionPayload(request);
 
-    const nowIso = new Date().toISOString();
-    const submission: OnlineFormSubmission = {
-      id: submissionId,
-      type: "online_form_submission",
-      organizationId: form.organizationId,
-      organization_id: form.organizationId,
-      formId: form.id,
-      form_id: form.id,
-      athleteId: "",
-      athlete_id: "",
-      parentUserId: session?.db.user_id || "",
-      parent_user_id: session?.db.user_id || "",
-      respondentName: firstText(body?.respondentName, body?.respondent_name),
-      respondent_name: firstText(body?.respondentName, body?.respondent_name),
-      respondentEmail: firstText(body?.respondentEmail, body?.respondent_email),
-      respondent_email: firstText(
-        body?.respondentEmail,
-        body?.respondent_email,
-      ),
-      answers: Object.fromEntries(
-        Object.entries(answers).filter(([fieldId]) => {
-          const field = form.fields.find(
-            (candidate) => candidate.id === fieldId,
-          );
-          return field ? !isReadOnlyField(field.type) : true;
-        }),
-      ),
-      files: savedFiles,
-      submittedAt: nowIso,
-      submitted_at: nowIso,
-      status: "submitted",
-    };
-
-    await savePublicOnlineFormSubmission({ form, submission });
-
-    if (form.settings.notifyClubOnSubmit) {
-      await createClubNotifications({
-        organizationId: form.organizationId,
-        formId: form.id,
-        formTitle: form.title,
-        submissionId,
-        respondentName: submission.respondentName,
-      });
-    }
-
-    return NextResponse.json({
-      data: {
-        submissionId,
-        successMessage:
-          form.settings.successMessage ||
-          "Risposta inviata correttamente. Grazie!",
-      },
-      error: null,
+    const result = await submitPublicForm(context.params.publicSlug, {
+      answers: payload.answers,
+      files: payload.files,
+      respondentName: payload.respondentName,
+      respondentEmail: payload.respondentEmail,
     });
+
+    return NextResponse.json({ data: result, error: null });
   } catch (error: any) {
-    return jsonError(error?.message || "Errore invio risposta", 500);
+    if (error instanceof FormSubmissionError) {
+      if (error.status === 404) return notFound();
+
+      return NextResponse.json(
+        {
+          data: { errors: error.fieldErrors },
+          error: { message: error.message },
+        },
+        { status: error.status },
+      );
+    }
+
+    return NextResponse.json(
+      { data: null, error: { message: "Errore nell'invio del modulo" } },
+      { status: 500 },
+    );
   }
 }

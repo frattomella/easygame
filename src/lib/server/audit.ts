@@ -38,6 +38,8 @@ export const AUDIT_ACTIONS = {
   seasonActivated: "season.activated",
   seasonArchived: "season.archived",
   seasonRollover: "season.rollover",
+  formSubmissionApproved: "form.submission.approved",
+  formSubmissionRejected: "form.submission.rejected",
   adminEmailConfigUpdated: "admin.email_config.updated",
   adminEmailTestSent: "admin.email_config.test_sent",
 } as const;

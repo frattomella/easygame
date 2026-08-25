@@ -38,6 +38,14 @@ Fonte ufficiale da mantenere aggiornata:
   maturato dalle presenze, `{"action":"report"}` lo rendiconta all'ente
 - `GET|POST /api/v1/funding/settlements` — liquidazioni dell'ente, con la
   ripartizione obbligatoria sui periodi maturati
+- `GET|POST /api/v1/forms` — moduli del club: elenco e creazione
+- `GET|PATCH|DELETE /api/v1/forms/:id` — un modulo. `PATCH` porta una
+  `action`: `save_draft`, `publish`, `unpublish`, `archive`, `restore`,
+  `duplicate`, `regenerate_slug`, `set_public_access`
+- `GET|POST /api/v1/forms/submissions` — coda delle compilazioni;
+  `POST` e la compilazione fatta dalla segreteria (multipart)
+- `GET|POST /api/v1/forms/submissions/:id` — cosa cambierebbe approvando,
+  duplicati possibili, e la decisione (`preview`, `approve`, `reject`)
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/logout`

@@ -49,7 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { OnlineFormsDashboard } from "@/components/forms/OnlineFormsDashboard";
+import { FormsDashboard } from "@/components/forms/forms-dashboard";
 import {
   getClubAthletes,
   getClub,
@@ -58,7 +58,7 @@ import {
   updateDocumentTemplate,
   deleteDocumentTemplate,
 } from "@/lib/simplified-db";
-import { getDocumentTemplatesFromClub } from "@/lib/online-forms";
+import { getDocumentTemplatesFromClub } from "@/lib/document-templates";
 import { useToast } from "@/components/ui/use-toast";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 
@@ -1175,11 +1175,7 @@ function ModulisticaPage() {
           </TabsContent>
 
           <TabsContent value="online-forms">
-            <OnlineFormsDashboard
-              clubId={clubId}
-              athletes={athletes}
-              mode="forms"
-            />
+            <FormsDashboard />
           </TabsContent>
 
           <TabsContent value="archive" className="space-y-6">
@@ -1241,11 +1237,12 @@ function ModulisticaPage() {
               </CardContent>
             </Card>
 
-            <OnlineFormsDashboard
-              clubId={clubId}
-              athletes={athletes}
-              mode="archive"
-            />
+            {/*
+              I moduli archiviati stanno nella scheda «Moduli online», con il
+              loro interruttore: erano qui perche la prima versione teneva
+              moduli e modelli di stampa nello stesso archivio JSON, non
+              perche fosse il posto giusto per cercarli.
+            */}
           </TabsContent>
         </Tabs>
       ) : activeView === "editor" ? (
