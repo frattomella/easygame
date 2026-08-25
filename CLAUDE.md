@@ -65,6 +65,8 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 | Ruoli e permessi | `src/lib/access-roles.ts` | Nessuna logica di ruolo altrove |
 | Sessioni e scope | `src/lib/server/auth.ts` | Ogni endpoint passa da `requireAuthenticatedUser` + `resolveOrganizationScopeForUser` |
 | Stagioni sportive | `src/lib/club-seasons.ts` (modello) + `src/lib/server/seasons.ts` (scrittura) | Una sola stagione attiva; nessuna scrittura di `settings.seasons` altrove |
+| Incassi (movimenti di denaro) | `src/lib/server/payment-transactions.ts` (scrittura) + `src/lib/payments/installment-ledger.ts` (calcolo) | Nessuno scrive `payment_transactions` altrove; lo stato di una rata **non si imposta**, si ricava |
+| Voucher e contributi da enti | `src/lib/server/funding.ts` (scrittura) + `src/lib/funding/` (calcolo) | Le regole di un bando sono **configurazione**, mai codice. I due domini non si importano: un contributo non e un pagamento della famiglia |
 | Accesso dati server | `src/lib/server/resources.ts` | Nessuna query Prisma club-scoped fuori da qui senza filtro esplicito |
 | Client Prisma | `src/lib/server/prisma.ts` | Mai istanziare un secondo `PrismaClient` |
 | Email | `src/lib/server/email/` | Unico punto di invio |

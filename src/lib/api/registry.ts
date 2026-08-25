@@ -106,6 +106,70 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "payment_transactions.list",
+    method: "GET",
+    path: "/api/v1/payment-transactions",
+    description:
+      "Registro incassi: i movimenti di denaro di un club, di un atleta o di una rata",
+    mobile_ready: true,
+  },
+  {
+    name: "payment_transactions.create",
+    method: "POST",
+    path: "/api/v1/payment-transactions",
+    description:
+      "Registra un incasso su una rata e ne ricalcola lo stato nella stessa transazione",
+    mobile_ready: true,
+  },
+  {
+    name: "payment_transactions.actions",
+    method: "POST",
+    path: "/api/v1/payment-transactions/:id",
+    description:
+      "Azioni su un incasso: `reverse` lo storna senza cancellarlo, `issue-receipt` ne emette la ricevuta",
+    mobile_ready: true,
+  },
+  {
+    name: "funding.programs",
+    method: "GET|POST",
+    path: "/api/v1/funding/programs",
+    description:
+      "Programmi di contributo: le regole di un bando sono configurazione, non codice",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.programs.detail",
+    method: "GET|PATCH",
+    path: "/api/v1/funding/programs/:id",
+    description:
+      "Dettaglio e modifica di un programma. Nessun DELETE: un programma con maturati si chiude",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.enrollments",
+    method: "GET|POST",
+    path: "/api/v1/funding/enrollments",
+    description:
+      "Beneficiari di un contributo. `view=overview` restituisce i cinque importi gia calcolati",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.accruals",
+    method: "GET|POST",
+    path: "/api/v1/funding/accruals",
+    description:
+      "Maturato per periodo: `recompute` lo ricalcola dalle presenze, `report` lo rendiconta all'ente",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.settlements",
+    method: "GET|POST",
+    path: "/api/v1/funding/settlements",
+    description:
+      "Liquidazioni dell'ente, riconciliate con i periodi maturati di ciascun atleta",
+    mobile_ready: false,
+  },
+  {
     name: "auth.login",
     method: "POST",
     path: "/api/v1/auth/login",

@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-25 (Blocco 8)
+**Ultimo aggiornamento:** 2026-08-26 (Workstream A — Pagamenti V2 e Voucher)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -32,12 +32,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 82 |
-| `IN PROGRESS` | 10 |
-| `OPEN` | 26 |
-| `DEFERRED` | 6 |
+| `DONE` | 116 |
+| `IN PROGRESS` | 12 |
+| `OPEN` | 28 |
+| `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **126** |
+| **Totale** | **166** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -189,6 +189,64 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B8-22 | Griglie a due colonne su schermi da 375 px | `DONE` | Blocco 8 — 22 griglie corrette, sette invarianti a difenderle |
 | B8-23 | Verifica su schermo a 375, 768 e 1280 px | `OPEN` | **Non eseguita**: richiede una sessione autenticata su un database, e in questa working copy il database di sviluppo non e avviato. Le invarianti statiche non la sostituiscono |
 
+### Workstream A — Pagamenti V2: rate, incassi e documenti fiscali (2026-08-26)
+
+Chiuso da **WP-47**, [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una).
+Una causa radice sola: `payments` portava il debito **e** il modo in cui era
+stato pagato negli stessi campi.
+
+| # | Richiesta | Stato | Chiuso da |
+|---|-----------|-------|-----------|
+| A1-01 | La segreteria non deve piu spostare a mano «In attesa» → «Pagata» | `DONE` | WP-47 — l'azione principale e «Registra pagamento»; lo stato e derivato e non ha piu un campo che lo imposti, ne nella modifica rata ne nell'aggiunta di una voce |
+| A1-02 | Dialog «Registra pagamento» con importo, metodo, data, note e riepilogo | `DONE` | WP-47 — `RegisterPaymentDialog`. Il riepilogo mostra dovuto, gia incassato, questo pagamento e residuo dopo |
+| A1-03 | Importo precompilato con il residuo, ma modificabile | `DONE` | WP-47 — il caso comune e il saldo; l'acconto si ottiene cambiando un campo gia a fuoco |
+| A1-04 | Una rata deve accettare N incassi, anche con metodi diversi | `DONE` | WP-47 — `payment_transactions`. 50 contanti + 30 POS + 50 bonifico saldano una rata da 130 |
+| A1-05 | Stati derivati: in attesa, parzialmente pagata, pagata, scaduta | `DONE` | WP-47 — calcolati da dovuto e incassato. Una rata scaduta e ancora scoperta mostra **entrambe** le etichette |
+| A1-06 | Lo stato non deve essere un dato primario modificabile | `DONE` | WP-47 — `payments.status` resta come cache scritta **solo** dal server. Il residuo di modello e in [16 — D29](16-technical-debt.md) |
+| A1-07 | Una rata mostra dovuto, pagato, residuo, scadenza, stato e progress bar | `DONE` | WP-47 — `InstallmentLedgerList`: «50,00 EUR / 130,00 EUR pagati», «Residuo 80,00 EUR», barra e badge |
+| A1-08 | Il dettaglio di una rata elenca Data, Importo, Metodo, Note | `DONE` | WP-47 — si apre sulla riga, in ordine cronologico crescente |
+| A1-09 | Contratto unico del modello Payment | `DONE` | WP-47 — id, athleteId, installmentId, amount, paidAt, paymentMethod, notes, source, createdBy, createdAt, externalReference, storno |
+| A1-10 | `source` predisposto per MANUAL, STRIPE, CEDIPAY, IMPORT, OTHER | `DONE` | WP-47 — il modello li accetta, il servizio rifiuta tutto cio che non e `MANUAL`: Stripe e CediPay **non** sono implementati (WP-13) |
+| A1-11 | Correzione, annullamento, reversal e audit di un incasso | `DONE` | WP-47 — lo storno marca l'originale e crea il movimento opposto. Nessun `DELETE`. Ogni operazione nell'audit log |
+| A1-12 | Metodi di pagamento senza testo libero, con compatibilita legacy | `DONE` | WP-47 — si sceglie fra i metodi del club (`getClubPaymentMethodChoices`); il metodo gia salvato resta selezionabile anche se il club l'ha rimosso |
+| A1-13 | Un solo flusso UI fra scheda atleta e area Pagamenti | `DONE` | WP-47 — `AthletePaymentLedger` montato in entrambe. Un test statico impedisce che ne nasca una seconda |
+| A1-14 | Un pagamento aggiorna subito rata, piano, riepilogo, totale e residuo | `DONE` | WP-47 — il server risponde con la rata riscritta; nessun refresh manuale |
+| A1-15 | Audit di regressione su servizi opzionali, pro-rata, totali e stato | `DONE` | WP-47 — trovato e corretto un difetto vero: i totali dell'atleta sommavano **per stato**, quindi un acconto valeva zero |
+| A1-16 | Separare Payment, Receipt e Invoice; generare la ricevuta da un incasso | `DONE` | WP-47 — `receipts.transaction_id`, emissione idempotente. La fattura resta un oggetto distinto e non e stata toccata |
+| A1-17 | Cronologie coerenti, con direzione documentata | `DONE` | WP-47 — incassi di una rata e rate di un atleta in ordine **crescente**; la tabella completa e in [10](10-ui-ux-conventions.md) |
+| A1-18 | Registrare un pagamento da smartphone deve essere semplice | `IN PROGRESS` | WP-47 — verificato staticamente a 375 px (una colonna, pulsanti a piena larghezza, finestra che scorre, tabella che scorre nel proprio contenitore). **Manca** la verifica su schermo, che richiede una sessione autenticata su un database: vedi R-01 |
+| A1-19 | Contabilita fiscale completa | `DEFERRED` | WP-47 — dichiarata fuori scope dalla richiesta stessa. Si emette e si numera la ricevuta; nessun registro IVA |
+| A1-20 | Checkout online reale (Stripe / CediPay) | `DEFERRED` | WP-13, ADR-0013 — il modello e pronto, il canale no. Il webhook non va attivato prima della verifica di firma ([14](14-security.md), rischio 6) |
+
+### Workstream A — Voucher e contributi legati alla frequenza (2026-08-26)
+
+Chiuso da **WP-48**, [ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati).
+Caso reale di riferimento: Voucher per lo Sport, Regione Lazio / Sport e Salute
+2025 — **configurato come dati, mai come codice**.
+
+| # | Richiesta | Stato | Chiuso da |
+|---|-----------|-------|-----------|
+| A2-01 | Un voucher assegnato non deve equivalere a un pagamento incassato | `DONE` | WP-48 — cinque importi distinti: assegnato, maturato, rendicontato, liquidato, residuo. Solo il liquidato e cassa |
+| A2-02 | Separare valore/plafond, maturato, rendicontato, liquidato e residuo | `DONE` | WP-48 — il liquidato si legge dalle **righe di liquidazione**, non dallo stato del periodo: con versamenti parziali i due numeri differiscono |
+| A2-03 | Programma configurabile: nome, ente, validita, plafond, importo e frequenza del periodo | `DONE` | WP-48 — colonne di `funding_programs`, non rami nel calcolo |
+| A2-04 | Requisito minimo e unita del requisito (ore, presenze) configurabili | `DONE` | WP-48 — `hours` e `sessions` sono un elenco dichiarato ed estendibile |
+| A2-05 | Comportamento configurabile se il requisito non e raggiunto | `DONE` | WP-48 — `none` (soglia secca, il caso di riferimento), `prorata`, `full` |
+| A2-06 | Limite massimo ed eventuale codice voucher individuale | `DONE` | WP-48 — tetto ai periodi, tetto all'importo del programma, `voucher_code` sul beneficiario |
+| A2-07 | Stato del programma | `DONE` | WP-48 — `draft`, `active`, `closed`. Un programma con maturati non si cancella: si chiude |
+| A2-08 | Collegare il programma al sistema presenze e calcolare tutto automaticamente | `DONE` | WP-48 — ore o presenze valide, requisito, raggiunto si/no, maturato, non maturato e stato per ogni periodo. Nessun numero digitato |
+| A2-09 | La segreteria non deve fare calcoli manuali | `DONE` | WP-48 — il ricalcolo e idempotente e si rifa a ogni correzione di appello. L'interfaccia non offre da nessuna parte di digitare un maturato |
+| A2-10 | Scheda atleta: voucher assegnato, maturato, liquidato, da liquidare, residuo | `DONE` | WP-48 — piu il dettaglio periodo per periodo con il **motivo** di ogni importo |
+| A2-11 | Non trattare il contributo come pagamento della famiglia | `DONE` | WP-48 — il servizio dei contributi non importa `payment_transactions`, e il dominio dei pagamenti non conosce i contributi. Due test statici lo difendono |
+| A2-12 | Il Riepilogo Incassi deve distinguere incassato da soltanto maturato | `DONE` | WP-48 — il riquadro degli incassi dichiara «Pagamenti della famiglia»; i contributi hanno un riquadro proprio |
+| A2-13 | Registrare una liquidazione dell'ente e riconciliarla con periodi e atleti | `DONE` | WP-48 — ripartizione obbligatoria, non si liquida piu di quanto e maturato, una liquidazione parziale lascia il periodo fra i crediti |
+| A2-14 | Scenario di regressione equivalente al Voucher Lazio 2025 | `DONE` | WP-48 — plafond 500, mensilita 60, soglia 8 ore, maturazione solo alla soglia, pagamento dell'ente successivo. **Nessuna di queste costanti e in `src/`**, e un test lo verifica |
+| A2-15 | Convivenza con rate, pagamenti parziali, «Registra pagamento», ricevute, pro-rata e servizi opzionali | `DONE` | WP-48 — i due domini non si importano a vicenda; `npm test` copre entrambi |
+| A2-16 | Contratti chiari per programma, beneficiario, periodo, maturato e liquidazione | `DONE` | WP-48 — `FundingProgram`, `FundingEnrollment`, `FundingAccrual`, `FundingSettlement`, `FundingSettlementLine`. Il **periodo non e una tabella**: si ricava dalla configurazione e viene congelato dentro il maturato |
+| A2-17 | Audit, autorizzazioni e multi-tenant sui contributi | `DONE` | WP-48 — `canManageClubConfiguration` su ogni scrittura, audit log, e 27 test che provano ogni operazione dal club sbagliato |
+| A2-18 | Verifica su schermo dei pannelli contributi a 375, 768 e 1280 px | `IN PROGRESS` | WP-48 — verificato staticamente (i cinque importi in colonna, tabella dei periodi che scorre nel proprio contenitore, finestra di configurazione scorrevole). **Manca** la verifica su schermo: vedi R-01 |
+| A2-19 | Compensazione automatica del contributo sulla rata della famiglia | `OPEN` | ADR-0037 — **scelta consapevole**: quale parte della quota il voucher copre lo decide il club, non l'importo maturato. Compensare in automatico farebbe risultare saldate rate che nessuno ha pagato |
+| A2-20 | Trasmissione telematica delle rendicontazioni all'ente | `OPEN` | ADR-0037 — `reported` e una marcatura interna; il canale verso il finanziatore cambia da bando a bando e non si puo implementare a memoria |
+
 ---
 
 ## Remaining Web V1 before release
@@ -203,12 +261,13 @@ vengono **dopo** il rilascio.
 | R-02 | La lista Atleti deve consumare la paginazione | Il server e pronto; finche la pagina scarica tutto, l'archivio grande resta il caso peggiore | F1-12, B8-21 |
 | R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon | B8-13, ADR-0034 |
 | R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica | F1-05, WP-05 |
-| R-05 | Pagamenti online: implementarli o togliere la promessa | Gli endpoint rispondono 501. Una funzione che l'interfaccia offre e il server rifiuta non e rilasciabile | F3-01, ADR-0013 |
+| R-05 | Pagamenti online: implementarli o togliere la promessa | Gli endpoint rispondono 501. Una funzione che l'interfaccia offre e il server rifiuta non e rilasciabile. **Il ciclo manuale non e piu un ostacolo**: dal Workstream A si incassa, si incassa a rate, si storna e si emette ricevuta senza nessun provider (WP-47) | F3-01, ADR-0013 |
 | R-06 | Unificare i due sistemi di toast | Due sistemi montati insieme: due comportamenti per lo stesso avviso | F3-02, WP-14 |
 | R-07 | Completare l'audit log sulle anagrafiche | ADR-0019 lo dichiara bloccante per la produzione | F3-04 |
 | R-08 | Scheduler dei promemoria certificati | Un certificato scaduto e un atleta che non puo scendere in campo, e oggi nessuno avvisa | F3-09 |
 | R-09 | Rimuovere i residui legacy classificati | 19 componenti `ui/*` non usati, e due route di modifica orfane — una costruita su dati inventati (vedi D27 in [16](16-technical-debt.md)) | F3-06, WP-18 |
 | R-10 | Ambiente di produzione, error tracking, backup provati, UAT | E la fase F5 per intero: senza, «rilasciato» non ha un significato operativo | F5-01, F5-02, F5-03, F5-04 |
+| R-11 | Voucher e contributi: verifica su schermo e primo bando reale caricato | Il modello e i calcoli sono coperti dai test, ma un contributo pubblico si rendiconta a un ente: il primo caricamento va fatto con un bando vero e riconciliato a mano una volta | A2-18, WP-48 |
 
 ---
 
@@ -266,7 +325,7 @@ elenco. Nessuna e cominciata; ognuna vale un blocco o piu.
 | P-05 | **Scanner documenti** | `IN PROGRESS` | La foundation e del Blocco 7 (ADR e KB). Restano: PDF, provider remoto, migrazione della scheda atleta. Vedi B7-32/33/34 |
 | P-06 | **Stripe / CediPay** | `OPEN` | WP-13. Il webhook **non va attivato** prima della verifica di firma (vedi [14](14-security.md), rischio 6) |
 | P-07 | **SaaS ed entitlements** | `OPEN` | Presuppone un ambiente di produzione vero (F5-01) e un modello di abbonamento che oggi non esiste |
-| P-08 | **Bonus Sport e Salute** | `OPEN` | Dipende da una fonte dati esterna e dalle sue regole annuali: non si puo implementare a memoria |
+| P-08 | **Bonus Sport e Salute** | `OPEN` | **Il modello c'e** dal Workstream A (WP-48, ADR-0037): un bando si descrive con la configurazione, e il Voucher Lazio 2025 e gia coperto come scenario. Resta aperta la parte che **non si puo implementare a memoria**: la fonte dati esterna, le regole annuali del bando e il canale di trasmissione delle rendicontazioni, che cambia da ente a ente |
 | P-09 | **AI per gli allenamenti** | `OPEN` | Nessun requisito scritto. Va definito cosa deve produrre prima di scegliere come |
 | P-10 | **OAuth Google e Microsoft** | `OPEN` | L'infrastruttura OAuth esiste (`/api/v1/auth/oauth/:provider`). Mancano le credenziali applicative e la decisione su quali domini ammettere |
 

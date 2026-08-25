@@ -66,6 +66,14 @@ const matchesWhere = (record, where) => {
 
 export const createFakePrisma = (seedByDelegate = {}) => {
   const calls = [];
+  /*
+    Ogni riga creata senza id ne riceve uno **diverso**: due `create` di
+    seguito sullo stesso delegate producevano la stessa chiave primaria, e un
+    `findUnique` restituiva la prima delle due. Un database non lo farebbe
+    mai, e un test che ne dipende verifica un comportamento che in produzione
+    non esiste.
+  */
+  let generatedIds = 0;
   const store = new Map(
     Object.entries(seedByDelegate).map(([name, rows]) => [name, rows.map((r) => ({ ...r }))]),
   );
@@ -113,7 +121,10 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     },
     create: async (args = {}) => {
       calls.push({ delegate: name, method: "create", args });
-      const created = { id: args.data?.id || `${name}-generated`, ...args.data };
+      const created = {
+        id: args.data?.id || `${name}-generated-${(generatedIds += 1)}`,
+        ...args.data,
+      };
       rowsOf(name).push(created);
       return created;
     },

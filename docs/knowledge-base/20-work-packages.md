@@ -1178,6 +1178,192 @@ nessun nome di download scritto a mano, nessuna definizione locale di
 
 ---
 
+### WP-47 · Workstream A — Pagamenti V2: rate, incassi e documenti — `DONE` (2026-08-26)
+
+**Obiettivo.** Rendere registrabile un incasso come incasso, invece di
+chiedere alla segreteria di spostare a mano lo stato di una rata.
+
+**Causa radice trovata** — una sola, dietro tutti i sintomi segnalati.
+`payments` faceva **due mestieri**: la riga portava l'importo dovuto
+(`amount`, `due_date`, `description`) e, negli stessi campi, il modo in cui
+era stato pagato (`status`, `paid_at`, `method`). Da qui, e solo da qui:
+
+| Sintomo segnalato | Perche accadeva |
+|---|---|
+| «La segreteria deve cambiare a mano In attesa → Pagata» | Non c'era altro posto in cui dire «ho incassato»: l'unico campo disponibile era sulla riga del debito |
+| «Una rata da 130 EUR incassata in tre volte non e registrabile» | Una riga, un importo. Due incassi sulla stessa rata non erano rappresentabili |
+| «Correggere un incasso fa sparire la rata» | Correggere voleva dire mutare o annullare la riga del debito, che e anche la rata del piano; `syncAthleteEnrollmentInstallmentPayments` la rigenerava, con duplicati |
+| «Lo stato dice una cosa e gli importi un'altra» | Lo stato era un dato scritto da chi guardava, non una conseguenza degli importi |
+| «Un acconto non compare nel riepilogo» | `recordedPaid` sommava **per stato**: una rata non «pagata» valeva zero, anche con 50 EUR gia in cassa |
+| «Il metodo di pagamento e testo libero» | `AddPaymentForm` (mai montato) aveva quattro metodi scritti a mano; il resto scriveva la stringa che arrivava |
+
+**Scope.**
+
+1. **Modello.** `payment_transactions`: un incasso e un movimento di denaro,
+   con importo, data, metodo, note, sorgente, riferimento esterno e autore.
+   `payments` torna a essere solo il dovuto. `receipts.transaction_id` collega
+   la ricevuta all'incasso; `receipts.payment_id` perde l'unique.
+2. **Dominio.** `src/lib/payments/installment-ledger.ts`, puro: dovuto,
+   incassato, residuo e stato si **calcolano**. Quattro stati derivati, somme
+   in centesimi, storni esclusi dai totali ma non dallo storico.
+3. **Servizio.** `src/lib/server/payment-transactions.ts`: unico punto che
+   scrive un movimento. Inserisce l'incasso e riscrive la rata nella **stessa
+   transazione**.
+4. **API.** `GET|POST /api/v1/payment-transactions`,
+   `POST /api/v1/payment-transactions/:id` con `reverse` e `issue-receipt`.
+   Nessun `DELETE`.
+5. **UI.** `RegisterPaymentDialog` + `InstallmentLedgerList` +
+   `AthletePaymentLedger`, montati **identici** in scheda atleta e area
+   Movimenti.
+6. **Regressione.** I totali dell'atleta sommano per importo; il badge della
+   rata conosce lo stato parziale.
+
+**Cosa e stato deliberatamente lasciato fuori.**
+
+- **Nessuna migrazione dei dati esistenti.** Una rata gia marcata pagata non
+  ha un movimento che lo dimostri, e inventarne uno vorrebbe dire scrivere
+  denaro con una data e un metodo che nessuno ha dichiarato. Le righe
+  anteriori al registro valgono «incassate per intero», e al primo incasso
+  registrato comanda il registro.
+- **Nessun pagamento online.** `source` accetta `STRIPE` e `CEDIPAY` nel
+  modello e li **rifiuta** nel servizio: il campo esiste perche il giorno
+  dell'attivazione non serva una migrazione, non perche sia utilizzabile.
+  Resta WP-13.
+- **Nessuna contabilita fiscale.** Si emette e si numera la ricevuta; non si
+  tiene un registro IVA e non si tocca il ciclo attivo.
+- **`payments.status` non e stato rimosso**, solo declassato a cache scritta
+  dal server. Il perche e in [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una);
+  il residuo e in [16 — D29](16-technical-debt.md).
+
+**Acceptance criteria.**
+- [x] Registrare un incasso non richiede di impostare uno stato
+- [x] Una rata accetta N incassi, con metodi diversi
+- [x] L'importo e precompilato con il residuo e resta modificabile
+- [x] Stato derivato: `IN ATTESA`, `PARZIALMENTE PAGATA`, `PAGATA`, `SCADUTA`;
+      scaduta e parziale si mostrano insieme
+- [x] Una rata mostra sempre dovuto, incassato, residuo, scadenza, stato e
+      avanzamento
+- [x] Un incasso non si cancella: si storna, e resta visibile
+- [x] Il metodo si sceglie fra quelli configurati dal club
+- [x] Scheda atleta e area Movimenti usano lo stesso componente
+- [x] Un incasso aggiorna rata, riepilogo, totale e residuo senza refresh
+- [x] Ricevuta emessa per incasso, idempotente
+- [x] Ogni operazione fallisce con «Accesso negato» dal club sbagliato
+- [x] Gate verdi: 668/669 test, typecheck, build, warning di lint invariati
+
+**Test.** `tests/lib/installment-ledger.test.mjs` (25),
+`tests/server/payment-transactions.test.mjs` (23),
+`tests/ui/payment-registration-flow.test.mjs` (13),
+`tests/lib/payment-partial-regressions.test.mjs` (9).
+
+**File.** `prisma/schema.prisma`,
+`prisma/migrations/20260826090000_payment_transactions/`,
+`src/lib/payments/installment-ledger.ts`,
+`src/lib/payments/payment-status-utils.ts`,
+`src/lib/athlete-payment-utils.ts`,
+`src/lib/server/payment-transactions.ts`,
+`src/app/api/v1/payment-transactions/**`,
+`src/components/payments/{RegisterPaymentDialog,InstallmentLedgerList,AthletePaymentLedger,EnrollmentPaymentBreakdown}.tsx`,
+`src/components/athletes/profile/athlete-payment-dialogs.tsx`,
+`src/components/accounting/MovementDetailPanel.tsx`,
+`src/app/athletes/[id]/page.tsx`, `src/app/movements/page.tsx`.
+
+---
+
+### WP-48 · Workstream A — Voucher e contributi legati alla frequenza — `DONE` (2026-08-26)
+
+**Obiettivo.** Dare a EasyGame un posto dove tenere il denaro che **non** viene
+dalle famiglie: voucher regionali, contributi comunali, bandi. Caso reale di
+riferimento: il **Voucher per lo Sport della Regione Lazio 2025** (Sport e
+Salute).
+
+**Il problema, in una frase.** Un voucher assegnato non e denaro incassato, e
+fra «assegnato» e «arrivato in banca» ci sono tre passaggi che possono fallire
+separatamente — frequentare abbastanza, rendicontare, incassare. Senza un
+modello che li tenga distinti, l'unico modo di registrare un contributo sarebbe
+inventare un incasso: la rata della famiglia risulterebbe saldata da soldi che
+il club non ha.
+
+**Scope.**
+
+1. **Modello.** Cinque tabelle: `funding_programs` (le regole del bando in
+   colonne), `funding_enrollments` (chi ne beneficia, con quale plafond e quale
+   codice voucher), `funding_accruals` (il maturato periodo per periodo),
+   `funding_settlements` e `funding_settlement_lines` (il versamento dell'ente
+   e la sua riconciliazione).
+2. **Dominio.** `src/lib/funding/funding-model.ts`, puro: generazione dei
+   periodi, maturazione, i **cinque importi**, validazione della configurazione
+   e della ripartizione. `attendance-measure.ts` collega il tutto alle presenze
+   EasyGame.
+3. **Servizio.** `src/lib/server/funding.ts`: ricalcolo idempotente dalle
+   presenze, rendicontazione, liquidazioni riconciliate.
+4. **API.** `/api/v1/funding/{programs,enrollments,accruals,settlements}`.
+5. **UI.** `AthleteFundingSummary` nella scheda atleta,
+   `FundingProgramsPanel` in Gestione iscrizioni.
+
+**Le cinque decisioni, e perche.**
+
+| Decisione | Perche |
+|---|---|
+| Le regole del bando sono **colonne**, non codice | Un dominio che si dice configurabile e porta 500, 60 o 8 dentro un modulo non lo e. Un test verifica che nessuna costante del bando viva in `src/` |
+| **Cinque importi**, non un totale | Assegnato, maturato, rendicontato, liquidato, residuo falliscono in momenti diversi. Il liquidato si legge dalle **righe**, non dallo stato del periodo: con versamenti parziali i due numeri differiscono |
+| Il maturato lo **calcola il server**, dalle presenze | Un importo digitato sarebbe un'opinione da rendicontare a un ente pubblico. Idempotente per costruzione: si rifa a ogni correzione di appello |
+| Il **periodo non e una tabella** | Si ricava dalla configurazione; salvarlo sarebbe una seconda fonte di verita che diverge il giorno in cui le date del bando cambiano. Viene congelato **dentro** il maturato, dove serve a spiegarlo |
+| Le due contabilita **non si toccano** | Il servizio dei contributi non importa `payment_transactions`, e il dominio dei pagamenti non sa cosa sia un contributo. Due test statici lo difendono |
+
+**Tre sottigliezze che il codice da solo non spiega.**
+
+- Un periodo **gia liquidato non si riscrive** — l'ente ha versato su quel
+  numero — ma il suo maturato **consuma comunque plafond**: saltarlo del tutto
+  farebbe trovare ai periodi successivi un residuo che non esiste.
+- Un periodo **rendicontato torna «maturato»** se il ricalcolo ne cambia
+  l'importo: cio che era stato dichiarato all'ente non corrisponde piu.
+- Il mensile segue il **mese di calendario** e il confronto con le presenze si
+  fa sul **giorno**, non sull'istante: le date degli allenamenti sono locali e
+  i periodi UTC, e un allenamento del primo ottobre finiva dentro settembre.
+
+**Cosa e stato deliberatamente lasciato fuori.**
+
+- **La compensazione automatica contributo → rata della famiglia.** E la cosa
+  che sembra piu comoda e la piu pericolosa: quale parte della quota il voucher
+  copre lo decide il club insieme alla famiglia, non l'importo maturato.
+  Compensare in automatico farebbe risultare saldate rate che nessuno ha
+  pagato, e la scoperta arriverebbe a fine stagione.
+- **La trasmissione telematica delle rendicontazioni.** `reported` e una
+  marcatura interna; il canale verso il finanziatore e quello che il bando
+  prescrive, e cambia da bando a bando.
+- **La contabilita fiscale.** Come per WP-47.
+
+**Acceptance criteria.**
+- [x] Nessuna regola di un singolo bando nel codice, verificato da un test
+- [x] Programma configurabile su nome, ente, validita, plafond, importo per
+      periodo, frequenza, requisito minimo, unita, comportamento sotto soglia,
+      tetti, stato e codice voucher individuale
+- [x] Maturato calcolato dalle presenze, periodo per periodo, senza calcoli
+      manuali
+- [x] Assegnato, maturato, rendicontato, liquidato e residuo sempre distinti
+- [x] Liquidazione registrabile e riconciliabile con piu periodi e piu atleti
+- [x] Il Riepilogo Incassi distingue denaro incassato da contributi maturati
+- [x] Convivenza con rate, pagamenti parziali, «Registra pagamento», ricevute,
+      pro-rata e servizi opzionali: nessuno dei due domini importa l'altro
+- [x] Scenario Voucher Lazio 2025 coperto da test, con soglia configurata
+- [x] Multi-tenant, autorizzazioni e audit su ogni scrittura
+- [x] Gate verdi: 742/743 test, typecheck, build, warning di lint invariati
+
+**Test.** `tests/lib/funding-model.test.mjs` (31),
+`tests/server/funding-service.test.mjs` (27),
+`tests/ui/funding-flow.test.mjs` (16).
+
+**File.** `prisma/schema.prisma`,
+`prisma/migrations/20260826140000_funding_programs/`,
+`src/lib/funding/{funding-model,attendance-measure}.ts`,
+`src/lib/server/funding.ts`, `src/app/api/v1/funding/**`,
+`src/components/funding/{AthleteFundingSummary,FundingProgramsPanel}.tsx`,
+`src/app/athletes/[id]/page.tsx`, `src/app/registration-management/page.tsx`,
+`src/components/payments/AthletePaymentLedger.tsx`.
+
+---
+
 ### WP-13 · Pagamenti online via CediPay / Platform.Payments — `PIANIFICATO`
 
 **Obiettivo.** Decidere e chiudere: implementare davvero o rimuovere la

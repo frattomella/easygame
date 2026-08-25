@@ -109,10 +109,16 @@ Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 | Modello | Tabella | Note |
 |---------|---------|------|
 | `PaymentMethod` | `payment_methods` | Metodi di incasso configurati dal club |
-| `AthletePayment` | `payments` | Quota atleta. `status`, `due_date`, `paid_at` |
+| `AthletePayment` | `payments` | **La rata: quanto e dovuto.** `amount`, `due_date`, `description`. `status`, `paid_at` e `method` sono una **cache derivata** dal registro incassi, riscritta dal server: non sono un dato che l'interfaccia imposta. Vedi [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una) |
+| `PaymentTransaction` | `payment_transactions` | **L'incasso: un movimento di denaro** che salda una rata in tutto o in parte. `amount`, `paid_at`, `payment_method`, `source`, `external_reference`, `created_by`. Uno storno marca l'originale (`reversed_at`) e crea il movimento opposto (`reverses_transaction_id`): niente si cancella |
 | `Invoice` | `invoices` | `invoice_number` unique, `payment_id` unique opzionale, campi fatturazione elettronica |
-| `Receipt` | `receipts` | `receipt_number` unique, collegabile a payment e invoice |
+| `Receipt` | `receipts` | `receipt_number` unique. `transaction_id` unique collega la ricevuta all'**incasso**, che e il livello corretto; `payment_id` resta per le ricevute anteriori al registro e **non e piu unique** — una rata pagata in tre volte ha tre ricevute |
 | `TrainerPayment` | `trainer_payments` | Compensi allenatori per mese |
+| `FundingProgram` | `funding_programs` | **Le regole di un bando, in colonne**: plafond per atleta, importo per periodo, frequenza (mensile o N giorni), requisito minimo, unita (`hours`/`sessions`), comportamento sotto soglia (`none`/`prorata`/`full`), tetti, validita. Nessuna regola di un singolo bando vive nel codice. Vedi [ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati) |
+| `FundingEnrollment` | `funding_enrollments` | Atleta ammesso a un programma: `assigned_amount` (il plafond **assegnato**, che non e denaro) e `voucher_code`. Unique `(program_id, athlete_id)` |
+| `FundingAccrual` | `funding_accruals` | Il **maturato di un periodo**: misura della frequenza, requisito, maturato e non maturato, stato (`not_accrued`/`accrued`/`reported`/`settled`). Il periodo e denormalizzato qui e **non ha una tabella**: si ricava dalla configurazione. Unique `(enrollment_id, period_index)`, che rende il ricalcolo idempotente |
+| `FundingSettlement` | `funding_settlements` | Il versamento dell'ente: l'unico momento in cui un contributo diventa denaro |
+| `FundingSettlementLine` | `funding_settlement_lines` | La riconciliazione: quanto di un versamento copre quale periodo di quale atleta. **Il liquidato si legge da qui**, non dallo stato del periodo |
 
 ### Trasversali
 
@@ -227,7 +233,7 @@ applicativo**.
 
 ## Migrazioni
 
-9 migrazioni in `prisma/migrations/`:
+11 migrazioni in `prisma/migrations/`:
 
 | Migrazione | Contenuto |
 |------------|-----------|
@@ -240,14 +246,17 @@ applicativo**.
 | `20260822180000_audit_log` | `audit_logs` |
 | `20260823090000_imap_provider_config` | `imap_provider_configs` |
 | `20260825120000_attachments` | `attachments` + `attachment_blobs` (WP-15). **Additiva**: non legge e non riscrive nessun dato esistente |
+| `20260826090000_payment_transactions` | `payment_transactions` + `receipts.transaction_id` (Workstream A, ADR-0036). **Additiva**: nessun pagamento esistente viene letto, convertito o riscritto. L'unica modifica a una tabella esistente e la **rimozione** del vincolo unique su `receipts.payment_id`, che non invalida nessuna riga |
+| `20260826140000_funding_programs` | Le cinque tabelle dei contributi (Workstream A, ADR-0037). **Additiva**: non tocca nessuna tabella esistente, e in particolare non tocca `payments` ne `payment_transactions` — le due contabilita restano separate anche nello schema |
 
 Stato verificato su Neon staging il 2026-08-22:
 `npx prisma migrate status` → **Database schema is up to date**. La settima
 (`audit_logs`) e l'ottava (`imap_provider_configs`) vengono applicate al
 deploy successivo, da `prisma migrate deploy` nel comando `vercel-build`.
 
-Le migrazioni `20260823090000_imap_provider_config` e
-`20260825120000_attachments` sono state **scritte a mano**,
+Le migrazioni `20260823090000_imap_provider_config`,
+`20260825120000_attachments`, `20260826090000_payment_transactions` e
+`20260826140000_funding_programs` sono state **scritte a mano**,
 nello stesso stile di `20260821160000_email_provider_config`: in locale
 `prisma migrate dev` e bloccato dalla guardia di `scripts/db-guard.mjs`
 (sezione 8 di `CLAUDE.md`) e non e stata chiesta autorizzazione a scrivere sul

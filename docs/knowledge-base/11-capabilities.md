@@ -85,10 +85,19 @@ Classificazione:
 | Quote e pagamenti atleti | COMPLETE | `/payments`, modello `AthletePayment` |
 | Piani di pagamento e sconti | COMPLETE | `payment_plans`, `discounts`, servizi obbligatori e opzionali, rate a percentuale/fisso/saldo |
 | Pro-rata sulla quota | COMPLETE | `calculateProratedTotal`, metodo a giorni o mesi. Quando non e calcolabile la UI dice quale dato manca |
-| Metodi di incasso | COMPLETE | `clubs.settings.paymentMethods` + metodi manuali e provider online; selezione strutturata anche in «Modifica pagamento» |
+| **Registrazione di un incasso** | COMPLETE | `payment_transactions` + `POST /api/v1/payment-transactions`. «Registra pagamento» con importo precompilato al residuo, metodo, data, note e riepilogo. Stesso componente in scheda atleta e area Movimenti ([ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)) |
+| **Incassi parziali su una rata** | COMPLETE | N movimenti per rata, anche con metodi diversi. Stato **derivato**: `IN ATTESA`, `PARZIALMENTE PAGATA`, `PAGATA`, piu `SCADUTA`. Non e piu impostabile a mano |
+| **Storno e correzione di un incasso** | COMPLETE | `{"action":"reverse"}`: l'originale resta marcato, il movimento opposto lo compensa. Nessun `DELETE`. Correggere = stornare e registrare di nuovo |
+| Metodi di incasso | COMPLETE | `clubs.settings.paymentMethods` + metodi manuali e provider online; selezione strutturata in «Modifica pagamento» e in «Registra pagamento». Mai testo libero |
 | Fatture | COMPLETE | Numerazione unica, campi fatturazione elettronica |
-| Ricevute | COMPLETE | Collegabili a pagamento e fattura |
+| Ricevute | COMPLETE | Emesse **per incasso** (`receipts.transaction_id`), non per rata: una rata pagata in tre volte ne produce tre. Emissione idempotente. Collegabili anche a fattura |
 | Metodi di incasso | COMPLETE | `payment_methods` con commissioni configurabili |
+| **Voucher e contributi da enti** | COMPLETE | `funding_programs` + `/api/v1/funding/*`. Le regole di un bando sono **configurazione**: plafond, importo per periodo, frequenza, requisito minimo, unita, comportamento sotto soglia, tetti ([ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati)) |
+| **Maturato dalle presenze** | COMPLETE | Il server misura ore o presenze periodo per periodo e scrive il maturato: la segreteria non fa calcoli. Ricalcolo idempotente, ripetibile a ogni correzione di appello |
+| **Rendicontazione e liquidazione** | COMPLETE | `reported` e una marcatura interna; `settled` arriva con la liquidazione dell'ente, riconciliata riga per riga sui periodi. Il liquidato si legge dalle righe, non dallo stato |
+| **Contributi distinti dai pagamenti** | COMPLETE | Cinque importi separati (assegnato, maturato, rendicontato, liquidato, residuo); il Riepilogo Incassi mostra solo il denaro della famiglia |
+| Compensazione contributo → rata della famiglia | MISSING | **Scelta**: quale parte della quota il voucher copre lo decide il club, non l'importo maturato. Compensare in automatico farebbe risultare saldate rate che nessuno ha pagato (ADR-0037) |
+| Trasmissione telematica delle rendicontazioni | MISSING | Il canale verso l'ente e quello che il bando prescrive: `reported` e interno |
 | Movimenti e trasferimenti | COMPLETE | `/movements`, `transactions`, `transfers` |
 | Budget previsionale | COMPLETE | `expected_income`, `expected_expenses` |
 | Compensi allenatori | COMPLETE | `trainer_payments` |

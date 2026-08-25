@@ -44,7 +44,13 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 336 test, 37 file
+## Cosa e coperto oggi — 743 test, 63 file
+
+**La tabella sotto ne elenca 44 e non 63**: e rimasta indietro rispetto al
+Blocco 8, ed e onesto dirlo invece di lasciar credere che sia completa. Le
+righe che ci sono descrivono correttamente cio che coprono; le mancanti si
+leggono da `tests/`, dove la discovery e automatica su `tests/**/*.test.mjs`.
+Il conteggio in testa e invece verificato a ogni esecuzione.
 
 | File | Test | Copre |
 |------|------|-------|
@@ -69,6 +75,13 @@ endpoint nuovo che dimentica il controllo.
 | `tests/ui/seasons-tab.test.mjs` | 8 | Scheda Stagioni: logica fuori da `page.tsx`, nessun `fetch` ne font nuovi, conferme sulle operazioni di stato, riepilogo prima della conferma, tre breakpoint |
 | `tests/lib/category-birth-years.test.mjs` | 6 | Categorie con un solo anno di nascita: normalizzazione, etichetta, associazione atleta |
 | `tests/lib/payment-enrollment.test.mjs` | 16 | Servizi opzionali nel totale e nelle rate, pro-rata applicato e diagnosticato, stato reale di ogni rata |
+| `tests/lib/installment-ledger.test.mjs` | 25 | **Il registro incassi**: pagamento totale, parziale e multiplo con metodi diversi; somme in centesimi; scaduta e parziale insieme; storni fuori dai totali ma dentro lo storico; compatibilita con le rate anteriori al registro; ordine cronologico crescente |
+| `tests/server/payment-transactions.test.mjs` | 23 | **Gli incassi a runtime**: ogni operazione provata dal club sbagliato deve fallire con «Accesso negato»; lo stato della rata lo riscrive il servizio e non il client; rata annullata che non torna in vita; storno, doppio storno, correzione; provider online rifiutati |
+| `tests/lib/payment-partial-regressions.test.mjs` | 9 | Che un acconto arrivi fino ai totali dell'atleta, e che **non** cambi cio che gia funzionava: servizi opzionali, pro-rata, rate annullate |
+| `tests/ui/payment-registration-flow.test.mjs` | 13 | Un solo flusso «Registra pagamento» fra scheda atleta e Movimenti; nessuna scelta di stato; metodo dai metodi del club; importo precompilato e modificabile; nessuna griglia a due colonne a 375 px |
+| `tests/lib/funding-model.test.mjs` | 31 | **Voucher e contributi**: il caso di riferimento configurato solo come dati, un secondo bando con regole opposte sullo stesso calcolo, periodi mensili di calendario e parziali, soglia, pro-rata, plafond che si consuma in ordine, i cinque importi, riconciliazione delle liquidazioni, misura delle ore dalle presenze |
+| `tests/server/funding-service.test.mjs` | 27 | **I contributi a runtime**: isolamento multi-tenant su ogni operazione, maturato calcolato dalle presenze, ricalcolo idempotente, periodo liquidato che non si riscrive ma consuma plafond, liquidazioni parziali, e che **nessuna liquidazione crea un incasso della famiglia** |
+| `tests/ui/funding-flow.test.mjs` | 16 | Che **nessuna costante del bando di riferimento viva in `src/`**, che le due contabilita non si tocchino, i cinque importi a schermo, il dettaglio per periodo, la configurabilita completa dal pannello |
 | `tests/lib/api-adapter-requests.test.mjs` | 4 | L'adapter fa **una** richiesta per select senza relazioni, e carica le relazioni solo quando servono |
 | `tests/lib/trainer-delete.test.mjs` | 8 | L'eliminazione di un allenatore e persistita su tutte le origini che la lettura rimette insieme |
 | `tests/lib/coalescing-saver.test.mjs` | 6 | L'autosave scrive una volta alla volta e accorpa le modifiche fatte durante l'attesa |

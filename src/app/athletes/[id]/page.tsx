@@ -158,6 +158,9 @@ import {
 } from "@/lib/athlete-category-memberships";
 import { AthleteCategoryAnalyticsSection } from "@/components/athletes/AthleteCategoryAnalyticsSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
+import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
+import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
+import { AthletePaymentDialogs } from "@/components/athletes/profile/athlete-payment-dialogs";
 import {
   calculateAthleteCategoryAnalytics,
   type AthleteCategoryAnalyticsResult,
@@ -191,12 +194,6 @@ import type { OnlineForm } from "@/lib/online-forms";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { apiRequest } from "@/lib/api/client";
 import type { KitComponent } from "@/components/forms/CustomKitComponentsBuilder";
-
-/**
- * `Select` di Radix non accetta `value=""`: serve un valore sentinella per
- * «nessun metodo indicato».
- */
-const PAYMENT_METHOD_UNSET = "__nessun_metodo__";
 
 const CustomKitComponentsBuilder = dynamic(
   () =>
@@ -413,7 +410,9 @@ export default function AthleteProfilePage() {
     description: "",
     type: "Quota",
     amount: "",
-    status: "Pagato",
+    // Una voce a debito nasce da incassare: il pagamento lo dimostra un
+    // movimento nel registro, non questo campo (ADR-0036).
+    status: "In attesa",
   });
   const [isEnrollmentSaving, setIsEnrollmentSaving] = useState(false);
   const [showDocumentScannerModal, setShowDocumentScannerModal] =
@@ -1839,6 +1838,24 @@ export default function AthleteProfilePage() {
     showToast,
   ]);
 
+  /*
+    Un incasso registrato sposta la rata: il server la restituisce gia
+    riscritta, e sostituirla qui fa aggiornare nello stesso render il
+    Riepilogo Incasso, il totale pagato e il residuo. Senza questo passaggio
+    resterebbero fermi finche qualcuno non ricarica la pagina.
+  */
+  const handleLedgerChanged = React.useCallback((updatedCharge: any | null) => {
+    if (!updatedCharge?.id) return;
+
+    setAthletePaymentRecords((current) =>
+      current.map((payment: any) =>
+        String(payment?.id) === String(updatedCharge.id)
+          ? { ...payment, ...updatedCharge }
+          : payment,
+      ),
+    );
+  }, []);
+
   const isEditableAthletePayment = (payment: any) =>
     payment?.source === "athlete_payment" &&
     payment?.statusKey !== "cancelled" &&
@@ -2869,8 +2886,11 @@ export default function AthleteProfilePage() {
         throw new Error("Club non disponibile");
       }
 
-      const normalizedStatus =
-        newPayment.status === "Pagato" ? "paid" : "pending";
+      /*
+        Una voce aggiunta a mano e un **debito**, e nasce sempre da
+        incassare: il denaro lo dimostra un movimento nel registro incassi,
+        non una tendina (ADR-0036).
+      */
       const response = await apiRequest("/api/v1/simplified_payments", {
         method: "POST",
         body: {
@@ -2879,8 +2899,8 @@ export default function AthleteProfilePage() {
           description: newPayment.description,
           amount: Number(amount.toFixed(2)),
           due_date: newPayment.date,
-          paid_at: normalizedStatus === "paid" ? newPayment.date : null,
-          status: normalizedStatus,
+          paid_at: null,
+          status: "pending",
           method: newPayment.type,
           data: {
             source: "manual_athlete_payment",
@@ -2906,9 +2926,9 @@ export default function AthleteProfilePage() {
         description: "",
         type: "Quota",
         amount: "",
-        status: "Pagato",
+        status: "In attesa",
       });
-      showToast("success", "Pagamento aggiunto con successo");
+      showToast("success", "Voce aggiunta: registrane l'incasso quando arriva");
     } catch (error) {
       console.error("Error adding payment:", error);
       showToast("error", "Impossibile aggiungere il pagamento");
@@ -4934,6 +4954,54 @@ export default function AthleteProfilePage() {
                       mode="club"
                       showPaymentHistory={false}
                     />
+                  </CardContent>
+                </Card>
+
+                {/*
+                  Le rate e i loro incassi. Lo stesso componente e montato
+                  nell'area Movimenti: registrare un pagamento deve essere lo
+                  stesso gesto da qualunque parte lo si faccia (ADR-0036).
+                */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Rate e incassi</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Lo stato di una rata si ricava dagli incassi registrati:
+                      non si imposta a mano.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <AthletePaymentLedger
+                      athleteId={athleteId}
+                      athleteName={
+                        `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim() ||
+                        null
+                      }
+                      charges={athletePaymentRecords}
+                      methodChoices={clubPaymentMethodChoices}
+                      onLedgerChanged={handleLedgerChanged}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/*
+                  I contributi stanno in un riquadro **separato** dagli
+                  incassi, e non nella loro somma: uno e denaro della
+                  famiglia, l'altro e un credito verso un ente. Il momento in
+                  cui si sommano e il momento in cui smettono di essere
+                  leggibili (ADR-0037).
+                */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Voucher e contributi</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Un voucher assegnato non e denaro incassato: matura con la
+                      frequenza, si rendiconta, e solo alla fine l&apos;ente lo
+                      liquida.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <AthleteFundingSummary athleteId={athleteId} />
                   </CardContent>
                 </Card>
 
@@ -7132,284 +7200,29 @@ export default function AthleteProfilePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={Boolean(editingPayment)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingPayment(null);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Modifica pagamento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label>Descrizione</Label>
-              <Input
-                value={paymentEditForm.description}
-                onChange={(event) =>
-                  setPaymentEditForm((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-                className="mt-2"
-              />
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <Label>Importo</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={paymentEditForm.amount}
-                  onChange={(event) =>
-                    setPaymentEditForm((current) => ({
-                      ...current,
-                      amount: event.target.value,
-                    }))
-                  }
-                  className="mt-2"
-                />
-              </div>
-              <div>
-                <Label>Scadenza</Label>
-                <Input
-                  type="date"
-                  value={paymentEditForm.dueDate}
-                  onChange={(event) =>
-                    setPaymentEditForm((current) => ({
-                      ...current,
-                      dueDate: event.target.value,
-                    }))
-                  }
-                  className="mt-2"
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <Label>Stato</Label>
-                <Select
-                  value={paymentEditForm.status}
-                  onValueChange={(value) =>
-                    setPaymentEditForm((current) => ({
-                      ...current,
-                      status: value,
-                    }))
-                  }
-                >
-                  <SelectTrigger className="mt-2">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">In attesa</SelectItem>
-                    <SelectItem value="paid">Pagato</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Metodo</Label>
-                <Select
-                  value={paymentEditForm.method || PAYMENT_METHOD_UNSET}
-                  onValueChange={(value) =>
-                    setPaymentEditForm((current) => ({
-                      ...current,
-                      method: value === PAYMENT_METHOD_UNSET ? "" : value,
-                    }))
-                  }
-                >
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder="Seleziona metodo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={PAYMENT_METHOD_UNSET}>
-                      Non specificato
-                    </SelectItem>
-                    {paymentMethodOptions.map((method) => (
-                      <SelectItem key={method} value={method}>
-                        {method}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {clubPaymentMethodChoices.length === 0 ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Nessun metodo configurato: aggiungili in Gestione
-                    iscrizioni.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-            <div>
-              <Label>Note</Label>
-              <Textarea
-                value={paymentEditForm.notes}
-                onChange={(event) =>
-                  setPaymentEditForm((current) => ({
-                    ...current,
-                    notes: event.target.value,
-                  }))
-                }
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingPayment(null)}>
-              Annulla
-            </Button>
-            <Button onClick={requestPaymentUpdate}>Salva modifiche</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/*
-        Conferma normale al posto del PIN: e la conferma a proteggere dal gesto
-        involontario. Chi puo davvero agire lo decide il server, dal ruolo.
+        Le finestre dei pagamenti vivono in un componente a parte: sono
+        payment-specific, e la scheda atleta non deve crescere ogni volta che
+        il dominio pagamenti cambia (WP-19).
       */}
-      <AlertDialog
-        open={Boolean(paymentPinAction)}
-        onOpenChange={(open) => {
-          if (!open && !isPaymentActionSaving) {
-            setPaymentPinAction(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {paymentPinAction?.action === "update"
-                ? "Modificare il pagamento?"
-                : paymentPinAction?.action === "delete"
-                  ? "Eliminare il pagamento in attesa?"
-                  : "Annullare il pagamento saldato?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              L&apos;operazione viene registrata nello storico del pagamento con
-              il tuo nome.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPaymentActionSaving}>
-              Annulla
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isPaymentActionSaving}
-              className={
-                paymentPinAction?.action === "update"
-                  ? undefined
-                  : "bg-red-600 hover:bg-red-700"
-              }
-              onClick={(event) => {
-                event.preventDefault();
-                void executePaymentAction();
-              }}
-            >
-              Conferma
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Add Payment Modal */}
-      <Dialog open={showAddPaymentModal} onOpenChange={setShowAddPaymentModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Aggiungi Pagamento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Data *</Label>
-              <Input
-                type="date"
-                value={newPayment.date}
-                onChange={(e) =>
-                  setNewPayment({ ...newPayment, date: e.target.value })
-                }
-              />
-            </div>
-            <div>
-              <Label>Descrizione *</Label>
-              <Input
-                value={newPayment.description}
-                onChange={(e) =>
-                  setNewPayment({ ...newPayment, description: e.target.value })
-                }
-                placeholder="Es: Quota mensile Gennaio"
-              />
-            </div>
-            <div>
-              <Label>Tipo *</Label>
-              <Select
-                value={newPayment.type}
-                onValueChange={(value) =>
-                  setNewPayment({ ...newPayment, type: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Quota">Quota</SelectItem>
-                  <SelectItem value="Iscrizione">Iscrizione</SelectItem>
-                  <SelectItem value="Abbigliamento">Abbigliamento</SelectItem>
-                  <SelectItem value="Trasferta">Trasferta</SelectItem>
-                  <SelectItem value="Altro">Altro</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Importo (€) *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={newPayment.amount}
-                onChange={(e) =>
-                  setNewPayment({ ...newPayment, amount: e.target.value })
-                }
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <Label>Stato *</Label>
-              <Select
-                value={newPayment.status}
-                onValueChange={(value) =>
-                  setNewPayment({ ...newPayment, status: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona stato" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Pagato">Pagato</SelectItem>
-                  <SelectItem value="In attesa">In attesa</SelectItem>
-                  <SelectItem value="Scaduto">Scaduto</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddPaymentModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleSavePayment}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Aggiungi
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AthletePaymentDialogs
+        editingPayment={editingPayment}
+        onCloseEdit={() => setEditingPayment(null)}
+        paymentEditForm={paymentEditForm}
+        setPaymentEditForm={setPaymentEditForm}
+        paymentMethodOptions={paymentMethodOptions}
+        clubPaymentMethodChoices={clubPaymentMethodChoices}
+        onRequestPaymentUpdate={requestPaymentUpdate}
+        paymentAction={paymentPinAction}
+        isPaymentActionSaving={isPaymentActionSaving}
+        onClosePaymentAction={() => setPaymentPinAction(null)}
+        onExecutePaymentAction={() => void executePaymentAction()}
+        showAddPaymentModal={showAddPaymentModal}
+        onAddPaymentOpenChange={setShowAddPaymentModal}
+        newPayment={newPayment}
+        setNewPayment={setNewPayment}
+        onSavePayment={() => void handleSavePayment()}
+      />
 
       <Dialog
         open={showDocumentScannerModal}

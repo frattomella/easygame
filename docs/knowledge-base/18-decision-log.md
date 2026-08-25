@@ -1139,3 +1139,227 @@ su `GET /api/v1/comuni`. Nessun form cambia.
 cerca per nome — che e la direzione che l'archivio ISTAT copre davvero.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0036 — Una rata e un debito, un incasso e un movimento: due tabelle, non una
+
+**Data:** 2026-08-26 · **Contesto:** Web V1, Workstream A — Pagamenti V2
+
+**Contesto.** La segreteria segnalava quattro cose diverse: che per incassare
+bisognava spostare a mano uno stato da «In attesa» a «Pagata»; che una rata da
+130 EUR pagata in tre volte non era registrabile; che correggere un incasso
+faceva sparire la rata; che lo stato di una rata poteva dire una cosa e gli
+importi un'altra.
+
+Sono lo stesso difetto visto da quattro lati. `payments` faceva **due
+mestieri**: la riga portava l'importo dovuto (`amount`, `due_date`,
+`description`) e, negli stessi campi, il modo in cui era stato pagato
+(`status`, `paid_at`, `method`). Con un solo importo per riga, un incasso
+parziale non e rappresentabile; con lo stato sulla riga del debito, l'unico
+modo di dire «ho incassato» e modificare il debito.
+
+**Decisione.**
+
+1. **`payments` resta il dovuto.** Una riga = una rata, o una voce a debito
+   aggiunta a mano.
+2. **`payment_transactions` e il registro degli incassi.** Ogni riga e un
+   movimento di denaro: importo, data, metodo, note, sorgente, riferimento
+   esterno, chi l'ha registrato.
+3. **Lo stato di una rata non e un dato, e un calcolo.**
+   `resolveInstallmentLedger` confronta la somma degli incassi validi con il
+   dovuto e produce `IN ATTESA`, `PARZIALMENTE PAGATA` o `PAGATA`, piu
+   `SCADUTA` quando la scadenza e passata e la rata e ancora scoperta. Una
+   rata scaduta e parziale porta **entrambe** le etichette.
+4. **`payments.status`, `paid_at` e `method` sopravvivono come cache
+   derivata.** Li riscrive il servizio incassi nella stessa transazione che
+   inserisce il movimento. Restano perche meta applicazione li legge —
+   riepiloghi, report, area Movimenti, app mobile — ma nessuna interfaccia li
+   offre piu come campo modificabile.
+5. **Un incasso non si cancella: si storna.** `reversed_at` marca
+   l'originale, un movimento di segno opposto lo compensa,
+   `reverses_transaction_id` li collega. Correggere significa stornare e
+   registrare di nuovo.
+6. **La ricevuta si emette per incasso**, non per rata: `receipts.payment_id`
+   perde il vincolo di unicita e arriva `receipts.transaction_id`.
+
+**Perche una cache derivata e non la rimozione dei tre campi.** Rimuoverli
+avrebbe toccato l'area Movimenti, i report, la dashboard e il contratto API
+che l'app mobile consuma — cioe un cambiamento di ampiezza sproporzionata
+rispetto al difetto, in un workstream che deve restare confinato ai pagamenti.
+Tenerli come copia scritta **solo dal server** ottiene la proprieta che serve
+davvero: lo stato non puo piu contraddire gli importi, perche nessuno lo
+scrive a mano. Il costo e che due rappresentazioni della stessa cosa
+convivono; il rischio e mitigato dal fatto che una sola funzione le scrive
+entrambe, nella stessa transazione.
+
+**Perche nessuna migrazione dei dati.** Le rate gia marcate come pagate non
+hanno un movimento che lo dimostri, e inventarne uno vorrebbe dire scrivere
+denaro con una data e un metodo che nessuno ha dichiarato. Restano come sono:
+`resolveInstallmentLedger` tratta una rata **senza nessun movimento** e
+marcata pagata come incassata per intero. Al primo incasso registrato comanda
+il registro. La compatibilita e ancorata all'assenza di movimenti, non
+all'assenza di movimenti *validi*: altrimenti stornare l'unico incasso di una
+rata la riporterebbe a «pagata», e lo storno non avrebbe effetto.
+
+**Perche `source` esiste ma accetta solo `MANUAL`.** Il modello dichiara
+`MANUAL | STRIPE | CEDIPAY | IMPORT | OTHER` perche il giorno in cui un
+provider viene attivato non serva una migrazione. Il servizio **rifiuta**
+tutto cio che non e `MANUAL`: accettare un incasso dichiarato `STRIPE` senza
+un webhook verificato vorrebbe dire registrare denaro che nessuno ha
+incassato. Vedi [ADR-0013](#adr-0013--i-pagamenti-restano-in-roadmap-e-passeranno-da-cedipay--platformpayments)
+e il rischio 6 in [14 — Sicurezza](14-security.md).
+
+**Conseguenze.**
+
+- La segreteria registra un incasso con «Registra pagamento»: importo
+  precompilato con il residuo e modificabile, metodo scelto fra quelli
+  configurati dal club, data, note, riepilogo. Lo stato lo ricava il sistema.
+- Una rata mostra sempre dovuto, incassato, residuo, scadenza, stato e barra
+  di avanzamento; il dettaglio elenca gli incassi in ordine **crescente**, che
+  e l'ordine di un estratto conto.
+- Scheda atleta e area Movimenti montano lo **stesso** componente: non
+  esistono due finestre «quasi uguali» che divergono alla prossima modifica.
+- I totali dell'atleta si sommano per **importo**, non per stato: un acconto
+  da 50 su una rata da 200 conta 50. Prima contava zero, perche la rata non
+  era «pagata».
+- Registrare e stornare richiedono il ruolo che governa la configurazione del
+  club e finiscono nell'audit log.
+- `receipt_number` resta univoco su tutta la tabella e non per club: e un
+  difetto di modello preesistente, annotato in
+  [16 — Debito tecnico](16-technical-debt.md). L'emissione lo aggira
+  riprovando con il numero successivo.
+
+**Cosa questa decisione NON fa.** Non introduce una contabilita fiscale: la
+fattura resta l'oggetto che era, la numerazione non e un registro IVA, e non
+si tocca il ciclo attivo. Non attiva nessun pagamento online.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0037 — Un contributo non e un pagamento: due contabilita separate, e le regole del bando sono dati
+
+**Data:** 2026-08-26 · **Contesto:** Web V1, Workstream A — Voucher e contributi
+
+**Contesto.** Le societa sportive incassano da due fonti che si somigliano solo
+in banca: le famiglie, e gli enti che finanziano la pratica sportiva dei minori
+(voucher regionali, contributi comunali, bandi). Il caso reale di riferimento e
+il **Voucher per lo Sport della Regione Lazio 2025** (Sport e Salute): un
+plafond per atleta, mensilita riconosciute solo se l'atleta ha frequentato
+abbastanza, e il pagamento al club che arriva **dopo** la maturazione e la
+rendicontazione.
+
+EasyGame non aveva un posto dove tenere niente di tutto questo. L'unico modo di
+registrare un contributo sarebbe stato inventare un incasso — cioe dichiarare
+denaro che nessuno ha ancora versato — e la rata della famiglia sarebbe
+risultata saldata da soldi che il club non ha.
+
+**Decisione 1: le regole del bando sono configurazione, non codice.**
+
+`funding_programs` porta in colonne tutto cio che distingue un bando
+dall'altro: importo per periodo, frequenza (mensile o a N giorni), requisito
+minimo, unita del requisito (ore o presenze), comportamento sotto soglia
+(`none` / `prorata` / `full`), plafond per atleta, tetto ai periodi, tetto
+all'importo, validita, stato, e il codice voucher individuale sul
+beneficiario.
+
+Il Voucher Lazio 2025 e un insieme di valori, non un ramo dentro il calcolo. Un
+test statico verifica che **nessuna sua costante compaia in `src/`**: un
+dominio che si dice configurabile e poi porta 500, 60 o 8 dentro un modulo non
+e configurabile, e il secondo bando che arriva lo scopre nel modo peggiore.
+
+**Decisione 2: cinque importi, e restano cinque.**
+
+| Importo | Cosa significa | Dove sta |
+|---|---|---|
+| **assegnato** | il plafond riservato all'atleta | `funding_enrollments.assigned_amount` |
+| **maturato** | quanto ne ha guadagnato frequentando | Σ `funding_accruals.accrued_amount` |
+| **rendicontato** | quanto e stato dichiarato all'ente | Σ maturato con stato `reported`/`settled` |
+| **liquidato** | quanto l'ente ha **versato** | Σ `funding_settlement_lines.amount` |
+| **residuo** | quanto puo ancora maturare | assegnato − maturato |
+
+Il **liquidato si legge dalle righe di liquidazione, non dallo stato del
+periodo**: con liquidazioni parziali — che sono la norma — i due numeri
+differiscono, e fidarsi dello stato conterebbe come incassati soldi arrivati a
+meta.
+
+**Decisione 3: il maturato lo calcola il server, dalle presenze.**
+
+`recomputeEnrollmentAccruals` legge `training_attendance` e gli allenamenti in
+`club_resource_items`, misura ore o sessioni periodo per periodo e applica la
+configurazione. La segreteria non digita nessun numero. Tre proprieta
+deliberate:
+
+- **il ricalcolo e un'azione, non un effetto della lettura.** Scansiona le
+  presenze e gli allenamenti del club: farlo a ogni apertura di una scheda
+  costerebbe una scansione per visita. E ripetibile — l'unico
+  `(enrollment_id, period_index)` lo rende idempotente — quindi si rifa ogni
+  volta che qualcuno corregge un appello;
+- **un periodo gia liquidato non si riscrive**, perche l'ente ha versato su
+  quel numero; ma il suo maturato **consuma comunque plafond**, altrimenti i
+  periodi successivi ne troverebbero piu di quanto ce n'e;
+- **un periodo rendicontato torna «maturato» se il ricalcolo ne cambia
+  l'importo**: cio che era stato dichiarato all'ente non corrisponde piu, e
+  fingere il contrario e il modo in cui una rendicontazione diventa falsa.
+
+Conta solo `status = "present"`. Un allenamento senza appello non e una
+presenza: un contributo pubblico si rendiconta con cio che si puo dimostrare.
+Un allenamento **senza orario** non contribuisce alle ore e la cosa viene
+*detta* (`sessionsWithoutDuration`) invece di sparire in un totale piu basso —
+un requisito orario mancato per dati incompleti e un problema di anagrafica,
+non di frequenza, e le due cose si risolvono in modi diversi.
+
+**Decisione 4: il periodo non e una tabella.**
+
+I periodi si ricavano interamente dalla configurazione
+(`generateFundingPeriods`). Salvarli sarebbe una seconda fonte di verita per
+qualcosa che si ricalcola in un microsecondo, con il rischio classico che le
+due divergano il giorno in cui qualcuno corregge le date del bando. Il periodo
+viene **denormalizzato dentro il maturato**, dove serve a spiegare un importo
+gia calcolato e dove congelarlo e giusto.
+
+Il mensile segue il **mese di calendario**, non trenta giorni dall'inizio: un
+ente che dice «mensilita» intende gennaio, febbraio, marzo, e una
+rendicontazione sfasata di qualche giorno non gli e accettabile. Il primo e
+l'ultimo periodo possono essere parziali e restano tali.
+
+**Decisione 5: le due contabilita non si sommano, e nemmeno si toccano.**
+
+`src/lib/server/funding.ts` **non importa** `payment_transactions` ne
+`athletePayment`, e `installment-ledger.ts` non sa cosa sia un contributo. Una
+liquidazione non genera nessun incasso della famiglia. Nella scheda atleta i
+contributi hanno un riquadro proprio, e il Riepilogo Incassi dichiara di chi e
+il denaro che mostra: «Pagamenti della famiglia».
+
+**Perche non si compensa automaticamente la rata della famiglia.** Sarebbe la
+cosa che sembra piu comoda e la piu pericolosa: nella pratica il voucher copre
+una parte della quota, e quale parte lo decide il club insieme alla famiglia —
+non l'importo maturato. Compensare in automatico farebbe risultare **saldate
+rate che nessuno ha pagato**, e la scoperta arriverebbe a fine stagione. Il
+collegamento fra un contributo e le rate che alleggerisce resta una decisione
+esplicita, oggi non implementata, tracciata come voce di backlog.
+
+**Conseguenze.**
+
+- Un voucher assegnato non compare mai come incasso. Il maturato e un credito
+  verso l'ente; solo la liquidazione e cassa, e resta comunque distinta dai
+  pagamenti della famiglia.
+- La scheda atleta mostra i cinque importi e il dettaglio periodo per periodo,
+  con il motivo di ciascun importo: «Requisito raggiunto», «Sotto la soglia di
+  8 ore», «Plafond quasi esaurito».
+- Configurare, ricalcolare, rendicontare e liquidare richiedono
+  `canManageClubConfiguration`. Ogni scrittura finisce nell'audit log.
+- Un atleta puo beneficiare di piu contributi insieme; i riepiloghi si sommano
+  fra loro, mai con i pagamenti.
+- Il modello e pronto per bandi che EasyGame non ha ancora visto: unita del
+  requisito e comportamento sotto soglia sono elenchi estendibili, non
+  condizioni sparse.
+
+**Cosa questa decisione NON fa.** Non implementa la trasmissione telematica
+delle rendicontazioni a nessun ente: `reported` e una marcatura interna, e il
+canale verso il finanziatore resta quello che il bando prescrive. Non introduce
+una contabilita fiscale. Non modifica il dominio dei pagamenti
+([ADR-0036](#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)).
+
+**Stato:** ATTIVA.

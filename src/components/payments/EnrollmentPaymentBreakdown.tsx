@@ -10,6 +10,7 @@ import {
 
 const INSTALLMENT_BADGE_CLASS: Record<InstallmentPaymentState, string> = {
   paid: "border-green-200 bg-green-50 text-green-700 hover:bg-green-50",
+  partial: "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-50",
   pending: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
   unbilled: "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-100",
 };
