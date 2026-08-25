@@ -1,0 +1,32 @@
+# Convenzione dei fine riga per questo repository.
+#
+# Il repository e gia interamente LF nell'index (740 file di testo, zero CRLF).
+# Questo file rende la cosa esplicita e stabile invece di dipendere dalla
+# configurazione `core.autocrlf` della singola macchina: due sviluppatori con
+# impostazioni diverse ottenevano checkout diversi, e un test che misura
+# distanze nel sorgente passava sull'uno e falliva sull'altro (D30 in
+# docs/knowledge-base/16-technical-debt.md).
+#
+# `text=auto` lascia a Git il riconoscimento binario/testo; `eol=lf` fissa il
+# fine riga in **checkout**, non solo in commit.
+* text=auto eol=lf
+
+# I file che Windows esegue devono restare CRLF, altrimenti cmd.exe non li
+# interpreta correttamente.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binari: nessuna conversione, mai.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary

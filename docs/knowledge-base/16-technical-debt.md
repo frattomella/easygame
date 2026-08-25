@@ -461,26 +461,37 @@ che lo aggrega) e togliere i tre campi. Presuppone WP-07.
 
 → nessun WP ancora
 
-### D30 — Un test di chrome dipende dai fine riga del checkout
+### D30 — ~~Un test di chrome dipende dai fine riga del checkout~~ — RISOLTO (2026-08-25, integrazione Web V1)
 
-`tests/ui/topbar-club-vs-platform.test.mjs` verifica che dal marchio della
-sidebar si torni all'elenco dei club con
+`tests/ui/topbar-club-vs-platform.test.mjs` verificava che dal marchio della
+sidebar si tornasse all'elenco dei club con
 `/href="\/account"[\s\S]{0,240}<EasyGameLogo/`. Fra i due punti ci sono
-esattamente 240 caratteri con fine riga LF: in un checkout con CRLF — che
-`core.autocrlf=true` produce, ed e la configurazione di questo repository — i
-cinque `\r` in mezzo portano la distanza a 245 e il test fallisce.
+esattamente 240 caratteri con fine riga LF: in un checkout CRLF i cinque `\r`
+in mezzo portavano la distanza a 245 e il test falliva su un componente che
+nessuno aveva toccato.
 
-Non e un difetto del codice di chrome, che non e cambiato: e un'asserzione
-tarata al carattere su un file il cui contenuto dipende dalla piattaforma. Si
-manifesta in un worktree nuovo e non nella copia di lavoro principale, che ha
-i file in LF perche precede quella configurazione.
+**Come e stato chiuso.** Le due strade non erano alternative, e sono state
+prese entrambe:
 
-**Cosa lo chiude:** normalizzare il testo letto da `readCode` prima di
-applicare le espressioni regolari (`replace(/\r\n/g, "\n")`), oppure un
-`.gitattributes` con `* text=auto eol=lf`. La seconda strada e migliore e piu
-larga, e va valutata con calma: cambia il checkout di tutti.
+1. **`read()` normalizza a LF** prima di applicare qualunque espressione
+   regolare. E la difesa che vale sempre, perche non dipende da come e
+   configurata la macchina di chi esegue i test.
+2. **`.gitattributes` con `* text=auto eol=lf`** fissa la convenzione del
+   repository, cosi due sviluppatori con `core.autocrlf` diverso ottengono lo
+   stesso checkout. L'operazione e stata sicura senza rinormalizzazioni: alla
+   data l'index era gia interamente LF (740 file di testo, zero CRLF). I file
+   eseguiti da Windows (`.bat`, `.cmd`, `.ps1`) restano CRLF di proposito.
 
-→ nessun WP ancora
+Due test nuovi presidiano il risultato: uno **simula** un checkout CRLF e
+verifica che l'asserzione regga comunque, l'altro che il sorgente letto dai
+test non contenga mai `\r`. Senza la simulazione la garanzia sarebbe valsa
+solo sulle macchine che gia non avevano il problema.
+
+**Cosa era sbagliato nella reazione istintiva.** Cambiare `core.autocrlf`
+sulla propria macchina faceva passare il test e lasciava il difetto intatto
+per la macchina successiva, CI compresa.
+
+→ chiuso, nessun WP
 
 ### D31 — `AddPaymentForm` e una terza finestra di pagamento, mai montata
 

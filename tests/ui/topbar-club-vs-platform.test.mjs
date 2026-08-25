@@ -20,7 +20,21 @@ import path from "node:path";
  */
 
 const SRC = path.join(process.cwd(), "src");
-const read = (file) => readFileSync(path.join(SRC, file), "utf8");
+/**
+ * Il sorgente si legge **normalizzato a LF**.
+ *
+ * Alcune asserzioni di questo file misurano una distanza fra due punti del
+ * sorgente (`[\s\S]{0,240}`). In un checkout CRLF ogni riga compresa fra i
+ * due punti aggiunge un carattere, la distanza cresce e il test fallisce su
+ * un codice che non e cambiato: verificava il checkout, non il componente.
+ *
+ * La normalizzazione qui e la difesa vera, perche vale comunque sia
+ * configurato `core.autocrlf` sulla macchina di chi esegue i test. La
+ * convenzione di repository sta in `.gitattributes`; le due cose sono
+ * complementari, non alternative. Vedi D30 in 16 - Debito tecnico.
+ */
+const read = (file) =>
+  readFileSync(path.join(SRC, file), "utf8").replace(/\r\n/g, "\n");
 
 /** Sorgente senza commenti: un commento che *nomina* una cosa non e la cosa. */
 const readCode = (file) =>
@@ -322,4 +336,52 @@ test("le taglie di occhiello sono due, definite in un posto solo", () => {
     2,
     "nessuna terza variante",
   );
+});
+
+// --- indipendenza dai fine riga (D30) ----------------------------------------
+
+/**
+ * Il difetto che questo test presidia.
+ *
+ * L'asserzione «dal marchio si torna all'elenco dei club» misura al carattere
+ * la distanza fra `href="/account"` e `<EasyGameLogo`: 240 con fine riga LF.
+ * In un checkout CRLF le righe comprese fra i due punti aggiungono un `\r`
+ * ciascuna, la distanza supera il limite e il test fallisce su un componente
+ * che nessuno ha toccato. E successo nel Workstream B, e la reazione naturale
+ * — cambiare `core.autocrlf` sulla macchina — nasconde il problema invece di
+ * chiuderlo, perche la macchina successiva lo ritrova identico.
+ *
+ * Qui il checkout CRLF viene **simulato**, cosi la garanzia vale anche dove i
+ * file sul disco sono in LF e nessuno se ne accorgerebbe.
+ */
+test("le asserzioni reggono anche in un checkout CRLF", () => {
+  const crlf = readFileSync(path.join(SRC, CLUB_SIDEBAR), "utf8").replace(
+    /\r?\n/g,
+    "\r\n",
+  );
+
+  assert.ok(crlf.includes("\r\n"), "la simulazione deve produrre davvero CRLF");
+
+  const comeLoLeggeIlTest = crlf
+    .replace(/\r\n/g, "\n")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+
+  assert.equal(
+    comeLoLeggeIlTest.includes("\r"),
+    false,
+    "dopo la normalizzazione non deve restare nessun ritorno a capo CRLF",
+  );
+  assert.match(
+    comeLoLeggeIlTest,
+    /href="\/account"[\s\S]{0,240}<EasyGameLogo/,
+    "la distanza fra marchio e link non deve dipendere dal checkout",
+  );
+});
+
+test("il sorgente letto dai test e sempre normalizzato a LF", () => {
+  for (const file of [CLUB_HEADER, CLUB_SIDEBAR, CLUB_MOBILE, PLATFORM_SHELL]) {
+    assert.equal(read(file).includes("\r"), false, `${file} deve arrivare in LF`);
+  }
 });
