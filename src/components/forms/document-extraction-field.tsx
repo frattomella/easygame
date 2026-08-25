@@ -7,16 +7,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/client-files";
 import {
+  MAX_DOCUMENT_SCAN_BYTES,
+  acceptAttributeFor,
   acceptExtractedFields,
   listExtractedFields,
+  validateDocumentForExtraction,
   type DocumentExtractionProvider,
   type DocumentExtractionResult,
   type ExtractedPersonFields,
 } from "@/lib/document-extraction";
-import {
-  OCR_ACCEPTED_TYPES,
-  ocrExtractionProvider,
-} from "@/lib/document-extraction-ocr";
+import { ocrExtractionProvider } from "@/lib/document-extraction-ocr";
 import { Loader2, ScanLine, TriangleAlert, Upload } from "lucide-react";
 
 /**
@@ -68,6 +68,16 @@ export function DocumentExtractionField({
 
   const handleFile = async (file: File | null | undefined) => {
     if (!file) return;
+
+    // Il rifiuto arriva **prima** di caricare il worker OCR, che pesa alcuni
+    // MB: dire «non leggo i PDF» dopo averli scaricati e una scortesia.
+    const validation = validateDocumentForExtraction(file, provider);
+    if (!validation.ok) {
+      setResult(null);
+      setError(validation.message);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -132,13 +142,23 @@ export function DocumentExtractionField({
             Carica la foto di un documento d&apos;identita: i dati vengono
             proposti, non scritti. La lettura avviene nel browser.
           </p>
+          {/*
+            I formati si dichiarano invece di lasciarli scoprire: la domanda
+            «perche non legge il mio PDF» e stata posta prima che il rifiuto
+            avesse una spiegazione.
+          */}
+          <p className="mt-1 text-xs text-slate-500">
+            JPG, PNG, WEBP o HEIC, fino a{" "}
+            {Math.round(MAX_DOCUMENT_SCAN_BYTES / (1024 * 1024))} MB. I PDF non
+            sono ancora leggibili: fotografa il documento.
+          </p>
         </div>
 
         <input
           type="file"
           ref={inputRef}
           className="hidden"
-          accept={OCR_ACCEPTED_TYPES}
+          accept={acceptAttributeFor(provider)}
           onChange={(event) => handleFile(event.target.files?.[0])}
         />
         <Button

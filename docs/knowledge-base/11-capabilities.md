@@ -70,7 +70,7 @@ Classificazione:
 |-----------|-------|------|
 | Certificati medici | COMPLETE | Modello dedicato, scadenze, stato |
 | Promemoria certificati | PARTIAL | `POST /api/medical-certificate-reminders` invia notifiche + email, ma va invocato manualmente: nessuno scheduler |
-| OCR certificati | PARTIAL | `tesseract.js` in `athletes/[id]/page.tsx`, `src/lib/document-scan.ts`. Nessun test |
+| Lettura documenti d'identita | PARTIAL | Flusso unico su nuovo atleta, allenatore, staff, socio e genitore/tutore: si carica, si vede cosa e stato letto, si sceglie cosa applicare. Motore: OCR locale (`tesseract.js`), il documento non lascia il browser. **Legge**: JPG, PNG, WEBP, HEIC fino a 8 MB, piu la zona a lettura ottica (MRZ) quando c'e. **Non legge**: PDF — rifiutati con una spiegazione, non accettati per poi fallire (serve `pdfjs-dist` per rasterizzare: e una decisione di dipendenza, non un difetto). 22 test |
 | Modulistica / template | COMPLETE | `/modulistica`, `document_templates`, `DocumentEditor` |
 | Moduli online firmabili | COMPLETE | `/forms/[publicSlug]` pubblico, `OnlineFormsDashboard`, `/api/online-forms`, `/api/public/forms/[publicSlug]` |
 | Procure | COMPLETE | `/procura`, risorsa `procure` |

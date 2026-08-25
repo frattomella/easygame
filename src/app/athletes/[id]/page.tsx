@@ -115,6 +115,7 @@ import { AthleteProfileHeader } from "@/components/athletes/profile/athlete-prof
 import { AthleteProfileTabsBar } from "@/components/athletes/profile/athlete-profile-tabs";
 import { resolveAthleteProfileTab } from "@/lib/athlete-profile-tabs";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
+import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { PhoneField } from "@/components/forms/phone-field";
 import {
   CLOTHING_SIZE_OPTIONS,
@@ -335,6 +336,39 @@ export default function AthleteProfilePage() {
     phone: "",
     email: "",
   });
+  /*
+    La lettura documenti parla di `firstName` e `lastName`, il record di un
+    genitore di `name` e `surname`. Le due grafie convivono da prima del
+    Blocco 8 e allinearle e una migrazione a se: qui si traduce, in un punto
+    solo, e si scartano i campi che un genitore non ha (numero e scadenza del
+    documento non stanno nel suo record).
+  */
+  const guardianExtractionValues = React.useMemo(
+    () => ({
+      firstName: newGuardian.name,
+      lastName: newGuardian.surname,
+      fiscalCode: newGuardian.fiscalCode,
+      birthDate: newGuardian.birthDate,
+      birthPlace: newGuardian.birthPlace,
+      birthPlaceCode: newGuardian.birthPlaceCode,
+    }),
+    [newGuardian],
+  );
+
+  const applyExtractionToGuardian = (patch: Record<string, string>) => {
+    const { firstName, lastName, ...rest } = patch;
+    const mapped: Record<string, string> = {};
+
+    for (const key of ["fiscalCode", "birthDate", "birthPlace", "birthPlaceCode"]) {
+      if (rest[key]) mapped[key] = rest[key];
+    }
+
+    if (firstName) mapped.name = firstName;
+    if (lastName) mapped.surname = lastName;
+
+    return mapped;
+  };
+
   const [newRegistration, setNewRegistration] = useState(createEmptyRegistration);
   const [newMedicalVisit, setNewMedicalVisit] = useState(createEmptyMedicalVisit);
   const [newIdentityDocument, setNewIdentityDocument] =
@@ -8284,6 +8318,23 @@ export default function AthleteProfilePage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/*
+              Un genitore ha un documento d'identita come chiunque altro, e
+              trascriverlo a mano e lo stesso lavoro che si e tolto agli
+              atleti, agli allenatori, allo staff e ai soci. Stesso
+              componente, stesso flusso: si legge, si vede cosa e stato letto,
+              si sceglie cosa applicare.
+            */}
+            <DocumentExtractionField
+              currentValues={guardianExtractionValues}
+              onApply={(patch) =>
+                setNewGuardian((current: any) => ({
+                  ...current,
+                  ...applyExtractionToGuardian(patch),
+                }))
+              }
+            />
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Nome *</Label>

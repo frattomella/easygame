@@ -74,8 +74,78 @@ export type DocumentExtractionResult = {
 export type DocumentExtractionProvider = {
   id: string;
   label: string;
-  /** `dataUrl` di un'immagine o di un PDF. */
+  /**
+   * I tipi MIME che il motore sa leggere **davvero**.
+   *
+   * Dichiararlo fa parte del contratto perche il motore di oggi legge
+   * immagini e non PDF, e un'interfaccia che accetta un PDF per poi fallire
+   * e peggio di una che lo rifiuta subito dicendo perche.
+   */
+  accepts: string[];
+  /** `dataUrl` di un file fra quelli dichiarati in `accepts`. */
   extract: (dataUrl: string) => Promise<DocumentExtractionResult>;
+};
+
+/**
+ * Quanto puo pesare un documento da leggere: 8 MB.
+ *
+ * Non e un limite di archiviazione — il file non viene conservato — ma di
+ * tempo: l'OCR gira **nel browser**, e su una foto da 20 MB scattata con un
+ * telefono recente blocca la scheda per decine di secondi senza dare segno
+ * di vita. Sopra questa soglia conviene chiedere una foto piu piccola.
+ */
+export const MAX_DOCUMENT_SCAN_BYTES = 8 * 1024 * 1024;
+
+/** L'attributo `accept` di un motore, costruito dai tipi che dichiara. */
+export const acceptAttributeFor = (provider: DocumentExtractionProvider) =>
+  provider.accepts.join(",");
+
+export type DocumentScanValidation =
+  | { ok: true }
+  | { ok: false; message: string };
+
+/**
+ * Questo file si puo leggere?
+ *
+ * Le tre risposte negative sono diverse fra loro e vanno dette in modo
+ * diverso: **troppo grande** si risolve con una foto piu piccola, **PDF** si
+ * risolve con una fotografia della pagina, **altro formato** non si risolve.
+ * Un unico messaggio «file non valido» lascia l'operatore a indovinare.
+ */
+export const validateDocumentForExtraction = (
+  file: { type?: string | null; size?: number | null; name?: string | null },
+  provider: DocumentExtractionProvider,
+): DocumentScanValidation => {
+  const size = Number(file?.size || 0);
+  if (size > MAX_DOCUMENT_SCAN_BYTES) {
+    return {
+      ok: false,
+      message: `L'immagine supera gli ${Math.round(
+        MAX_DOCUMENT_SCAN_BYTES / (1024 * 1024),
+      )} MB: la lettura avviene nel browser e un file cosi grande lo blocca. Riprova con una foto piu piccola.`,
+    };
+  }
+
+  const type = String(file?.type || "").trim().toLowerCase();
+  const name = String(file?.name || "").toLowerCase();
+
+  if (type === "application/pdf" || name.endsWith(".pdf")) {
+    return {
+      ok: false,
+      message:
+        "I PDF non sono ancora leggibili: il motore attuale legge immagini. Fotografa il documento, oppure compila a mano.",
+    };
+  }
+
+  if (type && !provider.accepts.includes(type)) {
+    return {
+      ok: false,
+      message:
+        "Formato non leggibile. Accetto fotografie e scansioni in JPG, PNG, WEBP o HEIC.",
+    };
+  }
+
+  return { ok: true };
 };
 
 const field = (

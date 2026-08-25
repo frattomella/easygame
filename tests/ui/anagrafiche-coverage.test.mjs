@@ -160,3 +160,71 @@ test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", ()
     );
   }
 });
+
+/* ------------------------------------------- lettura documenti (Blocco 8, C) */
+
+/**
+ * Dove si compila un'anagrafica a partire da un documento.
+ *
+ * Il Blocco 7 aveva costruito il flusso; il Blocco 8 lo porta anche sul
+ * **genitore/tutore**, che era l'anagrafica rimasta fuori — e non per una
+ * ragione tecnica: un genitore ha un documento d'identita come chiunque
+ * altro, e trascriverlo a mano e lo stesso lavoro che si e tolto agli altri.
+ */
+const DOCUMENT_READER_SURFACES = [
+  ["components/forms/AthleteQuickCreateDialog.tsx", "nuovo atleta"],
+  ["app/trainers/new/page.tsx", "nuovo allenatore"],
+  ["app/staff/new/page.tsx", "nuovo staff"],
+  ["app/soci/new/page.tsx", "nuovo socio"],
+  ["app/athletes/[id]/page.tsx", "genitore/tutore"],
+];
+
+test("la lettura documenti e su tutte le anagrafiche di persona", () => {
+  for (const [file, label] of DOCUMENT_READER_SURFACES) {
+    assert.match(
+      read(file),
+      /<DocumentExtractionField/,
+      `${label} (${file}) deve poter compilare da un documento`,
+    );
+  }
+});
+
+/**
+ * La regola che non cambia mai: **si propone, non si scrive.**
+ *
+ * Un OCR sbaglia, e in un'anagrafica sportiva un dato sbagliato che nessuno
+ * ha guardato finisce su un tesseramento. Se un giorno il componente
+ * applicasse da solo, questo test lo direbbe.
+ */
+test("nessuna superficie applica i dati letti senza passare dalla conferma", () => {
+  const field = read("components/forms/document-extraction-field.tsx");
+
+  assert.match(
+    field,
+    /disabled=\{!accepted\.size\}/,
+    "il pulsante «Applica» deve dipendere da una scelta esplicita",
+  );
+  assert.match(
+    field,
+    /acceptExtractedFields\(result\.fields, Array\.from\(accepted\)\)/,
+    "si applicano solo i campi accettati, non tutto il risultato",
+  );
+
+  for (const [file, label] of DOCUMENT_READER_SURFACES) {
+    const source = read(file);
+    const mounts = source.match(/<DocumentExtractionField[\s\S]*?\/>/g) || [];
+
+    for (const mount of mounts) {
+      assert.match(
+        mount,
+        /onApply=/,
+        `${label}: il campo deve ricevere onApply, non scrivere da solo`,
+      );
+      assert.match(
+        mount,
+        /currentValues=/,
+        `${label}: senza currentValues non si sa cosa si sta per sovrascrivere`,
+      );
+    }
+  }
+});

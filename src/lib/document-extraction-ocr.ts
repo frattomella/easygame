@@ -14,16 +14,40 @@ import {
  * Il worker si carica solo quando serve (import dinamico): sono alcuni MB, e
  * la maggior parte delle sessioni non legge nessun documento.
  *
- * Cosa **non** fa: i PDF. `tesseract.js` legge immagini. Un PDF va prima
- * rasterizzato, e serve una libreria che oggi non c'e — vedi la nota in
- * `docs/knowledge-base/11-capabilities.md`.
+ * Cosa **non** fa: i PDF. Il perche, e come si aggiungeranno, sono sotto in
+ * `OCR_ACCEPTED_MIME_TYPES`.
  */
 
 export const OCR_PROVIDER_ID = "tesseract-local";
 
+/**
+ * I tipi che `tesseract.js` legge davvero.
+ *
+ * **Il PDF non c'e, ed e una decisione.** `tesseract.js` riconosce testo in
+ * un'immagine: un PDF va prima **rasterizzato**, e rasterizzare nel browser
+ * richiede `pdfjs-dist` — circa un megabyte di JavaScript, piu un canvas per
+ * pagina. Aggiungerla per una funzione che si usa una volta per anagrafica
+ * peserebbe su ogni sessione, comprese le moltissime che un documento non lo
+ * leggono mai.
+ *
+ * Il modo giusto di aggiungerla, quando si decidera, e **un secondo motore**:
+ * il contratto `DocumentExtractionProvider` esiste per questo, e un provider
+ * PDF si aggiunge senza toccare nessun form. Fino ad allora un PDF viene
+ * **rifiutato con una spiegazione**, non accettato per poi fallire.
+ */
+export const OCR_ACCEPTED_MIME_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+
 export const ocrExtractionProvider: DocumentExtractionProvider = {
   id: OCR_PROVIDER_ID,
   label: "Lettura locale (OCR)",
+  accepts: OCR_ACCEPTED_MIME_TYPES,
 
   async extract(dataUrl: string) {
     let worker: {
@@ -51,5 +75,3 @@ export const ocrExtractionProvider: DocumentExtractionProvider = {
   },
 };
 
-/** I tipi di file che il motore attuale sa davvero leggere. */
-export const OCR_ACCEPTED_TYPES = ".jpg,.jpeg,.png,.webp,.heic";
