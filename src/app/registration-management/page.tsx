@@ -106,13 +106,7 @@ import {
   PAYMENT_PROVIDER_REGISTRY,
 } from "@/lib/payments/provider-registry";
 import type { ClubPaymentSettings as ClubPaymentSettingsType } from "@/lib/payments/payment-types";
-
-const CLOTHING_SIZE_OPTIONS = {
-  BAMBINO: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"],
-  BAMBINA: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"],
-  UOMO: ["XS", "S", "M", "L", "XL", "XXL", "3XL", "46", "48", "50", "52", "54", "56", "58", "60", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48"],
-  DONNA: ["XXS", "XS", "S", "M", "L", "XL", "XXL", "36", "38", "40", "42", "44", "46", "48", "50", "52"],
-} as const;
+import { allClothingSizesFor } from "@/lib/clothing-sizes";
 
 const calculateAgeFromBirthDate = (birthDate?: string) => {
   if (!birthDate) {
@@ -643,13 +637,12 @@ export default function RegistrationManagementPage() {
   const filteredAssignmentAthletes = athletes.filter((athlete) =>
     athlete.name?.toLowerCase().includes(assignmentAthleteSearch.toLowerCase()),
   );
-  const assignmentSizeOptions =
-    CLOTHING_SIZE_OPTIONS[
-      deriveClothingProfile(
-        selectedAssignmentAthlete?.gender,
-        selectedAssignmentAthlete?.birthDate,
-      ) as keyof typeof CLOTHING_SIZE_OPTIONS
-    ] || CLOTHING_SIZE_OPTIONS.UOMO;
+  const assignmentSizeOptions = allClothingSizesFor(
+    deriveClothingProfile(
+      selectedAssignmentAthlete?.gender,
+      selectedAssignmentAthlete?.birthDate,
+    ),
+  );
 
   const persistPaymentMethods = async (methods: any[]) => {
     if (!activeClub?.id) {

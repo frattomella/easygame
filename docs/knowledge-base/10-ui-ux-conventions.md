@@ -196,6 +196,39 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
    al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
    logo, nome o comandi. Dal Blocco 7 e **grigia**: vedi sotto.
 
+## Taglie ed export valgono per tutte le persone (Blocco 7)
+
+### Taglie
+
+`src/lib/clothing-sizes.ts` e `ClothingSizesFields`. Sono le **stesse**
+definizioni dell'abbigliamento: un magazzino che conosce `XL` e un'anagrafica
+che scrive `Extra Large` non si parlano.
+
+Erano scritte tre volte — nella scheda atleta, e una copia appiattita e con i
+duplicati dentro in `registration-management`. Ora stanno in un posto solo, e
+un test fallisce se ne ricompare una seconda.
+
+Valgono per atleta, allenatore, staff e socio. **La numerazione di maglia
+resta agli atleti**: darla a un dirigente creerebbe conflitti nei gruppi di
+numerazione (WP-44) per un dato che non serve a nessuno.
+
+Il profilo (bambino/bambina/uomo/donna) si deduce da sesso ed eta ma resta
+scegliibile a mano — un adulto puo portare una taglia bambino. Per chi non ha
+data di nascita in archivio, cioe quasi tutti gli allenatori e i soci, la
+risposta e «adulto».
+
+### Export
+
+`src/lib/people-pdf-export.ts` si chiamava `athletes-pdf-export` ma non ha
+mai saputo niente degli atleti: prende colonne e righe. Dal Blocco 7 lo usano
+anche allenatori, staff e soci tramite `src/lib/person-export.ts`, che
+contiene la sola parte che cambia — quali colonne ha ciascuna entita e come si
+legge un valore da un record senza schema.
+
+Le colonne **rispettano quelle visibili in elenco**, dove la pagina le
+configura. Le colonne senza interruttore (codice fiscale, taglie) restano
+sempre: in tabella non ci stanno, in un PDF servono.
+
 ## Telefoni e maiuscole: due regole condivise (Blocco 7)
 
 ### `PhoneField` — prefisso a tendina, numero a parte

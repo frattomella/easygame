@@ -1,18 +1,27 @@
-export type AthletePdfColumn = {
+/**
+ * Stampa PDF di un elenco di persone.
+ *
+ * Si chiamava `athletes-pdf-export` ma non ha mai saputo niente degli atleti:
+ * prende colonne e righe. Dal Blocco 7 lo usano anche allenatori, staff e
+ * soci — il modo per non avere tre export diversi era smettere di chiamarlo
+ * come uno solo dei quattro.
+ */
+
+export type PeoplePdfColumn = {
   key: string;
   label: string;
 };
 
-export type AthletePdfRow = {
+export type PeoplePdfRow = {
   id: string;
   values: Record<string, string | number | null | undefined>;
 };
 
-type PrintAthletesPdfOptions = {
+type PrintPeoplePdfOptions = {
   clubName: string;
   title: string;
-  columns: AthletePdfColumn[];
-  rows: AthletePdfRow[];
+  columns: PeoplePdfColumn[];
+  rows: PeoplePdfRow[];
   generatedAt?: Date;
   scopeLabel?: string;
 };
@@ -34,14 +43,14 @@ const formatDateTime = (date: Date) =>
     minute: "2-digit",
   });
 
-export const printAthletesPdf = ({
+export const printPeoplePdf = ({
   clubName,
   title,
   columns,
   rows,
   generatedAt = new Date(),
   scopeLabel,
-}: PrintAthletesPdfOptions) => {
+}: PrintPeoplePdfOptions) => {
   if (typeof window === "undefined") {
     return false;
   }

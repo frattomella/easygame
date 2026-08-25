@@ -19,6 +19,11 @@ import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
+import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
+import {
+  DEFAULT_CLOTHING_SIZES,
+  type ClothingSizes,
+} from "@/lib/clothing-sizes";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   Select,
@@ -53,6 +58,7 @@ function NewSocioPageContent() {
      * creare il socio e poi riaprirlo.
      */
     type: DEFAULT_MEMBER_TYPE as string,
+    clothingSizes: DEFAULT_CLOTHING_SIZES,
     address: "",
     city: "",
     postalCode: "",
@@ -140,6 +146,7 @@ function NewSocioPageContent() {
         birthPlace: formData.birthPlace || null,
         birthPlaceCode: formData.birthPlaceCode || null,
         type: formData.type || DEFAULT_MEMBER_TYPE,
+        clothingSizes: formData.clothingSizes,
         address: formData.address || null,
         city: formData.city || null,
         postalCode: formData.postalCode || null,
@@ -381,6 +388,28 @@ function NewSocioPageContent() {
                         />
                       </div>
                     </div>
+                  </div>
+
+                  {/*
+                    Taglie: stesse definizioni dell'abbigliamento (Blocco 7).
+                    Nessun numero di maglia per un socio.
+                  */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Taglie vestiario</h3>
+                    <ClothingSizesFields
+                      idPrefix="member-clothing"
+                      value={formData.clothingSizes}
+                      onChange={(next) =>
+                        setFormData((previous) => ({
+                          ...previous,
+                          clothingSizes: next,
+                        }))
+                      }
+                      person={{
+                        gender: formData.gender,
+                        birthDate: formData.birthDate,
+                      }}
+                    />
                   </div>
 
                   {/* Dati Associazione */}

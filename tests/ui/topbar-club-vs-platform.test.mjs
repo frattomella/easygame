@@ -225,7 +225,7 @@ const DOCUMENT_GENERATORS = new Set([
   "app/movements/page.tsx",
   "app/private/api-docs/api-docs-client.tsx",
   "components/forms/FormShareDialog.tsx",
-  "lib/athletes-pdf-export.ts",
+  "lib/people-pdf-export.ts",
   "lib/clothing-supplier-order-pdf.ts",
   "lib/server/auth-workflows.ts",
 ]);

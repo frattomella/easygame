@@ -93,6 +93,11 @@ import {
 } from "@/lib/medical-certificates";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
 import {
+  CLOTHING_SIZE_OPTIONS,
+  DEFAULT_CLOTHING_SIZES,
+  deriveClothingProfile,
+} from "@/lib/clothing-sizes";
+import {
   downloadAttachment,
   downloadClientFileUrl,
   fileToDataUrl,
@@ -181,40 +186,10 @@ const CustomKitComponentsBuilder = dynamic(
   },
 );
 
-const DEFAULT_CLOTHING_SIZES = {
-  profile: "",
-  shirtSize: "",
-  pantsSize: "",
-  shoeSize: "",
-};
-
 const EMPTY_ATHLETE_CATEGORY_ANALYTICS: AthleteCategoryAnalyticsResult = {
   categories: [],
   unclassifiedEvents: [],
 };
-
-const CLOTHING_SIZE_OPTIONS = {
-  BAMBINO: {
-    shirt: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
-    pants: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
-    shoes: ["26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"],
-  },
-  BAMBINA: {
-    shirt: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
-    pants: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
-    shoes: ["26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"],
-  },
-  UOMO: {
-    shirt: ["XS", "S", "M", "L", "XL", "XXL", "3XL"],
-    pants: ["XS", "S", "M", "L", "XL", "XXL", "3XL", "46", "48", "50", "52", "54", "56", "58", "60"],
-    shoes: ["38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48"],
-  },
-  DONNA: {
-    shirt: ["XXS", "XS", "S", "M", "L", "XL", "XXL"],
-    pants: ["36", "38", "40", "42", "44", "46", "48", "50", "52"],
-    shoes: ["35", "36", "37", "38", "39", "40", "41", "42"],
-  },
-} as const;
 
 const createEmptyMedicalVisit = () => ({
   title: "",
@@ -278,22 +253,6 @@ const calculateAgeFromBirthDate = (birthDate?: string) => {
   }
 
   return age;
-};
-
-const deriveClothingProfile = (gender?: string, birthDate?: string) => {
-  const normalizedGender = String(gender || "").trim().toLowerCase();
-  const isFemale =
-    normalizedGender === "f" ||
-    normalizedGender === "femmina" ||
-    normalizedGender === "female" ||
-    normalizedGender === "donna";
-  const age = calculateAgeFromBirthDate(birthDate);
-
-  if (age > 0 && age < 15) {
-    return isFemale ? "BAMBINA" : "BAMBINO";
-  }
-
-  return isFemale ? "DONNA" : "UOMO";
 };
 
 const coerceBooleanField = (value: unknown) => {

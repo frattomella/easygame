@@ -21,6 +21,11 @@ import { supabase } from "@/lib/supabase";
 import { addClubData } from "@/lib/simplified-db";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
+import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
+import {
+  DEFAULT_CLOTHING_SIZES,
+  type ClothingSizes,
+} from "@/lib/clothing-sizes";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   Select,
@@ -50,6 +55,7 @@ type TrainerFormState = {
   birthPlace: string;
   birthPlaceCode: string;
   fiscalCode: string;
+  clothingSizes: ClothingSizes;
   address: string;
   city: string;
   postalCode: string;
@@ -69,6 +75,7 @@ const initialFormState: TrainerFormState = {
   birthPlace: "",
   birthPlaceCode: "",
   fiscalCode: "",
+  clothingSizes: DEFAULT_CLOTHING_SIZES,
   address: "",
   city: "",
   postalCode: "",
@@ -225,6 +232,7 @@ function NewTrainerPageContent() {
         birthPlace: formData.birthPlace.trim(),
         birthPlaceCode: formData.birthPlaceCode.trim(),
         fiscalCode: formData.fiscalCode.trim(),
+        clothingSizes: formData.clothingSizes,
         address: formData.address.trim(),
         city: formData.city.trim(),
         postalCode: formData.postalCode.trim(),
@@ -457,6 +465,35 @@ function NewTrainerPageContent() {
                       placeholder="Es. 20100"
                     />
                   </div>
+                </CardContent>
+              </Card>
+
+              {/*
+                Taglie: stesse definizioni dell'abbigliamento (Blocco 7).
+                Nessun numero di maglia — chi non scende in campo non ne ha uno.
+              */}
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-blue-600" />
+                    Taglie vestiario
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ClothingSizesFields
+                    idPrefix="trainer-clothing"
+                    value={formData.clothingSizes}
+                    onChange={(next) =>
+                      setFormData((previous) => ({
+                        ...previous,
+                        clothingSizes: next,
+                      }))
+                    }
+                    person={{
+                      gender: formData.gender,
+                      birthDate: formData.birthDate,
+                    }}
+                  />
                 </CardContent>
               </Card>
 

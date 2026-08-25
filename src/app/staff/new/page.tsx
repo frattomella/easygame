@@ -36,6 +36,11 @@ import { useToast } from "@/components/ui/toast-notification";
 import { addStaffMember } from "@/lib/simplified-db";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
 import { PhoneField } from "@/components/forms/phone-field";
+import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
+import {
+  DEFAULT_CLOTHING_SIZES,
+  type ClothingSizes,
+} from "@/lib/clothing-sizes";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   CUSTOM_OPTION_VALUE,
@@ -114,6 +119,8 @@ function NewStaffMemberPageContent() {
   const [roles, setRoles] = useState<string[]>(() => collectStaffRoles());
   const [showCustomDepartment, setShowCustomDepartment] = useState(false);
   const [customDepartment, setCustomDepartment] = useState("");
+  const [clothingSizes, setClothingSizes] =
+    useState<ClothingSizes>(DEFAULT_CLOTHING_SIZES);
 
   // Get clubId from multiple sources: URL params, auth context, or localStorage
   useEffect(() => {
@@ -240,6 +247,7 @@ function NewStaffMemberPageContent() {
         .join(" ");
       const newStaffMember = {
         ...formData,
+        clothingSizes,
         fullName,
         firstName: formData.name.trim(),
         lastName: formData.surname.trim(),
@@ -390,6 +398,30 @@ function NewStaffMemberPageContent() {
                     onBirthPlaceChange={(value) =>
                       handleInputChange("birthPlace", value)
                     }
+                  />
+                </CardContent>
+              </Card>
+
+              {/*
+                Taglie: stesse definizioni dell'abbigliamento (Blocco 7).
+                Nessun numero di maglia — chi non scende in campo non ne ha uno.
+              */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Briefcase className="h-5 w-5" />
+                    Taglie vestiario
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ClothingSizesFields
+                    idPrefix="staff-clothing"
+                    value={clothingSizes}
+                    onChange={setClothingSizes}
+                    person={{
+                      gender: formData.gender,
+                      birthDate: formData.birthDate,
+                    }}
                   />
                 </CardContent>
               </Card>

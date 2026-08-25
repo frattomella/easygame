@@ -36,6 +36,9 @@ import {
 } from "@/components/ui/select";
 import { StaffTable } from "@/components/staff/StaffTable";
 import { DepartmentManagement } from "@/components/staff/DepartmentManagement";
+import { exportPeoplePdf } from "@/lib/person-export";
+import { useToast } from "@/components/ui/toast-notification";
+import { FileDown } from "lucide-react";
 import {
   countStaffByDepartment,
   getDepartmentBadgeClassName,
@@ -83,6 +86,7 @@ const getStaffDisplayName = (member: StaffMember) =>
 export default function StaffPage() {
   const router = useRouter();
   const { activeClub } = useAuth();
+  const { showToast } = useToast();
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [clubId, setClubId] = useState<string | null>(null);
@@ -292,6 +296,34 @@ export default function StaffPage() {
   );
   const staffCountsByDepartment = countStaffByDepartment(staffMembers);
 
+  /**
+   * Export PDF, con lo stesso motore dell'elenco Atleti.
+   *
+   * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
+   * righe e non sa di che entita si tratti (Blocco 7, punto 13). Qui si
+   * passano solo l'elenco filtrato e le colonne visibili.
+   */
+  const handleExportPdf = () => {
+    const result = exportPeoplePdf({
+      entity: "staff",
+      people: filteredStaffMembers as unknown as Record<string, any>[],
+      clubName: activeClub?.name || "EasyGame",
+      visibleColumns: visibleColumns,
+    });
+
+    if (!result.ok) {
+      showToast(
+        "error",
+        result.reason === "empty"
+          ? "Nessun elemento da esportare"
+          : "Consenti i popup per generare il PDF",
+      );
+      return;
+    }
+
+    showToast("success", "PDF pronto: si apre la finestra di stampa");
+  };
+
   const renderStaffMainContent = () => (
     <main className={dashboardMainClassName}>
       <DashboardPageContainer>
@@ -324,6 +356,10 @@ export default function StaffPage() {
             >
               <Building className="mr-2 h-4 w-4" />
               Reparti
+            </Button>
+            <Button variant="outline" onClick={handleExportPdf}>
+              <FileDown className="mr-2 h-4 w-4" />
+              Esporta PDF
             </Button>
             <Button
               variant={viewMode === "table" ? "default" : "outline"}

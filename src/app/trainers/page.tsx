@@ -49,6 +49,8 @@ import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 import { deleteClubTrainer, getClubTrainers } from "@/lib/simplified-db";
 import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import { exportPeoplePdf } from "@/lib/person-export";
+import { FileDown } from "lucide-react";
 
 interface Trainer {
   id: string;
@@ -159,6 +161,34 @@ export default function TrainersPage() {
   };
 
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  /**
+   * Export PDF, con lo stesso motore dell'elenco Atleti.
+   *
+   * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
+   * righe e non sa di che entita si tratti (Blocco 7, punto 13). Qui si
+   * passano solo l'elenco filtrato e le colonne visibili.
+   */
+  const handleExportPdf = () => {
+    const result = exportPeoplePdf({
+      entity: "trainers",
+      people: filteredTrainers as unknown as Record<string, any>[],
+      clubName: activeClub?.name || "EasyGame",
+      visibleColumns: null,
+    });
+
+    if (!result.ok) {
+      showToast(
+        "error",
+        result.reason === "empty"
+          ? "Nessun elemento da esportare"
+          : "Consenti i popup per generare il PDF",
+      );
+      return;
+    }
+
+    showToast("success", "PDF pronto: si apre la finestra di stampa");
+  };
+
   const filteredTrainers = sortPeopleByLastName(trainers).filter((trainer) => {
     const trainerCategories = Array.isArray(trainer?.categories)
       ? trainer.categories
@@ -215,6 +245,10 @@ export default function TrainersPage() {
               </div>
 
               <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                <Button variant="outline" size="sm" onClick={handleExportPdf}>
+                  <FileDown className="h-4 w-4 mr-1" />
+                  Esporta PDF
+                </Button>
                 <div className="flex gap-1 border rounded-lg p-1 bg-white dark:bg-gray-800">
                   <Button
                     variant={statusFilter === "active" ? "default" : "ghost"}

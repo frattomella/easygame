@@ -48,6 +48,9 @@ import {
   formatPersonNameLastFirst,
 } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import { exportPeoplePdf } from "@/lib/person-export";
+import { useToast } from "@/components/ui/toast-notification";
+import { FileDown } from "lucide-react";
 
 interface Socio {
   id: string;
@@ -108,10 +111,38 @@ const isRegisteredSocio = (member: Record<string, any>) => {
 export default function SociPage() {
   const router = useRouter();
   const { activeClub } = useAuth();
+  const { showToast } = useToast();
   const [soci, setSoci] = useState<Socio[]>([]);
   const [loading, setLoading] = useState(true);
   const [clubId, setClubId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "table">("table");
+  /**
+   * Export PDF, con lo stesso motore dell'elenco Atleti.
+   *
+   * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
+   * righe e non sa di che entita si tratti (Blocco 7, punto 13).
+   */
+  const handleExportPdf = () => {
+    const result = exportPeoplePdf({
+      entity: "members",
+      people: soci as unknown as Record<string, any>[],
+      clubName: activeClub?.name || "EasyGame",
+      visibleColumns,
+    });
+
+    if (!result.ok) {
+      showToast(
+        "error",
+        result.reason === "empty"
+          ? "Nessun socio da esportare"
+          : "Consenti i popup per generare il PDF",
+      );
+      return;
+    }
+
+    showToast("success", "PDF pronto: si apre la finestra di stampa");
+  };
+
   const [visibleColumns, setVisibleColumns] = useState({
     name: true,
     email: true,
@@ -264,6 +295,10 @@ export default function SociPage() {
               subtitle="Gestisci i soci dell'associazione"
               actions={
               <div className="flex gap-2">
+                <Button variant="outline" onClick={handleExportPdf}>
+                  <FileDown className="mr-2 h-4 w-4" />
+                  Esporta PDF
+                </Button>
                 <Button
                   variant={viewMode === "table" ? "default" : "outline"}
                   size="icon"

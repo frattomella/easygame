@@ -82,7 +82,7 @@ import {
   updateClubAthlete,
   deleteClubAthlete,
 } from "@/lib/simplified-db";
-import { printAthletesPdf } from "@/lib/athletes-pdf-export";
+import { printPeoplePdf } from "@/lib/people-pdf-export";
 import { supabase } from "@/lib/supabase";
 import {
   Collapsible,
@@ -931,7 +931,7 @@ export default function AthletesPage() {
       return;
     }
 
-    const success = printAthletesPdf({
+    const success = printPeoplePdf({
       clubName: activeClub?.name || activeClub?.clubName || "EasyGame",
       title: "Elenco Atleti",
       columns,
