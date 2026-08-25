@@ -76,9 +76,7 @@ import {
   getAssignmentNumberLabel,
   getAthleteClothingProfile,
   getAvailableNumbersForGroup,
-  getCompatibleClothingItemsForAthlete,
-  getCompatibleInventoryForAthlete,
-  getCompatibleKitsForAthlete,
+  getAvailableInventoryForItem,
   inventoryStatusLabels,
   normalizeClubClothingState,
   serializeClothingAssignment,
@@ -163,7 +161,6 @@ type ItemForm = {
   sizes: string;
   colors: string;
   variants: string;
-  compatibleCategoryIds: string[];
   requiresSize: boolean;
   requiresColor: boolean;
   requiresNumber: boolean;
@@ -176,8 +173,6 @@ type KitForm = {
   id?: string;
   name: string;
   description: string;
-  season: string;
-  compatibleCategoryIds: string[];
   numberingGroupId: string;
   numberMode: ClothingNumberMode;
   components: ClothingKitComponent[];
@@ -230,7 +225,6 @@ const emptyItemForm: ItemForm = {
   sizes: "",
   colors: "",
   variants: "",
-  compatibleCategoryIds: [],
   requiresSize: true,
   requiresColor: false,
   requiresNumber: false,
@@ -242,8 +236,6 @@ const emptyItemForm: ItemForm = {
 const emptyKitForm: KitForm = {
   name: "",
   description: "",
-  season: "",
-  compatibleCategoryIds: [],
   numberingGroupId: "",
   numberMode: "shared_by_kit",
   components: [],
@@ -562,32 +554,20 @@ export default function ClothingPage() {
   );
 
   const selectedAssignmentAthlete = athletesById.get(assignmentForm.athleteId);
-  const compatibleKitOptions = useMemo(() => {
-    if (!selectedAssignmentAthlete) {
-      return state.kits
-        .filter((kit) => kit.active)
-        .map((kit) => ({ kit, compatible: true, reason: "" }));
-    }
-
-    return getCompatibleKitsForAthlete({
-      athlete: selectedAssignmentAthlete,
-      kits: state.kits,
-      categories: categoryOptions,
-    });
-  }, [categoryOptions, selectedAssignmentAthlete, state.kits]);
-  const compatibleItemOptions = useMemo(() => {
-    if (!selectedAssignmentAthlete) {
-      return state.items
-        .filter((item) => item.active)
-        .map((item) => ({ item, compatible: true, reason: "" }));
-    }
-
-    return getCompatibleClothingItemsForAthlete({
-      athlete: selectedAssignmentAthlete,
-      items: state.items,
-      categories: categoryOptions,
-    });
-  }, [categoryOptions, selectedAssignmentAthlete, state.items]);
+  /*
+    Un kit o un articolo si puo assegnare se e attivo, e basta (Blocco A,
+    punto 14). Prima meta della tendina compariva disabilitata con la scritta
+    «Categoria non compatibile»: era l'eleggibilita sportiva applicata a un
+    catalogo di magazzino, dove non significa niente.
+  */
+  const assignableKits = useMemo(
+    () => state.kits.filter((kit) => kit.active),
+    [state.kits],
+  );
+  const assignableItems = useMemo(
+    () => state.items.filter((item) => item.active),
+    [state.items],
+  );
   const selectedAssignmentKit = state.kits.find(
     (kit) => kit.id === assignmentForm.kitId,
   );
@@ -825,7 +805,6 @@ export default function ClothingPage() {
         sizes: splitCsv(itemForm.sizes),
         colors: splitCsv(itemForm.colors),
         variants: splitCsv(itemForm.variants),
-        compatibleCategoryIds: itemForm.compatibleCategoryIds,
         requiresSize: itemForm.requiresSize,
         requiresColor: itemForm.requiresColor,
         requiresNumber: itemForm.requiresNumber,
@@ -860,8 +839,6 @@ export default function ClothingPage() {
         id: kitForm.id || newId("kit"),
         name: kitForm.name.trim(),
         description: kitForm.description.trim(),
-        season: kitForm.season.trim(),
-        compatibleCategoryIds: kitForm.compatibleCategoryIds,
         numberingGroupId: kitForm.numberingGroupId || null,
         numberMode: kitForm.numberMode,
         components: kitForm.components,
@@ -1565,14 +1542,13 @@ export default function ClothingPage() {
         item.sizes.join(" "),
         item.colors.join(" "),
         item.variants.join(" "),
-        categoryNames(item.compatibleCategoryIds),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(query),
     );
-  }, [catalogSearch, categoryNames, sortedCatalogItems]);
+  }, [catalogSearch, sortedCatalogItems]);
 
   const filteredKits = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
@@ -1582,8 +1558,6 @@ export default function ClothingPage() {
       [
         kit.name,
         kit.description,
-        kit.season,
-        categoryNames(kit.compatibleCategoryIds),
         kit.components
           .map((component) => component.name || itemById.get(component.itemId)?.name)
           .join(" "),
@@ -1593,7 +1567,7 @@ export default function ClothingPage() {
         .toLowerCase()
         .includes(query),
     );
-  }, [catalogSearch, categoryNames, itemById, sortedKits]);
+  }, [catalogSearch, itemById, sortedKits]);
 
   const renderCategoryCheckboxes = (
     values: string[],
@@ -1637,8 +1611,7 @@ export default function ClothingPage() {
     });
     const athlete = selectedAssignmentAthlete;
     const compatibleInventory = athlete
-      ? getCompatibleInventoryForAthlete({
-          athlete,
+      ? getAvailableInventoryForItem({
           item,
           inventory: state.inventory,
           // Anche da magazzino la taglia di partenza e quella dell'anagrafica:
@@ -1646,7 +1619,6 @@ export default function ClothingPage() {
           size: sizeDescription.size,
           color: draft.color,
           variant: draft.variant,
-          categories: categoryOptions,
         })
       : [];
     const groupId =
@@ -2039,14 +2011,9 @@ export default function ClothingPage() {
                               <SelectValue placeholder="Seleziona kit" />
                             </SelectTrigger>
                             <SelectContent>
-                              {compatibleKitOptions.map(({ kit, compatible, reason }) => (
-                                <SelectItem
-                                  key={kit.id}
-                                  value={kit.id}
-                                  disabled={!compatible}
-                                >
+                              {assignableKits.map((kit) => (
+                                <SelectItem key={kit.id} value={kit.id}>
                                   {kit.name}
-                                  {!compatible ? ` - ${reason}` : ""}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -2069,14 +2036,9 @@ export default function ClothingPage() {
                               <SelectValue placeholder="Seleziona articolo" />
                             </SelectTrigger>
                             <SelectContent>
-                              {compatibleItemOptions.map(({ item, compatible, reason }) => (
-                                <SelectItem
-                                  key={item.id}
-                                  value={item.id}
-                                  disabled={!compatible}
-                                >
+                              {assignableItems.map((item) => (
+                                <SelectItem key={item.id} value={item.id}>
                                   {item.name}
-                                  {!compatible ? ` - ${reason}` : ""}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -3178,19 +3140,6 @@ export default function ClothingPage() {
                                   }))
                                 }
                               />
-                              <div>
-                                <Label>Categorie compatibili</Label>
-                                <div className="mt-2">
-                                  {renderCategoryCheckboxes(
-                                    itemForm.compatibleCategoryIds,
-                                    (next) =>
-                                      setItemForm((current) => ({
-                                        ...current,
-                                        compatibleCategoryIds: next,
-                                      })),
-                                  )}
-                                </div>
-                              </div>
                               <div className="grid gap-3 md:grid-cols-3">
                                 <label className="flex items-center gap-2 text-sm">
                                   <input
@@ -3374,8 +3323,6 @@ export default function ClothingPage() {
                                   sizes: item.sizes.join(", "),
                                   colors: item.colors.join(", "),
                                   variants: item.variants.join(", "),
-                                  compatibleCategoryIds:
-                                    item.compatibleCategoryIds,
                                   requiresSize: item.requiresSize,
                                   requiresColor: item.requiresColor,
                                   requiresNumber: item.requiresNumber,
@@ -3415,7 +3362,6 @@ export default function ClothingPage() {
                               <TableHead>Taglie</TableHead>
                               <TableHead>Colori</TableHead>
                               <TableHead>Varianti</TableHead>
-                              <TableHead>Compatibilita categorie</TableHead>
                               <TableHead>Requisiti</TableHead>
                               <TableHead>Stato</TableHead>
                               <TableHead className="text-right">Azioni</TableHead>
@@ -3437,9 +3383,6 @@ export default function ClothingPage() {
                                 </TableCell>
                                 <TableCell className="max-w-[180px]">
                                   {item.variants.join(", ") || "-"}
-                                </TableCell>
-                                <TableCell className="min-w-[220px]">
-                                  {categoryNames(item.compatibleCategoryIds) || "-"}
                                 </TableCell>
                                 <TableCell>
                                   <div className="flex flex-wrap gap-1">
@@ -3473,8 +3416,6 @@ export default function ClothingPage() {
                                         sizes: item.sizes.join(", "),
                                         colors: item.colors.join(", "),
                                         variants: item.variants.join(", "),
-                                        compatibleCategoryIds:
-                                          item.compatibleCategoryIds,
                                         requiresSize: item.requiresSize,
                                         requiresColor: item.requiresColor,
                                         requiresNumber: item.requiresNumber,
@@ -3599,19 +3540,6 @@ export default function ClothingPage() {
                                 </SelectContent>
                               </Select>
                               <div>
-                                <Label>Categorie compatibili</Label>
-                                <div className="mt-2">
-                                  {renderCategoryCheckboxes(
-                                    kitForm.compatibleCategoryIds,
-                                    (next) =>
-                                      setKitForm((current) => ({
-                                        ...current,
-                                        compatibleCategoryIds: next,
-                                      })),
-                                  )}
-                                </div>
-                              </div>
-                              <div>
                                 <Label>Componenti</Label>
                                 <div className="mt-2 space-y-2 rounded-md border p-3">
                                   {sortedCatalogItems.map((item) => {
@@ -3713,9 +3641,6 @@ export default function ClothingPage() {
                                   id: kit.id,
                                   name: kit.name,
                                   description: kit.description || "",
-                                  season: kit.season || "",
-                                  compatibleCategoryIds:
-                                    kit.compatibleCategoryIds,
                                   numberingGroupId:
                                     kit.numberingGroupId || "",
                                   numberMode: kit.numberMode,
@@ -3740,7 +3665,6 @@ export default function ClothingPage() {
                             <TableRow>
                               <TableHead>Nome kit</TableHead>
                               <TableHead>Componenti</TableHead>
-                              <TableHead>Categorie compatibili</TableHead>
                               <TableHead>Numerazione</TableHead>
                               <TableHead>Stato</TableHead>
                               <TableHead className="text-right">Azioni</TableHead>
@@ -3765,9 +3689,6 @@ export default function ClothingPage() {
                                     )
                                     .join(", ") || "-"}
                                 </TableCell>
-                                <TableCell className="min-w-[220px]">
-                                  {categoryNames(kit.compatibleCategoryIds) || "-"}
-                                </TableCell>
                                 <TableCell>
                                   {kit.numberMode === "shared_by_kit"
                                     ? "Numero condiviso"
@@ -3789,9 +3710,6 @@ export default function ClothingPage() {
                                         id: kit.id,
                                         name: kit.name,
                                         description: kit.description || "",
-                                        season: kit.season || "",
-                                        compatibleCategoryIds:
-                                          kit.compatibleCategoryIds,
                                         numberingGroupId:
                                           kit.numberingGroupId || "",
                                         numberMode: kit.numberMode,

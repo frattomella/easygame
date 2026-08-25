@@ -131,6 +131,78 @@ test("il kit non chiede piu una stagione", () => {
     /<TableHead>Stagione<\/TableHead>/.test(kitDialog),
     false,
   );
+
+  /*
+    Non basta che il campo non si veda. Restava nel tipo, nello stato del
+    form e nella serializzazione: un valore sempre vuoto che finiva nel
+    record e in una colonna d'export (Blocco A, punto 14). Il modello e
+    verificato in tests/lib/clothing-catalog-model.test.mjs; qui si verifica
+    che la pagina non lo scriva piu.
+  */
+  assert.equal(
+    /season: kitForm\.season/.test(source),
+    false,
+    "la stagione del kit era nascosta dal form, non rimossa dal salvataggio",
+  );
+  assert.equal(
+    /season: kit\.season \|\| ""/.test(source),
+    false,
+    "la stagione del kit torna nel form riaprendo un kit esistente",
+  );
+});
+
+/**
+ * La compatibilita di categoria non appartiene al catalogo (Blocco A, 14).
+ *
+ * Era una regola sportiva — chi puo giocare con chi, che vive in
+ * `category-compatibility.ts` e serve ai gruppi di numerazione — applicata a
+ * un magazzino, dove non significa niente. L'effetto visibile era una tendina
+ * con meta delle voci disabilitate e la scritta «Categoria non compatibile»,
+ * e un magazzino che risultava vuoto per una ragione inventata.
+ */
+test("articoli e kit non dichiarano categorie compatibili", () => {
+  const source = read(CLOTHING_PAGE);
+
+  for (const form of ["itemForm", "kitForm"]) {
+    assert.equal(
+      new RegExp(`${form}\\.compatibleCategoryIds`).test(source),
+      false,
+      `${form} porta ancora le categorie compatibili del catalogo`,
+    );
+  }
+
+  assert.equal(
+    /<Label>Categorie compatibili<\/Label>/.test(source),
+    false,
+    "il form del catalogo chiede ancora una compatibilita che non ha",
+  );
+  /*
+    Senza commenti: un commento che *nomina* la regola rimossa non e la
+    regola. E la stessa lettura che usa tests/server/club-pin-removed.
+  */
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  assert.equal(
+    /Categoria non compatibile/.test(code),
+    false,
+    "le tendine disabilitano ancora le voci per una regola sportiva",
+  );
+});
+
+/**
+ * Quel che **non** e stato toccato: la compatibilita fra categorie.
+ *
+ * Rimuovere il concetto dal catalogo non significa rimuoverlo dal dominio in
+ * cui e giusto. I gruppi di numerazione continuano a offrirla, esplicita e
+ * orientata (Blocco A, punto 15).
+ */
+test("i gruppi numerazione conservano la compatibilita fra categorie", () => {
+  const source = read(CLOTHING_PAGE);
+
+  assert.match(source, /groupForm\.includeCompatibleCategories/);
+  assert.match(source, /Categorie compatibili incluse/);
 });
 
 test("il catalogo articoli resta globale e le assegnazioni restano stagionali", async () => {

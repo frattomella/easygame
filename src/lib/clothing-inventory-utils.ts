@@ -42,7 +42,6 @@ export type ClothingCatalogItem = {
   sizes: string[];
   colors: string[];
   variants: string[];
-  compatibleCategoryIds: string[];
   requiresSize: boolean;
   requiresColor: boolean;
   requiresNumber: boolean;
@@ -70,12 +69,26 @@ export type ClothingKitComponent = {
   sharedKitNumber: boolean;
 };
 
+/**
+ * Un kit e una composizione di articoli, e nient'altro.
+ *
+ * **Cosa non ha, e perche** (Blocco A, punto 14).
+ *
+ * - Nessuna `season`. Il campo esisteva, si salvava e non filtrava niente:
+ *   sembrava un filtro di stagione e non lo era. Il Workstream B lo aveva
+ *   tolto dal form; restava nel tipo, nella serializzazione e in una colonna
+ *   d'export sempre vuota, cioe era nascosto e non rimosso.
+ * - Nessuna `compatibleCategoryIds`. La compatibilita fra categorie e una
+ *   regola sportiva — chi puo giocare con chi — e vive in
+ *   `category-compatibility.ts`, dove i gruppi di numerazione la usano. Un
+ *   catalogo di magazzino non ha eleggibilita sportiva: una maglia taglia M
+ *   non e «incompatibile» con i Pulcini, e dichiararlo produceva una tendina
+ *   in cui meta delle voci erano disabilitate per una ragione inventata.
+ */
 export type ClothingKit = {
   id: string;
   name: string;
   description?: string;
-  season?: string;
-  compatibleCategoryIds: string[];
   numberingGroupId?: string | null;
   numberMode: ClothingNumberMode;
   components: ClothingKitComponent[];
@@ -498,12 +511,6 @@ export const normalizeClothingItem = (item: any): ClothingCatalogItem => {
     sizes: normalizeList(item?.sizes ?? item?.taglie ?? item?.sizeOptions),
     colors: normalizeList(item?.colors ?? item?.colori ?? item?.colorOptions),
     variants: normalizeList(item?.variants ?? item?.varianti),
-    compatibleCategoryIds: normalizeList(
-      item?.compatibleCategoryIds ??
-        item?.compatible_category_ids ??
-        item?.categoryIds ??
-        item?.categories,
-    ),
     requiresSize: Boolean(
       item?.requiresSize ??
         item?.requires_size ??
@@ -599,13 +606,6 @@ export const normalizeClothingKit = (
     id: firstString(kit?.id, kit?.kitId) || makeId("kit"),
     name: firstString(kit?.name, kit?.title, "Kit"),
     description: firstString(kit?.description),
-    season: firstString(kit?.season),
-    compatibleCategoryIds: normalizeList(
-      kit?.compatibleCategoryIds ??
-        kit?.compatible_category_ids ??
-        kit?.categoryIds ??
-        kit?.categories,
-    ),
     numberingGroupId:
       firstString(kit?.numberingGroupId, kit?.numbering_group_id, kit?.groupId) ||
       null,
@@ -943,8 +943,27 @@ export const normalizeClubClothingState = ({
   };
 };
 
+/**
+ * I due campi che un salvataggio **toglie** dal record.
+ *
+ * Lo spread di `raw` conserva le chiavi che il modello non conosce, ed e cio
+ * che tiene in vita i record scritti da versioni precedenti. Per due chiavi
+ * pero il comportamento giusto e l'opposto: erano un concetto sbagliato, e
+ * lasciarle ferme nel JSON significa che il primo che rilegge quel record a
+ * mano crede che contino ancora. Si puliscono a ogni salvataggio, un record
+ * per volta: nessuna migrazione di massa, nessun record riscritto solo per
+ * questo.
+ */
+const dropRetiredCatalogKeys = <T extends Record<string, any>>(record: T) => {
+  const next = { ...record };
+  delete next.compatibleCategoryIds;
+  delete next.compatible_category_ids;
+  delete next.season;
+  return next;
+};
+
 export const serializeClothingItem = (item: ClothingCatalogItem) => ({
-  ...item.raw,
+  ...dropRetiredCatalogKeys(item.raw || {}),
   id: item.id,
   name: item.name,
   title: item.name,
@@ -955,7 +974,6 @@ export const serializeClothingItem = (item: ClothingCatalogItem) => ({
   sizes: item.sizes,
   colors: item.colors,
   variants: item.variants,
-  compatibleCategoryIds: item.compatibleCategoryIds,
   requiresSize: item.requiresSize,
   requiresColor: item.requiresColor,
   requiresNumber: item.requiresNumber,
@@ -965,12 +983,10 @@ export const serializeClothingItem = (item: ClothingCatalogItem) => ({
 });
 
 export const serializeClothingKit = (kit: ClothingKit) => ({
-  ...kit.raw,
+  ...dropRetiredCatalogKeys(kit.raw || {}),
   id: kit.id,
   name: kit.name,
   description: kit.description || "",
-  season: kit.season || "",
-  compatibleCategoryIds: kit.compatibleCategoryIds,
   numberingGroupId: kit.numberingGroupId || null,
   numberMode: kit.numberMode,
   components: kit.components,
@@ -1102,101 +1118,32 @@ export const getAthleteClothingProfile = (athlete: any) => {
   };
 };
 
-const categoryCompatible = (
-  compatibleCategoryIds: string[],
-  athlete: any,
-  categories: Array<{ id?: string | null; name?: string | null }> = [],
-) => {
-  if (!compatibleCategoryIds.length) {
-    return true;
-  }
-
-  return compatibleCategoryIds.some((categoryId) =>
-    athleteMatchesCategory(athlete, {
-      id: categoryId,
-      name: resolveCategoryLabel(categoryId, categories),
-    }),
-  );
-};
-
-export const getCompatibleClothingItemsForAthlete = ({
-  athlete,
-  items,
-  categories = [],
-}: {
-  athlete: any;
-  items: ClothingCatalogItem[];
-  categories?: Array<{ id?: string | null; name?: string | null }>;
-}) =>
-  items
-    .filter((item) => item.active)
-    .map((item) => {
-      const compatible = categoryCompatible(
-        item.compatibleCategoryIds,
-        athlete,
-        categories,
-      );
-      return {
-        item,
-        compatible,
-        reason: compatible ? "" : "Categoria non compatibile",
-      };
-    });
-
-export const getCompatibleKitsForAthlete = ({
-  athlete,
-  kits,
-  categories = [],
-}: {
-  athlete: any;
-  kits: ClothingKit[];
-  categories?: Array<{ id?: string | null; name?: string | null }>;
-}) =>
-  kits
-    .filter((kit) => kit.active)
-    .map((kit) => {
-      const compatible = categoryCompatible(
-        kit.compatibleCategoryIds,
-        athlete,
-        categories,
-      );
-      return {
-        kit,
-        compatible,
-        reason: compatible ? "" : "Categoria non compatibile",
-      };
-    });
-
 const valueCompatible = (candidate: unknown, expected?: string) =>
   !expected || !candidate || normalizeToken(candidate) === normalizeToken(expected);
 
-export const getCompatibleInventoryForAthlete = ({
-  athlete,
+/**
+ * Il magazzino disponibile per un articolo, con i filtri scelti.
+ *
+ * Si chiamava `getCompatibleInventoryForAthlete` e prendeva un atleta e le
+ * categorie del club, per poi restituire **zero righe** quando l'articolo
+ * dichiarava categorie compatibili che non erano quelle dell'atleta: il
+ * magazzino risultava vuoto per una regola sportiva che il magazzino non ha
+ * (Blocco A, punto 14). Ora e cio che ha sempre dovuto essere — quali pezzi
+ * di questo articolo, in questa taglia, in questo colore, ci sono davvero.
+ */
+export const getAvailableInventoryForItem = ({
   item,
   inventory,
   size,
   color,
   variant,
-  categories = [],
 }: {
-  athlete: any;
   item: ClothingCatalogItem;
   inventory: InventoryStock[];
   size?: string;
   color?: string;
   variant?: string;
-  categories?: Array<{ id?: string | null; name?: string | null }>;
 }) => {
-  const itemCompatible = categoryCompatible(
-    item.compatibleCategoryIds,
-    athlete,
-    categories,
-  );
-
-  if (!itemCompatible) {
-    return [];
-  }
-
   return inventory.filter((stock) => {
     if (stock.itemId !== item.id) return false;
     if (!valueCompatible(stock.size, size)) return false;
