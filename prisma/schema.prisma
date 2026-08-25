@@ -217,6 +217,7 @@ model Club {
   medical_certificates         MedicalCertificate[]
   payment_methods              PaymentMethod[]
   payments                     AthletePayment[]
+  payment_transactions         PaymentTransaction[]
   invoices                     Invoice[]
   receipts                     Receipt[]
   trainer_payments             TrainerPayment[]
@@ -278,6 +279,7 @@ model Athlete {
   organization         Club                        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   user                 User?                       @relation(fields: [user_id], references: [id], onDelete: SetNull)
   payments             AthletePayment[]
+  payment_transactions PaymentTransaction[]
   invoices             Invoice[]
   receipts             Receipt[]
   medical_certificates MedicalCertificate[]
@@ -327,29 +329,80 @@ model PaymentMethod {
   @@map("payment_methods")
 }
 
+/// Una **rata**: quanto e dovuto, entro quando, per cosa.
+///
+/// `status`, `paid_at` e `method` restano come **cache derivata** dal registro
+/// degli incassi (`PaymentTransaction`), non come dato primario: il server li
+/// riscrive a ogni incasso registrato o stornato. La fonte di verita e la
+/// somma dei movimenti. Vedi ADR-0036.
 model AthletePayment {
-  id              String    @id @default(uuid()) @db.Uuid
-  organization_id String    @db.Uuid
-  athlete_id      String?   @db.Uuid
+  id              String               @id @default(uuid()) @db.Uuid
+  organization_id String               @db.Uuid
+  athlete_id      String?              @db.Uuid
   description     String
   amount          Float
   due_date        DateTime?
   paid_at         DateTime?
-  status          String    @default("pending")
+  status          String               @default("pending")
   method          String?
   reference       String?
   notes           String?
   data            Json?
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete         Athlete?  @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  created_at      DateTime             @default(now())
+  updated_at      DateTime             @updatedAt
+  organization    Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete?             @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
   invoice         Invoice?
-  receipt         Receipt?
+  receipts        Receipt[]
+  transactions    PaymentTransaction[]
 
   @@index([organization_id])
   @@index([athlete_id])
   @@map("payments")
+}
+
+/// Un **incasso**: un movimento di denaro che salda, in tutto o in parte, una
+/// rata.
+///
+/// Esiste perche una rata puo essere incassata in piu volte e con metodi
+/// diversi — 50 in contanti, 30 in POS, 50 con bonifico — e perche prima di
+/// questa tabella «registrare un pagamento» voleva dire modificare la riga del
+/// debito (ADR-0036).
+///
+/// Un incasso **non si cancella**: si storna. `reversed_at` marca l'originale
+/// e `reverses_transaction_id` collega il movimento di segno opposto, cosi
+/// restano visibili entrambi e nessuna somma sparisce in silenzio.
+model PaymentTransaction {
+  id                      String               @id @default(uuid()) @db.Uuid
+  organization_id         String               @db.Uuid
+  athlete_id              String?              @db.Uuid
+  payment_id              String?              @db.Uuid
+  amount                  Float
+  paid_at                 DateTime
+  payment_method          String
+  notes                   String?
+  /// MANUAL | STRIPE | CEDIPAY | IMPORT | OTHER. Solo MANUAL e implementato.
+  source                  String               @default("MANUAL")
+  external_reference      String?
+  created_by              String?              @db.Uuid
+  reversed_at             DateTime?
+  reversed_by             String?              @db.Uuid
+  reversal_reason         String?
+  reverses_transaction_id String?              @db.Uuid
+  data                    Json?
+  created_at              DateTime             @default(now())
+  updated_at              DateTime             @updatedAt
+  organization            Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete                 Athlete?             @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment                 AthletePayment?      @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  reverses                PaymentTransaction?  @relation("PaymentTransactionReversal", fields: [reverses_transaction_id], references: [id], onDelete: SetNull)
+  reversals               PaymentTransaction[] @relation("PaymentTransactionReversal")
+  receipts                Receipt[]
+
+  @@index([organization_id])
+  @@index([athlete_id])
+  @@index([payment_id])
+  @@map("payment_transactions")
 }
 
 model Invoice {
@@ -386,29 +439,39 @@ model Invoice {
   @@map("invoices")
 }
 
+/// Una **ricevuta**: il documento che attesta un incasso.
+///
+/// `transaction_id` e il legame nuovo e quello corretto: si rilascia una
+/// ricevuta *per incasso*, non per rata, altrimenti una rata pagata in tre
+/// volte potrebbe produrne una sola. `payment_id` resta per le ricevute
+/// emesse prima del registro degli incassi e **non e piu univoco**: una rata
+/// incassata a rate ha piu ricevute (ADR-0036).
 model Receipt {
-  id              String          @id @default(uuid()) @db.Uuid
-  organization_id String          @db.Uuid
-  athlete_id      String?         @db.Uuid
-  payment_id      String?         @unique @db.Uuid
-  invoice_id      String?         @db.Uuid
-  receipt_number  String?         @unique
+  id              String              @id @default(uuid()) @db.Uuid
+  organization_id String              @db.Uuid
+  athlete_id      String?             @db.Uuid
+  payment_id      String?             @db.Uuid
+  transaction_id  String?             @unique @db.Uuid
+  invoice_id      String?             @db.Uuid
+  receipt_number  String?             @unique
   issue_date      DateTime
   amount          Float
   description     String
-  status          String          @default("issued")
+  status          String              @default("issued")
   method          String?
   file_url        String?
   data            Json?
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-  organization    Club            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete         Athlete?        @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  payment         AthletePayment? @relation(fields: [payment_id], references: [id], onDelete: SetNull)
-  invoice         Invoice?        @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+  organization    Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete?            @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment         AthletePayment?     @relation(fields: [payment_id], references: [id], onDelete: SetNull)
+  transaction     PaymentTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  invoice         Invoice?            @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
 
   @@index([organization_id])
   @@index([athlete_id])
+  @@index([payment_id])
   @@map("receipts")
 }
 
