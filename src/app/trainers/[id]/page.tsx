@@ -390,7 +390,16 @@ export default function TrainerDetailsPage() {
             allergies: trainerData.allergies || "",
             
             // Existing fields
-            startDate: trainerData.hireDate || "",
+            /*
+              La data di inizio si e sempre chiamata in due modi.
+
+              Il form di creazione scriveva `hireDate` **e** `startDate`, la
+              scheda leggeva solo `hireDate` e la modifica salvava solo
+              `startDate`: cambiare la data di inizio sembrava funzionare e
+              tornava indietro al refresh successivo. Si legge la prima delle
+              due che c'e, e si scrivono entrambe (Blocco 7).
+            */
+            startDate: trainerData.startDate || trainerData.hireDate || "",
             bio: trainerData.bio || "Allenatore professionista",
             avatar: trainerData.avatar || null,
             categories: trainerCategories,
@@ -917,11 +926,16 @@ export default function TrainerDetailsPage() {
         editFormData.categoryIds || editFormData.categories,
         categories,
       );
-      const normalizedUpdateData = {
+      const normalizedUpdateData: Record<string, any> = {
         ...editFormData,
         categories: nextCategoryIds,
       };
       delete normalizedUpdateData.categoryIds;
+
+      // Le due chiavi della data di inizio restano allineate.
+      if (normalizedUpdateData.startDate !== undefined) {
+        normalizedUpdateData.hireDate = normalizedUpdateData.startDate;
+      }
 
       await updateTrainerRecord(normalizedUpdateData);
 
@@ -2008,11 +2022,16 @@ export default function TrainerDetailsPage() {
                     </Button>
                   </CardHeader>
                   <CardContent>
+                    {/*
+                      «Ruolo» non e piu qui (Blocco 7).
+
+                      Su una scheda allenatore valeva sempre «Allenatore»: un
+                      campo modificabile che nessuno aveva ragione di
+                      modificare, e che ripeteva cio che dice gia il titolo
+                      della pagina. Il ruolo vero di un membro dello staff si
+                      sceglie nella scheda Staff, dove l'elenco esiste.
+                    */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Ruolo</h3>
-                        <p className="mt-1">{trainer.role}</p>
-                      </div>
                       <div>
                         <h3 className="text-sm font-medium text-muted-foreground">Tesserato</h3>
                         <Badge className={trainer.isMember ? "bg-green-500" : "bg-gray-500"}>
@@ -2718,13 +2737,6 @@ export default function TrainerDetailsPage() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label>Ruolo</Label>
-                      <Input 
-                        value={editFormData.role || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}
-                      />
-                    </div>
-                    <div>
                       <Label>Tesserato</Label>
                       <select 
                         className="w-full h-10 rounded-md border border-input bg-background px-3"
@@ -2748,6 +2760,19 @@ export default function TrainerDetailsPage() {
                         type="date"
                         value={editFormData.membershipDate || ''} 
                         onChange={(e) => setEditFormData({...editFormData, membershipDate: e.target.value})}
+                      />
+                    </div>
+                    {/*
+                      La data di inizio si vedeva in scheda ma non compariva in
+                      nessun form: era leggibile e non modificabile, e l'unico
+                      modo di correggerla era ricreare l'allenatore.
+                    */}
+                    <div>
+                      <Label>Data di Inizio</Label>
+                      <Input
+                        type="date"
+                        value={editFormData.startDate || ''}
+                        onChange={(e) => setEditFormData({...editFormData, startDate: e.target.value})}
                       />
                     </div>
                   </div>

@@ -139,7 +139,10 @@ interface TrainingSession {
   categoryId?: string | null;
   categoryReferences?: string[];
   historicalCategoryName?: string | null;
+  /** Nomi uniti, per la lista. */
   trainer: string;
+  /** Gli id veri: i record piu vecchi hanno solo `trainer`. */
+  trainerIds?: string[];
   location: string;
   locationId?: string | null;
   structureId?: string | null;
@@ -298,6 +301,15 @@ const formatTrainingSession = ({
           "",
       ).trim() || null,
     trainer: getTrainingTrainerLabel(training, trainers),
+    // Gli id servono alla modifica per ripresentare la selezione multipla.
+    trainerIds: (Array.isArray(training?.trainerIds)
+      ? training.trainerIds
+      : Array.isArray(source?.trainerIds)
+        ? source.trainerIds
+        : []
+    )
+      .map((id: unknown) => String(id || "").trim())
+      .filter(Boolean),
     location:
       matchedLocation?.name ||
       training?.location ||
@@ -2036,12 +2048,30 @@ export default function TrainingPage() {
                 time: updatedTraining.time,
                 endTime: updatedTraining.endTime || null,
                 location: updatedTraining.location,
+                /*
+                  Allenatori e categorie si salvano per intero.
+
+                  Qui `trainerIds` veniva riscritto con **un** solo id, quello
+                  scelto in una tendina singola: un allenamento con tre
+                  allenatori, aperto in modifica e salvato, ne perdeva due.
+                  Le categorie non venivano toccate affatto, quindi non c'era
+                  modo di cambiarle dopo la creazione.
+                */
+                trainerIds: updatedTraining.trainerIds,
                 trainer:
-                  trainers.find((tr) => tr.id === updatedTraining.trainerId)
-                    ?.name || editingTraining.trainer,
-                trainerIds: updatedTraining.trainerId
-                  ? [updatedTraining.trainerId]
-                  : [],
+                  trainers
+                    .filter((tr) => updatedTraining.trainerIds.includes(tr.id))
+                    .map((tr) => tr.name)
+                    .join(", ") || editingTraining.trainer,
+                categories: updatedTraining.categories,
+                categoryId: updatedTraining.categories[0] || null,
+                category:
+                  categories
+                    .filter((category) =>
+                      updatedTraining.categories.includes(category.id),
+                    )
+                    .map((category) => category.name)
+                    .join(", ") || editingTraining.category,
                 locationId: resolvedLocationId,
                 updated_at: new Date().toISOString(),
               };
@@ -2074,6 +2104,9 @@ export default function TrainingPage() {
                       location: updatedTraining.location,
                       locationId: resolvedLocationId,
                       trainer: updateData.trainer,
+                      category: updateData.category,
+                      categoryId: updateData.categoryId,
+                      categoryReferences: updatedTraining.categories,
                     }
                   : t,
               );
@@ -2094,17 +2127,25 @@ export default function TrainingPage() {
             time: editingTraining.time,
             endTime: editingTraining.endTime || "",
             location: editingTraining.location,
-            trainerId:
-              trainers.find(
-                (trainer) =>
-                  editingTraining.trainer
-                    ?.split(",")
-                    .map((name) => name.trim())
-                    .includes(trainer.name),
-              )?.id || "",
-            category: editingTraining.category,
+            /*
+              Gli allenatori si ricavano dai nomi solo se il record non porta
+              gia gli id: i record piu vecchi hanno solo la stringa unita.
+            */
+            trainerIds:
+              editingTraining.trainerIds?.length
+                ? editingTraining.trainerIds
+                : trainers
+                    .filter((trainer) =>
+                      editingTraining.trainer
+                        ?.split(",")
+                        .map((name) => name.trim())
+                        .includes(trainer.name),
+                    )
+                    .map((trainer) => trainer.id),
+            categories: editingTraining.categoryReferences || [],
           }}
           trainers={trainers}
+          categories={categories}
           locations={locations.map((loc) => loc.name)}
         />
       )}

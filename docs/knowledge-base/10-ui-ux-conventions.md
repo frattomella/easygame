@@ -196,6 +196,23 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
    al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
    logo, nome o comandi. Dal Blocco 7 e **grigia**: vedi sotto.
 
+## Il numero di tessera non e obbligatorio (Blocco 7)
+
+Vale per **atleta** e **allenatore**, ed e la scelta documentata per staff e
+soci (dove non lo era gia).
+
+Il motivo e la sequenza reale di una segreteria: un tesseramento si registra a
+inizio stagione, la federazione emette il numero dopo. Pretenderlo al momento
+dell'inserimento costringeva a inventarlo, e un numero di tessera inventato e
+peggio di un campo vuoto — perche sembra un dato.
+
+Cosa resta obbligatorio nel tesseramento di un atleta: la **federazione o
+l'ente**. Senza quella il record non dice niente.
+
+Client e server sono coerenti: `assertAnagraficaIsValid` non ha mai preteso un
+numero di tessera, quindi non c'era divergenza da chiudere — solo un asterisco
+e un controllo nel form da togliere.
+
 ## Allegati: se compare «Visualizza», il file si deve vedere (Blocco 7)
 
 EasyGame salva gli allegati come **data URL** dentro il record. I browser

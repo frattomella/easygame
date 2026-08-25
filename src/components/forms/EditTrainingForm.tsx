@@ -27,6 +27,20 @@ interface Trainer {
   name: string;
 }
 
+interface Category {
+  id: string;
+  name: string;
+}
+
+/**
+ * Un allenamento in modifica.
+ *
+ * `trainerIds` e `categories` sono **elenchi**, come nel form di creazione
+ * (Blocco 7, punto 4). Prima erano `trainerId` singolo e una `category`
+ * testuale di sola lettura: un allenamento creato con tre allenatori e due
+ * categorie, riaperto in modifica e salvato, usciva con **un** allenatore. La
+ * modifica non correggeva l'allenamento, lo mutilava.
+ */
 interface Training {
   id: string;
   title: string;
@@ -34,8 +48,8 @@ interface Training {
   time: string;
   endTime?: string;
   location: string;
-  trainerId: string;
-  category: string;
+  trainerIds: string[];
+  categories: string[];
 }
 
 interface EditTrainingFormProps {
@@ -44,6 +58,7 @@ interface EditTrainingFormProps {
   onSubmit: (trainingData: Training, originalTraining: Training) => void;
   training: Training | null;
   trainers: Trainer[];
+  categories?: Category[];
   locations: string[];
 }
 
@@ -53,6 +68,7 @@ export function EditTrainingForm({
   onSubmit,
   training,
   trainers,
+  categories = [],
   locations = ["Campo Principale", "Campo Secondario", "Palestra"],
 }: EditTrainingFormProps) {
   const { showToast } = useToast();
@@ -63,9 +79,19 @@ export function EditTrainingForm({
     time: "",
     endTime: "19:30",
     location: "",
-    trainerId: "",
-    category: "",
+    trainerIds: [],
+    categories: [],
   });
+
+  /** Aggiunge o toglie un elemento da un elenco di id. */
+  const toggleId = (field: "trainerIds" | "categories", id: string) => {
+    setFormData((previous) => {
+      const current = new Set(previous[field]);
+      if (current.has(id)) current.delete(id);
+      else current.add(id);
+      return { ...previous, [field]: Array.from(current) };
+    });
+  };
 
   const [originalTraining, setOriginalTraining] = useState<Training | null>(
     null,
@@ -106,8 +132,16 @@ export function EditTrainingForm({
       newChanges.push("campo");
     }
 
-    if (formData.trainerId !== originalTraining.trainerId) {
-      newChanges.push("allenatore");
+    const sameList = (left: string[], right: string[]) =>
+      left.length === right.length &&
+      [...left].sort().join("|") === [...right].sort().join("|");
+
+    if (!sameList(formData.trainerIds, originalTraining.trainerIds)) {
+      newChanges.push("allenatori");
+    }
+
+    if (!sameList(formData.categories, originalTraining.categories)) {
+      newChanges.push("categorie");
     }
 
     setChanges(newChanges);
@@ -130,6 +164,11 @@ export function EditTrainingForm({
         "error",
         "L'orario di fine deve essere successivo all'orario di inizio",
       );
+      return;
+    }
+
+    if (!formData.trainerIds.length) {
+      showToast("error", "Seleziona almeno un allenatore");
       return;
     }
 
@@ -261,25 +300,63 @@ export function EditTrainingForm({
               </div>
             </div>
 
+            {/*
+              Allenatori e categorie sono selezioni multiple, come nel form di
+              creazione: un allenamento ne ha spesso piu di uno, e ridurli a
+              uno in modifica cancellava dati senza dirlo.
+            */}
             <div className="space-y-2">
-              <Label htmlFor="trainerId">Allenatore</Label>
-              <div className="relative">
-                <User className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <select
-                  id="trainerId"
-                  name="trainerId"
-                  className="w-full h-10 rounded-md border border-input bg-background pl-8 pr-3 py-2 text-sm ring-offset-background"
-                  value={formData.trainerId}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">Seleziona un allenatore</option>
-                  {trainers.map((trainer) => (
-                    <option key={trainer.id} value={trainer.id}>
+              <Label className="flex items-center gap-2">
+                <User className="h-4 w-4 text-muted-foreground" />
+                Allenatori
+              </Label>
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+                {trainers.length ? (
+                  trainers.map((trainer) => (
+                    <label
+                      key={trainer.id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={formData.trainerIds.includes(trainer.id)}
+                        onChange={() => toggleId("trainerIds", trainer.id)}
+                      />
                       {trainer.name}
-                    </option>
-                  ))}
-                </select>
+                    </label>
+                  ))
+                ) : (
+                  <p className="px-2 py-1 text-sm text-muted-foreground">
+                    Nessun allenatore disponibile
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Categorie</Label>
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+                {categories.length ? (
+                  categories.map((category) => (
+                    <label
+                      key={category.id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={formData.categories.includes(category.id)}
+                        onChange={() => toggleId("categories", category.id)}
+                      />
+                      {category.name}
+                    </label>
+                  ))
+                ) : (
+                  <p className="px-2 py-1 text-sm text-muted-foreground">
+                    Nessuna categoria configurata
+                  </p>
+                )}
               </div>
             </div>
 

@@ -2738,11 +2738,17 @@ export default function AthleteProfilePage() {
   };
 
   const handleSaveRegistration = async () => {
-    if (!newRegistration.federation || !newRegistration.number) {
-      showToast(
-        "error",
-        "Federazione/ente e numero di tesseramento sono obbligatori",
-      );
+    /*
+      Il numero di tessera non e obbligatorio (Blocco 7, punto 9).
+
+      Un tesseramento si registra **prima** che la federazione emetta il
+      numero: e la sequenza reale di ogni segreteria a inizio stagione.
+      Pretenderlo qui costringeva a inventarlo — e un numero inventato su un
+      tesseramento e peggio di un campo vuoto. La federazione invece serve:
+      senza di quella il record non dice niente.
+    */
+    if (!newRegistration.federation) {
+      showToast("error", "La federazione o l'ente e obbligatorio");
       return;
     }
 
@@ -8024,7 +8030,7 @@ export default function AthleteProfilePage() {
                 )}
               </div>
               <div>
-                <Label>Numero Tessera *</Label>
+                <Label>Numero Tessera</Label>
                 <Input
                   value={newRegistration.number}
                   onChange={(e) =>
