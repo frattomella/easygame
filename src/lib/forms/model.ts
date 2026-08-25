@@ -385,8 +385,34 @@ export type FormSubmissionFile = {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
-  /** Riferimento del servizio allegati: `attachment:<uuid>`. */
+  /**
+   * Dove sta il file. Due forme, una sola funzione che le risolve:
+   * `attachment:<uuid>` per il servizio allegati (tutto cio che arriva da
+   * qui in avanti) e `asset:<uuid>` per i file dei moduli online della
+   * prima versione, che restano dove sono invece di essere travasati.
+   */
   reference: string;
+};
+
+/**
+ * L'URL da cui il browser legge un allegato di una compilazione.
+ *
+ * Esiste per non avere due componenti che indovinano un percorso: chi mostra
+ * un file chiede qui, e il giorno in cui i file legacy verranno travasati
+ * cambia solo questa funzione. Entrambi gli endpoint sono autenticati e
+ * verificano il club: nessuno dei due e raggiungibile dal modulo pubblico.
+ */
+export const resolveSubmissionFileUrl = (reference: string) => {
+  const value = asText(reference);
+
+  if (value.startsWith("attachment:")) {
+    return `/api/v1/attachments/${encodeURIComponent(value.slice("attachment:".length))}`;
+  }
+  if (value.startsWith("asset:")) {
+    return `/api/forms/assets/${encodeURIComponent(value.slice("asset:".length))}`;
+  }
+
+  return "";
 };
 
 export type FormSubmissionRecord = {
@@ -403,9 +429,10 @@ export type FormSubmissionRecord = {
   /**
    * Il modulo com'era al momento dell'invio.
    *
-   * Non e ridondante rispetto alla versione: la versione dice *quale* modulo,
-   * lo snapshot garantisce che la compilazione resti leggibile anche se il
-   * modulo viene cancellato. Vedi ADR-0036.
+   * Non e una copia dentro la compilazione: e lo schema della **versione**
+   * citata da `version`, che e una riga immutabile e non si modifica mai.
+   * Chi legge una risposta di marzo la legge con le domande di marzo.
+   * Vedi ADR-0036.
    */
   schema: FormSchema;
   respondentName: string;

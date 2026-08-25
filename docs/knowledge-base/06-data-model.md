@@ -123,6 +123,9 @@ Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 | `Attachment` | `attachments` | **Metadati** di un allegato: proprietario (`owner_type` + `owner_id`), `category`, nome originale, MIME, dimensione, sha256, `storage_driver`, autore. Mai i byte. Vedi [ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver) |
 | `AttachmentBlob` | `attachment_blobs` | I byte di un allegato, quando il driver e `database`. Tabella separata perche non si legge quasi mai: elencare gli allegati non deve costare quanto scaricarli |
 | `Asset` | `assets` | File, **via legacy**. Unique `(bucket, path)`. `data_base64` = i binari nel database. Non e stata sostituita da `attachments`: la usano ancora logo di club e immagini dei form. Vedi [16](16-technical-debt.md) |
+| `FormTemplate` | `form_templates` | Un modulo della Modulistica V2: la **bozza** (`draft`), lo stato, lo slug pubblico unico, `public_enabled`. Vedi [ADR-0035](18-decision-log.md#adr-0035--i-moduli-escono-da-clubsdocument_templates-e-diventano-tre-tabelle) |
+| `FormTemplateVersion` | `form_template_versions` | Una versione **pubblicata**, immutabile: `schema_json` con titolo, descrizione, campi e impostazioni. Unique `(template_id, version)`. Vedi [ADR-0036](18-decision-log.md#adr-0036--una-compilazione-cita-una-versione-immutabile-non-una-copia-dello-schema) |
+| `FormSubmission` | `form_submissions` | Una compilazione. Cita la versione con cui e stata compilata, porta `subjects` (quale atleta, quale genitore), `answers`, `files` (riferimenti, mai byte) e lo stato di revisione. **Non e un dato ufficiale**: scrive in anagrafica solo l'approvazione |
 | `AuditLog` | `audit_logs` | Traccia delle operazioni sensibili: `action`, `outcome`, actor, `organization_id`, risorsa, IP, user agent, `metadata` filtrati. Nessuna FK, per sopravvivere alla cancellazione dell'attore. Quattro indici per interrogazione e purge. Vedi [ADR-0019](18-decision-log.md) |
 
 ## Dati di riferimento non transazionali
@@ -227,7 +230,7 @@ applicativo**.
 
 ## Migrazioni
 
-9 migrazioni in `prisma/migrations/`:
+10 migrazioni in `prisma/migrations/`:
 
 | Migrazione | Contenuto |
 |------------|-----------|
@@ -240,14 +243,15 @@ applicativo**.
 | `20260822180000_audit_log` | `audit_logs` |
 | `20260823090000_imap_provider_config` | `imap_provider_configs` |
 | `20260825120000_attachments` | `attachments` + `attachment_blobs` (WP-15). **Additiva**: non legge e non riscrive nessun dato esistente |
+| `20260826090000_forms_v2` | `form_templates` + `form_template_versions` + `form_submissions` (Modulistica V2). **Additiva**: non legge e non riscrive `clubs.document_templates`. Il travaso dei moduli legacy e uno script a parte, `scripts/migrate-forms-v2.mjs` |
 
 Stato verificato su Neon staging il 2026-08-22:
 `npx prisma migrate status` → **Database schema is up to date**. La settima
 (`audit_logs`) e l'ottava (`imap_provider_configs`) vengono applicate al
 deploy successivo, da `prisma migrate deploy` nel comando `vercel-build`.
 
-Le migrazioni `20260823090000_imap_provider_config` e
-`20260825120000_attachments` sono state **scritte a mano**,
+Le migrazioni `20260823090000_imap_provider_config`,
+`20260825120000_attachments` e `20260826090000_forms_v2` sono state **scritte a mano**,
 nello stesso stile di `20260821160000_email_provider_config`: in locale
 `prisma migrate dev` e bloccato dalla guardia di `scripts/db-guard.mjs`
 (sezione 8 di `CLAUDE.md`) e non e stata chiesta autorizzazione a scrivere sul
