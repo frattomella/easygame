@@ -22,6 +22,8 @@ import {
 } from "@/components/accounting/BankAccountList";
 import { MovementDetailPanel } from "@/components/accounting/MovementDetailPanel";
 import { AddInvoiceForm } from "@/components/forms/AddInvoiceForm";
+import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
+import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { useAuth } from "@/components/providers/AuthProvider";
 import {
   addClubData,
@@ -312,6 +314,9 @@ export default function MovementsPage() {
 
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [clubPaymentMethodChoices, setClubPaymentMethodChoices] = useState<
+    string[]
+  >([]);
   const [clubMovements, setClubMovements] = useState<NormalizedClubMovement[]>(
     [],
   );
@@ -407,10 +412,17 @@ export default function MovementsPage() {
 
     try {
       setLoading(true);
-      const [financialSources, directoryData] = await Promise.all([
+      const { getClub } = await import("@/lib/simplified-db");
+      const [financialSources, directoryData, clubRecord] = await Promise.all([
         loadClubFinancialSources(activeClubId),
         loadClubEntityDirectory(activeClubId),
+        // I metodi di incasso del club servono a «Registra pagamento»: senza,
+        // il metodo tornerebbe a essere testo libero (ADR-0036).
+        getClub(activeClubId).catch(() => null),
       ]);
+      setClubPaymentMethodChoices(
+        getClubPaymentMethodChoices((clubRecord as any)?.settings),
+      );
       const bankAccountsData = financialSources.bankAccounts || [];
       const transactionsData = financialSources.transactions || [];
       const expectedIncomeData = financialSources.expectedIncome || [];
@@ -2130,6 +2142,24 @@ export default function MovementsPage() {
           onCreateInvoice={() => openInvoiceModal(selectedMovement)}
           onCreateReceipt={() => handleGenerateReceipt(activePayment)}
           onPrintReceipt={handlePrintReceipt}
+          ledgerSlot={
+            activePayment?.athlete_id ? (
+              <AthletePaymentLedger
+                athleteId={String(activePayment.athlete_id)}
+                athleteName={
+                  selectedMovement?.subjectName ||
+                  selectedMovement?.originEntityName ||
+                  null
+                }
+                charges={[activePayment]}
+                methodChoices={clubPaymentMethodChoices}
+                showTotals={false}
+                onLedgerChanged={() => {
+                  void loadData();
+                }}
+              />
+            ) : null
+          }
         />
 
         <AddInvoiceForm

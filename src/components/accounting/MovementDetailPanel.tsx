@@ -47,6 +47,12 @@ type MovementDetailPanelProps = {
   onCreateInvoice: () => void;
   onCreateReceipt: () => void;
   onPrintReceipt: () => void;
+  /**
+   * Rate e incassi del movimento. E un varco, non una seconda
+   * implementazione: la pagina ci monta lo stesso `AthletePaymentLedger` che
+   * usa la scheda atleta.
+   */
+  ledgerSlot?: ReactNode;
 };
 
 const DetailRow = ({
@@ -114,6 +120,7 @@ export function MovementDetailPanel({
   formatDate,
   onCreateInvoice,
   onCreateReceipt,
+  ledgerSlot,
   onPrintReceipt,
 }: MovementDetailPanelProps) {
   if (!movement) {
@@ -218,6 +225,17 @@ export function MovementDetailPanel({
               <DetailRow label="Riferimento" value={linkedReference} />
             </div>
           </div>
+
+          {/*
+            Rate e incassi del movimento, quando ne ha. E lo **stesso**
+            componente della scheda atleta: registrare un pagamento deve
+            essere lo stesso gesto da qualunque parte lo si faccia, e due
+            finestre quasi uguali sono il modo in cui i due percorsi tornano a
+            divergere (ADR-0036).
+          */}
+          {ledgerSlot ? (
+            <div className="rounded-md border p-4">{ledgerSlot}</div>
+          ) : null}
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
