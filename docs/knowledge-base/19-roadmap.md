@@ -66,6 +66,7 @@ Il lavoro procede a **blocchi**, ognuno chiuso da un commit con i gate verdi:
 | 5 | Gruppi numerazione, compatibilita categorie, ordinamento | WP-44 |
 | 6 | Gestione completa delle stagioni, topbar definitiva | WP-35, WP-45 |
 | 7 | Anagrafiche, staff, allegati, coerenza UI | vedi [21 — Backlog master](21-backlog.md), voci `B7-*` |
+| 8 | Anagrafiche complete, storage allegati, lettura documenti, performance | WP-15, WP-12, WP-19 (parziali); voci `B8-*` |
 
 **Criterio di uscita:** le regole di business critiche (permessi, scoping,
 calcoli economici) sono applicate server-side e coperte da test; la pagina

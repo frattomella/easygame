@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-25 (Blocco 7)
+**Ultimo aggiornamento:** 2026-08-25 (Blocco 8)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -32,12 +32,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 63 |
-| `IN PROGRESS` | 7 |
-| `OPEN` | 25 |
+| `DONE` | 82 |
+| `IN PROGRESS` | 10 |
+| `OPEN` | 26 |
 | `DEFERRED` | 6 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **103** |
+| **Totale** | **126** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -60,7 +60,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | F1-09 | Database di sviluppo separato dallo staging | `DONE` | WP-09, ADR-0012 |
 | F1-10 | Sincronizzazione transazionale delle risorse club | `DONE` | WP-10 |
 | F1-11 | Filtro stagione applicato lato server | `DONE` | WP-11 |
-| F1-12 | Paginazione, ordinamento e filtri server-side | `OPEN` | — (WP-12, dipende da WP-05) |
+| F1-12 | Paginazione, ordinamento e filtri server-side | `IN PROGRESS` | **Blocco 8** — il server sa impaginare, cercare e ordinare (`?limit=`, `?page=`, `?q=`, `?order_by=`), con `meta` e tetto di 200 righe. **Manca** il consumo nella lista Atleti: raggruppa per categoria, conta per stato ed esporta su tutto l'archivio, quindi paginarla e una scelta di interfaccia |
 | F1-13 | Reset password via SMTP | `DONE` | WP-30 |
 
 ## Fase F2 — Web V1
@@ -85,7 +85,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 |---|-----------|-------|-----------|
 | B3-01 | Identita visiva coerente: due font, una scala tipografica, token di colore | `DONE` | WP-37 |
 | B3-02 | Console di piattaforma separata dalla chrome di club | `DONE` | WP-37 |
-| B3-03 | Ogni pagina usabile a 375, 768 e 1280 px | `IN PROGRESS` | WP-34 — **manca**: la verifica sistematica su tutte le pagine. Le pagine toccate dai blocchi successivi sono verificate una per una |
+| B3-03 | Ogni pagina usabile a 375, 768 e 1280 px | `IN PROGRESS` | WP-34 — **manca**: la verifica su schermo di tutte le pagine. Il Blocco 8 ha corretto 22 griglie che erano a due colonne anche a 375 px e ha aggiunto sette invarianti statiche, ma un test statico non dice se una pagina e leggibile |
 
 ### Blocco 4 — Account, onboarding, produttivita
 
@@ -127,7 +127,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B7-04 | Codice fiscale subito dopo il blocco anagrafico | `DONE` | Blocco 7 |
 | B7-05 | Archivio ufficiale dei comuni italiani con codice catastale | `DONE` | Blocco 7, ADR-0032 |
 | B7-06 | Ricerca assistita comune e recupero automatico del codice catastale | `DONE` | Blocco 7 |
-| B7-07 | Ricerca assistita per **CAP** | `IN PROGRESS` | ADR-0032 — **manca**: ISTAT non pubblica il CAP e non e derivabile dal comune (i comuni grandi ne hanno decine). Il CAP resta digitato e validato nella forma. Serve una seconda fonte |
+| B7-07 | Ricerca assistita per **CAP** | `OPEN` | ADR-0035 — verificato nel Blocco 8: nel repository **non esiste** una fonte del CAP, e ISTAT non lo pubblica. L'ADR dice quali cinque proprieta deve avere la fonte che la chiude, e perche Poste Italiane non basta (licenza). Non si inventa un mapping |
 | B7-08 | Calcolo CF disponibile su atleta, genitore, socio, allenatore, staff | `DONE` | Blocco 7 |
 | B7-09 | Non sovrascrivere un CF inserito a mano senza conferma | `DONE` | Blocco 7 — conferma in due tempi |
 | B7-10 | Validazione anagrafica client **e** server | `DONE` | Blocco 7 — estesa a allenatori, staff e soci |
@@ -146,18 +146,69 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B7-23 | Naming leggibile dei download, centralizzato | `DONE` | Blocco 7 |
 | B7-24 | Tipo socio nel modulo «Nuovo socio» | `DONE` | Blocco 7 |
 | B7-25 | Componente telefono internazionale condiviso | `DONE` | Blocco 7 |
-| B7-26 | Applicare il campo telefono a tutte le anagrafiche pertinenti | `IN PROGRESS` | Blocco 7 — applicato ai form di creazione di staff, allenatore, socio e atleta. **Mancano**: le schede di dettaglio e la scheda Club |
+| B7-26 | Applicare il campo telefono a tutte le anagrafiche pertinenti | `DONE` | **Blocco 8** — schede di dettaglio (atleta, genitore/tutore, allenatore, staff, socio) e scheda Club. Un test elenca le nove superfici |
 | B7-27 | Regola condivisa di capitalizzazione dei campi anagrafici | `DONE` | Blocco 7 |
-| B7-28 | Applicare la capitalizzazione a tutte le anagrafiche | `IN PROGRESS` | Blocco 7 — applicata ai form di creazione. **Mancano** le schede di dettaglio e la scheda Club, come per B7-26 |
+| B7-28 | Applicare la capitalizzazione a tutte le anagrafiche | `DONE` | **Blocco 8** — stesse nove superfici di B7-26. La regola e stata anche corretta: applicata ai comuni ne peggiorava 30 su 7.896 |
 | B7-29 | Taglie vestiario per allenatori, staff e soci | `DONE` | Blocco 7 |
 | B7-30 | Export coerente per allenatori, staff e soci | `DONE` | Blocco 7 |
 | B7-31 | «Nuovo atleta» deve raccogliere tutto cio che si sa gia | `DONE` | Blocco 7 |
 | B7-32 | Foundation per la lettura documenti | `DONE` | Blocco 7 |
-| B7-33 | Migrare la scheda atleta sul contratto di lettura documenti | `OPEN` | — Il flusso attuale funziona; migrarlo e un lavoro a se |
-| B7-34 | Lettura documenti da PDF | `OPEN` | — Serve rasterizzare: libreria assente |
+| B7-33 | Migrare la scheda atleta sul contratto di lettura documenti | `IN PROGRESS` | **Blocco 8** — il contratto e ora usato dal genitore/tutore dentro la scheda atleta. **Manca** lo scanner con fotocamera della scheda, che ha ancora un flusso proprio |
+| B7-34 | Lettura documenti da PDF | `OPEN` | Blocco 8 — resta aperta **per scelta**: rasterizzare richiede `pdfjs-dist`, circa un megabyte su ogni sessione. Il contratto del motore ora dichiara cosa sa leggere e un PDF viene rifiutato **con una spiegazione**, non accettato per poi fallire |
 | B7-35 | Ordinamento cronologico di tutte le liste di pagamenti | `DONE` | Blocco 7 |
 | B7-36 | Rimuovere il PIN Club dopo dependency audit | `DONE` | Blocco 7, ADR-0033 |
 | B7-37 | Backlog master nella KB | `DONE` | Questo documento |
+
+---
+
+### Blocco 8 — Anagrafiche, documenti, storage e performance (2026-08-25)
+
+| # | Richiesta | Stato | Chiuso da |
+|---|-----------|-------|-----------|
+| B8-01 | Telefono internazionale in **tutte** le anagrafiche, creazione e modifica | `DONE` | Blocco 8 — nove superfici, elencate in `tests/ui/anagrafiche-coverage.test.mjs` |
+| B8-02 | Capitalizzazione in tutte le anagrafiche, creazione e modifica | `DONE` | Blocco 8 — stesse nove superfici |
+| B8-03 | La capitalizzazione non deve rovinare i nomi ufficiali | `DONE` | Blocco 8 — ne cambiava 30 su 7.896 comuni ISTAT. Ora non tocca un valore che ha gia una maiuscola dentro; verificato sull'intero dataset a ogni esecuzione |
+| B8-04 | Codice fiscale assistito e ricerca del comune ovunque si chieda un CF | `DONE` | Blocco 8 — aggiunto alle schede di allenatore e staff, che erano gli ultimi posti in cui si digitava a mano |
+| B8-05 | Il sesso deve essere una scelta, non testo libero | `DONE` | Blocco 8 — su allenatore e staff ci finiva «M», «maschio», «Maschile»: con tre grafie il CF non si calcolava |
+| B8-06 | CAP → comune | `OPEN` | ADR-0035 — la fonte non esiste nel repository e ISTAT non la pubblica. L'ADR elenca le cinque proprieta che deve avere |
+| B8-07 | «Nuovo atleta» al livello delle schede staff e allenatore | `DONE` | Blocco 8 — aggiunte le sezioni genitori/tutori, tesseramento e categorie secondarie. Obbligatori sempre tre |
+| B8-08 | Servizio allegati unico, provider-agnostico | `DONE` | Blocco 8, ADR-0034 — `attachments` + `attachment_blobs`, driver di storage, autorizzazione, limite di 10 MB, elenco chiuso di tipi |
+| B8-09 | I file binari fuori dai record JSON | `DONE` | Blocco 8 — il record conserva `attachment:<uuid>` |
+| B8-10 | Gli allegati legacy devono continuare a funzionare | `DONE` | Blocco 8 — `resolveAttachmentSource` classifica le due forme; migrazione incrementale, mai di massa |
+| B8-11 | Audit di tutti i punti che caricano un file | `DONE` | Blocco 8 — convertiti documenti, documenti d'identita e d'iscrizione, visite mediche, tesseramenti e contratti allenatore. Cinque test statici impediscono di aggirare la regola |
+| B8-12 | Nomi dei download standardizzati | `DONE` | Gia del Blocco 7; il Blocco 8 aggiunge che **l'estensione la mette il server**, che e l'unico a conoscere il tipo del file |
+| B8-13 | Scelta di un provider di storage esterno | `OPEN` | ADR-0034 — opzioni, costi e raccomandazione sono scritti. **E una decisione del proprietario del prodotto**, non di chi scrive il codice |
+| B8-14 | Ricondurre anche `assets` al servizio allegati | `OPEN` | Logo club e moduli online usano ancora la via legacy. Il file non e nel record, quindi non e il difetto strutturale: e una seconda implementazione da unificare |
+| B8-15 | Parser nome/cognome dei documenti, definitivo | `DONE` | Blocco 8 — elenco di parole-etichetta invece di casi particolari, piu lettura della MRZ. 16 casi di regressione, ognuno un layout reale |
+| B8-16 | Lettura documenti su genitore/tutore | `DONE` | Blocco 8 |
+| B8-17 | Formati supportati dichiarati, non scoperti | `DONE` | Blocco 8 — JPG, PNG, WEBP, HEIC fino a 8 MB; PDF rifiutato con una spiegazione, prima di scaricare il worker OCR |
+| B8-18 | Scomporre la scheda atleta | `IN PROGRESS` | WP-19 — **manca** l'estrazione dei sette pannelli, che richiede prima di raggruppare lo stato in hook |
+| B8-19 | Rimisurare la lista Atleti dopo l'estrazione degli allegati | `DONE` | Blocco 8 — `scripts/measure-athletes-payload.mjs`: la misura si rifa, non si ricopia |
+| B8-20 | La prossima ottimizzazione strutturale | `DONE` | Blocco 8 — la misura ha indicato gli **avatar**: 23,7 MB su 200 atleti. Serviti come immagini, la risposta scende a 140 kB (-99,4%) |
+| B8-21 | Paginazione, ricerca e filtri server-side | `IN PROGRESS` | **Manca** il consumo nella lista Atleti: vedi F1-12 |
+| B8-22 | Griglie a due colonne su schermi da 375 px | `DONE` | Blocco 8 — 22 griglie corrette, sette invarianti a difenderle |
+| B8-23 | Verifica su schermo a 375, 768 e 1280 px | `OPEN` | **Non eseguita**: richiede una sessione autenticata su un database, e in questa working copy il database di sviluppo non e avviato. Le invarianti statiche non la sostituiscono |
+
+---
+
+## Remaining Web V1 before release
+
+Cio che manca perche la Web V1 si possa dichiarare rilasciabile. E la base del
+prossimo blocco, e non contiene niente delle proposte grandi piu sotto: quelle
+vengono **dopo** il rilascio.
+
+| # | Cosa manca | Perche blocca | Dove |
+|---|-----------|---------------|------|
+| R-01 | Verifica su schermo di tutte le pagine a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Oggi e verificato staticamente, e su schermo solo pagina per pagina | B3-03, B8-23 |
+| R-02 | La lista Atleti deve consumare la paginazione | Il server e pronto; finche la pagina scarica tutto, l'archivio grande resta il caso peggiore | F1-12, B8-21 |
+| R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon | B8-13, ADR-0034 |
+| R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica | F1-05, WP-05 |
+| R-05 | Pagamenti online: implementarli o togliere la promessa | Gli endpoint rispondono 501. Una funzione che l'interfaccia offre e il server rifiuta non e rilasciabile | F3-01, ADR-0013 |
+| R-06 | Unificare i due sistemi di toast | Due sistemi montati insieme: due comportamenti per lo stesso avviso | F3-02, WP-14 |
+| R-07 | Completare l'audit log sulle anagrafiche | ADR-0019 lo dichiara bloccante per la produzione | F3-04 |
+| R-08 | Scheduler dei promemoria certificati | Un certificato scaduto e un atleta che non puo scendere in campo, e oggi nessuno avvisa | F3-09 |
+| R-09 | Rimuovere i residui legacy classificati | 19 componenti `ui/*` non usati, e due route di modifica orfane — una costruita su dati inventati (vedi D27 in [16](16-technical-debt.md)) | F3-06, WP-18 |
+| R-10 | Ambiente di produzione, error tracking, backup provati, UAT | E la fase F5 per intero: senza, «rilasciato» non ha un significato operativo | F5-01, F5-02, F5-03, F5-04 |
 
 ---
 
@@ -167,11 +218,11 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 |---|-----------|-------|------|
 | F3-01 | Pagamenti online reali | `OPEN` | WP-13. Oggi gli endpoint rispondono 501: la promessa **non** e dichiarata completa da nessuna parte |
 | F3-02 | Unificare i sistemi di toast | `OPEN` | WP-14. Ne convivono due |
-| F3-03 | Spostare i file fuori dal database | `OPEN` | WP-15. Oggi gli allegati sono data URL dentro il record: vedi D-xx in [16](16-technical-debt.md) |
+| F3-03 | Spostare i file fuori dai record | `IN PROGRESS` | **Blocco 8**, ADR-0034 — un allegato e ora una riga di `attachments` e il record ne conserva solo il riferimento. **Mancano**: la tabella `assets` (logo club, moduli online) e la scelta di un provider esterno, che e una decisione del proprietario del prodotto (opzioni e raccomandazione nell'ADR) |
 | F3-04 | Audit log | `IN PROGRESS` | WP-16, ADR-0019. Copre auth, risorse economiche, stagioni e **tutti** i dinieghi. Manca la copertura delle anagrafiche |
 | F3-05 | Ridurre l'adapter `supabase.ts` | `OPEN` | WP-17, dipende da WP-07 |
 | F3-06 | Rimuovere i residui legacy | `IN PROGRESS` | WP-18. Il Blocco 7 ne ha tolti tre (`page-modals.tsx`, `TrainerPayments.tsx`, `pin-input.tsx`). **Mancano** i 19 componenti `ui/*` non usati e gli alias di compatibilita |
-| F3-07 | Scomporre le pagine monolitiche | `OPEN` | WP-19, dipende da WP-07. `athletes/[id]/page.tsx` supera le 8.000 righe |
+| F3-07 | Scomporre le pagine monolitiche | `IN PROGRESS` | WP-19. **Blocco 8**: `athletes/[id]/page.tsx` da 8.751 a 8.429 righe, con genitori, campi dei form, sezioni, intestazione e barra estratti, e un test che impedisce di risalire sopra 8.500. **Mancano** i sette pannelli e i circa novanta `useState`, piu `clothing/page.tsx` e `registration-management/page.tsx` |
 | F3-08 | Deprecare gli alias di compatibilita | `DEFERRED` | WP-20, dipende da WP-21 che e differito |
 | F3-09 | Scheduler per promemoria certificati | `OPEN` | Nessun WP ancora |
 | F3-10 | Automazione allenamenti | `OPEN` | Nessun WP ancora |

@@ -22,7 +22,9 @@ const STATES = ["DONE", "IN PROGRESS", "OPEN", "DEFERRED", "SUPERSEDED"];
 
 /** Righe di voce: quelle che cominciano con un identificativo. */
 const entryLines = lines.filter((line) =>
-  /^\|\s*(B[1-7]-\d+|F[1-5]-\d+|P-\d+|S-\d+)\s*\|/.test(line),
+  // `B\d+` e non `B[1-7]`: il prefisso di blocco cresce a ogni blocco, e un
+  // elenco chiuso avrebbe smesso di contare le voci del Blocco 8 in silenzio.
+  /^\|\s*(B\d+-\d+|F[1-5]-\d+|P-\d+|S-\d+)\s*\|/.test(line),
 );
 
 const statusOf = (line) => {
@@ -153,4 +155,42 @@ test("la backlog e raggiungibile dall'indice della KB", () => {
   );
 
   assert.match(readme, /21-backlog\.md/, "un documento non linkato non si trova");
+});
+
+/**
+ * «Remaining Web V1 before release» — Blocco 8.
+ *
+ * E la sezione che risponde alla domanda che viene dopo «a che punto e?»:
+ * **cosa manca per rilasciare**. Senza, la backlog dice lo stato di ogni voce
+ * e non dice mai quando si e finito. Ogni riga deve puntare alla voce che la
+ * spiega, altrimenti torna a essere un elenco di buoni propositi.
+ */
+test("la sezione «Remaining Web V1 before release» esiste ed e collegata", () => {
+  assert.match(
+    source,
+    /^## Remaining Web V1 before release$/m,
+    "senza questa sezione la backlog non dice mai quando si e finito",
+  );
+
+  const remainingLines = lines.filter((line) => /^\|\s*R-\d+\s*\|/.test(line));
+
+  assert.ok(
+    remainingLines.length >= 5,
+    `le voci residue sono ${remainingLines.length}: e un elenco troppo corto per essere onesto`,
+  );
+
+  for (const line of remainingLines) {
+    const id = /^\|\s*(R-\d+)\s*\|/.exec(line)[1];
+
+    assert.match(
+      line,
+      /\|\s*[^|]+\|\s*[^|]+\|\s*[^|]+\|/,
+      `${id}: servono cosa manca, perche blocca e dove sta`,
+    );
+    assert.match(
+      line,
+      /(B\d+-\d+|F[1-5]-\d+|WP-\d+|ADR-\d+)/,
+      `${id}: senza un riferimento e un buon proposito, non una voce`,
+    );
+  }
 });

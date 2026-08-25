@@ -306,7 +306,41 @@ tutti i dati storici. Vedi WP-32.
 
 ---
 
-### WP-12 · Paginazione, ordinamento e filtri — `BLOCKED (WP-05)`
+### WP-12 · Paginazione, ordinamento e filtri — `PARZIALE` (2026-08-25, Blocco 8)
+
+**Fatto lato server.** `?limit=`, `?page=` / `?offset=`, `?q=`,
+`?order_by=` + `?order=`. La risposta porta un `meta` con `total`, `limit`,
+`offset` e `hasMore` — **solo** quando la pagina e stata chiesta.
+
+Tre scelte che vale la pena conoscere prima di usarlo:
+
+- **il default e ancora «tutto»**, e non e una svista: un default paginato
+  avrebbe troncato in silenzio ogni lista della Web App;
+- **campi cercabili e ordinabili sono elenchi chiusi per risorsa.**
+  `orderBy` arriva dalla query string: passarlo a Prisma senza filtrarlo vuol
+  dire lasciare che il client scelga su cosa lavora il database;
+- **con il filtro stagione o quello allenatore attivi la pagina si taglia in
+  memoria**, non con `take`/`skip`: quei due filtri vivono dentro il payload
+  JSON e non sono esprimibili in un `where`. Chiedendo la pagina al database
+  si otterrebbe una pagina mezza vuota e un `total` che non corrisponde a cio
+  che si vede.
+
+18 test in `tests/server/list-pagination.test.mjs`. Il doppio di Prisma ora
+onora `take`, `skip` e `orderBy`: senza, un test di paginazione passa anche
+quando la paginazione non pagina.
+
+**Resta da fare: il consumo nella lista Atleti.** La pagina raggruppa per
+categoria, conta per stato, esporta e seleziona in blocco su tutto
+l'archivio. Paginarla e una **decisione di interfaccia** — o si passa a una
+tabella piatta paginata, o si impagina dentro ogni categoria — e non una
+modifica meccanica.
+
+**Nel frattempo la pagina e comunque leggera:** la risposta `view=summary` di
+200 atleti e passata da 23,7 MB a 140 kB togliendo i binari (vedi WP-15 e
+`scripts/measure-athletes-payload.mjs`).
+
+<details>
+<summary>Scope originale</summary>
 
 **Obiettivo.** Rendere sostenibili le liste dei club grandi.
 
@@ -324,6 +358,8 @@ pagamenti, movimenti).
 
 **File.** `src/lib/server/resources.ts`, `src/lib/api/client.ts`,
 [09](09-api-conventions.md).
+
+</details>
 
 ---
 
@@ -1187,7 +1223,39 @@ dell'altro, rimuovere `toaster.tsx` / `use-toast.ts` e il relativo montaggio in
 
 ---
 
-### WP-15 · Spostare i file fuori dal database — `BLOCKED (WP-05)`
+### WP-15 · Spostare i file fuori dai record — `PARZIALE` (2026-08-25, Blocco 8)
+
+**Fatto.** Il difetto grave non era `assets.data_base64`: erano i data URL
+**dentro i record di dominio**. Un allegato non aveva autorizzazione propria
+— chi poteva leggere il record aveva i byte, tutti insieme — ne un limite di
+dimensione ne un controllo di tipo.
+
+Ora un allegato e una riga di `attachments` con i suoi metadati, i byte
+stanno in `attachment_blobs`, e il record conserva solo `attachment:<uuid>`.
+Il servizio (`src/lib/server/attachments.ts`) e l'unico punto di lettura e
+scrittura; lo storage passa da un `StorageDriver`, quindi cambiare provider e
+un file nuovo e una riga. Vedi
+[ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver).
+
+Misurato: il record completo di un atleta con sei allegati passa da 1.717 kB
+a 123 kB; la lista di 200 atleti, dopo aver servito anche gli avatar come
+immagini, da 23,7 MB a 140 kB.
+
+**Resta da fare.**
+
+1. **La scelta del provider esterno.** Il driver attivo e `database`, che per
+   l'ordine di grandezza di una societa sportiva e la scelta corretta.
+   Opzioni, costi e raccomandazione sono nell'ADR: **e una decisione del
+   proprietario del prodotto**, non di chi scrive il codice;
+2. **la tabella `assets`**, ancora usata dal logo di club e dalle immagini
+   dei moduli online. Li il file non e nel record, quindi non e il difetto
+   strutturale: e una seconda implementazione da unificare;
+3. **i data URL legacy gia in archivio.** Continuano a funzionare e migrano
+   quando qualcuno li tocca. Non esiste, e non deve esistere, un comando che
+   riscriva l'archivio in blocco.
+
+<details>
+<summary>Scope originale</summary>
 
 **Obiettivo.** Smettere di salvare binari in `assets.data_base64`.
 
@@ -1204,6 +1272,8 @@ migrare gli asset esistenti; mantenere `Asset` come indice con `public_url`.
 
 **File.** `prisma/schema.prisma`, `src/lib/server/resources.ts`,
 `src/app/api/forms/assets/**`, `src/app/api/athletes/**/documents/**`.
+
+</details>
 
 ---
 
@@ -1280,7 +1350,30 @@ Elenco completo in [cleanup-report](cleanup-report.md).
 
 ---
 
-### WP-19 · Scomporre le pagine monolitiche — `BLOCKED (WP-07)`
+### WP-19 · Scomporre le pagine monolitiche — `IN CORSO` (2026-08-25, Blocco 8)
+
+**Cominciata da `athletes/[id]`**, la piu grande: da 8.751 a 8.429 righe.
+Non e un risultato, e un inizio.
+
+| Estratto | Dove |
+|----------|------|
+| Genitori e tutori: stato dell'accesso, scadenza del token, nomi, id stabili | `src/lib/athlete-guardians.ts` |
+| Stati iniziali dei form, eta compiuta, booleani, federazioni, kit | `src/lib/athlete-profile-fields.ts` |
+| Le sette sezioni e la risoluzione di `?tab=` | `src/lib/athlete-profile-tabs.ts` |
+| Intestazione e barra delle sezioni | `src/components/athletes/profile/` |
+
+**La regola di lavoro, piu importante del numero:** un test verifica che il
+file **non superi le 8.500 righe**. Chi aggiunge una funzione alla scheda
+atleta e sfora deve prima portare fuori una sezione. E il modo in cui una
+scomposizione incrementale non si ferma al primo giro.
+
+**Resta dentro:** i sette pannelli (`TabsContent`), i venti dialoghi e i
+circa novanta `useState`. Ogni pannello dipende da decine di variabili di
+stato dichiarate in cima: estrarne uno vuol dire **prima** raggruppare quello
+stato in un hook, ed e il prossimo passo.
+
+<details>
+<summary>Scope originale</summary>
 
 **Obiettivo.** Rendere le pagine piu grandi modificabili in sicurezza.
 
@@ -1296,6 +1389,8 @@ Per ciascuna: estrarre la logica in `src/lib/`, i sotto-componenti in
 - [ ] Nessun cambiamento funzionale visibile
 - [ ] La pagina scende sotto le ~500 righe
 - [ ] La logica estratta ha almeno un test
+
+</details>
 
 ---
 

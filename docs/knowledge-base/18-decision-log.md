@@ -1077,3 +1077,65 @@ sbagliato quando un certificato medico non si apre piu e nessuno ha una copia.
   dalla sessione EasyGame come ogni altra richiesta.
 
 **Stato:** ATTIVA.
+
+
+---
+
+## ADR-0035 — Il CAP non si risolve in comune finche non arriva una fonte con una licenza
+
+**Data:** 2026-08-25 · **Contesto:** Blocco 8, punto A3 · voce di backlog B7-07
+
+**Contesto.** Il Blocco 7 ha chiuso la ricerca comune → codice catastale con
+l'archivio ISTAT ([ADR-0032](#adr-0032--larchivio-dei-comuni-e-istat-generato-da-uno-script-servito-dal-server)).
+Resta aperta la direzione opposta, che una segreteria usa altrettanto spesso:
+**si digita il CAP e si vorrebbe il comune**.
+
+**Verifica fatta prima di decidere.** Nel repository **non esiste** una fonte
+del CAP:
+
+- `src/data/comuni-istat.json` ha tre colonne per riga — denominazione, sigla
+  di provincia, codice catastale — e nient'altro. Il file ISTAT da cui e
+  generato **non pubblica il CAP**;
+- `src/lib/italian-registry.ts` conosce le 107 province con la loro regione, e
+  del CAP valida solo la forma (cinque cifre);
+- non c'e nessun altro dataset in `src/data/`.
+
+**Decisione: la funzione resta `OPEN`, e non si inventa niente.** Un mapping
+CAP → comune scritto a memoria o dedotto produce indirizzi formalmente
+plausibili e sostanzialmente falsi, che finiscono su una ricevuta o su un
+tesseramento. E lo stesso ragionamento che ha tenuto chiusa la tabella dei
+comuni fino ad ADR-0032, ed e stato quello giusto.
+
+**Cosa serve esattamente per chiuderla.** Una fonte con **tutte** queste
+proprieta:
+
+1. **copertura completa** dei CAP italiani, compresi quelli plurimi delle
+   citta grandi (Roma ne ha oltre 200, Milano oltre 40) e i CAP dedicati a
+   singole caselle postali o grandi utenze;
+2. **relazione molti-a-molti dichiarata**: un comune ha piu CAP e alcuni CAP
+   coprono piu comuni. Una fonte che espone un solo CAP per comune non e una
+   fonte, e una semplificazione che sbaglia sulle citta dove serve di piu;
+3. **chiave di collegamento con ISTAT**: codice ISTAT del comune o codice
+   catastale. Riconciliare per nome non funziona — `Reggio nell'Emilia`,
+   `Reggio Emilia`, `Reggio Nell'Emilia` sono la stessa cosa per una persona e
+   tre stringhe diverse per un programma;
+4. **licenza compatibile con la ridistribuzione** in un repository, come la
+   CC BY 4.0 dell'archivio ISTAT gia in uso;
+5. **aggiornamento tracciabile**, perche i CAP cambiano con le fusioni di
+   comuni: un file scaricato una volta e dimenticato diventa sbagliato da
+   solo.
+
+Poste Italiane pubblica i CAP ma **non con una licenza di ridistribuzione**:
+il suo servizio si consulta, non si copia. Le raccolte non ufficiali che
+circolano soddisfano al massimo il punto 1, e nessuna dichiara la 4.
+
+**Come si chiuderebbe, il giorno in cui la fonte c'e.** Esattamente come per i
+comuni, e per questo il lavoro e piccolo: uno script che scarica, verifica e
+genera (`scripts/build-cap-dataset.mjs`, gemello di
+`build-comuni-dataset.mjs`), un modulo puro di ricerca, e un parametro in piu
+su `GET /api/v1/comuni`. Nessun form cambia.
+
+**Nel frattempo** il CAP resta digitato e validato nella forma, e il comune si
+cerca per nome — che e la direzione che l'archivio ISTAT copre davvero.
+
+**Stato:** ATTIVA.
