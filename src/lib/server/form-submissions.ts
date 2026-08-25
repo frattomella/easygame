@@ -5,10 +5,13 @@ import { createResource, updateResource } from "./resources";
 import { sendNotificationEmails } from "./email/email-service";
 import {
   findPublicFormBySlug,
+  loadClubFormOptions,
   resolveCompilableVersion,
+  type ClubFormOptions,
   type FormsAccessScope,
   type PublicFormMatch,
 } from "./forms";
+import { buildSiteIndex } from "@/lib/club-sites";
 import {
   buildAttachmentReference,
   MAX_ATTACHMENT_BYTES,
@@ -786,6 +789,127 @@ const buildAthletePatch = (
   return { columns, data };
 };
 
+/**
+ * Dove l'atleta viene iscritto: sede e categoria.
+ *
+ * **Perche non basta scrivere la risposta.** Il modulo raccoglie un *nome* —
+ * «Palestra Nord», «Under 14» — perche e cio che una persona sa leggere e
+ * scegliere. L'anagrafica lavora con identificativi. La traduzione avviene
+ * qui, una volta, contro le sedi e le categorie del club **proprietario del
+ * modulo**: un nome che non e in quegli elenchi non diventa niente, e non
+ * c'e un percorso per cui il testo scritto da chi compila finisca in un
+ * `site_id`.
+ *
+ * **Perche un club con una sede sola la assegna comunque.** La domanda non
+ * gli e stata mostrata — sceglierla fra una non e una scelta — ma la sede
+ * resta il dato giusto da scrivere: senza, l'atleta nascerebbe «senza sede»
+ * in un club che di sedi ne ha una, e il giorno in cui ne apre una seconda
+ * nessuno saprebbe piu dove stava.
+ */
+const resolveEnrollmentPlacement = (
+  values: Record<string, string>,
+  options: ClubFormOptions,
+) => {
+  const siteIndex = buildSiteIndex(options.sites);
+  const answeredSite = asText(values["athlete.siteId"]);
+  const resolvedSite = answeredSite ? siteIndex.resolveSiteId(answeredSite) : "";
+
+  const siteId = siteIndex.has(resolvedSite)
+    ? resolvedSite
+    : options.sites.length === 1
+      ? options.sites[0].id
+      : "";
+
+  const answeredCategory = asText(values["athlete.categoryName"]).toLowerCase();
+  const category =
+    options.categories.find(
+      (entry) => entry.name.toLowerCase() === answeredCategory,
+    ) || null;
+
+  return { siteId, category };
+};
+
+/**
+ * Allinea l'appartenenza categoria-sede dopo un'approvazione.
+ *
+ * **Cosa scrive e cosa no.** Con una categoria scelta crea o aggiorna
+ * l'appartenenza a quella categoria. Con la sola sede aggiorna le
+ * appartenenze che **non ne dichiarano una**: un'appartenenza gia collocata
+ * e stata decisa da qualcuno che ne sapeva piu di un modulo, e sovrascriverla
+ * sposterebbe un atleta di palestra senza che nessuno lo abbia chiesto.
+ */
+const syncEnrollmentMembership = async (
+  scope: FormsAccessScope,
+  input: {
+    organizationId: string;
+    athleteId: string;
+    siteId: string;
+    category: { id: string; name: string } | null;
+  },
+): Promise<string[]> => {
+  const applied: string[] = [];
+
+  const existing = await (prisma as any).athleteCategoryMembership.findMany({
+    where: {
+      organization_id: input.organizationId,
+      athlete_id: input.athleteId,
+    },
+  });
+
+  if (input.category) {
+    const match = existing.find(
+      (row: any) => asText(row.category_id) === input.category!.id,
+    );
+
+    if (match) {
+      if (input.siteId && asText(match.site_id) !== input.siteId) {
+        await updateResource(
+          "athlete_category_memberships",
+          match.id,
+          { site_id: input.siteId, category_name: input.category.name },
+          scope,
+        );
+        applied.push(`Sede dell'iscrizione aggiornata: ${input.category.name}`);
+      }
+    } else {
+      await createResource(
+        "athlete_category_memberships",
+        {
+          organization_id: input.organizationId,
+          athlete_id: input.athleteId,
+          category_id: input.category.id,
+          category_name: input.category.name,
+          site_id: input.siteId || null,
+          is_primary: existing.length === 0,
+        },
+        "create",
+        scope,
+      );
+      applied.push(`Atleta iscritto alla categoria ${input.category.name}`);
+    }
+
+    return applied;
+  }
+
+  if (!input.siteId) return applied;
+
+  const orphans = existing.filter((row: any) => !asText(row.site_id));
+  for (const row of orphans) {
+    await updateResource(
+      "athlete_category_memberships",
+      row.id,
+      { site_id: input.siteId },
+      scope,
+    );
+  }
+
+  if (orphans.length) {
+    applied.push(`Sede assegnata a ${orphans.length} iscrizioni`);
+  }
+
+  return applied;
+};
+
 const buildGuardianPatch = (
   values: Record<string, string>,
   current: Record<string, any> | null,
@@ -885,15 +1009,49 @@ export const decideFormSubmission = async (
     (subject) => subject.subject === "athlete",
   );
 
+  /*
+    Sedi e categorie si leggono una volta sola, e dal club del modulo. Il
+    corpo della richiesta non le nomina e non potrebbe: la segreteria approva
+    una compilazione, non indica dove va messo l'atleta.
+  */
+  const clubOptions = await loadClubFormOptions(organizationId);
+  let placement: ReturnType<typeof resolveEnrollmentPlacement> = {
+    siteId: "",
+    category: null,
+  };
+
   if (athleteChange) {
     const values = applyValues(athleteChange);
     const patch = buildAthletePatch(values, athleteRecord?.data || {});
+
+    placement = resolveEnrollmentPlacement(values, clubOptions);
+
+    /*
+      `buildAthletePatch` ha scritto in `data.siteId` il **nome** scelto,
+      perche e quello che il catalogo dice di scrivere in quel percorso. Qui
+      lo si sostituisce con l'identificativo: il nome di una sede cambia, il
+      suo identificativo no, e ogni filtro sede risolve gli identificativi.
+    */
+    if (placement.siteId) {
+      patch.data.siteId = placement.siteId;
+    } else {
+      delete patch.data.siteId;
+    }
+
+    if (placement.category) {
+      patch.columns.category_id = placement.category.id;
+      patch.columns.category_name = placement.category.name;
+    } else {
+      delete patch.columns.category_id;
+      delete patch.columns.category_name;
+    }
 
     if (!athleteId) {
       const created = await createResource(
         "athletes",
         {
           organization_id: organizationId,
+          ...patch.columns,
           first_name: patch.columns.first_name || "",
           last_name: patch.columns.last_name || "",
           birth_date: patch.columns.birth_date || null,
@@ -918,6 +1076,17 @@ export const decideFormSubmission = async (
         `Scheda atleta aggiornata: ${Object.keys(values).length} dati`,
       );
     }
+  }
+
+  if (athleteId && (placement.category || placement.siteId)) {
+    applied.push(
+      ...(await syncEnrollmentMembership(scope, {
+        organizationId,
+        athleteId,
+        siteId: placement.siteId,
+        category: placement.category,
+      })),
+    );
   }
 
   const guardianChange = review.changeSet.subjects.find(

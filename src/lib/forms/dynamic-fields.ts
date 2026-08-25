@@ -100,6 +100,24 @@ export const FORM_SUBJECTS: Record<FormSubjectKey, FormSubjectDefinition> = {
   },
 };
 
+/**
+ * Da dove arrivano le opzioni di un campo a scelta.
+ *
+ * **Il problema.** «Sede» e «Categoria» sono elenchi a scelta come gli altri,
+ * ma le voci non le scrive chi costruisce il modulo: le possiede il club, e
+ * cambiano senza che il modulo venga ripubblicato. Se finissero dentro lo
+ * schema, un modulo pubblicato a settembre offrirebbe a marzo le sedi di
+ * settembre.
+ *
+ * **La conseguenza sulla sicurezza.** Le opzioni le riempie il server subito
+ * prima di servire il modulo *e* subito prima di validare l'invio, leggendole
+ * dal club **proprietario del modulo**. Chi compila non manda un `site_id`:
+ * manda il nome di una voce che, se non e in quell'elenco, la validazione
+ * gia esistente sui campi a scelta rifiuta. Non c'e un secondo controllo da
+ * ricordarsi di scrivere.
+ */
+export type DynamicFieldOptionsSource = "club_sites" | "club_categories";
+
 export type DynamicFieldDefinition = {
   /** La chiave salvata nel modulo. Non si mostra mai all'utente. */
   key: string;
@@ -120,6 +138,11 @@ export type DynamicFieldDefinition = {
   writable: boolean;
   /** Testo di aiuto mostrato nel selettore. */
   hint?: string;
+  /**
+   * Quando c'e, le opzioni del campo non stanno nello schema: le mette il
+   * server leggendo il club. Vedi `DynamicFieldOptionsSource`.
+   */
+  optionsSource?: DynamicFieldOptionsSource;
 };
 
 const define = (
@@ -164,10 +187,19 @@ export const DYNAMIC_FIELDS: DynamicFieldDefinition[] = define([
     key: "athlete.categoryName",
     subject: "athlete",
     label: "Categoria dell'atleta",
-    fieldType: "short_text",
+    fieldType: "dropdown",
     path: ["category_name"],
-    writable: false,
-    hint: "La categoria si assegna dalla scheda atleta: qui si mostra soltanto.",
+    optionsSource: "club_categories",
+    hint: "Le categorie del club. Approvare iscrive l'atleta alla categoria scelta.",
+  },
+  {
+    key: "athlete.siteId",
+    subject: "athlete",
+    label: "Sede dell'atleta",
+    fieldType: "dropdown",
+    path: ["data", "siteId"],
+    optionsSource: "club_sites",
+    hint: "Le sedi attive del club. Un club con una sede sola non vede la domanda.",
   },
   {
     key: "athlete.jerseyNumber",

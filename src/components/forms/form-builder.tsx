@@ -28,6 +28,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { FormFieldCard } from "./form-field-card";
 import { FormRenderer } from "./form-renderer";
+import {
+  applyServerFieldOptions,
+  EMPTY_FORM_OPTION_CATALOG,
+  type FormOptionCatalog,
+} from "@/lib/forms/field-options";
 import { DynamicFieldPicker } from "./dynamic-field-picker";
 import { FormPublicLink } from "./form-public-link";
 import {
@@ -96,6 +101,23 @@ export function FormBuilder({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [previewValues, setPreviewValues] = useState<Record<string, unknown>>({});
+
+  /*
+    L'anteprima passa dallo **stesso** renderer e dalla **stessa** funzione
+    che riempie sede e categoria per il modulo pubblicato. Un'anteprima
+    costruita a parte sarebbe una seconda implementazione della compilazione,
+    ed e esattamente la differenza che nessuno noterebbe finche non arriva la
+    prima compilazione sbagliata.
+  */
+  const previewSchema = useMemo(
+    () =>
+      applyServerFieldOptions(
+        schema,
+        (template.optionCatalog as FormOptionCatalog | undefined) ||
+          EMPTY_FORM_OPTION_CATALOG,
+      ),
+    [schema, template.optionCatalog],
+  );
 
   const templateId = template.id;
   const lastSaved = useRef<FormSchema>(normalizeFormSchema(template.draft));
@@ -318,7 +340,7 @@ export function FormBuilder({
           {mode === "preview" ? (
             <div className="rounded-lg border border-dashed border-slate-300 p-4 sm:p-6">
               <FormRenderer
-                fields={schema.fields}
+                fields={previewSchema.fields}
                 values={previewValues}
                 files={{}}
                 onChange={(fieldId, value) =>

@@ -1738,3 +1738,67 @@ in Italia — non si ripiega e si resta senza osservazione.
   allontanato dalla fonte.
 
 **Stato:** ATTIVA. Supera ADR-0035.
+
+## ADR-0043 — Sede e categoria non stanno nel modulo: le mette il server quando il modulo si apre
+
+**Data:** 2026-08-26
+**Contesto:** Blocco Finale B, chiusura di R-14 / B9-18.
+
+Un atleta iscritto approvando una compilazione nasceva senza sede. Non si
+rompeva niente — `null` significa «non dichiarata» e resta visibile a ogni
+filtro (ADR-0038) — ma in un club multi-sede la segreteria doveva ricordarsi
+di assegnarla a mano, per ogni iscrizione, tutti i settembre.
+
+**La strada che sembrava ovvia, e perche non e stata presa.** Aggiungere al
+modulo un menu a tendina «Sede» con le sedi scritte dentro. Le opzioni di un
+campo a scelta stanno nella **versione pubblicata**, che e immutabile — e deve
+esserlo, altrimenti le risposte gia arrivate citerebbero opzioni che il modulo
+non offre piu. Ma le sedi non sono un'opinione di chi ha costruito il modulo:
+sono anagrafica del club, e cambiano quando il club apre una palestra. Un
+modulo di iscrizione pubblicato a settembre avrebbe proposto a marzo le sedi
+di settembre, e nessuno ripubblica dodici moduli per una palestra nuova.
+
+**La decisione.** Il catalogo dei dati dinamici puo dichiarare che le opzioni
+di un campo hanno una **fonte**: `club_sites` o `club_categories`
+(`DynamicFieldOptionsSource`). Il modulo dichiara *dove va la sede*; quali
+sedi siano possibili lo dice il club, al momento in cui il modulo viene
+aperto. `applyServerFieldOptions` riempie le opzioni, e passa dalla **stessa
+funzione** tre volte: quando il modulo pubblico viene servito, quando la
+compilazione interna viene aperta, e quando un invio viene validato.
+
+**Perche questo e anche il controllo di sicurezza, e non ce n'e un secondo.**
+Chi compila non manda un `site_id`. Manda il testo di un'opzione che il server
+ha appena messo lui, e la validazione dei campi a scelta — quella che c'era
+gia — rifiuta un testo fuori elenco. Un identificativo inventato, o la sede di
+un altro club, non vengono respinti da un controllo aggiuntivo: non sono mai
+stati un valore accettabile. All'approvazione il nome viene risolto in
+identificativo contro le sedi **attive** del club proprietario del modulo, e
+un nome che non risolve non diventa niente.
+
+**Un club con una sede sola non vede la domanda.** Scegliere fra una
+possibilita non e una scelta, ed e un errore di compilazione in piu per chi la
+legge. Il campo esce dallo schema servito; all'approvazione la sede unica
+viene assegnata lo stesso, perche il dato giusto da scrivere resta quello. Per
+le categorie la soglia e una: un club con una categoria puo comunque volerla
+scritta sul modulo, ed e la sola cosa che quel campo dichiara.
+
+**Conseguenze.**
+
+- `athlete.categoryName` smette di essere di sola lettura: approvare iscrive
+  l'atleta alla categoria scelta e crea l'appartenenza con la sede;
+- con la sola sede, l'approvazione aggiorna le appartenenze che **non ne
+  dichiarano una**. Un'appartenenza gia collocata non si sposta: chi l'ha
+  collocata ne sapeva piu di un modulo;
+- la bozza e le versioni pubblicate **non** vengono riscritte. Le opzioni
+  restano assenti li dentro: e il posto giusto, perche li dentro non c'erano
+  mai state;
+- l'anteprima del builder passa dalla stessa funzione, alimentata da
+  `optionCatalog` che `GET /api/v1/forms/:id` restituisce accanto alla bozza.
+  Un'anteprima con la tendina vuota dove il modulo pubblicato ne mostra una
+  piena mentirebbe sull'unica cosa che l'anteprima esiste per dire;
+- il modulo pubblico fa una lettura in piu del club. E deliberata: due
+  percorsi di lettura sono due occasioni perche un giorno smettano di
+  coincidere.
+
+**Stato:** ATTIVA. Chiude R-14 e B9-18, e completa ADR-0038 dal lato dei
+moduli.

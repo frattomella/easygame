@@ -16,6 +16,17 @@ import {
 } from "@/lib/forms/model";
 import { validateSchema, validateSchemaForPublish } from "@/lib/forms/validation";
 import {
+  applyServerFieldOptions,
+  buildFormOptionCatalog,
+  EMPTY_FORM_OPTION_CATALOG,
+  type FormOptionCatalog,
+} from "@/lib/forms/field-options";
+import {
+  getActiveClubSites,
+  normalizeClubSites,
+  type ClubSite,
+} from "@/lib/club-sites";
+import {
   createStarterSchema,
   isStarterTemplateKey,
   type StarterTemplateKey,
@@ -274,6 +285,7 @@ export const getFormTemplate = async (
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
   const published = await loadPublishedSchema(row.id, row.published_version);
+  const options = await loadClubFormOptions(row.organization_id);
 
   const [submissions, pending] = await Promise.all([
     (prisma as any).formSubmission.count({
@@ -292,6 +304,7 @@ export const getFormTemplate = async (
     ...summarize(row, { submissions, pending }, published),
     draft: normalizeFormSchema(row.draft),
     published,
+    optionCatalog: options.catalog,
   };
 };
 
@@ -522,6 +535,61 @@ export const deleteFormTemplate = async (
   return { deleted: true, archived: false };
 };
 
+/* ------------------------------------------- opzioni che possiede il club */
+
+export type ClubFormOptions = {
+  catalog: FormOptionCatalog;
+  /** Le sedi **attive**: l'approvazione risolve su queste, non su tutte. */
+  sites: ClubSite[];
+  categories: Array<{ id: string; name: string }>;
+};
+
+const readClubCategories = (value: unknown): Array<{ id: string; name: string }> =>
+  (Array.isArray(value) ? value : [])
+    .map((entry: any) => ({
+      id: asText(entry?.id) || asText(entry?.name),
+      name: asText(entry?.name) || asText(entry?.id),
+    }))
+    .filter((entry) => entry.id && entry.name);
+
+export const buildClubFormOptions = (club: {
+  club_sites?: unknown;
+  categories?: unknown;
+} | null): ClubFormOptions => {
+  if (!club) {
+    return { catalog: EMPTY_FORM_OPTION_CATALOG, sites: [], categories: [] };
+  }
+
+  const sites = getActiveClubSites(normalizeClubSites(club.club_sites));
+  const categories = readClubCategories(club.categories);
+
+  return {
+    catalog: buildFormOptionCatalog({
+      siteNames: sites.map((site) => site.name),
+      categoryNames: categories.map((category) => category.name),
+    }),
+    sites,
+    categories,
+  };
+};
+
+/**
+ * Sedi e categorie del club, nella forma che serve a un modulo.
+ *
+ * Una lettura sola, e sempre dal club **proprietario del modulo**: il club
+ * non arriva mai dalla richiesta, nemmeno per una compilazione interna.
+ */
+export const loadClubFormOptions = async (
+  organizationId: string,
+): Promise<ClubFormOptions> => {
+  const club = await (prisma as any).club.findUnique({
+    where: { id: organizationId },
+    select: { club_sites: true, categories: true },
+  });
+
+  return buildClubFormOptions(club);
+};
+
 /* -------------------------------------------------------- lato pubblico */
 
 export type PublicFormMatch = {
@@ -590,7 +658,19 @@ export const findPublicFormBySlug = async (
 
   if (!version) return null;
 
-  const schema = normalizeFormSchema(version.schema_json);
+  /*
+    Sedi e categorie passano da `loadClubFormOptions` anche qui, dove una
+    lettura in piu si sarebbe potuta evitare leggendole insieme al modulo.
+    Il motivo e che il modulo pubblico e il modulo interno devono vedere le
+    **stesse** opzioni: due percorsi di lettura sono due occasioni perche un
+    giorno smettano di coincidere, ed e il tipo di divergenza che si scopre
+    da una compilazione rifiutata senza motivo apparente.
+  */
+  const options = await loadClubFormOptions(row.organization_id);
+  const schema = applyServerFieldOptions(
+    normalizeFormSchema(version.schema_json),
+    options.catalog,
+  );
   if (isFormClosed(schema, now)) return null;
 
   return {
@@ -641,10 +721,15 @@ export const resolveCompilableVersion = async (
     throw new Error("La versione pubblicata del modulo non e disponibile.");
   }
 
+  const options = await loadClubFormOptions(row.organization_id);
+
   return {
     row,
     versionId: version.id,
     version: version.version,
-    schema: normalizeFormSchema(version.schema_json),
+    schema: applyServerFieldOptions(
+      normalizeFormSchema(version.schema_json),
+      options.catalog,
+    ),
   };
 };

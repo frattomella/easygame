@@ -451,18 +451,18 @@ test("un dato di sola lettura non entra mai nella proposta", () => {
   const schema = schemaWith([
     { id: "f_club", type: "short_text", label: "Societa", binding: "club.name" },
     {
-      id: "f_cat",
+      id: "f_maglia",
       type: "short_text",
-      label: "Categoria",
-      binding: "athlete.categoryName",
+      label: "Numero di maglia",
+      binding: "athlete.jerseyNumber",
     },
   ]);
 
   const changeSet = changes.buildChangeSet({
     schema,
-    answers: { f_club: "Altra ASD", f_cat: "Allievi" },
+    answers: { f_club: "Altra ASD", f_maglia: "10" },
     selections: [],
-    records: { athlete: { category_name: "Pulcini" } },
+    records: { athlete: { jersey_number: "7" } },
   });
 
   assert.deepEqual(changeSet.subjects, []);

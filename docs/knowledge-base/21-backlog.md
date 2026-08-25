@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco Finale A: anagrafiche, documenti, abbigliamento)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco Finale B: la sede nei moduli online)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -32,9 +32,9 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 178 |
+| `DONE` | 179 |
 | `IN PROGRESS` | 15 |
-| `OPEN` | 26 |
+| `OPEN` | 25 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
 | **Totale** | **229** |
@@ -274,7 +274,7 @@ e [ADR-0040](18-decision-log.md#adr-0040--una-compilazione-cita-una-versione-imm
 | B9-15 | Ripulire `clubs.document_templates` dai residui dei moduli V1 | `OPEN` | Il travaso e una copia, non uno spostamento: cancellare il dato di partenza e una decisione di chi lo possiede |
 | B9-16 | Eseguire il travaso sugli ambienti | `OPEN` | `scripts/migrate-forms-v2.mjs` esiste ed e idempotente. Richiede autorizzazione esplicita: non e stato eseguito |
 | B9-17 | Logica condizionale fra campi (mostra B se A vale X) | `OPEN` | Fuori scope dichiarato di WP-50: aggiunge un modello di dipendenze al modulo, e va disegnato a parte |
-| B9-18 | La sede di un atleta creato da un modulo online | `OPEN` | Emerso nell'integrazione: il dominio dei moduli non conosce le sedi (ADR-0038), quindi un atleta approvato da una compilazione nasce con `site_id` nullo. Non si rompe niente — `null` significa «non dichiarata» e resta visibile a ogni filtro — ma in un club multi-sede la segreteria deve assegnarla a mano. **Manca** la decisione fra promemoria e campo dedicato |
+| B9-18 | La sede di un atleta creato da un modulo online | `DONE` | **Blocco Finale B**, ADR-0043 — non un promemoria e non un campo scritto a mano: sede e categoria sono campi il cui **elenco lo mette il server** quando il modulo si apre, dalle sedi attive del club proprietario. Approvare risolve il nome in identificativo e colloca l'appartenenza. Un club con una sola sede non vede la domanda e la sede viene assegnata lo stesso |
 
 ---
 
@@ -360,7 +360,7 @@ piu sotto: quelle vengono **dopo** il rilascio.
 | R-11 | Voucher e contributi: primo bando reale caricato e riconciliato a mano | Il modello e i calcoli sono coperti dai test, ma un contributo pubblico si rendiconta a un ente: il primo caricamento va fatto con un bando vero e verificato una volta da chi lo rendiconta | A2-18, WP-48 |
 | R-12 | Multi-sede: primo club con due sedi vere, configurato e usato | Il modello, i filtri e i gruppi operativi sono coperti dai test, ma «due sedi» diventa reale solo quando una segreteria assegna atleti veri e usa i filtri per una settimana | P-01, WP-49 |
 | R-13 | Modulistica V2: primo modulo pubblicato e primo ciclo di approvazione reale | Il builder, la coda e l'approvazione sono coperti dai test. Un modulo pubblico e pero l'unica superficie che sta su Internet senza autenticazione: il primo giro va fatto con un modulo vero e una compilazione vera prima di dichiararlo rilasciabile | B9-01, WP-50 |
-| R-14 | La sede di un atleta iscritto da un modulo online si assegna a mano | Il dominio dei moduli non conosce le sedi: un atleta creato approvando una compilazione nasce senza sede. `null` significa «non dichiarata» e resta visibile ovunque, quindi non si rompe niente — ma in un club multi-sede la segreteria deve ricordarsi di assegnarla. Va deciso se basta un promemoria o serve un campo | B9-18, ADR-0038 |
+| ~~R-14~~ | ~~La sede di un atleta iscritto da un modulo online si assegna a mano~~ | **Chiuso dal Blocco Finale B** (ADR-0043). Il modulo puo chiedere la sede, l'elenco lo mette il server e l'approvazione colloca l'appartenenza. Resta la verifica su schermo del modulo pubblico multi-sede, che e in R-01 | B9-18, ADR-0043 |
 
 **Uscite dall'elenco con l'integrazione.** Erano due, entrambe chiuse in questo
 blocco e non rinviate:

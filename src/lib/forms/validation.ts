@@ -23,6 +23,7 @@ import {
   type FormField,
   type FormSchema,
 } from "./model";
+import { hasServerOptions } from "./field-options";
 import { getDynamicField } from "./dynamic-fields";
 
 /* ------------------------------------------------------------------ limiti */
@@ -161,6 +162,14 @@ export const validateSchemaForPublish = (
   }
 
   for (const field of schema.fields) {
+    /*
+      Un campo le cui opzioni le mette il server — sede, categoria — non le
+      ha nello schema **per costruzione**: pretenderle qui impedirebbe di
+      pubblicare proprio il modulo di iscrizione, che e il caso per cui quei
+      campi esistono.
+    */
+    if (hasServerOptions(field)) continue;
+
     if (fieldCollectsAnswer(field.type) && field.options.length === 0) {
       if (
         field.type === "single_choice" ||

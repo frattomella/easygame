@@ -378,6 +378,15 @@ export type FormTemplateDetail = FormTemplateSummary & {
   draft: FormSchema;
   /** Cio che il pubblico vede adesso, se il modulo e pubblicato. */
   published: FormSchema | null;
+  /**
+   * Sedi e categorie del club, al momento della lettura.
+   *
+   * Non fanno parte del modulo: servono all'anteprima per mostrare le stesse
+   * voci che vedra chi compila. Senza, l'anteprima mostrerebbe una tendina
+   * vuota proprio dove il modulo pubblicato ne mostra una piena — cioe
+   * mentirebbe sull'unica cosa che l'anteprima esiste per dire.
+   */
+  optionCatalog?: Record<string, string[]>;
 };
 
 export type FormSubmissionFile = {

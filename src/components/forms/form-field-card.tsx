@@ -30,6 +30,7 @@ import {
   type FormFieldType,
 } from "@/lib/forms/model";
 import { getDynamicFieldLabel } from "@/lib/forms/dynamic-fields";
+import { hasServerOptions } from "@/lib/forms/field-options";
 
 /**
  * Un campo, nella tela del builder.
@@ -69,6 +70,8 @@ export function FormFieldCard({
 
   const definition = getFieldTypeDefinition(field.type);
   const isSection = !fieldCollectsAnswer(field.type);
+  /* Sede e categoria: le opzioni non si scrivono, le porta il club. */
+  const serverOptions = hasServerOptions(field);
   const bindingLabel = getDynamicFieldLabel(field.binding);
 
   return (
@@ -217,7 +220,19 @@ export function FormFieldCard({
             </div>
           ) : null}
 
-          {definition.hasOptions ? (
+          {definition.hasOptions && serverOptions ? (
+            <div className="space-y-2">
+              <Label>Opzioni</Label>
+              <p className="rounded-md border border-dashed border-muted-foreground/40 p-3 text-sm text-muted-foreground">
+                Le voci di questo campo le mette EasyGame quando il modulo
+                viene aperto: sono le sedi e le categorie di questa societa,
+                aggiornate al momento. Non vanno scritte qui, e non restano
+                indietro quando cambiano.
+              </p>
+            </div>
+          ) : null}
+
+          {definition.hasOptions && !serverOptions ? (
             <div className="space-y-2">
               <Label htmlFor={`options-${field.id}`}>
                 Opzioni, una per riga

@@ -23,7 +23,7 @@ easygame/
 | `src/app/api/` (fuori `v1`) | Endpoint di dominio non versionati: parent-dashboard, payments, athletes/documents, clothing, forms/assets, medical-certificate-reminders, **public/forms** | Incoerenza nota, vedi [09](09-api-conventions.md). `public/forms` sta fuori da `v1` di proposito: non e la superficie ufficiale, e l'unico endpoint senza sessione |
 | `src/components/ui/` | 58 file. Primitive shadcn/ui + componenti custom (chat, avatar-upload, toast) | 18 primitive non referenziate, vedi [cleanup-report](cleanup-report.md) |
 | `src/components/trainer/` | 28 file. Dashboard allenatore | Convivono v1 (`trainer-*-page`) e v2 (`trainer-*-dashboard-page`); solo v2 e in uso |
-| `src/lib/forms/` | Modello puro dei moduli: tipi di campo, catalogo dei dati EasyGame, validazione, precompilazione, proposta di modifica | Nessun import da `lib/server`: si prova senza database |
+| `src/lib/forms/` | Modello puro dei moduli: tipi di campo, catalogo dei dati EasyGame, validazione, precompilazione, proposta di modifica, **opzioni che il modulo non possiede** (`field-options.ts`: sedi e categorie del club) | Nessun import da `lib/server`: si prova senza database |
 | `src/components/forms/` | 25 file. Builder e modulo pubblico della Modulistica V2 (`form-builder`, `form-renderer`, `forms-dashboard`, `public-form-page`, `submission-review-dialog`, `compile-form-dialog`), editor documenti, form di dominio | |
 | `src/components/dashboard/` | 15 file. Sidebar, Header, widget dashboard club | |
 | `src/components/providers/` | `AuthProvider`, `ThemeProvider`, `GlobalLoadingProvider`, `AppClientProviders` | Montati in `src/app/layout.tsx` |
