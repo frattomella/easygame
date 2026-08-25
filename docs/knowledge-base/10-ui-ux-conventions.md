@@ -700,3 +700,46 @@ di riferimento restano 375, 768 e 1280 px ([ADR-0025](18-decision-log.md)).
 Non esiste oggi una linea guida applicata ne test a11y. Le primitive Radix
 forniscono la base (focus trap, ruoli ARIA). Non regredire: se usi un elemento
 interattivo custom, aggiungi `aria-label` e gestione tastiera.
+
+## Il filtro sede si mostra solo se serve (Workstream B, 2026-08-26)
+
+Un club con **una** sede non deve vedere il concetto di sede da nessuna parte:
+un menu con una voce sola non informa, occupa una riga e a 375 px la toglie a
+cio che serve.
+
+La regola sta nel componente, non nelle pagine. `SiteFilter`
+(`src/components/sites/site-filter.tsx`) restituisce `null` quando
+`isMultiSiteClub` e falsa — cioe con meno di **due sedi attive** — e ogni
+schermata che lo monta eredita la stessa decisione senza riscriverla. Le
+pagine che oggi lo montano sono Categorie, Atleti e Strutture.
+
+Due componenti distinti di proposito:
+
+| Componente | Quando si mostra | A cosa serve |
+|---|---|---|
+| `SiteFilter` | solo se il club e multi-sede | restringere un elenco |
+| `SiteSelect` | se esiste almeno una sede | assegnare la sede a un record |
+
+`SiteSelect` compare gia dalla prima sede perche assegnare una sede a una
+struttura ha senso anche mentre il club sta configurando la seconda.
+
+**«Tutte le sedi» non e un valore speciale.** Sede vuota sul filtro significa
+«non restringere»; sede vuota sul record significa «non dichiarata», e un
+record senza sede resta visibile con qualunque filtro. Le due asimmetrie
+insieme sono cio che impedisce a un dato storico di sparire da un elenco il
+giorno in cui il club configura le sedi ([ADR-0036](18-decision-log.md)).
+
+## Le consegne si registrano dal telefono (Workstream B, 2026-08-26)
+
+Il dialogo consegne di un kit
+(`src/components/clothing/kit-delivery-dialog.tsx`) e a **schede impilate** e
+non a tabella. Non e una preferenza estetica: le consegne si registrano in
+magazzino, con il telefono in mano, ed e la schermata che a 375 px deve
+funzionare per prima. Una tabella con sei colonne per articolo li sarebbe
+inutilizzabile.
+
+Lo stato del kit in cima **non e un campo**: e il riassunto degli articoli
+(«Parziale · 2/4 consegnati · 1 non disponibile»). Non offrire un controllo
+per cambiarlo — uno stato di kit scritto a mano si disallinea dai suoi
+articoli al primo aggiornamento, e da quel momento nessuno dei due e
+attendibile.

@@ -48,6 +48,7 @@ Classificazione:
 | Strutture e campi | COMPLETE | `/structures`, orari di apertura, prenotazioni |
 | Categorie | COMPLETE | `/categories`, statistiche atleti per categoria. Il secondo anno di nascita e facoltativo: una categoria puo coprire un solo anno |
 | Compatibilita fra categorie | COMPLETE | Configurazione esplicita per categoria (`compatibleCategoryIds`), orientata e non transitiva ([ADR-0030](18-decision-log.md)). Consumata oggi dai gruppi numerazione; non crea appartenenze |
+| **Multi-sede** | COMPLETE | Sedi (`club_sites`), gruppi operativi categoria x sede (`category_groups`), sede sulla struttura e sull'appartenenza dell'atleta ([ADR-0036](18-decision-log.md)). Filtro sede su Categorie, Atleti e Strutture, montato **solo** con due o piu sedi attive. La categoria non viene mai duplicata |
 | Stagioni sportive | COMPLETE | `clubs.settings.seasons`, `/organization?tab=stagioni`. Tre stati (futura, attiva, archiviata) con una sola attiva; filtro server su `x-active-season-id`; creazione guidata con riporto della configurazione dalla stagione scelta (WP-32, WP-35) |
 | Riporto fra stagioni | COMPLETE | `/api/v1/seasons/:id/rollover`. Copia categorie, sconti, piani, gruppi numerazione, programma settimanale e previsionale; idempotente, rimappa i riferimenti, non tocca i dati operativi |
 
@@ -101,9 +102,10 @@ Classificazione:
 
 | Capability | Stato | Note |
 |-----------|-------|------|
-| Kit, prodotti, inventario | COMPLETE | `/clothing`, `clothing_*` |
-| Gruppi numerazione | COMPLETE | `jersey_groups`, `jersey-numbering-utils.ts`. Schede chiuse di default, ricerca e paginazione interne; le righe dichiarano perche l'atleta e nel gruppo (`primary`/`secondary`/`compatible`/`external`) |
-| Assegnazioni kit | COMPLETE | `/api/clothing/assignments`, `kit_assignments` |
+| Kit, prodotti, inventario | COMPLETE | `/clothing`, `clothing_*`. Catalogo e kit sono **globali** fra stagioni; le assegnazioni sono stagionali. L'articolo dichiara da quale taglia dell'anagrafica prende (`sizeSource`) |
+| Gruppi numerazione | COMPLETE | `jersey_groups`, `jersey-numbering-utils.ts`. Schede chiuse di default, ricerca e paginazione interne; le righe dichiarano perche l'atleta e nel gruppo (`primary`/`secondary`/`compatible`/`external`). Un gruppo si puo restringere a una o piu sedi (`siteIds`): vuoto = tutte |
+| Assegnazioni kit | COMPLETE | `/api/clothing/assignments`, `kit_assignments`. La taglia parte da quella dell'anagrafica per il capo giusto e si puo sovrascrivere **senza** toccare l'anagrafica |
+| **Consegne parziali** | COMPLETE | `clothing-delivery.ts`: quattro stati per articolo (da preparare, pronto, consegnato, non disponibile) e stato del kit **derivato** — «Parziale · 2/4 consegnati · 1 non disponibile». Dialogo consegne a schede impilate, usabile da telefono |
 | Ordine fornitore PDF | COMPLETE | `clothing-supplier-order-pdf.ts` |
 
 ## Comunicazione

@@ -24,7 +24,9 @@ const STATES = ["DONE", "IN PROGRESS", "OPEN", "DEFERRED", "SUPERSEDED"];
 const entryLines = lines.filter((line) =>
   // `B\d+` e non `B[1-7]`: il prefisso di blocco cresce a ogni blocco, e un
   // elenco chiuso avrebbe smesso di contare le voci del Blocco 8 in silenzio.
-  /^\|\s*(B\d+-\d+|F[1-5]-\d+|P-\d+|S-\d+)\s*\|/.test(line),
+  // `WB-` e il prefisso dei workstream, che non sono numerati come i blocchi:
+  // senza, le loro voci sarebbero finite fuori dal conteggio senza un errore.
+  /^\|\s*(B\d+-\d+|WB-\d+|F[1-5]-\d+|P-\d+|S-\d+)\s*\|/.test(line),
 );
 
 const statusOf = (line) => {

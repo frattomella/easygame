@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-25 (Blocco 8)
+**Ultimo aggiornamento:** 2026-08-26 (Workstream B)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -32,12 +32,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 82 |
-| `IN PROGRESS` | 10 |
-| `OPEN` | 26 |
+| `DONE` | 93 |
+| `IN PROGRESS` | 12 |
+| `OPEN` | 24 |
 | `DEFERRED` | 6 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **126** |
+| **Totale** | **137** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -209,6 +209,7 @@ vengono **dopo** il rilascio.
 | R-08 | Scheduler dei promemoria certificati | Un certificato scaduto e un atleta che non puo scendere in campo, e oggi nessuno avvisa | F3-09 |
 | R-09 | Rimuovere i residui legacy classificati | 19 componenti `ui/*` non usati, e due route di modifica orfane — una costruita su dati inventati (vedi D27 in [16](16-technical-debt.md)) | F3-06, WP-18 |
 | R-10 | Ambiente di produzione, error tracking, backup provati, UAT | E la fase F5 per intero: senza, «rilasciato» non ha un significato operativo | F5-01, F5-02, F5-03, F5-04 |
+| R-11 | Le scritture dell'abbigliamento devono passare da `resources.ts` | `/api/clothing/assignments` scrive `clubs.<json>` con Prisma: `club_resource_items` resta indietro e il disallineamento e silenzioso | D28 in [16](16-technical-debt.md), WP-47 |
 
 ---
 
@@ -250,6 +251,22 @@ Non sono cancellate: riprendono quando Web V1 e completa.
 | F5-03 | Backup e restore provati | `OPEN` | WP-28, dipende da WP-26 |
 | F5-04 | UAT strutturato | `OPEN` | WP-29, dipende da WP-26 |
 
+### Workstream B — multi-sede, categorie, abbigliamento, kit e consegne (2026-08-26)
+
+| # | Richiesta | Stato | Nota |
+|---|-----------|-------|------|
+| WB-01 | Stessa categoria in sedi diverse, senza duplicarla | `DONE` | ADR-0036: categoria, sede, struttura e gruppo operativo sono quattro concetti. «Pulcini · Roma» e un gruppo, non una categoria |
+| WB-02 | UX semplice per il club mono-sede | `DONE` | `SiteFilter` non si monta con meno di due sedi attive: la decisione sta nel componente, non nelle pagine |
+| WB-03 | Filtro sede su categorie, atleti, strutture, gruppi | `DONE` | Sede vuota = «non dichiarata»: nessun dato storico esce dagli elenchi |
+| WB-04 | Compatibilita categorie invariata con piu sedi | `DONE` | Esplicita, orientata, non transitiva: la sede non cambia la regola, e un test lo verifica |
+| WB-05 | Kit con stati indipendenti per articolo | `DONE` | Quattro stati: da preparare, pronto, consegnato, non disponibile |
+| WB-06 | La taglia dell'anagrafica arriva sull'assegnazione | `DONE` | Era il difetto: la taglia si mostrava e non si usava. L'override non scrive l'anagrafica |
+| WB-07 | Consegne parziali con stato derivato | `DONE` | «Parziale · 2/4 consegnati · 1 non disponibile». Lo stato del kit non si scrive |
+| WB-08 | Niente stagione sul kit | `DONE` | `clothing_kits` non e un tipo stagionale: il campo sembrava un filtro e non filtrava |
+| WB-09 | Numerazione per sede senza regressioni | `DONE` | `siteIds` sul gruppo; vuoto = tutte le sedi, cioe ogni gruppo esistente |
+| WB-10 | Performance con 200+ atleti e piu sedi | `DONE` | Rapporto sotto 3x raddoppiando gli atleti; `scripts/measure-multisite-performance.mjs` stampa i tempi |
+| WB-11 | Consegne usabili da smartphone | `IN PROGRESS` | Il dialogo consegne e a schede impilate e le invarianti statiche sono verdi. **Manca** la verifica su schermo: il database di sviluppo non e in esecuzione in questo ambiente (vedi B3-03) |
+
 ---
 
 ## Proposte grandi, ancora future
@@ -259,8 +276,8 @@ elenco. Nessuna e cominciata; ognuna vale un blocco o piu.
 
 | # | Proposta | Stato | Perche non ora |
 |---|----------|-------|----------------|
-| P-01 | **Multi-sede per le categorie** | `OPEN` | Una categoria oggi appartiene al club, non a una sede. Tocca il modello dati, i permessi e il filtro stagione insieme |
-| P-02 | **Abbigliamento e consegne V2** | `OPEN` | Il magazzino c'e; mancano il ciclo di consegna, le taglie per soggetto (parzialmente introdotte dal Blocco 7) e la riconciliazione con gli ordini fornitore |
+| P-01 | **Multi-sede per le categorie** | `DONE` | **Workstream B** — WP-47, [ADR-0036](18-decision-log.md). La categoria non si duplica: sede, struttura e gruppo operativo sono concetti separati. Filtro sede su Categorie, Atleti, Strutture e gruppi numerazione; il club mono-sede non vede il concetto |
+| P-02 | **Abbigliamento e consegne V2** | `IN PROGRESS` | **Workstream B** — WP-47: ciclo di consegna per articolo con stato del kit derivato, taglia proposta dall'anagrafica con override. **Manca** la riconciliazione con gli ordini fornitore, che resta un flusso a se |
 | P-03 | **Modulistica V2** | `OPEN` | Oggi i modelli generano documenti di stampa. Serve un modello di documento con campi, versioni e firme |
 | P-04 | **Moduli online** | `OPEN` | Esistono e raccolgono risposte. Mancano validazione condizionale, pagamento contestuale e collegamento all'anagrafica |
 | P-05 | **Scanner documenti** | `IN PROGRESS` | La foundation e del Blocco 7 (ADR e KB). Restano: PDF, provider remoto, migrazione della scheda atleta. Vedi B7-32/33/34 |
