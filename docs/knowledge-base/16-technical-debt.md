@@ -458,3 +458,25 @@ applicare le espressioni regolari (`replace(/\r\n/g, "\n")`), oppure un
 larga, e va valutata con calma: cambia il checkout di tutti.
 
 → nessun WP ancora
+
+### D31 — `AddPaymentForm` e una terza finestra di pagamento, mai montata
+
+`src/components/forms/AddPaymentForm.tsx` (200 righe) non e importata da
+nessuna parte: **nessun** file del repository la referenzia. Porta con se un
+elenco di metodi di pagamento **scritti a mano** — «Bonifico Bancario», «Carta
+di Credito», «Contanti», «Assegno» — e una tendina «Stato» con Pagato / In
+Attesa, cioe esattamente i due difetti che il Workstream A ha chiuso altrove
+([ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)).
+
+**Perche pesa piu di un componente morto qualunque:** e verosimile. Chi
+cercasse «form pagamento» la troverebbe per prima, e montandola
+reintrodurrebbe il testo libero sul metodo e lo stato impostato a mano, senza
+accorgersene.
+
+**Perche non e stata rimossa nel Workstream A:** vale la stessa regola di
+[D27](#d27--due-route-di-modifica-orfane-una-su-dati-finti) —
+[ADR-0016](18-decision-log.md) limita le eliminazioni ai residui gia
+classificati `SAFE TO DELETE` in [cleanup-report](cleanup-report.md), dove
+questa non compare. Va classificata prima, e rimossa in un commit proprio.
+
+→ WP-18
