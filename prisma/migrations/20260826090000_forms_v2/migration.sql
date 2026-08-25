@@ -1,4 +1,4 @@
--- Modulistica V2: i moduli escono da `clubs.document_templates` (ADR-0035).
+-- Modulistica V2: i moduli escono da `clubs.document_templates` (ADR-0036).
 --
 -- Fino a qui un modulo online, e ogni risposta che aveva raccolto, erano
 -- oggetti dentro lo stesso campo JSON dei modelli di stampa. Tre conseguenze

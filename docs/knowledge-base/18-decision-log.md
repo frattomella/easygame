@@ -1139,3 +1139,145 @@ su `GET /api/v1/comuni`. Nessun form cambia.
 cerca per nome — che e la direzione che l'archivio ISTAT copre davvero.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0036 — I moduli escono da `clubs.document_templates` e diventano tre tabelle
+
+**Data:** 2026-08-26
+**Contesto:** Modulistica V2, Workstream C.
+
+Un modulo online, e ogni risposta che aveva raccolto, erano oggetti dentro
+`clubs.document_templates` — lo stesso campo JSON dei modelli di stampa.
+
+**Il problema non era estetico.** Tre difetti misurabili:
+
+1. **una risposta riscriveva l'intero array del club.**
+   `saveOnlineFormBundle` leggeva `document_templates`, ci rimetteva dentro
+   tutti i moduli e tutte le compilazioni, e riscriveva la colonna. Due invii
+   sovrapposti e l'ultimo cancellava il primo. Per un modulo di iscrizione
+   aperto a duecento famiglie la sovrapposizione non e un caso limite: e il
+   giorno in cui si manda il link;
+2. **trovare un modulo pubblico costava una scansione.**
+   `findPublicOnlineFormBySlug` faceva
+   `WHERE document_templates @> '[{"type":"online_form","publicSlug":"…"}]'`
+   su tutta la tabella `clubs`, senza indice utilizzabile;
+3. **modificare un modulo cambiava retroattivamente il significato delle
+   risposte gia raccolte**, perche non esisteva nessuna versione.
+
+C'era anche un difetto di proprieta: `src/lib/server/online-forms.ts` scriveva
+`clubs.document_templates` **direttamente con Prisma**, aggirando
+`resources.ts` che di quel campo e il proprietario e che lo tiene allineato a
+`club_resource_items`. E l'errore tipico numero 3 di `CLAUDE.md`.
+
+**Decisione.** Tre tabelle: `form_templates` (il modulo, con la bozza),
+`form_template_versions` (una versione pubblicata, immutabile),
+`form_submissions` (una compilazione, che cita la versione con cui e stata
+compilata).
+
+**Perche tre e non una.** Bozza e versione pubblicata sono due cose diverse
+con due cicli di vita diversi: la prima cambia mentre la si scrive, la seconda
+non cambia mai. Tenerle nella stessa riga vorrebbe dire scegliere fra «il
+pubblico vede le mie modifiche a meta» e «non posso salvare finche non ho
+finito».
+
+**Perche non `club_resource_items`.** Sarebbe stato il contenitore generico
+gia esistente, e avrebbe evitato una migrazione. Ma un modulo ha uno slug
+pubblico **unico su tutta l'istanza**, e un contenitore con `payload Json` non
+puo esprimere un vincolo di unicita su un campo del payload. Senza quel
+vincolo, due club possono pubblicare lo stesso link e chi lo apre finisce nel
+posto sbagliato: non e un difetto di prestazioni, e un difetto di isolamento.
+
+**Alternativa scartata: lasciare tutto com'era e mettere una toppa al
+concorrente.** Un lock ottimistico sul JSON avrebbe chiuso il primo difetto e
+nessuno degli altri due, al prezzo di rendere piu complicato il codice che si
+voleva comunque riscrivere.
+
+**Cosa comporta.** Una migrazione **additiva** (`20260826090000_forms_v2`) che
+non legge e non riscrive `clubs.document_templates`, e uno script di travaso
+separato (`scripts/migrate-forms-v2.mjs`) che **copia** invece di spostare:
+finche il campo non viene ripulito a mano, il dato di partenza e ancora li.
+Lo script conserva gli slug legacy — i link gia mandati alle famiglie devono
+continuare a rispondere — e segnala quali non hanno suffisso casuale.
+
+Gli allegati dei moduli legacy restano nella tabella `assets` e vengono citati
+come `asset:<id>`: travasare dei binari e un'operazione a se, con un rischio
+suo, e non c'e ragione di legarla a questa.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0037 — Una compilazione cita una versione immutabile e non scrive in anagrafica
+
+**Data:** 2026-08-26
+**Contesto:** Modulistica V2, Workstream C.
+
+Due decisioni che si tengono insieme, perche rispondono alla stessa domanda:
+**di chi e la responsabilita di cio che finisce in archivio.**
+
+### 1. Versionamento, non fotografia
+
+Il modulo di iscrizione si corregge tutti gli anni, a stagione aperta.
+Servono due cose insieme: le risposte gia arrivate devono restare leggibili
+con le domande di allora, e chi le legge deve poter dire *quali* domande erano.
+
+Le opzioni erano tre:
+
+| Opzione | Perche no |
+|---------|-----------|
+| Nessuna: il modulo e uno solo | E lo stato di partenza. Correggere l'etichetta di una domanda cambia il senso di trecento risposte gia raccolte |
+| Copia dello schema dentro ogni compilazione | Funziona, ma trecento copie dello stesso schema, e nessun modo di dire «queste due risposte sono confrontabili» |
+| **Versioni immutabili citate dalla compilazione** | Scelta |
+
+Una riga di `form_template_versions` non si aggiorna mai. `published_version`
+sul modulo dice qual e quella corrente. Ripubblicare senza modifiche **non**
+crea una versione gemella, altrimenti il numero di versione smetterebbe di
+significare qualcosa.
+
+**Conseguenza accettata:** un modulo con compilazioni non si cancella, si
+archivia. Cancellarlo porterebbe via le versioni, e le risposte diventerebbero
+un elenco di identificativi senza domande. `deleteFormTemplate` lo fa da solo
+e lo dice.
+
+**Perche non si conserva anche una copia dello schema nella compilazione.**
+Sarebbe la stessa informazione in due posti, con la possibilita che divergano.
+La citazione resta sempre risolvibile proprio perche la cancellazione e
+impedita.
+
+### 2. Una compilazione e una proposta
+
+Un modulo pubblico e compilato da chi vuole, quando vuole, dal telefono.
+Contiene errori di battitura, doppi invii e omonimie. Se quelle risposte
+finissero direttamente nella scheda dell'atleta, l'anagrafica di un club
+sarebbe la somma di quello che hanno digitato duecento persone.
+
+**Decisione.** Una compilazione arriva, viene validata, e si ferma in coda.
+La segreteria vede la **proposta** — quale scheda verrebbe toccata, quale
+valore c'e adesso, quale ci sarebbe dopo, e quali schede esistenti le
+somigliano — e decide. Solo l'approvazione scrive, e scrive passando da
+`resources.ts`, quindi con la validazione anagrafica e la doppia scrittura
+gia in essere.
+
+**Un solo percorso.** Anche la compilazione fatta dalla segreteria dalla
+scheda di un atleta passa dalla stessa coda e dalla stessa finestra di
+revisione. Un secondo percorso «tanto qui e la segreteria» sarebbe un secondo
+insieme di regole da tenere allineato, e uno dei due sbaglierebbe.
+
+**Cio che l'anteprima mostra e cio che l'approvazione scrive**, perche e la
+stessa funzione (`buildChangeSet`) a calcolarlo. Non esiste una scrittura che
+l'anteprima non abbia descritto.
+
+**Il mapping e server-trusted.** Un campo non porta un percorso, porta una
+**chiave** di un catalogo chiuso (`src/lib/forms/dynamic-fields.ts`). Una
+chiave che il catalogo non conosce viene scartata in normalizzazione, quindi
+non arriva mai al momento in cui la si userebbe per scrivere. I dati della
+societa sono marcati di sola lettura: un modulo di iscrizione non riscrive la
+ragione sociale.
+
+**I duplicati si mostrano, non si risolvono.** Codice fiscale, nome piu data
+di nascita, email: tre criteri, e per ciascuno si dice **perche** due schede
+si somigliano. Unire due anagrafiche e una decisione che costa, e chi la
+prende deve essere una persona.
+
+**Stato:** ATTIVA.

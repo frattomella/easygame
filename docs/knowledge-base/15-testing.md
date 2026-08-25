@@ -44,7 +44,11 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 336 test, 37 file
+## Cosa e coperto oggi — 701 test, 59 file
+
+La tabella elenca i file che spiegano **cosa** e presidiato e perche; non e
+l'elenco completo dei file, che la discovery su `tests/**/*.test.mjs` trova
+da sola.
 
 | File | Test | Copre |
 |------|------|-------|
@@ -84,6 +88,9 @@ endpoint nuovo che dimentica il controllo.
 | `tests/lib/category-compatibility.test.mjs` | 8 | Compatibilita **esplicita, orientata e non transitiva**; categorie personalizzate e riferimenti per nome; primaria, appartenenze ed eleggibilita restano insiemi distinti |
 | `tests/lib/jersey-numbering-groups.test.mjs` | 10 | Atleti che rientrano nel gruppo con la categoria registrata solo per nome, nome atleta non duplicato, righe ordinate, numeri duplicati e riservati, indice costruito in una passata |
 | `tests/lib/numbering-group-persistence.test.mjs` | 5 | I gruppi e la compatibilita sopravvivono al giro serializza/normalizza, compresi i numeri riservati salvati come numeri |
+| `tests/lib/forms-model.test.mjs` | 38 | Modello dei moduli: tipi di campo, normalizzazione difensiva (tipo sconosciuto, id duplicati, **collegamento fuori catalogo scartato**), slug non indovinabile, confronto fra versioni, validazione delle risposte (obbligatori, opzioni fuori elenco, email/telefono/numero/data, **un allegato non si soddisfa con una stringa**, risposte a campi inesistenti scartate, testi tagliati), precompilazione, proposta di modifica, duplicati |
+| `tests/server/forms-service.test.mjs` | 39 | Moduli **a runtime**: isolamento multi-tenant su ogni operazione, link pubblico (bozza, link disabilitato, chiusura per data, rigenerazione), **versionamento** (la versione 1 non cambia quando si pubblica la 2), allegati che passano dal servizio del Blocco 8, revisione, approvazione, rifiuto, doppia approvazione impedita, dati di sola lettura, compilazione dalla segreteria |
+| `tests/ui/forms-builder.test.mjs` | 25 | Regole di interfaccia della Modulistica V2: logica fuori da `page.tsx`, nessun `fetch` fuori da `@/lib/api/forms`, **nessun identificativo tecnico mostrato**, divulgazione progressiva, autosave con debounce e accorpamento, revisione che non decide da sola, tre breakpoint, modulo pubblico a colonna singola |
 | `tests/ui/account-onboarding-and-admin.test.mjs` | 9 | Home account senza tavolozza propria e con i tre stati distinti, area onboarding protetta e saltabile, import con avanzamento reale e riepilogo, IMAP separato da SMTP nella console |
 
 ## Isolamento multi-tenant: cosa dimostrano i test

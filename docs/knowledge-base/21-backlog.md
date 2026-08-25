@@ -32,12 +32,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 82 |
-| `IN PROGRESS` | 10 |
-| `OPEN` | 26 |
+| `DONE` | 97 |
+| `IN PROGRESS` | 11 |
+| `OPEN` | 27 |
 | `DEFERRED` | 6 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **126** |
+| **Totale** | **143** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -191,6 +191,34 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 
 ---
 
+### Blocco 9 — Modulistica V2, moduli online e iscrizioni (2026-08-26)
+
+Workstream C. Ogni voce corrisponde a una richiesta del documento di lavoro.
+Chiuse da WP-47, [ADR-0036](18-decision-log.md#adr-0036--i-moduli-escono-da-clubsdocument_templates-e-diventano-tre-tabelle)
+e [ADR-0037](18-decision-log.md#adr-0037--una-compilazione-cita-una-versione-immutabile-e-non-scrive-in-anagrafica).
+
+| # | Richiesta | Stato | Chiuso da |
+|---|-----------|-------|-----------|
+| B9-01 | Form builder semplice: titolo, descrizione, «Aggiungi campo» | `DONE` | Blocco 9 — un campo chiuso mostra tre cose, il resto dietro «Impostazioni» |
+| B9-02 | Tipi di campo: testo, numero, data, scelte, email, telefono, firma | `DONE` | Blocco 9 — dodici tipi piu la sezione. Erano diciassette: divisore, link video e consenso non erano tipi, erano casi di altri tre |
+| B9-03 | Campi dinamici EasyGame con etichette umane | `DONE` | Blocco 9 — catalogo chiuso server-side; l'interfaccia mostra «Telefono del genitore», mai `guardian.phone` |
+| B9-04 | Soggetti collegati: quale atleta, quale genitore | `DONE` | Blocco 9 — dedotti dai campi, non dichiarati a mano; con piu tutori la scelta e esplicita |
+| B9-05 | «Compila modulo» dalla scheda atleta, con atleta preselezionato | `DONE` | Blocco 9 — precompilazione calcolata dal server, campi precompilati dichiarati |
+| B9-06 | Moduli online pubblici veri | `DONE` | Blocco 9 — `/forms/:slug` riscritto, priorita smartphone |
+| B9-07 | Iscrizione online con coda della segreteria | `DONE` | Blocco 9 — submission → validazione → coda → approvazione → anagrafica |
+| B9-08 | Controllo duplicati prima di creare una scheda | `DONE` | Blocco 9 — codice fiscale, nome piu data di nascita, email; con il motivo scritto, e senza unire da soli |
+| B9-09 | La segreteria deve capire cosa cambiera | `DONE` | Blocco 9 — valore attuale accanto a quello proposto, calcolati dalla stessa funzione che poi scrive |
+| B9-10 | Mapping dei campi validato lato server | `DONE` | Blocco 9 — il modulo salva una chiave del catalogo, mai un percorso |
+| B9-11 | Versionamento dei moduli | `DONE` | Blocco 9 — versioni immutabili citate dalla compilazione |
+| B9-12 | Sicurezza dei moduli pubblici | `DONE` | Blocco 9 — slug con suffisso casuale, rate limiting per IP, limiti di payload, upload ristretti, un solo esito negativo |
+| B9-13 | Responsivita di builder e modulo pubblico | `DONE` | Blocco 9 — verificata staticamente a 375/768/1280; la verifica su schermo resta R-01 |
+| B9-14 | Documenti generati dai form collegati alla scheda | `DONE` | Blocco 9 — allegati del servizio del Blocco 8, ricollegati ai documenti di iscrizione all'approvazione |
+| B9-15 | Ripulire `clubs.document_templates` dai residui dei moduli V1 | `OPEN` | Il travaso e una copia, non uno spostamento: cancellare il dato di partenza e una decisione di chi lo possiede |
+| B9-16 | Eseguire il travaso sugli ambienti | `OPEN` | `scripts/migrate-forms-v2.mjs` esiste ed e idempotente. Richiede autorizzazione esplicita: non e stato eseguito |
+| B9-17 | Logica condizionale fra campi (mostra B se A vale X) | `OPEN` | Fuori scope dichiarato di WP-47: aggiunge un modello di dipendenze al modulo, e va disegnato a parte |
+
+---
+
 ## Remaining Web V1 before release
 
 Cio che manca perche la Web V1 si possa dichiarare rilasciabile. E la base del
@@ -261,8 +289,8 @@ elenco. Nessuna e cominciata; ognuna vale un blocco o piu.
 |---|----------|-------|----------------|
 | P-01 | **Multi-sede per le categorie** | `OPEN` | Una categoria oggi appartiene al club, non a una sede. Tocca il modello dati, i permessi e il filtro stagione insieme |
 | P-02 | **Abbigliamento e consegne V2** | `OPEN` | Il magazzino c'e; mancano il ciclo di consegna, le taglie per soggetto (parzialmente introdotte dal Blocco 7) e la riconciliazione con gli ordini fornitore |
-| P-03 | **Modulistica V2** | `OPEN` | Oggi i modelli generano documenti di stampa. Serve un modello di documento con campi, versioni e firme |
-| P-04 | **Moduli online** | `OPEN` | Esistono e raccolgono risposte. Mancano validazione condizionale, pagamento contestuale e collegamento all'anagrafica |
+| P-03 | **Modulistica V2** | `DONE` | Blocco 9, WP-47 — campi, versioni immutabili, firma, e i documenti generati collegati alla scheda della persona |
+| P-04 | **Moduli online** | `IN PROGRESS` | Blocco 9 — collegamento all'anagrafica e iscrizione online **fatti**. **Mancano** la validazione condizionale (B9-17) e il pagamento contestuale, che dipende da WP-13 |
 | P-05 | **Scanner documenti** | `IN PROGRESS` | La foundation e del Blocco 7 (ADR e KB). Restano: PDF, provider remoto, migrazione della scheda atleta. Vedi B7-32/33/34 |
 | P-06 | **Stripe / CediPay** | `OPEN` | WP-13. Il webhook **non va attivato** prima della verifica di firma (vedi [14](14-security.md), rischio 6) |
 | P-07 | **SaaS ed entitlements** | `OPEN` | Presuppone un ambiente di produzione vero (F5-01) e un modello di abbonamento che oggi non esiste |

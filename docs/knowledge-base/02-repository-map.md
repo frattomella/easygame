@@ -20,10 +20,11 @@ easygame/
 |----------|-----------|------|
 | `src/app/` | 131 file. Route App Router: 72 `page.tsx`, 42 `route.ts` API, 6 `layout.tsx` | Vedi [04](04-web-architecture.md) |
 | `src/app/api/v1/` | API versionata: auth, admin, registry, risorse generiche | Superficie usata anche dal mobile |
-| `src/app/api/` (fuori `v1`) | Endpoint di dominio non versionati: parent-dashboard, online-forms, payments, athletes/documents, clothing, forms/assets, medical-certificate-reminders | Incoerenza nota, vedi [09](09-api-conventions.md) |
+| `src/app/api/` (fuori `v1`) | Endpoint di dominio non versionati: parent-dashboard, payments, athletes/documents, clothing, forms/assets, medical-certificate-reminders, **public/forms** | Incoerenza nota, vedi [09](09-api-conventions.md). `public/forms` sta fuori da `v1` di proposito: non e la superficie ufficiale, e l'unico endpoint senza sessione |
 | `src/components/ui/` | 58 file. Primitive shadcn/ui + componenti custom (chat, avatar-upload, toast) | 18 primitive non referenziate, vedi [cleanup-report](cleanup-report.md) |
 | `src/components/trainer/` | 28 file. Dashboard allenatore | Convivono v1 (`trainer-*-page`) e v2 (`trainer-*-dashboard-page`); solo v2 e in uso |
-| `src/components/forms/` | 21 file. Moduli online, editor documenti, form di dominio | |
+| `src/lib/forms/` | Modello puro dei moduli: tipi di campo, catalogo dei dati EasyGame, validazione, precompilazione, proposta di modifica | Nessun import da `lib/server`: si prova senza database |
+| `src/components/forms/` | 25 file. Builder e modulo pubblico della Modulistica V2 (`form-builder`, `form-renderer`, `forms-dashboard`, `public-form-page`, `submission-review-dialog`, `compile-form-dialog`), editor documenti, form di dominio | |
 | `src/components/dashboard/` | 15 file. Sidebar, Header, widget dashboard club | |
 | `src/components/providers/` | `AuthProvider`, `ThemeProvider`, `GlobalLoadingProvider`, `AppClientProviders` | Montati in `src/app/layout.tsx` |
 | `src/components/auth/` | `auth-shell.tsx` (login+registrazione), `access-area-guard.tsx` | |

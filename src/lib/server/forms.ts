@@ -23,7 +23,7 @@ import {
 
 /**
  * Il servizio dei moduli: **l'unico** punto in cui EasyGame legge o scrive un
- * modulo, una versione o il suo link pubblico (Modulistica V2, ADR-0035).
+ * modulo, una versione o il suo link pubblico (Modulistica V2, ADR-0036).
  *
  * **Il confine di sicurezza e `organization_id`.** Ogni funzione riceve uno
  * scope e lo applica: nessuna riga di un altro club si legge, si modifica o si

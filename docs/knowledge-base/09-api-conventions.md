@@ -141,8 +141,8 @@ risponde senza sessione e scrive nel database di un club**. Le sue regole:
 | Formati piu stretti di un caricamento autenticato | PDF e immagini, fino a 8 MB. Da chiunque abbia il link non si accettano fogli di calcolo e documenti Office |
 | La risposta non contiene mai dati d'archivio | Nessuna precompilazione, nessun identificativo interno, nessuna compilazione gia raccolta |
 
-Vedi [ADR-0035](18-decision-log.md#adr-0035--i-moduli-escono-da-clubsdocument_templates-e-diventano-tre-tabelle)
-e [ADR-0036](18-decision-log.md#adr-0036--una-compilazione-cita-una-versione-immutabile-e-non-scrive-in-anagrafica).
+Vedi [ADR-0036](18-decision-log.md#adr-0035--i-moduli-escono-da-clubsdocument_templates-e-diventano-tre-tabelle)
+e [ADR-0037](18-decision-log.md#adr-0036--una-compilazione-cita-una-versione-immutabile-e-non-scrive-in-anagrafica).
 
 ## Il CRUD generico `/api/v1/[resource]`
 

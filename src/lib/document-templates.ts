@@ -13,7 +13,7 @@
  * Modulistica mostra un modulo online travestito da modello di stampa.
  *
  * Il giorno in cui `clubs.document_templates` verra ripulito, questo file
- * sparisce. Vedi [ADR-0035].
+ * sparisce. Vedi [ADR-0036].
  */
 
 const LEGACY_FORM_TYPES = new Set(["online_form", "online_form_submission"]);

@@ -71,8 +71,13 @@ Classificazione:
 | Certificati medici | COMPLETE | Modello dedicato, scadenze, stato |
 | Promemoria certificati | PARTIAL | `POST /api/medical-certificate-reminders` invia notifiche + email, ma va invocato manualmente: nessuno scheduler |
 | Lettura documenti d'identita | PARTIAL | Flusso unico su nuovo atleta, allenatore, staff, socio e genitore/tutore: si carica, si vede cosa e stato letto, si sceglie cosa applicare. Motore: OCR locale (`tesseract.js`), il documento non lascia il browser. **Legge**: JPG, PNG, WEBP, HEIC fino a 8 MB, piu la zona a lettura ottica (MRZ) quando c'e. **Non legge**: PDF — rifiutati con una spiegazione, non accettati per poi fallire (serve `pdfjs-dist` per rasterizzare: e una decisione di dipendenza, non un difetto). 22 test |
-| Modulistica / template | COMPLETE | `/modulistica`, `document_templates`, `DocumentEditor` |
-| Moduli online firmabili | COMPLETE | `/forms/[publicSlug]` pubblico, `OnlineFormsDashboard`, `/api/online-forms`, `/api/public/forms/[publicSlug]` |
+| Modulistica / template di stampa | COMPLETE | `/modulistica` scheda «Documenti / Template», `document_templates`, `DocumentEditor`. Restano i modelli **di stampa**: i moduli compilabili sono la voce sotto |
+| Form builder (Modulistica V2) | COMPLETE | `/modulistica` scheda «Moduli online». Dodici tipi di campo piu la sezione, divulgazione progressiva, reorder, duplicazione, anteprima con lo stesso renderer del modulo pubblico, autosave della bozza. `FormBuilder`, `/api/v1/forms` |
+| Campi dinamici EasyGame | COMPLETE | Catalogo chiuso server-side (`src/lib/forms/dynamic-fields.ts`): atleta, genitore, allenatore, staff, socio, societa. La UI mostra solo etichette; il mapping e validato dal server |
+| Versionamento dei moduli | COMPLETE | `form_template_versions` immutabili; una compilazione cita la versione con cui e stata fatta. Vedi [ADR-0037](18-decision-log.md#adr-0037--una-compilazione-cita-una-versione-immutabile-e-non-scrive-in-anagrafica) |
+| Moduli online pubblici | COMPLETE | `/forms/[publicSlug]` con slug a suffisso casuale, `GET|POST /api/public/forms/[publicSlug]`, rate limiting per IP, formati ristretti, priorita smartphone |
+| Iscrizione online | COMPLETE | Invio → coda segreteria → anteprima delle modifiche → controllo duplicati → approvazione → creazione o aggiornamento di atleta e tutori, con gli allegati collegati alla scheda |
+| Compilazione dalla scheda atleta | COMPLETE | «Compila modulo»: atleta gia selezionato, scelta esplicita del tutore, campi precompilati e dichiarati, stessa revisione della coda pubblica |
 | Procure | COMPLETE | `/procura`, risorsa `procure` |
 | Documenti atleta | COMPLETE | `/api/athletes/[athleteId]/documents` |
 | Storage file | PARTIAL | Modello `Asset` con `data_base64`: **i binari possono finire nel database**. Nessun object storage. Vedi [16](16-technical-debt.md) |

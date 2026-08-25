@@ -6,7 +6,7 @@
  * salvare una risposta riscriveva l'intero array del club, e trovare un
  * modulo pubblico voleva dire un `@>` su tutta la tabella `clubs`. Un modulo
  * ora e una riga, una versione pubblicata e una riga, una compilazione e una
- * riga. Vedi ADR-0035.
+ * riga. Vedi ADR-0036.
  *
  * **Cosa e cambiato per chi costruisce un modulo.** Il vecchio editor apriva
  * ogni impostazione di ogni campo tutte insieme: tipo, placeholder, opzioni,
@@ -437,7 +437,7 @@ export type FormSubmissionRecord = {
    * Non e una copia dentro la compilazione: e lo schema della **versione**
    * citata da `version`, che e una riga immutabile e non si modifica mai.
    * Chi legge una risposta di marzo la legge con le domande di marzo.
-   * Vedi ADR-0036.
+   * Vedi ADR-0037.
    */
   schema: FormSchema;
   respondentName: string;

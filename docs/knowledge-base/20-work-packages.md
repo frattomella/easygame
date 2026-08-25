@@ -1178,6 +1178,66 @@ nessun nome di download scritto a mano, nessuna definizione locale di
 
 ---
 
+### WP-47 · Modulistica V2, moduli online e iscrizioni online — `DONE` (2026-08-26)
+
+**Obiettivo.** Riprogettare modulistica e moduli online: un builder che si
+capisce, campi collegati ai dati di EasyGame, e un'iscrizione online che
+finisce in anagrafica passando da una segreteria che vede cosa cambia.
+
+**Cause radice trovate.**
+
+1. **I moduli vivevano in un campo JSON condiviso.** Salvare una risposta
+   riscriveva l'intero array del club (due invii sovrapposti, uno perso);
+   risolvere uno slug pubblico costava una scansione di `clubs`; e
+   `server/online-forms.ts` scriveva `clubs.document_templates` aggirando
+   `resources.ts`. Vedi [ADR-0036](18-decision-log.md#adr-0036--i-moduli-escono-da-clubsdocument_templates-e-diventano-tre-tabelle).
+2. **Nessuna versione.** Correggere l'etichetta di una domanda cambiava il
+   senso delle risposte gia raccolte.
+3. **Nessun collegamento fra risposta e anagrafica.** Le risposte restavano un
+   JSON che qualcuno ricopiava a mano nella scheda dell'atleta.
+4. **L'editor mostrava tutto insieme.** Diciassette tipi di campo, ognuno con
+   la propria manciata di impostazioni sempre aperte.
+5. **Lo slug pubblico era indovinabile** (`/forms/iscrizione-2026`), e
+   «pubblicato» implicava «esposto».
+
+**Scope.** Modello di dominio (`src/lib/forms/`), tre tabelle piu migrazione e
+script di travaso, servizio server (`server/forms.ts`,
+`server/form-submissions.ts`), quattro endpoint `/api/v1/forms` piu
+`/compile`, riscrittura di `/api/public/forms/:slug`, builder e coda della
+segreteria, «Compila modulo» dalla scheda atleta.
+
+**Fuori scope, di proposito.** Il pagamento contestuale all'iscrizione (resta
+P-04 in [21](21-backlog.md), dipende da WP-13), la logica condizionale fra
+campi, e la pulizia di `clubs.document_templates`, che e una cancellazione e
+va decisa da chi possiede il dato.
+
+**Rimossi.** `lib/online-forms.ts`, `lib/server/online-forms.ts`,
+`/api/online-forms`, `OnlineFormsDashboard.tsx` (1.676 righe),
+`OnlinePublicForm.tsx`, `FormShareDialog.tsx`.
+
+**Acceptance criteria.**
+- [x] Un campo mostra tre cose chiuse e il resto dietro «Impostazioni»
+- [x] «Telefono del genitore», mai `guardian.phone`, in tutta l'interfaccia
+- [x] Modificare un modulo non cambia il senso delle risposte gia raccolte
+- [x] Una compilazione non scrive in anagrafica senza approvazione
+- [x] L'anteprima delle modifiche e calcolata dalla stessa funzione che scrive
+- [x] Gli omonimi si segnalano con il motivo, non si uniscono da soli
+- [x] Slug pubblico non indovinabile e rigenerabile
+- [x] «Pubblicato» e «raggiungibile dal link» sono due interruttori
+- [x] Modulo pubblico usabile da smartphone, senza scorrimento orizzontale
+- [x] Gli allegati passano dal servizio del Blocco 8
+
+**Test.** +102 (da 599 a 701): 38 sul modello puro, 39 sul servizio a runtime
+(isolamento multi-tenant su ogni operazione, versionamento, allegati,
+approvazione, duplicati, compilazione interna), 25 sulle regole di interfaccia.
+
+**Migrazione.** `20260826090000_forms_v2`, additiva. Il travaso dei moduli
+legacy e `scripts/migrate-forms-v2.mjs`, che senza `--apply` non scrive nulla
+e **richiede autorizzazione esplicita**. **Non eseguito**: nessun comando di
+scrittura e stato lanciato su nessun database.
+
+---
+
 ### WP-13 · Pagamenti online via CediPay / Platform.Payments — `PIANIFICATO`
 
 **Obiettivo.** Decidere e chiudere: implementare davvero o rimuovere la

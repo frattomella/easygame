@@ -591,7 +591,7 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-/// Un modulo — Modulistica V2 (ADR-0035, ADR-0036).
+/// Un modulo — Modulistica V2 (ADR-0036, ADR-0037).
 ///
 /// Prima di questa tabella un modulo era un oggetto dentro
 /// `clubs.document_templates`, insieme ai modelli di stampa e alle risposte

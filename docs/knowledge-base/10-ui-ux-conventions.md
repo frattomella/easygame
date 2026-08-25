@@ -360,6 +360,58 @@ Cosa **non** fa:
 Nel dubbio la risposta e «non capitalizzare»: non farlo e reversibile, farlo
 no.
 
+## Il builder dei moduli: si mostra tre cose per volta (Blocco 9)
+
+`src/components/forms/form-builder.tsx` e `form-field-card.tsx`, montati dalla
+scheda «Moduli online» di `/modulistica`.
+
+**Il difetto che questa sezione esiste per non far tornare.** L'editor
+precedente teneva aperte, per ogni campo, tutte le impostazioni di tutti e
+diciassette i tipi: tipo, placeholder, opzioni, minimo, massimo, tipi di file
+accettati, dimensione massima, obbligatorieta. Chi doveva aggiungere «Nome del
+genitore» ne leggeva otto che non lo riguardavano.
+
+Le regole, che valgono anche per chi lo modifichera:
+
+- **divulgazione progressiva.** Un campo chiuso mostra cosa chiede, di che
+  tipo e, e se e obbligatorio. Descrizione, testo di esempio, opzioni e
+  collegamento a un dato EasyGame stanno dietro «Impostazioni», che si apre
+  per un campo alla volta. Un campo mostra solo le impostazioni che il suo
+  tipo usa davvero — una tendina ha le opzioni, un campo data no;
+- **l'anteprima non e un terzo pannello.** E la stessa pagina che cambia modo,
+  e usa lo **stesso** `FormRenderer` del modulo pubblico. Tre rendering
+  diversi sarebbero tre occasioni di mostrare in anteprima qualcosa di diverso
+  da cio che il genitore poi compila;
+- **l'utente non legge mai un identificativo tecnico.** «Telefono del
+  genitore», mai `guardian.phone`. Le etichette vengono dal catalogo
+  (`getDynamicFieldLabel`): un componente che se le costruisce da solo le fa
+  divergere alla prima modifica;
+- **la bozza si salva da sola, pubblicare e un gesto separato.** Debounce
+  1,2 s, accorpamento con `createCoalescingSaver`, `SaveStatus` visibile: le
+  tre cose che un autosave deve avere insieme. Una barra dichiara quando la
+  bozza diverge da cio che il pubblico vede, altrimenti si crede di aver
+  corretto un modulo che le famiglie stanno ancora compilando com'era;
+- **«pubblicato» e «raggiungibile dal link» sono due interruttori**, e si
+  vedono insieme nel pannello del link pubblico, con «Rigenera» accanto: un
+  link di iscrizione prima o poi finisce in un gruppo dove non doveva.
+
+### La coda della segreteria
+
+Il numero di compilazioni da esaminare sta **sull'etichetta della scheda**:
+una compilazione ferma in coda per tre settimane e un'iscrizione persa.
+
+`SubmissionReviewDialog` mostra il valore attuale accanto a quello proposto,
+distingue aggiunta da sostituzione, ed elenca gli omonimi **con il motivo per
+cui somigliano**. Non decide: offre «Aggiorna questa scheda» e ricalcola.
+
+### Il modulo pubblico
+
+`/forms/[publicSlug]`. Non monta la chrome del club e non chiede una sessione.
+Una colonna sola a **ogni** larghezza — e un modulo, non un cruscotto — con
+comandi alti almeno 44 px e `min-h-[100dvh]`, non `h-screen`.
+
+Verificato da `tests/ui/forms-builder.test.mjs`.
+
 ## Il numero di tessera non e obbligatorio (Blocco 7)
 
 Vale per **atleta** e **allenatore**, ed e la scelta documentata per staff e
