@@ -159,3 +159,51 @@ test("il caricamento e validato sul server, non solo nel browser", () => {
     "il diniego deve contenere la stringa che il route handler mappa su 403",
   );
 });
+
+/**
+ * La foto di un atleta viaggia come `<img src>`, e un `<img>` non manda header.
+ *
+ * `apiRequest` aggiunge `x-active-club-id` a ogni chiamata; il browser, quando
+ * scarica un'immagine, no. Se l'endpoint autorizzasse sul **club attivo**, un
+ * utente con due club vedrebbe i volti solo in uno dei due — e il difetto
+ * apparirebbe come «alcune foto non si caricano», che e la forma piu difficile
+ * da diagnosticare.
+ *
+ * L'autorizzazione va quindi fatta su **tutti** i club dell'utente.
+ */
+test("l'avatar autorizza su tutti i club dell'utente, non solo su quello attivo", () => {
+  const source = readFileSync(
+    path.join(SRC, "app", "api", "v1", "athletes", "[id]", "avatar", "route.ts"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /scope\.allowedOrganizationIds\.includes\(athlete\.organization_id\)/,
+    "un <img> non manda x-active-club-id: autorizzare sul club attivo romperebbe gli utenti multi-club",
+  );
+  assert.equal(
+    /scope\.activeOrganizationId\s*===\s*athlete\.organization_id/.test(source),
+    false,
+    "il confronto sul club attivo e proprio il difetto da evitare",
+  );
+});
+
+/**
+ * Un allegato e un dato di club: non deve finire in una cache condivisa, e non
+ * deve essere interpretato dal browser come qualcosa di diverso da cio che e.
+ */
+test("la risposta che serve un file porta le intestazioni di sicurezza", () => {
+  const source = readFileSync(
+    path.join(SRC, "app", "api", "v1", "attachments", "[id]", "route.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /"X-Content-Type-Options": "nosniff"/);
+  assert.match(source, /"Cache-Control": "private/);
+  assert.match(
+    source,
+    /"Content-Security-Policy": "sandbox/,
+    "un HTML caricato come allegato non deve poter eseguire niente",
+  );
+});
