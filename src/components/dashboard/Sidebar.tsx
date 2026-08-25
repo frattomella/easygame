@@ -302,12 +302,21 @@ const Sidebar = memo(() => {
       className={`hidden lg:flex h-[100dvh] shrink-0 ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300 overflow-hidden relative`}
     >
       <div className="mb-6 flex items-center flex-col py-4 px-4">
-        <div className="flex items-center gap-4">
+        {/*
+          Dal Blocco 7 il marchio sta solo qui, e da qui si torna all'elenco dei
+          club: era l'unica funzione del logo tolto dalla topbar.
+        */}
+        <Link
+          href="/account"
+          aria-label="EasyGame: torna all'elenco dei club"
+          title="EasyGame"
+          className="flex items-center gap-4 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        >
           <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
           {!collapsed && (
             <h1 className="text-xl font-bold text-white">EasyGame</h1>
           )}
-        </div>
+        </Link>
 
         <div className="flex mt-2">
           <Button

@@ -30,6 +30,7 @@ const readCode = (file) =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
 const CLUB_HEADER = "components/dashboard/Header.tsx";
+const CLUB_SIDEBAR = "components/dashboard/Sidebar.tsx";
 const CLUB_MOBILE = "components/layout/MobileTopBar.tsx";
 const PLATFORM_SHELL = "components/platform-admin/platform-admin-shell.tsx";
 const CLUB_IDENTITY = "components/brand/club-identity.tsx";
@@ -63,11 +64,28 @@ test("la topbar del club ha l'assistenza", () => {
   assert.match(header, /cedisoft\.it\/contatti/);
 });
 
-test("la topbar del club porta il marchio EasyGame", () => {
+/**
+ * Blocco 7: il marchio esce dalla topbar del club.
+ *
+ * Su desktop la sidebar e sempre visibile a fianco della barra: due EasyGame a
+ * 30 px di distanza non informano, e il secondo toglieva larghezza al logo del
+ * club — l'unica identita che cambia da una schermata all'altra. Il ritorno
+ * all'elenco dei club, che era la sola funzione del logo, si sposta sul
+ * marchio della sidebar.
+ */
+test("il marchio EasyGame sta nella sidebar, non nella topbar del club", () => {
+  assert.equal(
+    /<EasyGameLogo/.test(readCode(CLUB_HEADER)),
+    false,
+    "la topbar del club non ripete il marchio: c'e gia nella sidebar",
+  );
+
+  const sidebar = readCode(CLUB_SIDEBAR);
+  assert.match(sidebar, /<EasyGameLogo/, "il marchio e l'SVG in repo");
   assert.match(
-    readCode(CLUB_HEADER),
-    /<EasyGameLogo/,
-    "il marchio e l'SVG in repo, non un'immagine di rete",
+    sidebar,
+    /href="\/account"[\s\S]{0,240}<EasyGameLogo/,
+    "dal marchio si torna all'elenco dei club",
   );
 });
 
@@ -164,6 +182,34 @@ test("la targhetta stagione e discreta e non spinge via il resto", () => {
     identity,
     /flex-wrap items-center/,
     "la stagione sta accanto al nome e va a capo, invece di allargare la riga",
+  );
+});
+
+/**
+ * Blocco 7: la targhetta stagione e grigia.
+ *
+ * L'ambra e un colore semantico e nelle tabelle vuol dire "guarda qui" (quota
+ * in attesa, certificato in scadenza). Sulla stagione era acceso sempre, su un
+ * valore quasi sempre corretto: un avviso permanente non e un avviso, e
+ * consumava il significato dell'ambra ovunque.
+ */
+test("la targhetta stagione e neutra, non ambra", () => {
+  const identity = readCode(CLUB_IDENTITY);
+  const plate = identity.slice(identity.indexOf("export function SeasonPlate"));
+
+  assert.equal(
+    /amber/.test(plate),
+    false,
+    "nessuna classe ambra nella targhetta stagione",
+  );
+
+  const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+  const token = /--eg-season:\s*([^;]+);/.exec(css);
+  assert.ok(token, "il token della stagione deve esistere");
+  assert.equal(
+    token[1].trim(),
+    "#475569",
+    "il token della stagione e uno slate, non un ambra",
   );
 });
 

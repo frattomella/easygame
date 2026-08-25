@@ -114,8 +114,10 @@ function RoleBadge({ ownerMode, label }: { ownerMode: boolean; label: string }) 
     <span
       className={cn(
         "inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium",
+        // L'ambra qui dice "sei tu il proprietario", non "stagione": da quando
+        // il token della stagione e grigio (Blocco 7) va scritto per esteso.
         ownerMode
-          ? "bg-amber-50 text-[var(--eg-season)]"
+          ? "bg-amber-50 text-amber-700"
           : "bg-[var(--eg-blue-soft)] text-[var(--eg-blue)]",
       )}
     >
@@ -315,7 +317,7 @@ function AccessPanel({
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 font-display text-lg font-semibold tracking-tight text-slate-900">
             {ownerMode ? (
-              <Crown className="h-4 w-4 text-[var(--eg-season)]" aria-hidden />
+              <Crown className="h-4 w-4 text-amber-700" aria-hidden />
             ) : (
               <Users className="h-4 w-4 text-[var(--eg-blue)]" aria-hidden />
             )}

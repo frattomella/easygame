@@ -1,7 +1,6 @@
 "use client";
 
 import React, { memo, useCallback, useState } from "react";
-import Link from "next/link";
 import {
   ArrowLeft,
   Calendar,
@@ -44,7 +43,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { ClubIdentity } from "@/components/brand/club-identity";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
 import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   canAccessPath,
@@ -438,7 +436,14 @@ const Header = memo(
         </div>
 
         {/*
-          Marchio, dove torni, dove sei, cosa fai in fretta, chi sei.
+          Dove torni, dove sei, cosa fai in fretta, chi sei.
+
+          Il marchio EasyGame **non** sta qui (Blocco 7): sta nella sidebar, che
+          su desktop e sempre visibile accanto a questa barra. Ripeterlo a 30 px
+          dal suo gemello non aggiungeva informazione e rubava larghezza al logo
+          del club, che e l'unica identita che cambia da una schermata
+          all'altra. Il ritorno all'elenco dei club resta sul marchio della
+          sidebar e nel menu utente.
 
           La chat resta fuori finche non esiste una funzione vera: era un
           pannello senza backend. Azioni rapide e assistenza invece servono e
@@ -446,15 +451,6 @@ const Header = memo(
           che ha una shell tutta sua e non deve averle.
         */}
         <header className="sticky top-0 z-10 hidden h-20 w-full items-center gap-3 border-b border-slate-200 bg-white px-4 md:px-6 lg:flex">
-          <Link
-            href="/account"
-            aria-label="EasyGame: torna all'elenco dei club"
-            title="EasyGame"
-            className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-          >
-            <EasyGameLogo className="h-9 w-9" />
-          </Link>
-
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

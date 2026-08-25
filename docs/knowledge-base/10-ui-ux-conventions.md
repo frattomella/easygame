@@ -153,7 +153,7 @@ perso comandi che servivano.
 
 | | Topbar **Club** (`components/dashboard/Header.tsx`, `components/layout/MobileTopBar.tsx`) | Console **Piattaforma** (`components/platform-admin/platform-admin-shell.tsx`) |
 |---|---|---|
-| Marchio EasyGame | si | si |
+| Marchio EasyGame | **no** dal Blocco 7: sta nella sidebar, sempre visibile a fianco | si |
 | Identita club + stagione | si (`ClubIdentity`) | **no**: non amministra un club |
 | Azioni rapide | si, filtrate da `canAccessPath` | **no** |
 | Assistenza | si | **no** |
@@ -177,8 +177,35 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
    in compatto), in `font-display`;
 3. **stagione** — targhetta discreta, senza bordo, su una riga sola, **accanto**
    al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
-   logo, nome o comandi. Mantiene l'ambra, che nella chrome e riservata alla
-   stagione.
+   logo, nome o comandi. Dal Blocco 7 e **grigia**: vedi sotto.
+
+### Il marchio EasyGame sta in un posto solo (Blocco 7)
+
+Su desktop la sidebar e la topbar del club sono adiacenti e sempre entrambe
+visibili. Il marchio compariva in tutte e due, a una trentina di pixel di
+distanza: la seconda copia non aggiungeva informazione e sottraeva larghezza
+al **logo del club**, che e l'unica identita che cambia da una schermata
+all'altra.
+
+Dal Blocco 7 il marchio vive nella sidebar (`components/dashboard/Sidebar.tsx`)
+ed **e** il collegamento a `/account` — che era la sola funzione del logo
+tolto dalla topbar. Nel menu utente resta la seconda via («Esci»). Sul menu di
+navigazione di telefono il marchio resta, perche li la sidebar non c'e.
+
+### La stagione e grigia (Blocco 7)
+
+`--eg-season` e `--eg-season-soft` sono uno **slate**, non piu un ambra.
+
+L'ambra e un colore semantico: nelle tabelle vuol dire «guarda qui» — quota in
+attesa, certificato in scadenza. Sulla targhetta della stagione era acceso
+sempre, su un valore quasi sempre corretto. Un avviso permanente non e piu un
+avviso: consumava il significato dell'ambra in tutte le altre superfici senza
+dire nulla in questa. La stagione resta leggibile perche ha un occhiello e le
+cifre tabellari.
+
+L'ambra resta dove segnala davvero qualcosa di specifico: la corona del
+proprietario nella home account la scrive ora per esteso (`text-amber-700`),
+perche quel colore diceva «sei tu il proprietario», non «stagione».
 
 ### Un solo stile per i comandi della topbar
 

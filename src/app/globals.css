@@ -672,9 +672,17 @@
   --eg-blue-soft: #eff4ff;
   --eg-line: #e2e8f0;
   --eg-paper: #f8fafc;
-  /* Usato **solo** per la stagione: e l'asse che delimita i dati. */
-  --eg-season: #b45309;
-  --eg-season-soft: #fffbeb;
+  /*
+   * Usato **solo** per la stagione: e l'asse che delimita i dati.
+   *
+   * Neutro dal Blocco 7. L'ambra diceva 'attenzione' su una targhetta sempre
+   * presente e quasi sempre corretta: un avviso permanente non e piu un
+   * avviso, e toglieva peso all'ambra semantica delle tabelle (quota in
+   * attesa, certificato in scadenza). La stagione resta leggibile per
+   * l'occhiello e le cifre tabellari, non perche urla.
+   */
+  --eg-season: #475569;
+  --eg-season-soft: #f1f5f9;
 }
 
 /* Cifre allineate in colonna: date, importi, numeri di maglia, stagioni. */

@@ -8,8 +8,9 @@ import { cn } from "@/lib/utils";
  *
  * La stagione non e un'etichetta decorativa: da WP-32 e il perimetro dei dati
  * che stai guardando. Categorie, piani e listini di un'altra stagione non
- * compaiono. Per questo mantiene il suo colore — l'unico ambra della chrome —
- * e le cifre tabellari.
+ * compaiono. Per questo porta un occhiello e le cifre tabellari — non un
+ * colore d'allarme: dal Blocco 7 la targhetta e neutra, perche un ambra sempre
+ * acceso su un valore quasi sempre corretto smette di voler dire qualcosa.
  *
  * Gerarchia della riga (regola fissata dopo il Blocco 5): il **logo del club**
  * e l'elemento piu grande e non ha cornice, perche una cornice attorno a un
@@ -111,7 +112,7 @@ export function SeasonPlate({
   );
 
   // Piu discreta di prima: niente bordo, altezza di una riga sola, e sta
-  // accanto al nome invece che sotto.
+  // accanto al nome invece che sotto. I due token sono grigi dal Blocco 7.
   const shared = cn(
     "inline-flex w-fit shrink-0 items-center gap-1 rounded px-1.5 py-0.5",
     "bg-[var(--eg-season-soft)] text-[var(--eg-season)]",
@@ -129,7 +130,7 @@ export function SeasonPlate({
       title="Gestisci le stagioni del club"
       className={cn(
         shared,
-        "transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1",
+        "transition-colors hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1",
       )}
     >
       {content}
