@@ -295,6 +295,14 @@ Non e un confine di sicurezza: il confine resta `organization_id`.
 
 ### Archivio dei comuni (Blocco 7)
 
+Ogni comune restituito porta anche `postalCode` e `postalCodeStatus`
+(`unique` | `ambiguous` | `unknown`), da una **fonte diversa** dichiarata a
+parte in `capSource`: IPA di AgID, non ISTAT. Sono due campi e non uno perche
+il CAP vuoto ha due significati — «questo comune ha piu CAP» e «di questo
+comune non so niente» — e il form deve poterli distinguere per dire
+all'operatore quale dei due e. Vedi
+[ADR-0042](18-decision-log.md#adr-0042--il-cap-arriva-da-ipa-e-si-propone-solo-dove-il-comune-ne-ha-uno-solo).
+
 `GET /api/v1/comuni` e l'unica rotta di **sola lettura su un dato che non
 appartiene a nessun club**: e la tabella ISTAT dei comuni italiani. Non ha
 `organization_id`, non passa da `resolveOrganizationScopeForUser`, non tocca

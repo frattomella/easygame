@@ -143,13 +143,27 @@ cambiano per club e non devono viaggiare su una query.
 | File | Contenuto | Origine |
 |------|-----------|---------|
 | `comuni-istat.json` | 7.896 comuni italiani: denominazione, sigla provincia, codice catastale (Belfiore), nome nell'altra lingua ufficiale dove esiste | Generato da `scripts/build-comuni-dataset.mjs` dall'elenco ISTAT. Vedi [ADR-0032](18-decision-log.md) |
+| `cap-ipa.json` | Il CAP di 7.836 comuni, piu i 52 che ne hanno piu d'uno. Chiave: codice catastale | Generato da `scripts/build-cap-dataset.mjs` da IPA (AgID). Vedi [ADR-0042](18-decision-log.md#adr-0042--il-cap-arriva-da-ipa-e-si-propone-solo-dove-il-comune-ne-ha-uno-solo) |
 
 Le 107 province con regione restano dov'erano, in `src/lib/italian-registry.ts`:
 sono un insieme chiuso e piccolo, e servono anche al client.
 
-**Il file non si modifica a mano.** Si rigenera:
-`node scripts/build-comuni-dataset.mjs` (con `--check` verifica soltanto).
-Lo script fallisce senza scrivere se la fonte cambia forma.
+**Le due tabelle sono separate perche hanno fonti separate.** I comuni vengono
+da ISTAT, il CAP da IPA: licenze diverse, cadenze di aggiornamento diverse,
+regole diverse. Si incontrano in `src/lib/server/comuni.ts`, che attacca il
+CAP al comune prima di rispondere, e non prima.
+
+**`cap-ipa.json` non e l'elenco dei CAP di un comune.** IPA pubblica il CAP
+della *sede* di ogni pubblica amministrazione: raggruppati per comune sono i
+CAP **osservati**. Per un comune con un solo CAP l'osservazione e il CAP; per
+Roma e un sottoinsieme dei suoi duecento. Per questo il file registra i comuni
+con piu CAP come `ambiguous` senza dire quali sono, e il form non compila.
+
+**I file non si modificano a mano.** Si rigenerano:
+`node scripts/build-comuni-dataset.mjs` e `node scripts/build-cap-dataset.mjs`
+(con `--check` verificano soltanto). Gli script falliscono senza scrivere se la
+fonte cambia forma. Il secondo va rigenerato piu spesso: IPA cambia ogni
+giorno.
 
 ## `club_resource_items`: i 29 tipi
 

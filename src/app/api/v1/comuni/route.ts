@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import {
+  getCapSource,
   getComuniSource,
   lookupComuneByBelfiore,
   lookupComuniByName,
@@ -22,6 +23,13 @@ import { DEFAULT_COMUNE_SEARCH_LIMIT } from "@/lib/comuni-model";
  *   GET /api/v1/comuni?q=abano          — per nome (o per codice catastale)
  *   GET /api/v1/comuni?belfiore=A001    — dal codice dentro un codice fiscale
  *   GET /api/v1/comuni?name=Castro      — tutti gli omonimi, per disambiguare
+ *
+ * Ogni comune porta con se `postalCode` e `postalCodeStatus`. Sono due
+ * campi e non uno perche il CAP vuoto ha due significati diversi:
+ * `ambiguous` (il comune ne ha piu d'uno) e `unknown` (non c'e
+ * osservazione), e il form dice all'operatore quale dei due. La fonte del CAP
+ * e diversa da quella dei comuni — IPA di AgID, non ISTAT — e viene dichiarata
+ * a parte in `capSource`.
  */
 export async function GET(request: Request) {
   const session = await requireAuthenticatedUser(request);
@@ -45,14 +53,22 @@ export async function GET(request: Request) {
   if (belfiore) {
     const comune = lookupComuneByBelfiore(belfiore);
     return NextResponse.json({
-      data: { comuni: comune ? [comune] : [], source: getComuniSource() },
+      data: {
+        comuni: comune ? [comune] : [],
+        source: getComuniSource(),
+        capSource: getCapSource(),
+      },
       error: null,
     });
   }
 
   if (exactName) {
     return NextResponse.json({
-      data: { comuni: lookupComuniByName(exactName), source: getComuniSource() },
+      data: {
+        comuni: lookupComuniByName(exactName),
+        source: getComuniSource(),
+        capSource: getCapSource(),
+      },
       error: null,
     });
   }
@@ -61,6 +77,7 @@ export async function GET(request: Request) {
     data: {
       comuni: searchComuniByQuery(query, { limit, province }),
       source: getComuniSource(),
+      capSource: getCapSource(),
     },
     error: null,
   });

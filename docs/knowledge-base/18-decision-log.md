@@ -1138,7 +1138,10 @@ su `GET /api/v1/comuni`. Nessun form cambia.
 **Nel frattempo** il CAP resta digitato e validato nella forma, e il comune si
 cerca per nome — che e la direzione che l'archivio ISTAT copre davvero.
 
-**Stato:** ATTIVA.
+**Stato:** SUPERATA da
+[ADR-0042](#adr-0042--il-cap-arriva-da-ipa-e-si-propone-solo-dove-il-comune-ne-ha-uno-solo),
+che ha trovato la fonte mancante (IPA di AgID, CC BY 4.0). Il divieto di
+inventare un mapping resta in piedi: ADR-0042 lo esegue, non lo rovescia.
 
 ---
 
@@ -1636,3 +1639,102 @@ persone non possono essere in disaccordo.
   gli dice quando ha finito;
 - un checkout su una macchina nuova produce gli stessi byte di uno su una
   macchina vecchia, e un test che fallisce dice qualcosa del codice.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0042 — Il CAP arriva da IPA, e si propone solo dove il comune ne ha uno solo
+
+**Data:** 2026-08-25 · **Contesto:** Blocco A, punto 9 · voci di backlog B7-07, B8-06
+
+**Supera [ADR-0035](#adr-0035--il-cap-non-si-risolve-in-comune-finche-non-arriva-una-fonte-con-una-licenza).**
+
+**Cosa diceva ADR-0035, e perche aveva ragione.** Nel repository non esisteva
+nessuna fonte del CAP, ISTAT non lo pubblica, e un mapping scritto a memoria o
+dedotto avrebbe prodotto indirizzi formalmente plausibili e sostanzialmente
+falsi — su una ricevuta o su un tesseramento. La decisione di non inventare
+niente era quella giusta e resta in piedi: **questo ADR non la rovescia, la
+esegue.** Quello che mancava era una fonte, non un permesso.
+
+**Cosa e cambiato.** La ricerca di ADR-0035 si era fermata a Poste Italiane —
+che pubblica i CAP ma non con una licenza di ridistribuzione — e alle raccolte
+non ufficiali. La fonte c'era in un posto in cui non era stata cercata:
+l'**Indice della Pubblica Amministrazione (IPA)**, gestito da AgID.
+
+Verifica fatta prima di decidere, contro le cinque proprieta che ADR-0035
+chiedeva:
+
+| # | Proprieta richiesta | IPA |
+|---|---------------------|-----|
+| 1 | Copertura completa | 7.888 comuni su 7.896 (99,9%) hanno almeno un'osservazione |
+| 2 | Relazione molti-a-molti dichiarata | **Parziale, e da qui discende la decisione** — vedi sotto |
+| 3 | Chiave di collegamento con ISTAT | Denominazione + sigla di provincia, unite all'archivio ISTAT gia in repository per ricavare il codice catastale |
+| 4 | Licenza compatibile con la ridistribuzione | **CC BY 4.0**, la stessa dell'archivio ISTAT gia in uso |
+| 5 | Aggiornamento tracciabile | Giornaliero, con `sha256` della fonte inciso nel dataset generato |
+
+Sono state esaminate e **scartate** due alternative:
+
+- il *Cruscotto Italia* di `dati.gov.it`, che federa 28 dataset istituzionali:
+  non contiene i CAP. Porta ANNCSU (stradario, Agenzia delle Entrate), che ha
+  vie e numeri civici ma non codici postali;
+- `comuni-json`, la raccolta comunitaria piu citata, che ha i CAP come array e
+  soddisfarebbe il punto 2: **dichiara esplicitamente di non applicare nessuna
+  licenza** alla parte CAP, perche gli autori stessi non sono sicuri dei
+  diritti sulla fonte originale, e i dati sono fermi al 2020. Fallisce 4 e 5.
+
+**Che cosa e davvero il dato di IPA.** IPA non pubblica «i CAP del comune X».
+Pubblica **l'indirizzo della sede di ogni pubblica amministrazione**, e quindi
+il suo CAP. Raggruppati per comune, sono i *CAP osservati* in quel comune. La
+differenza non e accademica:
+
+- per un comune con un solo CAP, l'insieme osservato ha un elemento solo e
+  quell'elemento **e** il CAP del comune;
+- per una citta grande, l'insieme osservato e un **sottoinsieme** dei suoi CAP.
+  Roma ne ha oltre 200 e IPA ne vede quelli degli uffici pubblici.
+
+**Decisione.** Si genera `src/data/cap-ipa.json` con
+`scripts/build-cap-dataset.mjs`, gemello di `build-comuni-dataset.mjs`, e si
+applica una regola sola:
+
+> **Il CAP si propone solo dove l'osservazione e unica.**
+
+Per gli altri comuni il dataset registra **che** ce n'e piu d'uno e **non
+quali**: pubblicare il sottoinsieme lo farebbe sembrare l'elenco completo. Al
+form serve solo sapere che li non deve compilare, e dirlo all'operatore.
+
+Numeri della generazione corrente: **7.836** comuni con CAP univoco, **52** con
+CAP multipli, **8** senza osservazione.
+
+**Perche il CAP vuoto ha due significati e non uno.** `postalCodeStatus` vale
+`unique`, `ambiguous` o `unknown`. Con una stringa vuota sola il form non
+potrebbe distinguere «questo comune ha piu CAP, indica quello dell'indirizzo»
+da «di questo comune non so niente» — che per chi sta compilando sono due
+situazioni diverse, e una delle due sembrerebbe un guasto.
+
+**La sigla di provincia di IPA non e sempre quella di oggi.** 154 comuni sardi
+portano ancora `VS`, `CI`, `OT` e `OG`, le province riorganizzate nel 2016,
+dove ISTAT scrive `SU`, `SS` e `NU`. La tentazione era scrivere la tabella
+delle province abolite dentro lo script: storia amministrativa incisa nel
+codice, che invecchia da sola e che nessuno rivedra alla prossima
+riorganizzazione. Il ripiego scelto non invecchia: **se una denominazione
+appartiene a un comune solo in tutta Italia**, l'osservazione fatta sotto quel
+nome e sua, qualunque sigla porti la riga. Se il nome e condiviso — sono sette
+in Italia — non si ripiega e si resta senza osservazione.
+
+**Conseguenze.**
+
+- La segreteria sceglie il comune e il CAP compare, per il 99,2% dei comuni;
+- il CAP non sovrascrive mai un valore digitato: stessa regola del codice
+  fiscale (ADR-0032), e per la stessa ragione — il dato inserito a mano viene
+  da un documento in mano all'operatore;
+- il dataset e 134 kB e sta **sul server**, come quello dei comuni: viaggia su
+  `/api/v1/comuni` insieme al comune, senza un secondo giro di rete;
+- la direzione opposta — **si digita il CAP e si vorrebbe il comune** — resta
+  aperta e non e chiusa da questo ADR. Con i soli CAP univoci si risolverebbe
+  il paese e non la citta, cioe si sbaglierebbe proprio dove serve di piu;
+- il file va rigenerato: IPA cambia ogni giorno, e
+  `node scripts/build-cap-dataset.mjs --check` dice quando il repository si e
+  allontanato dalla fonte.
+
+**Stato:** ATTIVA. Supera ADR-0035.

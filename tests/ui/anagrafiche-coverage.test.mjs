@@ -336,3 +336,45 @@ test("il sesso si normalizza in un posto solo", () => {
     );
   }
 });
+
+/* ------------------------------------------------ CAP assistito (Blocco A, 9) */
+
+/**
+ * Il CAP si propone e non si impone.
+ *
+ * E la stessa regola del codice fiscale, per la stessa ragione: un CAP gia
+ * digitato viene da una busta o da un documento in mano all'operatore, e
+ * sovrascriverlo con un valore di tabella significa perdere il dato piu
+ * affidabile dei due.
+ */
+test("il CAP si compila solo se il campo e vuoto", () => {
+  const source = read("components/forms/assisted-anagrafica.tsx");
+
+  assert.match(
+    source,
+    /if \(!currentPostalCode\) patch\.postalCode = comune\.postalCode;/,
+    "il CAP proposto sovrascrive quello inserito a mano",
+  );
+});
+
+/**
+ * E si propone **solo** dove il comune ne ha uno solo.
+ *
+ * Per i comuni con piu CAP il dataset sa che ce n'e piu d'uno e non sa quale
+ * sia quello dell'indirizzo: riempire il campo lo riempirebbe male, e in
+ * silenzio.
+ */
+test("il CAP non si compila dove il comune ne ha piu di uno", () => {
+  const source = read("components/forms/assisted-anagrafica.tsx");
+
+  assert.match(
+    source,
+    /comune\.postalCodeStatus === "unique"/,
+    "il CAP si compila senza verificare che sia univoco",
+  );
+  assert.match(
+    source,
+    /comune\.postalCodeStatus === "ambiguous"/,
+    "un comune con piu CAP deve dirlo all'operatore, non tacere",
+  );
+});

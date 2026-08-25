@@ -39,6 +39,17 @@ export type ComuneMatch = Comune & {
   /** Nome della provincia, per mostrarlo senza una seconda ricerca. */
   provinceName: string;
   region: string;
+  /**
+   * CAP del comune, **solo dove ce n'e uno solo**.
+   *
+   * Lo aggiunge il server da un dataset separato (`cap-model.ts`): questo
+   * modulo continua a non sapere niente dei CAP, che hanno una fonte diversa
+   * dall'archivio ISTAT e una regola diversa. Vuoto non significa «nessun
+   * CAP»: significa «non uno solo», e `postalCodeStatus` dice quale dei due
+   * modi di non sapere e.
+   */
+  postalCode?: string;
+  postalCodeStatus?: "unique" | "ambiguous" | "unknown";
 };
 
 /**

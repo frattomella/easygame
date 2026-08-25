@@ -32,9 +32,9 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 143 |
+| `DONE` | 144 |
 | `IN PROGRESS` | 15 |
-| `OPEN` | 28 |
+| `OPEN` | 27 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
 | **Totale** | **196** |
@@ -127,7 +127,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B7-04 | Codice fiscale subito dopo il blocco anagrafico | `DONE` | Blocco 7 |
 | B7-05 | Archivio ufficiale dei comuni italiani con codice catastale | `DONE` | Blocco 7, ADR-0032 |
 | B7-06 | Ricerca assistita comune e recupero automatico del codice catastale | `DONE` | Blocco 7 |
-| B7-07 | Ricerca assistita per **CAP** | `OPEN` | ADR-0035 — verificato nel Blocco 8: nel repository **non esiste** una fonte del CAP, e ISTAT non lo pubblica. L'ADR dice quali cinque proprieta deve avere la fonte che la chiude, e perche Poste Italiane non basta (licenza). Non si inventa un mapping |
+| B7-07 | Ricerca assistita per **CAP** | `DONE` | **Blocco A**, ADR-0042 — la fonte mancante era IPA (AgID, CC BY 4.0, giornaliera). Il comune scelto porta con se il CAP dove ne ha uno solo: 7.836 comuni su 7.896. Per i 52 con piu CAP il form lo dice e non compila. La direzione **CAP → comune** resta aperta: vedi B8-06 |
 | B7-08 | Calcolo CF disponibile su atleta, genitore, socio, allenatore, staff | `DONE` | Blocco 7 |
 | B7-09 | Non sovrascrivere un CF inserito a mano senza conferma | `DONE` | Blocco 7 — conferma in due tempi |
 | B7-10 | Validazione anagrafica client **e** server | `DONE` | Blocco 7 — estesa a allenatori, staff e soci |
@@ -170,7 +170,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B8-03 | La capitalizzazione non deve rovinare i nomi ufficiali | `DONE` | Blocco 8 — ne cambiava 30 su 7.896 comuni ISTAT. Ora non tocca un valore che ha gia una maiuscola dentro; verificato sull'intero dataset a ogni esecuzione |
 | B8-04 | Codice fiscale assistito e ricerca del comune ovunque si chieda un CF | `DONE` | Blocco 8 — aggiunto alle schede di allenatore e staff, che erano gli ultimi posti in cui si digitava a mano |
 | B8-05 | Il sesso deve essere una scelta, non testo libero | `DONE` | Blocco 8 — su allenatore e staff ci finiva «M», «maschio», «Maschile»: con tre grafie il CF non si calcolava |
-| B8-06 | CAP → comune | `OPEN` | ADR-0035 — la fonte non esiste nel repository e ISTAT non la pubblica. L'ADR elenca le cinque proprieta che deve avere |
+| B8-06 | CAP → comune | `OPEN` | **Blocco A**, ADR-0042 — la fonte c'e ora (IPA) e chiude la direzione comune → CAP (B7-07). La direzione opposta resta aperta **per scelta**: con i soli CAP univoci si risolverebbe il paese e non la citta, cioe si sbaglierebbe proprio dove una segreteria la userebbe di piu |
 | B8-07 | «Nuovo atleta» al livello delle schede staff e allenatore | `DONE` | Blocco 8 — aggiunte le sezioni genitori/tutori, tesseramento e categorie secondarie. Obbligatori sempre tre |
 | B8-08 | Servizio allegati unico, provider-agnostico | `DONE` | Blocco 8, ADR-0034 — `attachments` + `attachment_blobs`, driver di storage, autorizzazione, limite di 10 MB, elenco chiuso di tipi |
 | B8-09 | I file binari fuori dai record JSON | `DONE` | Blocco 8 — il record conserva `attachment:<uuid>` |

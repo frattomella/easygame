@@ -66,6 +66,16 @@ export function AssistedAddressFields({
   const issues = useMemo(() => validateAddressFields(values), [values]);
 
   /**
+   * Perche il CAP non si e riempito da solo.
+   *
+   * Non e un dettaglio da nascondere: un campo che a volte si compila e a
+   * volte no, senza dire perche, sembra rotto. I due modi di non sapere sono
+   * diversi e all'operatore si dice quale — «questo comune ha piu CAP,
+   * scrivilo tu» non e la stessa cosa di «di questo comune non so niente».
+   */
+  const [postalCodeNote, setPostalCodeNote] = useState("");
+
+  /**
    * Alla scelta della provincia la regione si compila da sola solo se e
    * vuota, oppure se corrispondeva alla provincia precedente: in quel caso
    * non e un dato dell'utente, e il residuo della scelta precedente.
@@ -112,6 +122,9 @@ export function AssistedAddressFields({
             aria-invalid={Boolean(issueFor(issues, "postalCode"))}
           />
           <FieldError message={issueFor(issues, "postalCode")} />
+          {postalCodeNote && !issueFor(issues, "postalCode") ? (
+            <p className="text-xs text-slate-500">{postalCodeNote}</p>
+          ) : null}
         </div>
 
         {/*
@@ -136,6 +149,30 @@ export function AssistedAddressFields({
               if (!currentRegion || currentRegion === previousProvince?.region) {
                 patch.region = comune.region;
               }
+
+              /*
+                Il CAP segue la stessa regola di tutto questo componente:
+                **suggerire, non decidere**. Si compila solo se il campo e
+                vuoto — un CAP gia digitato viene da una busta o da un
+                documento in mano all'operatore e non si sovrascrive — e solo
+                se il comune ne ha uno solo. Per i 52 comuni con piu CAP il
+                dataset sa che ce n'e piu d'uno e non sa quale sia il suo:
+                dirlo e l'unica risposta onesta.
+              */
+              const currentPostalCode = String(values.postalCode || "").trim();
+              if (comune.postalCodeStatus === "unique" && comune.postalCode) {
+                if (!currentPostalCode) patch.postalCode = comune.postalCode;
+                setPostalCodeNote("");
+              } else if (comune.postalCodeStatus === "ambiguous") {
+                setPostalCodeNote(
+                  currentPostalCode
+                    ? ""
+                    : `${comune.name} ha piu di un CAP: indica quello dell'indirizzo.`,
+                );
+              } else {
+                setPostalCodeNote("");
+              }
+
               onChange(patch);
             }}
             aria-invalid={Boolean(issueFor(issues, "city"))}
