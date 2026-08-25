@@ -735,7 +735,7 @@ export default function StaffMemberDetailsPage() {
             <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
               {editingSection === 'personal' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Nome</Label>
                       <Input 
@@ -851,7 +851,7 @@ export default function StaffMemberDetailsPage() {
 
               {editingSection === 'contacts' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Email</Label>
                       <Input 
@@ -896,7 +896,7 @@ export default function StaffMemberDetailsPage() {
 
               {editingSection === 'company' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Ruolo</Label>
                       {/*
@@ -1002,7 +1002,7 @@ export default function StaffMemberDetailsPage() {
 
               {editingSection === 'document' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Tipo di Documento</Label>
                       <Input 

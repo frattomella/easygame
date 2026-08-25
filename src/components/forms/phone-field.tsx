@@ -93,7 +93,13 @@ export function PhoneField({
         </Label>
       ) : null}
 
-      <div className="flex gap-2">
+      {/*
+        `flex-wrap` non e un dettaglio: a 375 px, dentro una griglia a due
+        colonne, la tendina del prefisso occupa 136 px dei 160 disponibili e
+        al numero non resta niente. Andando a capo il campo resta usabile
+        invece di comprimersi fino a sparire.
+      */}
+      <div className="flex flex-wrap gap-2">
         <select
           aria-label="Prefisso internazionale"
           className="h-10 w-[8.5rem] shrink-0 rounded-md border border-input bg-background px-2 text-sm"
@@ -113,7 +119,7 @@ export function PhoneField({
           type="tel"
           inputMode="tel"
           autoComplete="tel-national"
-          className="eg-tabular min-w-0 flex-1"
+          className="eg-tabular min-w-[8rem] flex-1"
           value={parsed.national}
           placeholder={placeholder}
           required={required}

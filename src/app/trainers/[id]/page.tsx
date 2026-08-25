@@ -2565,7 +2565,7 @@ export default function TrainerDetailsPage() {
             <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
               {editingSection === 'personal' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Nome</Label>
                       <CapitalizedInput
@@ -2684,7 +2684,7 @@ export default function TrainerDetailsPage() {
 
               {editingSection === 'document' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Tipo di Documento</Label>
                       <Input 
@@ -2729,7 +2729,7 @@ export default function TrainerDetailsPage() {
 
               {editingSection === 'contacts' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Email</Label>
                       <Input 
@@ -2794,7 +2794,7 @@ export default function TrainerDetailsPage() {
 
               {editingSection === 'company' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Tesserato</Label>
                       <select 
@@ -2934,7 +2934,7 @@ export default function TrainerDetailsPage() {
 
               {editingSection === 'health' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Tessera Sanitaria</Label>
                       <Input 

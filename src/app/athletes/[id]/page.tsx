@@ -6267,7 +6267,7 @@ export default function AthleteProfilePage() {
           <div className="space-y-4 py-4">
             {editingSection === "general" && (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>Nome</Label>
                     <CapitalizedInput
@@ -6299,7 +6299,7 @@ export default function AthleteProfilePage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>Data di Nascita</Label>
                     <Input
@@ -6329,7 +6329,7 @@ export default function AthleteProfilePage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>Sesso</Label>
                     <Select
@@ -6479,8 +6479,8 @@ export default function AthleteProfilePage() {
 
             {editingSection === "address" && (
               <>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="col-span-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="sm:col-span-2">
                     <Label>Indirizzo</Label>
                     <CapitalizedInput
                       value={editFormData.address || ""}
@@ -6526,7 +6526,7 @@ export default function AthleteProfilePage() {
 
             {editingSection === "medical" && (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>Gruppo Sanguigno</Label>
                     <Select
@@ -6589,7 +6589,7 @@ export default function AthleteProfilePage() {
                     rows={2}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>Contatto di Emergenza</Label>
                     <CapitalizedInput
@@ -6620,7 +6620,7 @@ export default function AthleteProfilePage() {
 
             {editingSection === "identity" && (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>Tipo di Documento</Label>
                     <Select
@@ -6657,7 +6657,7 @@ export default function AthleteProfilePage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>Data Rilascio</Label>
                     <Input
@@ -8335,7 +8335,7 @@ export default function AthleteProfilePage() {
               }
             />
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Nome *</Label>
                 <CapitalizedInput
@@ -8361,7 +8361,7 @@ export default function AthleteProfilePage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Parentela</Label>
                 <Select
@@ -8393,7 +8393,7 @@ export default function AthleteProfilePage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Data di Nascita</Label>
                 <Input

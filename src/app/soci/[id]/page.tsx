@@ -519,7 +519,7 @@ export default function MemberDetailsPage() {
             <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
               {editingSection === 'personal' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Nome</Label>
                       <CapitalizedInput
@@ -565,7 +565,7 @@ export default function MemberDetailsPage() {
 
               {editingSection === 'membership' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Tipo Socio</Label>
                       <select 
