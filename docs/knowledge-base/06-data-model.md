@@ -48,6 +48,7 @@ colonna dedicata. Le chiavi con un significato per il codice:
 | `website`, `facebook`, `instagram`, `twitter`, `youtube` | scheda Club → Social | Link pubblici, in autosave |
 | `federations` | scheda Club → Federazione | Affiliazioni |
 | `onboarding` | `/onboarding` (Blocco 4) | Stato della configurazione iniziale: `status`, `completedSteps`, date. Vedi `src/lib/onboarding.ts` |
+| `staffDepartments` | `src/lib/api/staff-departments.ts` (Blocco 7) | Reparti dello staff. **Fonte unica**: il modello sta in `src/lib/staff-directory.ts`, e ogni schermata che salva un membro con un reparto lo persiste qui |
 
 Poiche la colonna e unica, ogni scrittura parziale e un **read-modify-write**:
 `patchClubSettings` in `src/lib/club-profile.ts` rilegge la sola colonna

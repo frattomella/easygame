@@ -43,6 +43,16 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { deleteStaffMember } from "@/lib/simplified-db";
+import {
+  CUSTOM_OPTION_VALUE,
+  collectStaffRoles,
+  normalizeDepartmentName,
+  type StaffDepartment,
+} from "@/lib/staff-directory";
+import {
+  ensureStaffDepartment,
+  resolveStaffDepartments,
+} from "@/lib/api/staff-departments";
 
 const getStaffIdentity = (staffData: Record<string, any>) => {
   const firstName = String(
@@ -63,15 +73,9 @@ const getStaffIdentity = (staffData: Record<string, any>) => {
   };
 };
 
-interface StaffDepartment {
-  id: string;
-  name: string;
-  description?: string;
-  color?: string;
-}
 
-const normalizeDepartmentName = (value?: string | null) =>
-  String(value || "").trim();
+
+
 
 export default function StaffMemberDetailsPage() {
   const params = useParams<{ id: string }>();
@@ -86,8 +90,9 @@ export default function StaffMemberDetailsPage() {
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [allStaffMembers, setAllStaffMembers] = useState<any[]>([]);
-  const [clubSettings, setClubSettings] = useState<Record<string, any>>({});
   const [staffDepartments, setStaffDepartments] = useState<StaffDepartment[]>([]);
+  /** Vero mentre si digita un ruolo fuori elenco. */
+  const [showCustomRole, setShowCustomRole] = useState(false);
   const [isSavingDepartment, setIsSavingDepartment] = useState(false);
 
   // Get clubId from localStorage if not in URL params
@@ -166,12 +171,10 @@ export default function StaffMemberDetailsPage() {
           clubData?.settings && typeof clubData.settings === "object"
             ? clubData.settings
             : {};
-        const savedDepartments = Array.isArray(settings.staffDepartments)
-          ? (settings.staffDepartments as StaffDepartment[])
-          : [];
         setAllStaffMembers(members);
-        setClubSettings(settings);
-        setStaffDepartments(savedDepartments);
+        // Stessa funzione dell'elenco: i reparti orfani rimasti sui membri
+        // compaiono anche qui, invece di sparire dalla tendina.
+        setStaffDepartments(resolveStaffDepartments(settings, members));
 
         let staffData = null;
         staffData = members.find((staff: any) => staff.id === staffId);
@@ -255,7 +258,8 @@ export default function StaffMemberDetailsPage() {
       };
       
       await updateClubDataItem(clubId, "staff_members", staffId, payload);
-      
+      await ensureStaffDepartment(clubId, payload.department);
+
       setStaffMember(payload);
       setAllStaffMembers((current) =>
         current.map((member) =>
@@ -295,13 +299,20 @@ export default function StaffMemberDetailsPage() {
     try {
       const { error } = await supabase
         .from("clubs")
-        .update({
-          staff_members: nextStaffMembers,
-          settings: clubSettings,
-        })
+        .update({ staff_members: nextStaffMembers })
         .eq("id", clubId);
 
       if (error) throw error;
+
+      /*
+        Qui non si riscrive piu `settings`.
+
+        Prima si rimandava indietro lo snapshot letto al montaggio della
+        pagina: `settings` e una colonna JSON sola, quindi assegnare un
+        reparto riportava `seasons` e `activeSeasonId` a com'erano allora.
+        Il reparto, se e nuovo, si persiste con la funzione che rilegge.
+      */
+      await ensureStaffDepartment(clubId, nextDepartment);
 
       showToast("success", "Reparto aggiornato con successo");
     } catch (error) {
@@ -847,10 +858,56 @@ export default function StaffMemberDetailsPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Ruolo</Label>
-                      <Input 
-                        value={editFormData.role || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}
-                      />
+                      {/*
+                        Era un campo libero: lo stesso ruolo finiva scritto in
+                        tre modi diversi nello stesso club. Ora e l'elenco
+                        condiviso (`STAFF_ROLES`, che dal Blocco 7 contiene
+                        anche Presidente, Vicepresidente e Dirigente) piu i
+                        ruoli davvero in uso, e «Altro» resta per i casi veri.
+                      */}
+                      <Select
+                        value={
+                          showCustomRole
+                            ? CUSTOM_OPTION_VALUE
+                            : editFormData.role || ""
+                        }
+                        onValueChange={(value) => {
+                          if (value === CUSTOM_OPTION_VALUE) {
+                            setShowCustomRole(true);
+                            setEditFormData({ ...editFormData, role: "" });
+                            return;
+                          }
+                          setShowCustomRole(false);
+                          setEditFormData({ ...editFormData, role: value });
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleziona ruolo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {collectStaffRoles(allStaffMembers).map((role) => (
+                            <SelectItem key={role} value={role}>
+                              {role}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value={CUSTOM_OPTION_VALUE}>
+                            Altro...
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {showCustomRole ? (
+                        <Input
+                          className="mt-2"
+                          placeholder="Inserisci il ruolo"
+                          value={editFormData.role || ""}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              role: e.target.value,
+                            })
+                          }
+                        />
+                      ) : null}
                     </div>
                     <div>
                       <Label>Reparto</Label>

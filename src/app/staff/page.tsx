@@ -36,6 +36,18 @@ import {
 } from "@/components/ui/select";
 import { StaffTable } from "@/components/staff/StaffTable";
 import { DepartmentManagement } from "@/components/staff/DepartmentManagement";
+import {
+  countStaffByDepartment,
+  getDepartmentBadgeClassName,
+  normalizeDepartmentName,
+  upsertStaffDepartment,
+  type StaffDepartment as Department,
+} from "@/lib/staff-directory";
+import {
+  deleteStaffDepartment,
+  resolveStaffDepartments,
+  saveStaffDepartments,
+} from "@/lib/api/staff-departments";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -46,7 +58,6 @@ import {
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
-import { sortByName } from "@/lib/sorting";
 import { EntityIcon } from "@/components/ui/entity-icon";
 
 interface StaffMember {
@@ -64,61 +75,10 @@ interface StaffMember {
   avatar: string;
 }
 
-interface Department {
-  id: string;
-  name: string;
-  description?: string;
-  color?: string;
-}
-
-const DEPARTMENT_COLOR_CLASSES: Record<string, string> = {
-  blue: "border-blue-200 bg-blue-50 text-blue-700",
-  green: "border-green-200 bg-green-50 text-green-700",
-  red: "border-red-200 bg-red-50 text-red-700",
-  yellow: "border-yellow-200 bg-yellow-50 text-yellow-700",
-  purple: "border-purple-200 bg-purple-50 text-purple-700",
-};
-
 const getStaffDisplayName = (member: StaffMember) =>
   member.fullName ||
   [member.name, member.surname].filter(Boolean).join(" ").trim() ||
   member.name;
-
-const normalizeDepartmentName = (value?: string | null) =>
-  String(value || "").trim();
-
-const makeDepartmentFromName = (name: string): Department => ({
-  id: `dept-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || Date.now()}`,
-  name,
-  color: "blue",
-});
-
-const mergeDepartments = (
-  savedDepartments: Department[],
-  staffMembers: StaffMember[],
-) => {
-  const byName = new Map<string, Department>();
-
-  savedDepartments.forEach((department) => {
-    const name = normalizeDepartmentName(department.name);
-    if (name) byName.set(name.toLowerCase(), { ...department, name });
-  });
-
-  staffMembers.forEach((member) => {
-    const name = normalizeDepartmentName(member.department);
-    if (name && !byName.has(name.toLowerCase())) {
-      byName.set(name.toLowerCase(), makeDepartmentFromName(name));
-    }
-  });
-
-  return sortByName(Array.from(byName.values()), (item) => item.name);
-};
-
-const getDepartmentBadgeClassName = (department?: Department) =>
-  department?.color
-    ? DEPARTMENT_COLOR_CLASSES[department.color] ||
-      "border-slate-200 bg-slate-50 text-slate-700"
-    : "border-slate-200 bg-slate-50 text-slate-700";
 
 export default function StaffPage() {
   const router = useRouter();
@@ -128,7 +88,6 @@ export default function StaffPage() {
   const [clubId, setClubId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "table">("table");
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [clubSettings, setClubSettings] = useState<Record<string, any>>({});
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [isDepartmentManagementOpen, setIsDepartmentManagementOpen] =
     useState(false);
@@ -193,13 +152,8 @@ export default function StaffPage() {
             clubData?.settings && typeof clubData.settings === "object"
               ? clubData.settings
               : {};
-          const savedDepartments = Array.isArray(settings.staffDepartments)
-            ? (settings.staffDepartments as Department[])
-            : [];
-
-          setClubSettings(settings);
           setStaffMembers(members);
-          setDepartments(mergeDepartments(savedDepartments, members));
+          setDepartments(resolveStaffDepartments(settings, members));
         }
       } catch (error) {
         if (process.env.NODE_ENV === "development") {
@@ -246,28 +200,32 @@ export default function StaffPage() {
     }
   };
 
+  /**
+   * Membri e reparti si salvano separatamente, e non per pigrizia.
+   *
+   * `settings` e una colonna JSON sola: riscriverla dallo snapshot letto al
+   * montaggio della pagina significava riportare indietro `seasons`,
+   * `activeSeasonId` e tutto il resto a com'erano allora. Bastava che qualcuno
+   * cambiasse stagione mentre questa pagina era aperta perche il salvataggio
+   * di un reparto la annullasse. `saveStaffDepartments` rilegge la colonna
+   * prima di riscriverla.
+   */
   const persistStaffState = async (
     nextStaffMembers: StaffMember[],
-    nextDepartments = departments,
+    nextDepartments: Department[] | null = null,
   ) => {
     if (!clubId) return;
 
-    const nextSettings = {
-      ...clubSettings,
-      staffDepartments: nextDepartments,
-    };
-
     const { error } = await supabase
       .from("clubs")
-      .update({
-        staff_members: nextStaffMembers,
-        settings: nextSettings,
-      })
+      .update({ staff_members: nextStaffMembers })
       .eq("id", clubId);
 
     if (error) throw error;
 
-    setClubSettings(nextSettings);
+    if (nextDepartments) {
+      await saveStaffDepartments(clubId, nextDepartments);
+    }
   };
 
   const handleSaveDepartment = async (department: Department) => {
@@ -278,17 +236,15 @@ export default function StaffPage() {
 
     if (!normalizedDepartment.name) return;
 
-    const nextDepartments = sortByName(
-      departments
-        .filter((item) => item.id !== normalizedDepartment.id)
-        .concat(normalizedDepartment),
-      (item) => item.name,
+    const nextDepartments = upsertStaffDepartment(
+      departments,
+      normalizedDepartment,
     );
 
     setDepartments(nextDepartments);
 
     try {
-      await persistStaffState(staffMembers, nextDepartments);
+      if (clubId) await saveStaffDepartments(clubId, nextDepartments);
     } catch (error) {
       console.error("Error saving department:", error);
     }
@@ -316,7 +272,10 @@ export default function StaffPage() {
     if (departmentFilter === removedName) setDepartmentFilter("all");
 
     try {
-      await persistStaffState(nextStaffMembers, nextDepartments);
+      if (clubId) {
+        await persistStaffState(nextStaffMembers);
+        await deleteStaffDepartment(clubId, departmentId);
+      }
     } catch (error) {
       console.error("Error deleting department:", error);
     }
@@ -331,14 +290,7 @@ export default function StaffPage() {
             departmentFilter.toLowerCase(),
         ),
   );
-  const staffCountsByDepartment = staffMembers.reduce<Record<string, number>>(
-    (counts, member) => {
-      const key = normalizeDepartmentName(member.department).toLowerCase();
-      if (key) counts[key] = (counts[key] || 0) + 1;
-      return counts;
-    },
-    {},
-  );
+  const staffCountsByDepartment = countStaffByDepartment(staffMembers);
 
   const renderStaffMainContent = () => (
     <main className={dashboardMainClassName}>

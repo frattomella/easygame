@@ -31,6 +31,7 @@ easygame/
 | `src/components/brand/` | Marchio SVG e identita di club | |
 | `src/components/platform-admin/` | Shell della console di piattaforma | Nessun riferimento alle risorse di club |
 | `src/components/organization/` | Scheda Stagioni della pagina Organizzazione (`season-manager.tsx`) | Blocco 6, vedi [10](10-ui-ux-conventions.md) |
+| `src/data/` | Tabelle di riferimento pubbliche versionate (comuni ISTAT) | Blocco 7, generate da `scripts/`, vedi [06](06-data-model.md) |
 | `src/lib/` | 77 file. Logica di dominio, utility, policy | Vedi tabella sotto |
 | `src/lib/server/` | Codice **solo server**: Prisma client, auth, resources, email, workflow | Non importare dal client |
 | `src/pages/` | 4 file residui del Pages Router: `_app`, `_document`, `_error`, `404` | Legacy, vedi [16](16-technical-debt.md) |

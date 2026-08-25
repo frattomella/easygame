@@ -35,6 +35,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { addStaffMember } from "@/lib/simplified-db";
 import { AssistedFiscalCodeField } from "@/components/forms/assisted-anagrafica";
+import {
+  CUSTOM_OPTION_VALUE,
+  collectStaffRoles,
+  type StaffDepartment as Department,
+} from "@/lib/staff-directory";
+import {
+  ensureStaffDepartment,
+  resolveStaffDepartments,
+} from "@/lib/api/staff-departments";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 
@@ -87,26 +96,6 @@ const initialFormData: StaffFormData = {
   notes: "",
 };
 
-interface Department {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-const roles = [
-  "Segretario/a",
-  "Amministratore",
-  "Responsabile Tecnico",
-  "Medico Sportivo",
-  "Fisioterapista",
-  "Preparatore Atletico",
-  "Team Manager",
-  "Addetto Stampa",
-  "Responsabile Marketing",
-  "Magazziniere",
-  "Custode",
-  "Altro",
-];
 
 function NewStaffMemberPageContent() {
   const router = useRouter();
@@ -120,6 +109,7 @@ function NewStaffMemberPageContent() {
   const [showCustomRole, setShowCustomRole] = useState(false);
   const [customRole, setCustomRole] = useState("");
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [roles, setRoles] = useState<string[]>(() => collectStaffRoles());
   const [showCustomDepartment, setShowCustomDepartment] = useState(false);
   const [customDepartment, setCustomDepartment] = useState("");
 
@@ -179,27 +169,27 @@ function NewStaffMemberPageContent() {
       try {
         const { data: clubData, error } = await supabase
           .from("clubs")
-          .select("settings")
+          .select("settings, staff_members")
           .eq("id", clubId)
           .single();
-        
+
         if (error) {
           console.error("Error fetching departments:", error);
           return;
         }
-        
+
         const settings =
           clubData?.settings && typeof clubData.settings === "object"
             ? clubData.settings
             : {};
-        if (
-          Array.isArray((settings as Record<string, any>).staffDepartments)
-        ) {
-          setDepartments(
-            (settings as Record<string, any>)
-              .staffDepartments as Department[],
-          );
-        }
+        const members = Array.isArray(clubData?.staff_members)
+          ? clubData.staff_members
+          : [];
+
+        setDepartments(resolveStaffDepartments(settings, members));
+        // Un ruolo scritto a mano su un membro esistente deve ricomparire in
+        // tendina, altrimenti la scelta «Altro» andrebbe rifatta ogni volta.
+        setRoles(collectStaffRoles(members));
       } catch (error) {
         console.error("Error fetching departments:", error);
       }
@@ -255,6 +245,16 @@ function NewStaffMemberPageContent() {
       };
 
       await addStaffMember(clubId, newStaffMember);
+
+      /*
+        Il reparto si persiste **qui**, non nella dialog di gestione.
+
+        Era il difetto: un reparto creato con «Altro» restava una stringa sul
+        membro. L'elenco staff lo mostrava lo stesso perche lo deduceva dai
+        membri, quindi sembrava salvato, ma questo form e quello di modifica
+        leggono `settings.staffDepartments`, dove non c'era mai arrivato.
+      */
+      await ensureStaffDepartment(clubId, formData.department);
 
       showToast("success", "Membro dello staff aggiunto con successo");
       router.push(`/staff?clubId=${clubId}`);
@@ -506,9 +506,9 @@ function NewStaffMemberPageContent() {
                   <div>
                     <Label htmlFor="role">Ruolo *</Label>
                     <Select
-                      value={showCustomRole ? "Altro" : formData.role}
+                      value={showCustomRole ? CUSTOM_OPTION_VALUE : formData.role}
                       onValueChange={(value) => {
-                        if (value === "Altro") {
+                        if (value === CUSTOM_OPTION_VALUE) {
                           setShowCustomRole(true);
                           setCustomRole("");
                           handleInputChange("role", "");
@@ -528,6 +528,9 @@ function NewStaffMemberPageContent() {
                             {role}
                           </SelectItem>
                         ))}
+                        <SelectItem value={CUSTOM_OPTION_VALUE}>
+                          Altro...
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     {showCustomRole && (
@@ -547,9 +550,9 @@ function NewStaffMemberPageContent() {
                   <div>
                     <Label htmlFor="department">Dipartimento</Label>
                     <Select
-                      value={showCustomDepartment ? "__custom__" : formData.department}
+                      value={showCustomDepartment ? CUSTOM_OPTION_VALUE : formData.department}
                       onValueChange={(value) => {
-                        if (value === "__custom__") {
+                        if (value === CUSTOM_OPTION_VALUE) {
                           setShowCustomDepartment(true);
                           setCustomDepartment("");
                           handleInputChange("department", "");
@@ -569,7 +572,9 @@ function NewStaffMemberPageContent() {
                             {dept.name}
                           </SelectItem>
                         ))}
-                        <SelectItem value="__custom__">Altro...</SelectItem>
+                        <SelectItem value={CUSTOM_OPTION_VALUE}>
+                          Altro...
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     {showCustomDepartment && (

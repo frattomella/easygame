@@ -14,13 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
-
-interface Department {
-  id: string;
-  name: string;
-  description?: string;
-  color?: string;
-}
+import {
+  DEFAULT_DEPARTMENT_COLOR,
+  STAFF_DEPARTMENT_COLORS,
+  makeDepartmentId,
+  normalizeDepartmentName,
+  type StaffDepartment as Department,
+} from "@/lib/staff-directory";
 
 interface DepartmentManagementProps {
   isOpen: boolean;
@@ -44,16 +44,13 @@ export function DepartmentManagement({
     id: "",
     name: "",
     description: "",
-    color: "blue",
+    color: DEFAULT_DEPARTMENT_COLOR,
   });
 
-  const colors = [
-    { name: "blue", class: "bg-blue-500" },
-    { name: "green", class: "bg-green-500" },
-    { name: "red", class: "bg-red-500" },
-    { name: "yellow", class: "bg-yellow-500" },
-    { name: "purple", class: "bg-purple-500" },
-  ];
+  const colors = STAFF_DEPARTMENT_COLORS.map((color) => ({
+    name: color.name as string,
+    class: color.swatch as string,
+  }));
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -82,9 +79,18 @@ export function DepartmentManagement({
       return;
     }
 
+    /*
+      L'id deriva dal nome, non dall'orologio.
+
+      Con `dept-${Date.now()}` due schermate che salvavano lo stesso reparto
+      producevano due righe gemelle con id diversi, e cancellarne una lasciava
+      l'altra: e uno dei modi in cui i reparti si sdoppiavano.
+    */
+    const name = normalizeDepartmentName(newDepartment.name);
     const departmentToSave: Department = {
       ...newDepartment,
-      id: newDepartment.id || `dept-${Date.now()}`,
+      name,
+      id: newDepartment.id || makeDepartmentId(name),
     };
 
     onSave(departmentToSave);
@@ -105,7 +111,7 @@ export function DepartmentManagement({
       id: "",
       name: "",
       description: "",
-      color: "blue",
+      color: DEFAULT_DEPARTMENT_COLOR,
     });
   };
 
