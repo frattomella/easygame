@@ -294,7 +294,15 @@ test("la sezione richiesta si accetta solo se esiste", () => {
  * «da qui non si aggiunge, si estrae». Chi aggiunge una funzione alla scheda
  * atleta e supera la soglia deve prima portare fuori una sezione — che e
  * esattamente cio che WP-19 chiede.
+ *
+ * **Il margine e volutamente stretto.** A fine Blocco 8 il file ha 8.480
+ * righe: ne restano una ventina. Non e una svista da correggere alzando la
+ * soglia — e la soglia che fa il suo lavoro. Il modo giusto di guadagnare
+ * spazio e estrarre il prossimo pannello, e il modo giusto di abbassare il
+ * limite e farlo insieme a quell'estrazione.
  */
+const MAX_ATHLETE_PAGE_LINES = 8500;
+
 test("la scheda atleta non torna a crescere", () => {
   const source = readFileSync(
     path.join(process.cwd(), "src", "app", "athletes", "[id]", "page.tsx"),
@@ -303,7 +311,8 @@ test("la scheda atleta non torna a crescere", () => {
   const lines = source.split(/\r?\n/).length;
 
   assert.ok(
-    lines <= 8500,
-    `athletes/[id]/page.tsx ha ${lines} righe: estrai una sezione prima di aggiungerne`,
+    lines <= MAX_ATHLETE_PAGE_LINES,
+    `athletes/[id]/page.tsx ha ${lines} righe (limite ${MAX_ATHLETE_PAGE_LINES}): ` +
+      "estrai un pannello prima di aggiungere, e abbassa il limite insieme all'estrazione",
   );
 });

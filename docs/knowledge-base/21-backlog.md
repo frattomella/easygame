@@ -222,7 +222,7 @@ vengono **dopo** il rilascio.
 | F3-04 | Audit log | `IN PROGRESS` | WP-16, ADR-0019. Copre auth, risorse economiche, stagioni e **tutti** i dinieghi. Manca la copertura delle anagrafiche |
 | F3-05 | Ridurre l'adapter `supabase.ts` | `OPEN` | WP-17, dipende da WP-07 |
 | F3-06 | Rimuovere i residui legacy | `IN PROGRESS` | WP-18. Il Blocco 7 ne ha tolti tre (`page-modals.tsx`, `TrainerPayments.tsx`, `pin-input.tsx`). **Mancano** i 19 componenti `ui/*` non usati e gli alias di compatibilita |
-| F3-07 | Scomporre le pagine monolitiche | `IN PROGRESS` | WP-19. **Blocco 8**: `athletes/[id]/page.tsx` da 8.751 a 8.429 righe, con genitori, campi dei form, sezioni, intestazione e barra estratti, e un test che impedisce di risalire sopra 8.500. **Mancano** i sette pannelli e i circa novanta `useState`, piu `clothing/page.tsx` e `registration-management/page.tsx` |
+| F3-07 | Scomporre le pagine monolitiche | `IN PROGRESS` | WP-19. **Blocco 8**: `athletes/[id]/page.tsx` da 8.696 a 8.480 righe pur aggiungendo funzioni, con genitori, campi dei form, sezioni, intestazione e barra estratti, e un test che impedisce di risalire sopra 8.500. **Mancano** i sette pannelli e i circa novanta `useState`, piu `clothing/page.tsx` e `registration-management/page.tsx` |
 | F3-08 | Deprecare gli alias di compatibilita | `DEFERRED` | WP-20, dipende da WP-21 che e differito |
 | F3-09 | Scheduler per promemoria certificati | `OPEN` | Nessun WP ancora |
 | F3-10 | Automazione allenamenti | `OPEN` | Nessun WP ancora |

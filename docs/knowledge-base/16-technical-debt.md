@@ -159,7 +159,11 @@ Elenco completo e classificazione in [cleanup-report](cleanup-report.md).
 
 ### D10 — Pagine monolitiche — **SCOMPOSIZIONE COMINCIATA** (2026-08-25, Blocco 8)
 
-`athletes/[id]/page.tsx` e passata da **8.751 a 8.429 righe**. Non e un
+`athletes/[id]/page.tsx` e passata da **8.696 a 8.480 righe** — 216 in meno,
+mentre nello stesso blocco le si aggiungeva la lettura documenti per il
+genitore. L'estrazione ne aveva tolte 322 (8.751 → 8.429), poi 51 sono
+rientrate con la funzione nuova: e il ritmo reale di una scomposizione
+incrementale, e va detto com'e. Non e un
 risultato: e un inizio, ed e dichiarato come tale.
 
 Cosa e uscito, e perche proprio quello:

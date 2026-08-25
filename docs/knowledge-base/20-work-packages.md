@@ -1352,7 +1352,9 @@ Elenco completo in [cleanup-report](cleanup-report.md).
 
 ### WP-19 · Scomporre le pagine monolitiche — `IN CORSO` (2026-08-25, Blocco 8)
 
-**Cominciata da `athletes/[id]`**, la piu grande: da 8.751 a 8.429 righe.
+**Cominciata da `athletes/[id]`**, la piu grande: **8.696 → 8.480 righe** nel
+corso del blocco (l'estrazione ne ha tolte 322, la lettura documenti per il
+genitore ne ha aggiunte 51).
 Non e un risultato, e un inizio.
 
 | Estratto | Dove |
