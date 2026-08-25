@@ -22,7 +22,7 @@ export default function DashboardLayout({
         </div>
 
         {/* Mobile layout */}
-        <div className="flex flex-1 flex-col lg:hidden">
+        <div className="flex min-w-0 flex-1 flex-col lg:hidden">
           <MobileTopBar />
           <main className={dashboardMainClassName}>{children}</main>
         </div>

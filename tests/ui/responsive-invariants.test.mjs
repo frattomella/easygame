@@ -152,3 +152,84 @@ test("i dialoghi non superano l'altezza dello schermo", () => {
     );
   }
 });
+
+/* -------------------------------------------- Blocco A: verifica su schermo */
+
+/**
+ * Il guscio del club deve poter restringersi.
+ *
+ * **Il difetto, e perche era invisibile ai test statici.** Il contenitore
+ * principale del club e un elemento flex dentro una riga. Un elemento flex ha
+ * `min-width: auto`, cioe **si rifiuta di restringersi sotto la larghezza del
+ * suo contenuto** — a meno che non abbia `overflow` diverso da `visible`,
+ * oppure `min-width: 0`.
+ *
+ * Quarantanove pagine usano la variante `overflow-hidden` e ottengono il
+ * comportamento giusto per caso. Quattro usano la variante `lg:hidden`, senza
+ * ne l'uno ne l'altro: li il guscio cresce con il contenuto.
+ *
+ * A 768 px su `/organization` l'effetto era che la barra delle nove schede —
+ * che ha gia `overflow-x-auto` e dovrebbe scorrere da sola — allargava il
+ * guscio a 1022 px invece di scorrere, e con lui **tutta la pagina**:
+ * «Salva Modifiche» finiva fuori dallo schermo. Nessuna invariante statica
+ * poteva vederlo, perche ogni singola classe era corretta; sbagliato era cio
+ * che mancava, e si e visto solo misurando la pagina a 768 px.
+ */
+test("il guscio del club non cresce con il proprio contenuto", () => {
+  const shells = [
+    "app/dashboard/layout.tsx",
+    "app/organization/page.tsx",
+    "app/sponsors/page.tsx",
+    "app/staff/page.tsx",
+  ];
+
+  for (const file of shells) {
+    const source = read(file);
+
+    assert.equal(
+      /className="flex flex-1 flex-col lg:hidden"/.test(source),
+      false,
+      `${file}: il guscio senza min-w-0 si allarga con il contenuto invece di lasciarlo scorrere`,
+    );
+    assert.match(
+      source,
+      /className="flex min-w-0 flex-1 flex-col lg:hidden"/,
+      `${file}: manca min-w-0 sul guscio del club`,
+    );
+  }
+});
+
+/**
+ * Due elenchi gemelli, due comportamenti a schermo stretto.
+ *
+ * A 375 px la riga di comandi dell'elenco Soci sforava di sei pixel e
+ * «Aggiungi Socio» usciva dalla viewport. L'elenco Allenatori, che ha la
+ * stessa riga, era gia a capo automatico: la differenza era una classe.
+ */
+test("le righe di comandi degli elenchi vanno a capo su schermo stretto", () => {
+  for (const file of ["app/soci/page.tsx", "app/trainers/page.tsx"]) {
+    const source = read(file);
+
+    assert.match(
+      source,
+      /flex[^"]*flex-wrap[^"]*gap-2|flex gap-2 w-full sm:w-auto flex-wrap/,
+      `${file}: i comandi dell'intestazione non vanno a capo`,
+    );
+  }
+});
+
+/**
+ * Sulla scheda allenatore i comandi dei contratti stanno in colonna.
+ *
+ * A 375 px «Visualizza Tutti» e «Aggiungi Contratto» in riga arrivavano a
+ * x=402: il secondo era fuori dallo schermo e non si poteva premere.
+ */
+test("i comandi dei contratti dell'allenatore stanno nello schermo", () => {
+  const source = read("app/trainers/[id]/page.tsx");
+
+  assert.match(
+    source,
+    /className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row"/,
+    "i due comandi dei contratti tornano in riga a 375 px",
+  );
+});

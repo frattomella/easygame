@@ -294,7 +294,14 @@ export default function SociPage() {
               title="Soci"
               subtitle="Gestisci i soci dell'associazione"
               actions={
-              <div className="flex gap-2">
+              /*
+                A 375 px i due comandi in riga sforavano di sei pixel e
+                «Aggiungi Socio» finiva fuori dalla viewport (Blocco A, punto
+                22). E la stessa riga di comandi che l'elenco Allenatori ha,
+                dove pero era gia `w-full sm:w-auto flex-wrap`: due elenchi
+                gemelli con due comportamenti diversi a schermo stretto.
+              */
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                 <Button variant="outline" onClick={handleExportPdf}>
                   <FileDown className="mr-2 h-4 w-4" />
                   Esporta PDF
