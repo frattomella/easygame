@@ -460,13 +460,24 @@ export default function AthletesPage() {
         categories.find((category) => category.id === athleteData.categoryId) ||
         findCategoryForBirthDate(athleteData.birthDate, categories);
 
+      /*
+        Tutto cio che il form ha raccolto viene scritto alla creazione.
+
+        Prima qui arrivavano tre campi e basta: qualunque altra cosa
+        l'operatore avesse davanti — codice fiscale, residenza, contatti,
+        taglie — andava reinserita riaprendo la scheda (Blocco 7, punto 14).
+        `data` usa le stesse chiavi che legge la scheda atleta, quindi non
+        c'e nessuna mappatura intermedia da tenere allineata.
+      */
       const newAthleteData = {
         firstName: athleteData.firstName,
         lastName: athleteData.lastName,
         birthDate: athleteData.birthDate,
         category: linkedCategory?.id || null,
         categoryName: linkedCategory?.name || null,
+        medicalCertExpiry: athleteData.medicalCertExpiry || null,
         status: "active",
+        data: athleteData.data || {},
       };
 
       const savedAthlete = await addClubAthlete(clubId, newAthleteData);
@@ -486,7 +497,7 @@ export default function AthletesPage() {
           ? new Date().getFullYear() - birthYear
           : 0,
         status: "active",
-        medicalCertExpiry: "",
+        medicalCertExpiry: athleteData.medicalCertExpiry || "",
         birthDate: athleteData.birthDate,
         registrationComplete: false,
       };

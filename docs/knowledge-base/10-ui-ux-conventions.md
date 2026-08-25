@@ -196,6 +196,31 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
    al nome. Va a capo quando lo spazio manca: non deve mai spingere fuori posto
    logo, nome o comandi. Dal Blocco 7 e **grigia**: vedi sotto.
 
+## Form di creazione: pochi obblighi, molte sezioni (Blocco 7)
+
+Il modello e «Nuovo atleta» (`AthleteQuickCreateDialog`), e la regola vale per
+ogni form di creazione di un'anagrafica.
+
+**Il ciclo da evitare:** creare con tre campi, aprire la scheda, ricompilare
+tutto. Chi iscrive un atleta ha davanti il modulo cartaceo con **tutti** i
+dati: farglieli inserire in due momenti diversi non e semplicita, e lavoro
+doppio.
+
+**Il rimedio non e una pagina infinita.** Gli obbligatori restano quelli che
+erano — nome, cognome, data di nascita — e tutto il resto vive in sezioni
+`Accordion` **chiuse di default**. Chi ha fretta compila i tre campi e chiude;
+chi ha il modulo in mano compila tutto in una volta.
+
+Due vincoli che rendono la cosa sostenibile:
+
+1. **si riusano i componenti condivisi** — codice fiscale assistito, indirizzo
+   assistito, telefono, taglie, lettura documento — invece di reimplementarli.
+   Un secondo campo «codice fiscale» scritto a mano dentro un form diverge dal
+   resto dell'applicazione al primo cambiamento;
+2. **le chiavi scritte sono quelle che la scheda legge.** Un dato inserito alla
+   creazione ma salvato con un nome diverso esiste e non si vede, che e peggio
+   di non averlo inserito. Un test verifica la corrispondenza chiave per chiave.
+
 ## Lettura documenti: si propone, non si scrive (Blocco 7)
 
 `DocumentExtractionField` compila un'anagrafica dalla foto di un documento
