@@ -75,9 +75,13 @@ Il cookie `easygame_session` e l'alternativa usata dal Web.
 
 `/api/athlete-payments/[paymentId]`, `/api/athletes/[athleteId]/documents/**`,
 `/api/clothing/assignments`, `/api/forms/assets/[assetId]`,
-`/api/medical-certificate-reminders`, `/api/online-forms`,
+`/api/medical-certificate-reminders`,
 `/api/parent-dashboard/**`, `/api/payments/**`,
 `/api/public/forms/[publicSlug]`.
+
+`/api/public/forms/[publicSlug]` resta fuori da `/api/v1` **di proposito**:
+non e la superficie ufficiale, e l'unico endpoint che risponde a chi non ha
+una sessione. Vedi «Il modulo pubblico» qui sotto.
 
 Sono nate per casi che il CRUD generico non copre. **Convenzione per il nuovo
 codice: crea endpoint sotto `/api/v1/`.** Non spostare quelli esistenti senza un
@@ -110,6 +114,35 @@ riceve, lo ripulisce, e ci attacca l'estensione giusta ricavata dal MIME —
 perche l'estensione la sa lui, non il client.
 
 Vedi [ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver).
+
+## I moduli
+
+`/api/v1/forms` e la superficie autenticata: moduli, versioni, coda delle
+compilazioni, approvazione. Autorizzazione come sempre — sessione valida,
+`organization_id` risolto dallo scope, mai creduto dal client.
+
+`PATCH /api/v1/forms/:id` porta una `action` invece di avere sei endpoint:
+`save_draft`, `publish`, `unpublish`, `archive`, `restore`, `duplicate`,
+`regenerate_slug`, `set_public_access`. Sono la stessa risorsa in stati
+diversi, e sei percorsi vorrebbero dire sei volte la stessa risoluzione di
+sessione e scope — con sei occasioni di dimenticarne una.
+
+### Il modulo pubblico
+
+`GET|POST /api/public/forms/:slug` e **l'unico endpoint di EasyGame che
+risponde senza sessione e scrive nel database di un club**. Le sue regole:
+
+| Regola | Perche |
+|--------|--------|
+| Dal client arrivano solo risposte e file | Club, modulo, versione e stato li ricava il server dallo slug |
+| Un solo esito negativo: **404** | Slug inesistente, modulo in bozza, link disabilitato o chiuso rispondono uguale: distinguere direbbe a chi prova gli slug quali ha indovinato |
+| `multipart/form-data` per gli invii con allegati | Stessa ragione dell'endpoint allegati: base64 costa il 33% in piu e va tenuto in memoria per intero |
+| Due contatori di rate limit distinti | Aprire un modulo e quasi gratuito (60 / 15 min per IP), inviarlo crea righe e allegati (10 / ora per IP) |
+| Formati piu stretti di un caricamento autenticato | PDF e immagini, fino a 8 MB. Da chiunque abbia il link non si accettano fogli di calcolo e documenti Office |
+| La risposta non contiene mai dati d'archivio | Nessuna precompilazione, nessun identificativo interno, nessuna compilazione gia raccolta |
+
+Vedi [ADR-0035](18-decision-log.md#adr-0035--i-moduli-escono-da-clubsdocument_templates-e-diventano-tre-tabelle)
+e [ADR-0036](18-decision-log.md#adr-0036--una-compilazione-cita-una-versione-immutabile-e-non-scrive-in-anagrafica).
 
 ## Il CRUD generico `/api/v1/[resource]`
 

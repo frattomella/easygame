@@ -106,6 +106,38 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "forms.list",
+    method: "GET|POST",
+    path: "/api/v1/forms",
+    description:
+      "Moduli del club: elenco e creazione da un modello di partenza",
+    mobile_ready: false,
+  },
+  {
+    name: "forms.detail",
+    method: "GET|PATCH|DELETE",
+    path: "/api/v1/forms/:id",
+    description:
+      "Un modulo: bozza, pubblicazione, archiviazione, duplicazione, link pubblico",
+    mobile_ready: false,
+  },
+  {
+    name: "forms.submissions",
+    method: "GET|POST",
+    path: "/api/v1/forms/submissions",
+    description:
+      "Coda delle compilazioni da esaminare e compilazione dalla segreteria",
+    mobile_ready: false,
+  },
+  {
+    name: "forms.submission",
+    method: "GET|POST",
+    path: "/api/v1/forms/submissions/:id",
+    description:
+      "Una compilazione: cosa cambierebbe approvandola, possibili duplicati, approvazione o rifiuto",
+    mobile_ready: false,
+  },
+  {
     name: "auth.login",
     method: "POST",
     path: "/api/v1/auth/login",
