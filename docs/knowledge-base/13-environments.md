@@ -165,6 +165,46 @@ Vercel richiede autorizzazione esplicita, e va deciso a quale database far
 puntare le anteprime — farle puntare a staging significa che un branch
 qualunque puo scriverci.
 
+### Migrazione `20260825120000_attachments`: audit e rollback (2026-08-25)
+
+**Cosa fa.** Due `CREATE TABLE` (`attachments`, `attachment_blobs`), tre
+indici e due chiavi esterne. Le due `ALTER TABLE` aggiungono i vincoli alle
+tabelle **nuove**, non a `clubs`.
+
+**Cosa non fa, e conta piu di cosa fa.** Non legge, non scrive e non altera
+nessuna tabella esistente. Non c'e nessuna riga di dati coinvolta: gli
+allegati legacy restano dove sono e continuano a funzionare. Applicarla su un
+database popolato e un'operazione a rischio zero, e reversibile.
+
+**Verifica fatta senza toccare nessun database:**
+
+```bash
+npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script
+```
+
+Il DDL generato da Prisma coincide colonna per colonna con quello scritto a
+mano. L'unica differenza e la `CHECK ("size_bytes" > 0)`, che il modello
+Prisma non esprime: e lo stesso drift cosmetico gia documentato per
+`email_provider_configs` e `imap_provider_configs` in [06](06-data-model.md).
+
+**Rollback.** Nell'ordine, perche il blob ha una chiave esterna verso
+l'allegato:
+
+```sql
+DROP TABLE IF EXISTS "attachment_blobs";
+DROP TABLE IF EXISTS "attachments";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260825120000_attachments';
+```
+
+**Cosa si perde facendo rollback:** gli allegati caricati **dopo** il deploy,
+perche i loro byte stanno in quelle tabelle. I record che li referenziano
+resterebbero con un `attachment:<uuid>` che non risolve — l'interfaccia
+direbbe «Allegato non trovato», che e il comportamento corretto ma non
+riporta indietro il file. Gli allegati legacy non sono toccati in nessun caso.
+
+Prima di un rollback su un ambiente in uso conviene quindi guardare
+`SELECT count(*) FROM attachments`: se e zero, il rollback e gratuito.
+
 ## Build e deploy
 
 `vercel.json`:
