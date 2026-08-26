@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+
+const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
+const readSource = (relative) =>
+  readFileSync(path.join(PROJECT_ROOT, relative), "utf8");
 
 import {
   detectCsvDelimiter,
@@ -225,4 +231,56 @@ test("il carico da scrivere contiene solo le righe valide", () => {
   // Categoria non ancora esistente: il nome resta, l'id no.
   assert.equal(payload[1].categoryId, null);
   assert.equal(payload[1].categoryLabel, "Under 16");
+});
+
+/* ---------------- L'import non fa una richiesta per atleta (§25) ---------- */
+
+/**
+ * **Il difetto misurato.** Il dialogo di import chiamava `addClubAthlete`
+ * dentro un ciclo: duecento atleti erano duecento inserimenti **piu**
+ * duecento scritture di appartenenza, in fila, ognuna con il suo giro sulla
+ * rete. Su una connessione di palestra l'import di una squadra durava minuti,
+ * e chiudere la finestra a meta lasciava l'archivio a meta.
+ *
+ * I test guardano il sorgente perche il percorso passa dall'adapter HTTP:
+ * eseguirlo qui vorrebbe dire montare un server. Cio che va presidiato e la
+ * **forma** — a scaglioni, con ripiego riga per riga — non il numero di
+ * millisecondi.
+ */
+test("l'import passa dal lettore a scaglioni, non da un ciclo", () => {
+  const page = readSource("src/app/athletes/page.tsx");
+
+  assert.match(page, /addClubAthletesBatch\(/);
+  assert.doesNotMatch(
+    page,
+    /for \(const row of importedRows\)/,
+    "una richiesta per atleta e cio che questo lavoro toglie",
+  );
+});
+
+test("uno scaglione che fallisce non porta via le righe buone", () => {
+  const db = readSource("src/lib/simplified-db.ts");
+  const batch = db.slice(db.indexOf("export async function addClubAthletesBatch"));
+
+  assert.match(
+    batch.slice(0, 1800),
+    /for \(let index = 0; index < chunk\.length; index \+= 1\)/,
+    "il ripiego riga per riga serve a sapere **quale** anagrafica era sbagliata",
+  );
+  assert.match(
+    batch.slice(0, 1800),
+    /failedIndexes\.push\(start \+ index\)/,
+    "chi ha importato deve poter correggere la riga giusta",
+  );
+});
+
+test("la riga di un atleta si costruisce in un posto solo", () => {
+  const db = readSource("src/lib/simplified-db.ts");
+  const occorrenze = db.match(/club_id: clubId,\n    first_name:/g) || [];
+
+  assert.equal(
+    occorrenze.length,
+    1,
+    "due copie della stessa riga divergono al primo campo aggiunto",
+  );
 });

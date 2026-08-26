@@ -360,6 +360,188 @@ export async function getClubAthletesPage(
   }
 }
 
+/**
+ * La riga di un atleta, come la scrive il database.
+ *
+ * Sta in una funzione sola perche la scrivono in due — la creazione singola e
+ * l'import a scaglioni — e due copie divergerebbero al primo campo aggiunto.
+ */
+const buildAthleteInsertPayload = (
+  clubId: string,
+  athleteData: any,
+  normalizedMemberships: ReturnType<typeof resolveRequestedAthleteMemberships>,
+) => {
+  const primaryMembership = getPrimaryAthleteCategoryMembership(
+    normalizedMemberships,
+  );
+  const categoryId =
+    primaryMembership?.categoryId || athleteData.category || null;
+  const categoryName =
+    primaryMembership?.categoryName || athleteData.categoryName || null;
+  const status = athleteData.status || "active";
+  const accessCode = athleteData.accessCode || null;
+  const avatar = athleteData.avatar || null;
+  const medicalCertExpiry = athleteData.medicalCertExpiry || null;
+  const birthDate =
+    typeof athleteData.birthDate === "string" &&
+    athleteData.birthDate &&
+    !athleteData.birthDate.includes("T")
+      ? `${athleteData.birthDate}T00:00:00.000Z`
+      : athleteData.birthDate || null;
+
+  return {
+    club_id: clubId,
+    first_name: athleteData.firstName,
+    last_name: athleteData.lastName,
+    birth_date: birthDate,
+    status,
+    category_id: categoryId,
+    category_name: categoryName,
+    access_code: accessCode,
+    avatar_url: avatar,
+    data: {
+      ...(isRecord(athleteData.data) ? athleteData.data : {}),
+      category: categoryId,
+      categoryName,
+      categoryMemberships: serializeAthleteMemberships(normalizedMemberships, {
+        clubId,
+      }),
+      categories: getAthleteCategoryLabels(normalizedMemberships),
+      birthDate,
+      medicalCertExpiry,
+      accessCode,
+      avatar,
+      status,
+    },
+    created_at: new Date().toISOString(),
+  };
+};
+
+/**
+ * Quanti atleti in una richiesta sola.
+ *
+ * Cinquanta e un compromesso, non un numero magico: abbastanza da ridurre di
+ * due ordini di grandezza le richieste di un import, abbastanza poco da
+ * lasciare che un errore ne perda pochi e da tenere il corpo della richiesta
+ * sotto il limite del server.
+ */
+const ATHLETE_IMPORT_CHUNK = 50;
+
+/**
+ * Importa un gruppo di atleti con **poche richieste**, non una per atleta.
+ *
+ * **Il difetto che chiude.** Il dialogo di import chiamava `addClubAthlete`
+ * dentro un ciclo: duecento atleti erano duecento inserimenti piu duecento
+ * scritture di appartenenza, in fila, ognuna con il suo giro sulla rete.
+ * Su una connessione di palestra l'import di una squadra durava minuti, e
+ * chiudere la finestra a meta lasciava l'archivio a meta.
+ *
+ * **Perche a scaglioni e non tutto insieme.** Un corpo con duemila anagrafiche
+ * e una richiesta che nessun proxy garantisce; e soprattutto un errore su una
+ * riga farebbe perdere tutte le altre. A scaglioni, un errore costa uno
+ * scaglione — e chi chiama puo riprovare le righe rifiutate una per una per
+ * sapere **quale** era sbagliata.
+ *
+ * **Perche non e transazionale.** Non lo era prima e non lo diventa qui: il
+ * CRUD generico crea le righe una per una dentro la richiesta. Un import
+ * interrotto lascia gli atleti gia creati, ed e scritto nella matrice RC
+ * invece che nascosto.
+ */
+export async function addClubAthletesBatch(
+  clubId: string,
+  rows: any[],
+  handlers: { onProgress?: (completed: number) => void } = {},
+): Promise<{ created: any[]; failedIndexes: number[] }> {
+  const created: any[] = [];
+  const failedIndexes: number[] = [];
+  let completed = 0;
+
+  for (let start = 0; start < rows.length; start += ATHLETE_IMPORT_CHUNK) {
+    const chunk = rows.slice(start, start + ATHLETE_IMPORT_CHUNK);
+
+    try {
+      const inserted = await insertAthleteChunk(clubId, chunk);
+      created.push(...inserted);
+    } catch {
+      /*
+        Lo scaglione non e passato: si riprova riga per riga, cosi una sola
+        anagrafica sbagliata non porta via le altre quarantanove e chi ha
+        importato sa quale correggere.
+      */
+      for (let index = 0; index < chunk.length; index += 1) {
+        try {
+          created.push(await addClubAthlete(clubId, chunk[index]));
+        } catch {
+          failedIndexes.push(start + index);
+        }
+      }
+    }
+
+    completed += chunk.length;
+    handlers.onProgress?.(Math.min(completed, rows.length));
+  }
+
+  return { created, failedIndexes };
+}
+
+/** Un solo `POST` con l'elenco, piu un solo `POST` per le appartenenze. */
+const insertAthleteChunk = async (clubId: string, rows: any[]) => {
+  const prepared = rows.map((row) => ({
+    row,
+    memberships: resolveRequestedAthleteMemberships(row, row),
+  }));
+
+  const { data, error } = await supabase
+    .from("simplified_athletes")
+    .insert(
+      prepared.map(({ row, memberships }) =>
+        buildAthleteInsertPayload(clubId, row, memberships),
+      ),
+    )
+    .select();
+
+  if (error) throw error;
+
+  const inserted = Array.isArray(data) ? data : [data].filter(Boolean);
+  if (inserted.length !== prepared.length) {
+    throw new Error("Import parziale: si riprova riga per riga");
+  }
+
+  const membershipRows = prepared.flatMap(({ memberships }, index) =>
+    serializeAthleteMemberships(memberships, {
+      clubId,
+      athleteId: inserted[index].id,
+    }).map((membership) => {
+      const payload = {
+        ...membership,
+        organization_id: clubId,
+        athlete_id: inserted[index].id,
+      } as Record<string, any>;
+      if (!UUID_PATTERN.test(String(payload.id || "").trim())) {
+        delete payload.id;
+      }
+      return payload;
+    }),
+  );
+
+  if (membershipRows.length) {
+    const { error: membershipError } = await supabase
+      .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
+      .insert(membershipRows);
+
+    /*
+      Un'appartenenza mancata non annulla l'atleta: la scheda resta, la
+      categoria si riassegna. Perdere l'anagrafica per una riga di
+      collegamento sarebbe il danno piu grande dei due.
+    */
+    if (membershipError && !isMissingAthleteMembershipResource(membershipError)) {
+      console.warn("Error importing athlete memberships:", membershipError);
+    }
+  }
+
+  return inserted;
+};
+
 const replaceAthleteMemberships = async (
   clubId: string,
   athleteId: string,
@@ -813,51 +995,12 @@ export async function addClubAthlete(clubId: string, athleteData: any) {
     athleteData,
     athleteData,
   );
-  const primaryMembership = getPrimaryAthleteCategoryMembership(
-    normalizedMemberships,
-  );
-  const categoryId = primaryMembership?.categoryId || athleteData.category || null;
-  const categoryName =
-    primaryMembership?.categoryName || athleteData.categoryName || null;
-  const status = athleteData.status || "active";
-  const accessCode = athleteData.accessCode || null;
-  const avatar = athleteData.avatar || null;
-  const medicalCertExpiry = athleteData.medicalCertExpiry || null;
-  const birthDate =
-    typeof athleteData.birthDate === "string" &&
-    athleteData.birthDate &&
-    !athleteData.birthDate.includes("T")
-      ? `${athleteData.birthDate}T00:00:00.000Z`
-      : athleteData.birthDate || null;
 
   const { data, error } = await supabase
     .from("simplified_athletes")
-    .insert({
-      club_id: clubId,
-      first_name: athleteData.firstName,
-      last_name: athleteData.lastName,
-      birth_date: birthDate,
-      status,
-      category_id: categoryId,
-      category_name: categoryName,
-      access_code: accessCode,
-      avatar_url: avatar,
-      data: {
-        ...(isRecord(athleteData.data) ? athleteData.data : {}),
-        category: categoryId,
-        categoryName,
-        categoryMemberships: serializeAthleteMemberships(normalizedMemberships, {
-          clubId,
-        }),
-        categories: getAthleteCategoryLabels(normalizedMemberships),
-        birthDate,
-        medicalCertExpiry,
-        accessCode,
-        avatar,
-        status,
-      },
-      created_at: new Date().toISOString(),
-    })
+    .insert(
+      buildAthleteInsertPayload(clubId, athleteData, normalizedMemberships),
+    )
     .select()
     .single();
 

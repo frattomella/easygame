@@ -28,16 +28,20 @@ succede.
 
 ---
 
+> **Per sapere se si puo rilasciare** c'e un documento a parte:
+> [22 — Matrice Release Candidate](22-release-candidate.md). Questo dice a che
+> punto e una richiesta; quello dice che cosa impedisce il rilascio.
+
 ## Conteggio
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 198 |
+| `DONE` | 213 |
 | `IN PROGRESS` | 11 |
-| `OPEN` | 21 |
+| `OPEN` | 22 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **240** |
+| **Totale** | **256** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -364,6 +368,42 @@ presenti — la numerazione delle ricevute nel browser (BB-04) e il gestore del
 webhook senza scope, che avrebbe scritto su una rata di un altro club — e un
 doppio di Prisma che non conosceva i vincoli di unicita, per cui il test sulla
 deduplica sarebbe passato provando il contrario di cio che deve provare.
+
+---
+
+## Blocco Finale C — Release Candidate Hardening
+
+Il blocco che porta da «molte funzionalita implementate» a «Web V1
+verificabile». Non ha aggiunto un dominio: ha chiuso i quattro blocker che
+restavano dentro il codice, misurato cio che si diceva a memoria, e aperto le
+pagine a 375 px invece di dedurne la responsivita da una regex.
+
+**Cosa ha trovato senza cercarlo.** Sei difetti veri, tutti in cose dichiarate
+funzionanti: il calcolo degli entitlement leggeva una chiave che nessuno
+scriveva; un `Object.assign` cancellava il filtro categoria appena si scriveva
+nella casella di ricerca; due cicli annidati nei report costavano centinaia di
+milioni di confronti; il doppio di Prisma non conosceva `lt` e cancellava
+tutto; Modulistica montava un secondo guscio che su un telefono le lasciava
+146 px su 375.
+
+| # | Richiesta | Stato | Chiuso da |
+|---|-----------|-------|-----------|
+| BC-01 | Il piano e i servizi di un club escono dalle mani del club | `DONE` | [ADR-0048](18-decision-log.md#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa) — quattro chiavi di `clubs.settings` scrivibili solo da `platform_admin`, e la guardia sta **nella scrittura**: nascondere i campi non avrebbe protetto niente. Ignora invece di rifiutare, perche il salvataggio di un recapito manda anche il piano; un valore **diverso** lascia una riga di audit `denied`. Chiude D37, R-18, BB-10 |
+| BC-02 | Il gating vero delle funzioni | `DONE` | `requireClubEntitlement` su checkout online, nuovo bando e nuovo modulo. La **lettura** non e mai negata: togliere un servizio non deve nascondere a una societa cio che ha gia ricevuto. `CapabilityGate` mostra il motivo — piano, abbonamento, servizio, assistenza sono quattro strade diverse |
+| BC-03 | Il difetto trovato chiudendo BC-01 | `DONE` | Il calcolo leggeva `settings.subscriptionSettings`, la pagina scriveva `settings.subscription`: **nessun club aveva il piano che credeva di avere**. Il test che avrebbe dovuto accorgersene seminava a sua volta la chiave sbagliata |
+| BC-04 | La lista Atleti consuma la paginazione | `DONE` | Due modi decisi dall'archivio: sotto una pagina niente cambia, sopra i filtri vanno al server e compare la barra delle pagine. Aggiunti `category_id` e `site_id`, senza i quali una pagina sarebbe stata «duecento atleti da filtrare poi a tre». Chiude R-02, F1-12, B8-21, D4 |
+| BC-05 | Misura su archivi realistici | `DONE` | `npm run measure:web` su 200, 1.000 e 2.000 atleti: peso, righe, **interrogazioni**, tempo, per cinque domini. La lista Atleti paginata resta a 121 kB e 2 query a ogni scala; nessuna schermata cresce di interrogazioni. Chiude D35 |
+| BC-06 | I due cicli annidati nei report | `DONE` | `club-report-utils` e `category-athlete-stats` rileggevano l'intero elenco delle presenze per **ogni** allenamento, e in un caso per ogni atleta per ogni allenamento. Con 2.000 atleti l'elenco e di 128.000 righe. Ora si scorre una volta e si legge da un indice; un test misura il **rapporto** di crescita |
+| BC-07 | Validazione del corpo con uno schema | `DONE` | `src/lib/validation/` con zod su autenticazione, incassi, stagioni, piano, contributi. `VALIDATION_ERROR` nell'envelope con la lista dei campi. Il CRUD generico resta fuori **per scelta**: cinquanta risorse aperte che uno schema chiuso rifiuterebbe a raffica. Chiude R-04, F1-05, D14 |
+| BC-08 | Audit sulle anagrafiche di persona | `DONE` | `anagrafica.updated` su sei risorse, e azioni **proprie** per incassi, storni, documenti emessi, rendicontazioni, liquidazioni e commerciale della piattaforma. Restano fuori allenamenti e magazzino: non hanno un soggetto. Chiude R-07, F3-04 |
+| BC-09 | Cosa deve essere periodico e cosa no | `DONE` | Audit scritto in `maintenance.ts`: request-driven quasi ovunque, con il perche. L'unica cosa che nessuna schermata fara mai e togliere le righe scadute, e la fa `POST /api/v1/maintenance`. Il trigger sta fuori dall'applicazione (ADR-0007) |
+| BC-10 | Lo scenario dei pagamenti, dall'inizio alla fine | `DONE` | Rata da 130: 50 contanti, 30 carta, 50 bonifico, poi storno dei 30. Residuo che torna a 30, rata di nuovo parziale, data di saldo tolta, storico che si allunga invece di riscriversi, ordine cronologico anche registrando a ritroso |
+| BC-11 | Verifica su schermo a 375, 768 e 1280 px | `DONE` | Diciotto pagine su una build vera con sessione autenticata. **Sette difetti**, tutti invisibili a un test statico. Chiude R-01, B3-03, A1-18, A2-18, WB-12, WP-34 |
+| BC-12 | Residui legacy classificati | `DONE` | Le due rotte orfane (D27) diventano un rimando alla scheda — un segnalibro merita un rimando, non un 404 — e `AddPaymentForm` (D31) e rimossa. Con Modulistica se ne vanno anche il guscio duplicato e la sua navigazione |
+| BC-13 | Import atleti senza una richiesta per atleta | `DONE` | Scaglioni da 50: due richieste per scaglione invece di due per atleta. Uno scaglione che fallisce ripiega riga per riga, cosi una sola anagrafica sbagliata non porta via le altre quarantanove |
+| BC-14 | Lo strumento per migrare i file legacy fuori dai record | `DONE` | `scripts/migrate-legacy-attachments.mjs`: prova a vuoto predefinita, conteggi, dimensioni, tipi, errori, `--limit`, ripetibile. **Non eseguito** su nessun ambiente: e una migrazione di dati e richiede autorizzazione |
+| BC-15 | Matrice Release Candidate | `DONE` | [22 — Matrice Release Candidate](22-release-candidate.md): ogni requisito storico con stato, implementazione, prova e «blocca il rilascio?». Tre blocker, tutti **fuori dal codice** |
+| BC-16 | Console di piattaforma verificata su schermo | `OPEN` | **Per un motivo di ambiente, non di codice**: il seed di sviluppo non contiene un account amministratore, e crearne uno significa scrivere una credenziale. Serve una decisione |
 
 ---
 

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test, { before, beforeEach } from "node:test";
 
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
+
+const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 /**
  * Il servizio allegati, a runtime (Blocco 8, WP-15).
@@ -386,4 +390,62 @@ test("un allegato scritto con il driver database resta leggibile dopo il cambio"
   } finally {
     service.setActiveStorageDriver("database");
   }
+});
+
+/* ------------- La migrazione dei file legacy (§7, Blocco Finale C) -------- */
+
+/**
+ * Lo script che porta fuori dai record i file rimasti dentro come data URL.
+ *
+ * **Perche i test guardano il sorgente e non lo eseguono.** Lo script apre una
+ * connessione vera al database al primo import: eseguirlo in un test vorrebbe
+ * dire o puntare un database, o costruirne un doppio piu grande dello script
+ * stesso. Cio che va presidiato non e il ciclo — e il **comportamento
+ * predefinito**: una migrazione di dati che parte per sbaglio e peggio di una
+ * che non parte.
+ */
+test("la migrazione dei file legacy non scrive niente se non glielo si chiede", () => {
+  const source = fs.readFileSync(
+    path.join(PROJECT_ROOT, "scripts/migrate-legacy-attachments.mjs"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /const APPLY = args\.includes\("--apply"\)/,
+    "il valore predefinito deve essere la prova a vuoto",
+  );
+  assert.match(
+    source,
+    /if \(APPLY && DB_ENV !== "development" && !OVERRIDE\)/,
+    "fuori da development serve la stessa deroga esplicita di db-guard",
+  );
+  assert.match(
+    source,
+    /if \(!APPLY\) return null;/,
+    "in prova a vuoto si contano i file, non si scrivono",
+  );
+});
+
+test("la migrazione e ripetibile e non perde niente", () => {
+  const source = fs.readFileSync(
+    path.join(PROJECT_ROOT, "scripts/migrate-legacy-attachments.mjs"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /importLegacyDataUrl/,
+    "riusa il servizio allegati invece di scrivere i byte per conto proprio",
+  );
+  assert.match(
+    source,
+    /if \(!attachment\) return null;/,
+    "se l'allegato non nasce, il campo resta com'era: il byte non si perde",
+  );
+  assert.match(
+    source,
+    /--limit=/,
+    "un archivio grande si migra a scaglioni, e il giro dopo salta cio che e gia migrato",
+  );
 });

@@ -79,6 +79,7 @@ import {
 import {
   getClubAthletesPage,
   addClubAthlete,
+  addClubAthletesBatch,
   updateClubAthlete,
   deleteClubAthlete,
 } from "@/lib/simplified-db";
@@ -833,54 +834,68 @@ export default function AthletesPage() {
 
     const failed: AthleteImportOutcome["failed"] = [];
     const usedCategoryIds = new Set<string>();
-    let imported = 0;
 
-    for (const row of importedRows) {
-      try {
-        const importedCategoryId =
-          row.categoryId &&
-          currentCategories.some((category) => category.id === row.categoryId)
-            ? row.categoryId
-            : categoryIdByKey.get(
-                normalizeCategoryKey(row.categoryLabel || ""),
-              ) || null;
+    /*
+      L'import va in scaglioni, non una richiesta per atleta.
 
-        const linkedCategory =
-          currentCategories.find(
-            (category) => category.id === importedCategoryId,
-          ) || findCategoryForBirthDate(row.birthDate, currentCategories);
+      Prima questo era un ciclo con un `await addClubAthlete` dentro:
+      duecento atleti erano duecento inserimenti piu duecento scritture di
+      appartenenza, in fila. Su una connessione di palestra l'import di una
+      squadra durava minuti. Le categorie si risolvono qui, prima di partire,
+      perche dipendono dalle categorie appena create e non dal database.
+    */
+    const payloads = importedRows.map((row) => {
+      const importedCategoryId =
+        row.categoryId &&
+        currentCategories.some((category) => category.id === row.categoryId)
+          ? row.categoryId
+          : categoryIdByKey.get(normalizeCategoryKey(row.categoryLabel || "")) ||
+            null;
 
-        await addClubAthlete(clubId, {
-          firstName: row.firstName,
-          lastName: row.lastName,
-          birthDate: row.birthDate,
-          category: linkedCategory?.id || null,
-          categoryName: linkedCategory?.name || row.categoryLabel || null,
-          status: "active",
-          data: {
-            gender: row.gender || "",
-            fiscalCode: row.fiscalCode || "",
-            email: row.email || "",
-            phone: row.phone || "",
-          },
-        });
+      const linkedCategory =
+        currentCategories.find(
+          (category) => category.id === importedCategoryId,
+        ) || findCategoryForBirthDate(row.birthDate, currentCategories);
 
-        if (linkedCategory?.id) {
-          usedCategoryIds.add(linkedCategory.id);
-        }
-        imported += 1;
-      } catch (error: any) {
-        console.error("Error importing athlete row:", row, error);
-        failed.push({
-          rowNumber: row.rowNumber,
-          label:
-            `${row.lastName} ${row.firstName}`.trim() || "riga senza nominativo",
-          reason: error?.message || "Scrittura non riuscita",
-        });
-      } finally {
-        onProgress(imported + failed.length);
+      if (linkedCategory?.id) {
+        usedCategoryIds.add(linkedCategory.id);
       }
+
+      return {
+        firstName: row.firstName,
+        lastName: row.lastName,
+        birthDate: row.birthDate,
+        category: linkedCategory?.id || null,
+        categoryName: linkedCategory?.name || row.categoryLabel || null,
+        status: "active",
+        data: {
+          gender: row.gender || "",
+          fiscalCode: row.fiscalCode || "",
+          email: row.email || "",
+          phone: row.phone || "",
+        },
+      };
+    });
+
+    const { created, failedIndexes } = await addClubAthletesBatch(
+      clubId,
+      payloads,
+      { onProgress },
+    );
+
+    for (const index of failedIndexes) {
+      const row = importedRows[index];
+      failed.push({
+        rowNumber: row?.rowNumber ?? index + 1,
+        label:
+          `${row?.lastName || ""} ${row?.firstName || ""}`.trim() ||
+          "riga senza nominativo",
+        reason: "Scrittura non riuscita",
+      });
     }
+
+    const imported = created.length;
+    onProgress(importedRows.length);
 
     for (const categoryId of createdCategoryIds) {
       if (usedCategoryIds.has(categoryId)) {

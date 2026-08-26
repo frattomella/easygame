@@ -8,7 +8,7 @@ importare direttamente i `.ts` sorgente.
 
 ```jsonc
 "test":      "npm run test:unit",
-"test:unit": "node --experimental-strip-types --experimental-test-isolation=none --import ./tests/helpers/register-hooks.mjs --test \"tests/**/*.test.mjs\""
+"test:unit": "node --experimental-strip-types --test-concurrency=1 --import ./tests/helpers/register-hooks.mjs --test \"tests/**/*.test.mjs\""
 ```
 
 Dal 2026-08-22 la **discovery e automatica**: un file nuovo sotto `tests/` viene
@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 971 test, 78 file
+## Cosa e coperto oggi — 1.198 test, 96 file
 
 **La tabella sotto ne elenca 57 e non 76**: e rimasta indietro, ed e onesto
 dirlo invece di lasciar credere che sia completa. Le righe che ci sono
@@ -200,16 +200,32 @@ connection string con credenziali, nessun `DATABASE_URL` nel mobile).
 
 | Gate | Esito |
 |------|-------|
-| `npm test` | 84 pass / 0 fail |
+| `npm test` | 1.198 pass / 0 fail (2026-08-26, Blocco Finale C) |
 | `npm run typecheck` | OK |
-| `npm run lint` | 0 errori, 53 warning (`no-img-element`, `exhaustive-deps`) |
-| `npm run build` | OK, 120 route, 62 s |
+| `npm run lint` | 0 errori, 42 warning (`no-img-element`, `exhaustive-deps`) |
+| `npm run build` | OK |
 | `easygamemobile` `check:types` | OK |
 | `easygamemobile` `lint` | esce 0, 20 warning |
 | `tsc --allowUnreachableCode false` | 0 segnalazioni |
 
 **Il numero di warning ESLint non deve crescere.** Se un tuo commit lo aumenta,
 correggi prima di committare.
+
+## Misure, non solo test
+
+Tre script producono numeri **rifacibili** invece di numeri copiati. Non
+fanno passare o fallire niente: servono a decidere prima di ottimizzare, e a
+produrre la riga «prima» e la riga «dopo» della stessa tabella.
+
+| Comando | Che domanda risponde |
+|---------|----------------------|
+| `npm run measure:athletes` | Quanto pesa la lista Atleti, e quanto pesava con i file dentro i record |
+| `npm run measure:multisite` | Come cresce il costo dell'abbigliamento e della numerazione con piu sedi |
+| `npm run measure:web` | Come cresce **ogni dominio** da 200 a 2.000 atleti: peso, righe, **interrogazioni**, tempo |
+
+Il terzo e nato nel Blocco Finale C e ha trovato due cicli annidati veri nei
+report: erano centinaia di milioni di confronti per disegnare una tabella, e
+nessun test funzionale poteva accorgersene.
 
 ## Come aggiungere un test
 

@@ -32,6 +32,7 @@ comportamenti desiderati o pianificati.
 | 19 | [Roadmap](19-roadmap.md) | Per capire la direzione |
 | 20 | [Work Package](20-work-packages.md) | Per scegliere il prossimo task |
 | 21 | [Backlog master](21-backlog.md) | Per sapere a che punto e una richiesta gia fatta |
+| 22 | [Matrice Release Candidate](22-release-candidate.md) | Per sapere se si puo rilasciare, e che cosa lo impedisce |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)
