@@ -4,6 +4,7 @@ import React from "react";
 import { Wallet } from "lucide-react";
 import { InstallmentLedgerList } from "./InstallmentLedgerList";
 import { RegisterPaymentDialog } from "./RegisterPaymentDialog";
+import { PayOnlineDialog } from "./PayOnlineDialog";
 import { useAthletePaymentLedger } from "./use-athlete-payment-ledger";
 import type { LedgerTotals } from "@/lib/payments/installment-ledger";
 
@@ -153,13 +154,26 @@ export function AthletePaymentLedger({
             void ledger.generateInvoice(transaction)
           }
           onPayOnline={
-            ledger.canPayOnline
-              ? (entry) => void ledger.payOnline(entry)
-              : undefined
+            ledger.canPayOnline ? ledger.selectOnlineLedger : undefined
           }
           pendingOnlineInstallmentId={ledger.pendingOnlineInstallmentId}
         />
       )}
+
+      <PayOnlineDialog
+        open={Boolean(ledger.onlineLedger)}
+        onOpenChange={(open) => {
+          if (!open) ledger.selectOnlineLedger(null);
+        }}
+        ledger={ledger.onlineLedger}
+        athleteName={athleteName}
+        isSubmitting={ledger.isOpeningCheckout}
+        onConfirm={(amount) =>
+          ledger.onlineLedger
+            ? ledger.payOnline(ledger.onlineLedger, amount)
+            : undefined
+        }
+      />
 
       <RegisterPaymentDialog
         open={Boolean(ledger.selectedLedger)}

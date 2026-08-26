@@ -10,6 +10,8 @@ import {
   findNextInstallment,
   resolveEnrollmentPaymentState,
   summarizeLedgers,
+  toPaymentAmount,
+  validateOnlinePaymentAmount,
   type EnrollmentPaymentState,
   type InstallmentLedger,
   type LedgerTotals,
@@ -61,7 +63,17 @@ export type AthletePaymentLedgerState = {
   generateInvoice: (
     transaction: NormalizedPaymentTransaction,
   ) => Promise<void>;
-  payOnline: (ledger: InstallmentLedger) => Promise<void>;
+  /** La rata su cui e aperta la finestra «Paga online», se ce n'e una. */
+  onlineLedger: InstallmentLedger | null;
+  selectOnlineLedger: (ledger: InstallmentLedger | null) => void;
+  isOpeningCheckout: boolean;
+  /**
+   * Apre il checkout per un importo **scelto**, in euro.
+   *
+   * L'importo non e piu implicito nel residuo: una famiglia che vuole versare
+   * 50 dei 130 dovuti deve poterlo fare online come lo farebbe allo sportello.
+   */
+  payOnline: (ledger: InstallmentLedger, amount: number) => Promise<void>;
 };
 
 export function useAthletePaymentLedger({
@@ -111,6 +123,9 @@ export function useAthletePaymentLedger({
   const [canPayOnline, setCanPayOnline] = React.useState(false);
   const [pendingOnlineInstallmentId, setPendingOnlineInstallmentId] =
     React.useState<string | null>(null);
+  const [onlineLedger, setOnlineLedger] =
+    React.useState<InstallmentLedger | null>(null);
+  const [isOpeningCheckout, setIsOpeningCheckout] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -166,6 +181,96 @@ export function useAthletePaymentLedger({
     () => resolveEnrollmentPaymentState(ledgers, totals),
     [ledgers, totals],
   );
+
+  /*
+    ------------------------------------------------- il pagamento «in verifica»
+
+    **Perche non basta una variabile di stato React.** Il checkout porta fuori
+    dall'applicazione: al ritorno la pagina e stata ricaricata da zero, e con
+    essa qualunque stato in memoria. La finestra in cui «in verifica» va detto
+    e **esattamente** quella che una variabile di stato non sopravvive.
+
+    Si conserva quindi la rata pagata **e il residuo che aveva** al momento del
+    checkout. Il residuo e cio che permette di smettere di dirlo senza dover
+    interrogare nessuno: quando il webhook ha registrato l'incasso il residuo
+    scende, e il confronto lo rivela alla prima lettura del registro. Senza,
+    l'etichetta resterebbe appesa fino al prossimo svuotamento della scheda.
+
+    `sessionStorage` e non `localStorage`: e un fatto della sessione di questo
+    browser, non una preferenza da conservare.
+  */
+  const pendingStorageKey = React.useMemo(
+    () => (athleteId ? `easygame:pagamento-in-verifica:${athleteId}` : ""),
+    [athleteId],
+  );
+
+  const readPendingCheckout = React.useCallback((): {
+    installmentId: string;
+    residualAtCheckout: number;
+  } | null => {
+    if (!pendingStorageKey || typeof window === "undefined") return null;
+
+    try {
+      const raw = window.sessionStorage.getItem(pendingStorageKey);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw);
+      const installmentId = String(parsed?.installmentId || "");
+      if (!installmentId) return null;
+
+      return {
+        installmentId,
+        residualAtCheckout: Number(parsed?.residualAtCheckout) || 0,
+      };
+    } catch {
+      /* Un contenuto illeggibile non e un motivo per rompere la scheda. */
+      return null;
+    }
+  }, [pendingStorageKey]);
+
+  const forgetPendingCheckout = React.useCallback(() => {
+    setPendingOnlineInstallmentId(null);
+    if (!pendingStorageKey || typeof window === "undefined") return;
+
+    try {
+      window.sessionStorage.removeItem(pendingStorageKey);
+    } catch {
+      /* Niente da fare, e niente da dire a chi sta guardando una rata. */
+    }
+  }, [pendingStorageKey]);
+
+  React.useEffect(() => {
+    const pending = readPendingCheckout();
+
+    if (!pending) {
+      setPendingOnlineInstallmentId(null);
+      return;
+    }
+
+    /*
+      La rata e sparita dal piano — sostituito, annullato — quindi non c'e piu
+      niente su cui mostrare l'etichetta.
+    */
+    const current = ledgers.find(
+      (entry) => String(entry.installmentId) === pending.installmentId,
+    );
+
+    if (!current) {
+      forgetPendingCheckout();
+      return;
+    }
+
+    /* Il residuo e sceso: il webhook e arrivato, la verifica e finita. */
+    if (
+      Math.round(current.residualAmount * 100) <
+      Math.round(pending.residualAtCheckout * 100)
+    ) {
+      forgetPendingCheckout();
+      return;
+    }
+
+    setPendingOnlineInstallmentId(pending.installmentId);
+  }, [ledgers, readPendingCheckout, forgetPendingCheckout]);
 
   /*
     Il registro tornato dal server ha la precedenza sullo stato locale: e la
@@ -322,16 +427,33 @@ export function useAthletePaymentLedger({
   );
 
   /**
-   * Apre il checkout per il residuo di una rata.
+   * Apre il checkout per un importo **scelto**, in euro.
+   *
+   * **Perche l'importo e un parametro e non piu il residuo.** Il registro sa
+   * gestire una rata pagata in piu volte da sempre (ADR-0036) e il server
+   * accettava gia un importo parziale: l'unico punto in cui l'acconto era
+   * impossibile era questo, cioe il canale che una famiglia usa da sola. Chi
+   * chiama sceglie, `validateOnlinePaymentAmount` dice se si puo.
    *
    * **Cosa succede al ritorno, e cosa no.** Non succede niente: la rata resta
    * marcata «in verifica» finche il webhook firmato non registra l'incasso. Il
    * browser puo non tornare affatto, e con SEPA il denaro arriva giorni dopo.
+   * Per questo il segno di «in verifica» viene scritto **prima** di lasciare
+   * la pagina, e in `sessionStorage`: quando si torna, questa memoria e
+   * l'unica cosa rimasta.
    */
   const payOnline = React.useCallback(
-    async (ledger: InstallmentLedger) => {
+    async (ledger: InstallmentLedger, amount: number) => {
       const installmentId = String(ledger.installmentId || "");
       if (!installmentId) return;
+
+      const problem = validateOnlinePaymentAmount({ amount, ledger });
+      if (problem) {
+        showToast("error", problem);
+        return;
+      }
+
+      setIsOpeningCheckout(true);
 
       const origin = window.location.origin;
       const { data, error } = await apiRequest<{ checkoutUrl: string }>(
@@ -341,7 +463,7 @@ export function useAthletePaymentLedger({
           body: {
             paymentId: installmentId,
             athleteId,
-            amountCents: Math.round(ledger.residualAmount * 100),
+            amountCents: Math.round(toPaymentAmount(amount) * 100),
             description: ledger.label,
             successUrl: `${origin}/athletes/${athleteId}?pagamento=verifica`,
             cancelUrl: `${origin}/athletes/${athleteId}?pagamento=annullato`,
@@ -349,12 +471,33 @@ export function useAthletePaymentLedger({
         },
       );
 
+      setIsOpeningCheckout(false);
+
       if (error || !data?.checkoutUrl) {
         showToast("error", error?.message || "Pagamento online non disponibile");
         return;
       }
 
+      /*
+        Il segno si scrive **prima** di navigare: dopo `openExternalUrl` questa
+        pagina puo non esistere piu, e con essa la riga che non abbiamo scritto.
+      */
+      if (pendingStorageKey && typeof window !== "undefined") {
+        try {
+          window.sessionStorage.setItem(
+            pendingStorageKey,
+            JSON.stringify({
+              installmentId,
+              residualAtCheckout: ledger.residualAmount,
+            }),
+          );
+        } catch {
+          /* Senza memoria l'etichetta non compare: e un peggioramento, non un errore. */
+        }
+      }
+
       setPendingOnlineInstallmentId(installmentId);
+      setOnlineLedger(null);
 
       try {
         openExternalUrl(data.checkoutUrl);
@@ -362,7 +505,7 @@ export function useAthletePaymentLedger({
         showToast("error", "Il collegamento al pagamento non e valido");
       }
     },
-    [athleteId, showToast],
+    [athleteId, pendingStorageKey, showToast],
   );
 
   return {
@@ -379,6 +522,9 @@ export function useAthletePaymentLedger({
     pendingOnlineInstallmentId,
     selectedLedger,
     selectLedger: setSelectedLedger,
+    onlineLedger,
+    selectOnlineLedger: setOnlineLedger,
+    isOpeningCheckout,
     reload,
     registerPayment,
     reverseTransaction,

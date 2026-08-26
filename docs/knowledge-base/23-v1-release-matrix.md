@@ -101,7 +101,7 @@ Piu due difetti di qualita degli strumenti, non del prodotto:
 | E-7 | Documento stampabile con il marchio | `DONE` | `document-view`, 12 test |
 | E-8 | Archiviazione del file emesso | `DEFERRED_POST_V1` | Lo **snapshot** dei dati c'e (ADR-0052): una ristampa non rilegge l'anagrafica di oggi. Il file archiviato serve quando si emettono fatture vere, non prima |
 | E-9 | Fatturazione elettronica (SdI) | `BLOCKED_EXTERNAL` | ADR-0053: tracciato `FPR12` generato e validato, nove stati, registro degli adapter **vuoto per costruzione**, sei test provano che «trasmessa» sia irraggiungibile. Manca un intermediario accreditato. **La condizione «nessuna schermata promette l'invio» ora e vera**: non lo era, ed e il difetto BE-3 |
-| E-10 | Checkout online reale | `BLOCKED_EXTERNAL` | Onboarding Connect, importi parziali, webhook, rimborsi: tutto su mock. Servono credenziali Stripe (X-3). Dal Blocco E il codice porta anche la separazione sandbox/produzione e la lettura della commissione Stripe dal `balance_transaction` (ADR-0060): entrambe **collaudate sulla traduzione, non contro Stripe** |
+| E-10 | Checkout online reale | `BLOCKED_EXTERNAL` | Onboarding Connect, webhook, rimborsi: tutto su mock. Servono credenziali Stripe (X-3). Dal Blocco E il codice porta separazione sandbox/produzione e commissione Stripe dal `balance_transaction` (ADR-0060), e l’**importo parziale ora si sceglie anche online**: era l’unico canale in cui l’acconto era impossibile. Tutto **collaudato sulla traduzione e sulle invarianti di interfaccia, non contro Stripe** |
 | E-11 | Le tre decisioni Connect | `BLOCKED_EXTERNAL` | Percentuale con decorrenza e storico: fatta. Tipo di account: configurabile e **irreversibile dopo il primo collegamento**. Saldi negativi: decisione aperta del proprietario |
 | E-12 | La commissione non cambia col listino | `DONE` | Congelata sull'incasso; `commission`, `payment-gateway-refunds` |
 | E-13 | Rimborsi e storni | `DONE` (su mock) | 11 test compreso il doppio evento sullo stesso rimborso |
@@ -252,7 +252,7 @@ Nell'ordine in cui conviene affrontarli.
 
 | Gate | Esito |
 |------|-------|
-| `npm test` | **1.576 test, 0 falliti** (erano 1.535 all'inizio del blocco: +41 — +20 su difetti trovati qui, +21 sulla separazione sandbox/produzione e sulla commissione Stripe, ADR-0060) |
+| `npm test` | **1.596 test, 0 falliti** (erano 1.535 all'inizio del blocco: +61 — +20 su difetti trovati qui, +21 su separazione sandbox/produzione e commissione Stripe (ADR-0060), +20 sul pagamento online parziale) |
 | `npm run typecheck` | nessun output |
 | `npm run lint` | 0 errori, 41 warning — **lo stesso numero** con cui il blocco e cominciato |
 | `npm run build` | completa |

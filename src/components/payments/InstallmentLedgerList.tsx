@@ -311,6 +311,11 @@ export function InstallmentLedgerList({
                   l'azione che si vuole incoraggiare, e perche la registrazione
                   manuale la compie chi conosce gia questa schermata.
                 */}
+                {/*
+                  L'etichetta non porta piu l'importo: il pulsante **apre una
+                  finestra** in cui l'importo si sceglie, e prometterne uno
+                  prima renderebbe l'acconto una sorpresa invece di un'opzione.
+                */}
                 {onPayOnline && ledger.residualAmount > 0 ? (
                   <Button
                     size="sm"
@@ -318,7 +323,7 @@ export function InstallmentLedgerList({
                     onClick={() => onPayOnline(ledger)}
                   >
                     <CreditCard className="h-3.5 w-3.5" />
-                    Paga online {formatCurrency(ledger.residualAmount)}
+                    Paga online
                   </Button>
                 ) : null}
 

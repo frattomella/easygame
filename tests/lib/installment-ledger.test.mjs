@@ -12,6 +12,7 @@ import {
   sortTransactionsChronologically,
   summarizeLedgers,
   sumSettledTransactions,
+  validateOnlinePaymentAmount,
   validatePaymentTransactionInput,
 } from "../../src/lib/payments/installment-ledger.ts";
 
@@ -418,6 +419,103 @@ test("l'importo non puo superare il residuo, a meno che non lo si consenta", () 
       ledger,
       allowOverpayment: true,
     }),
+    null,
+  );
+});
+
+/* ------------------------------------------------- l'importo di un online */
+
+/**
+ * L'acconto **online** era l'unico impossibile.
+ *
+ * Il registro sa gestire una rata pagata in piu volte da sempre, e il server
+ * accettava gia un importo parziale: l'unico punto in cui l'acconto non si
+ * poteva fare era il canale che una famiglia usa da sola, di sera, senza poter
+ * chiamare la segreteria. Il canale manuale era piu flessibile di quello
+ * automatico, che e il verso sbagliato.
+ */
+
+const rataDa130 = () =>
+  resolveInstallmentLedger({
+    charge: { id: "r1", amount: 130, description: "Rata unica", data: {} },
+    transactions: [],
+  });
+
+test("online: l'importo e precompilabile con il residuo e accetta un acconto", () => {
+  const ledger = rataDa130();
+
+  assert.equal(validateOnlinePaymentAmount({ amount: 130, ledger }), null);
+  assert.equal(validateOnlinePaymentAmount({ amount: 50, ledger }), null);
+  assert.equal(validateOnlinePaymentAmount({ amount: 0.01, ledger }), null);
+});
+
+test("online: non si puo pagare piu del residuo", () => {
+  /*
+    E l'unica asimmetria voluta rispetto al canale manuale. Quello accetta un
+    incasso superiore perche puo essere **gia successo** — denaro arrivato allo
+    sportello mentre qualcun altro registrava. Online il pagamento non e ancora
+    avvenuto: farlo partire per piu del dovuto creerebbe il credito invece di
+    registrarlo, e a scoprirlo sarebbe la famiglia sull'estratto conto.
+  */
+  const ledger = rataDa130();
+
+  assert.match(
+    validateOnlinePaymentAmount({ amount: 130.01, ledger }),
+    /piu del residuo/i,
+  );
+  assert.match(
+    validateOnlinePaymentAmount({ amount: 500, ledger }),
+    /piu del residuo/i,
+  );
+});
+
+test("online: il residuo che conta e quello corrente, non l'importo della rata", () => {
+  const ledger = resolveInstallmentLedger({
+    charge: { id: "r1", amount: 130, description: "Rata unica", data: {} },
+    transactions: normalizePaymentTransactions([
+      { id: "t1", amount: 50, paid_at: "2026-08-26T10:00:00.000Z" },
+    ]),
+  });
+
+  assert.equal(ledger.residualAmount, 80);
+  assert.equal(validateOnlinePaymentAmount({ amount: 80, ledger }), null);
+  assert.match(
+    validateOnlinePaymentAmount({ amount: 100, ledger }),
+    /piu del residuo/i,
+  );
+});
+
+test("online: una rata saldata non si paga", () => {
+  const ledger = resolveInstallmentLedger({
+    charge: { id: "r1", amount: 130, description: "Rata unica", data: {} },
+    transactions: normalizePaymentTransactions([
+      { id: "t1", amount: 130, paid_at: "2026-08-26T10:00:00.000Z" },
+    ]),
+  });
+
+  assert.equal(ledger.residualAmount, 0);
+  assert.match(
+    validateOnlinePaymentAmount({ amount: 10, ledger }),
+    /gia saldata/i,
+  );
+});
+
+test("online: zero e i valori non numerici vengono rifiutati", () => {
+  const ledger = rataDa130();
+
+  for (const amount of [0, -5, "", "abc", null, undefined]) {
+    assert.match(
+      validateOnlinePaymentAmount({ amount, ledger }),
+      /maggiore di zero/i,
+      `accettato ${JSON.stringify(amount)}`,
+    );
+  }
+});
+
+test("online: la virgola decimale italiana si accetta", () => {
+  /* Chi digita su una tastiera italiana scrive «12,50», non «12.50». */
+  assert.equal(
+    validateOnlinePaymentAmount({ amount: "12,50", ledger: rataDa130() }),
     null,
   );
 });

@@ -838,3 +838,69 @@ Lo stato del kit in cima **non e un campo**: e il riassunto degli articoli
 per cambiarlo — uno stato di kit scritto a mano si disallinea dai suoi
 articoli al primo aggiornamento, e da quel momento nessuno dei due e
 attendibile.
+
+## Incassare una rata: due gesti, due finestre, un solo registro (Blocco E)
+
+Una rata si incassa in due modi, e i due **non si confondono**:
+
+| | «Registra pagamento» | «Paga online» |
+|---|---|---|
+| Cosa dice | Del denaro **e arrivato** | Del denaro **deve partire** |
+| Chi lo fa | La segreteria | Chi paga |
+| Chiede | Importo, data, metodo | Solo l'importo |
+| Dove finisce | `payment_transactions`, subito | Sulla pagina del PSP, e torna col webhook |
+| Chi lo scrive | La rotta autenticata | Solo l'evento firmato |
+
+L'online **non** chiede data e metodo, e non e una semplificazione: il metodo
+lo sceglie chi paga sulla pagina di Stripe e la data la stabilisce l'evento
+firmato. Chiederli qui vorrebbe dire raccogliere due valori destinati a essere
+ignorati.
+
+**L'importo si sceglie anche online.** Fino al Blocco E il pulsante apriva il
+checkout per il residuo intero: il registro sapeva gestire una rata pagata in
+piu volte da sempre (ADR-0036) e il server accettava gia un importo parziale,
+ma l'unico canale in cui l'acconto era impossibile era **quello che una
+famiglia usa da sola**. Il canale manuale era piu flessibile di quello
+automatico, che e il verso sbagliato. Ora le due finestre sono simmetriche:
+importo precompilato col residuo, riepilogo «residuo / questo pagamento /
+residuo dopo», stessa frase quando la rata restera parziale.
+
+**L'unica asimmetria e voluta: online non si eccede il residuo.** Il canale
+manuale accetta un incasso superiore, perche puo essere gia successo — denaro
+arrivato allo sportello mentre qualcun altro registrava. Online il pagamento
+non e ancora avvenuto: farlo partire per piu del dovuto **creerebbe** il
+credito invece di registrarlo.
+
+### Quando il pulsante non c'e
+
+«Paga online» compare solo se `readiness.canCheckout` e vero, e lo calcola il
+server: distingue provider non configurato, club senza account, account in
+verifica e servizio spento dalla piattaforma. **Un pulsante che si accende e
+poi spiega di non funzionare e peggio di un pulsante che non c'e.** Il
+componente di lista non conosce Stripe: mostra la CTA solo se chi lo monta
+gliela passa.
+
+Su una rata **saldata** non compare nessuna delle due CTA: entrambe passano
+dallo stesso guardiano, `residualAmount > 0`.
+
+### «Pagamento in verifica» deve sopravvivere al ritorno
+
+E lo stato in cui una famiglia si trova fra il pagamento e la conferma firmata
+del provider. Con carta e questione di secondi; con bonifico o SEPA puo durare
+giorni, e dire «pagato» nel frattempo sarebbe una bugia che si scopre in
+contabilita.
+
+Il difetto era che lo stato viveva in una variabile React: il checkout porta
+**fuori** dall'applicazione, e al ritorno la pagina e stata ricaricata da zero.
+La finestra in cui l'etichetta va mostrata era esattamente quella in cui non
+esisteva piu. Ora la rata in attesa e il suo residuo al momento del checkout si
+scrivono in `sessionStorage` — **prima** di navigare, perche dopo questa pagina
+puo non esistere piu.
+
+Il residuo memorizzato e cio che permette di **smettere** senza interrogare
+nessuno: quando il webhook ha registrato l'incasso il residuo scende, e il
+confronto lo rivela alla prima lettura del registro. Senza, l'etichetta
+resterebbe appesa fino alla chiusura della scheda.
+
+`sessionStorage` e non `localStorage`: e un fatto di questa sessione del
+browser, non una preferenza da conservare.

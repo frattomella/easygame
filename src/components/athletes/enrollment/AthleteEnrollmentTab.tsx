@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { InstallmentLedgerList } from "@/components/payments/InstallmentLedgerList";
 import { RegisterPaymentDialog } from "@/components/payments/RegisterPaymentDialog";
+import { PayOnlineDialog } from "@/components/payments/PayOnlineDialog";
 import { useAthletePaymentLedger } from "@/components/payments/use-athlete-payment-ledger";
 import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
@@ -405,12 +406,17 @@ export function AthleteEnrollmentTab({
                 <CreditCard className="mr-2 h-4 w-4" />
                 Registra pagamento
               </Button>
+              {/*
+                Apre **la stessa** finestra della sezione «Rate»: l'importo si
+                sceglie li. Due scorciatoie allo stesso gesto vanno bene; due
+                gesti diversi per lo stesso fatto no.
+              */}
               {ledger.canPayOnline ? (
                 <Button
                   type="button"
                   variant="outline"
                   className="w-full sm:w-auto"
-                  onClick={() => void ledger.payOnline(next)}
+                  onClick={() => ledger.selectOnlineLedger(next)}
                 >
                   Paga online
                 </Button>
@@ -556,9 +562,7 @@ export function AthleteEnrollmentTab({
                 void ledger.generateInvoice(transaction)
               }
               onPayOnline={
-                ledger.canPayOnline
-                  ? (entry) => void ledger.payOnline(entry)
-                  : undefined
+                ledger.canPayOnline ? ledger.selectOnlineLedger : undefined
               }
               pendingOnlineInstallmentId={ledger.pendingOnlineInstallmentId}
               onEditInstallment={onEditInstallment}
@@ -759,6 +763,21 @@ export function AthleteEnrollmentTab({
           </div>
         </div>
       </Section>
+
+      <PayOnlineDialog
+        open={Boolean(ledger.onlineLedger)}
+        onOpenChange={(open) => {
+          if (!open) ledger.selectOnlineLedger(null);
+        }}
+        ledger={ledger.onlineLedger}
+        athleteName={athleteName}
+        isSubmitting={ledger.isOpeningCheckout}
+        onConfirm={(amount) =>
+          ledger.onlineLedger
+            ? ledger.payOnline(ledger.onlineLedger, amount)
+            : undefined
+        }
+      />
 
       <RegisterPaymentDialog
         open={Boolean(ledger.selectedLedger)}

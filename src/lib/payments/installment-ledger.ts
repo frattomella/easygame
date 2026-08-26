@@ -526,6 +526,48 @@ export const validatePaymentTransactionInput = ({
   return null;
 };
 
+/**
+ * Valida l'importo di un pagamento **online**, prima di aprire il checkout.
+ *
+ * **Perche non riusa `validatePaymentTransactionInput`.** Quella chiede anche
+ * il metodo di pagamento, che qui non esiste: il metodo e il PSP, e lo sceglie
+ * chi paga sulla pagina di Stripe. Passarle un metodo finto per riusarla
+ * vorrebbe dire far dipendere una validazione da un valore inventato apposta.
+ *
+ * **Perche qui l'eccedenza non e mai ammessa.** Il canale manuale accetta un
+ * incasso superiore al residuo, perche puo essere gia successo — denaro
+ * arrivato allo sportello mentre qualcun altro registrava. Online il pagamento
+ * non e ancora avvenuto: farlo partire per piu del dovuto creerebbe il credito
+ * invece di registrarlo, e a scoprirlo sarebbe la famiglia sull'estratto conto.
+ *
+ * Restituisce il messaggio dell'errore, o `null` se l'importo e accettabile.
+ */
+export const validateOnlinePaymentAmount = ({
+  amount,
+  ledger,
+}: {
+  amount: unknown;
+  ledger?: InstallmentLedger | null;
+}): string | null => {
+  const value = toPaymentAmount(amount);
+
+  if (!(value > 0)) {
+    return "L'importo da pagare deve essere maggiore di zero";
+  }
+
+  if (!ledger) return null;
+
+  if (toCents(ledger.residualAmount) <= 0) {
+    return "Questa rata e gia saldata";
+  }
+
+  if (toCents(value) > toCents(ledger.residualAmount)) {
+    return `Non si puo pagare piu del residuo (${ledger.residualAmount.toFixed(2)} EUR)`;
+  }
+
+  return null;
+};
+
 /* ------------------------------------------- la prossima cosa da fare */
 
 /**
