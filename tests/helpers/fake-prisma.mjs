@@ -120,7 +120,15 @@ const matchesWhere = (record, where) => {
  */
 const UNIQUE_CONSTRAINTS = {
   paymentWebhookEvent: [["provider", "event_id"]],
-  documentNumberSequence: [["organization_id", "kind", "year"]],
+  documentNumberSequence: [["organization_id", "kind", "series", "year"]],
+  clubPaymentAccount: [["organization_id"]],
+  platformBillingAccount: [["organization_id"]],
+  organizationFiscalProfile: [["organization_id"]],
+  documentSeries: [["organization_id", "kind", "code"]],
+  fiscalOperationType: [["organization_id", "code"]],
+  eInvoiceTransmission: [["invoice_id"]],
+  platformSetting: [["key"]],
+  receipt: [["transaction_id"]],
   athleteCategoryMembership: [
     ["organization_id", "athlete_id", "category_id"],
   ],
@@ -178,22 +186,52 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       calls.push({ delegate: name, method: "findMany", args });
       let rows = rowsOf(name).filter((r) => matchesWhere(r, args.where));
 
-      // `orderBy`, `skip` e `take` vanno onorati: un doppio che li ignora
-      // farebbe passare una paginazione che non pagina.
-      const orderBy = args.orderBy;
-      if (orderBy && typeof orderBy === "object" && !Array.isArray(orderBy)) {
-        const [field, direction] = Object.entries(orderBy)[0] || [];
-        if (field) {
-          const sign = direction === "desc" ? -1 : 1;
-          rows = [...rows].sort((left, right) => {
+      /*
+        `orderBy`, `skip` e `take` vanno onorati: un doppio che li ignora
+        farebbe passare una paginazione che non pagina.
+
+        La forma **array** non e un caso raro: il codice vero la usa ovunque
+        serva un criterio di spareggio — `[{ paid_at }, { created_at }]` sugli
+        incassi, `[{ effective_from }, { created_at }]` sulle condizioni
+        commerciali. Ignorarla faceva passare per ordinati dei risultati che
+        arrivavano nell'ordine di inserimento.
+      */
+      const criteria = Array.isArray(args.orderBy)
+        ? args.orderBy
+        : args.orderBy && typeof args.orderBy === "object"
+          ? [args.orderBy]
+          : [];
+
+      if (criteria.length) {
+        rows = [...rows].sort((left, right) => {
+          for (const criterion of criteria) {
+            const [field, direction] = Object.entries(criterion || {})[0] || [];
+            if (!field) continue;
+
             const a = left[field];
             const b = right[field];
-            if (a === b) return 0;
-            if (a === undefined || a === null) return 1;
+
+            if (a === undefined || a === null) {
+              if (b === undefined || b === null) continue;
+              return 1;
+            }
             if (b === undefined || b === null) return -1;
-            return a > b ? sign : -sign;
-          });
-        }
+
+            /*
+              Il confronto e a tre vie e **non** passa da `===`.
+
+              Due `Date` con lo stesso istante non sono lo stesso oggetto: con
+              `===` risultavano diverse, il ramo di uguaglianza non scattava e
+              il comparatore restituiva un ordine arbitrario. Un test
+              sull'ordinamento a parita di data — che e il caso in cui
+              l'ordinamento serve — passava o falliva a seconda
+              dell'implementazione di `sort`.
+            */
+            if (a < b) return direction === "desc" ? 1 : -1;
+            if (a > b) return direction === "desc" ? -1 : 1;
+          }
+          return 0;
+        });
       }
 
       if (Number.isInteger(args.skip)) rows = rows.slice(args.skip);

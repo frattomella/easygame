@@ -247,7 +247,11 @@ export type WebhookOutcome = {
  */
 const resolveEventOrganization = async (
   event: GatewayWebhookEvent,
-): Promise<{ organizationId: string | null; mismatch: boolean }> => {
+): Promise<{
+  organizationId: string | null;
+  mismatch: boolean;
+  unknownAccount: boolean;
+}> => {
   const fromMetadata =
     asText(event.payment?.reference.organizationId) ||
     asText(event.refund?.reference.organizationId) ||
@@ -260,10 +264,25 @@ const resolveEventOrganization = async (
     : null;
 
   if (fromAccount && fromMetadata && fromAccount !== fromMetadata) {
-    return { organizationId: null, mismatch: true };
+    return { organizationId: null, mismatch: true, unknownAccount: false };
   }
 
-  return { organizationId: fromAccount || fromMetadata, mismatch: false };
+  /*
+    L'evento dichiara un account connesso che EasyGame non conosce. Ripiegare
+    sui metadati sarebbe il buco piu grande di tutti: chiunque possa far
+    generare un evento su un proprio account Connect potrebbe metterci dentro
+    l'identificativo di una rata altrui e vedersela registrata. Un account che
+    non risulta collegato a nessuna societa non muove denaro, e lo dice.
+  */
+  if (accountId && !fromAccount) {
+    return { organizationId: null, mismatch: false, unknownAccount: true };
+  }
+
+  return {
+    organizationId: fromAccount || fromMetadata,
+    mismatch: false,
+    unknownAccount: false,
+  };
 };
 
 /**
@@ -291,7 +310,8 @@ export const handleGatewayWebhookEvent = async (
     );
   }
 
-  const { organizationId, mismatch } = await resolveEventOrganization(event);
+  const { organizationId, mismatch, unknownAccount } =
+    await resolveEventOrganization(event);
 
   /*
     La riga si inserisce **prima** di agire, e il vincolo di unicita e cio che
@@ -350,6 +370,12 @@ export const handleGatewayWebhookEvent = async (
   if (mismatch) {
     return markIgnored(
       "L'evento cita un club diverso da quello a cui appartiene l'account connesso: non viene elaborato",
+    );
+  }
+
+  if (unknownAccount) {
+    return markIgnored(
+      "L'evento arriva da un account connesso che non risulta collegato a nessuna societa: non viene elaborato",
     );
   }
 

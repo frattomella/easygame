@@ -1,7 +1,14 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, FileText, Receipt, Undo2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  CreditCard,
+  FileText,
+  Receipt,
+  Undo2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -192,6 +199,21 @@ export type InstallmentLedgerListProps = {
   ) => void;
   busyTransactionId?: string | null;
   emptyMessage?: string;
+  /**
+   * Il pagamento online della rata.
+   *
+   * **Convive con «Registra pagamento», non lo sostituisce.** Sono due canali
+   * per lo stesso debito: la famiglia paga dal link, la segreteria registra
+   * il contante allo sportello. Entrambi producono un movimento nello stesso
+   * registro — non esiste una «rata Stripe» separata (ADR-0036).
+   *
+   * Assente quando gli incassi online non sono disponibili: un pulsante che
+   * si accende e poi spiega di non funzionare e peggio di un pulsante che non
+   * c'e.
+   */
+  onPayOnline?: (ledger: InstallmentLedger) => void;
+  /** La rata il cui pagamento online e in attesa della conferma del provider. */
+  pendingOnlineInstallmentId?: string | null;
 };
 
 export function InstallmentLedgerList({
@@ -203,6 +225,8 @@ export function InstallmentLedgerList({
   onGenerateInvoice,
   busyTransactionId = null,
   emptyMessage = "Nessuna rata generata per questo atleta.",
+  onPayOnline,
+  pendingOnlineInstallmentId = null,
 }: InstallmentLedgerListProps) {
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
 
@@ -268,9 +292,40 @@ export function InstallmentLedgerList({
               </div>
 
               <div className="flex flex-col gap-2 sm:items-end">
+                {/*
+                  L'ordine non e casuale: «Paga online» sta sopra perche e
+                  l'azione che si vuole incoraggiare, e perche la registrazione
+                  manuale la compie chi conosce gia questa schermata.
+                */}
+                {onPayOnline && ledger.residualAmount > 0 ? (
+                  <Button
+                    size="sm"
+                    className="w-full gap-1 sm:w-auto"
+                    onClick={() => onPayOnline(ledger)}
+                  >
+                    <CreditCard className="h-3.5 w-3.5" />
+                    Paga online {formatCurrency(ledger.residualAmount)}
+                  </Button>
+                ) : null}
+
+                {/*
+                  «In verifica» e uno stato vero, non l'assenza di uno stato: e
+                  quello in cui una famiglia si trova fra il pagamento e la
+                  conferma firmata del provider. Con SEPA o bonifico puo durare
+                  giorni, e dire «pagato» nel frattempo sarebbe una bugia che si
+                  scopre in contabilita.
+                */}
+                {pendingOnlineInstallmentId &&
+                pendingOnlineInstallmentId === String(ledger.installmentId) ? (
+                  <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+                    Pagamento in verifica
+                  </Badge>
+                ) : null}
+
                 {canManage && ledger.residualAmount > 0 && onRegisterPayment ? (
                   <Button
                     size="sm"
+                    variant={onPayOnline ? "outline" : "default"}
                     className="w-full sm:w-auto"
                     onClick={() => onRegisterPayment(ledger)}
                   >

@@ -40,6 +40,17 @@ export type CommissionRule = {
   fixedCents: number;
   /** Da quando vale. */
   effectiveFrom: string | Date;
+  /**
+   * Quando e stata scritta.
+   *
+   * **Non e un dato di servizio: e il criterio che scioglie i pareggi.** Due
+   * regole con la stessa decorrenza succedono davvero — riportare un club allo
+   * standard scrive una regola con decorrenza «adesso», e «adesso» puo
+   * coincidere al millisecondo con quella che si sta sostituendo. Senza questo
+   * campo, quale delle due vincesse dipendeva dall'ordine in cui il database
+   * restituiva le righe, e la piu vecchia poteva sopravvivere alla piu nuova.
+   */
+  createdAt?: string | Date | null;
   note?: string | null;
 };
 
@@ -99,21 +110,43 @@ const applicableRules = (
   organizationId: string | null,
   at: number,
 ) =>
-  rules
-    .filter((rule) => {
-      const from = toTime(rule.effectiveFrom);
-      if (from === null || from > at) return false;
-      if (rule.organizationId === null) return true;
-      return Boolean(organizationId) && rule.organizationId === organizationId;
-    })
-    .sort((left, right) => {
-      const delta = (toTime(right.effectiveFrom) || 0) - (toTime(left.effectiveFrom) || 0);
-      if (delta !== 0) return delta;
+  rules.filter((rule) => {
+    const from = toTime(rule.effectiveFrom);
+    if (from === null || from > at) return false;
+    if (rule.organizationId === null) return true;
+    return Boolean(organizationId) && rule.organizationId === organizationId;
+  });
 
-      const leftIsOverride = left.organizationId !== null ? 0 : 1;
-      const rightIsOverride = right.organizationId !== null ? 0 : 1;
-      return leftIsOverride - rightIsOverride;
-    });
+/**
+ * Quale di due regole applicabili vince.
+ *
+ * **I pareggi non sono un caso di laboratorio.** Riportare un club alla
+ * condizione standard scrive una regola «da adesso» mentre quella da
+ * sostituire porta lo stesso istante: su un orologio a bassa risoluzione i due
+ * valori coincidono al millisecondo. Senza un criterio, quale delle due
+ * vincesse dipendeva dall'ordine in cui il database restituiva le righe — e la
+ * regola vecchia poteva sopravvivere a quella che la sostituiva.
+ *
+ * I criteri, in ordine: decorrenza piu recente, poi scrittura piu recente, poi
+ * l'override del club sulla condizione generale. A parita di tutti e tre vince
+ * **l'ultima incontrata**, e per questo `loadCommissionRules` restituisce le
+ * righe in ordine crescente.
+ */
+const beats = (candidate: CommissionRule, current: CommissionRule) => {
+  const delta =
+    (toTime(candidate.effectiveFrom) || 0) - (toTime(current.effectiveFrom) || 0);
+  if (delta !== 0) return delta > 0;
+
+  const written =
+    (toTime(candidate.createdAt) || 0) - (toTime(current.createdAt) || 0);
+  if (written !== 0) return written > 0;
+
+  const candidateIsOverride = candidate.organizationId !== null;
+  const currentIsOverride = current.organizationId !== null;
+  if (candidateIsOverride !== currentIsOverride) return candidateIsOverride;
+
+  return true;
+};
 
 /**
  * Quale commissione vale per un club a una certa data.
@@ -129,7 +162,15 @@ export const resolveCommission = (input: {
 }): ResolvedCommission => {
   const at = toTime(input.at) ?? Date.now();
   const organizationId = String(input.organizationId || "").trim() || null;
-  const winner = applicableRules(input.rules || [], organizationId, at)[0] || null;
+
+  const winner = applicableRules(
+    input.rules || [],
+    organizationId,
+    at,
+  ).reduce<CommissionRule | null>(
+    (best, rule) => (best === null || beats(rule, best) ? rule : best),
+    null,
+  );
 
   if (!winner) {
     return {

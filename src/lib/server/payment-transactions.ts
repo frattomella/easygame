@@ -590,7 +590,20 @@ export const recordRefundTransaction = async (
 
   if (existing) {
     const transactions = original.payment_id
-      ? await listPaymentTransactions({ paymentId: original.payment_id }, scope)
+      ? await listPaymentTransactions(
+          {
+            /*
+              Il club arriva dall'incasso originale e non dallo scope: questa
+              funzione la chiama il webhook, che uno scope non ce l'ha. Senza,
+              la rilettura falliva con «nessun club indicato» **solo sul
+              secondo evento** dello stesso rimborso — cioe nel caso che questa
+              deduplica esiste per gestire.
+            */
+            organizationId: String(original.organization_id),
+            paymentId: original.payment_id,
+          },
+          scope,
+        )
       : [];
 
     return {

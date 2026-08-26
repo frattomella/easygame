@@ -72,6 +72,7 @@ import {
   AssistedFiscalCodeField,
 } from "@/components/forms/assisted-anagrafica";
 import { ClubBillingSettings } from "@/components/payments/ClubBillingSettings";
+import { FiscalProfilePanel } from "@/components/fiscal/FiscalProfilePanel";
 import { readSubscriptionSettingsSource } from "@/lib/entitlements";
 import { CapabilityGate } from "@/components/club/capability-gate";
 import { ClubPaymentSettings } from "@/components/payments/ClubPaymentSettings";
@@ -1865,6 +1866,15 @@ const [federations, setFederations] = useState<any[]>([]);
               extraServices={extraServices}
               readOnly
             />
+
+            {/*
+              Il profilo fiscale sta qui e non in Dati generali: l'anagrafica
+              risponde a «come si chiama e dove la trovo», questo a «che
+              soggetto e davanti al fisco». Sono due domande che cambiano in
+              momenti diversi (ADR-0052). Sta sotto l'abbonamento perche e la
+              stessa scheda in cui si guarda quando si parla di documenti.
+            */}
+            <FiscalProfilePanel organizationId={clubId} />
           </TabsContent>
 {/* SOCIAL */}
           <TabsContent value="social" className="space-y-4 mt-4">

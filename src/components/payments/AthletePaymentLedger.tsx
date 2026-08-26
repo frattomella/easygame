@@ -13,6 +13,7 @@ import {
   type NormalizedPaymentTransaction,
 } from "@/lib/payments/installment-ledger";
 import { InstallmentLedgerList } from "./InstallmentLedgerList";
+import { openExternalUrl } from "@/lib/navigation/external-link";
 import {
   RegisterPaymentDialog,
   type RegisterPaymentSubmission,
@@ -92,6 +93,74 @@ export function AthletePaymentLedger({
   >(null);
   const [selectedLedger, setSelectedLedger] =
     React.useState<InstallmentLedger | null>(null);
+
+  /*
+    Se gli incassi online sono davvero disponibili lo dice il server, e lo si
+    chiede una volta sola: un pulsante che si accende e poi spiega di non
+    funzionare e peggio di un pulsante che non c'e.
+  */
+  const [canPayOnline, setCanPayOnline] = React.useState(false);
+  const [pendingOnlineInstallmentId, setPendingOnlineInstallmentId] =
+    React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    void apiRequest<{ readiness?: { canCheckout?: boolean } }>(
+      "/api/v1/payments/account",
+    ).then((response) => {
+      if (cancelled) return;
+      setCanPayOnline(Boolean(response.data?.readiness?.canCheckout));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Apre il checkout per il residuo di una rata.
+   *
+   * **Cosa succede al ritorno, e cosa no.** Non succede niente: la rata resta
+   * marcata «in verifica» finche il webhook firmato non registra l'incasso. Il
+   * browser puo non tornare affatto, e con SEPA il denaro arriva giorni dopo.
+   */
+  const handlePayOnline = React.useCallback(
+    async (ledger: InstallmentLedger) => {
+      const installmentId = String(ledger.installmentId || "");
+      if (!installmentId) return;
+
+      const origin = window.location.origin;
+      const { data, error } = await apiRequest<{ checkoutUrl: string }>(
+        "/api/payments/create-checkout-session",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            paymentId: installmentId,
+            athleteId,
+            amountCents: Math.round(ledger.residualAmount * 100),
+            description: ledger.label,
+            successUrl: `${origin}/athletes/${athleteId}?pagamento=verifica`,
+            cancelUrl: `${origin}/athletes/${athleteId}?pagamento=annullato`,
+          }),
+        },
+      );
+
+      if (error || !data?.checkoutUrl) {
+        showToast("error", error?.message || "Pagamento online non disponibile");
+        return;
+      }
+
+      setPendingOnlineInstallmentId(installmentId);
+
+      try {
+        openExternalUrl(data.checkoutUrl);
+      } catch {
+        showToast("error", "Il collegamento al pagamento non e valido");
+      }
+    },
+    [athleteId, showToast],
+  );
 
   const loadTransactions = React.useCallback(async () => {
     if (!athleteId) return;
@@ -347,6 +416,10 @@ export function AthletePaymentLedger({
           onGenerateInvoice={(transaction) =>
             void handleGenerateInvoice(transaction)
           }
+          onPayOnline={
+            canPayOnline ? (ledger) => void handlePayOnline(ledger) : undefined
+          }
+          pendingOnlineInstallmentId={pendingOnlineInstallmentId}
         />
       )}
 

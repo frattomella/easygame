@@ -142,6 +142,7 @@ const toRule = (row: any): CommissionRule => ({
   percent: Number(row.percent),
   fixedCents: Number(row.fixed_cents || 0),
   effectiveFrom: row.effective_from,
+  createdAt: row.created_at ?? null,
   note: row.note ?? null,
 });
 
@@ -160,11 +161,18 @@ export const loadCommissionRules = async (
 ): Promise<CommissionRule[]> => {
   const id = asText(organizationId);
 
+  /*
+    Ordine **crescente**, ed e una scelta che conta. La risoluzione scioglie i
+    pareggi preferendo l'ultima regola che incontra: due scritture nello stesso
+    istante — che succedono davvero quando si riporta un club allo standard —
+    devono lasciar vincere quella scritta dopo, e l'unico ordine su cui si puo
+    contare e quello che il database restituisce.
+  */
   const rows = await ruleClient().findMany({
     where: id
       ? { OR: [{ organization_id: null }, { organization_id: id }] }
       : { organization_id: null },
-    orderBy: { effective_from: "desc" },
+    orderBy: [{ effective_from: "asc" }, { created_at: "asc" }],
   });
 
   return rows.map(toRule);
@@ -220,6 +228,12 @@ export const saveCommissionRule = async (input: SaveCommissionRuleInput) => {
       percent,
       fixed_cents: fixedCents,
       effective_from: effectiveFrom,
+      /*
+        Scritto qui e non lasciato al valore predefinito della colonna: e il
+        criterio con cui si sciolgono i pareggi di decorrenza, e deve venire
+        dallo stesso orologio che ha prodotto `effective_from`.
+      */
+      created_at: new Date(),
       note: asText(input.note) || null,
       created_by: asText(input.actorUserId) || null,
     },
@@ -285,7 +299,9 @@ export const listCommissionHistory = async (input: {
     fixedCents: Number(row.fixed_cents || 0),
     effectiveFrom: new Date(row.effective_from).toISOString(),
     note: row.note ?? null,
-    createdAt: new Date(row.created_at).toISOString(),
+    createdAt: row.created_at
+      ? new Date(row.created_at).toISOString()
+      : new Date(row.effective_from).toISOString(),
     createdBy: row.created_by ? String(row.created_by) : null,
   }));
 };
