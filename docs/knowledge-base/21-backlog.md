@@ -32,12 +32,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 179 |
+| `DONE` | 189 |
 | `IN PROGRESS` | 18 |
-| `OPEN` | 22 |
+| `OPEN` | 23 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **229** |
+| **Totale** | **240** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -334,6 +334,39 @@ non da una richiesta.
 
 ---
 
+## Blocco Finale B — Finance & Forms Completion
+
+Il blocco che chiude i domini economici e la modulistica. Undici voci: nove
+chiuse, due che restano aperte **per scelta** e dicono cosa manca.
+
+Nessuna voce riguarda funzioni gia esistenti: l'audit iniziale ha trovato
+Forms V2, il builder, i campi dinamici, i soggetti collegati, la coda di
+approvazione, il controllo duplicati, Payment V2 e i contributi **gia
+completi** dai blocchi precedenti. Riscriverli sarebbe stato il difetto
+numero 1 di CLAUDE.md.
+
+| # | Richiesta | Stato | Chiuso da |
+|---|-----------|-------|-----------|
+| BB-01 | La sede in un modulo di iscrizione online | `DONE` | ADR-0043 — sede e categoria sono campi le cui **opzioni le mette il server** dalle sedi attive del club proprietario. La stessa funzione riempie le opzioni quando il modulo si serve e quando l'invio si valida, quindi un valore fuori elenco lo rifiuta la validazione dei campi a scelta che c'era gia. Chiude R-14 e B9-18 |
+| BB-02 | Club mono-sede senza complicazioni | `DONE` | ADR-0043 — la domanda non si mostra e la sede viene assegnata lo stesso |
+| BB-03 | L'approvazione colloca categoria e sede | `DONE` | ADR-0043 — l'appartenenza nasce con il gruppo giusto. Un'appartenenza gia collocata non si sposta |
+| BB-04 | Numerazione documenti per club ed esercizio | `DONE` | ADR-0044 — vincolo composto e sequenza incrementata in una sola istruzione dentro una transazione. Chiude D28. Trovata chiudendolo: una **seconda numerazione** nel browser, nella pagina Movimenti, rimossa |
+| BB-05 | Pagamenti online: astrazione provider-agnostica | `DONE` | ADR-0045 — CediPay come livello di prodotto, contratto a sette operazioni, adapter Stripe con addebiti diretti, commissione configurabile. Chiude la parte architetturale di R-05 |
+| BB-06 | Webhook: firma, deduplica, idempotenza | `DONE` | ADR-0045 — verifica HMAC con diciassette test, deduplica su `(provider, event_id)`, 503 senza segreto. Rischio 6 di [14](14-security.md) da MEDIO a PRESIDIATO |
+| BB-07 | Entitlements centralizzati e console piattaforma | `DONE` | ADR-0046 — catalogo chiuso, risoluzione con il **motivo** di ogni esito, `GET|POST /api/v1/entitlements`, sezione «Servizi e piani». Oggi **descrittivo**: vedi BB-10 |
+| BB-08 | Ricevuta e fattura come documenti distinti | `DONE` | ADR-0047 — due registri di numerazione, intestatario risolto dal tutore, `is_electronic` falso per costruzione. Chiude D36 sul percorso che genera il volume |
+| BB-09 | Il documento stampabile con il marchio del club | `DONE` | `GET /api/v1/documents/:kind/:id`. **Non archiviato**: le due strade — PDF con una libreria, o `text/html` in `attachments` — sono in D38 e nessuna si prende scrivendo un file |
+| BB-10 | Il gating vero delle funzioni | `OPEN` | **Per scelta.** Piano e servizi stanno in `clubs.settings` e la pagina Organizzazione li rende modificabili dal club: finche lo strato descrive non e un problema, il giorno in cui nega un club si concede il piano da solo. Va chiuso D37 prima |
+| BB-11 | Strumenti per riconciliare il primo bando reale | `DONE` | `GET /api/v1/funding/programs/:id/reconciliation`, anche in CSV: una riga per atleta e periodo, con la misura grezza accanto al requisito. **Non chiude R-11**, che e l'atto di caricare un bando vero |
+
+**Cosa il blocco ha trovato senza cercarlo.** Due seconde implementazioni gia
+presenti — la numerazione delle ricevute nel browser (BB-04) e il gestore del
+webhook senza scope, che avrebbe scritto su una rata di un altro club — e un
+doppio di Prisma che non conosceva i vincoli di unicita, per cui il test sulla
+deduplica sarebbe passato provando il contrario di cio che deve provare.
+
+---
+
 ## Remaining Web V1 after integration
 
 Cio che manca perche la Web V1 si possa dichiarare **release candidate**, dopo
@@ -361,6 +394,11 @@ piu sotto: quelle vengono **dopo** il rilascio.
 | R-12 | Multi-sede: primo club con due sedi vere, configurato e usato | Il modello, i filtri e i gruppi operativi sono coperti dai test, ma «due sedi» diventa reale solo quando una segreteria assegna atleti veri e usa i filtri per una settimana | P-01, WP-49 |
 | R-13 | Modulistica V2: primo modulo pubblicato e primo ciclo di approvazione reale | Il builder, la coda e l'approvazione sono coperti dai test. Un modulo pubblico e pero l'unica superficie che sta su Internet senza autenticazione: il primo giro va fatto con un modulo vero e una compilazione vera prima di dichiararlo rilasciabile | B9-01, WP-50 |
 | ~~R-14~~ | ~~La sede di un atleta iscritto da un modulo online si assegna a mano~~ | **Chiuso dal Blocco Finale B** (ADR-0043). Il modulo puo chiedere la sede, l'elenco lo mette il server e l'approvazione colloca l'appartenenza. Resta la verifica su schermo del modulo pubblico multi-sede, che e in R-01 | B9-18, ADR-0043 |
+
+| R-15 | Applicare le due migrazioni del Blocco Finale B | `20260826170000_document_numbering` e `20260826180000_payment_webhook_events` sono scritte, revisionabili e **non applicate**: la scrittura sul database richiede autorizzazione esplicita (CLAUDE.md, sezione 8). Senza, l'emissione di una ricevuta e la ricezione di un webhook falliscono a runtime | ADR-0044, ADR-0045 |
+| R-16 | Credenziali Stripe e primo giro reale di CediPay | Contratto, adapter, firma e deduplica ci sono e sono coperti dai test. **Nessun checkout, nessun webhook e nessun rimborso e mai passato da Stripe**: non ci sono credenziali in questo repository. Finche non gira contro un account vero, l'integrazione e da collaudare, non funzionante | R-05, ADR-0045 |
+| R-17 | Le tre decisioni Connect che non sono tecniche | Tipo di dashboard dell'account connesso — **irreversibile** dopo la creazione dell'account —, responsabilita dei saldi negativi, e percentuale della commissione, che e un accordo commerciale. Sono elencate in ADR-0045 perche vanno prese, non perche siano state prese | ADR-0045 |
+| R-18 | Il piano di un club deve uscire dalle mani del club | Finche gli entitlement descrivono non e un problema; il giorno in cui negano l'accesso a qualcosa, un club si concede il piano superiore da solo. **Blocca il gating vero** | D37, ADR-0046, BB-10 |
 
 **Uscite dall'elenco con l'integrazione.** Erano due, entrambe chiuse in questo
 blocco e non rinviate:

@@ -233,3 +233,94 @@ test("i comandi dei contratti dell'allenatore stanno nello schermo", () => {
     "i due comandi dei contratti tornano in riga a 375 px",
   );
 });
+
+/* ------------------------------------- superfici del Blocco Finale B */
+
+/**
+ * Le schermate nate o cambiate nel Blocco Finale B.
+ *
+ * Vale la stessa avvertenza di tutto il file: questi test **non**
+ * sostituiscono l'apertura a 375 px, che resta in R-01 e richiede una
+ * sessione autenticata su un database. Coprono la classe di difetti che si
+ * scrive senza accorgersene, e che poi si scopre da uno smartphone in
+ * palestra.
+ */
+const BLOCCO_B = [
+  "components/platform-admin/club-services-section.tsx",
+  "components/payments/InstallmentLedgerList.tsx",
+  "components/forms/form-field-card.tsx",
+  "components/forms/form-builder.tsx",
+];
+
+test("le superfici del Blocco Finale B non restano a due colonne a 375 px", () => {
+  const offenders = [];
+
+  for (const file of BLOCCO_B) {
+    const source = read(file);
+    const offending = source
+      .split(/\r?\n/)
+      .filter((line) => /(?<![a-z:])grid-cols-[234]\b/.test(line));
+
+    if (offending.length) offenders.push({ file, lines: offending });
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "una griglia senza breakpoint vale anche a 375 px",
+  );
+});
+
+test("le righe di «Servizi e piani» impilano i comandi su schermo stretto", () => {
+  const source = read("components/platform-admin/club-services-section.tsx");
+
+  assert.match(
+    source,
+    /flex-col[^"]*sm:flex-row/,
+    "nome della funzione e i tre pulsanti su una riga sola a 375 px non ci stanno",
+  );
+  assert.match(
+    source,
+    /grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4/,
+    "il riepilogo del club deve partire da una colonna",
+  );
+});
+
+test("i pulsanti dei documenti vanno a capo invece di uscire dallo schermo", () => {
+  const source = read("components/payments/InstallmentLedgerList.tsx");
+
+  /*
+    Su una riga di incasso convivono «Ricevuta», «Fattura» e «Storna». A 375
+    px sono tre pulsanti con icona: senza `flex-wrap` l'ultimo esce dal
+    contenitore invece di andare sotto.
+  */
+  assert.match(source, /flex-wrap/);
+});
+
+test("il documento stampabile parte da una colonna e sa stamparsi", () => {
+  const source = read("lib/documents/document-view.ts");
+
+  assert.match(
+    source,
+    /\.grid \{ display: grid; grid-template-columns: 1fr;/,
+    "emittente e intestatario affiancati a 375 px non ci stanno",
+  );
+  assert.match(source, /@media \(min-width: 640px\)/);
+  assert.match(source, /@media print/);
+  assert.match(
+    source,
+    /max-width: 720px/,
+    "a 1280 px un documento a piena larghezza e illeggibile",
+  );
+});
+
+test("l'anteprima del builder usa lo stesso renderer della compilazione", () => {
+  const source = read("components/forms/form-builder.tsx");
+
+  assert.match(source, /<FormRenderer/);
+  assert.match(
+    source,
+    /previewSchema/,
+    "l'anteprima deve vedere le stesse opzioni che vedra chi compila",
+  );
+});
