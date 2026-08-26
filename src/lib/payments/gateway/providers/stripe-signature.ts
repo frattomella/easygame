@@ -1,7 +1,7 @@
 /**
  * Verifica della firma di un webhook Stripe, senza SDK.
  *
- * **Perche esiste, e perche e la parte piu importante di tutto CediPay.**
+ * **Perche esiste, e perche e la parte piu importante di tutta l'integrazione.**
  * L'endpoint del webhook e pubblico: chiunque puo mandargli una richiesta.
  * Senza verifica, «il pagamento e riuscito» e una frase che puo scrivere
  * chiunque conosca l'indirizzo, e un incasso mai avvenuto entra in

@@ -3,10 +3,10 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { openCediPayCheckout } from "@/lib/server/cedipay";
+import { openGatewayCheckout } from "@/lib/server/payment-gateway";
 import { requireClubEntitlement } from "@/lib/server/entitlements";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
-import { CediPayError } from "@/lib/payments/cedipay";
+import { PaymentGatewayError } from "@/lib/payments/gateway";
 
 /**
  * Apre un checkout online per una rata.
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       isPlatformAdmin: isPlatformAdminUser(session.db.user),
     });
 
-    const { checkout, context } = await openCediPayCheckout({
+    const { checkout, context } = await openGatewayCheckout({
       organizationId: clubId,
       paymentId: body.paymentId || body.payment_id || null,
       athleteId: body.athleteId || body.athlete_id || null,
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
       error: null,
     });
   } catch (error: any) {
-    if (error instanceof CediPayError) {
+    if (error instanceof PaymentGatewayError) {
       return jsonError(error.message, STATUS_BY_CODE[error.code] || 400, {
         code: error.code,
         provider: error.provider,

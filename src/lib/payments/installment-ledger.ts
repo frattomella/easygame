@@ -29,6 +29,7 @@ import {
 export const PAYMENT_TRANSACTION_SOURCES = [
   "MANUAL",
   "STRIPE",
+  /** Conservato per le righe scritte prima di ADR-0049. Non si scrive piu. */
   "CEDIPAY",
   "IMPORT",
   "OTHER",

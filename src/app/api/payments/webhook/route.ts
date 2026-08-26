@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import {
-  handleCediPayWebhookEvent,
+  handleGatewayWebhookEvent,
   type WebhookOutcome,
-} from "@/lib/server/cedipay";
+} from "@/lib/server/payment-gateway";
 import {
-  CediPayError,
-  getCediPayProvider,
-  isCediPayProviderKey,
-} from "@/lib/payments/cedipay";
+  PaymentGatewayError,
+  getPaymentGateway,
+  isPaymentGatewayKey,
+} from "@/lib/payments/gateway";
 
 /**
  * L'endpoint che ascolta il provider di pagamento.
@@ -64,11 +64,11 @@ export async function POST(request: Request) {
     request.headers.get("x-payment-provider") ||
     "stripe";
 
-  if (!isCediPayProviderKey(providerKey)) {
+  if (!isPaymentGatewayKey(providerKey)) {
     return rejected(400);
   }
 
-  const provider = getCediPayProvider(providerKey);
+  const provider = getPaymentGateway(providerKey);
   const secret = readWebhookSecret(providerKey);
 
   /*
@@ -98,9 +98,9 @@ export async function POST(request: Request) {
 
   try {
     const event = provider.parseWebhook({ rawBody, signature, secret });
-    outcome = await handleCediPayWebhookEvent(event);
+    outcome = await handleGatewayWebhookEvent(event);
   } catch (error: any) {
-    if (error instanceof CediPayError && error.code === "invalid_signature") {
+    if (error instanceof PaymentGatewayError && error.code === "invalid_signature") {
       console.warn("[payments/webhook] firma rifiutata", {
         provider: providerKey,
         reason: error.message,

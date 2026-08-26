@@ -397,7 +397,8 @@ model PaymentTransaction {
   paid_at                 DateTime
   payment_method          String
   notes                   String?
-  /// MANUAL | STRIPE | CEDIPAY | IMPORT | OTHER. Solo MANUAL e implementato.
+  /// MANUAL | STRIPE | IMPORT | OTHER, piu `CEDIPAY` per le righe scritte prima
+  /// di ADR-0049. Un incasso online lo scrive solo il webhook firmato.
   source                  String               @default("MANUAL")
   external_reference      String?
   created_by              String?              @db.Uuid

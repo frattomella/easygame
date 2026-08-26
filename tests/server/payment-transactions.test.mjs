@@ -222,7 +222,7 @@ test("un incasso online non lo dichiara chi chiama: lo conferma il provider", as
 test("con la conferma del provider l'incasso online si registra", async () => {
   /*
     `confirmedByProvider` non e un parametro dell'API: lo imposta soltanto
-    `handleCediPayWebhookEvent`, dopo aver verificato la firma dell'evento
+    `handleGatewayWebhookEvent`, dopo aver verificato la firma dell'evento
     (ADR-0045). Qui si prova che il confine sia quello e non un altro.
   */
   const result = await registra({

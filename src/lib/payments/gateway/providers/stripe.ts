@@ -1,5 +1,5 @@
 /**
- * L'adapter Stripe: il primo provider sotto CediPay.
+ * L'adapter Stripe: il primo provider sotto il gateway.
  *
  * **Il modello scelto, e perche.** Addebiti **diretti** su account connessi
  * (`Stripe-Account` sulla richiesta), con la commissione della piattaforma in
@@ -29,18 +29,18 @@
  */
 
 import {
-  CediPayError,
-  type CediPayCheckout,
-  type CediPayCheckoutRequest,
-  type CediPayMerchant,
-  type CediPayOnboardingLink,
-  type CediPayPayment,
-  type CediPayPaymentReference,
-  type CediPayPaymentStatus,
-  type CediPayProvider,
-  type CediPayRefund,
-  type CediPayRefundRequest,
-  type CediPayWebhookEvent,
+  PaymentGatewayError,
+  type GatewayCheckout,
+  type GatewayCheckoutRequest,
+  type GatewayMerchant,
+  type GatewayOnboardingLink,
+  type GatewayPayment,
+  type GatewayPaymentReference,
+  type GatewayPaymentStatus,
+  type PaymentGateway,
+  type GatewayRefund,
+  type GatewayRefundRequest,
+  type GatewayWebhookEvent,
 } from "../contract";
 import { verifyStripeSignature } from "./stripe-signature";
 
@@ -77,7 +77,7 @@ const callStripe = async (
 ): Promise<Record<string, any>> => {
   const secretKey = readSecretKey();
   if (!secretKey) {
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       "not_configured",
       "Stripe non e configurato: manca la chiave segreta",
       "stripe",
@@ -112,7 +112,7 @@ const callStripe = async (
       body: options.body ? encodeForm(options.body) : undefined,
     });
   } catch (error: any) {
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       "provider_error",
       `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
       "stripe",
@@ -129,7 +129,7 @@ const callStripe = async (
       Il messaggio del provider si riporta, la richiesta no: contiene
       l'importo, l'email di chi paga e la chiave dell'account connesso.
     */
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       "provider_error",
       String(payload?.error?.message || `Stripe ha risposto ${response.status}`),
       "stripe",
@@ -141,13 +141,13 @@ const callStripe = async (
 
 /* ------------------------------------------------------------ traduzioni */
 
-const readReference = (metadata: any): CediPayPaymentReference => ({
+const readReference = (metadata: any): GatewayPaymentReference => ({
   organizationId: String(metadata?.easygame_organization_id || ""),
   paymentId: String(metadata?.easygame_payment_id || "") || null,
   athleteId: String(metadata?.easygame_athlete_id || "") || null,
 });
 
-const merchantFromAccount = (account: any): CediPayMerchant => {
+const merchantFromAccount = (account: any): GatewayMerchant => {
   const chargesEnabled = Boolean(account?.charges_enabled);
   const payoutsEnabled = Boolean(account?.payouts_enabled);
   const pendingRequirements: string[] = [
@@ -155,7 +155,7 @@ const merchantFromAccount = (account: any): CediPayMerchant => {
     ...(account?.requirements?.past_due || []),
   ].map((entry: any) => String(entry));
 
-  const status: CediPayMerchant["status"] = account?.requirements?.disabled_reason
+  const status: GatewayMerchant["status"] = account?.requirements?.disabled_reason
     ? "restricted"
     : chargesEnabled && payoutsEnabled
       ? "active"
@@ -172,14 +172,14 @@ const merchantFromAccount = (account: any): CediPayMerchant => {
 };
 
 /**
- * Lo stato di una Checkout Session tradotto nello stato di CediPay.
+ * Lo stato di una Checkout Session tradotto nello stato del gateway.
  *
  * `payment_status` e la fonte, non `status`: una sessione «completa» con
  * pagamento differito (SEPA, bonifico) e stata compilata ma il denaro non e
  * arrivato, e trattarla come riuscita significherebbe segnare pagata una rata
  * che potrebbe ancora fallire.
  */
-const checkoutStatusOf = (session: any): CediPayPaymentStatus => {
+const checkoutStatusOf = (session: any): GatewayPaymentStatus => {
   const paymentStatus = String(session?.payment_status || "");
   if (paymentStatus === "paid" || paymentStatus === "no_payment_required") {
     return "succeeded";
@@ -191,7 +191,7 @@ const checkoutStatusOf = (session: any): CediPayPaymentStatus => {
   return "created";
 };
 
-const paymentFromSession = (session: any): CediPayPayment => ({
+const paymentFromSession = (session: any): GatewayPayment => ({
   provider: "stripe",
   externalId: String(session?.id || ""),
   status: checkoutStatusOf(session),
@@ -218,7 +218,7 @@ const paymentFromSession = (session: any): CediPayPayment => ({
  * un errore silenzioso, del tipo peggiore, perche il webhook risponderebbe
  * comunque 200.
  */
-const intentStatusOf = (intent: any): CediPayPaymentStatus => {
+const intentStatusOf = (intent: any): GatewayPaymentStatus => {
   switch (String(intent?.status || "")) {
     case "succeeded":
       return "succeeded";
@@ -236,7 +236,7 @@ const intentStatusOf = (intent: any): CediPayPaymentStatus => {
   }
 };
 
-const paymentFromIntent = (intent: any): CediPayPayment => {
+const paymentFromIntent = (intent: any): GatewayPayment => {
   const status = intentStatusOf(intent);
 
   return {
@@ -257,7 +257,7 @@ const paymentFromIntent = (intent: any): CediPayPayment => {
 };
 
 /** Traduce l'oggetto di un evento, qualunque dei due sia. */
-const paymentFromEventObject = (object: any): CediPayPayment | null => {
+const paymentFromEventObject = (object: any): GatewayPayment | null => {
   const kind = String(object?.object || "");
   if (kind === "checkout.session") return paymentFromSession(object);
   if (kind === "payment_intent") return paymentFromIntent(object);
@@ -266,7 +266,7 @@ const paymentFromEventObject = (object: any): CediPayPayment | null => {
 
 /* ------------------------------------------------------------- adapter */
 
-export const stripeProvider: CediPayProvider = {
+export const stripeProvider: PaymentGateway = {
   key: "stripe",
 
   isConfigured: () => Boolean(readSecretKey()),
@@ -308,9 +308,9 @@ export const stripeProvider: CediPayProvider = {
       await callStripe(`/accounts/${encodeURIComponent(merchantExternalId)}`),
     ),
 
-  createCheckout: async (request: CediPayCheckoutRequest) => {
+  createCheckout: async (request: GatewayCheckoutRequest) => {
     if (!request.merchant.externalId) {
-      throw new CediPayError(
+      throw new PaymentGatewayError(
         "merchant_not_ready",
         "Il club non ha ancora un account di incasso attivo",
         "stripe",
@@ -370,7 +370,7 @@ export const stripeProvider: CediPayProvider = {
       status: checkoutStatusOf(session),
       money: request.money,
       platformFeeCents: feeCents,
-    } satisfies CediPayCheckout;
+    } satisfies GatewayCheckout;
   },
 
   getPayment: async (input) =>
@@ -381,7 +381,7 @@ export const stripeProvider: CediPayProvider = {
       ),
     ),
 
-  refund: async (request: CediPayRefundRequest) => {
+  refund: async (request: GatewayRefundRequest) => {
     const refund = await callStripe("/refunds", {
       stripeAccount: request.merchant.externalId,
       idempotencyKey: request.idempotencyKey,
@@ -408,10 +408,10 @@ export const stripeProvider: CediPayProvider = {
             ? "failed"
             : "pending",
       platformFeeRefunded: true,
-    } satisfies CediPayRefund;
+    } satisfies GatewayRefund;
   },
 
-  parseWebhook: ({ rawBody, signature, secret, now }): CediPayWebhookEvent => {
+  parseWebhook: ({ rawBody, signature, secret, now }): GatewayWebhookEvent => {
     const verification = verifyStripeSignature({
       rawBody,
       header: signature,
@@ -420,7 +420,7 @@ export const stripeProvider: CediPayProvider = {
     });
 
     if (!verification.valid) {
-      throw new CediPayError(
+      throw new PaymentGatewayError(
         "invalid_signature",
         `Firma webhook non valida (${verification.reason})`,
         "stripe",
@@ -431,7 +431,7 @@ export const stripeProvider: CediPayProvider = {
     try {
       parsed = JSON.parse(rawBody);
     } catch {
-      throw new CediPayError(
+      throw new PaymentGatewayError(
         "invalid_signature",
         "Corpo del webhook non interpretabile",
         "stripe",

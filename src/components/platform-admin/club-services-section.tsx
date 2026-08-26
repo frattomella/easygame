@@ -9,9 +9,9 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import {
-  describeCediPayReadiness,
-  CEDIPAY_PROVIDERS,
-} from "@/lib/payments/cedipay/index";
+  describeGatewayReadiness,
+  PAYMENT_GATEWAYS,
+} from "@/lib/payments/gateway/index";
 import {
   HUB_EXTRA_SERVICE_DEFINITIONS,
   normalizePaymentSettings,
@@ -239,7 +239,7 @@ export function ClubServicesSection({ clubs }: { clubs: ClubOption[] }) {
 
     return {
       provider,
-      readiness: describeCediPayReadiness({
+      readiness: describeGatewayReadiness({
         provider,
         enabledByClub: Boolean(
           settings.enabled && settings.providers[provider]?.enabled,
@@ -439,7 +439,7 @@ export function ClubServicesSection({ clubs }: { clubs: ClubOption[] }) {
               <CardContent className="space-y-2">
                 <p className="text-sm">
                   Provider:{" "}
-                  {CEDIPAY_PROVIDERS[paymentReadiness.provider]?.label ||
+                  {PAYMENT_GATEWAYS[paymentReadiness.provider]?.label ||
                     paymentReadiness.provider}
                 </p>
                 <p className="text-sm text-muted-foreground">

@@ -11,11 +11,11 @@ import test, { before, beforeEach, afterEach } from "node:test";
  * configura la piattaforma, la segreteria del club, il PSP.
  */
 
-let cedipay;
+let gateway;
 let originalSecret;
 
 before(async () => {
-  cedipay = await import("../../src/lib/payments/cedipay/index.ts");
+  gateway = await import("../../src/lib/payments/gateway/index.ts");
 });
 
 beforeEach(() => {
@@ -49,7 +49,7 @@ const unconfigured = () => {
 };
 
 const readiness = (overrides = {}) =>
-  cedipay.describeCediPayReadiness({
+  gateway.describeGatewayReadiness({
     provider: "stripe",
     enabledByClub: true,
     merchantExternalId: "acct_1",
@@ -60,41 +60,45 @@ const readiness = (overrides = {}) =>
 /* ------------------------------------------------------- il registro */
 
 test("il provider dichiarato senza adapter non finge di esistere", () => {
-  assert.equal(cedipay.getCediPayProvider("paypal"), null);
-  assert.equal(cedipay.CEDIPAY_PROVIDERS.paypal.hasAdapter, false);
+  assert.equal(gateway.getPaymentGateway("paypal"), null);
+  assert.equal(gateway.PAYMENT_GATEWAYS.paypal.hasAdapter, false);
 });
 
 test("un provider inventato non risolve niente", () => {
-  assert.equal(cedipay.getCediPayProvider("banca_del_paese"), null);
+  assert.equal(gateway.getPaymentGateway("banca_del_paese"), null);
   assert.throws(
-    () => cedipay.requireCediPayProvider("banca_del_paese"),
+    () => gateway.requirePaymentGateway("banca_del_paese"),
     /non riconosciuto/,
   );
 });
 
 test("un provider senza adapter lo dice, invece di fallire piu avanti", () => {
   assert.throws(
-    () => cedipay.requireCediPayProvider("paypal"),
-    /non e ancora collegato a CediPay/,
+    () => gateway.requirePaymentGateway("paypal"),
+    /non e ancora collegato/,
   );
 });
 
 test("Stripe senza credenziali e riconosciuto ma non utilizzabile", () => {
   unconfigured();
 
-  assert.ok(cedipay.getCediPayProvider("stripe"));
+  assert.ok(gateway.getPaymentGateway("stripe"));
   assert.throws(
-    () => cedipay.requireCediPayProvider("stripe"),
+    () => gateway.requirePaymentGateway("stripe"),
     /non e configurato su questo ambiente/,
   );
 });
 
-test("il nome del PSP non e il nome del prodotto", () => {
-  assert.match(
-    cedipay.CEDIPAY_PROVIDERS.stripe.label,
-    /CediPay/,
-    "CediPay e il livello di prodotto, il provider e sotto e sostituibile",
-  );
+test("in V1 non esiste un prodotto CediPay: si chiama Stripe", () => {
+  for (const descriptor of Object.values(gateway.PAYMENT_GATEWAYS)) {
+    assert.doesNotMatch(
+      descriptor.label,
+      /cedipay/i,
+      "ADR-0049: il livello di prodotto CediPay non fa parte della V1",
+    );
+  }
+
+  assert.equal(gateway.PAYMENT_GATEWAYS.stripe.label, "Stripe");
 });
 
 /* --------------------------------------------------- i quattro gradini */

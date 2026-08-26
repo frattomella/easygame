@@ -263,7 +263,7 @@ export type CreatePaymentTransactionInput = {
   allowOverpayment?: boolean;
   /**
    * Vero **solo** per un incasso confermato da un evento firmato dal
-   * provider (`src/lib/server/cedipay.ts`).
+   * provider (`src/lib/server/payment-gateway.ts`).
    *
    * Non e un parametro dell'API: nessuna rotta HTTP lo imposta, e le rotte
    * costruiscono il loro input campo per campo proprio perche un corpo di
@@ -338,7 +338,7 @@ export const createPaymentTransaction = async (
     /*
       Un incasso dichiarato «online» da chi chiama e denaro che nessuno ha
       visto arrivare. L'unico modo per registrarne uno e passare da
-      `handleCediPayWebhookEvent`, che agisce su un evento la cui firma e
+      `handleGatewayWebhookEvent`, che agisce su un evento la cui firma e
       stata verificata (ADR-0045) — e che e l'unico punto del codice a
       impostare `confirmedByProvider`.
     */

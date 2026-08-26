@@ -25,12 +25,12 @@ const ALTRO_CLUB = "bbbbbbbb-0000-4000-8000-000000000002";
 const RATA = "cccccccc-0000-4000-8000-000000000003";
 const ATLETA = "dddddddd-0000-4000-8000-000000000004";
 
-let cedipay;
+let gateway;
 let setPrismaClientForTests;
 let fake;
 
 before(async () => {
-  cedipay = await import("../../src/lib/server/cedipay.ts");
+  gateway = await import("../../src/lib/server/payment-gateway.ts");
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
     "../../src/lib/server/prisma.ts"
   ));
@@ -86,7 +86,7 @@ const conPagamento = (patch) => {
 /* --------------------------------------------------------- l'incasso */
 
 test("un pagamento riuscito diventa un incasso sulla rata", async () => {
-  const esito = await cedipay.handleCediPayWebhookEvent(eventoRiuscito());
+  const esito = await gateway.handleGatewayWebhookEvent(eventoRiuscito());
 
   assert.equal(esito.status, "processed");
   assert.equal(esito.duplicate, false);
@@ -97,7 +97,7 @@ test("un pagamento riuscito diventa un incasso sulla rata", async () => {
   assert.equal(incassi[0].organization_id, CLUB);
   assert.equal(incassi[0].payment_id, RATA);
   assert.equal(incassi[0].amount, 40);
-  assert.equal(incassi[0].source, "CEDIPAY");
+  assert.equal(incassi[0].source, "STRIPE");
   assert.equal(
     incassi[0].external_reference,
     "cs_1",
@@ -106,7 +106,7 @@ test("un pagamento riuscito diventa un incasso sulla rata", async () => {
 });
 
 test("gli importi arrivano in centesimi e non si perdono per strada", async () => {
-  await cedipay.handleCediPayWebhookEvent(
+  await gateway.handleGatewayWebhookEvent(
     conPagamento({ money: { amountCents: 3333, currency: "EUR" } }),
   );
 
@@ -118,8 +118,8 @@ test("gli importi arrivano in centesimi e non si perdono per strada", async () =
 test("lo stesso evento consegnato due volte incassa una volta sola", async () => {
   const evento = eventoRiuscito();
 
-  const primo = await cedipay.handleCediPayWebhookEvent(evento);
-  const secondo = await cedipay.handleCediPayWebhookEvent(evento);
+  const primo = await gateway.handleGatewayWebhookEvent(evento);
+  const secondo = await gateway.handleGatewayWebhookEvent(evento);
 
   assert.equal(primo.duplicate, false);
   assert.equal(secondo.duplicate, true);
@@ -131,10 +131,10 @@ test("lo stesso evento consegnato due volte incassa una volta sola", async () =>
 });
 
 test("due eventi diversi sullo stesso pagamento restano due eventi", async () => {
-  await cedipay.handleCediPayWebhookEvent(
+  await gateway.handleGatewayWebhookEvent(
     eventoRiuscito({ id: "evt_1", type: "payment_intent.succeeded" }),
   );
-  const secondo = await cedipay.handleCediPayWebhookEvent(
+  const secondo = await gateway.handleGatewayWebhookEvent(
     eventoRiuscito({ id: "evt_2", type: "checkout.session.completed" }),
   );
 
@@ -147,7 +147,7 @@ test("due eventi diversi sullo stesso pagamento restano due eventi", async () =>
 });
 
 test("l'evento resta registrato anche quando non produce niente", async () => {
-  await cedipay.handleCediPayWebhookEvent(
+  await gateway.handleGatewayWebhookEvent(
     eventoRiuscito({ payment: null, type: "account.updated" }),
   );
 
@@ -157,7 +157,7 @@ test("l'evento resta registrato anche quando non produce niente", async () => {
 });
 
 test("il corpo dell'evento non viene conservato", async () => {
-  await cedipay.handleCediPayWebhookEvent(
+  await gateway.handleGatewayWebhookEvent(
     eventoRiuscito({ raw: { segreto: "email di chi paga" } }),
   );
 
@@ -172,7 +172,7 @@ test("il corpo dell'evento non viene conservato", async () => {
 /* ------------------------------------------- cosa non muove denaro */
 
 test("una sessione compilata ma non pagata non incassa", async () => {
-  const esito = await cedipay.handleCediPayWebhookEvent(
+  const esito = await gateway.handleGatewayWebhookEvent(
     conPagamento({ status: "pending" }),
   );
 
@@ -181,10 +181,10 @@ test("una sessione compilata ma non pagata non incassa", async () => {
 });
 
 test("un pagamento fallito o scaduto non incassa", async () => {
-  await cedipay.handleCediPayWebhookEvent(
+  await gateway.handleGatewayWebhookEvent(
     conPagamento({ status: "failed" }),
   );
-  await cedipay.handleCediPayWebhookEvent({
+  await gateway.handleGatewayWebhookEvent({
     ...conPagamento({ status: "expired" }),
     id: "evt_2",
   });
@@ -193,7 +193,7 @@ test("un pagamento fallito o scaduto non incassa", async () => {
 });
 
 test("un pagamento senza riferimento a una rata non incassa", async () => {
-  const esito = await cedipay.handleCediPayWebhookEvent(
+  const esito = await gateway.handleGatewayWebhookEvent(
     conPagamento({
       reference: { organizationId: CLUB, paymentId: null, athleteId: null },
     }),
@@ -205,7 +205,7 @@ test("un pagamento senza riferimento a una rata non incassa", async () => {
 });
 
 test("un pagamento senza club non incassa", async () => {
-  const esito = await cedipay.handleCediPayWebhookEvent(
+  const esito = await gateway.handleGatewayWebhookEvent(
     conPagamento({
       reference: { organizationId: "", paymentId: RATA, athleteId: null },
     }),
@@ -226,7 +226,7 @@ test("una rata di un altro club non si tocca", async () => {
 
   await assert.rejects(
     () =>
-      cedipay.handleCediPayWebhookEvent(
+      gateway.handleGatewayWebhookEvent(
         conPagamento({
           reference: {
             organizationId: CLUB,
@@ -243,7 +243,7 @@ test("una rata di un altro club non si tocca", async () => {
 
 test("un evento senza identificativo non entra nemmeno in memoria", async () => {
   await assert.rejects(
-    () => cedipay.handleCediPayWebhookEvent(eventoRiuscito({ id: "" })),
+    () => gateway.handleGatewayWebhookEvent(eventoRiuscito({ id: "" })),
     /senza identificativo/,
   );
 
@@ -255,7 +255,7 @@ test("un evento senza identificativo non entra nemmeno in memoria", async () => 
 test("un club senza conto di incasso non puo aprire un checkout", async () => {
   await assert.rejects(
     () =>
-      cedipay.openCediPayCheckout({
+      gateway.openGatewayCheckout({
         organizationId: CLUB,
         amountCents: 4000,
         description: "Prima rata",
@@ -267,7 +267,7 @@ test("un club senza conto di incasso non puo aprire un checkout", async () => {
 });
 
 test("il provider non arriva dalla richiesta ma dalle impostazioni del club", async () => {
-  const contesto = await cedipay.resolveClubCediPayContext(CLUB);
+  const contesto = await gateway.resolveClubGatewayContext(CLUB);
 
   assert.equal(contesto.organizationId, CLUB);
   assert.equal(contesto.readiness.canCheckout, false);
@@ -276,7 +276,7 @@ test("il provider non arriva dalla richiesta ma dalle impostazioni del club", as
 
 test("senza club non si risolve niente", async () => {
   await assert.rejects(
-    () => cedipay.resolveClubCediPayContext(""),
+    () => gateway.resolveClubGatewayContext(""),
     /Accesso negato/,
   );
 });

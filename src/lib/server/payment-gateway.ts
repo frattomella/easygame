@@ -1,5 +1,5 @@
 /**
- * CediPay lato server: chi apre un checkout e chi crede a un webhook.
+ * Il gateway di incasso lato server: chi apre un checkout e chi crede a un webhook.
  *
  * **Il confine che questo file custodisce.** Un incasso online non e un
  * incasso perche il browser dice di essere tornato dalla pagina di pagamento:
@@ -20,14 +20,14 @@
 import { prisma } from "./prisma";
 import { createPaymentTransaction } from "./payment-transactions";
 import {
-  CediPayError,
-  describeCediPayReadiness,
-  requireCediPayProvider,
-  type CediPayCheckout,
-  type CediPayProviderKey,
-  type CediPayReadiness,
-  type CediPayWebhookEvent,
-} from "@/lib/payments/cedipay";
+  PaymentGatewayError,
+  describeGatewayReadiness,
+  requirePaymentGateway,
+  type GatewayCheckout,
+  type PaymentGatewayKey,
+  type GatewayReadiness,
+  type GatewayWebhookEvent,
+} from "@/lib/payments/gateway";
 import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
 import type { ClubPaymentSettings } from "@/lib/payments/payment-types";
 
@@ -40,12 +40,12 @@ const asRecord = (value: unknown): Record<string, any> =>
 
 /* --------------------------------------------------- il contesto del club */
 
-export type ClubCediPayContext = {
+export type ClubGatewayContext = {
   organizationId: string;
-  provider: CediPayProviderKey;
+  provider: PaymentGatewayKey;
   settings: ClubPaymentSettings;
   merchantExternalId: string;
-  readiness: CediPayReadiness;
+  readiness: GatewayReadiness;
 };
 
 /**
@@ -55,9 +55,9 @@ export type ClubCediPayContext = {
  * sceglierlo sceglierebbe quello con meno controlli; qui lo dicono le
  * impostazioni del club, che solo chi governa il club puo cambiare.
  */
-export const resolveClubCediPayContext = async (
+export const resolveClubGatewayContext = async (
   organizationId: string,
-): Promise<ClubCediPayContext> => {
+): Promise<ClubGatewayContext> => {
   const id = asText(organizationId);
   if (!id) {
     throw new Error("Accesso negato: nessun club indicato");
@@ -82,7 +82,7 @@ export const resolveClubCediPayContext = async (
     vorrebbero dire due conti su cui il denaro puo arrivare, e nessuno che
     sappia quale guardare.
   */
-  const provider: CediPayProviderKey =
+  const provider: PaymentGatewayKey =
     settings.enabledRegistrationMethods.find(
       (key) => settings.providers[key]?.enabled,
     ) || "stripe";
@@ -96,7 +96,7 @@ export const resolveClubCediPayContext = async (
     provider,
     settings,
     merchantExternalId,
-    readiness: describeCediPayReadiness({
+    readiness: describeGatewayReadiness({
       provider,
       enabledByClub: Boolean(settings.enabled && settings.providers[provider]?.enabled),
       merchantExternalId,
@@ -129,13 +129,13 @@ export type OpenCheckoutInput = {
  * Derivarla dal club, dalla rata e dall'importo fa si che lo stesso pulsante
  * premuto due volte chieda al provider **lo stesso** checkout.
  */
-export const openCediPayCheckout = async (
+export const openGatewayCheckout = async (
   input: OpenCheckoutInput,
-): Promise<{ checkout: CediPayCheckout; context: ClubCediPayContext }> => {
-  const context = await resolveClubCediPayContext(input.organizationId);
+): Promise<{ checkout: GatewayCheckout; context: ClubGatewayContext }> => {
+  const context = await resolveClubGatewayContext(input.organizationId);
 
   if (!context.readiness.canCheckout) {
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       context.readiness.blocker === "not_configured"
         ? "not_configured"
         : "merchant_not_ready",
@@ -146,14 +146,14 @@ export const openCediPayCheckout = async (
 
   const amountCents = Math.round(Number(input.amountCents || 0));
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       "provider_error",
       "Importo del pagamento non valido",
       context.provider,
     );
   }
 
-  const provider = requireCediPayProvider(context.provider);
+  const provider = requirePaymentGateway(context.provider);
 
   const checkout = await provider.createCheckout({
     merchant: { externalId: context.merchantExternalId },
@@ -209,12 +209,12 @@ export type WebhookOutcome = {
  * capitare — un pagamento nato fuori da EasyGame sull'account del club — e non
  * e un errore: EasyGame non e il registro di cassa di Stripe.
  */
-export const handleCediPayWebhookEvent = async (
-  event: CediPayWebhookEvent,
+export const handleGatewayWebhookEvent = async (
+  event: GatewayWebhookEvent,
 ): Promise<WebhookOutcome> => {
   const eventId = asText(event.id);
   if (!eventId) {
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       "provider_error",
       "Evento senza identificativo",
       event.provider,
@@ -299,7 +299,7 @@ export const handleCediPayWebhookEvent = async (
       amount: payment.money.amountCents / 100,
       paidAt: payment.paidAt || new Date().toISOString(),
       paymentMethod: "online",
-      source: "CEDIPAY",
+      source: "STRIPE",
       externalReference: payment.externalId,
       notes: `Incasso online ${event.provider}`,
       /*

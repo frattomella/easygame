@@ -1,9 +1,9 @@
 /**
  * I provider che le impostazioni di un club possono nominare.
  *
- * `stripe` e il primo con un adapter vero sotto CediPay (ADR-0045). Gli
+ * `stripe` e il primo con un adapter vero sotto il gateway (ADR-0045). Gli
  * altri tre restano perche stanno gia nei dati dei club: dichiarati,
- * configurabili, e senza adapter — il registro di CediPay lo dice
+ * configurabili, e senza adapter — il registro dei gateway lo dice
  * esplicitamente invece di lasciarlo scoprire a chi preme «Paga».
  */
 export type PaymentProviderKey =

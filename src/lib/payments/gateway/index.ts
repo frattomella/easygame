@@ -1,5 +1,5 @@
 /**
- * Il registro di CediPay: quale provider risponde, e se e davvero pronto.
+ * Il registro dei gateway di incasso: quale provider risponde, e se e davvero pronto.
  *
  * **Il problema che risolve.** Un'interfaccia che offre «Paga online» e un
  * server che risponde «non implementato» non e una funzione a meta: e una
@@ -18,18 +18,18 @@
  */
 
 import {
-  CediPayError,
-  isCediPayProviderKey,
-  type CediPayProvider,
-  type CediPayProviderKey,
+  PaymentGatewayError,
+  isPaymentGatewayKey,
+  type PaymentGateway,
+  type PaymentGatewayKey,
 } from "./contract";
 import { stripeProvider } from "./providers/stripe";
 
 export * from "./contract";
 
-/** Cosa CediPay sa dire di un provider, prima ancora di parlargli. */
-export type CediPayProviderDescriptor = {
-  key: CediPayProviderKey;
+/** Cosa EasyGame sa dire di un gateway, prima ancora di parlargli. */
+export type PaymentGatewayDescriptor = {
+  key: PaymentGatewayKey;
   /** Il nome che compare nell'interfaccia. */
   label: string;
   /** Una riga: cosa e, per chi non lo conosce. */
@@ -42,13 +42,13 @@ export type CediPayProviderDescriptor = {
   requiresMerchantOnboarding: boolean;
 };
 
-export const CEDIPAY_PROVIDERS: Record<
-  CediPayProviderKey,
-  CediPayProviderDescriptor
+export const PAYMENT_GATEWAYS: Record<
+  PaymentGatewayKey,
+  PaymentGatewayDescriptor
 > = {
   stripe: {
     key: "stripe",
-    label: "CediPay (Stripe)",
+    label: "Stripe",
     description:
       "Carte, wallet e SEPA. Il denaro entra sul conto della societa; la commissione della piattaforma viene trattenuta sull'incasso.",
     hasAdapter: true,
@@ -81,20 +81,20 @@ export const CEDIPAY_PROVIDERS: Record<
   },
 };
 
-const ADAPTERS: Partial<Record<CediPayProviderKey, CediPayProvider>> = {
+const ADAPTERS: Partial<Record<PaymentGatewayKey, PaymentGateway>> = {
   stripe: stripeProvider,
 };
 
 /** L'adapter di un provider, oppure `null` se non e stato scritto. */
-export const getCediPayProvider = (
+export const getPaymentGateway = (
   key: unknown,
-): CediPayProvider | null =>
-  isCediPayProviderKey(key) ? ADAPTERS[key] || null : null;
+): PaymentGateway | null =>
+  isPaymentGatewayKey(key) ? ADAPTERS[key] || null : null;
 
 /** L'adapter, o l'errore che spiega quale dei quattro gradini manca. */
-export const requireCediPayProvider = (key: unknown): CediPayProvider => {
-  if (!isCediPayProviderKey(key)) {
-    throw new CediPayError(
+export const requirePaymentGateway = (key: unknown): PaymentGateway => {
+  if (!isPaymentGatewayKey(key)) {
+    throw new PaymentGatewayError(
       "not_implemented",
       "Provider di pagamento non riconosciuto",
     );
@@ -102,17 +102,17 @@ export const requireCediPayProvider = (key: unknown): CediPayProvider => {
 
   const provider = ADAPTERS[key];
   if (!provider) {
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       "not_implemented",
-      `${CEDIPAY_PROVIDERS[key].label} non e ancora collegato a CediPay`,
+      `${PAYMENT_GATEWAYS[key].label} non e ancora collegato`,
       key,
     );
   }
 
   if (!provider.isConfigured()) {
-    throw new CediPayError(
+    throw new PaymentGatewayError(
       "not_configured",
-      `${CEDIPAY_PROVIDERS[key].label} non e configurato su questo ambiente`,
+      `${PAYMENT_GATEWAYS[key].label} non e configurato su questo ambiente`,
       key,
     );
   }
@@ -122,8 +122,8 @@ export const requireCediPayProvider = (key: unknown): CediPayProvider => {
 
 /* ------------------------------------------------- lo stato di un club */
 
-export type CediPayReadiness = {
-  provider: CediPayProviderKey;
+export type GatewayReadiness = {
+  provider: PaymentGatewayKey;
   /** Vero solo se tutti e quattro i gradini sono saliti. */
   canCheckout: boolean;
   /** Il primo gradino che manca. `null` quando non ne manca nessuno. */
@@ -147,20 +147,20 @@ export type CediPayReadiness = {
  * aggiornato quando lo si attiva e quando arriva un evento che lo riguarda:
  * qui si legge quello.
  */
-export const describeCediPayReadiness = (input: {
+export const describeGatewayReadiness = (input: {
   provider: unknown;
   enabledByClub: boolean;
   merchantExternalId?: string | null;
   merchantChargesEnabled?: boolean;
-}): CediPayReadiness => {
-  const key = isCediPayProviderKey(input.provider) ? input.provider : "stripe";
-  const descriptor = CEDIPAY_PROVIDERS[key];
+}): GatewayReadiness => {
+  const key = isPaymentGatewayKey(input.provider) ? input.provider : "stripe";
+  const descriptor = PAYMENT_GATEWAYS[key];
   const adapter = ADAPTERS[key];
 
   const blocked = (
-    blocker: NonNullable<CediPayReadiness["blocker"]>,
+    blocker: NonNullable<GatewayReadiness["blocker"]>,
     message: string,
-  ): CediPayReadiness => ({
+  ): GatewayReadiness => ({
     provider: key,
     canCheckout: false,
     blocker,
@@ -170,7 +170,7 @@ export const describeCediPayReadiness = (input: {
   if (!adapter) {
     return blocked(
       "no_adapter",
-      `${descriptor.label} non e ancora collegato a CediPay.`,
+      `${descriptor.label} non e ancora collegato.`,
     );
   }
 

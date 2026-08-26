@@ -16,7 +16,7 @@ export const PAYMENT_PROVIDER_REGISTRY: Record<
 > = {
   stripe: {
     key: "stripe",
-    label: "CediPay (Stripe)",
+    label: "Stripe",
     description:
       "Carte, wallet e SEPA. Il denaro entra sul conto della societa; la commissione della piattaforma resta sull'incasso.",
     type: "gateway",

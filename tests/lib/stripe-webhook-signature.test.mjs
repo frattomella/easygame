@@ -18,9 +18,9 @@ let stripe;
 
 before(async () => {
   signature = await import(
-    "../../src/lib/payments/cedipay/providers/stripe-signature.ts"
+    "../../src/lib/payments/gateway/providers/stripe-signature.ts"
   );
-  stripe = await import("../../src/lib/payments/cedipay/providers/stripe.ts");
+  stripe = await import("../../src/lib/payments/gateway/providers/stripe.ts");
 });
 
 const SECRET = "whsec_prova_non_e_un_segreto_vero";
@@ -219,7 +219,7 @@ test("senza segreto non si verifica niente", () => {
 
 /* --------------------------------------------- l'evento, tradotto */
 
-test("un evento firmato diventa un evento CediPay", () => {
+test("un evento firmato diventa un evento del gateway", () => {
   const { header, timestamp } = sign(EVENT);
 
   const evento = stripe.stripeProvider.parseWebhook({

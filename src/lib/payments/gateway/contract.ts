@@ -1,13 +1,20 @@
 /**
- * CediPay: il contratto che EasyGame usa per incassare online.
+ * Il contratto che EasyGame usa per incassare online.
  *
- * **Cosa e CediPay e cosa non e.** CediPay e il **livello di prodotto**: il
- * nome che una societa legge, le regole che EasyGame applica, la commissione
- * che la piattaforma trattiene. Non e un processore di pagamento e non lo
- * diventera: sotto c'e sempre un PSP — oggi Stripe — e il giorno in cui se ne
- * cambia uno il dominio non deve accorgersene.
+ * **Cosa e questo livello e cosa non e.** E il confine fra il dominio di
+ * EasyGame e il PSP: le regole che EasyGame applica, la commissione che la
+ * piattaforma trattiene, la forma di un incasso. Non e un processore di
+ * pagamento e non lo diventera — sotto c'e sempre un PSP, oggi Stripe, e il
+ * giorno in cui se ne cambia uno il dominio non deve accorgersene.
  *
- *     EasyGame → CediPay → Payment Provider
+ *     EasyGame → gateway → PSP (Stripe)
+ *
+ * **Non esiste un prodotto chiamato CediPay nella V1**
+ * ([ADR-0049](../../../../docs/knowledge-base/18-decision-log.md)). Cio che
+ * una societa legge e il nome del PSP: «Stripe · Carta». Un marchio
+ * intermedio avrebbe dovuto rispondere a domande — chi incassa, chi e
+ * responsabile del rimborso, chi compare sull'estratto conto — a cui la V1
+ * risponde «il club, tramite Stripe».
  *
  * **Perche il nome del provider non compare nel dominio.** Se `stripe`
  * comparisse dentro le rate, le ricevute o le impostazioni del club,
@@ -27,19 +34,19 @@
 
 /* ------------------------------------------------------------- provider */
 
-export const CEDIPAY_PROVIDER_KEYS = [
+export const PAYMENT_GATEWAY_KEYS = [
   "stripe",
   "paypal",
   "postepay",
   "mastercard",
 ] as const;
 
-export type CediPayProviderKey = (typeof CEDIPAY_PROVIDER_KEYS)[number];
+export type PaymentGatewayKey = (typeof PAYMENT_GATEWAY_KEYS)[number];
 
-export const isCediPayProviderKey = (
+export const isPaymentGatewayKey = (
   value: unknown,
-): value is CediPayProviderKey =>
-  CEDIPAY_PROVIDER_KEYS.includes(String(value || "") as CediPayProviderKey);
+): value is PaymentGatewayKey =>
+  PAYMENT_GATEWAY_KEYS.includes(String(value || "") as PaymentGatewayKey);
 
 /* --------------------------------------------------------- commissione */
 
@@ -52,7 +59,7 @@ export const isCediPayProviderKey = (
  * calcolo sta in `platform-fees.ts` ed e gia condiviso; qui si dichiara solo
  * come viaggia dentro una richiesta.
  */
-export type CediPayPlatformFee = {
+export type GatewayPlatformFee = {
   percent: number;
   fixedCents: number;
   /** Chi la sostiene. Oggi solo `club`: farla pagare a chi versa cambia l'importo mostrato. */
@@ -61,7 +68,7 @@ export type CediPayPlatformFee = {
 
 /* ------------------------------------------------------------- importi */
 
-export type CediPayMoney = {
+export type GatewayMoney = {
   /** Sempre un intero. Vedi la nota sui centesimi in testa al file. */
   amountCents: number;
   currency: "EUR";
@@ -76,8 +83,8 @@ export type CediPayMoney = {
  * conserva credenziali del club, non conserva dati di verifica, non conserva
  * IBAN. A custodirli e il PSP, ed e una delle ragioni per cui si usa un PSP.
  */
-export type CediPayMerchant = {
-  provider: CediPayProviderKey;
+export type GatewayMerchant = {
+  provider: PaymentGatewayKey;
   externalId: string;
   /** `pending` finche il provider non dichiara l'account operativo. */
   status: "pending" | "restricted" | "active" | "rejected" | "disabled";
@@ -89,7 +96,7 @@ export type CediPayMerchant = {
   pendingRequirements: string[];
 };
 
-export type CediPayOnboardingLink = {
+export type GatewayOnboardingLink = {
   url: string;
   /** Scade: un link di attivazione riutilizzabile e una credenziale. */
   expiresAt: string;
@@ -97,10 +104,10 @@ export type CediPayOnboardingLink = {
 
 /* ---------------------------------------------------------- il checkout */
 
-export type CediPayCheckoutRequest = {
-  merchant: Pick<CediPayMerchant, "externalId">;
-  money: CediPayMoney;
-  platformFee: CediPayPlatformFee;
+export type GatewayCheckoutRequest = {
+  merchant: Pick<GatewayMerchant, "externalId">;
+  money: GatewayMoney;
+  platformFee: GatewayPlatformFee;
   /** Cosa sta pagando la famiglia. Compare sulla pagina del PSP. */
   description: string;
   /**
@@ -128,7 +135,7 @@ export type CediPayCheckoutRequest = {
   idempotencyKey: string;
 };
 
-export type CediPayPaymentStatus =
+export type GatewayPaymentStatus =
   | "created"
   | "pending"
   | "succeeded"
@@ -137,43 +144,43 @@ export type CediPayPaymentStatus =
   | "refunded"
   | "partially_refunded";
 
-export type CediPayCheckout = {
-  provider: CediPayProviderKey;
+export type GatewayCheckout = {
+  provider: PaymentGatewayKey;
   /** L'identificativo presso il provider. Finisce in `external_reference`. */
   externalId: string;
   /** Dove mandare chi paga. */
   url: string;
-  status: CediPayPaymentStatus;
-  money: CediPayMoney;
+  status: GatewayPaymentStatus;
+  money: GatewayMoney;
   platformFeeCents: number;
 };
 
-export type CediPayPaymentReference = CediPayCheckoutRequest["reference"];
+export type GatewayPaymentReference = GatewayCheckoutRequest["reference"];
 
-export type CediPayPayment = {
-  provider: CediPayProviderKey;
+export type GatewayPayment = {
+  provider: PaymentGatewayKey;
   externalId: string;
-  status: CediPayPaymentStatus;
-  money: CediPayMoney;
+  status: GatewayPaymentStatus;
+  money: GatewayMoney;
   platformFeeCents: number;
   /** I riferimenti EasyGame rimandati indietro dal provider. */
-  reference: CediPayPaymentReference;
+  reference: GatewayPaymentReference;
   paidAt: string | null;
 };
 
 /* ------------------------------------------------------------ rimborsi */
 
-export type CediPayRefundRequest = {
+export type GatewayRefundRequest = {
   externalPaymentId: string;
-  merchant: Pick<CediPayMerchant, "externalId">;
+  merchant: Pick<GatewayMerchant, "externalId">;
   /** Assente = rimborso totale. */
   amountCents?: number;
   reason?: string;
   idempotencyKey: string;
 };
 
-export type CediPayRefund = {
-  provider: CediPayProviderKey;
+export type GatewayRefund = {
+  provider: PaymentGatewayKey;
   externalId: string;
   amountCents: number;
   status: "pending" | "succeeded" | "failed";
@@ -188,13 +195,13 @@ export type CediPayRefund = {
 
 /* ------------------------------------------------------------- webhook */
 
-export type CediPayWebhookEvent = {
-  provider: CediPayProviderKey;
+export type GatewayWebhookEvent = {
+  provider: PaymentGatewayKey;
   /** L'identificativo dell'evento presso il provider: la chiave di deduplica. */
   id: string;
   type: string;
   /** Il pagamento a cui l'evento si riferisce, se ne ha uno. */
-  payment: CediPayPayment | null;
+  payment: GatewayPayment | null;
   createdAt: string;
   /** Il corpo interpretato, per chi deve guardarci dentro. Mai loggato intero. */
   raw: Record<string, any>;
@@ -202,24 +209,24 @@ export type CediPayWebhookEvent = {
 
 /* -------------------------------------------------------------- errori */
 
-export type CediPayErrorCode =
+export type PaymentGatewayErrorCode =
   | "not_configured"
   | "not_implemented"
   | "invalid_signature"
   | "provider_error"
   | "merchant_not_ready";
 
-export class CediPayError extends Error {
-  readonly code: CediPayErrorCode;
-  readonly provider: CediPayProviderKey | null;
+export class PaymentGatewayError extends Error {
+  readonly code: PaymentGatewayErrorCode;
+  readonly provider: PaymentGatewayKey | null;
 
   constructor(
-    code: CediPayErrorCode,
+    code: PaymentGatewayErrorCode,
     message: string,
-    provider: CediPayProviderKey | null = null,
+    provider: PaymentGatewayKey | null = null,
   ) {
     super(message);
-    this.name = "CediPayError";
+    this.name = "PaymentGatewayError";
     this.code = code;
     this.provider = provider;
   }
@@ -228,15 +235,15 @@ export class CediPayError extends Error {
 /* ---------------------------------------------------------- l'adapter */
 
 /**
- * Cosa deve saper fare un provider per stare sotto CediPay.
+ * Cosa deve saper fare un provider per stare sotto il gateway.
  *
  * Sette operazioni, non una di piu. Se un provider ne offre altre, restano
  * dietro l'adapter; se ne offre meno, l'adapter lancia `not_implemented` e la
  * configurazione lo dichiara — cosi l'interfaccia puo disabilitare cio che
  * quel provider non sa fare, invece di offrirlo e fallire davanti a chi paga.
  */
-export type CediPayProvider = {
-  key: CediPayProviderKey;
+export type PaymentGateway = {
+  key: PaymentGatewayKey;
   /** Vero se le credenziali ci sono. Non dice che siano valide. */
   isConfigured: () => boolean;
   createMerchant: (input: {
@@ -244,19 +251,19 @@ export type CediPayProvider = {
     clubName: string;
     email: string;
     country: string;
-  }) => Promise<CediPayMerchant>;
+  }) => Promise<GatewayMerchant>;
   createOnboardingLink: (input: {
     merchantExternalId: string;
     returnUrl: string;
     refreshUrl: string;
-  }) => Promise<CediPayOnboardingLink>;
-  getMerchant: (merchantExternalId: string) => Promise<CediPayMerchant>;
-  createCheckout: (request: CediPayCheckoutRequest) => Promise<CediPayCheckout>;
+  }) => Promise<GatewayOnboardingLink>;
+  getMerchant: (merchantExternalId: string) => Promise<GatewayMerchant>;
+  createCheckout: (request: GatewayCheckoutRequest) => Promise<GatewayCheckout>;
   getPayment: (input: {
     externalId: string;
     merchantExternalId: string;
-  }) => Promise<CediPayPayment>;
-  refund: (request: CediPayRefundRequest) => Promise<CediPayRefund>;
+  }) => Promise<GatewayPayment>;
+  refund: (request: GatewayRefundRequest) => Promise<GatewayRefund>;
   /**
    * Verifica la firma e restituisce l'evento.
    *
@@ -269,5 +276,5 @@ export type CediPayProvider = {
     signature: string;
     secret: string;
     now?: Date;
-  }) => CediPayWebhookEvent;
+  }) => GatewayWebhookEvent;
 };
