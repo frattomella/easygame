@@ -725,3 +725,52 @@ configurazione**, che richiede l'autorizzazione di chi possiede il progetto.
 
 Finche `EASYGAME_MAINTENANCE_TOKEN` non esiste, `POST /api/v1/maintenance`
 risponde 403 e le pulizie periodiche non girano su nessun ambiente.
+
+---
+
+## Stato di staging verificato — 2026-08-26 (Blocco E)
+
+Due deploy, perche fra il primo e il secondo e stata trovata e chiusa una
+vulnerabilita critica.
+
+| Voce | Valore |
+|------|--------|
+| Progetto | `easygame-staging`, regione `fra1` |
+| Deployment finale | `easygame-staging-6g5kg4qfp`, stato **READY** |
+| Alias verificato | `https://easygame-staging-pi.vercel.app` |
+| Commit | `77dc5da` di `integration/web-v1` |
+| Migrazioni | 17, **nessuna nuova**: il Blocco E non tocca lo schema. Il build lo conferma con «No pending migrations to apply» |
+| Next.js | **14.2.35** (era 14.2.23) |
+| Vulnerabilita critiche nelle dipendenze | **zero** (erano una) |
+
+### Smoke test dopo il deploy
+
+Verificato nel **contenuto**, non solo nello stato: un 200 che restituisce una
+pagina di errore non e un 200 di EasyGame.
+
+| Prova | Esito |
+|-------|-------|
+| `/`, `/login`, `/register`, `/account` | 200, e l'HTML contiene EasyGame |
+| `/api/v1/registry` | 200, 53 kB, contiene `registry.list` |
+| `GET /api/v1/athletes` senza sessione | **401** |
+| `GET /api/v1/admin/overview` senza sessione | **403** |
+| `POST /api/v1/maintenance` senza token | **403** |
+| Slug pubblico inesistente | **404**, senza dire se esiste |
+| `POST /api/v1/auth/login` con corpo malformato | **400** `VALIDATION_ERROR` con i due campi |
+| `/api/v1/comuni` senza sessione | **401** — l'archivio comuni e per chi ha un club |
+
+### La verifica che conta piu delle altre
+
+L'aggiornamento di Next serviva a chiudere
+[GHSA-f82v-jwr5-mffw](https://github.com/advisories/GHSA-f82v-jwr5-mffw),
+l'aggiramento dell'autorizzazione nel middleware. Non basta aggiornare: va
+provato.
+
+`GET /dashboard` senza sessione, con e senza l'intestazione interna che
+l'exploit usa (`x-middleware-subrequest`, in tre varianti):
+
+    senza intestazione            -> 307 verso /login?next=%2Fdashboard
+    x-middleware-subrequest: ...  -> 307 verso /login?next=%2Fdashboard
+
+Il middleware non si aggira. Su una versione vulnerabile la pagina avrebbe
+risposto.
