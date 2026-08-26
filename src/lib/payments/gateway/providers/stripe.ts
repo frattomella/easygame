@@ -492,6 +492,13 @@ export const stripeProvider: PaymentGateway = {
         scrive Stripe.
       */
       accountId: String(parsed?.account || "").trim() || null,
+      /*
+        `livemode` lo mette Stripe su ogni evento. Si riporta com'e — booleano
+        o `null` — senza normalizzarlo a falso: un evento che non dichiara
+        l'ambiente non e un evento di sandbox, e un evento non verificabile, e
+        chi decide se accettarlo deve poter distinguere i due casi.
+      */
+      liveMode: typeof parsed?.livemode === "boolean" ? parsed.livemode : null,
       createdAt: parsed?.created
         ? new Date(Number(parsed.created) * 1000).toISOString()
         : "",

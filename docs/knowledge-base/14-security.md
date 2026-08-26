@@ -132,7 +132,25 @@ richiesta. Quattro presidi, nell'ordine in cui agiscono:
    memoria, la seconda consegna incassa una seconda volta;
 4. **niente segreto, niente fiducia.** Senza `STRIPE_WEBHOOK_SECRET`
    l'endpoint risponde **503** — non 200: un 2xx direbbe al provider «ricevuto,
-   non riprovare», e l'evento andrebbe perso.
+   non riprovare», e l'evento andrebbe perso;
+5. **sandbox e produzione non si toccano** (Blocco E,
+   [ADR-0060](18-decision-log.md#adr-0060--la-firma-dice-chi-ha-parlato-non-da-quale-mondo-sandbox-e-produzione-si-separano-sullevento)).
+   La firma dice **chi** ha parlato, non **da quale mondo**. Un endpoint di
+   staging puo ricevere un evento live — endpoint registrato sull'account
+   sbagliato, segreto copiato da un ambiente all'altro, rinvio manuale dalla
+   dashboard di produzione — e quell'evento avrebbe una firma perfettamente
+   valida. Il `livemode` dell'evento viene confrontato con l'ambiente dichiarato
+   dalla **chiave segreta** (il prefisso `sk_` seguito da `test` o da `live`, con `PAYMENT_MODE` come
+   ripiego); se non coincidono, l'evento non viene elaborato. Un evento che non
+   dichiara l'ambiente viene **rifiutato**, non assunto «di prova»:
+   `Boolean(undefined)` e falso, ed e il ripiego silenzioso che il controllo
+   esiste per togliere.
+
+   Il controllo agisce **prima della deduplica**, e l'ordine e sostanziale: una
+   riga scritta per un evento dell'ambiente sbagliato renderebbe l'evento un
+   duplicato quando arrivasse, con lo stesso identificativo, all'ambiente a cui
+   appartiene davvero — e l'incasso non verrebbe registrato. Vale su **entrambi**
+   i flussi, incassi e abbonamenti.
 
 Le risposte negative non dicono **quale** controllo non e stato superato:
 spiegarlo a chi ha mandato la richiesta e spiegarlo a chi sta provando. Nei

@@ -590,10 +590,10 @@ una modifica alla configurazione e richiede autorizzazione (CLAUDE.md, sezione
 
 | Variabile | Se manca |
 |-----------|----------|
-| `STRIPE_SECRET_KEY` | Nessun checkout e nessun collegamento Connect. `describeCheckoutReadiness` risponde `provider_not_configured` e l'interfaccia lo dice, invece di offrire il pulsante |
+| `STRIPE_SECRET_KEY` | Nessun checkout e nessun collegamento Connect. `describeCheckoutReadiness` risponde `provider_not_configured` e l'interfaccia lo dice, invece di offrire il pulsante. Il suo prefisso — `sk_` seguito da `test` o da `live` — dichiara anche **quale ambiente** questo deployment accetta sui webhook, e vince su `PAYMENT_MODE` |
 | `STRIPE_WEBHOOK_SECRET` | `/api/payments/webhook` risponde **503** e non crede a niente. E il comportamento voluto: senza segreto non si distingue un evento del PSP da un POST qualunque |
 | `STRIPE_BILLING_WEBHOOK_SECRET` | `/api/billing/webhook` risponde **503**. E una variabile distinta e non un vezzo: riusare quella degli incassi renderebbe impossibile ruotarne una sola senza fermare l'altro flusso |
-| `PAYMENT_MODE` | Si assume `test`. Compare nell'interfaccia |
+| `PAYMENT_MODE` | Si assume `test`. Compare nell'interfaccia, ed e il **ripiego** per decidere quali eventi di webhook accettare quando la chiave segreta non e riconoscibile ([ADR-0060](18-decision-log.md#adr-0060--la-firma-dice-chi-ha-parlato-non-da-quale-mondo-sandbox-e-produzione-si-separano-sullevento)) |
 | `PLATFORM_FEE_PERCENT` | Vale `1`. **Non e piu il listino**: dal Blocco D le condizioni commerciali stanno in `platform_commission_rules` e si scrivono dalla console di piattaforma, con una decorrenza ([ADR-0050](18-decision-log.md#adr-0050--una-condizione-commerciale-ha-una-decorrenza-e-la-commissione-si-congela-sullincasso)) |
 
 **Nessuna credenziale del provider fiscale.** Non esiste una variabile perche

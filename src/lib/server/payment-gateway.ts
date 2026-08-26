@@ -43,6 +43,7 @@ import {
   resolveCheckoutReadiness,
 } from "./connect-accounts";
 import { resolveCommissionForClub } from "./platform-settings";
+import { checkWebhookEnvironment } from "./payment-environment";
 import {
   PaymentGatewayError,
   requirePaymentGateway,
@@ -308,6 +309,37 @@ export const handleGatewayWebhookEvent = async (
       "Evento senza identificativo",
       event.provider,
     );
+  }
+
+  /*
+    L'ambiente si controlla **prima di tutto il resto**, deduplica compresa.
+    La firma prova che l'evento viene da Stripe; non prova che venga dallo
+    Stripe di *questo* mondo. Un endpoint di staging puo ricevere un evento
+    live — endpoint registrato sull'account sbagliato, segreto copiato da un
+    ambiente all'altro, rinvio manuale dalla dashboard di produzione — e lo
+    troverebbe perfettamente firmato: registrarlo vorrebbe dire far comparire
+    denaro vero nel registro incassi di un database di prova.
+
+    Prima della deduplica perche una riga scritta qui renderebbe l'evento un
+    duplicato quando arrivasse, con lo stesso identificativo, all'ambiente a
+    cui appartiene davvero.
+  */
+  const environment = checkWebhookEnvironment(event.liveMode);
+
+  if (!environment.accepted) {
+    console.warn("[payments/webhook] evento di un altro ambiente", {
+      provider: event.provider,
+      eventId,
+      expected: environment.expected,
+      received: environment.eventEnvironment,
+    });
+
+    return {
+      duplicate: false,
+      status: "ignored",
+      transactionId: null,
+      message: environment.reason,
+    };
   }
 
   const { organizationId, mismatch, unknownAccount } =

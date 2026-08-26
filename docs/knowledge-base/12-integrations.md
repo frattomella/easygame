@@ -194,13 +194,28 @@ Vedi [ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-s
 Sottoscrivere `invoice.*` per intero riempirebbe la tabella degli eventi di
 righe che nessuno legge e che nascondono quelle che contano.
 
+### Sandbox e produzione: la quarta domanda su un evento
+
+Le prime tre le poneva gia il Blocco D: la **firma** (viene da Stripe),
+l'**account** (per conto di una societa che conosciamo), la **deduplica** (non
+l'abbiamo gia visto). La quarta e **da quale mondo**, e la aggiunge il Blocco E
+([ADR-0060](18-decision-log.md#adr-0060--la-firma-dice-chi-ha-parlato-non-da-quale-mondo-sandbox-e-produzione-si-separano-sullevento)).
+
+L'ambiente atteso lo dichiara la **chiave segreta**, non una variabile dedicata:
+una variabile puo restare indietro dopo una rotazione, una chiave no.
+`PAYMENT_MODE` resta il ripiego per quando la chiave non e riconoscibile. Vale
+su entrambi i flussi, che condividono la chiave — e quindi l'ambiente — pur non
+condividendo il segreto di firma.
+
 ### Cosa non e collaudato
 
 La verifica della firma e la traduzione degli eventi hanno test. **Tutto cio
-che parla con `api.stripe.com` non e mai stato provato contro Stripe**: non ci
-sono credenziali in questo repository e non se ne inventano. Il codice e
-scritto sulla documentazione ufficiale e va considerato *da collaudare*, non
-funzionante.
+che parla davvero con
+`api.stripe.com` non e mai stato provato contro Stripe**: non ci sono
+credenziali in questo repository e non se ne inventano. Il codice e scritto
+sulla documentazione ufficiale e va considerato *da collaudare*, non
+funzionante — vedi X-3 in
+[23 — Matrice V1](23-v1-release-matrix.md).
 
 ## Fatturazione elettronica: nessun intermediario collegato
 

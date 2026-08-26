@@ -227,6 +227,15 @@ export type PlatformBillingEvent = {
    * errore che si scopre in contabilita.
    */
   fromConnectedAccount: boolean;
+  /**
+   * L'ambiente dichiarato da Stripe: vero in produzione, falso in sandbox.
+   *
+   * `null` quando l'evento non lo dichiara. Vale qui la stessa ragione del
+   * flusso degli incassi: un abbonamento **live** registrato da un deployment
+   * di prova cambierebbe il piano di una societa vera partendo da un evento
+   * che quel deployment non aveva titolo di ricevere. Vedi `live-mode.ts`.
+   */
+  liveMode: boolean | null;
 };
 
 /**
@@ -313,5 +322,6 @@ export const parsePlatformBillingWebhook = (input: {
       ? new Date(Number(parsed.created) * 1000).toISOString()
       : "",
     fromConnectedAccount: Boolean(asText(parsed?.account)),
+    liveMode: typeof parsed?.livemode === "boolean" ? parsed.livemode : null,
   };
 };

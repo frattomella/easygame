@@ -90,6 +90,7 @@ const incasso = (overrides = {}) => ({
   type: "checkout.session.completed",
   createdAt: "2026-08-26T10:00:00.000Z",
   accountId: ACCOUNT,
+  liveMode: false,
   refund: null,
   account: null,
   raw: {},
@@ -111,6 +112,7 @@ const rimborso = (overrides = {}) => ({
   type: "charge.refunded",
   createdAt: "2026-08-27T10:00:00.000Z",
   accountId: ACCOUNT,
+  liveMode: false,
   payment: null,
   account: null,
   raw: {},
@@ -311,6 +313,7 @@ test("un evento sull'account aggiorna lo stato del club", async () => {
   const esito = await gateway.handleGatewayWebhookEvent({
     provider: "stripe",
     id: "evt_account",
+    liveMode: false,
     type: "account.updated",
     createdAt: "2026-08-27T10:00:00.000Z",
     accountId: ACCOUNT,
@@ -343,6 +346,7 @@ test("la sospensione decisa dalla piattaforma vince su cio che dice il PSP", asy
   await gateway.handleGatewayWebhookEvent({
     provider: "stripe",
     id: "evt_account_2",
+    liveMode: false,
     type: "account.updated",
     createdAt: "2026-08-27T10:00:00.000Z",
     accountId: ACCOUNT,

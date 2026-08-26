@@ -18,6 +18,7 @@
 
 import { prisma } from "./prisma";
 import { setClubPlan } from "./entitlements";
+import { checkWebhookEnvironment } from "./payment-environment";
 import {
   fetchSubscription,
   type PlatformBillingEvent,
@@ -208,6 +209,29 @@ export const handlePlatformBillingEvent = async (
   const eventId = asText(event.id);
   if (!eventId) {
     throw new Error("Evento senza identificativo");
+  }
+
+  /*
+    L'ambiente, prima di tutto il resto e prima della deduplica: un abbonamento
+    **live** registrato da un deployment di prova cambierebbe il piano di una
+    societa vera partendo da un evento che questo deployment non aveva titolo
+    di ricevere. Vedi `payment-environment.ts`.
+  */
+  const environment = checkWebhookEnvironment(event.liveMode);
+
+  if (!environment.accepted) {
+    console.warn("[billing/webhook] evento di un altro ambiente", {
+      eventId,
+      expected: environment.expected,
+      received: environment.eventEnvironment,
+    });
+
+    return {
+      duplicate: false,
+      status: "ignored",
+      organizationId: null,
+      message: environment.reason,
+    };
   }
 
   /*

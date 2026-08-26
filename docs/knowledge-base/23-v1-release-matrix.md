@@ -101,7 +101,7 @@ Piu due difetti di qualita degli strumenti, non del prodotto:
 | E-7 | Documento stampabile con il marchio | `DONE` | `document-view`, 12 test |
 | E-8 | Archiviazione del file emesso | `DEFERRED_POST_V1` | Lo **snapshot** dei dati c'e (ADR-0052): una ristampa non rilegge l'anagrafica di oggi. Il file archiviato serve quando si emettono fatture vere, non prima |
 | E-9 | Fatturazione elettronica (SdI) | `BLOCKED_EXTERNAL` | ADR-0053: tracciato `FPR12` generato e validato, nove stati, registro degli adapter **vuoto per costruzione**, sei test provano che «trasmessa» sia irraggiungibile. Manca un intermediario accreditato. **La condizione «nessuna schermata promette l'invio» ora e vera**: non lo era, ed e il difetto BE-3 |
-| E-10 | Checkout online reale | `BLOCKED_EXTERNAL` | Onboarding Connect, importi parziali, webhook, rimborsi: tutto su mock. Servono credenziali Stripe |
+| E-10 | Checkout online reale | `BLOCKED_EXTERNAL` | Onboarding Connect, importi parziali, webhook, rimborsi: tutto su mock. Servono credenziali Stripe (X-3). Dal Blocco E il codice porta anche la separazione sandbox/produzione (ADR-0060), **collaudata sulla traduzione, non contro Stripe** |
 | E-11 | Le tre decisioni Connect | `BLOCKED_EXTERNAL` | Percentuale con decorrenza e storico: fatta. Tipo di account: configurabile e **irreversibile dopo il primo collegamento**. Saldi negativi: decisione aperta del proprietario |
 | E-12 | La commissione non cambia col listino | `DONE` | Congelata sull'incasso; `commission`, `payment-gateway-refunds` |
 | E-13 | Rimborsi e storni | `DONE` (su mock) | 11 test compreso il doppio evento sullo stesso rimborso |
@@ -212,7 +212,7 @@ Non impediscono al software di funzionare. Impediscono di chiamarlo
 |---|-----------|---------------|----------------|
 | X-1 | **Non esiste un ambiente di produzione** | Proprietario del prodotto | Creare il progetto Vercel di produzione e il database Neon corrispondente. Finche l'unico ambiente e staging, «rilasciato» non ha un significato operativo |
 | X-2 | **`DATABASE_URL` e `DIRECT_URL` mancano sul target Preview** | Proprietario del prodotto | `vercel env add DATABASE_URL preview` e `vercel env add DIRECT_URL preview` sul progetto `easygame-staging`. Senza, ogni deployment Preview e rosso e si smette di guardarli |
-| X-3 | **Nessuna credenziale Stripe** | Cedi Soft | Un account in test mode, la scelta del tipo di account Connect — **irreversibile dopo il primo collegamento** — e un collaudo di checkout, webhook e rimborso |
+| X-3 | **Nessuna credenziale Stripe in nessun ambiente** | Cedi Soft | La sandbox «Cedi Soft» esiste ed e raggiungibile, ma `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `STRIPE_BILLING_WEBHOOK_SECRET` sono **assenti sia in locale sia su `easygame-staging`**: senza, nessuna chiamata a `api.stripe.com` puo partire e il collaudo di checkout, webhook e rimborso non e eseguibile. Serve anche la scelta del tipo di account Connect — **irreversibile dopo il primo collegamento** |
 | X-4 | **Nessun intermediario per la fattura elettronica** | Cedi Soft | Decisione contrattuale. Il confine e gia disegnato: un file, una riga nel registro, la configurazione |
 | X-5 | **Nessun bando reale caricato** | Una societa e un ente | Il percorso e provato su dati sintetici; manca il prospetto vero |
 | X-6 | **`EASYGAME_MAINTENANCE_TOKEN` non configurato** | Proprietario del prodotto | La rotta di manutenzione risponde 403 finche il segreto non c'e: le pulizie periodiche non girano |
@@ -252,7 +252,7 @@ Nell'ordine in cui conviene affrontarli.
 
 | Gate | Esito |
 |------|-------|
-| `npm test` | **1.555 test, 0 falliti** (erano 1.535 all'inizio del blocco: +20, tutti su difetti trovati qui) |
+| `npm test` | **1.568 test, 0 falliti** (erano 1.535 all'inizio del blocco: +33 — +20 su difetti trovati qui, +13 sulla separazione sandbox/produzione, ADR-0060) |
 | `npm run typecheck` | nessun output |
 | `npm run lint` | 0 errori, 41 warning — **lo stesso numero** con cui il blocco e cominciato |
 | `npm run build` | completa |

@@ -61,6 +61,8 @@ const eventoRiuscito = (overrides = {}) => ({
   id: "evt_1",
   type: "checkout.session.completed",
   createdAt: "2026-08-26T10:00:00.000Z",
+  /* Stripe lo mette su ogni evento. Qui e sandbox, come l'ambiente di prova. */
+  liveMode: false,
   raw: {},
   payment: {
     provider: "stripe",
@@ -279,4 +281,57 @@ test("senza club non si risolve niente", async () => {
     () => gateway.resolveClubGatewayContext(""),
     /Accesso negato/,
   );
+});
+
+/* ------------------------------------------- sandbox contro produzione */
+
+/**
+ * La firma prova **chi** ha parlato, non **da dove**.
+ *
+ * Questi test girano senza `STRIPE_SECRET_KEY` e senza `PAYMENT_MODE`, quindi
+ * l'ambiente atteso e quello di prova: e la configurazione di uno staging, che
+ * e esattamente il caso da difendere.
+ */
+
+test("un evento live non incassa su un ambiente di prova", async () => {
+  const esito = await gateway.handleGatewayWebhookEvent(
+    eventoRiuscito({ liveMode: true }),
+  );
+
+  assert.equal(esito.status, "ignored");
+  assert.equal(esito.transactionId, null);
+  assert.equal(
+    fake.rows("paymentTransaction").length,
+    0,
+    "denaro vero non entra nel registro di un database di prova",
+  );
+});
+
+test("un evento dell'ambiente sbagliato non occupa la memoria dei duplicati", async () => {
+  /*
+    Se lo occupasse, il rinvio dello **stesso identificativo** all'ambiente a
+    cui l'evento appartiene davvero risulterebbe un duplicato e verrebbe
+    scartato senza registrare l'incasso. Per questo il controllo sta prima
+    della deduplica e non dopo.
+  */
+  await gateway.handleGatewayWebhookEvent(eventoRiuscito({ liveMode: true }));
+
+  assert.equal(fake.rows("paymentWebhookEvent").length, 0);
+
+  const esito = await gateway.handleGatewayWebhookEvent(
+    eventoRiuscito({ liveMode: false }),
+  );
+
+  assert.equal(esito.status, "processed");
+  assert.equal(esito.duplicate, false);
+  assert.equal(fake.rows("paymentTransaction").length, 1);
+});
+
+test("un evento che non dichiara l'ambiente non incassa", async () => {
+  const esito = await gateway.handleGatewayWebhookEvent(
+    eventoRiuscito({ liveMode: null }),
+  );
+
+  assert.equal(esito.status, "ignored");
+  assert.equal(fake.rows("paymentTransaction").length, 0);
 });

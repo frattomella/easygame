@@ -2995,3 +2995,65 @@ Un doppio del client Prisma prova il dominio e **non prova il driver**. Ogni
 tipo di colonna che non sia testo, numero, data o JSON — oggi `Bytes`, domani
 `Decimal` o un tipo geografico — va esercitato almeno una volta contro un
 database vero, o non e provato affatto.
+
+---
+
+## ADR-0060 — La firma dice chi ha parlato, non da quale mondo: sandbox e produzione si separano sull'evento
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco E. Completa
+[ADR-0051](#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame)
+dal lato dell'ambiente.
+
+**Il problema.** ADR-0051 ha messo in fila tre controlli su un evento di
+webhook: la **firma** — viene da Stripe; l'**account** (`event.account`) — viene
+per conto di una societa che EasyGame conosce; la **deduplica** — non l'abbiamo
+gia visto. Mancava la quarta domanda, e non e una domanda minore: **da quale
+mondo**.
+
+Un endpoint di staging puo ricevere un evento **live**. Non e un caso
+ipotetico: succede quando un endpoint viene registrato sull'account sbagliato,
+quando un segreto di firma viene copiato da un ambiente all'altro, e quando
+qualcuno rinvia a mano un evento dalla dashboard di produzione. Quell'evento
+avrebbe una firma **perfettamente valida**, supererebbe i tre controlli
+esistenti, e registrerebbe denaro vero nel registro incassi di un database di
+prova.
+
+L'errore inverso e peggiore, e vale la pena scriverlo: un evento **di prova**
+accettato in produzione fa comparire un incasso mai avvenuto sulla rata di una
+famiglia vera, con la ricevuta che ne consegue.
+
+**La decisione.** Ogni evento porta con se l'ambiente che il provider dichiara
+(`livemode` su Stripe), e viene confrontato con l'ambiente che il deployment si
+aspetta. Se non coincidono, l'evento non viene elaborato.
+
+*L'ambiente atteso lo dice la chiave segreta, non una variabile dedicata.*
+La chiave di prova e quella di produzione — `sk_` seguito da `test` o da `live`
+— sono due credenziali diverse e dichiarano da sole a
+quale mondo appartengono. E la fonte migliore perche non puo divergere da cio
+che regola davvero le chiamate **in uscita**: una variabile separata puo
+restare indietro dopo una rotazione, una chiave no. `PAYMENT_MODE` resta il
+ripiego per quando la chiave non e riconoscibile.
+
+*Un evento che non dichiara l'ambiente viene rifiutato, non assunto «di
+prova».* `Boolean(undefined)` e falso, ed e esattamente il ripiego silenzioso
+che questo controllo esiste per togliere: un corpo senza `livemode` non e un
+evento Stripe completo, e non c'e modo di dimostrare che appartenga a qui.
+
+*Il controllo sta prima della deduplica.* Non e un dettaglio d'ordine: se un
+evento dell'ambiente sbagliato occupasse una riga nella memoria degli eventi
+gia visti, il rinvio dello **stesso identificativo** all'ambiente a cui
+appartiene davvero risulterebbe un duplicato e verrebbe scartato senza
+registrare l'incasso.
+
+**Conseguenze.**
+
+- `src/lib/payments/live-mode.ts` e la regola, pura e collaudabile senza un
+  ambiente; `src/lib/server/payment-environment.ts` e la sola parte che legge
+  le variabili;
+- `GatewayWebhookEvent.liveMode` e `PlatformBillingEvent.liveMode` portano
+  l'ambiente su **entrambi** i flussi di ADR-0051, che condividono la chiave
+  segreta e quindi l'ambiente, pur non condividendo il segreto di firma;
+- restano da collaudare contro Stripe, per la ragione di ADR-0045, tutte le
+  chiamate che parlano con `api.stripe.com`: la traduzione ha test, la rete no.

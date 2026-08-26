@@ -253,6 +253,16 @@ export type GatewayWebhookEvent = {
    * pagamento su quell'account.
    */
   accountId: string | null;
+  /**
+   * L'ambiente dichiarato dal provider: vero in produzione, falso in sandbox.
+   *
+   * `null` quando l'evento non lo dichiara, e la differenza conta: un evento
+   * che non dice a quale mondo appartiene non si puo assumere «di prova» solo
+   * perche il campo manca. La firma prova **chi** ha parlato, `accountId`
+   * prova **per conto di chi**, questo prova **da dove**. Vedi
+   * `src/lib/payments/live-mode.ts`.
+   */
+  liveMode: boolean | null;
   createdAt: string;
   /** Il corpo interpretato, per chi deve guardarci dentro. Mai loggato intero. */
   raw: Record<string, any>;

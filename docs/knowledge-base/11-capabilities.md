@@ -199,7 +199,7 @@ Classificazione:
 | Deploy Vercel staging | COMPLETE | Progetto `easygame-staging`, regione `fra1` |
 | Deploy Vercel production | LEGACY/REVIEW | **Nessun progetto production visibile** nello scope Vercel corrente. Vedi [13](13-environments.md) |
 | Migrazioni automatiche in build | COMPLETE (rischioso) | `vercel-build` esegue `prisma migrate deploy`. Vedi [14](14-security.md) |
-| Test automatici | COMPLETE | 1.555 test su auth, dominio, API, invarianti di interfaccia e responsivita. Discovery automatica su `tests/**/*.test.mjs` |
+| Test automatici | COMPLETE | 1.568 test su auth, dominio, API, invarianti di interfaccia e responsivita. Discovery automatica su `tests/**/*.test.mjs` |
 | CI | COMPLETE | `.github/workflows/ci.yml`, tre job (Web, Mobile, Guardrail) su ogni push e ogni pull request. **Gira davvero**: 41 run sul repository, l'ultima verde sul commit di integrazione. La riga precedente diceva il contrario ed era vecchia di mesi |
 | Typecheck e lint | COMPLETE | `npm run typecheck` e `npm run lint` puliti |
 | Logging / observability | PARTIAL | `console.error` sui percorsi che possono perdere dati — compreso il modulo pubblico, che dal Blocco E non fallisce piu in silenzio. Nessun servizio di error tracking: dipende dall'ambiente di produzione |

@@ -119,11 +119,13 @@ cleanup 2026-08-22).
 | `src/lib/payments/billing/` | Il flusso **abbonamenti** verso l'account centrale di Cedi Soft. Separato di proposito: la differenza tecnica e una sola intestazione, e in un modulo condiviso sarebbe un parametro dimenticabile |
 | `src/lib/payments/commission.ts` | Quale condizione commerciale vale, e il congelamento sull'incasso. Puro |
 | `src/lib/payments/connect-account.ts` | I sette stati dell'account di incasso e i cinque ostacoli al checkout. Puro |
+| `src/lib/payments/live-mode.ts` | La separazione **sandbox / produzione** su un evento di webhook. Puro: si prova con stringhe e booleani ([ADR-0060](18-decision-log.md#adr-0060--la-firma-dice-chi-ha-parlato-non-da-quale-mondo-sandbox-e-produzione-si-separano-sullevento)) |
 | `src/lib/fiscal/` | Forme giuridiche, profilo fiscale, classificazione delle operazioni, motore fiscale. Tutto puro |
 | `src/lib/fiscal/fatturapa/` | Stati, generatore del tracciato, interfaccia adapter. **Registro degli adapter vuoto** |
 | `src/lib/documents/document-snapshot.ts` | La fotografia di un documento al momento dell'emissione, e l'elenco dei campi immutabili |
 | `src/lib/server/platform-settings.ts` | Configurazioni di piattaforma e condizioni commerciali. **Unico proprietario** |
 | `src/lib/server/connect-accounts.ts` | L'account di incasso di un club. Lo scrivono solo la console e gli eventi firmati |
+| `src/lib/server/payment-environment.ts` | La sola parte di `live-mode.ts` che legge le variabili d'ambiente. Lo usano entrambi i flussi di ADR-0051 |
 | `src/lib/server/platform-billing.ts` | Gli abbonamenti EasyGame. Non tocca mai `payment_transactions` |
 | `src/lib/server/fiscal-config.ts` | Profilo, serie e tipi di operazione di un club |
 | `src/lib/server/fiscal-documents.ts` | Emissione, annullamento e immutabilita dei documenti. **Usciti** da `payment-transactions.ts` |

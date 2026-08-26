@@ -43,6 +43,8 @@ const evento = (over = {}) => ({
   type: "customer.subscription.updated",
   createdAt: "2026-08-26T10:00:00.000Z",
   fromConnectedAccount: false,
+  /* Stripe lo mette su ogni evento. Qui e sandbox, come l'ambiente di prova. */
+  liveMode: false,
   subscription: {
     customerId: "cus_1",
     subscriptionId: "sub_1",
