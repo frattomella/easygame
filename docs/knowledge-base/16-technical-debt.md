@@ -837,3 +837,23 @@ Categorie con una categoria da un atleta solo.
 "atleti")` — e la sostituzione nei punti che oggi concatenano a mano. E un
 lavoro di mezz'ora che tocca molte righe: esattamente il genere di cosa che
 non si fa dentro un blocco di stabilizzazione.
+
+
+### E7 — Next.js resta sulla 14, e sulla 14 alcuni avvisi non si chiudono
+
+**Impatto: medio.** Il Blocco E ha portato Next da 14.2.23 a 14.2.35, l'ultima
+della stessa minor, e con questo ha chiuso l'unica vulnerabilita **critica**
+del progetto: l'aggiramento dell'autorizzazione nel middleware
+([GHSA-f82v-jwr5-mffw](https://github.com/advisories/GHSA-f82v-jwr5-mffw)), che
+su un prodotto che usa il middleware per le route guard non poteva restare
+aperta.
+
+Restano avvisi che si chiudono solo con la **15.x**. La verifica uno per uno
+sta nella [matrice](23-v1-release-matrix.md): quasi tutti descrivono funzioni
+che EasyGame non usa — Server Actions, rewrites, Pages Router con i18n. Quello
+che resta davvero e la superficie di `next/image`, che ammette due host
+esterni in `remotePatterns`.
+
+**Cosa farebbe la differenza, nell'ordine:** togliere i due host esterni da
+`remotePatterns` se non servono piu (mezz'ora); poi pianificare la 15, che e
+un lavoro suo e va fatto con i suoi tempi.

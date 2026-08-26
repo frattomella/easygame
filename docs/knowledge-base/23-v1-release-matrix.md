@@ -86,6 +86,7 @@ Piu due difetti di qualita degli strumenti, non del prodotto:
 | S-12 | Un evento del PSP non attraversa due societa | `DONE` | 3 test di isolamento |
 | S-13 | **Lo stato di una rata non si scrive dal client** | `DONE` | Corretto nel Blocco E (BE-2). `tests/server/payment-state-ownership.test.mjs`, 8 test; provato anche a runtime |
 | S-14 | Permessi sugli allegati | `DONE` | Stesso file: 200 per il club proprietario, 401 senza sessione, 403 da un altro club. Intestazioni `Content-Security-Policy: sandbox`, `X-Content-Type-Options: nosniff` |
+| S-15 | **Nessuna vulnerabilita critica nelle dipendenze** | `DONE` | `npm audit` diceva **1 critica e 14 alte**. La critica era [GHSA-f82v-jwr5-mffw](https://github.com/advisories/GHSA-f82v-jwr5-mffw), **aggiramento dell'autorizzazione nel middleware di Next.js**, su un prodotto che il middleware lo usa per le route guard. Next passa da 14.2.23 a **14.2.35**, ultima della stessa minor: zero critiche |
 
 ## 3. Denaro
 
@@ -270,6 +271,29 @@ I venti test nuovi:
 
 ---
 
+## Le vulnerabilita che restano nelle dipendenze, e perche non bloccano
+
+Dopo l'aggiornamento a Next 14.2.35 restano quindici avvisi `high` e uno
+`moderate`, e **tutti** quelli su Next si chiudono solo con la 15.x, cioe con
+una migrazione major che non si fa dentro un blocco di stabilizzazione.
+
+Guardati uno per uno, quasi nessuno tocca EasyGame:
+
+| Classe di avviso | Si applica? | Perche |
+|------------------|-------------|--------|
+| DoS e SSRF nelle **Server Actions** | **No** | EasyGame non ne usa nessuna: `"use server"` non compare in tutto `src/`, per [ADR-0007](18-decision-log.md#adr-0007--nessuna-migrazione-net-ora-ma-nessun-nuovo-lock-in) |
+| SSRF nelle **rewrites** | **No** | Non ci sono rewrites, ne in `next.config.js` ne in `vercel.json` |
+| Aggiramento del middleware con **Pages Router + i18n** | **No** | App Router, e nessun i18n configurato |
+| Cache poisoning su **RSC** e redirect | Marginale | Le pagine autenticate hanno `Cache-Control: private, max-age=0, must-revalidate` |
+| DoS e cache di **next/image** | **Si**, in parte | `remotePatterns` ammette due host esterni (Unsplash, DiceBear). Vale la pena chiudere quel varco quando si affronta la 15 |
+| Avvisi su `glob`, `minimatch`, `picomatch`, `brace-expansion` | **No** in esecuzione | Sono strumenti di sviluppo e di build, non arrivano nel bundle servito |
+
+Le quindici `high` residue **non sono quindici falle**: sono quindici avvisi
+su un pacchetto solo, e la maggior parte descrive funzioni che questo prodotto
+non usa. L'aggiornamento a Next 15 e nella lista post-V1 con la sua ragione.
+
+---
+
 ## Verdetto
 
 **GO come Release Candidate.**
@@ -283,10 +307,104 @@ societa reale, su staging.
 Il software non ha blocchi propri. I sei difetti trovati in questo blocco
 erano reali e due di essi erano gravi — nessun allegato poteva essere salvato,
 e lo stato di una rata si poteva scrivere dal client — ma sono stati corretti,
-provati a runtime e chiusi con invarianti. I gate sono verdi in locale **e**
+provati a runtime e chiusi con invarianti. La sola vulnerabilita **critica**
+delle dipendenze, un aggiramento dell autorizzazione nel middleware di Next.js,
+e stata chiusa con un aggiornamento di patch. I gate sono verdi in locale **e**
 sulla CI remota. L'isolamento multi-tenant regge una prova IDOR fra due
 organizzazioni vere. Un modulo pubblico e stato compilato da fuori con un
 allegato. Un backup e stato ripristinato davvero.
 
 Quello che resta e fuori dal codice: un ambiente da creare, delle credenziali
 da ottenere, un bando vero da caricare.
+
+---
+
+## Appendice — la lista di prova manuale, per chi fa la UAT
+
+Quello che una prova automatica non puo dire: se una segreteria ci lavora
+davvero. Va fatta su staging, con un club vero, da chi in quel club ci lavora.
+Un'ora e mezza abbondante.
+
+L'ordine non e casuale: ogni passo prepara il successivo.
+
+### Prima di cominciare
+
+- [ ] Aprire l'applicazione da **telefono**, non da computer. Tre quarti dei
+      difetti di questo blocco si sono visti solo li
+- [ ] Segnare l'ora d'inizio: se un passo richiede piu di due minuti, il
+      problema e quello, non chi lo sta facendo
+
+### 1. Entrare (10 minuti)
+
+- [ ] Registrare un account nuovo e ricevere il codice di verifica **via
+      email**. Senza SMTP configurato non arriva, e l'account non entra: e il
+      primo controllo da fare su un ambiente nuovo
+- [ ] Sbagliare la password cinque volte di fila e vedere cosa succede
+- [ ] «Password dimenticata», e usare il link ricevuto
+- [ ] Uscire e rientrare. Chiudere il browser e riaprirlo: la sessione dura
+      quattordici giorni
+
+### 2. Il club (15 minuti)
+
+- [ ] Creare il club e **non** completare l'onboarding: la dashboard deve
+      dire a che punto si e e come riprendere
+- [ ] Anagrafica societaria: cambiare **un solo** campo e ricaricare la
+      pagina. Controllare che non ne sia sparito un altro
+- [ ] Dati fiscali e bancari: qui il salvataggio e esplicito, non automatico.
+      Verificare che lo dica
+- [ ] Creare due sedi e una categoria svolta in entrambe. Verificare che
+      compaia il filtro sede, e che con **una** sola sede non ci fosse
+
+### 3. Gli atleti (25 minuti)
+
+- [ ] Iscrivere un atleta a mano, compilando **tutto**
+- [ ] Importare un file vero della societa — CSV o Excel, quello che hanno.
+      Guardare l'anteprima riga per riga prima di confermare
+- [ ] Cercare un atleta per cognome. Poi filtrarlo per categoria, poi per sede
+- [ ] Aprire una scheda e girare tutte e sette le sezioni **da telefono**
+- [ ] Caricare un documento di identita, poi riaprirlo con «Visualizza» e
+      scaricarlo. Controllare il nome del file scaricato
+- [ ] Aggiungere un genitore o tutore e verificare che compaia nei contatti
+
+### 4. I soldi (20 minuti)
+
+- [ ] Assegnare un piano di pagamento a un atleta e guardare la scheda
+      «Iscrizione»: totale, pagato e residuo devono comparire **una volta
+      sola**
+- [ ] Registrare un incasso parziale in contanti. La rata diventa parziale e
+      il residuo cala
+- [ ] Registrare il saldo con un metodo diverso. La rata diventa pagata
+- [ ] Stornare uno dei due incassi. La rata torna parziale, e nello storico
+      restano **tutte e tre** le righe
+- [ ] Emettere la ricevuta di un incasso e stamparla
+- [ ] Provare a emettere una fattura per un atleta senza dati fiscali: deve
+      dire **quali** dati mancano
+
+### 5. Il modulo online (20 minuti)
+
+- [ ] Costruire il modulo di iscrizione della societa, con i campi che usano
+      davvero e almeno un allegato obbligatorio
+- [ ] Collegare i campi all'anagrafica, e aggiungere i campi «categoria» e
+      «sede»: le opzioni le mette il server
+- [ ] Pubblicare, e **rigenerare il link** se il nome non e quello giusto
+- [ ] Mandare il link a un genitore vero, su WhatsApp. Farlo compilare **dal
+      suo telefono**, con una foto del certificato
+- [ ] In segreteria: aprire la compilazione, guardare l'anteprima delle
+      modifiche, approvare
+- [ ] Verificare che l'atleta sia nato con il tutore collegato e nella sede
+      giusta
+
+### 6. Il resto (20 minuti)
+
+- [ ] Creare un allenamento su **due** gruppi e fare l'appello
+- [ ] Assegnare un kit e consegnarne solo una parte
+- [ ] Iscrivere un atleta a un bando e ricalcolare la maturazione
+- [ ] Aggiungere un allenatore con contratto, visita medica e BLSD
+- [ ] Esportare l'elenco atleti
+
+### Da segnare, sempre
+
+- [ ] Ogni volta che si e dovuto **indovinare** dove cliccare
+- [ ] Ogni messaggio di errore che non dice cosa fare
+- [ ] Ogni schermata che da telefono costringe a scorrere in orizzontale
+- [ ] Ogni numero che non torna con quello scritto due righe sopra
