@@ -9,6 +9,7 @@ import {
   isPaymentExcludedFromTotals,
   isPaymentPaidLike,
 } from "@/lib/payments/payment-status-utils";
+import { recomputeChargeFromLedger } from "@/lib/server/payment-transactions";
 
 type Context = {
   params: {
@@ -114,14 +115,19 @@ export async function PATCH(request: Request, context: Context) {
         return jsonError("Importo non valido");
       }
 
-      const status = String(updates.status || payment.status || "pending").trim();
-      const normalizedStatus = status.toLowerCase();
-      const nextPaidAt =
-        normalizedStatus === "paid" ||
-        normalizedStatus === "pagato" ||
-        normalizedStatus === "saldato"
-          ? payment.paid_at || now
-          : null;
+      /*
+        Lo stato di una rata non arriva dal client, nemmeno da qui.
+
+        Questa rotta accettava lo `status` mandato dal client e lo
+        scriveva: bastava modificare l'importo di una rata scoperta mandando
+        `status: "paid"` per farla risultare saldata senza che fosse entrato
+        un euro, e la rotta le metteva pure una data di pagamento. Lo stato
+        si ricava dagli incassi (ADR-0036) e lo riscrive
+        `payment-transactions.ts`: qui si conserva quello che c'e, e le altre
+        modifiche — importo, scadenza, descrizione, note — passano come prima.
+      */
+      const status = String(payment.status || "pending").trim();
+      const nextPaidAt = payment.paid_at || null;
 
       const updated = await prisma.athletePayment.update({
         where: { id: payment.id },
@@ -155,7 +161,15 @@ export async function PATCH(request: Request, context: Context) {
         },
       });
 
-      return NextResponse.json({ data: updated, error: null });
+      /*
+        Cambiare l'importo cambia il debito, quindi puo cambiare lo stato:
+        una rata da 130 con 100 incassati e parziale, la stessa rata portata
+        a 100 e saldata. Il ricalcolo lo fa il proprietario del dominio, non
+        questa rotta.
+      */
+      const settled = await recomputeChargeFromLedger(prisma, payment.id);
+
+      return NextResponse.json({ data: settled || updated, error: null });
     }
 
     if (action === "delete") {

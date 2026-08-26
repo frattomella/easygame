@@ -179,7 +179,7 @@ export const getPaymentTransactionById = async (
  * porta con se anche incassato e residuo, cosi chi legge la riga senza
  * caricare i movimenti vede numeri coerenti.
  */
-const recomputeChargeFromLedger = async (
+export const recomputeChargeFromLedger = async (
   client: any,
   chargeId: string,
 ) => {

@@ -2549,6 +2549,24 @@ export const createResource = async (
     );
   }
 
+  /*
+    Anche la creazione passa dalla guardia: una rata che nasce gia `paid`
+    sarebbe il modo piu semplice di aggirare un controllo messo solo sulla
+    modifica. In `upsert` la riga puo gia esistere, e allora il confronto va
+    fatto con cio che c'e.
+  */
+  const existingCharge =
+    (resource === "payments" || resource === "simplified_payments") && normalized.id
+      ? await delegate.findUnique({ where: { id: String(normalized.id) } })
+      : null;
+  await guardLedgerOwnedPaymentState(
+    resource,
+    normalized,
+    existingCharge,
+    scope,
+    normalized.id || null,
+  );
+
   if (
     mode === "upsert" &&
     resource === "organization_users" &&
@@ -2698,6 +2716,67 @@ const guardPlatformOwnedClubSettings = async (
   });
 };
 
+/**
+ * Lo stato di una rata non si scrive dal client, nemmeno dal CRUD generico.
+ *
+ * **Il difetto che chiude.** `POST /api/v1/payment-transactions` era gia il
+ * solo modo di far diventare pagata una rata (ADR-0036), ma la risorsa
+ * generica scriveva ancora `payments.status` come qualunque altra colonna:
+ * un `PATCH /api/v1/payments/:id {"status":"paid"}` marcava saldata una
+ * rata senza che fosse entrato un euro. E il campo che meta applicazione
+ * legge — riepiloghi, Movimenti, report, area genitore — quindi la rata
+ * risultava pagata ovunque, mentre `data.ledger` accanto continuava a dire
+ * «parziale, residuo 30». Il record si contraddiceva da solo.
+ *
+ * **Perche `cancelled` resta scrivibile.** Annullare una rata non e dire
+ * che e stata incassata: e dire che quel debito non esiste piu. Lo fa la
+ * sostituzione del piano di pagamento, ed e la stessa distinzione che
+ * `recomputeChargeFromLedger` gia rispetta quando si rifiuta di
+ * sovrascrivere una rata annullata.
+ *
+ * **Perche ignora invece di rifiutare.** Come per il piano del club: chi
+ * salva una rata rimanda indietro il record intero, `status` compreso.
+ * Rispondere «Accesso negato» a un salvataggio che non stava cambiando lo
+ * stato romperebbe le schermate. Un valore **diverso** da quello che c'e
+ * viene ignorato e registrato nell'audit come diniego.
+ */
+const LEDGER_OWNED_PAYMENT_STATES = new Set(["pending", "partially_paid", "paid"]);
+
+const guardLedgerOwnedPaymentState = async (
+  resource: string,
+  normalized: Record<string, any>,
+  existing: Record<string, any> | null | undefined,
+  scope: ResourceAccessScope | undefined,
+  paymentId: string | null | undefined,
+) => {
+  if (resource !== "payments" && resource !== "simplified_payments") return;
+  if (normalized.status === undefined || normalized.status === null) return;
+
+  const requested = String(normalized.status).trim().toLowerCase();
+  if (!LEDGER_OWNED_PAYMENT_STATES.has(requested)) return;
+
+  const current = existing?.status ? String(existing.status).trim().toLowerCase() : null;
+
+  if (current === null) {
+    // Una rata nasce scoperta: il registro non ha ancora nulla da dire.
+    normalized.status = "pending";
+    if (requested === "pending") return;
+  } else {
+    normalized.status = existing?.status;
+    if (requested === current) return;
+  }
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.resourceAccessDenied,
+    outcome: "denied",
+    actorUserId: scope?.userId,
+    organizationId:
+      normalized.organization_id || existing?.organization_id || scope?.activeOrganizationId || null,
+    resource: "payment_state",
+    resourceId: paymentId || "",
+    metadata: { rejectedFields: ["status"], requestedState: requested, keptState: current },
+  });
+};
 export const updateResource = async (
   resource: string,
   id: string,
@@ -2793,6 +2872,7 @@ export const updateResource = async (
     options,
     existing?.id || id,
   );
+  await guardLedgerOwnedPaymentState(resource, normalized, existing, scope, id);
 
   if (isOrganizationScopedResource(resource)) {
     normalized.organization_id = resolveScopedOrganizationId(
