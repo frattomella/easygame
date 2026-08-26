@@ -36,12 +36,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 233 |
+| `DONE` | 238 |
 | `IN PROGRESS` | 13 |
 | `OPEN` | 24 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **280** |
+| **Totale** | **285** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -447,6 +447,11 @@ esplodeva, un evento da un account connesso sconosciuto veniva assecondato, e
 | BD-19 | Il prodotto CediPay esce dalla V1 | `DONE` | [ADR-0049](18-decision-log.md#adr-0049--cedipay-non-e-un-prodotto-della-v1-sotto-ce-stripe-e-si-chiama-stripe). Un marchio in mezzo a un incasso deve poter dire chi incassa e chi risponde di un rimborso: nella V1 la risposta e «il club, tramite Stripe». L'astrazione resta, il nome no |
 | BD-20 | Due difetti della fake-prisma | `DONE` | `orderBy` in forma di array veniva ignorato — il codice vero la usa per gli incassi e per le condizioni commerciali — e due `Date` con lo stesso istante risultavano diverse perche confrontate con `===` |
 | BD-21 | Primo giro reale su Stripe | `OPEN` | Non ci sono credenziali in questo repository e non se ne inventano. Servono un account in test mode, la scelta del tipo di account Connect (irreversibile) e un collaudo di checkout, webhook e rimborso |
+| BD-23 | **Voucher/Contributi: un programma non si apriva** | `DONE` | Il buco era funzionale e non di modello: `funding_enrollments` esisteva da ADR-0037 e nessuna schermata lo sapeva scrivere. Un bando caricato restava senza beneficiari, e il maturato — che si calcola per beneficiario — non aveva su cosa girare |
+| BD-24 | Scheda del programma di contributo | `DONE` | Regole, stato, plafond, validita, totali e iscritti con i cinque importi per ognuno. Ricerca per cognome o codice voucher, filtro per stato |
+| BD-25 | Iscrizione atleti, nei due sensi | `DONE` | Un componente solo: «programma → iscrivo atleti» e «atleta → lo iscrivo a un programma» sono la stessa operazione guardata da due parti. Selezione multipla, plafond e codice voucher individuali, doppie iscrizioni impedite |
+| BD-26 | Revoca che non cancella lo storico | `DONE` | Un'iscrizione che ha gia prodotto importi rendicontati o liquidati passa a `closed` invece di sparire: quei numeri sono stati comunicati a un ente e in parte gia incassati |
+| BD-27 | Il maturato resta un calcolo | `DONE` | L'iscrizione assegna un **tetto**; il maturato continua a venire dalle presenze. Il plafond individuale non puo nemmeno scendere sotto il gia maturato |
 | BD-22 | Intermediario per la fattura elettronica | `OPEN` | Decisione contrattuale di Cedi Soft. Il confine e disegnato: un file, una riga nel registro, la configurazione |
 
 ---

@@ -242,7 +242,7 @@ export function PaymentsBillingSection() {
     setBusy(key);
     const response = await apiRequest("/api/v1/platform/payments", {
       method: "POST",
-      body: JSON.stringify(body),
+      body: body,
     });
     setBusy(null);
 

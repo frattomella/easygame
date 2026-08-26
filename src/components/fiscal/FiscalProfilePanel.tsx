@@ -116,7 +116,7 @@ export function FiscalProfilePanel({
     setSaving(true);
     const response = await apiRequest<ProfileView>("/api/v1/fiscal/profile", {
       method: "PUT",
-      body: JSON.stringify({ ...draft, organization_id: organizationId }),
+      body: { ...draft, organization_id: organizationId },
     });
     setSaving(false);
 

@@ -101,10 +101,10 @@ export function ClubPaymentAccountPanel({
       "/api/v1/payments/account",
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           action: "onboarding_link",
           organization_id: organizationId,
-        }),
+        },
       },
     );
     setBusy(false);

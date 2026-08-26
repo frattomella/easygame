@@ -182,7 +182,7 @@ export function EnrollAthletesDialog(props: EnrollAthletesDialogProps) {
       skipped: Array<{ athleteId: string; reason: string }>;
     }>("/api/v1/funding/enrollments", {
       method: "POST",
-      body: JSON.stringify(body),
+      body: body,
     });
 
     setSaving(false);

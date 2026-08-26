@@ -135,14 +135,14 @@ export function AthletePaymentLedger({
         "/api/payments/create-checkout-session",
         {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             paymentId: installmentId,
             athleteId,
             amountCents: Math.round(ledger.residualAmount * 100),
             description: ledger.label,
             successUrl: `${origin}/athletes/${athleteId}?pagamento=verifica`,
             cancelUrl: `${origin}/athletes/${athleteId}?pagamento=annullato`,
-          }),
+          },
         },
       );
 
