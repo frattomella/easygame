@@ -10,6 +10,12 @@ import {
   compareAthletesByLastName,
   sortPeopleByLastName,
 } from "../../src/lib/athlete-name-utils.ts";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+const SRC = path.join(process.cwd(), "src");
+const readSource = (relative) =>
+  readFileSync(path.join(SRC, ...relative.split("/")), "utf8");
 
 /**
  * Regressione Web V1 Blocco 5 - ordinamento nominale centralizzato.
@@ -115,5 +121,77 @@ test("il comparatore persone accetta anche camelCase e il solo nome completo", (
   assert.ok(
     compareAthletesByLastName({ name: "Anna Bianchi" }, { name: "Zeno Verdi" }) <
       0,
+  );
+});
+
+/* ------------------------------- l'ordine non e alfabetico dappertutto */
+
+/**
+ * Dove l'ordine ha un significato, l'alfabetico lo distrugge.
+ *
+ * Le persone si ordinano per Cognome, Nome; i gruppi per Categoria, Sede
+ * (ADR-0055). Ma rate, periodi di un contributo, movimenti e documenti hanno
+ * un ordine **loro** — cronologico, o quello del piano — e riordinarli per
+ * nome li renderebbe illeggibili: la «Rata 10» verrebbe prima della «Rata 2»,
+ * e una ricevuta di gennaio dopo una di dicembre.
+ *
+ * Questo test non guarda un modulo: guarda le superfici che quell'ordine lo
+ * producono, e verifica che non abbiano cominciato a ordinare per nome.
+ */
+test("le sequenze che hanno un ordine proprio non passano dall'alfabetico", () => {
+  const offenders = [];
+
+  const superfici = [
+    // Le rate seguono il piano, e i loro incassi la cronologia.
+    ["components/payments/InstallmentLedgerList.tsx", /sortByName|localeCompare/],
+    // I periodi di un contributo seguono il calendario del bando.
+    ["components/funding/FundingPeriodsTable.tsx", /sortByName|localeCompare/],
+    // Il registro incassi ordina per data, e lo fa nel dominio.
+    ["components/payments/use-athlete-payment-ledger.ts", /sortByName/],
+  ];
+
+  for (const [file, pattern] of superfici) {
+    if (pattern.test(readSource(file))) offenders.push(file);
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "un ordine cronologico riordinato per nome smette di essere leggibile",
+  );
+});
+
+test("i documenti fiscali si leggono dal piu recente", () => {
+  const source = readSource(
+    "components/athletes/enrollment/AthleteEnrollmentTab.tsx",
+  );
+
+  assert.match(
+    source,
+    /String\(right\.issueDate \|\| ""\)\.localeCompare\(/,
+    "una cronologia si legge dal fondo, non dalla A",
+  );
+});
+
+/**
+ * Gli elenchi di persone e di gruppi, invece, l'alfabetico ce l'hanno.
+ */
+test("gli elenchi nominali passano dai comparatori condivisi", () => {
+  const missing = [];
+
+  const superfici = [
+    ["app/athletes/page.tsx", /compareCategoryGroups\(/],
+    ["app/trainers/[id]/page.tsx", /compareCategoryGroups\)/],
+    ["app/athletes/new/page.tsx", /sortByName\(/],
+  ];
+
+  for (const [file, pattern] of superfici) {
+    if (!pattern.test(readSource(file))) missing.push(file);
+  }
+
+  assert.deepEqual(
+    missing,
+    [],
+    "ogni elenco nominale deve usare il comparatore condiviso, non un ordinamento suo",
   );
 });

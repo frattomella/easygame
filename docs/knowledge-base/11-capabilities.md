@@ -104,6 +104,8 @@ Classificazione:
 | Ricevute | COMPLETE | Emesse **per incasso** (`receipts.transaction_id`), non per rata: una rata pagata in tre volte ne produce tre. Emissione idempotente. Collegabili anche a fattura |
 | Metodi di incasso | COMPLETE | `payment_methods` con commissioni configurabili |
 | **Voucher e contributi da enti** | COMPLETE | `funding_programs` + `/api/v1/funding/*`. Le regole di un bando sono **configurazione**: plafond, importo per periodo, frequenza, requisito minimo, unita, comportamento sotto soglia, tetti ([ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati)) |
+| Iscrizione atleta su pagina dedicata | COMPLETE | `/athletes/new`, stesso guscio di allenatori e soci. Il salvataggio porta alla scheda creata ([ADR-0057](18-decision-log.md#adr-0057--iscrivere-un-atleta-e-una-pagina-e-il-numero-di-maglia-non-e-un-dato-anagrafico)) |
+| Numero di maglia all'iscrizione | RIMOSSA | Non e un dato della persona: e un'assegnazione con gruppo, stagione e unicita. Si assegna dai gruppi di numerazione |
 | Scheda «Iscrizione» con un riepilogo solo | COMPLETE | Sei sezioni in ordine fisso, totali in un punto solo, rate e composizione a scomparsa ([ADR-0056](18-decision-log.md#adr-0056--la-scheda-iscrizione-ha-un-riepilogo-solo-e-una-fonte-sola-per-i-numeri)) |
 | Prossima rata come azione principale | COMPLETE | La scaduta piu vecchia, poi la prima scoperta per scadenza. Con tutto saldato non compare nessun pulsante |
 | Stato dell'iscrizione derivato dagli incassi | COMPLETE | `resolveEnrollmentPaymentState`: nessun campo lo scrive, come per la singola rata |

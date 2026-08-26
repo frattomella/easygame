@@ -198,8 +198,16 @@ Fissata dopo il Blocco 5, vale per `ClubIdentity` su desktop e su telefono:
 
 ## Form di creazione: pochi obblighi, molte sezioni (Blocco 7)
 
-Il modello e «Nuovo atleta» (`AthleteQuickCreateDialog`), e la regola vale per
-ogni form di creazione di un'anagrafica.
+Il modello e «Nuovo atleta» (`AthleteCreateForm`, montato da
+`/athletes/new`), e la regola vale per ogni form di creazione di
+un'anagrafica.
+
+**Una pagina, non una finestra** ([ADR-0057](18-decision-log.md#adr-0057--iscrivere-un-atleta-e-una-pagina-e-il-numero-di-maglia-non-e-un-dato-anagrafico)).
+Le tre anagrafiche di persona — atleta, allenatore, socio — si creano da una
+pagina dedicata con la stessa struttura: intestazione con «indietro» e
+salvataggio, modulo in una `Card`, sezioni a scomparsa. Un modulo lungo dentro
+una finestra scorre in un riquadro dentro una pagina che scorre, a 375 px non
+ha dove stare, e un clic fuori porta via cio che era stato scritto.
 
 **Il ciclo da evitare:** creare con tre campi, aprire la scheda, ricompilare
 tutto. Chi iscrive un atleta ha davanti il modulo cartaceo con **tutti** i

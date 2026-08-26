@@ -105,14 +105,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
-const AthleteQuickCreateDialog = dynamic(
-  () =>
-    import("@/components/forms/AthleteQuickCreateDialog").then(
-      (module) => module.AthleteQuickCreateDialog,
-    ),
-  { ssr: false },
-);
-
 import type {
   AthleteImportOutcome,
   AthleteImportPayload,
@@ -238,6 +230,16 @@ const coerceBoolean = (value: unknown) => {
 const ATHLETE_PAGE_SIZE = 200;
 
 /**
+ * L'indirizzo dell'iscrizione di un nuovo atleta.
+ *
+ * Il club viaggia nell'indirizzo, come per allenatori e soci: chi apre la
+ * pagina da un collegamento salvato non deve dipendere da cosa c'e nel
+ * localStorage (ADR-0057).
+ */
+const buildNewAthleteHref = (clubId?: string | null) =>
+  clubId ? `/athletes/new?clubId=${encodeURIComponent(clubId)}` : "/athletes/new";
+
+/**
  * Da righe del database a righe della tabella.
  *
  * Una riga per **appartenenza**, non per atleta: chi si allena con due gruppi
@@ -330,7 +332,6 @@ export default function AthletesPage() {
   const [athletes, setAthletes] = React.useState<Athlete[]>([]);
   const [categories, setCategories] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [showAddAthleteModal, setShowAddAthleteModal] = useState(false);
   const [showImportAthletesModal, setShowImportAthletesModal] =
     useState(false);
   const [showCustomizeColumnsModal, setShowCustomizeColumnsModal] =
@@ -608,7 +609,10 @@ export default function AthletesPage() {
     }
 
     if (action === "new") {
-      setShowAddAthleteModal(true);
+      // Il vecchio indirizzo con `?action=new` continua a funzionare: porta
+      // alla pagina dedicata invece di aprire una finestra che non c'e piu.
+      router.push(buildNewAthleteHref(resolveCurrentClubId()));
+      return;
     }
 
     if (action === "import") {
@@ -625,117 +629,6 @@ export default function AthletesPage() {
 
     return () => window.cancelAnimationFrame(frame);
   }, [pathname, router, searchParams]);
-
-  const handleAddAthlete = async (athleteData: any) => {
-    const clubId = resolveCurrentClubId();
-
-    if (!clubId || !user) {
-      showToast("error", "Club o utente non trovato");
-      return false;
-    }
-
-    try {
-      const linkedCategory =
-        categories.find((category) => category.id === athleteData.categoryId) ||
-        findCategoryForBirthDate(athleteData.birthDate, categories);
-
-      /*
-        Tutto cio che il form ha raccolto viene scritto alla creazione.
-
-        Prima qui arrivavano tre campi e basta: qualunque altra cosa
-        l'operatore avesse davanti — codice fiscale, residenza, contatti,
-        taglie — andava reinserita riaprendo la scheda (Blocco 7, punto 14).
-        `data` usa le stesse chiavi che legge la scheda atleta, quindi non
-        c'e nessuna mappatura intermedia da tenere allineata.
-      */
-      /*
-        Le categorie secondarie si scrivono alla creazione (Blocco 8). Un
-        atleta che si allena con due gruppi lo fa dal primo giorno, e finora
-        la seconda categoria si poteva aggiungere solo riaprendo la scheda:
-        cioe il secondo giro che questo form esiste per togliere.
-      */
-      const secondaryIds: string[] = Array.isArray(
-        athleteData.secondaryCategoryIds,
-      )
-        ? athleteData.secondaryCategoryIds
-        : [];
-
-      const categoryMemberships = [
-        ...(linkedCategory
-          ? [
-              {
-                category_id: linkedCategory.id,
-                category_name: linkedCategory.name,
-                is_primary: true,
-              },
-            ]
-          : []),
-        ...secondaryIds
-          .filter((id) => id && id !== linkedCategory?.id)
-          .map((id) => {
-            const category = categories.find((item) => item.id === id);
-            return {
-              category_id: id,
-              category_name: category?.name || id,
-              is_primary: false,
-            };
-          }),
-      ];
-
-      const newAthleteData = {
-        firstName: athleteData.firstName,
-        lastName: athleteData.lastName,
-        birthDate: athleteData.birthDate,
-        category: linkedCategory?.id || null,
-        categoryName: linkedCategory?.name || null,
-        medicalCertExpiry: athleteData.medicalCertExpiry || null,
-        status: "active",
-        data: athleteData.data || {},
-        ...(categoryMemberships.length ? { categoryMemberships } : {}),
-      };
-
-      const savedAthlete = await addClubAthlete(clubId, newAthleteData);
-      const birthYear = new Date(athleteData.birthDate).getFullYear();
-
-      const newAthlete: Athlete = {
-        id: savedAthlete.id,
-        name: `${athleteData.firstName} ${athleteData.lastName}`.trim(),
-        firstName: athleteData.firstName,
-        lastName: athleteData.lastName,
-        categoryId: linkedCategory?.id || null,
-        categoryLabel: linkedCategory?.name || "Senza categoria",
-        membershipType: "primary",
-        // Un atleta appena creato non ha ancora una sede dichiarata: resta
-        // visibile con qualunque filtro finche non gliene si assegna una.
-        siteId: "",
-        siteName: "",
-        groupId: getMembershipGroupId({
-          categoryId: linkedCategory?.id || "",
-          siteId: "",
-        }) || UNCATEGORIZED_CATEGORY_ID,
-        primaryCategoryLabel: linkedCategory?.name || "Senza categoria",
-        allCategoryLabels: categoryMemberships.map(
-          (membership) => membership.category_name,
-        ),
-        age: Number.isFinite(birthYear)
-          ? new Date().getFullYear() - birthYear
-          : 0,
-        status: "active",
-        medicalCertExpiry: athleteData.medicalCertExpiry || "",
-        birthDate: athleteData.birthDate,
-        registrationComplete: false,
-      };
-
-      setAthletes((currentAthletes) => [...currentAthletes, newAthlete]);
-      await refreshAthletesData();
-      showToast("success", `Atleta ${newAthlete.name} aggiunto con successo`);
-      return true;
-    } catch (error) {
-      console.error("Error adding athlete:", error);
-      showToast("error", "Errore nell'aggiunta dell'atleta");
-      return false;
-    }
-  };
 
   /**
    * Import riga per riga, con avanzamento reale.
@@ -1882,7 +1775,7 @@ export default function AthletesPage() {
                 <Button
                   size="sm"
                   className="h-9 flex-1 lg:flex-none"
-                  onClick={() => setShowAddAthleteModal(true)}
+                  onClick={() => router.push(buildNewAthleteHref(resolveCurrentClubId()))}
                 >
                   <Plus className="mr-1.5 h-4 w-4" />
                   Nuovo atleta
@@ -2315,7 +2208,7 @@ export default function AthletesPage() {
                 {statusFilter === "all" && (
                   <Button
                     className="bg-blue-600 hover:bg-blue-700"
-                    onClick={() => setShowAddAthleteModal(true)}
+                    onClick={() => router.push(buildNewAthleteHref(resolveCurrentClubId()))}
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Aggiungi Primo Atleta
@@ -2423,15 +2316,6 @@ export default function AthletesPage() {
           </DashboardPageContainer>
         </main>
       </div>
-
-      {showAddAthleteModal ? (
-        <AthleteQuickCreateDialog
-          isOpen={showAddAthleteModal}
-          onClose={() => setShowAddAthleteModal(false)}
-          onSubmit={handleAddAthlete}
-          categories={categories}
-        />
-      ) : null}
 
       {showImportAthletesModal ? (
         <AthleteImportDialog

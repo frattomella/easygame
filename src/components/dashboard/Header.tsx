@@ -82,7 +82,7 @@ const QUICK_ACTIONS = [
     id: "new-athlete",
     label: "Nuovo atleta",
     icon: UserPlus,
-    href: "/athletes?action=new",
+    href: "/athletes/new",
   },
   {
     id: "register-certificate",

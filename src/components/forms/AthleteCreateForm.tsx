@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   Accordion,
@@ -31,27 +30,38 @@ import {
 } from "@/lib/clothing-sizes";
 
 /**
- * Nuovo atleta.
+ * Il modulo di iscrizione di un nuovo atleta.
  *
  * **Il ciclo che questo form rompe** (Blocco 7, punto 14): creare un atleta
  * con tre campi, aprire la sua scheda e ricompilare tutto il resto. Chi
- * iscrive un atleta ha davanti il modulo cartaceo con **tutti** i dati: farglieli
- * inserire in due momenti diversi non e semplicita, e lavoro doppio.
+ * iscrive un atleta ha davanti il modulo cartaceo con **tutti** i dati:
+ * farglieli inserire in due momenti diversi non e semplicita, e lavoro doppio.
  *
  * Il rimedio non e una pagina infinita. Obbligatori restano tre campi, gli
  * stessi di prima; tutto il resto vive in sezioni **chiuse di default**, che
  * si aprono se e quando servono. Chi ha fretta fa esattamente i tre campi di
- * prima e chiude; chi ha il modulo in mano compila tutto in una volta.
+ * prima e salva; chi ha il modulo in mano compila tutto in una volta.
+ *
+ * **Perche una pagina e non una finestra** (ADR-0057). Iscrivere un atleta e
+ * il modulo piu lungo che una segreteria compila: anagrafica, residenza,
+ * contatti, genitori, tesseramento, taglie. Dentro una finestra quel modulo
+ * scorre dentro un riquadro che scorre dentro la pagina, a 375 px non ha dove
+ * stare, e un clic fuori lo chiude portandosi via quello che era stato
+ * scritto. Allenatori e soci hanno una pagina dedicata dal Blocco 7: l'atleta
+ * — che ha piu campi di entrambi — era rimasto l'unico in una finestra.
  *
  * Le sezioni usano i componenti condivisi del Blocco 7 — codice fiscale
  * assistito con comune di nascita, telefono internazionale, indirizzo
  * assistito, taglie, lettura del documento — invece di reimplementarli.
  */
 
-interface AthleteQuickCreateDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
+interface AthleteCreateFormProps {
+  /** L'id del modulo, per il pulsante di salvataggio nell'intestazione. */
+  formId?: string;
   onSubmit: (data: any) => Promise<boolean | void> | boolean | void;
+  onCancel?: () => void;
+  /** Nasconde i pulsanti in fondo quando la pagina ne ha gia in cima. */
+  showFooterActions?: boolean;
   categories: {
     id: string;
     name: string;
@@ -113,7 +123,6 @@ type AthleteDraft = {
   allergies: string;
   emergencyContact: string;
   emergencyPhone: string;
-  jerseyNumber: string;
   notes: string;
   clothingSizes: ClothingSizes;
   /** Categorie oltre a quella primaria. */
@@ -150,7 +159,6 @@ const getInitialFormState = (): AthleteDraft => ({
   allergies: "",
   emergencyContact: "",
   emergencyPhone: "",
-  jerseyNumber: "",
   notes: "",
   clothingSizes: DEFAULT_CLOTHING_SIZES,
   secondaryCategoryIds: [],
@@ -162,21 +170,16 @@ const getInitialFormState = (): AthleteDraft => ({
   registrationExpiryDate: "",
 });
 
-export function AthleteQuickCreateDialog({
-  isOpen,
-  onClose,
+export function AthleteCreateForm({
+  formId = "athlete-create-form",
   onSubmit,
+  onCancel,
+  showFooterActions = true,
   categories = [],
-}: AthleteQuickCreateDialogProps) {
+}: AthleteCreateFormProps) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState<AthleteDraft>(getInitialFormState());
   const [isSaving, setIsSaving] = useState(false);
-
-  React.useEffect(() => {
-    if (!isOpen) {
-      setFormData(getInitialFormState());
-    }
-  }, [isOpen]);
 
   const suggestedCategory = useMemo(
     () => findCategoryForBirthDate(formData.birthDate, categories),
@@ -261,7 +264,6 @@ export function AthleteQuickCreateDialog({
           allergies: formData.allergies,
           emergencyContact: formData.emergencyContact,
           emergencyPhone: formData.emergencyPhone,
-          jerseyNumber: formData.jerseyNumber,
           notes: formData.notes,
           clothingSizes: formData.clothingSizes,
           /*
@@ -302,7 +304,6 @@ export function AthleteQuickCreateDialog({
       }
 
       setFormData(getInitialFormState());
-      onClose();
     } catch (error) {
       console.error("Error creating athlete:", error);
       showToast("error", "Errore durante la creazione dell'atleta");
@@ -312,29 +313,7 @@ export function AthleteQuickCreateDialog({
   };
 
   return (
-    <Modal
-      title="Nuovo atleta"
-      description="Obbligatori nome, cognome e data di nascita. Il resto si puo compilare ora o dopo."
-      isOpen={isOpen}
-      onClose={onClose}
-      contentClassName="sm:max-w-2xl"
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={isSaving}>
-            Annulla
-          </Button>
-          <Button
-            type="submit"
-            onClick={handleSubmit}
-            disabled={isSaving}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            {isSaving ? "Salvataggio…" : "Salva"}
-          </Button>
-        </div>
-      }
-    >
-      <form onSubmit={handleSubmit} className="space-y-5">
+    <form id={formId} onSubmit={handleSubmit} className="space-y-5">
         <DocumentExtractionField
           currentValues={{ ...formData }}
           onApply={(patch) => set(patch as Partial<AthleteDraft>)}
@@ -624,22 +603,16 @@ export function AthleteQuickCreateDialog({
             </AccordionContent>
           </AccordionItem>
 
+          {/*
+            Il numero di maglia non si chiede all'iscrizione (ADR-0057): non e
+            un dato della persona, e un'assegnazione che appartiene a un gruppo
+            di numerazione, ha una stagione e puo essere gia occupata.
+            Chiederlo qui produceva un numero che nessuna regola aveva
+            verificato, e che l'assegnazione vera avrebbe poi contraddetto.
+          */}
           <AccordionItem value="squadra">
-            <AccordionTrigger>Taglie e numero di maglia</AccordionTrigger>
+            <AccordionTrigger>Taglie</AccordionTrigger>
             <AccordionContent className="space-y-4 pt-2">
-              <div className="space-y-2 sm:max-w-[200px]">
-                <Label htmlFor="jerseyNumber">Numero di maglia</Label>
-                <Input
-                  id="jerseyNumber"
-                  name="jerseyNumber"
-                  inputMode="numeric"
-                  className="eg-tabular"
-                  value={formData.jerseyNumber}
-                  onChange={handleChange}
-                  placeholder="10"
-                />
-              </div>
-
               <ClothingSizesFields
                 idPrefix="athlete-create-clothing"
                 value={formData.clothingSizes}
@@ -883,7 +856,29 @@ export function AthleteQuickCreateDialog({
             </AccordionContent>
           </AccordionItem>
         </Accordion>
-      </form>
-    </Modal>
+
+      {showFooterActions ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          {onCancel ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={onCancel}
+              disabled={isSaving}
+            >
+              Annulla
+            </Button>
+          ) : null}
+          <Button
+            type="submit"
+            className="w-full bg-blue-600 hover:bg-blue-700 sm:w-auto"
+            disabled={isSaving}
+          >
+            {isSaving ? "Salvataggio…" : "Salva atleta"}
+          </Button>
+        </div>
+      ) : null}
+    </form>
   );
 }

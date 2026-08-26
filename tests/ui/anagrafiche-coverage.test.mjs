@@ -31,7 +31,7 @@ const PHONE_SURFACES = [
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
   ["app/staff/new/page.tsx", "nuovo staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],
-  ["components/forms/AthleteQuickCreateDialog.tsx", "nuovo atleta"],
+  ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
 ];
 
 test("il campo telefono condiviso e su ogni anagrafica, creazione e modifica", () => {
@@ -75,7 +75,7 @@ const CAPITALIZATION_SURFACES = [
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
   ["app/staff/new/page.tsx", "nuovo staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],
-  ["components/forms/AthleteQuickCreateDialog.tsx", "nuovo atleta"],
+  ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
 ];
 
 test("la capitalizzazione condivisa e su ogni anagrafica", () => {
@@ -109,7 +109,7 @@ const FISCAL_CODE_SURFACES = [
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
   ["app/staff/new/page.tsx", "nuovo staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],
-  ["components/forms/AthleteQuickCreateDialog.tsx", "nuovo atleta"],
+  ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
   ["app/organization/page.tsx", "scheda club"],
 ];
 
@@ -180,7 +180,7 @@ test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", ()
  * altro, e trascriverlo a mano e lo stesso lavoro che si e tolto agli altri.
  */
 const DOCUMENT_READER_SURFACES = [
-  ["components/forms/AthleteQuickCreateDialog.tsx", "nuovo atleta"],
+  ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
   ["app/staff/new/page.tsx", "nuovo staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],

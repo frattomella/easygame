@@ -31,7 +31,7 @@ const TOUCHED = [
   "app/staff/[id]/page.tsx",
   "app/soci/[id]/page.tsx",
   "app/organization/page.tsx",
-  "components/forms/AthleteQuickCreateDialog.tsx",
+  "components/forms/AthleteCreateForm.tsx",
   "components/forms/phone-field.tsx",
   "components/forms/certificate-attachment-field.tsx",
   "components/forms/document-extraction-field.tsx",

@@ -2802,3 +2802,52 @@ lasciarlo dedurre (ADR-0037).
   di «documenti dell'atleta» da tenere allineato;
 - `page.tsx` della scheda atleta scende di circa 430 righe, e la scheda
   economica smette di essere una delle ragioni per cui cresce.
+
+---
+
+## ADR-0057 — Iscrivere un atleta e una pagina, e il numero di maglia non e un dato anagrafico
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D2. Chiude l'ultima disparita fra le tre anagrafiche di
+persona.
+
+**Il problema, prima parte.** Allenatori e soci si creano da una **pagina**
+dedicata dal Blocco 7 (`/trainers/new`, `/soci/new`). L'atleta — che ha piu
+campi di entrambi, perche porta anche genitori, tesseramento e taglie — era
+rimasto l'unico dentro una **finestra**. Un modulo di quella lunghezza dentro
+una finestra scorre in un riquadro dentro una pagina che scorre a sua volta; a
+375 px non ha dove stare; e un clic fuori lo chiude portandosi via tutto quello
+che era stato scritto, senza chiedere niente.
+
+**La decisione, prima parte.** Il modulo esce dalla finestra e diventa
+`AthleteCreateForm`, montato da `/athletes/new` nello stesso guscio di
+allenatori e soci: intestazione con «indietro» e salvataggio, modulo in una
+`Card`, sezioni a scomparsa. Chi salva arriva sulla **scheda appena creata** e
+non sull'elenco: dopo aver iscritto un atleta si continua quasi sempre da li —
+piano di pagamento, certificato, documenti — e riportare all'elenco
+costringerebbe a ritrovarlo.
+
+Gli indirizzi `?action=new` continuano a funzionare e reindirizzano: un
+collegamento salvato non deve smettere di portare da qualche parte.
+
+**Il problema, seconda parte.** Il modulo chiedeva il **numero di maglia**. Non
+e un dato della persona: e un'**assegnazione**. Appartiene a un gruppo di
+numerazione, vale per una stagione, e puo essere gia occupata da qualcun altro.
+Chiederlo all'iscrizione produceva un numero che nessuna regola aveva
+verificato — nessun controllo di unicita, nessun gruppo, nessuna stagione — e
+che l'assegnazione vera avrebbe poi contraddetto senza che nessuno se ne
+accorgesse.
+
+**La decisione, seconda parte.** Il campo esce dall'iscrizione. Il numero si
+assegna da dove esistono le regole che lo governano: i gruppi di numerazione.
+
+**Conseguenze.**
+
+- `AthleteQuickCreateDialog` non esiste piu: e diventato `AthleteCreateForm`,
+  senza `Modal` e senza `isOpen`/`onClose`;
+- `AddAthleteForm`, componente orfano mai montato che duplicava la stessa
+  idea, e stato **rimosso** insieme a lei;
+- la sezione «Taglie e numero di maglia» del modulo si chiama «Taglie»;
+- la pagina Atleti non contiene piu la logica di creazione: `/athletes/new`
+  scrive con `addClubAthlete` e la pagina si limita a portarci.

@@ -157,8 +157,9 @@ Restano da valutare separatamente `tempo.config.json` e la dipendenza
   `trainer-*-dashboard-page.tsx` (v2, in uso).
 - `easygamemobile/client/screens/`: 10 schermate v1 su mock non collegate.
 - 18 primitive `src/components/ui/` mai referenziate.
-- Componenti orfani vari (`AddAthleteForm`, `SetupGuide`, `ProtectedRoute`,
-  `NewDashboard`, `AttendanceConfirmation`, ...).
+- Componenti orfani vari (`SetupGuide`, `ProtectedRoute`, `NewDashboard`,
+  `AttendanceConfirmation`, ...). `AddAthleteForm` e
+  `WeeklyTrainingSchedule` sono stati **rimossi** nel Blocco D2.
 
 Elenco completo e classificazione in [cleanup-report](cleanup-report.md).
 

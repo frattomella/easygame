@@ -58,7 +58,7 @@ const MobileHeader = ({ className }: MobileHeaderProps) => {
     {
       id: "new-athlete",
       label: "Nuovo Atleta",
-      href: "/athletes?action=new",
+      href: "/athletes/new",
     },
     {
       id: "register-certificate",

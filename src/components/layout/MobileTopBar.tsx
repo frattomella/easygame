@@ -45,7 +45,7 @@ import { canAccessPath } from "@/lib/access-roles";
  * su club e stagione — ma vivono in cima al menu, dove non costano larghezza.
  */
 const quickActions = [
-  { id: "new-athlete", label: "Nuovo atleta", icon: UserPlus, href: "/athletes?action=new" },
+  { id: "new-athlete", label: "Nuovo atleta", icon: UserPlus, href: "/athletes/new" },
   {
     id: "register-certificate",
     label: "Registra certificato medico",

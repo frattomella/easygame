@@ -24,8 +24,9 @@ const readCode = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const DIALOG = "components/forms/AthleteQuickCreateDialog.tsx";
-const LIST = "app/athletes/page.tsx";
+const DIALOG = "components/forms/AthleteCreateForm.tsx";
+const LIST = "app/athletes/new/page.tsx";
+const INDEX = "app/athletes/page.tsx";
 
 test("gli obbligatori restano nome, cognome e data di nascita", () => {
   const source = readCode(DIALOG);
@@ -46,7 +47,7 @@ test("il resto sta in sezioni, non in una pagina infinita", () => {
     "Contatti",
     "Residenza",
     "Dati sanitari",
-    "Taglie e numero di maglia",
+    "Taglie",
     "Genitori e tutori",
     "Tesseramento",
     "Note",
@@ -91,12 +92,52 @@ test("la creazione scrive tutti i dati raccolti, non solo tre campi", () => {
 
   assert.match(
     source,
-    /data: athleteData\.data \|\| \{\}/,
+    /data: draft\.data \|\| \{\}/,
     "cio che il form raccoglie deve arrivare al record",
   );
+  assert.match(source, /medicalCertExpiry: draft\.medicalCertExpiry \|\| null/);
+});
+
+/**
+ * Il numero di maglia non e un dato della persona (ADR-0057).
+ *
+ * E un'assegnazione: appartiene a un gruppo di numerazione, ha una stagione e
+ * puo essere gia occupata. Chiederlo all'iscrizione produceva un numero che
+ * nessuna regola aveva verificato, e che l'assegnazione vera avrebbe poi
+ * contraddetto.
+ */
+test("l'iscrizione non chiede il numero di maglia", () => {
+  const source = read(DIALOG);
+
+  assert.equal(
+    /jerseyNumber/.test(source),
+    false,
+    "il numero si assegna dalla numerazione, non si digita in anagrafica",
+  );
+});
+
+/**
+ * Iscrivere un atleta e il modulo piu lungo che una segreteria compila:
+ * dentro una finestra scorreva in un riquadro dentro una pagina che scorre, e
+ * un clic fuori portava via cio che era stato scritto.
+ */
+test("l'iscrizione ha una pagina, come allenatori e soci", () => {
+  const page = read(LIST);
+
+  assert.match(page, /<AthleteCreateForm/);
+  assert.match(page, /<Sidebar \/>/);
+  assert.match(page, /<SharedPageHeader/);
+
+  assert.equal(
+    /<Modal/.test(read(DIALOG)),
+    false,
+    "il modulo non vive piu dentro una finestra",
+  );
+
   assert.match(
-    source,
-    /medicalCertExpiry: athleteData\.medicalCertExpiry \|\| null/,
+    read(INDEX),
+    /buildNewAthleteHref/,
+    "l'elenco porta alla pagina invece di aprire una finestra",
   );
 });
 
@@ -198,6 +239,7 @@ test("il numero di tessera non diventa obbligatorio nella creazione", () => {
 test("le categorie secondarie si scelgono alla creazione e vengono scritte", () => {
   const dialog = readCode(DIALOG);
   const list = readCode(LIST);
+
 
   assert.match(dialog, /secondaryCategoryIds/, "il form deve raccoglierle");
   assert.ok(
