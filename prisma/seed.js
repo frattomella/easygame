@@ -725,7 +725,18 @@ async function main() {
   });
 
   await prisma.invoice.upsert({
-    where: { invoice_number: "2026/001" },
+    /*
+      La numerazione e per club e per esercizio (ADR-0044): il vincolo unico
+      e composto, e `invoice_number` da solo non identifica piu una riga.
+      Il seed lo cercava ancora da solo e si fermava qui, lasciando il
+      database di sviluppo senza documenti, metodi di incasso e risorse.
+    */
+    where: {
+      organization_id_invoice_number: {
+        organization_id: club.id,
+        invoice_number: "2026/001",
+      },
+    },
     update: {
       id: DEMO_IDS.invoiceOne,
       organization_id: club.id,
@@ -736,7 +747,10 @@ async function main() {
       description: "Quota mensile aprile 2026",
       payment_method: "bonifico",
       status: "issued",
-      is_electronic: true,
+      // Falso per costruzione (ADR-0053): il tracciato si prepara, non si
+      // trasmette. Un dato di esempio che dice il contrario insegna il
+      // contrario.
+      is_electronic: false,
       recipient_code: "0000000",
       vat_number: "IT12345678901",
       fiscal_code: "RSSGLI10E52H501Q",
@@ -758,7 +772,10 @@ async function main() {
       description: "Quota mensile aprile 2026",
       payment_method: "bonifico",
       status: "issued",
-      is_electronic: true,
+      // Falso per costruzione (ADR-0053): il tracciato si prepara, non si
+      // trasmette. Un dato di esempio che dice il contrario insegna il
+      // contrario.
+      is_electronic: false,
       recipient_code: "0000000",
       vat_number: "IT12345678901",
       fiscal_code: "RSSGLI10E52H501Q",
@@ -772,7 +789,12 @@ async function main() {
   });
 
   await prisma.receipt.upsert({
-    where: { receipt_number: "R-2026-001" },
+    where: {
+      organization_id_receipt_number: {
+        organization_id: club.id,
+        receipt_number: "R-2026-001",
+      },
+    },
     update: {
       id: DEMO_IDS.receiptOne,
       organization_id: club.id,
