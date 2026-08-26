@@ -432,7 +432,7 @@ browser, che contava le ricevute scaricate in pagina. Rimossa.
 **Resta aperto** il numero di fattura digitato a mano in `AddInvoiceForm`:
 vedi D36.
 
-### D36 — Il numero di fattura lo scrive una persona
+### D36 — ~~Il numero di fattura lo scrive una persona~~ CHIUSO sul percorso principale
 
 `AddInvoiceForm` chiede il numero all'operatore e lo manda al server. Con il
 vincolo per club ([ADR-0044](18-decision-log.md#adr-0044--un-numero-di-documento-appartiene-a-un-club-e-a-un-esercizio-e-si-incrementa))
@@ -440,9 +440,14 @@ due societa non si scontrano piu, ma dentro la stessa societa nulla impedisce
 di ripetere un numero, di saltarne uno o di scriverlo in una forma che poi
 nessuno rilegge.
 
-`allocateDocumentNumber` sa gia numerare le fatture (`kind: "invoice"`): manca
-il **flusso di emissione** che lo chiami, cioe la scelta esplicita fra
-ricevuta e fattura a partire da un incasso.
+**Chiuso dal Blocco Finale B** ([ADR-0047](18-decision-log.md#adr-0047--un-pagamento-non-e-un-documento-ricevuta-e-fattura-si-scelgono)):
+`POST /api/v1/payment-transactions/:id {"action":"issue-invoice"}` emette la
+fattura di un incasso con un numero assegnato dal server, e l'elenco degli
+incassi mostra la scelta fra ricevuta e fattura.
+
+**Resta** `AddInvoiceForm`, per le fatture **non** collegate a un incasso: li
+il numero lo digita ancora una persona. E il percorso a volume basso, e va
+chiuso spostando anche quelle sull'allocatore.
 
 → nessun WP ancora
 

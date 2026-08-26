@@ -227,6 +227,34 @@ export function AthletePaymentLedger({
     );
   };
 
+  /*
+    Ricevuta e fattura sono due documenti diversi e la scelta e di chi
+    emette. La maggior parte delle ASD non emette fatture: trasformare ogni
+    incasso in fattura sarebbe sbagliato per quasi tutte, e per le altre non
+    basterebbe comunque — una fattura ha un intestatario, che quasi mai e
+    l'atleta.
+  */
+  const handleGenerateInvoice = async (
+    transaction: NormalizedPaymentTransaction,
+  ) => {
+    setBusyTransactionId(transaction.id);
+    const { data, error } = await apiRequest(
+      `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
+      { method: "POST", body: { action: "issue-invoice" } },
+    );
+    setBusyTransactionId(null);
+
+    if (error) {
+      showToast("error", error.message || "Emissione fattura non riuscita");
+      return;
+    }
+
+    showToast(
+      "success",
+      `Fattura ${data?.invoice_number || ""} emessa`.trim(),
+    );
+  };
+
   return (
     <div className="space-y-4">
       {showTotals ? (
@@ -298,6 +326,9 @@ export function AthletePaymentLedger({
           }
           onGenerateReceipt={(transaction) =>
             void handleGenerateReceipt(transaction)
+          }
+          onGenerateInvoice={(transaction) =>
+            void handleGenerateInvoice(transaction)
           }
         />
       )}

@@ -2,6 +2,10 @@ import { prisma } from "./prisma";
 import { allocateDocumentNumber } from "./document-numbering";
 import { documentYearOf } from "@/lib/documents/numbering";
 import {
+  missingInvoiceFields,
+  resolveFiscalRecipient,
+} from "@/lib/documents/fiscal-recipient";
+import {
   isSettledTransaction,
   normalizePaymentTransaction,
   normalizePaymentTransactionSource,
@@ -546,6 +550,127 @@ export const issueReceiptForTransaction = async (
       data: {
         source: "payment_transaction",
         transactionId: transaction.id,
+        issuedBy: scope?.userId || null,
+      },
+    },
+  });
+};
+
+/* --------------------------------------------------------------- fatture */
+
+const invoiceClient = () => (prisma as any).invoice;
+
+/**
+ * Emette la **fattura** di un incasso.
+ *
+ * **Perche non e la stessa cosa della ricevuta, e non basta un campo.** Una
+ * ricevuta attesta che del denaro e arrivato; una fattura e un documento
+ * fiscale con un intestatario, una posizione fiscale e una numerazione
+ * propria. Confonderle vorrebbe dire trasformare in fattura ogni incasso —
+ * inclusi quelli di una societa che le fatture non le emette affatto, che
+ * sono la maggioranza delle ASD.
+ *
+ * **Perche non ogni incasso ne produce una.** Il documento si sceglie:
+ * ricevuta *oppure* fattura, a partire dallo stesso incasso. Le due
+ * numerazioni sono registri distinti (`R-` e `FT-`) e non si mescolano.
+ *
+ * **A chi e intestata.** Non all'atleta, quasi mai: un minorenne non ha una
+ * posizione fiscale, e la detrazione la chiede il genitore con il **suo**
+ * codice fiscale. Vedi `resolveFiscalRecipient`.
+ *
+ * **Cosa resta fuori, e va detto.** La trasmissione allo SdI. Qui si emette
+ * il documento e lo si numera; l'invio della fattura elettronica richiede un
+ * intermediario accreditato, e non esiste in questo repository (ADR-0047).
+ */
+export const issueInvoiceForTransaction = async (
+  input: { transactionId: string; description?: unknown },
+  scope?: PaymentTransactionScope,
+) => {
+  const transaction = await getPaymentTransactionById(input.transactionId, scope);
+
+  if (transaction.reversed_at || transaction.reverses_transaction_id) {
+    throw new Error(
+      "Un incasso stornato non produce una fattura: registra di nuovo l'incasso",
+    );
+  }
+
+  /*
+    Idempotente come l'emissione della ricevuta: chiederla due volte
+    restituisce quella gia emessa, invece di consumare un numero e creare un
+    secondo documento per lo stesso denaro.
+  */
+  const existing = await invoiceClient().findFirst({
+    where: {
+      organization_id: transaction.organization_id,
+      data: { path: ["transactionId"], equals: transaction.id },
+    },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const charge = transaction.payment_id
+    ? await chargeClient().findUnique({ where: { id: transaction.payment_id } })
+    : null;
+
+  const athlete = transaction.athlete_id
+    ? await (prisma as any).athlete.findFirst({
+        where: {
+          id: transaction.athlete_id,
+          organization_id: transaction.organization_id,
+        },
+      })
+    : null;
+
+  const recipient = resolveFiscalRecipient(athlete);
+  const missing = missingInvoiceFields(recipient);
+
+  if (missing.length) {
+    throw new Error(
+      `Per emettere una fattura mancano: ${missing.join(", ")}. Completa l'anagrafica dell'intestatario, oppure emetti una ricevuta.`,
+    );
+  }
+
+  const issueDate = transaction.paid_at || new Date();
+  const allocation = await allocateDocumentNumber({
+    organizationId: transaction.organization_id,
+    kind: "invoice",
+    year: documentYearOf(issueDate),
+  });
+
+  return invoiceClient().create({
+    data: {
+      organization_id: transaction.organization_id,
+      athlete_id: transaction.athlete_id,
+      payment_id: transaction.payment_id,
+      invoice_number: allocation.number,
+      issue_date: issueDate,
+      amount: toPaymentAmount(transaction.amount),
+      description:
+        asText(input.description) ||
+        `Quota ${charge?.description || "sportiva"}`.trim(),
+      payment_method: transaction.payment_method,
+      status: "issued",
+      /*
+        `is_electronic` resta falso: EasyGame produce il documento, non lo
+        trasmette. Dichiararlo elettronico senza un canale verso lo SdI
+        significherebbe far credere a una societa di aver adempiuto.
+      */
+      is_electronic: false,
+      recipient_code: recipient.recipientCode || null,
+      vat_number: recipient.vatNumber || null,
+      fiscal_code: recipient.fiscalCode || null,
+      address: recipient.address || null,
+      city: recipient.city || null,
+      postal_code: recipient.postalCode || null,
+      province: recipient.province || null,
+      country: recipient.country || null,
+      data: {
+        source: "payment_transaction",
+        transactionId: transaction.id,
+        recipientName: recipient.name,
+        recipientSource: recipient.source,
         issuedBy: scope?.userId || null,
       },
     },

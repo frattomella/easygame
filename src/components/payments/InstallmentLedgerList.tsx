@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, Receipt, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Receipt, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -53,12 +53,14 @@ const TransactionRows = ({
   transactions,
   onReverse,
   onGenerateReceipt,
+  onGenerateInvoice,
   canManage,
   busyTransactionId,
 }: {
   transactions: NormalizedPaymentTransaction[];
   onReverse?: (transaction: NormalizedPaymentTransaction) => void;
   onGenerateReceipt?: (transaction: NormalizedPaymentTransaction) => void;
+  onGenerateInvoice?: (transaction: NormalizedPaymentTransaction) => void;
   canManage: boolean;
   busyTransactionId?: string | null;
 }) => {
@@ -119,6 +121,12 @@ const TransactionRows = ({
                   <td className="p-2 text-right whitespace-nowrap">
                     {settled ? (
                       <div className="flex justify-end gap-1">
+                        {/*
+                          Ricevuta e fattura sono due documenti diversi, e la
+                          scelta e di chi emette: la maggior parte delle ASD
+                          non emette fatture, e trasformare ogni incasso in
+                          fattura sarebbe sbagliato per quasi tutte.
+                        */}
                         {onGenerateReceipt ? (
                           <Button
                             variant="ghost"
@@ -128,6 +136,17 @@ const TransactionRows = ({
                           >
                             <Receipt className="mr-1 h-3.5 w-3.5" />
                             Ricevuta
+                          </Button>
+                        ) : null}
+                        {onGenerateInvoice ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busyTransactionId === transaction.id}
+                            onClick={() => onGenerateInvoice(transaction)}
+                          >
+                            <FileText className="mr-1 h-3.5 w-3.5" />
+                            Fattura
                           </Button>
                         ) : null}
                         {onReverse ? (
@@ -167,6 +186,10 @@ export type InstallmentLedgerListProps = {
     transaction: NormalizedPaymentTransaction,
     ledger: InstallmentLedger,
   ) => void;
+  onGenerateInvoice?: (
+    transaction: NormalizedPaymentTransaction,
+    ledger: InstallmentLedger,
+  ) => void;
   busyTransactionId?: string | null;
   emptyMessage?: string;
 };
@@ -177,6 +200,7 @@ export function InstallmentLedgerList({
   onRegisterPayment,
   onReverseTransaction,
   onGenerateReceipt,
+  onGenerateInvoice,
   busyTransactionId = null,
   emptyMessage = "Nessuna rata generata per questo atleta.",
 }: InstallmentLedgerListProps) {
@@ -290,6 +314,11 @@ export function InstallmentLedgerList({
                   onGenerateReceipt={
                     onGenerateReceipt
                       ? (transaction) => onGenerateReceipt(transaction, ledger)
+                      : undefined
+                  }
+                  onGenerateInvoice={
+                    onGenerateInvoice
+                      ? (transaction) => onGenerateInvoice(transaction, ledger)
                       : undefined
                   }
                 />

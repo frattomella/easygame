@@ -2037,3 +2037,69 @@ piattaforma: serve a rispondere al telefono e a sbloccare un cliente.
 
 **Stato:** ATTIVA. Nessuna funzione e ancora **negata** da questo strato: e
 descrittivo finche D37 non e chiuso.
+
+## ADR-0047 — Un pagamento non e un documento: ricevuta e fattura si scelgono
+
+**Data:** 2026-08-26
+**Contesto:** Blocco Finale B, chiusura di D36.
+
+Il numero di fattura lo digitava l'operatore in `AddInvoiceForm` e arrivava al
+server dentro il corpo della richiesta. Dentro la stessa societa nulla
+impediva di ripetere un numero, di saltarne uno o di scriverlo in una forma
+che poi nessuno rileggeva.
+
+**La distinzione che regge tutto il resto.** Un pagamento e un fatto: del
+denaro e arrivato. Un documento e una **scelta**: ricevuta *oppure* fattura,
+emessa a partire da quel fatto. Non sono la stessa cosa e non lo diventano per
+comodita — la maggior parte delle ASD non emette fatture affatto, e
+trasformare ogni incasso in fattura sarebbe sbagliato per quasi tutte.
+
+**Due registri, non uno.** `R-2026-0001` e `FT-2026-0001` sono numerazioni
+distinte, per club e per esercizio, entrambe assegnate da
+`allocateDocumentNumber` ([ADR-0044](#adr-0044--un-numero-di-documento-appartiene-a-un-club-e-a-un-esercizio-e-si-incrementa)).
+La prima fattura di una societa e la numero 1 anche se quella societa ha gia
+emesso trenta ricevute.
+
+**L'intestatario non e l'atleta, quasi mai.** Un minorenne non ha una
+posizione fiscale: la quota la paga un genitore, e la detrazione per attivita
+sportiva la chiede **quel** genitore, con il suo codice fiscale. Una fattura
+intestata al bambino e corretta in tutto tranne che nell'unica cosa per cui
+serve. `resolveFiscalRecipient` sceglie in quest'ordine: il tutore che il club
+ha indicato come intestatario, il primo tutore con un codice fiscale,
+l'atleta — che e il caso giusto quando l'atleta e maggiorenne.
+
+**Perche una fattura senza codice fiscale si rifiuta e una ricevuta no.** Una
+ricevuta senza codice fiscale resta una ricevuta valida, e rifiutarsi di
+emetterla vorrebbe dire non documentare un incasso avvenuto. Una fattura senza
+intestatario fiscale non e un documento: si rifiuta, e il messaggio dice le
+due strade — completare l'anagrafica, oppure emettere una ricevuta.
+
+**Cosa NON c'e, e non va lasciato credere che ci sia.** La trasmissione allo
+SdI. `is_electronic` resta `false` **per costruzione**: EasyGame produce e
+numera il documento, non lo trasmette. La fattura elettronica passa da un
+intermediario accreditato, che e un servizio esterno con un contratto e delle
+credenziali, e in questo repository non esiste. Dichiarare elettronica una
+fattura che nessuno ha trasmesso significherebbe far credere a una societa di
+aver adempiuto — che e il modo peggiore in cui questo software potrebbe
+sbagliare.
+
+**Quando servira, l'astrazione e gia disegnata altrove.** Il canale di
+trasmissione va modellato come e stato modellato il PSV dei pagamenti
+([ADR-0045](#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce)):
+un contratto con le operazioni che servono, un adapter per l'intermediario
+scelto, e il nome dell'intermediario che non compare nel dominio. La scelta
+dell'intermediario e una decisione commerciale, non tecnica.
+
+**Conseguenze.**
+
+- `POST /api/v1/payment-transactions/:id` accetta una terza azione,
+  `issue-invoice`, accanto a `reverse` e `issue-receipt`. E idempotente come
+  la ricevuta: chiederla due volte restituisce quella gia emessa invece di
+  consumare un numero;
+- l'elenco degli incassi mostra due pulsanti, «Ricevuta» e «Fattura», perche
+  la scelta e di chi emette;
+- `AddInvoiceForm` resta dov'e per le fatture non collegate a un incasso, e
+  con essa resta il numero digitato a mano: D36 e chiuso per il percorso che
+  parte da un incasso, che e quello che genera il volume.
+
+**Stato:** ATTIVA.

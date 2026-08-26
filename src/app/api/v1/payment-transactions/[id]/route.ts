@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import {
+  issueInvoiceForTransaction,
   issueReceiptForTransaction,
   reversePaymentTransaction,
 } from "@/lib/server/payment-transactions";
@@ -11,10 +12,11 @@ import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
- * Le due azioni su un incasso gia registrato.
+ * Le azioni su un incasso gia registrato.
  *
  *   POST /api/v1/payment-transactions/:id  {"action":"reverse"}
  *   POST /api/v1/payment-transactions/:id  {"action":"issue-receipt"}
+ *   POST /api/v1/payment-transactions/:id  {"action":"issue-invoice"}
  *
  * Non esiste un `DELETE`, ed e una scelta: un incasso cancellato non lascia
  * traccia di essere esistito, e cio che si vuole sapere di un errore di cassa
@@ -22,6 +24,12 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  * movimento di segno opposto (ADR-0036).
  *
  * Per correggere un importo sbagliato: si storna e si registra di nuovo.
+ *
+ * **Ricevuta o fattura, non entrambe per abitudine.** Una ricevuta attesta
+ * che del denaro e arrivato; una fattura e un documento fiscale con un
+ * intestatario e una numerazione propria, e la maggior parte delle ASD non ne
+ * emette affatto. Il documento si **sceglie** a partire dallo stesso incasso,
+ * e i due registri di numerazione restano distinti (ADR-0044).
  *
  * La ricevuta si emette **per incasso**, non per rata: e l'incasso che va
  * documentato, e una rata pagata in tre volte ne produce tre. L'emissione e
@@ -100,13 +108,38 @@ export async function POST(request: Request, context: Context) {
       return NextResponse.json({ data: receipt, error: null }, { status: 201 });
     }
 
+    if (action === "issue-invoice") {
+      const invoice = await issueInvoiceForTransaction(
+        { transactionId: context.params.id, description: body?.description },
+        scope,
+      );
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.resourceCreated,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: invoice.organization_id,
+        resource: "invoices",
+        resourceId: invoice.id,
+        request,
+        metadata: {
+          transactionId: context.params.id,
+          invoiceNumber: invoice.invoice_number,
+          amount: invoice.amount,
+        },
+      });
+
+      return NextResponse.json({ data: invoice, error: null }, { status: 201 });
+    }
+
     if (action !== "reverse") {
       return NextResponse.json(
         {
           data: null,
           error: {
             message:
-              "Azione non supportata: un incasso si storna o produce una ricevuta, non si modifica",
+              "Azione non supportata: un incasso si storna o produce un documento, non si modifica",
           },
         },
         { status: 400 },

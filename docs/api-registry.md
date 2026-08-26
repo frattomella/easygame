@@ -27,8 +27,9 @@ Fonte ufficiale da mantenere aggiornata:
   movimenti (`?athlete_id=`, `?payment_id=`) e registrazione di un incasso su
   una rata. La rata viene ricalcolata nella stessa transazione
 - `POST /api/v1/payment-transactions/:id` — `{"action":"reverse"}` storna un
-  incasso, `{"action":"issue-receipt"}` ne emette la ricevuta (idempotente).
-  Non esiste `DELETE`: un incasso non si cancella
+  incasso, `{"action":"issue-receipt"}` ne emette la ricevuta e
+  `{"action":"issue-invoice"}` la fattura. Entrambe idempotenti, con due
+  numerazioni distinte. Non esiste `DELETE`: un incasso non si cancella
 - `GET /api/v1/entitlements` — cosa un club puo usare, funzione per funzione,
   con il **motivo** di ogni esito. Non e un campo salvato: e un calcolo su
   piano, servizi attivi ed eccezioni
