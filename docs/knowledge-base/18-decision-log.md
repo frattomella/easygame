@@ -2851,3 +2851,147 @@ assegna da dove esistono le regole che lo governano: i gruppi di numerazione.
 - la sezione «Taglie e numero di maglia» del modulo si chiama «Taglie»;
 - la pagina Atleti non contiene piu la logica di creazione: `/athletes/new`
   scrive con `addClubAthlete` e la pagina si limita a portarci.
+
+---
+
+## ADR-0058 — Uno stato che si ricava non si scrive, e la guardia sta in ogni strada che porta al campo
+
+**Data:** 2026-08-26 · **Stato:** accettata · **Blocco E**
+
+### Contesto
+
+[ADR-0036](#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)
+stabilisce che lo stato di una rata non e una dichiarazione dell'operatore: si
+ricava dagli incassi. Il servizio che registra un incasso lo rispettava, era
+coperto da test, ed era scritto nella matrice RC come `DONE`.
+
+Provandolo davvero nel Blocco E si e visto che la regola valeva **solo dentro
+quel servizio**. Il campo `payments.status` era raggiungibile da altre due
+strade:
+
+1. la risorsa generica, `PATCH /api/v1/payments/:id`, che scriveva `status`
+   come qualunque altra colonna;
+2. la rotta dedicata `PATCH /api/athlete-payments/:id` con
+   `action: "update"`, che accettava `updates.status` fra le modifiche
+   dell'importo — e quando il valore era «paid» ci metteva pure una data di
+   pagamento.
+
+Il risultato era un record che si contraddiceva da solo: `status: "paid"`
+accanto a `data.ledger: {state: "partial", paidAmount: 100, residualAmount: 30}`.
+E il campo sbagliato e quello che meta applicazione legge — riepiloghi,
+Movimenti, report, area genitore — perche il registro degli incassi va
+caricato a parte.
+
+### Decisione
+
+**La guardia sta dove il dato viene scritto, e in ogni strada che ci porta.**
+
+Non e una regola nuova: e la stessa di
+[ADR-0048](#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa)
+per il piano di un club e di
+[ADR-0050](#adr-0050--una-condizione-commerciale-ha-una-decorrenza-e-la-commissione-si-congela-sullincasso)
+per le condizioni commerciali. Quello che il Blocco E aggiunge e il
+**controllo che sia applicata ovunque**, non solo sul percorso principale.
+
+Tre conseguenze concrete:
+
+1. la risorsa generica ignora `pending`, `partially_paid` e `paid` quando
+   arrivano dal client, per la creazione **e** per la modifica. Ignora, non
+   rifiuta: chi salva una rata rimanda indietro il record intero, e un 403 su
+   un campo che nessuno stava cambiando romperebbe le schermate. Un valore
+   **diverso** da quello che c'e lascia un audit `denied` su
+   `payment_state`;
+2. `cancelled` resta scrivibile. Annullare una rata non e dire che e stata
+   incassata: e dire che quel debito non esiste piu, ed e cio che fa la
+   sostituzione del piano di pagamento. E la stessa distinzione che il
+   ricalcolo gia rispettava rifiutandosi di sovrascrivere una rata annullata;
+3. la rotta dedicata smette di leggere lo stato dal client **e** ricalcola
+   dopo aver cambiato l'importo. Il secondo pezzo non e cortesia: cambiare
+   l'importo cambia il debito, quindi puo cambiare lo stato — una rata da 130
+   con 100 incassati e parziale, la stessa rata portata a 100 e saldata. Senza
+   il ricalcolo, togliere al client la possibilita di scrivere lo stato
+   avrebbe lasciato il record indietro invece che sbagliato.
+
+### Conseguenze
+
+- una rata non puo piu nascere pagata, ne diventarlo senza un incasso;
+- il ricalcolo dal registro e ora esportato dal modulo che lo possiede, e chi
+  cambia l'importo lo chiama invece di riscrivere lo stato per conto suo;
+- otto test a runtime in `tests/server/payment-state-ownership.test.mjs`, piu
+  un'invariante sul codice della rotta dedicata.
+
+### Alternative scartate
+
+**Rendere `payments.status` una colonna calcolata.** Sarebbe la soluzione
+giusta e non e questa: meta applicazione legge quella colonna con Prisma, e
+una vista o un trigger cambierebbero il modello di lettura di tutto il
+prodotto durante un blocco di stabilizzazione. Resta la strada per il futuro.
+
+**Rispondere «Accesso negato».** Provato mentalmente e scartato per la stessa
+ragione di ADR-0048: le schermate mandano il record intero.
+
+---
+
+## ADR-0059 — L'adapter del driver e il client Prisma sono la stessa cosa in due pacchetti
+
+**Data:** 2026-08-26 · **Stato:** accettata · **Blocco E**
+
+### Contesto
+
+EasyGame parla con PostgreSQL attraverso un *driver adapter* di Prisma:
+`@prisma/client` genera le query, `@prisma/adapter-pg` le esegue con `pg` e
+riporta indietro il risultato.
+
+Il repository aveva `@prisma/client` 6 e `@prisma/adapter-pg` **7**. Il
+disallineamento non si vedeva: le due librerie si parlavano, il build passava,
+i 1.535 test erano verdi, l'applicazione funzionava. Funzionava per tutto
+tranne una cosa — **le colonne `Bytes`**. Ogni tentativo di scrivere un blob
+rispondeva:
+
+    Raw query failed. Code: `InvalidArg`.
+    Message: `JS functions cannot be represented as a serde_json::Value on JsResultSet.rows`
+
+In pratica, dal giorno in cui gli allegati sono stati spostati fuori dai
+record, **nessun allegato poteva essere salvato**: documenti dell'atleta,
+contratti e visite mediche dell'allenatore, BLSD, documenti di staff e soci,
+allegati dei moduli pubblici. L'unica superficie di EasyGame aperta su
+Internet accettava un file e rispondeva 500.
+
+Nessun test lo vedeva, e la ragione e istruttiva: i test del servizio allegati
+sostituiscono il client Prisma con un doppio. E la scelta giusta per quei test
+— verificano permessi, checksum, nome del file, il fatto che il binario non
+stia nel record — e lascia scoperta **esattamente** la classe di difetti che
+vive nel confine fra il client e il database.
+
+### Decisione
+
+1. **`@prisma/adapter-pg` segue la generazione di `@prisma/client`.** Non e
+   una preferenza: le due librerie condividono un protocollo interno che
+   cambia fra major. Un'invariante lo verifica sia su `package.json` sia su
+   cio che e davvero installato, perche un `npm install` distratto rimette il
+   difetto senza toccare un file tracciato;
+2. **il pool si costruisce qui e l'adapter lo riceve gia fatto.** La firma
+   dell'adapter 6 accetta un `pg.Pool` o la sua configurazione; quella della 7
+   accetta una stringa di connessione e dei callback. Passare un pool
+   esplicito, oltre a essere la firma corretta, e il posto dove agganciare
+   l'ascolto degli errori del pool, che il codice precedente otteneva con un
+   callback che con la 6 non esiste;
+3. **aggiornare Prisma e un lavoro suo.** Portare il client alla 7 tocca
+   schema, generazione e tipi di tutto il prodotto: non si fa dentro un blocco
+   di stabilizzazione per correggere un difetto che si chiude allineando una
+   dipendenza.
+
+### Conseguenze
+
+- gli allegati funzionano, provati su sette combinazioni di proprietario e
+  categoria con rilettura byte per byte;
+- `@types/pg` entra fra le dipendenze di sviluppo, perche il pool ora e
+  costruito nel codice dell'applicazione;
+- `tests/server/prisma-driver-alignment.test.mjs` impedisce il ritorno.
+
+### La lezione, che vale oltre questo difetto
+
+Un doppio del client Prisma prova il dominio e **non prova il driver**. Ogni
+tipo di colonna che non sia testo, numero, data o JSON — oggi `Bytes`, domani
+`Decimal` o un tipo geografico — va esercitato almeno una volta contro un
+database vero, o non e provato affatto.

@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco D2: voucher definitivo, scheda Iscrizione, multi-sede V2)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco E: Final Release Candidate, UAT e hard check)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -36,12 +36,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 257 |
+| `DONE` | 271 |
 | `IN PROGRESS` | 14 |
 | `OPEN` | 24 |
 | `DEFERRED` | 9 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **306** |
+| **Totale** | **320** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -487,6 +487,32 @@ ne discendono.
 | D2-21 | Primo bando reale a fonte esterna | `OPEN` | Il percorso e provato contro il database di sviluppo; **manca l'atto** su un prospetto vero di un ente |
 
 ---
+
+## Blocco E — Final Release Candidate, UAT e hard check
+
+Il blocco che chiude la V1. Non ha aggiunto funzioni: ha provato quelle che
+c'erano contro un database vero, con 223 atleti, due sedi e due
+organizzazioni. Ha trovato sei difetti, due dei quali gravi.
+
+Lo stato definitivo di ogni requisito V1 sta in
+[23 — Matrice definitiva](23-v1-release-matrix.md).
+
+| # | Richiesta | Stato | Chiuso da |
+|---|-----------|-------|-----------|
+| BE-01 | Nessun allegato poteva essere salvato: `@prisma/adapter-pg` 7 con `@prisma/client` 6 rompeva le sole colonne `Bytes` | `DONE` | Adapter allineato alla generazione del client, pool costruito esplicitamente. Provato su sette combinazioni di proprietario e categoria, piu l'allegato di un modulo pubblico. `tests/server/prisma-driver-alignment.test.mjs` |
+| BE-02 | Lo stato di una rata si poteva scrivere dal client, da due strade | `DONE` | Guardia nel CRUD generico e nella rotta dedicata; `cancelled` resta scrivibile perche non dice «incassata». `tests/server/payment-state-ownership.test.mjs`, 8 test |
+| BE-03 | Movimenti prometteva «Emetti fattura elettronica» e scriveva la riga dal browser | `DONE` | La fattura si emette dal server sull'incasso, come la ricevuta. Il modulo legacy e stato rimosso, l'etichetta corretta, e due invarianti nuove impediscono il ritorno |
+| BE-04 | Cinque sezioni della scheda atleta senza nome sotto 640 px, fra cui «Iscrizione» | `DONE` | Le etichette non spariscono piu: la barra scorreva gia |
+| BE-05 | Duecento comandi di riga e sei matite senza nome accessibile | `DONE` | `aria-label` che dicono **cosa** fanno e **su chi**. `tests/ui/athlete-accessible-names.test.mjs` |
+| BE-06 | Il seed di sviluppo si fermava a meta | `DONE` | Selettore unico composto per club ed esercizio, come il vincolo dal Blocco D |
+| BE-07 | `attendance-report-performance` falliva una volta su cinque | `DONE` | Non cronometra piu: conta le letture su ogni riga di presenza. Venti esecuzioni su venti verdi; su codice mutato apposta segnala 123 letture per riga contro un massimo di 8 |
+| BE-08 | Un `500` sul modulo pubblico non lasciava traccia da nessuna parte | `DONE` | Il motivo si scrive nei log, il messaggio al pubblico resta generico |
+| BE-09 | Primo ciclo reale di un modulo pubblico, da fuori, con allegato | `DONE` | Da sessione non autenticata: apertura, invio `multipart` con file, coda, approvazione, atleta creato con tutore e sede |
+| BE-10 | Backup e restore provati | `DONE` | Su sviluppo: backup, alterazione deliberata, ripristino, verifica. Procedura in [13](13-environments.md) |
+| BE-11 | Console di piattaforma verificata a schermo | `DONE` | Sei sezioni a 375 px, con un'utenza amministrativa di collaudo creata solo in sviluppo e poi rimossa dalla configurazione |
+| BE-12 | Prova IDOR esplicita fra due organizzazioni | `DONE` | Undici tentativi su undici respinti |
+| BE-13 | Primo club con due sedi vere | `DONE` | Configurato dall'interfaccia: «Scauri» e «Santi Cosma», categoria «Pulcini» su entrambe, 220 atleti distribuiti, elenchi separati senza contaminazione |
+| BE-14 | Perche la CI GitHub non genera run | `DONE` | **La premessa era falsa**: Actions e attiva, ha 41 run e l'ultima e verde su tutti e tre i job. La distinzione «gate locali verdi / CI remota bloccata» non serve piu |
 
 ## Remaining Web V1 after integration
 

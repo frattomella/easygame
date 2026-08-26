@@ -8,8 +8,10 @@ Classificazione:
 - **MISSING** — non implementata, anche se esistono tracce (tipi, UI, TODO).
 - **LEGACY/REVIEW** — presente ma superata, duplicata o da decidere.
 
-> Le classificazioni descrivono lo **stato del codice al 2026-08-22**, non un
-> giudizio sul valore della funzione.
+> Le classificazioni descrivono lo **stato del codice al 2026-08-26** (Blocco
+> E), non un giudizio sul valore della funzione. Dove una voce dice COMPLETE
+> per una capacita che il Blocco E ha provato a runtime, la prova e citata
+> nella [matrice definitiva](23-v1-release-matrix.md).
 
 ## Piattaforma e account
 
@@ -86,7 +88,8 @@ Classificazione:
 | Ricevute e fatture | PARTIAL | Due documenti distinti a partire dallo stesso incasso, con due numerazioni per club e anno ([ADR-0047](18-decision-log.md#adr-0047--un-pagamento-non-e-un-documento-ricevuta-e-fattura-si-scelgono)). Intestatario risolto dal tutore. Documento stampabile con il branding della societa su `GET /api/v1/documents/:kind/:id`. **Non archiviato** (D38), e **non esiste** la trasmissione allo SdI |
 | Entitlements e piani | COMPLETE | Catalogo delle funzioni, risoluzione su piano/servizi/eccezioni con **motivo**, `GET|POST /api/v1/entitlements`, sezione «Servizi e piani» nella console di piattaforma ([ADR-0046](18-decision-log.md#adr-0046--chi-puo-usare-cosa-si-calcola-in-un-posto-solo-e-la-risposta-dice-sempre-perche)). Dal Blocco Finale C il piano e **di proprieta della piattaforma** e il gating e attivo su tre scritture — checkout online, creazione di un bando, creazione di un modulo — con `CapabilityGate` che nell'interfaccia mostra il motivo invece di far sparire la schermata ([ADR-0048](18-decision-log.md#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa)). La **lettura** non e mai negata |
 | Pagamenti online (Stripe Connect) | PARTIAL | Il contratto provider-agnostico, l'adapter Stripe (addebiti diretti, commissione di piattaforma, rimborsi, attivazione del club) e la **verifica della firma dei webhook** ci sono e sono coperti dai test. **Non collaudato contro Stripe**: nel repository non ci sono credenziali. Vedi [ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce) |
-| Storage file | PARTIAL | Modello `Asset` con `data_base64`: **i binari possono finire nel database**. Nessun object storage. Vedi [16](16-technical-debt.md) |
+| Storage file | PARTIAL | Gli allegati stanno in `attachments` + `attachment_blobs`, fuori dal record. Restano fuori avatar, loghi e la tabella `assets`. Nessun object storage esterno: vedi [16](16-technical-debt.md).\
+**Nota del Blocco E:** fino al 2026-08-26 il caricamento di un allegato **falliva a runtime** per un disallineamento fra `@prisma/client` 6 e `@prisma/adapter-pg` 7, che rompeva le sole colonne `Bytes`. Corretto e coperto da un'invariante sulle dipendenze |
 | Export PDF | PARTIAL | Generazione client-side (`athletes-pdf-export.ts`, `clothing-supplier-order-pdf.ts`); `public/report-template.pdf` non e referenziato |
 
 ## Amministrazione e denaro
@@ -196,12 +199,12 @@ Classificazione:
 | Deploy Vercel staging | COMPLETE | Progetto `easygame-staging`, regione `fra1` |
 | Deploy Vercel production | LEGACY/REVIEW | **Nessun progetto production visibile** nello scope Vercel corrente. Vedi [13](13-environments.md) |
 | Migrazioni automatiche in build | COMPLETE (rischioso) | `vercel-build` esegue `prisma migrate deploy`. Vedi [14](14-security.md) |
-| Test automatici | PARTIAL | 30 test, solo su auth ed email. Nessun test su API, dominio, UI |
-| CI | MISSING | Nessuna pipeline. `.gitignore` esclude `.github/` |
+| Test automatici | COMPLETE | 1.555 test su auth, dominio, API, invarianti di interfaccia e responsivita. Discovery automatica su `tests/**/*.test.mjs` |
+| CI | COMPLETE | `.github/workflows/ci.yml`, tre job (Web, Mobile, Guardrail) su ogni push e ogni pull request. **Gira davvero**: 41 run sul repository, l'ultima verde sul commit di integrazione. La riga precedente diceva il contrario ed era vecchia di mesi |
 | Typecheck e lint | COMPLETE | `npm run typecheck` e `npm run lint` puliti |
-| Logging / observability | MISSING | Solo `console.error`. Nessun error tracking |
-| Audit log | MISSING | Nessuna traccia delle operazioni sensibili |
-| Backup / restore documentato | MISSING | Ci si affida a Neon |
+| Logging / observability | PARTIAL | `console.error` sui percorsi che possono perdere dati — compreso il modulo pubblico, che dal Blocco E non fallisce piu in silenzio. Nessun servizio di error tracking: dipende dall'ambiente di produzione |
+| Audit log | COMPLETE | `audit_logs` su autenticazione, risorse economiche, stagioni, anagrafiche, incassi, storni, documenti, contributi, e **tutti** i dinieghi. Dal Blocco E anche il tentativo di scrivere lo stato di una rata |
+| Backup / restore documentato | COMPLETE | Procedura in [13](13-environments.md), **provata** nel Blocco E su sviluppo: backup, alterazione deliberata, ripristino, verifica riga per riga |
 
 ## Pagamenti online e fiscalita dopo il Blocco D (2026-08-26)
 

@@ -2,6 +2,27 @@
 
 **Ultimo aggiornamento:** 2026-08-26 (Blocco D2 — voucher definitivo, scheda Iscrizione, multi-sede V2)
 
+> **Superata dal Blocco E.** Lo stato definitivo di ogni requisito V1, con la
+> prova accanto, sta in
+> [23 — Matrice definitiva Web V1](23-v1-release-matrix.md). Questo documento
+> resta perche racconta **come ci si e arrivati**, e perche tre cose che
+> dichiarava sono risultate false quando qualcuno le ha provate davvero:
+>
+> - **RC-2** («nessun modulo pubblico e mai stato compilato da un estraneo»)
+>   e **chiuso**: il ciclo completo — apertura del link senza sessione, invio
+>   con allegato, coda, approvazione, atleta creato — e stato eseguito nel
+>   Blocco E. Ed e stato eseguito **dopo** aver corretto il difetto per cui
+>   nessun allegato poteva essere salvato ([ADR-0059](18-decision-log.md#adr-0059--ladapter-del-driver-e-il-client-prisma-sono-la-stessa-cosa-in-due-pacchetti));
+> - **RC-3** («backup e restore non sono mai stati provati») e **chiuso**:
+>   l'esercitazione completa e in [13 — Ambienti](13-environments.md);
+> - **R-2** («CI verde su ogni push») era dato per buono senza guardare: la
+>   CI **gira davvero**, ha 41 run e l'ultima e verde su tutti e tre i job.
+>
+> E una cosa che dichiarava DONE non lo era: **E-2**, «lo stato di una rata
+> non si imposta». Valeva dentro il servizio degli incassi e non nelle altre
+> due strade che portavano allo stesso campo. Vedi
+> [ADR-0058](18-decision-log.md#adr-0058--uno-stato-che-si-ricava-non-si-scrive-e-la-guardia-sta-in-ogni-strada-che-porta-al-campo).
+
 Questo documento risponde a **una domanda sola**: la Web V1 si puo dichiarare
 Release Candidate, e cosa manca perche lo sia.
 

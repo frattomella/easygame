@@ -748,3 +748,92 @@ quest'ultima per lo scenario nuovo, che misura come **cresce** il costo di
 ogni dominio da 200 a 2.000 atleti e conta le interrogazioni, non solo i byte.
 
 → chiuso da Blocco Finale C
+
+---
+
+## Debito registrato dal Blocco E (2026-08-26)
+
+Sono cose viste durante l'hard check finale e **non** corrette li, perche
+correggerle sarebbe stato lavoro estraneo al blocco. Nessuna impedisce a una
+segreteria di lavorare: la matrice
+[23](23-v1-release-matrix.md) le classifica `DEFERRED_POST_V1`.
+
+### E1 — Un doppio del client Prisma non prova il driver
+
+**Impatto: alto.** E la causa per cui il difetto piu grave del blocco — nessun
+allegato poteva essere salvato ([ADR-0059](18-decision-log.md#adr-0059--ladapter-del-driver-e-il-client-prisma-sono-la-stessa-cosa-in-due-pacchetti)) — e sopravvissuto a
+1.535 test verdi. I test del servizio allegati sostituiscono il client, e
+quella e la scelta giusta: verificano il dominio. Manca uno strato sottile che
+eserciti **contro un database vero** ogni tipo di colonna che non sia testo,
+numero, data o JSON.
+
+Oggi ce n'e uno solo, `Bytes`. L'invariante sull'allineamento delle dipendenze
+copre la causa nota; non copre la prossima.
+
+**Cosa farebbe la differenza:** una manciata di test che girano solo quando
+`DATABASE_URL` punta a un database di sviluppo, e che vengono saltati
+altrimenti. Non nella CI, che non ha un database: in locale, prima di un
+rilascio.
+
+### E2 — La scheda atleta chiede quindici volte lo stesso club
+
+**Impatto: medio.** Aprendo una scheda, la pagina emette quindici richieste
+`GET /api/v1/clubs?id=…&fields=<uno>` — piani di pagamento, sconti,
+previsionale, articoli, kit, magazzino, gruppi numerazione, assegnazioni,
+sedi, e cosi via — una per campo. Sono piccole e vanno in parallelo, quindi il
+tempo non e il problema; la forma lo e.
+
+Non e un difetto introdotto: e il modo in cui `resources.ts` espone i campi di
+`clubs`. Una sola richiesta con `fields=a,b,c` chiuderebbe la questione.
+
+### E3 — Il primo link pubblico di un modulo conserva il titolo predefinito
+
+**Impatto: basso.** Lo slug si genera alla **creazione** del modulo, quando il
+titolo e ancora «Nuovo modulo». Rinominarlo e pubblicarlo non lo rigenera, e
+il link che si manda alle famiglie resta `/forms/nuovo-modulo-<suffisso>`
+invece del `/forms/iscrizione-2026-<suffisso>` che la documentazione del
+modello promette.
+
+Non e un errore: rigenerare lo slug alla pubblicazione romperebbe i link gia
+condivisi, e il comando «rigenera il link» esiste nell'interfaccia. Ma il caso
+comune — primo modulo, prima pubblicazione — produce un link che dice la cosa
+sbagliata, e nessuno sa di dover premere quel comando.
+
+**Cosa farebbe la differenza:** rigenerare lo slug **solo** alla prima
+pubblicazione, quando `published_version` e ancora zero e nessuno puo averlo
+condiviso.
+
+### E4 — Cambiare l'importo di una rata pagata non e possibile, e va bene solo per meta
+
+**Impatto: basso.** `PATCH /api/athlete-payments/:id` rifiuta di modificare
+una rata gia saldata, ed e giusto: un debito estinto non si riapre di
+soppiatto. Ma la strada corretta — stornare l'incasso, correggere l'importo,
+registrare di nuovo — non e suggerita da nessuna parte: il messaggio dice solo
+«I pagamenti gia pagati non possono essere modificati».
+
+### E5 — La console di piattaforma non ha un'utenza propria negli ambienti
+
+**Impatto: medio, e non e codice.** L'accesso amministrativo si decide con una
+lista di indirizzi email in una variabile d'ambiente. Per verificare la
+console nel Blocco E e stato necessario aggiungere un indirizzo di collaudo
+alla configurazione locale, creare l'utenza sul database di sviluppo e
+togliere l'indirizzo a verifica finita.
+
+Funziona, ed e verificabile; ma significa che **non esiste un modo previsto**
+per far entrare un amministratore in un ambiente nuovo senza modificare la
+configurazione. E una decisione di prodotto, non un difetto.
+
+### E6 — «1 atleti»
+
+**Impatto: basso, visibile a tutti.** Le schede categoria scrivono
+«1 atleti», «1 allenatori», «1 allenamenti settimanali»: il numero e
+variabile, il sostantivo e sempre al plurale. Succede ovunque si componga
+`{n} {parola}` senza chiedersi quanto vale `n`.
+
+Non e un difetto di funzionamento ed e la prima cosa che si nota aprendo
+Categorie con una categoria da un atleta solo.
+
+**Cosa farebbe la differenza:** una funzione sola — `plurale(n, "atleta",
+"atleti")` — e la sostituzione nei punti che oggi concatenano a mano. E un
+lavoro di mezz'ora che tocca molte righe: esattamente il genere di cosa che
+non si fa dentro un blocco di stabilizzazione.

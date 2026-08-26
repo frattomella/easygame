@@ -613,3 +613,115 @@ Dalla console di piattaforma, sezione «Pagamenti & Billing»:
 
 Sono nel database e non nell'ambiente perche cambiano per contratto e non per
 rilascio del software.
+
+---
+
+## Backup e ripristino — procedura provata (Blocco E, 2026-08-26)
+
+Era il blocker RC-3: «un gestionale che tiene anagrafiche di minori e movimenti
+di denaro non si rilascia senza aver **ripristinato** almeno una volta».
+L'esercitazione e stata eseguita sul database di **sviluppo**, mai su staging.
+
+### Perche non su staging
+
+Un ripristino e distruttivo per definizione: sostituisce cio che c'e. Provarlo
+sull'unico ambiente condiviso significherebbe rischiare il dato di staging per
+dimostrare di saperlo salvare. Il database di sviluppo ha lo **stesso schema**
+— stesse 17 migrazioni, stesso `prisma migrate status` — quindi prova la
+procedura senza rischiare niente.
+
+### La procedura
+
+```bash
+# 1. backup
+docker exec easygame-dev-db pg_dump -U easygame -d easygame_dev -Fc -f /tmp/rc.dump
+docker cp easygame-dev-db:/tmp/rc.dump ./backup/rc.dump
+
+# 2. ripristino
+docker cp ./backup/rc.dump easygame-dev-db:/tmp/rc.dump
+docker exec easygame-dev-db pg_restore -U easygame -d easygame_dev \
+  --clean --if-exists --no-owner --no-privileges /tmp/rc.dump
+
+# 3. verifica
+npx prisma migrate status
+```
+
+Su Neon il formato non cambia: cambia solo il modo di raggiungere l'endpoint
+(`pg_dump "$DIRECT_URL"`, non `docker exec`). `DIRECT_URL` e la variabile
+giusta perche il ripristino non deve passare dal pooler.
+
+### L'esercitazione, con i numeri
+
+| Passo | Esito |
+|-------|-------|
+| Stato di partenza | 224 atleti, 6 rate, 6 incassi, 5 moduli, 4 compilazioni, 17 risorse di club |
+| Backup | **492 ms**, 192 kB in formato `custom` |
+| Alterazione deliberata | un atleta aggiunto, **undici** cognomi riscritti in `ALTERATO`, **due** incassi cancellati |
+| Stato alterato | 225 atleti, 4 incassi |
+| Ripristino | **1.392 ms** |
+| Verifica | 224 atleti, 6 rate, 6 incassi, 5 moduli, 4 compilazioni, 17 risorse. **Zero** righe alterate, **zero** righe aggiunte |
+| Dopo il ripristino | `prisma migrate status` verde; login e lettura atleti rispondono 200 |
+
+### Cosa verificare sempre dopo un ripristino
+
+1. `npx prisma migrate status` — deve dire «up to date». Un dump vecchio di
+   una migrazione lascia lo schema indietro, e il difetto si manifesta alla
+   prima query su una colonna nuova;
+2. il conteggio delle righe delle tabelle che contano — atleti, rate,
+   incassi, allegati;
+3. **una richiesta vera**: un login e la lettura di un elenco. Un database
+   ripristinato che l'applicazione non riesce a interrogare non e ripristinato.
+
+### Recovery instructions per la produzione, quando esistera
+
+- Neon conserva la storia recente e permette il *point-in-time restore* dalla
+  console: e il primo strumento da usare, ed e piu preciso di un dump
+  giornaliero.
+- Il dump serve comunque, e per una ragione diversa: e l'unica copia che
+  sopravvive alla perdita dell'**account**, non solo del database. Va tenuto
+  fuori da Neon e fuori da Vercel.
+- La cadenza la decide chi possiede il prodotto. Il criterio: quanti dati si
+  accetta di perdere. Per una societa sportiva un giorno e ragionevole; a
+  settembre, con le iscrizioni aperte, non lo e.
+
+---
+
+## Integrazione continua — stato reale (Blocco E, 2026-08-26)
+
+**La CI gira, e gira verde.** La matrice RC precedente supponeva il contrario e
+si preparava a distinguere «gate locali verdi» da «CI remota bloccata»: la
+supposizione era sbagliata.
+
+| Voce | Valore verificato |
+|------|-------------------|
+| Repository | `frattomella/easygame`, **pubblico** |
+| Workflow | `.github/workflows/ci.yml`, presente sul branch `integration/web-v1` |
+| Run totali | 41 |
+| Ultima run | numero 41, commit `46b5e29`, evento `push`, branch `integration/web-v1` |
+| Esito | `success` su tutti e tre i job: Web App, Mobile App, Guardrail di sicurezza |
+
+Il workflow **non** e sul branch predefinito (`main` non ha `.github/`), e non
+serve che lo sia: GitHub esegue il workflow presente sul ref che riceve il
+push. Lo sara al primo merge su `main`.
+
+### Variabili d'ambiente su Vercel — cosa manca davvero
+
+Verificato con `vercel env ls` sul progetto `easygame-staging`:
+
+| Variabile | Production | Preview | Development |
+|-----------|------------|---------|-------------|
+| `DATABASE_URL` | si | **no** | si |
+| `DIRECT_URL` | si | **no** | si |
+| `AUTH_BASE_URL` | si | **no** | si |
+| `NEXT_PUBLIC_APP_URL` | si | **no** | si |
+| `EASYGAME_PLATFORM_ADMIN_EMAILS` | si | **no** | si |
+| `AUTH_RATE_LIMIT_SECRET` | si | **no** | **no** |
+| `EASYGAME_MAINTENANCE_TOKEN` | **no** | **no** | **no** |
+
+Ecco perche ogni deployment Preview e rosso: senza `DATABASE_URL` il build
+importa `src/lib/server/prisma.ts` e si ferma. La correzione e una riga per
+variabile — `vercel env add <nome> preview` — ed e una **modifica di
+configurazione**, che richiede l'autorizzazione di chi possiede il progetto.
+
+Finche `EASYGAME_MAINTENANCE_TOKEN` non esiste, `POST /api/v1/maintenance`
+risponde 403 e le pulizie periodiche non girano su nessun ambiente.
