@@ -107,3 +107,42 @@ test("chi emette documenti non ha una numerazione propria", () => {
     "la forma del numero la decide `documents/numbering`, non chi emette",
   );
 });
+
+test("nessuna schermata scrive direttamente nelle fatture", () => {
+  /*
+    Il gemello del test sulle ricevute, aggiunto nel Blocco E perche il
+    difetto c'era ancora: la pagina Movimenti apriva un modulo dove il numero
+    della fattura si digitava a mano e la riga finiva in `invoices` con un
+    `insert` dal browser. La ricevuta accanto era gia stata ricondotta al
+    server; la fattura no.
+  */
+  const offenders = clientFiles.filter((file) => {
+    const source = fs.readFileSync(file, "utf8");
+    return /from\(["']invoices["']\)\s*\n?\s*\.insert/.test(source);
+  });
+
+  assert.deepEqual(
+    offenders.map((file) => path.relative(process.cwd(), file)),
+    [],
+    "una fattura nasce da un incasso, sul server, con numerazione e snapshot",
+  );
+});
+
+test("nessuna schermata dichiara elettronica una fattura", () => {
+  /*
+    `is_electronic` e falso **per costruzione** (ADR-0053): EasyGame prepara
+    il tracciato FatturaPA e non lo trasmette. Una casella spuntata in un
+    modulo non puo cambiare quel fatto, e finche esisteva ne scriveva il
+    contrario in archivio.
+  */
+  const offenders = clientFiles.filter((file) => {
+    const source = fs.readFileSync(file, "utf8");
+    return /is_electronic\s*:/.test(source) || /isElectronic\s*:\s*true/.test(source);
+  });
+
+  assert.deepEqual(
+    offenders.map((file) => path.relative(process.cwd(), file)),
+    [],
+    "solo il server decide se un documento e elettronico, e oggi non lo e mai",
+  );
+});

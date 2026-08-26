@@ -315,7 +315,7 @@ export function MovementDetailPanel({
               onClick={onCreateInvoice}
             >
               <FileText className="mr-2 h-4 w-4" />
-              Emetti fattura elettronica
+              Emetti fattura
             </ActionButton>
 
             <ActionButton

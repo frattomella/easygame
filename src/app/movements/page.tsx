@@ -21,7 +21,6 @@ import {
   type BankAccount,
 } from "@/components/accounting/BankAccountList";
 import { MovementDetailPanel } from "@/components/accounting/MovementDetailPanel";
-import { AddInvoiceForm } from "@/components/forms/AddInvoiceForm";
 import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -43,7 +42,6 @@ import {
   type ClubEntityOption,
 } from "@/lib/club-entity-directory";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
 import {
   ArrowDown,
   ArrowDownUp,
@@ -307,8 +305,6 @@ export default function MovementsPage() {
   const [expectedType, setExpectedType] = useState<"income" | "expense">(
     "income",
   );
-  const [showAddInvoice, setShowAddInvoice] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<any | null>(null);
   const [selectedMovement, setSelectedMovement] =
     useState<NormalizedClubMovement | null>(null);
   const [isMovementDetailOpen, setIsMovementDetailOpen] = useState(false);
@@ -990,57 +986,80 @@ export default function MovementsPage() {
     return null;
   };
 
-  const openInvoiceModal = (movement: NormalizedClubMovement | null) => {
-    const payment = getCompatiblePayment(movement);
-    if (!payment) {
+  const handleGenerateInvoice = async (payment: any) => {
+    if (!activeClubId || !payment?.id) {
       showToast("error", "Fattura disponibile solo per pagamenti collegati");
       return;
     }
 
-    setSelectedPayment(payment);
-    setShowAddInvoice(true);
-  };
+    if (!isPaidStatus(payment.status)) {
+      showToast(
+        "error",
+        "La fattura si emette su un incasso, non su una rata scoperta",
+      );
+      return;
+    }
 
-  const handleCreateInvoice = async (invoiceData: any) => {
-    if (!activeClubId || !selectedPayment) {
+    if (invoiceByPaymentId.has(String(payment.id))) {
+      showToast("success", "Fattura gia emessa");
       return;
     }
 
     try {
-      const { error } = await supabase.from("invoices").insert({
-        organization_id: activeClubId,
-        athlete_id: selectedPayment.athlete_id || null,
-        payment_id: selectedPayment.id,
-        invoice_number: invoiceData.invoiceNumber,
-        issue_date: invoiceData.date,
-        amount: Number(invoiceData.amount),
-        description: invoiceData.description,
-        payment_method: invoiceData.paymentMethod,
-        status: invoiceData.status || "issued",
-        is_electronic: Boolean(invoiceData.isElectronic),
-        recipient_code: invoiceData.recipientCode || null,
-        vat_number: invoiceData.vatNumber || null,
-        fiscal_code: invoiceData.fiscalCode || null,
-        address: invoiceData.address || null,
-        city: invoiceData.city || null,
-        postal_code: invoiceData.postalCode || null,
-        province: invoiceData.province || null,
-        country: invoiceData.country || "Italia",
-        notes: invoiceData.notes || null,
-      });
+      /*
+        La fattura la emette il server, e la emette **sull'incasso**.
+
+        Qui dentro c'era la stessa seconda implementazione che la ricevuta si
+        e gia tolta, e faceva tre danni in piu. Il numero lo digitava
+        l'operatore in un campo di testo: la sequenza per club ed esercizio di
+        `document-numbering` (ADR-0044) non avanzava, e la fattura successiva
+        emessa dal server poteva scontrarsi con quella scritta a mano. Non
+        passava dal motore fiscale, quindi il documento nasceva senza lo
+        snapshot dei dati al momento dell'emissione (ADR-0052) e la ristampa
+        avrebbe riletto l'anagrafica di oggi. E marcava il documento come
+        elettronico da una casella spuntata di suo, mentre EasyGame il
+        tracciato lo
+        **prepara** e non lo trasmette (ADR-0053): la riga diceva
+        «elettronica» di un documento che nessuno ha mandato da nessuna parte.
+      */
+      const { data: transactions, error: listError } = await apiRequest<any[]>(
+        `/api/v1/payment-transactions?payment_id=${encodeURIComponent(payment.id)}`,
+      );
+
+      if (listError) {
+        throw new Error(listError.message);
+      }
+
+      const settled = (transactions || []).find(
+        (transaction: any) => !transaction.reversedAt && !transaction.reversed_at,
+      );
+
+      if (!settled) {
+        showToast(
+          "error",
+          "Nessun incasso registrato su questa rata: la fattura si emette da un incasso",
+        );
+        return;
+      }
+
+      const { data, error } = await apiRequest<any>(
+        `/api/v1/payment-transactions/${encodeURIComponent(settled.id)}`,
+        { method: "POST", body: { action: "issue-invoice" } },
+      );
 
       if (error) {
         throw new Error(error.message);
       }
 
-      setSelectedPayment(null);
-      setShowAddInvoice(false);
       await loadData();
-      showToast("success", "Fattura interna collegata al pagamento");
+      showToast(
+        "success",
+        `Fattura ${data?.invoice_number || ""} emessa`.trim(),
+      );
     } catch (error: any) {
       showToast(
         "error",
-        error?.message || "Errore durante la creazione della fattura",
+        error?.message || "Errore durante l'emissione della fattura",
       );
     }
   };
@@ -2163,7 +2182,7 @@ export default function MovementsPage() {
           }
           formatCurrency={formatCurrency}
           formatDate={formatDate}
-          onCreateInvoice={() => openInvoiceModal(selectedMovement)}
+          onCreateInvoice={() => handleGenerateInvoice(activePayment)}
           onCreateReceipt={() => handleGenerateReceipt(activePayment)}
           onPrintReceipt={handlePrintReceipt}
           ledgerSlot={
@@ -2183,21 +2202,6 @@ export default function MovementsPage() {
                 }}
               />
             ) : null
-          }
-        />
-
-        <AddInvoiceForm
-          isOpen={showAddInvoice}
-          onClose={() => {
-            setShowAddInvoice(false);
-            setSelectedPayment(null);
-          }}
-          onSubmit={handleCreateInvoice}
-          athleteId={selectedPayment?.athlete_id || ""}
-          athleteName={
-            selectedMovement?.subjectName ||
-            selectedMovement?.originEntityName ||
-            ""
           }
         />
       </div>
