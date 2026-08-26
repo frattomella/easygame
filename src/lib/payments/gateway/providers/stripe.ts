@@ -42,6 +42,7 @@ import {
   type GatewayRefund,
   type GatewayRefundEvent,
   type GatewayRefundRequest,
+  type GatewaySettlement,
   type GatewayWebhookEvent,
 } from "../contract";
 import { verifyStripeSignature } from "./stripe-signature";
@@ -289,6 +290,101 @@ const accountFromEventObject = (object: any): GatewayAccountEvent | null => {
   };
 };
 
+/* -------------------------------------------------------- liquidazione */
+
+/**
+ * Il `balance_transaction` di un charge, tradotto.
+ *
+ * **Da dove arrivano i numeri, e perche non da una formula.** `fee_details` e
+ * la scomposizione che Stripe fa del costo: una voce `stripe_fee` per la
+ * propria commissione, una voce `application_fee` per quella della
+ * piattaforma. Si leggono per **tipo** e non per posizione, perche l'elenco
+ * puo contenerne altre — imposte su alcuni mercati, costi di rete — e sommare
+ * tutto attribuirebbe a Stripe voci che non sono sue.
+ *
+ * **Perche `net` si prende com'e.** E il numero che il club vedra sul proprio
+ * saldo. Ricalcolarlo come «lordo meno le due commissioni» darebbe lo stesso
+ * risultato quasi sempre, e nei casi in cui non lo darebbe — proprio le voci
+ * che non abbiamo saputo classificare — sarebbe sbagliato in silenzio.
+ */
+const settlementFromBalanceTransaction = (
+  transaction: any,
+): GatewaySettlement | null => {
+  if (!transaction || typeof transaction !== "object") return null;
+
+  const details: any[] = Array.isArray(transaction?.fee_details)
+    ? transaction.fee_details
+    : [];
+
+  const sumOf = (type: string) => {
+    const rows = details.filter((row) => String(row?.type || "") === type);
+    if (!rows.length) return null;
+    return rows.reduce(
+      (total, row) => total + Math.round(Number(row?.amount || 0)),
+      0,
+    );
+  };
+
+  return {
+    currency: "EUR",
+    grossAmountCents:
+      transaction?.amount === undefined || transaction?.amount === null
+        ? null
+        : Math.round(Number(transaction.amount)),
+    providerFeeCents: sumOf("stripe_fee"),
+    platformFeeCents: sumOf("application_fee"),
+    netAmountCents:
+      transaction?.net === undefined || transaction?.net === null
+        ? null
+        : Math.round(Number(transaction.net)),
+  };
+};
+
+/**
+ * Il charge di un pagamento, qualunque forma abbia il suo identificativo.
+ *
+ * EasyGame conserva cio che il provider gli ha restituito: una sessione
+ * (`cs_…`) quando l'incasso e nato da un checkout, un intent (`pi_…`) quando
+ * e arrivato da un evento sull'intent, un charge (`ch_…`) negli altri casi.
+ * Sono tre strade allo stesso oggetto, e il `balance_transaction` sta in fondo
+ * a tutte e tre.
+ *
+ * L'espansione si chiede nella **stessa** richiesta: seguire i riferimenti a
+ * mano vorrebbe dire tre chiamate al PSP per un dato accessorio.
+ */
+const fetchChargeForSettlement = async (input: {
+  externalPaymentId: string;
+  merchantExternalId: string;
+}): Promise<any | null> => {
+  const id = String(input.externalPaymentId || "").trim();
+  if (!id) return null;
+
+  /* Il charge vive sull'account connesso: e cio che rende l'addebito diretto. */
+  const onAccount = { stripeAccount: input.merchantExternalId };
+
+  if (id.startsWith("cs_")) {
+    const session = await callStripe(
+      `/checkout/sessions/${encodeURIComponent(id)}?expand[]=payment_intent.latest_charge.balance_transaction`,
+      onAccount,
+    );
+    return session?.payment_intent?.latest_charge || null;
+  }
+
+  if (id.startsWith("ch_")) {
+    return callStripe(
+      `/charges/${encodeURIComponent(id)}?expand[]=balance_transaction`,
+      onAccount,
+    );
+  }
+
+  const intent = await callStripe(
+    `/payment_intents/${encodeURIComponent(id)}?expand[]=latest_charge.balance_transaction`,
+    onAccount,
+  );
+
+  return intent?.latest_charge || null;
+};
+
 /* ------------------------------------------------------------- adapter */
 
 export const stripeProvider: PaymentGateway = {
@@ -440,6 +536,21 @@ export const stripeProvider: PaymentGateway = {
             : "pending",
       platformFeeRefunded: true,
     } satisfies GatewayRefund;
+  },
+
+  fetchSettlement: async (input) => {
+    const charge = await fetchChargeForSettlement(input);
+
+    /*
+      `balance_transaction` puo essere ancora un identificativo invece
+      dell'oggetto espanso: succede quando la transazione di saldo non e
+      ancora maturata. Non e un errore ed e il caso normale nei minuti dopo un
+      incasso — si dice «non lo so» e si riproverera piu tardi.
+    */
+    const transaction = charge?.balance_transaction;
+    if (!transaction || typeof transaction === "string") return null;
+
+    return settlementFromBalanceTransaction(transaction);
   },
 
   parseWebhook: ({ rawBody, signature, secret, now }): GatewayWebhookEvent => {

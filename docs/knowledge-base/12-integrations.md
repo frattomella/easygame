@@ -207,10 +207,30 @@ una variabile puo restare indietro dopo una rotazione, una chiave no.
 su entrambi i flussi, che condividono la chiave — e quindi l'ambiente — pur non
 condividendo il segreto di firma.
 
+### La commissione di Stripe non si calcola: si chiede a Stripe
+
+`payment_transactions.provider_fee_cents` esisteva dal Blocco D e non lo
+scriveva nessuno. Dal Blocco E lo riempie `PaymentGateway.fetchSettlement`,
+leggendo il `balance_transaction` del charge **sull'account connesso** — che e
+dove l'addebito diretto avviene.
+
+Le voci si leggono per **tipo** (`stripe_fee`, `application_fee`) e non per
+posizione: l'elenco puo contenerne altre — imposte, costi di rete — e sommarle
+tutte attribuirebbe a Stripe cio che non e suo. Il `net` si prende com'e:
+ricalcolarlo darebbe lo stesso numero quasi sempre, e sbaglierebbe in silenzio
+proprio nei casi che non abbiamo saputo classificare.
+
+**Una formula qui sarebbe un difetto, non una scorciatoia.** La commissione di
+Stripe cambia per metodo di pagamento, circuito e paese della carta, e cambia di
+listino senza avvisare: «1,5% + 25 centesimi» sarebbe giusto il giorno in cui
+viene scritto e sbagliato il giorno dopo, e comparirebbe in un rendiconto con
+l'aria di essere un fatto. `null` significa **non ancora noto** — la transazione
+di saldo matura dopo l'incasso — e non zero, che direbbe «gratis».
+
 ### Cosa non e collaudato
 
-La verifica della firma e la traduzione degli eventi hanno test. **Tutto cio
-che parla davvero con
+La verifica della firma, la traduzione degli eventi e la lettura del
+`balance_transaction` hanno test. **Tutto cio che parla davvero con
 `api.stripe.com` non e mai stato provato contro Stripe**: non ci sono
 credenziali in questo repository e non se ne inventano. Il codice e scritto
 sulla documentazione ufficiale e va considerato *da collaudare*, non

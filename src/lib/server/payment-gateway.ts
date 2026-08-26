@@ -224,6 +224,50 @@ export const openGatewayCheckout = async (
   return { checkout, context, settlement };
 };
 
+/* -------------------------------------------------------- la liquidazione */
+
+/**
+ * Quanto e costato un incasso, chiesto al provider, **senza far fallire
+ * l'incasso se non risponde**.
+ *
+ * **Perche non si propaga l'errore.** Questo dato e accessorio: serve a un
+ * rendiconto, non a stabilire che il denaro sia arrivato. Se la chiamata
+ * fallisce — rete, credenziali ruotate, provider lento — e l'eccezione
+ * risalisse, il webhook risponderebbe 500, Stripe riproverebbe, e un incasso
+ * gia avvenuto resterebbe non registrato per un motivo che non lo riguarda. Si
+ * conserva `null`, che nel registro significa **non ancora noto**.
+ *
+ * **Perche non c'e un secondo tentativo qui dentro.** Il caso normale in cui
+ * il dato manca non e un guasto: la transazione di saldo di Stripe matura
+ * dopo, a volte giorni dopo per i metodi differiti. Riprovare adesso non la
+ * farebbe comparire; a riprendere il dato dovra essere una lettura successiva,
+ * non questa.
+ */
+const fetchProviderSettlement = async (input: {
+  provider: PaymentGatewayKey;
+  externalPaymentId: string;
+  merchantExternalId: string | null;
+}) => {
+  if (!input.externalPaymentId || !input.merchantExternalId) return null;
+
+  try {
+    const provider = requirePaymentGateway(input.provider);
+    if (!provider.fetchSettlement) return null;
+
+    return await provider.fetchSettlement({
+      externalPaymentId: input.externalPaymentId,
+      merchantExternalId: input.merchantExternalId,
+    });
+  } catch (error: any) {
+    /* Il messaggio, mai la richiesta: contiene importo e account connesso. */
+    console.warn("[payments/webhook] costo dell'incasso non disponibile", {
+      provider: input.provider,
+      message: String(error?.message || error),
+    });
+    return null;
+  }
+};
+
 /* ------------------------------------------------------------- i webhook */
 
 const webhookClient = () => (prisma as any).paymentWebhookEvent;
@@ -539,6 +583,19 @@ export const handleGatewayWebhookEvent = async (
     const settlement = freezeSettlement({
       grossAmountCents: payment.money.amountCents,
       commission,
+      /*
+        La commissione del PSP si **chiede al PSP**. Non si calcola: cambia per
+        metodo di pagamento, circuito e paese della carta, e cambia di listino
+        senza avvisare. Quando non e ancora nota resta `null`, che vuol dire
+        «non lo so» e non «zero». Vedi `fetchProviderSettlement`.
+      */
+      providerFeeCents: (
+        await fetchProviderSettlement({
+          provider: account.provider,
+          externalPaymentId: payment.externalId,
+          merchantExternalId: account.externalAccountId,
+        })
+      )?.providerFeeCents,
     });
 
     const result = await createPaymentTransaction(

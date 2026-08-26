@@ -44,7 +44,7 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 1.568 test, 119 file
+## Cosa e coperto oggi — 1.576 test, 120 file
 
 **La tabella sotto ne elenca 57 e non 76**: e rimasta indietro, ed e onesto
 dirlo invece di lasciar credere che sia completa. Le righe che ci sono

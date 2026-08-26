@@ -168,6 +168,43 @@ export type GatewayPayment = {
   paidAt: string | null;
 };
 
+/* ------------------------------------------------------- la liquidazione */
+
+/**
+ * Quanto **davvero** e costato un incasso, secondo il provider.
+ *
+ * **Perche non si calcola.** La commissione di EasyGame la decide EasyGame e
+ * si congela (ADR-0050); quella del PSP la decide il PSP, cambia per metodo di
+ * pagamento, per circuito, per paese della carta, e cambia di listino senza
+ * avvisare. Una formula scritta qui sarebbe giusta il giorno in cui viene
+ * scritta e sbagliata il giorno dopo, e il numero sbagliato comparirebbe in un
+ * rendiconto con l'aria di essere un fatto. Si chiede al provider, oppure si
+ * dichiara di non saperlo.
+ *
+ * **Perche ogni campo puo essere `null`.** Il costo di un incasso non e noto
+ * nell'istante in cui l'incasso avviene: su Stripe vive sul
+ * `balance_transaction`, che non viaggia nell'evento e che per certi metodi di
+ * pagamento matura giorni dopo. `null` significa **non ancora noto**, e non
+ * zero: scriverci zero direbbe «gratis», che e un'affermazione diversa.
+ */
+export type GatewaySettlement = {
+  currency: "EUR";
+  /** L'incasso lordo secondo il provider. */
+  grossAmountCents: number | null;
+  /** La commissione del PSP. Mai calcolata da EasyGame. */
+  providerFeeCents: number | null;
+  /**
+   * La commissione della piattaforma **come il provider la riporta**.
+   *
+   * Serve a riconciliare, non a decidere: quella che vale resta quella
+   * congelata sulla riga dell'incasso. Se le due divergono, e un fatto da
+   * guardare, non da correggere in automatico.
+   */
+  platformFeeCents: number | null;
+  /** Quanto resta al club, al netto di entrambe le commissioni. */
+  netAmountCents: number | null;
+};
+
 /* ------------------------------------------------------------ rimborsi */
 
 export type GatewayRefundRequest = {
@@ -334,6 +371,21 @@ export type PaymentGateway = {
     merchantExternalId: string;
   }) => Promise<GatewayPayment>;
   refund: (request: GatewayRefundRequest) => Promise<GatewayRefund>;
+  /**
+   * Quanto e costato un incasso, chiesto al provider.
+   *
+   * **Opzionale**, e la ragione e nel dominio e non nel codice: non tutti i
+   * PSP espongono la propria commissione per singola transazione, e chi non la
+   * espone non deve costringere EasyGame a inventarla. Un adapter che non
+   * implementa questo metodo dice «non lo so», e il registro conserva `null`.
+   *
+   * Restituisce `null` anche quando il provider **non lo sa ancora**: e il
+   * caso normale nei minuti successivi a un incasso, e non e un errore.
+   */
+  fetchSettlement?: (input: {
+    externalPaymentId: string;
+    merchantExternalId: string;
+  }) => Promise<GatewaySettlement | null>;
   /**
    * Verifica la firma e restituisce l'evento.
    *

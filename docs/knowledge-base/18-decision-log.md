@@ -3047,6 +3047,28 @@ gia visti, il rinvio dello **stesso identificativo** all'ambiente a cui
 appartiene davvero risulterebbe un duplicato e verrebbe scartato senza
 registrare l'incasso.
 
+**Il secondo difetto che questo blocco chiude: la commissione di Stripe non si
+calcola.** `provider_fee_cents` esisteva in tabella dal Blocco D e non lo
+scriveva nessuno. La tentazione di riempirlo con una formula — «1,5% + 25
+centesimi» — va nominata per rifiutarla: quella cifra cambia per metodo di
+pagamento, circuito e paese della carta, e cambia di listino senza avvisare.
+Una formula sarebbe giusta il giorno in cui viene scritta e sbagliata il giorno
+dopo, e il numero sbagliato comparirebbe in un rendiconto **con l'aria di
+essere un fatto**.
+
+Si chiede al PSP. Su Stripe il dato vive sul `balance_transaction` del charge,
+letto **sull'account connesso** perche e li che l'addebito diretto avviene. Le
+voci si leggono per **tipo** (`stripe_fee`, `application_fee`) e non per
+posizione, perche l'elenco puo contenerne altre — imposte, costi di rete — e
+sommarle tutte attribuirebbe a Stripe cio che non e suo.
+
+*`null` significa «non ancora noto», e non zero.* La transazione di saldo
+matura dopo l'incasso, a volte giorni dopo per i metodi differiti. Scrivere
+zero direbbe «gratis», che e un'affermazione diversa. E la lettura non puo far
+fallire l'incasso: se il PSP non risponde, l'eccezione non risale — un webhook
+che rispondesse 500 farebbe riprovare Stripe e lascerebbe non registrato un
+incasso gia avvenuto, per un motivo che non lo riguarda.
+
 **Conseguenze.**
 
 - `src/lib/payments/live-mode.ts` e la regola, pura e collaudabile senza un
@@ -3055,5 +3077,8 @@ registrare l'incasso.
 - `GatewayWebhookEvent.liveMode` e `PlatformBillingEvent.liveMode` portano
   l'ambiente su **entrambi** i flussi di ADR-0051, che condividono la chiave
   segreta e quindi l'ambiente, pur non condividendo il segreto di firma;
+- `PaymentGateway.fetchSettlement` e **opzionale**: un PSP che non espone la
+  propria commissione per transazione dice «non lo so», e non costringe
+  EasyGame a inventarla;
 - restano da collaudare contro Stripe, per la ragione di ADR-0045, tutte le
   chiamate che parlano con `api.stripe.com`: la traduzione ha test, la rete no.

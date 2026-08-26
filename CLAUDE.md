@@ -96,7 +96,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 Prima di ogni commit:
 
 ```bash
-npm test           # tutti verdi (1.568 al 2026-08-26, Blocco E)
+npm test           # tutti verdi (1.576 al 2026-08-26, Blocco E)
 npm run typecheck  # nessun output
 npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare
