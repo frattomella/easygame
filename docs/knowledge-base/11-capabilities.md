@@ -104,6 +104,10 @@ Classificazione:
 | Ricevute | COMPLETE | Emesse **per incasso** (`receipts.transaction_id`), non per rata: una rata pagata in tre volte ne produce tre. Emissione idempotente. Collegabili anche a fattura |
 | Metodi di incasso | COMPLETE | `payment_methods` con commissioni configurabili |
 | **Voucher e contributi da enti** | COMPLETE | `funding_programs` + `/api/v1/funding/*`. Le regole di un bando sono **configurazione**: plafond, importo per periodo, frequenza, requisito minimo, unita, comportamento sotto soglia, tetti ([ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati)) |
+| Scheda «Iscrizione» con un riepilogo solo | COMPLETE | Sei sezioni in ordine fisso, totali in un punto solo, rate e composizione a scomparsa ([ADR-0056](18-decision-log.md#adr-0056--la-scheda-iscrizione-ha-un-riepilogo-solo-e-una-fonte-sola-per-i-numeri)) |
+| Prossima rata come azione principale | COMPLETE | La scaduta piu vecchia, poi la prima scoperta per scadenza. Con tutto saldato non compare nessun pulsante |
+| Stato dell'iscrizione derivato dagli incassi | COMPLETE | `resolveEnrollmentPaymentState`: nessun campo lo scrive, come per la singola rata |
+| Ricevute e fatture nella scheda dell'atleta | COMPLETE | Lette da `receipts` e `invoices` filtrate per `athlete_id`; si emettono dal dettaglio di un incasso |
 | Gruppo operativo come unita delle operazioni | COMPLETE | Elenchi atleti, allenamenti, presenze, programma settimanale e assegnazione allenatori si scelgono per **gruppo** (categoria + sede), non per categoria ([ADR-0055](18-decision-log.md#adr-0055--configurazione-si-sceglie-per-categoria-operazione-si-sceglie-per-gruppo)) |
 | Sedi di una categoria nel modulo della categoria | COMPLETE | Le spunte scrivono i gruppi. Togliere una sede **archivia** il gruppo e conserva atleti, allenamenti e presenze |
 | Allenamento su piu gruppi | COMPLETE | Selezione multipla senza duplicare l'allenamento; la deduplica del generatore include il gruppo |

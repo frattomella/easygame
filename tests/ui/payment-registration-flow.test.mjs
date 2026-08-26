@@ -21,19 +21,28 @@ const ATHLETE_PAGE = "app/athletes/[id]/page.tsx";
 const MOVEMENTS_PAGE = "app/movements/page.tsx";
 const DIALOG = "components/payments/RegisterPaymentDialog.tsx";
 const LEDGER = "components/payments/AthletePaymentLedger.tsx";
+const LEDGER_HOOK = "components/payments/use-athlete-payment-ledger.ts";
+const ENROLLMENT_TAB = "components/athletes/enrollment/AthleteEnrollmentTab.tsx";
 const LIST = "components/payments/InstallmentLedgerList.tsx";
 const ATHLETE_DIALOGS = "components/athletes/profile/athlete-payment-dialogs.tsx";
 
 // --- un solo flusso ----------------------------------------------------------
 
-test("scheda atleta e area Movimenti montano lo stesso componente", () => {
-  for (const page of [ATHLETE_PAGE, MOVEMENTS_PAGE]) {
-    assert.match(
-      read(page),
-      /<AthletePaymentLedger/,
-      `${page} deve montare AthletePaymentLedger, non una copia`,
-    );
-  }
+test("scheda atleta e area Movimenti leggono lo stesso stato", () => {
+  /*
+    L'area Movimenti monta il componente; la scheda «Iscrizione» consuma lo
+    stesso hook per mostrare gli stessi numeri in tre punti della pagina
+    (ADR-0056). Cio che conta e che la fonte sia una: due letture separate
+    degli incassi sono due idee di «quanto ha pagato».
+  */
+  assert.match(
+    read(MOVEMENTS_PAGE),
+    /<AthletePaymentLedger/,
+    "l'area Movimenti deve montare AthletePaymentLedger, non una copia",
+  );
+  assert.match(read(ATHLETE_PAGE), /<AthleteEnrollmentTab/);
+  assert.match(read(ENROLLMENT_TAB), /useAthletePaymentLedger\(/);
+  assert.match(read(LEDGER), /useAthletePaymentLedger\(/);
 });
 
 test("la finestra «Registra pagamento» esiste una volta sola", () => {
@@ -164,9 +173,9 @@ test("l'importo parte dal residuo e resta modificabile", () => {
 
 test("un incasso registrato aggiorna subito rata e riepiloghi", () => {
   assert.match(
-    read(LEDGER),
+    read(LEDGER_HOOK),
     /onLedgerChanged\?\.\(/,
-    "il componente avvisa la pagina ospite con la rata riscritta dal server",
+    "lo stato avvisa la pagina ospite con la rata riscritta dal server",
   );
   assert.match(
     read(ATHLETE_PAGE),

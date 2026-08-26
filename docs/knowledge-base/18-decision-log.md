@@ -2710,3 +2710,95 @@ categoria, primarie e secondarie comprese.
 difetto che ADR-0038 esisteva per chiudere: due fasce d'anno da tenere
 allineate, due compatibilita da configurare due volte, e un atleta che «cambia
 categoria» quando ha solo cambiato citta.
+
+---
+
+## ADR-0056 — La scheda «Iscrizione» ha un riepilogo solo, e una fonte sola per i numeri
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D2. La scheda economica dell'atleta ha ricevuto, in tre
+blocchi successivi, Payments V2 ([ADR-0036](#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)),
+i contributi ([ADR-0037](#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati))
+e la fiscalita. Ogni blocco ha aggiunto il suo riquadro senza togliere il
+precedente.
+
+**Il problema, contato.** Sei riquadri, e dentro:
+
+- **tre** rappresentazioni dei totali — «Riepilogo Incasso», l'intestazione di
+  «Storico Pagamenti» (*Totale registrato · Pagato · Residuo*) e la griglia
+  *Obbligatori / Opzionali / Totale finale* dentro la configurazione del piano;
+- **due** elenchi degli stessi incassi — «Rate e incassi» e la tabella di
+  «Storico Pagamenti»;
+- due percorsi per agire su una rata, uno dei quali (la tabella) era anche
+  l'unico da cui si raggiungessero modifica ed eliminazione.
+
+I tre totali non venivano dalla stessa fonte: due si calcolavano da
+`athlete_payments` e dal JSON storico, uno dagli incassi di Payments V2. Non
+coincidevano sempre. Chi apriva la scheda per sapere quanto restava da
+incassare trovava tre numeri e doveva scegliere di quale fidarsi.
+
+**La decisione, prima parte: una fonte sola.** Lo stato delle rate esce dai
+componenti e diventa `useAthletePaymentLedger`. La scheda «Iscrizione» e l'area
+Movimenti leggono **lo stesso** stato; dentro la scheda, riepilogo, prossima
+rata ed elenco rate leggono la stessa istanza. Non esistono piu due modi di
+calcolare «pagato».
+
+**La decisione, seconda parte: un ordine, e la progressive disclosure.**
+
+| # | Sezione | Chiusa? |
+|---|---|---|
+| 1 | Riepilogo iscrizione — piano, quota, pagato, residuo, stato | aperta |
+| 2 | Prossima rata | aperta |
+| 3 | Rate | chiusa, salvo anomalie |
+| 4 | Composizione della quota | chiusa |
+| 5 | Voucher e contributi | aperta |
+| 6 | Documenti e ricevute | chiusa |
+
+Le prime due rispondono alle cinque domande di chi apre la scheda — che piano
+c'e, quanto deve, quanto ha pagato, quanto resta, cosa fare adesso. Tutto il
+resto e dettaglio.
+
+**Perche «la prossima rata» e una sezione e non una riga dell'elenco.**
+Aprendo la scheda la segreteria fa quasi sempre una cosa sola: incassare la
+rata che tocca. Se per trovarla deve scorrere quattro righe uguali e
+confrontare quattro date, l'elenco le sta chiedendo un lavoro che il programma
+sa gia fare. L'ordine di priorita e quello del problema, non del calendario:
+prima la scaduta piu vecchia, poi la prima scoperta per scadenza; una rata
+senza data va in fondo.
+
+**Perche le rate restano chiuse.** Quattro righe regolari non aggiungono
+niente a «residuo 350 EUR, prossima il 30 settembre». La sezione si apre da
+sola quando c'e una rata scaduta o un pagamento parziale, perche li il
+dettaglio **e** l'informazione.
+
+**Cosa e stato rimosso davvero.** La card «Riepilogo Incasso», la card
+«Storico Pagamenti» con la sua tabella e i suoi totali, la griglia dei totali
+dentro la configurazione del piano, e la card «Status Iscrizione» a tutta
+larghezza con il riquadro colorato — lo stato dell'iscrizione e la sua data
+sono due campi, non un pannello. Nessuno dei tre e stato «lasciato per
+sicurezza».
+
+**Dove sono finite le azioni che vivevano nella tabella rimossa.** Modifica ed
+eliminazione di una rata stanno nel **dettaglio della rata**, che e dove si
+guarda quella rata; l'aggiunta di una voce a debito sta nell'intestazione
+della sezione «Rate». Su una rata su cui e gia entrato denaro l'etichetta dice
+«Annulla rata» invece di «Elimina rata»: il rifiuto si legge prima del clic,
+non dopo.
+
+**Cosa non cambia.** Lo stato di una rata resta **derivato** dagli incassi e
+non si imposta a mano (ADR-0036). I contributi restano in un riquadro proprio,
+fuori dai totali della famiglia, e la scheda lo dice a chiare lettere invece di
+lasciarlo dedurre (ADR-0037).
+
+**Conseguenze.**
+
+- `AthletePaymentLedger` diventa una vista sottile sull'hook e resta il
+  componente montato dall'area Movimenti;
+- `InstallmentLedgerList` accetta `onEditInstallment` / `onDeleteInstallment`:
+  l'anagrafica della rata, mai il suo stato;
+- le ricevute e le fatture dell'atleta si leggono da `receipts` e `invoices`
+  filtrate per `athlete_id`, risorse che esistevano gia: nessun secondo elenco
+  di «documenti dell'atleta» da tenere allineato;
+- `page.tsx` della scheda atleta scende di circa 430 righe, e la scheda
+  economica smette di essere una delle ragioni per cui cresce.

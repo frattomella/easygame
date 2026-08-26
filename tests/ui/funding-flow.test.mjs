@@ -28,6 +28,7 @@ const PERIODS_TABLE = "components/funding/FundingPeriodsTable.tsx";
 const CONFIRM_DIALOG = "components/funding/ConfirmAccrualDialog.tsx";
 const PROGRAMS_PANEL = "components/funding/FundingProgramsPanel.tsx";
 const ATHLETE_PAGE = "app/athletes/[id]/page.tsx";
+const ENROLLMENT_TAB = "components/athletes/enrollment/AthleteEnrollmentTab.tsx";
 const REGISTRATION_PAGE = "app/registration-management/page.tsx";
 const PAYMENT_LEDGER = "components/payments/AthletePaymentLedger.tsx";
 
@@ -240,19 +241,26 @@ test("la validazione del programma e la stessa del server", () => {
 // --- montaggio ---------------------------------------------------------------
 
 test("i contributi sono montati nella scheda atleta e in Gestione iscrizioni", () => {
-  assert.match(read(ATHLETE_PAGE), /<AthleteFundingSummary/);
+  // La scheda «Iscrizione» e uscita dalla pagina (ADR-0056).
+  assert.match(read(ATHLETE_PAGE), /<AthleteEnrollmentTab/);
+  assert.match(read(ENROLLMENT_TAB), /<AthleteFundingSummary/);
   assert.match(read(REGISTRATION_PAGE), /<FundingProgramsPanel/);
 });
 
 test("i contributi stanno in un riquadro separato dagli incassi", () => {
-  const source = read(ATHLETE_PAGE);
+  const source = read(ENROLLMENT_TAB);
 
   assert.match(
     source,
-    /<CardTitle>Voucher e contributi<\/CardTitle>/,
-    "un riquadro proprio, non una riga dentro il Riepilogo Incassi",
+    /<CardTitle className="text-base">Voucher e contributi<\/CardTitle>/,
+    "un riquadro proprio, non una riga dentro il riepilogo dell'iscrizione",
   );
   assert.match(source, /Un voucher assegnato non e denaro incassato/);
+  assert.match(
+    source,
+    /Non entra nei totali qui sopra/,
+    "e lo dice, invece di lasciarlo dedurre",
+  );
 });
 
 // --- responsivita ------------------------------------------------------------

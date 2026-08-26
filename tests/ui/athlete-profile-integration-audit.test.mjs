@@ -22,18 +22,35 @@ import path from "node:path";
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const PAGE = path.join(PROJECT_ROOT, "src/app/athletes/[id]/page.tsx");
+const ENROLLMENT_TAB = path.join(
+  PROJECT_ROOT,
+  "src/components/athletes/enrollment/AthleteEnrollmentTab.tsx",
+);
 
 // I fine riga sono normalizzati: nessuna asserzione deve dipendere dal
 // checkout (D30, e `.gitattributes`).
+const strip = (file) =>
+  readFileSync(file, "utf8")
+    .replace(/\r\n/g, "\n")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+
 const source = readFileSync(PAGE, "utf8").replace(/\r\n/g, "\n");
-const code = source
-  .replace(/\/\*[\s\S]*?\*\//g, "")
-  .replace(/^\s*\/\/.*$/gm, "")
-  .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+const pageCode = strip(PAGE);
+const tabCode = strip(ENROLLMENT_TAB);
+
+/*
+  La scheda «Iscrizione» e uscita dalla pagina (ADR-0056): l'audit segue le
+  aree dove sono finite, invece di pretendere che restino tutte a riga
+  quattromila di una pagina da ottomila.
+*/
+const code = `${pageCode}\n${tabCode}`;
 
 /** Le otto aree che l'audit di integrazione deve trovare montate. */
 const AREE = [
-  ["pagamenti", /<AthletePaymentLedger\b/],
+  ["iscrizione", /<AthleteEnrollmentTab\b/],
+  ["rate e incassi", /<InstallmentLedgerList\b/],
   ["voucher e contributi", /<AthleteFundingSummary\b/],
   ["modulistica", /<CompileFormDialog\b/],
   ["categorie, sede e gruppo", /<AthleteCategoriesPanel\b/],
@@ -43,7 +60,7 @@ const AREE = [
   ["kit e taglie", /<CardTitle>Assegnazioni kit<\/CardTitle>/],
 ];
 
-test("le otto aree toccate dai tre workstream sono tutte montate", () => {
+test("le aree toccate dai workstream sono tutte montate", () => {
   const mancanti = AREE.filter(([, pattern]) => !pattern.test(code)).map(
     ([nome]) => nome,
   );
@@ -63,7 +80,8 @@ test("nessun pannello nuovo e montato due volte", () => {
     diversi.
   */
   const doppioni = [
-    "AthletePaymentLedger",
+    "AthleteEnrollmentTab",
+    "InstallmentLedgerList",
     "AthleteFundingSummary",
     "AthleteCategoriesPanel",
     "CompileFormDialog",
@@ -137,19 +155,25 @@ test("i contributi non stanno nello stesso riquadro degli incassi", () => {
     un ente. Il momento in cui finiscono nella stessa somma e il momento in
     cui smettono di essere leggibili.
   */
-  const incassi = code.indexOf("<AthletePaymentLedger");
-  const contributi = code.indexOf("<AthleteFundingSummary");
+  const incassi = tabCode.indexOf("<InstallmentLedgerList");
+  const contributi = tabCode.indexOf("<AthleteFundingSummary");
 
   assert.ok(incassi > 0 && contributi > 0, "servono montati entrambi");
 
-  const fraIDue = code.slice(
+  const fraIDue = tabCode.slice(
     Math.min(incassi, contributi),
     Math.max(incassi, contributi),
   );
 
   assert.match(
     fraIDue,
-    /<\/Card>/,
-    "fra i due deve chiudersi una Card: sono due riquadri, non due meta dello stesso",
+    /<\/Section>/,
+    "fra i due deve chiudersi una sezione: sono due riquadri, non due meta dello stesso",
   );
+
+  /*
+    E i totali dei contributi non entrano in quelli della famiglia: la scheda
+    lo dice a chiare lettere invece di lasciarlo dedurre.
+  */
+  assert.match(tabCode, /Non entra nei totali qui sopra/);
 });

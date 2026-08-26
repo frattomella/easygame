@@ -160,8 +160,7 @@ import {
 } from "@/lib/athlete-category-memberships";
 import { AthleteCategoryAnalyticsSection } from "@/components/athletes/AthleteCategoryAnalyticsSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
-import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
-import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
+import { AthleteEnrollmentTab } from "@/components/athletes/enrollment/AthleteEnrollmentTab";
 import { AthletePaymentDialogs } from "@/components/athletes/profile/athlete-payment-dialogs";
 import {
   calculateAthleteCategoryAnalytics,
@@ -1949,6 +1948,23 @@ export default function AthleteProfilePage() {
       reason: "Pagamento eliminato dallo storico atleta",
     });
   };
+
+  /**
+   * La riga di `payments` che corrisponde a una rata del registro.
+   *
+   * Le finestre di dialogo lavorano sull'anagrafica della rata e vogliono il
+   * record; il registro ragiona per rate e ne conosce l'id. Il ponte sta qui,
+   * in un posto solo, invece di ricostruire il record dal registro — che
+   * sarebbe una seconda idea di cos'e una rata.
+   */
+  const findPaymentRecordForLedger = React.useCallback(
+    (ledger: { installmentId?: string | null }) =>
+      mergedPaymentRecords.find(
+        (record: any) =>
+          String(record?.id || "") === String(ledger?.installmentId || ""),
+      ) || null,
+    [mergedPaymentRecords],
+  );
 
   const requestPaymentCancel = (payment: any) => {
     if (!isEditableAthletePayment(payment)) {
@@ -4459,82 +4475,91 @@ export default function AthleteProfilePage() {
 
               {/* ISCRIZIONE E PAGAMENTI TAB */}
               <TabsContent value="pagamenti" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Status Iscrizione</CardTitle>
-                  </CardHeader>
-                  <CardContent>
+                {/*
+                  Sei riquadri sono diventati sei sezioni con un ordine e una
+                  sola fonte per i numeri (ADR-0056). Il «Riepilogo Incasso»,
+                  lo «Storico Pagamenti» e la griglia dei totali dentro la
+                  configurazione del piano dicevano la stessa cosa in tre modi
+                  diversi, e non coincidevano sempre.
+                */}
+                <AthleteEnrollmentTab
+                  athleteId={athleteId}
+                  athleteName={
+                    athlete?.fullName ||
+                    `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim() ||
+                    null
+                  }
+                  enrollmentStatus={Boolean(athlete.enrollmentStatus)}
+                  enrollmentDate={athlete.enrollmentDate || ""}
+                  enrollmentNotes={athlete.enrollmentNotes || ""}
+                  isEnrollmentSaving={isEnrollmentSaving}
+                  onEnrollmentToggle={handleEnrollmentToggle}
+                  onEnrollmentDateChange={(value: string) =>
+                    setAthlete({ ...athlete, enrollmentDate: value })
+                  }
+                  onEnrollmentDateBlur={handleEnrollmentDateBlur}
+                  onEnrollmentNotesChange={(value: string) =>
+                    setAthlete({ ...athlete, enrollmentNotes: value })
+                  }
+                  onSaveEnrollment={async () => {
+                    try {
+                      setIsEnrollmentSaving(true);
+                      await saveEnrollmentProfile({}, "Dati iscrizione salvati");
+                    } catch (error) {
+                      console.error("Error saving enrollment profile:", error);
+                      showToast(
+                        "error",
+                        "Impossibile salvare i dati di iscrizione",
+                      );
+                    } finally {
+                      setIsEnrollmentSaving(false);
+                    }
+                  }}
+                  charges={athletePaymentRecords}
+                  methodChoices={clubPaymentMethodChoices}
+                  onLedgerChanged={handleLedgerChanged}
+                  onEditInstallment={(entry) => {
+                    const record = findPaymentRecordForLedger(entry);
+                    if (record) openPaymentEditDialog(record);
+                  }}
+                  onDeleteInstallment={(entry) => {
+                    const record = findPaymentRecordForLedger(entry);
+                    if (!record) return;
+
+                    /*
+                      Una rata su cui e gia entrato denaro non si cancella: si
+                      annulla, e resta nello storico (ADR-0036).
+                    */
+                    if (entry.paidAmount > 0) requestPaymentCancel(record);
+                    else requestPaymentDelete(record);
+                  }}
+                  onAddInstallment={() => setShowAddPaymentModal(true)}
+                  planName={selectedAthletePlan?.name || null}
+                  seasonLabel={
+                    athlete.subscriptionStartDate || athlete.enrollmentStartDate
+                      ? `Abbonamento dal ${formatDate(
+                          athlete.subscriptionStartDate ||
+                            athlete.enrollmentStartDate,
+                        )}`
+                      : null
+                  }
+                  onEditPlan={
+                    selectedAthletePlan
+                      ? () => openPlanConfirmationDialog(selectedAthletePlan.id)
+                      : undefined
+                  }
+                  breakdown={
+                    <EnrollmentPaymentBreakdown
+                      summary={expectedIncomeSummary}
+                      payments={mergedPaymentRecords}
+                      mode="club"
+                      showPaymentHistory={false}
+                    />
+                  }
+                  planEditor={
                     <div className="space-y-4">
-                      {/* Iscrizione Attiva - Styled Container */}
-                      <div
-                        className={`p-4 rounded-lg border-2 ${athlete.enrollmentStatus ? "bg-green-50 dark:bg-green-900/20 border-green-500" : "bg-red-50 dark:bg-red-900/20 border-red-500"}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            {athlete.enrollmentStatus ? (
-                              <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
-                            ) : (
-                              <XCircle className="h-6 w-6 text-red-600 dark:text-red-400" />
-                            )}
-                            <div>
-                              <Label
-                                htmlFor="enrollment"
-                                className="text-base font-semibold"
-                              >
-                                Iscrizione Attiva
-                              </Label>
-                              <p
-                                className={`text-sm ${athlete.enrollmentStatus ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
-                              >
-                                {athlete.enrollmentStatus
-                                  ? "L'atleta è attualmente iscritto"
-                                  : "L'atleta non è iscritto"}
-                              </p>
-                            </div>
-                          </div>
-                          <Switch
-                            id="enrollment"
-                            checked={athlete.enrollmentStatus}
-                            disabled={isEnrollmentSaving}
-                            onCheckedChange={handleEnrollmentToggle}
-                          />
-                        </div>
-                        <div className="mt-4 max-w-xs">
-                          <Label htmlFor="enrollment-date">
-                            Data iscrizione
-                          </Label>
-                          <Input
-                            id="enrollment-date"
-                            type="date"
-                            value={athlete.enrollmentDate || ""}
-                            disabled={isEnrollmentSaving}
-                            onChange={(event) =>
-                              setAthlete({
-                                ...athlete,
-                                enrollmentDate: event.target.value,
-                              })
-                            }
-                            onBlur={handleEnrollmentDateBlur}
-                            className="mt-2 bg-white dark:bg-slate-950"
-                          />
-                        </div>
-                      </div>
                       <div>
-                        <Label>Note Iscrizione</Label>
-                        <Textarea
-                          value={athlete.enrollmentNotes}
-                          onChange={(e) =>
-                            setAthlete({
-                              ...athlete,
-                              enrollmentNotes: e.target.value,
-                            })
-                          }
-                          rows={3}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div>
-                        <Label>Piano di Pagamento Selezionato</Label>
+                        <Label>Piano di pagamento</Label>
                         <Select
                           value={selectedPlanValue}
                           onValueChange={(value) => {
@@ -4562,189 +4587,16 @@ export default function AthleteProfilePage() {
                             {normalizedPaymentPlans
                               .filter((plan) => plan.active)
                               .map((plan) => (
-                                <SelectItem
-                                  key={plan.id}
-                                  value={plan.id}
-                                >
-                                  {plan.name} -{" "}
-                                  {formatCurrency(plan.totalAmount)}
+                                <SelectItem key={plan.id} value={plan.id}>
+                                  {plan.name} - {formatCurrency(plan.totalAmount)}
                                 </SelectItem>
                               ))}
                           </SelectContent>
                         </Select>
-                        {selectedAthletePlan ? (
-                          <div className="mt-3 space-y-3 rounded-lg border bg-slate-50 p-3 text-sm dark:bg-slate-900/40">
-                            <div>
-                              <p className="font-medium">Servizi inclusi</p>
-                              <p className="text-xs text-muted-foreground">
-                                Gli obbligatori sono sempre inclusi. Gli
-                                opzionali valgono solo per questo atleta.
-                              </p>
-                            </div>
-
-                            <div className="grid gap-3 rounded-md border bg-white p-3 md:grid-cols-2">
-                              <div>
-                                <Label>Data inizio abbonamento</Label>
-                                <Input
-                                  type="date"
-                                  value={
-                                    athlete.subscriptionStartDate ||
-                                    athlete.enrollmentStartDate ||
-                                    ""
-                                  }
-                                  disabled
-                                />
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                  Pro-rata
-                                </p>
-                                {expectedIncomeSummary.proration?.enabled ? (
-                                  <div className="mt-2 space-y-1 text-sm">
-                                    <p>
-                                      Metodo:{" "}
-                                      {expectedIncomeSummary.proration.method ===
-                                      "months"
-                                        ? "per mesi"
-                                        : "per giorni"}
-                                    </p>
-                                    <p>
-                                      Totale ricalcolato:{" "}
-                                      <span className="font-semibold">
-                                        {formatCurrency(
-                                          expectedIncomeSummary.grossAmount,
-                                        )}
-                                      </span>
-                                    </p>
-                                  </div>
-                                ) : (
-                                  <p className="mt-2 text-sm text-muted-foreground">
-                                    Non attivo per questo piano.
-                                  </p>
-                                )}
-                              </div>
-                              {expectedIncomeSummary.proration
-                                ?.allowManualOverride ? (
-                                <div className="md:col-span-2">
-                                  <Label>Importo manuale opzionale</Label>
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={athlete.manualEnrollmentAmount || ""}
-                                    disabled
-                                    placeholder="Lascia vuoto per calcolo automatico"
-                                  />
-                                </div>
-                              ) : null}
-                              {expectedIncomeSummary.prorationResult?.warning ? (
-                                <p className="md:col-span-2 text-sm text-amber-700">
-                                  {
-                                    expectedIncomeSummary.prorationResult
-                                      .warning
-                                  }
-                                </p>
-                              ) : null}
-                            </div>
-
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                Obbligatori
-                              </p>
-                              {requiredPlanServices.length > 0 ? (
-                                requiredPlanServices.map((service) => (
-                                  <div
-                                    key={service.id}
-                                    className="flex justify-between gap-3 rounded-md bg-white px-3 py-2"
-                                  >
-                                    <span className="text-slate-700">
-                                      {service.name}
-                                    </span>
-                                    <span className="font-medium">
-                                      {formatCurrency(service.price)}
-                                    </span>
-                                  </div>
-                                ))
-                              ) : (
-                                <p className="text-xs text-muted-foreground">
-                                  Nessun servizio obbligatorio.
-                                </p>
-                              )}
-                            </div>
-
-                            {optionalPlanServices.length > 0 ? (
-                              <div className="space-y-2">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                  Opzionali
-                                </p>
-                                {optionalPlanServices.map((service) => (
-                                  <label
-                                    key={service.id}
-                                    className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2"
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <Checkbox
-                                        checked={selectedOptionalServiceIdSet.has(
-                                          service.id,
-                                        )}
-                                        disabled
-                                      />
-                                      <span className="min-w-0">
-                                        <span className="block truncate font-medium text-slate-800">
-                                          {service.name}
-                                        </span>
-                                        {service.description ? (
-                                          <span className="block truncate text-xs text-muted-foreground">
-                                            {service.description}
-                                          </span>
-                                        ) : null}
-                                      </span>
-                                    </span>
-                                    <span className="shrink-0 font-medium">
-                                      {formatCurrency(service.price)}
-                                    </span>
-                                  </label>
-                                ))}
-                              </div>
-                            ) : null}
-
-                            <div className="grid gap-2 rounded-md border bg-white p-3 sm:grid-cols-3">
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  Obbligatori
-                                </p>
-                                <p className="font-semibold">
-                                  {formatCurrency(
-                                    expectedIncomeSummary.requiredServicesTotal,
-                                  )}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  Opzionali selezionati
-                                </p>
-                                <p className="font-semibold">
-                                  {formatCurrency(
-                                    expectedIncomeSummary.selectedOptionalServicesTotal,
-                                  )}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  Totale finale
-                                </p>
-                                <p className="font-semibold text-blue-700">
-                                  {formatCurrency(
-                                    expectedIncomeSummary.expectedTotal,
-                                  )}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
                       </div>
+
                       <div>
-                        <Label>Sconto Applicato</Label>
+                        <Label>Sconto applicato</Label>
                         <Select
                           value={athlete.discount || "none"}
                           onValueChange={(value) =>
@@ -4767,14 +4619,11 @@ export default function AthleteProfilePage() {
                                 <SelectItem
                                   key={discount.id}
                                   value={
-                                    discount.title ||
-                                    discount.name ||
-                                    discount.id
+                                    discount.title || discount.name || discount.id
                                   }
                                 >
                                   {discount.title || discount.name}{" "}
-                                  {discount.type === "percentage" &&
-                                  discount.value
+                                  {discount.type === "percentage" && discount.value
                                     ? `- ${discount.value}%`
                                     : ""}{" "}
                                   {discount.type === "fixed" && discount.value
@@ -4785,385 +4634,135 @@ export default function AthleteProfilePage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-3">
-                        <p className="text-sm text-slate-600">
-                          Salva note, data iscrizione e sconto. Per assegnare o modificare il piano con rate usa la conferma dedicata.
-                        </p>
-                        {selectedAthletePlan ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() =>
-                              openPlanConfirmationDialog(selectedAthletePlan.id)
-                            }
-                          >
-                            <CalendarDays className="mr-2 h-4 w-4" />
-                            Modifica piano e rate
-                          </Button>
-                        ) : null}
-                        <Button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              setIsEnrollmentSaving(true);
-                              await saveEnrollmentProfile(
-                                {},
-                                "Dati iscrizione salvati",
-                              );
-                            } catch (error) {
-                              console.error(
-                                "Error saving enrollment profile:",
-                                error,
-                              );
-                              showToast(
-                                "error",
-                                "Impossibile salvare i dati di iscrizione",
-                              );
-                            } finally {
-                              setIsEnrollmentSaving(false);
-                            }
-                          }}
-                          disabled={isEnrollmentSaving}
-                        >
-                          {isEnrollmentSaving ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Salvataggio...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="mr-2 h-4 w-4" />
-                              Salva dati iscrizione
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <CardTitle>Documenti Iscrizione</CardTitle>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setCompileFormOpen(true)}
-                      >
-                        <FileText className="h-4 w-4 mr-2" />
-                        Compila modulo
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setNewEnrollmentDocument(createEmptyAttachment());
-                          setShowAddEnrollmentDocumentModal(true);
-                        }}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Aggiungi Documento
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">Nome</th>
-                            <th className="text-left p-2">Tipo</th>
-                            <th className="text-left p-2">Data Caricamento</th>
-                            <th className="text-left p-2">Azioni</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {enrollmentDocuments.length > 0 ? (
-                            enrollmentDocuments.map((document) => (
-                              <tr key={document.id} className="border-b">
-                                <td className="p-2">{document.name}</td>
-                                <td className="p-2">
-                                  {document.type || "Documento Iscrizione"}
-                                </td>
-                                <td className="p-2">
-                                  {formatDate(document.uploadDate)}
-                                </td>
-                                <td className="p-2">
-                                  <div className="flex gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (
-                                          !openClientFileUrl(document.fileUrl)
-                                        ) {
-                                          showToast(
-                                            "error",
-                                            "File documento iscrizione non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (
-                                          !downloadClientFileUrl(
-                                            document.fileUrl,
-                                            document.fileName || document.name,
-                                          )
-                                        ) {
-                                          showToast(
-                                            "error",
-                                            "File documento iscrizione non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        removeStoredDocument(
-                                          "enrollment",
-                                          document.id,
-                                        )
-                                      }
-                                    >
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={4}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessun documento di iscrizione caricato
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
+                      {selectedAthletePlan ? (
+                        <div className="space-y-3 rounded-lg border bg-slate-50 p-3 text-sm dark:bg-slate-900/40">
+                          <div>
+                            <p className="font-medium">Servizi</p>
+                            <p className="text-xs text-muted-foreground">
+                              Gli obbligatori sono sempre inclusi. Gli opzionali
+                              valgono solo per questo atleta e si cambiano dalla
+                              conferma del piano.
+                            </p>
+                          </div>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Riepilogo Incasso</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <EnrollmentPaymentBreakdown
-                      summary={expectedIncomeSummary}
-                      payments={mergedPaymentRecords}
-                      mode="club"
-                      showPaymentHistory={false}
-                    />
-                  </CardContent>
-                </Card>
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Obbligatori
+                            </p>
+                            {requiredPlanServices.length > 0 ? (
+                              requiredPlanServices.map((service) => (
+                                <div
+                                  key={service.id}
+                                  className="flex justify-between gap-3 rounded-md bg-white px-3 py-2 dark:bg-slate-950"
+                                >
+                                  <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
+                                    {service.name}
+                                  </span>
+                                  <span className="shrink-0 font-medium">
+                                    {formatCurrency(service.price)}
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                Nessun servizio obbligatorio.
+                              </p>
+                            )}
+                          </div>
 
-                {/*
-                  Le rate e i loro incassi. Lo stesso componente e montato
-                  nell'area Movimenti: registrare un pagamento deve essere lo
-                  stesso gesto da qualunque parte lo si faccia (ADR-0036).
-                */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Rate e incassi</CardTitle>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Lo stato di una rata si ricava dagli incassi registrati:
-                      non si imposta a mano.
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <AthletePaymentLedger
-                      athleteId={athleteId}
-                      athleteName={
-                        `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim() ||
-                        null
-                      }
-                      charges={athletePaymentRecords}
-                      methodChoices={clubPaymentMethodChoices}
-                      onLedgerChanged={handleLedgerChanged}
-                    />
-                  </CardContent>
-                </Card>
-
-                {/*
-                  I contributi stanno in un riquadro **separato** dagli
-                  incassi, e non nella loro somma: uno e denaro della
-                  famiglia, l'altro e un credito verso un ente. Il momento in
-                  cui si sommano e il momento in cui smettono di essere
-                  leggibili (ADR-0037).
-                */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Voucher e contributi</CardTitle>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Un voucher assegnato non e denaro incassato: matura con la
-                      frequenza, si rendiconta, e solo alla fine l&apos;ente lo
-                      liquida.
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <AthleteFundingSummary
-                      athleteId={athleteId}
-                      athleteName={
-                        athlete?.fullName ||
-                        `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim() ||
-                        null
-                      }
-                    />
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                      <CardTitle>Storico Pagamenti</CardTitle>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Totale registrato: {formatCurrency(expectedIncomeSummary.recordedTotal)} ·
-                        Pagato: {formatCurrency(expectedIncomeSummary.recordedPaid)} · Residuo:{" "}
-                        {formatCurrency(expectedIncomeSummary.residual)}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowAddPaymentModal(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi Pagamento
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">Data</th>
-                            <th className="text-left p-2">Descrizione</th>
-                            <th className="text-left p-2">Tipo</th>
-                            <th className="text-left p-2">Importo</th>
-                            <th className="text-left p-2">Stato</th>
-                            <th className="text-left p-2">Azioni</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {mergedPaymentRecords.length > 0 ? (
-                            mergedPaymentRecords.map((payment) => {
-                              const isCancelled =
-                                payment.statusKey === "cancelled" ||
-                                payment.data?.excludedFromTotals === true;
-                              const isPaid = payment.statusKey === "paid";
-                              const canManage =
-                                payment.source === "athlete_payment" &&
-                                !isCancelled;
-
-                              return (
-                                <tr key={payment.id} className="border-b">
-                                  <td className="p-2">
-                                    {formatDate(payment.date)}
-                                  </td>
-                                  <td className="p-2">{payment.description}</td>
-                                  <td className="p-2">{payment.type}</td>
-                                  <td className="p-2">
-                                    {formatCurrency(Number(payment.amount || 0))}
-                                  </td>
-                                  <td className="p-2">
-                                    <Badge
-                                      className={
-                                        isCancelled
-                                          ? "bg-slate-500"
-                                          : isPaid
-                                            ? "bg-green-500"
-                                            : "bg-yellow-500"
-                                      }
-                                    >
-                                      {isCancelled
-                                        ? "Annullato"
-                                        : isPaid
-                                          ? "Pagato"
-                                          : payment.status}
-                                    </Badge>
-                                  </td>
-                                  <td className="p-2">
-                                    {canManage ? (
-                                      <div className="flex flex-wrap gap-2">
-                                        {!isPaid ? (
-                                          <>
-                                            <Button
-                                              type="button"
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={() =>
-                                                openPaymentEditDialog(payment)
-                                              }
-                                            >
-                                              <Edit className="mr-1 h-3.5 w-3.5" />
-                                              Modifica
-                                            </Button>
-                                            <Button
-                                              type="button"
-                                              variant="outline"
-                                              size="sm"
-                                              className="border-red-200 text-red-700 hover:bg-red-50"
-                                              onClick={() =>
-                                                requestPaymentDelete(payment)
-                                              }
-                                            >
-                                              <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                              Elimina
-                                            </Button>
-                                          </>
-                                        ) : (
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            className="border-red-200 text-red-700 hover:bg-red-50"
-                                            onClick={() =>
-                                              requestPaymentCancel(payment)
-                                            }
-                                          >
-                                            <XCircle className="mr-1 h-3.5 w-3.5" />
-                                            Annulla
-                                          </Button>
-                                        )}
-                                      </div>
-                                    ) : (
-                                      <span className="text-sm text-muted-foreground">
-                                        {isCancelled ? "Escluso" : "Legacy"}
+                          {optionalPlanServices.length > 0 ? (
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Opzionali
+                              </p>
+                              {optionalPlanServices.map((service) => (
+                                <label
+                                  key={service.id}
+                                  className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 dark:bg-slate-950"
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <Checkbox
+                                      checked={selectedOptionalServiceIdSet.has(
+                                        service.id,
+                                      )}
+                                      disabled
+                                    />
+                                    <span className="min-w-0">
+                                      <span className="block truncate font-medium text-slate-800 dark:text-slate-200">
+                                        {service.name}
                                       </span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={6}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessun pagamento registrato
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                                      {service.description ? (
+                                        <span className="block truncate text-xs text-muted-foreground">
+                                          {service.description}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </span>
+                                  <span className="shrink-0 font-medium">
+                                    {formatCurrency(service.price)}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Pro-rata
+                            </p>
+                            {expectedIncomeSummary.proration?.enabled ? (
+                              <p className="mt-1 text-sm">
+                                {expectedIncomeSummary.proration.method === "months"
+                                  ? "Per mesi"
+                                  : "Per giorni"}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                Non attivo per questo piano.
+                              </p>
+                            )}
+                            {expectedIncomeSummary.prorationResult?.warning ? (
+                              <p className="mt-1 text-sm text-amber-700">
+                                {expectedIncomeSummary.prorationResult.warning}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  </CardContent>
-                </Card>
+                  }
+                  documents={enrollmentDocuments}
+                  onCompileForm={() => setCompileFormOpen(true)}
+                  onAddDocument={() => {
+                    setNewEnrollmentDocument(createEmptyAttachment());
+                    setShowAddEnrollmentDocumentModal(true);
+                  }}
+                  onViewDocument={(document: any) => {
+                    if (!openClientFileUrl(document.fileUrl)) {
+                      showToast(
+                        "error",
+                        "File documento iscrizione non disponibile",
+                      );
+                    }
+                  }}
+                  onDownloadDocument={(document: any) => {
+                    if (
+                      !downloadClientFileUrl(
+                        document.fileUrl,
+                        document.fileName || document.name,
+                      )
+                    ) {
+                      showToast(
+                        "error",
+                        "File documento iscrizione non disponibile",
+                      );
+                    }
+                  }}
+                  onRemoveDocument={(documentId: string) =>
+                    removeStoredDocument("enrollment", documentId)
+                  }
+                />
               </TabsContent>
 
               {/* ABBIGLIAMENTO TAB */}

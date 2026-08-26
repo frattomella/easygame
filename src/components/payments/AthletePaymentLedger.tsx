@@ -2,26 +2,14 @@
 
 import React from "react";
 import { Wallet } from "lucide-react";
-import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
-import { canManageClubConfiguration } from "@/lib/access-roles";
-import { useToast } from "@/components/ui/toast-notification";
-import {
-  buildInstallmentLedgers,
-  summarizeLedgers,
-  type InstallmentLedger,
-  type LedgerTotals,
-  type NormalizedPaymentTransaction,
-} from "@/lib/payments/installment-ledger";
 import { InstallmentLedgerList } from "./InstallmentLedgerList";
-import { openExternalUrl } from "@/lib/navigation/external-link";
-import {
-  RegisterPaymentDialog,
-  type RegisterPaymentSubmission,
-} from "./RegisterPaymentDialog";
+import { RegisterPaymentDialog } from "./RegisterPaymentDialog";
+import { useAthletePaymentLedger } from "./use-athlete-payment-ledger";
+import type { LedgerTotals } from "@/lib/payments/installment-ledger";
 
 /**
- * Rate e incassi di un atleta: **un solo flusso**, montato sia nella scheda
- * atleta sia nell'area Movimenti.
+ * Rate e incassi di un atleta: **un solo flusso**, montato nell'area Movimenti
+ * e nella scheda «Iscrizione».
  *
  * Prima ce n'erano due, con due finestre di dialogo, due modi di scrivere il
  * metodo di pagamento e due idee di cosa fosse «pagato». Una seconda
@@ -29,10 +17,15 @@ import {
  * divergere: qui il componente e uno, e cio che cambia fra le due superfici e
  * solo il contorno.
  *
+ * **Lo stato vive in `useAthletePaymentLedger`.** Questo file e la sua vista.
+ * La scheda «Iscrizione» consuma lo stesso hook per mostrare gli stessi numeri
+ * in cima alla pagina: un totale calcolato due volte e un totale che prima o
+ * poi differisce.
+ *
  * **Gli aggiornamenti sono immediati.** La risposta del server porta la rata
- * riscritta e i suoi incassi; il componente aggiorna il proprio stato e
- * chiama `onLedgerChanged`, cosi rata, riepilogo, totale pagato e residuo si
- * spostano nello stesso istante senza che nessuno prema «aggiorna».
+ * riscritta e i suoi incassi; lo stato si aggiorna e chiama `onLedgerChanged`,
+ * cosi rata, riepilogo, totale pagato e residuo si spostano nello stesso
+ * istante senza che nessuno prema «aggiorna».
  */
 
 const formatCurrency = (value: unknown) =>
@@ -56,6 +49,8 @@ export type AthletePaymentLedgerProps = {
    */
   canManage?: boolean;
   showTotals?: boolean;
+  /** Nasconde l'intestazione quando chi ospita ne ha gia una. */
+  showHeading?: boolean;
   /**
    * Chiamato dopo ogni operazione con la rata riscritta dal server, cosi la
    * pagina ospite aggiorna i propri riepiloghi senza rileggere tutto.
@@ -70,276 +65,15 @@ export function AthletePaymentLedger({
   methodChoices = [],
   canManage,
   showTotals = true,
+  showHeading = true,
   onLedgerChanged,
 }: AthletePaymentLedgerProps) {
-  const { showToast } = useToast();
-  const [derivedCanManage, setDerivedCanManage] = React.useState(false);
-
-  React.useEffect(() => {
-    if (canManage !== undefined) return;
-    setDerivedCanManage(
-      canManageClubConfiguration(readStoredActiveClub()?.role),
-    );
-  }, [canManage]);
-
-  const allowManagement = canManage ?? derivedCanManage;
-  const [transactions, setTransactions] = React.useState<
-    NormalizedPaymentTransaction[]
-  >([]);
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [busyTransactionId, setBusyTransactionId] = React.useState<
-    string | null
-  >(null);
-  const [selectedLedger, setSelectedLedger] =
-    React.useState<InstallmentLedger | null>(null);
-
-  /*
-    Se gli incassi online sono davvero disponibili lo dice il server, e lo si
-    chiede una volta sola: un pulsante che si accende e poi spiega di non
-    funzionare e peggio di un pulsante che non c'e.
-  */
-  const [canPayOnline, setCanPayOnline] = React.useState(false);
-  const [pendingOnlineInstallmentId, setPendingOnlineInstallmentId] =
-    React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    void apiRequest<{ readiness?: { canCheckout?: boolean } }>(
-      "/api/v1/payments/account",
-    ).then((response) => {
-      if (cancelled) return;
-      setCanPayOnline(Boolean(response.data?.readiness?.canCheckout));
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /**
-   * Apre il checkout per il residuo di una rata.
-   *
-   * **Cosa succede al ritorno, e cosa no.** Non succede niente: la rata resta
-   * marcata «in verifica» finche il webhook firmato non registra l'incasso. Il
-   * browser puo non tornare affatto, e con SEPA il denaro arriva giorni dopo.
-   */
-  const handlePayOnline = React.useCallback(
-    async (ledger: InstallmentLedger) => {
-      const installmentId = String(ledger.installmentId || "");
-      if (!installmentId) return;
-
-      const origin = window.location.origin;
-      const { data, error } = await apiRequest<{ checkoutUrl: string }>(
-        "/api/payments/create-checkout-session",
-        {
-          method: "POST",
-          body: {
-            paymentId: installmentId,
-            athleteId,
-            amountCents: Math.round(ledger.residualAmount * 100),
-            description: ledger.label,
-            successUrl: `${origin}/athletes/${athleteId}?pagamento=verifica`,
-            cancelUrl: `${origin}/athletes/${athleteId}?pagamento=annullato`,
-          },
-        },
-      );
-
-      if (error || !data?.checkoutUrl) {
-        showToast("error", error?.message || "Pagamento online non disponibile");
-        return;
-      }
-
-      setPendingOnlineInstallmentId(installmentId);
-
-      try {
-        openExternalUrl(data.checkoutUrl);
-      } catch {
-        showToast("error", "Il collegamento al pagamento non e valido");
-      }
-    },
-    [athleteId, showToast],
-  );
-
-  const loadTransactions = React.useCallback(async () => {
-    if (!athleteId) return;
-
-    setIsLoading(true);
-    const { data, error } = await apiRequest<NormalizedPaymentTransaction[]>(
-      `/api/v1/payment-transactions?athlete_id=${encodeURIComponent(athleteId)}`,
-    );
-    setIsLoading(false);
-
-    if (error) {
-      showToast("error", error.message || "Errore nella lettura degli incassi");
-      return;
-    }
-
-    setTransactions(Array.isArray(data) ? data : []);
-  }, [athleteId, showToast]);
-
-  React.useEffect(() => {
-    void loadTransactions();
-  }, [loadTransactions]);
-
-  const ledgers = React.useMemo(
-    () =>
-      buildInstallmentLedgers({
-        charges: Array.isArray(charges) ? charges : [],
-        transactions,
-      }),
-    [charges, transactions],
-  );
-
-  const totals = React.useMemo(() => summarizeLedgers(ledgers), [ledgers]);
-
-  /*
-    Il registro tornato dal server ha la precedenza sullo stato locale: e la
-    stessa transazione che ha scritto la rata, quindi non puo essere in
-    disaccordo con essa.
-  */
-  const applyResult = (result: any) => {
-    const updated = Array.isArray(result?.transactions)
-      ? (result.transactions as NormalizedPaymentTransaction[])
-      : null;
-
-    if (updated) {
-      const chargeId = String(result?.charge?.id || "");
-      setTransactions((current) => [
-        ...current.filter(
-          (transaction) => String(transaction.installmentId || "") !== chargeId,
-        ),
-        ...updated,
-      ]);
-    } else {
-      void loadTransactions();
-    }
-
-    onLedgerChanged?.(result?.charge ?? null, totals);
-  };
-
-  const handleRegisterPayment = async (
-    submission: RegisterPaymentSubmission,
-  ) => {
-    if (!selectedLedger?.installmentId) return;
-
-    setIsSaving(true);
-    const { data, error } = await apiRequest("/api/v1/payment-transactions", {
-      method: "POST",
-      body: {
-        athlete_id: athleteId,
-        payment_id: selectedLedger.installmentId,
-        amount: submission.amount,
-        paid_at: submission.paidAt,
-        payment_method: submission.paymentMethod,
-        notes: submission.notes,
-        source: "MANUAL",
-      },
-    });
-    setIsSaving(false);
-
-    if (error) {
-      showToast("error", error.message || "Registrazione non riuscita");
-      return;
-    }
-
-    applyResult(data);
-    setSelectedLedger(null);
-    showToast(
-      "success",
-      `Incasso di ${formatCurrency(submission.amount)} registrato`,
-    );
-  };
-
-  const handleReverse = async (transaction: NormalizedPaymentTransaction) => {
-    const reason = window.prompt(
-      "Motivo dello storno (resta nello storico):",
-      "Incasso registrato per errore",
-    );
-    if (reason === null) return;
-
-    setBusyTransactionId(transaction.id);
-    const { data, error } = await apiRequest(
-      `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
-      { method: "POST", body: { action: "reverse", reason } },
-    );
-    setBusyTransactionId(null);
-
-    if (error) {
-      showToast("error", error.message || "Storno non riuscito");
-      return;
-    }
-
-    applyResult(data);
-    showToast("success", "Incasso stornato: resta visibile nello storico");
-  };
-
-  /*
-    Il documento si apre appena emesso, in una scheda nuova. Non e una
-    comodita: chi emette una ricevuta la emette **per darla a qualcuno**, e
-    costringerlo a ritrovarla in un elenco e il modo piu rapido perche non
-    la stampi affatto.
-  */
-  const openDocument = (kind: "receipt" | "invoice", id?: string) => {
-    if (!id || typeof window === "undefined") return;
-    window.open(
-      `/api/v1/documents/${kind}/${encodeURIComponent(id)}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
-
-  const handleGenerateReceipt = async (
-    transaction: NormalizedPaymentTransaction,
-  ) => {
-    setBusyTransactionId(transaction.id);
-    const { data, error } = await apiRequest(
-      `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
-      { method: "POST", body: { action: "issue-receipt" } },
-    );
-    setBusyTransactionId(null);
-
-    if (error) {
-      showToast("error", error.message || "Emissione ricevuta non riuscita");
-      return;
-    }
-
-    showToast(
-      "success",
-      `Ricevuta ${data?.receipt_number || ""} emessa`.trim(),
-    );
-    openDocument("receipt", data?.id);
-  };
-
-  /*
-    Ricevuta e fattura sono due documenti diversi e la scelta e di chi
-    emette. La maggior parte delle ASD non emette fatture: trasformare ogni
-    incasso in fattura sarebbe sbagliato per quasi tutte, e per le altre non
-    basterebbe comunque — una fattura ha un intestatario, che quasi mai e
-    l'atleta.
-  */
-  const handleGenerateInvoice = async (
-    transaction: NormalizedPaymentTransaction,
-  ) => {
-    setBusyTransactionId(transaction.id);
-    const { data, error } = await apiRequest(
-      `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
-      { method: "POST", body: { action: "issue-invoice" } },
-    );
-    setBusyTransactionId(null);
-
-    if (error) {
-      showToast("error", error.message || "Emissione fattura non riuscita");
-      return;
-    }
-
-    showToast(
-      "success",
-      `Fattura ${data?.invoice_number || ""} emessa`.trim(),
-    );
-    openDocument("invoice", data?.id);
-  };
+  const ledger = useAthletePaymentLedger({
+    athleteId,
+    charges,
+    canManage,
+    onLedgerChanged,
+  });
 
   return (
     <div className="space-y-4">
@@ -359,7 +93,7 @@ export function AthletePaymentLedger({
                 Totale rate
               </p>
               <p className="mt-1 text-xl font-bold">
-                {formatCurrency(totals.dueAmount)}
+                {formatCurrency(ledger.totals.dueAmount)}
               </p>
             </div>
             <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/20">
@@ -367,7 +101,7 @@ export function AthletePaymentLedger({
                 Incassato
               </p>
               <p className="mt-1 text-xl font-bold text-emerald-700 dark:text-emerald-300">
-                {formatCurrency(totals.paidAmount)}
+                {formatCurrency(ledger.totals.paidAmount)}
               </p>
             </div>
             <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
@@ -375,12 +109,12 @@ export function AthletePaymentLedger({
                 Residuo
               </p>
               <p className="mt-1 text-xl font-bold text-amber-700 dark:text-amber-300">
-                {formatCurrency(totals.residualAmount)}
+                {formatCurrency(ledger.totals.residualAmount)}
               </p>
-              {totals.overdueCount > 0 ? (
+              {ledger.totals.overdueCount > 0 ? (
                 <p className="mt-1 text-xs text-red-600">
-                  {totals.overdueCount} rate scadute per{" "}
-                  {formatCurrency(totals.overdueAmount)}
+                  {ledger.totals.overdueCount} rate scadute per{" "}
+                  {formatCurrency(ledger.totals.overdueAmount)}
                 </p>
               ) : null}
             </div>
@@ -392,47 +126,51 @@ export function AthletePaymentLedger({
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2">
-        <Wallet className="h-4 w-4 text-blue-600" />
-        <h4 className="font-semibold text-slate-950 dark:text-slate-50">
-          Rate e incassi
-        </h4>
-      </div>
+      {showHeading ? (
+        <div className="flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-blue-600" />
+          <h4 className="font-semibold text-slate-950 dark:text-slate-50">
+            Rate e incassi
+          </h4>
+        </div>
+      ) : null}
 
-      {isLoading && transactions.length === 0 ? (
+      {ledger.isLoading && ledger.transactions.length === 0 ? (
         <p className="text-sm text-slate-500">Lettura degli incassi...</p>
       ) : (
         <InstallmentLedgerList
-          ledgers={ledgers}
-          canManage={allowManagement}
-          busyTransactionId={busyTransactionId}
-          onRegisterPayment={setSelectedLedger}
+          ledgers={ledger.ledgers}
+          canManage={ledger.allowManagement}
+          busyTransactionId={ledger.busyTransactionId}
+          onRegisterPayment={ledger.selectLedger}
           onReverseTransaction={(transaction) =>
-            void handleReverse(transaction)
+            void ledger.reverseTransaction(transaction)
           }
           onGenerateReceipt={(transaction) =>
-            void handleGenerateReceipt(transaction)
+            void ledger.generateReceipt(transaction)
           }
           onGenerateInvoice={(transaction) =>
-            void handleGenerateInvoice(transaction)
+            void ledger.generateInvoice(transaction)
           }
           onPayOnline={
-            canPayOnline ? (ledger) => void handlePayOnline(ledger) : undefined
+            ledger.canPayOnline
+              ? (entry) => void ledger.payOnline(entry)
+              : undefined
           }
-          pendingOnlineInstallmentId={pendingOnlineInstallmentId}
+          pendingOnlineInstallmentId={ledger.pendingOnlineInstallmentId}
         />
       )}
 
       <RegisterPaymentDialog
-        open={Boolean(selectedLedger)}
+        open={Boolean(ledger.selectedLedger)}
         onOpenChange={(open) => {
-          if (!open) setSelectedLedger(null);
+          if (!open) ledger.selectLedger(null);
         }}
-        ledger={selectedLedger}
+        ledger={ledger.selectedLedger}
         athleteName={athleteName}
         methodChoices={methodChoices}
-        isSaving={isSaving}
-        onSubmit={handleRegisterPayment}
+        isSaving={ledger.isSaving}
+        onSubmit={ledger.registerPayment}
       />
     </div>
   );

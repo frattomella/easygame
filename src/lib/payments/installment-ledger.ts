@@ -525,3 +525,92 @@ export const validatePaymentTransactionInput = ({
 
   return null;
 };
+
+/* ------------------------------------------- la prossima cosa da fare */
+
+/**
+ * Lo stato economico di un'iscrizione, ricavato dalle sue rate.
+ *
+ * Come per la rata, **non si imposta**: si ricava. Un campo «stato
+ * iscrizione» scrivibile a mano sarebbe una seconda verita accanto agli
+ * incassi, e le due divergerebbero al primo pagamento parziale (ADR-0036).
+ */
+export type EnrollmentPaymentState =
+  | "no_plan"
+  | "pending"
+  | "partial"
+  | "paid";
+
+export const ENROLLMENT_PAYMENT_STATE_LABELS: Record<
+  EnrollmentPaymentState,
+  string
+> = {
+  no_plan: "NESSUN PIANO",
+  pending: "DA PAGARE",
+  partial: "PARZIALMENTE PAGATO",
+  paid: "PAGAMENTI COMPLETATI",
+};
+
+export const resolveEnrollmentPaymentState = (
+  ledgers: readonly InstallmentLedger[] = [],
+  totals?: LedgerTotals,
+): EnrollmentPaymentState => {
+  if (ledgers.length === 0) return "no_plan";
+
+  const summary = totals || summarizeLedgers([...ledgers]);
+
+  if (toCents(summary.residualAmount) <= 0) return "paid";
+  if (toCents(summary.paidAmount) > 0) return "partial";
+  return "pending";
+};
+
+/**
+ * La rata su cui si agisce adesso.
+ *
+ * **Perche una sola, e non l'elenco.** Aprendo la scheda di un atleta la
+ * segreteria fa quasi sempre una cosa sola: incassare la rata che tocca. Se
+ * per trovarla deve scorrere quattro righe uguali e confrontare quattro date,
+ * l'elenco le sta chiedendo di fare un lavoro che il programma sa gia fare.
+ *
+ * **L'ordine di priorita e quello del problema, non quello del calendario.**
+ * Prima la rata scaduta piu vecchia — e la cosa che va risolta oggi — poi la
+ * prima ancora scoperta per scadenza. Una rata senza data va in fondo: non e
+ * urgente, e mettere in cima qualcosa senza scadenza sposterebbe l'attenzione
+ * su cio che nessuno ha ancora deciso quando incassare.
+ *
+ * Restituisce `null` quando non c'e niente da incassare: e il caso «pagamenti
+ * completati», in cui l'interfaccia non deve mostrare nessun pulsante.
+ */
+export const findNextInstallment = (
+  ledgers: readonly InstallmentLedger[] = [],
+): InstallmentLedger | null => {
+  const open = ledgers.filter(
+    (ledger) => toCents(ledger.residualAmount) > 0,
+  );
+
+  if (open.length === 0) return null;
+
+  const rank = (ledger: InstallmentLedger) => (ledger.overdue ? 0 : 1);
+  const dueTime = (ledger: InstallmentLedger) => {
+    if (!ledger.dueDate) return Number.MAX_SAFE_INTEGER;
+    const parsed = new Date(ledger.dueDate).getTime();
+    return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+  };
+
+  return [...open].sort((left, right) => {
+    const byRank = rank(left) - rank(right);
+    if (byRank !== 0) return byRank;
+    return dueTime(left) - dueTime(right);
+  })[0];
+};
+
+/**
+ * Vero quando l'elenco delle rate merita di essere aperto da subito.
+ *
+ * La sezione resta chiusa quando non c'e niente di anomalo: quattro righe
+ * regolari non aggiungono niente a «residuo 350 EUR, prossima rata il 30
+ * settembre». Si apre da sola quando qualcosa non torna — una rata scaduta o
+ * un pagamento parziale — perche li il dettaglio **e** l'informazione.
+ */
+export const shouldExpandInstallments = (totals?: LedgerTotals | null) =>
+  Boolean(totals && (totals.overdueCount > 0 || totals.partialCount > 0));

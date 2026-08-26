@@ -6,7 +6,9 @@ import {
   ChevronRight,
   CreditCard,
   FileText,
+  Pencil,
   Receipt,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -214,6 +216,16 @@ export type InstallmentLedgerListProps = {
   onPayOnline?: (ledger: InstallmentLedger) => void;
   /** La rata il cui pagamento online e in attesa della conferma del provider. */
   pendingOnlineInstallmentId?: string | null;
+  /**
+   * L'anagrafica della rata: descrizione, importo, scadenza, note.
+   *
+   * **Non e lo stato**, che resta derivato dagli incassi (ADR-0036). Vive nel
+   * dettaglio della rata perche e li che si guarda una rata specifica: prima
+   * stava in una tabella a parte con gli stessi incassi ripetuti accanto, che
+   * e il duplicato che ADR-0056 ha tolto.
+   */
+  onEditInstallment?: (ledger: InstallmentLedger) => void;
+  onDeleteInstallment?: (ledger: InstallmentLedger) => void;
 };
 
 export function InstallmentLedgerList({
@@ -227,6 +239,8 @@ export function InstallmentLedgerList({
   emptyMessage = "Nessuna rata generata per questo atleta.",
   onPayOnline,
   pendingOnlineInstallmentId = null,
+  onEditInstallment,
+  onDeleteInstallment,
 }: InstallmentLedgerListProps) {
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
 
@@ -377,6 +391,38 @@ export function InstallmentLedgerList({
                       : undefined
                   }
                 />
+
+                {canManage && (onEditInstallment || onDeleteInstallment) ? (
+                  <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 p-2 dark:border-slate-800">
+                    {onEditInstallment && ledger.paidAmount === 0 ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onEditInstallment(ledger)}
+                      >
+                        <Pencil className="mr-1 h-3.5 w-3.5" />
+                        Modifica rata
+                      </Button>
+                    ) : null}
+                    {/*
+                      Una rata su cui e gia entrato denaro non si elimina: si
+                      **annulla**, e resta nello storico. L'etichetta lo dice
+                      prima del clic, invece di farlo scoprire da un messaggio
+                      di rifiuto.
+                    */}
+                    {onDeleteInstallment ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-red-200 text-red-700 hover:bg-red-50"
+                        onClick={() => onDeleteInstallment(ledger)}
+                      >
+                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                        {ledger.paidAmount > 0 ? "Annulla rata" : "Elimina rata"}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
