@@ -25,6 +25,7 @@ const RATA = "cccccccc-0000-4000-8000-000000000003";
 const ATLETA = "dddddddd-0000-4000-8000-000000000004";
 
 let payments;
+let documents;
 let setPrismaClientForTests;
 let fake;
 
@@ -42,13 +43,32 @@ const scopeAltro = () => ({
 
 before(async () => {
   payments = await import("../../src/lib/server/payment-transactions.ts");
+  documents = await import("../../src/lib/server/fiscal-documents.ts");
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
     "../../src/lib/server/prisma.ts"
   ));
 });
 
 const seed = (athleteData) => ({
-  club: [{ id: CLUB, name: "ASD Alfa" }],
+  club: [
+    {
+      id: CLUB,
+      name: "ASD Alfa",
+      /*
+        Dal Blocco D una fattura vuole anche l'emittente: senza indirizzo e
+        posizione fiscale non e una fattura, ed e il motore fiscale a dirlo
+        (ADR-0052). Qui arrivano dalle colonne `legal_*`, che sono il ripiego
+        in lettura quando il profilo fiscale non e ancora stato compilato.
+      */
+      business_name: "Associazione Sportiva Dilettantistica Alfa",
+      vat_number: "12345678903",
+      legal_address: "Via Roma 1",
+      legal_city: "Roma",
+      legal_postal_code: "00100",
+      legal_province: "RM",
+      legal_country: "Italia",
+    },
+  ],
   athlete: [
     {
       id: ATLETA,
@@ -91,7 +111,10 @@ const TUTORE_COMPLETO = {
       surname: "Rossi",
       fiscalCode: "RSSNNA80A41H501K",
       email: "anna@example.it",
+      address: "Via Milano 4",
       city: "Roma",
+      postalCode: "00185",
+      province: "RM",
     },
   ],
 };
@@ -104,7 +127,7 @@ const prepara = (athleteData = TUTORE_COMPLETO) => {
 beforeEach(() => prepara());
 
 const emetti = () =>
-  payments.issueInvoiceForTransaction({ transactionId: "incasso-1" }, scope());
+  documents.issueInvoiceForTransaction({ transactionId: "incasso-1" }, scope());
 
 /* ------------------------------------------------------- l'intestazione */
 
@@ -123,8 +146,24 @@ test("la fattura e intestata al genitore, non all'atleta", async () => {
 test("il club puo indicare quale tutore intesta", async () => {
   prepara({
     guardians: [
-      { name: "Anna", surname: "Rossi", fiscalCode: "RSSNNA80A41H501K" },
-      { name: "Luigi", surname: "Rossi", fiscalCode: "RSSLGU78B02H501X" },
+      {
+        name: "Anna",
+        surname: "Rossi",
+        fiscalCode: "RSSNNA80A41H501K",
+        address: "Via Milano 4",
+        city: "Roma",
+        postalCode: "00185",
+        province: "RM",
+      },
+      {
+        name: "Luigi",
+        surname: "Rossi",
+        fiscalCode: "RSSLGU78B02H501X",
+        address: "Via Milano 4",
+        city: "Roma",
+        postalCode: "00185",
+        province: "RM",
+      },
     ],
     billingGuardianIndex: 1,
   });
@@ -139,7 +178,13 @@ test("il club puo indicare quale tutore intesta", async () => {
 });
 
 test("un atleta maggiorenne senza tutori intesta a se stesso", async () => {
-  prepara({ fiscalCode: "RSSMRA85M01H501Q", city: "Roma" });
+  prepara({
+    fiscalCode: "RSSMRA85M01H501Q",
+    address: "Via Milano 4",
+    city: "Roma",
+    postalCode: "00185",
+    province: "RM",
+  });
 
   const fattura = await emetti();
 
@@ -165,7 +210,7 @@ test("il numero viene dal registro delle fatture, non da quello delle ricevute",
 });
 
 test("i due registri non si mescolano", async () => {
-  const ricevuta = await payments.issueReceiptForTransaction(
+  const ricevuta = await documents.issueReceiptForTransaction(
     { transactionId: "incasso-1" },
     scope(),
   );
@@ -220,7 +265,7 @@ test("un incasso stornato non produce una fattura", async () => {
 test("l'incasso di un altro club non si fattura", async () => {
   await assert.rejects(
     () =>
-      payments.issueInvoiceForTransaction(
+      documents.issueInvoiceForTransaction(
         { transactionId: "incasso-1" },
         scopeAltro(),
       ),

@@ -43,6 +43,42 @@ export const PLATFORM_OWNED_SETTINGS_KEYS = [
   "entitlements",
 ] as const;
 
+/**
+ * I campi **dentro** `paymentSettings` che solo la piattaforma puo scrivere.
+ *
+ * **Perche non basta aggiungere `paymentSettings` all'elenco sopra.** Quella
+ * chiave contiene due cose diverse: le condizioni commerciali di EasyGame —
+ * che sono di Cedi Soft — e le preferenze operative della societa, come
+ * spegnere gli incassi online durante la chiusura estiva. Proteggere l'intera
+ * chiave avrebbe tolto alla segreteria un interruttore che e giusto che
+ * governi; non proteggerla affatto e cio che permetteva a un club di
+ * **azzerarsi la commissione** e di **dirottare gli incassi** su un account
+ * Stripe qualunque, digitandolo in un campo di testo. Vedi ADR-0050.
+ */
+export const PLATFORM_OWNED_PAYMENT_FIELDS = [
+  "platformFeePercent",
+  "platformFeeFixedCents",
+  "platformFeePaidBy",
+] as const;
+
+/**
+ * I campi di un provider che solo la piattaforma (o il PSP) puo scrivere.
+ *
+ * `connectedAccountId` e `status` sono i due che contano: il primo dice **dove
+ * finisce il denaro**, il secondo dice **se si puo incassare**. Dal Blocco D
+ * la fonte autorevole di entrambi e `club_payment_accounts`, e questi campi
+ * restano solo come copia di lettura per le schermate che non sono ancora
+ * state spostate.
+ */
+export const PLATFORM_OWNED_PROVIDER_FIELDS = [
+  "connectedAccountId",
+  "merchantId",
+  "status",
+  "mode",
+  "accountEmail",
+  "lastVerifiedAt",
+] as const;
+
 export type PlatformOwnedSettingsKey =
   (typeof PLATFORM_OWNED_SETTINGS_KEYS)[number];
 
@@ -71,8 +107,87 @@ const sameValue = (a: unknown, b: unknown) => {
 export type PlatformOwnedGuardResult = {
   /** Le impostazioni da scrivere davvero. */
   settings: Record<string, any>;
-  /** Le chiavi che il chiamante ha provato a cambiare senza poterlo fare. */
-  rejectedKeys: PlatformOwnedSettingsKey[];
+  /**
+   * Le chiavi che il chiamante ha provato a cambiare senza poterlo fare.
+   *
+   * I campi annidati compaiono con il loro percorso —
+   * `paymentSettings.platformFeePercent` — perche l'audit deve poter dire
+   * *quale* cosa qualcuno ha provato a cambiarsi, e «paymentSettings» da solo
+   * non distingue l'interruttore degli incassi dalla commissione.
+   */
+  rejectedKeys: string[];
+};
+
+/**
+ * Rimette al loro posto i campi commerciali dentro `paymentSettings`.
+ *
+ * **Perche si conserva invece di rifiutare.** Come per il piano: la pagina
+ * Organizzazione rimanda l'intero blocco a ogni salvataggio, anche quando si e
+ * cambiato solo un recapito. Rispondere «Accesso negato» al salvataggio di un
+ * numero di telefono renderebbe la pagina inutilizzabile.
+ */
+const guardPaymentSettings = (
+  existingSettings: Record<string, any>,
+  incomingSettings: Record<string, any>,
+): { paymentSettings: unknown; rejectedKeys: string[] } => {
+  const rejectedKeys: string[] = [];
+
+  if (!Object.prototype.hasOwnProperty.call(incomingSettings, "paymentSettings")) {
+    return { paymentSettings: undefined, rejectedKeys };
+  }
+
+  const existing = asRecord(existingSettings.paymentSettings);
+  const incoming = asRecord(incomingSettings.paymentSettings);
+  const next: Record<string, any> = { ...incoming };
+
+  for (const field of PLATFORM_OWNED_PAYMENT_FIELDS) {
+    if (
+      Object.prototype.hasOwnProperty.call(incoming, field) &&
+      !sameValue(incoming[field], existing[field])
+    ) {
+      rejectedKeys.push(`paymentSettings.${field}`);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(existing, field)) {
+      next[field] = existing[field];
+    } else {
+      delete next[field];
+    }
+  }
+
+  const existingProviders = asRecord(existing.providers);
+  const incomingProviders = asRecord(incoming.providers);
+
+  if (Object.keys(incomingProviders).length) {
+    const providers: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(incomingProviders)) {
+      const incomingProvider = asRecord(value);
+      const existingProvider = asRecord(existingProviders[key]);
+      const nextProvider: Record<string, any> = { ...incomingProvider };
+
+      for (const field of PLATFORM_OWNED_PROVIDER_FIELDS) {
+        if (
+          Object.prototype.hasOwnProperty.call(incomingProvider, field) &&
+          !sameValue(incomingProvider[field], existingProvider[field])
+        ) {
+          rejectedKeys.push(`paymentSettings.providers.${key}.${field}`);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(existingProvider, field)) {
+          nextProvider[field] = existingProvider[field];
+        } else {
+          delete nextProvider[field];
+        }
+      }
+
+      providers[key] = nextProvider;
+    }
+
+    next.providers = providers;
+  }
+
+  return { paymentSettings: next, rejectedKeys };
 };
 
 /**
@@ -94,7 +209,13 @@ export const withPlatformOwnedSettings = (
   }
 
   const settings: Record<string, any> = { ...incoming };
-  const rejectedKeys: PlatformOwnedSettingsKey[] = [];
+  const rejectedKeys: string[] = [];
+
+  const payments = guardPaymentSettings(existing, incoming);
+  if (payments.paymentSettings !== undefined) {
+    settings.paymentSettings = payments.paymentSettings;
+    rejectedKeys.push(...payments.rejectedKeys);
+  }
 
   for (const key of PLATFORM_OWNED_SETTINGS_KEYS) {
     const wanted = incoming[key];

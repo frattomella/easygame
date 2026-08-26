@@ -30,6 +30,7 @@ const scope = () => ({
 });
 
 let service;
+let documents;
 let ledger;
 let setPrismaClientForTests;
 let fake;
@@ -37,6 +38,7 @@ let fake;
 before(async () => {
   process.env.DATABASE_URL ||= "postgresql://test:test@127.0.0.1:5432/test";
   service = await import("../../src/lib/server/payment-transactions.ts");
+  documents = await import("../../src/lib/server/fiscal-documents.ts");
   ledger = await import("../../src/lib/payments/installment-ledger.ts");
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
     "../../src/lib/server/prisma.ts"
@@ -214,11 +216,11 @@ test("gli incassi restano in ordine cronologico anche registrandoli a ritroso", 
 test("una ricevuta si emette per incasso, ed e idempotente", async () => {
   const primo = await incassa(50, "Contanti", "2026-09-01T09:00:00.000Z");
 
-  const ricevuta = await service.issueReceiptForTransaction(
+  const ricevuta = await documents.issueReceiptForTransaction(
     { transactionId: primo.transaction.id },
     scope(),
   );
-  const ristampa = await service.issueReceiptForTransaction(
+  const ristampa = await documents.issueReceiptForTransaction(
     { transactionId: primo.transaction.id },
     scope(),
   );

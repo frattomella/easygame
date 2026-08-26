@@ -241,6 +241,13 @@ model Club {
   form_submissions             FormSubmission[]
   document_number_sequences    DocumentNumberSequence[]
   payment_webhook_events       PaymentWebhookEvent[]
+  commission_rules             PlatformCommissionRule[]
+  payment_account              ClubPaymentAccount?
+  billing_account              PlatformBillingAccount?
+  fiscal_profile               OrganizationFiscalProfile?
+  document_series              DocumentSeries[]
+  fiscal_operation_types       FiscalOperationType[]
+  einvoice_transmissions       EInvoiceTransmission[]
 
   @@map("clubs")
 }
@@ -406,6 +413,35 @@ model PaymentTransaction {
   reversed_by             String?              @db.Uuid
   reversal_reason         String?
   reverses_transaction_id String?              @db.Uuid
+  /**
+   * ------------------------------------------------------ riconciliazione
+   * I numeri di un incasso online, **congelati nel momento in cui e
+   * avvenuto**. Ricostruirli dopo dalla configurazione corrente darebbe la
+   * commissione di oggi su un incasso di sei mesi fa: e il difetto che
+   * ADR-0050 chiude. Nulli su un incasso manuale, che commissioni non ne ha.
+   */
+  currency                String               @default("EUR")
+  /// Lordo pagato dalla famiglia, in centesimi.
+  gross_amount_cents      Int?
+  /// Commissione EasyGame trattenuta. Congelata: non si ricalcola mai.
+  platform_fee_cents      Int?
+  /// Commissione del PSP, quando l'evento la porta con se. Spesso arriva dopo.
+  provider_fee_cents      Int?
+  /// Quanto resta al club, calcolato al momento del fatto.
+  net_amount_cents        Int?
+  /// La percentuale applicata: spiega il numero anche senza rileggere la regola.
+  applied_fee_percent     Float?
+  applied_fee_fixed_cents Int?
+  /// La regola che ha prodotto quei numeri. Riferimento debole, per la riconciliazione.
+  commission_rule_id      String?              @db.Uuid
+  /// L'account connesso su cui il denaro e entrato.
+  external_account_id     String?
+  /// PaymentIntent o Charge: con cui si riconcilia sul cruscotto del PSP.
+  external_payment_id     String?
+  /// L'evento che ha prodotto questa riga: dalla riga si risale al fatto.
+  external_event_id       String?
+  /// Il tipo di operazione dichiarato, quando si conosce. Vedi FiscalOperationType.
+  operation_type_code     String?
   data                    Json?
   created_at              DateTime             @default(now())
   updated_at              DateTime             @updatedAt
@@ -415,45 +451,77 @@ model PaymentTransaction {
   reverses                PaymentTransaction?  @relation("PaymentTransactionReversal", fields: [reverses_transaction_id], references: [id], onDelete: SetNull)
   reversals               PaymentTransaction[] @relation("PaymentTransactionReversal")
   receipts                Receipt[]
+  transaction_invoices    Invoice[]
 
   @@index([organization_id])
   @@index([athlete_id])
   @@index([payment_id])
+  @@index([external_payment_id])
   @@map("payment_transactions")
 }
 
+/// Una **fattura**: un documento fiscale con un intestatario e una
+/// numerazione propria.
+///
+/// **Perche porta uno snapshot.** Un documento emesso racconta com'erano le
+/// cose il giorno in cui e stato emesso. Se domani l'atleta trasloca, o il
+/// tutore corregge il proprio codice fiscale, la fattura gia emessa **non
+/// deve cambiare**: sarebbe un documento diverso da quello consegnato. I
+/// campi sciolti (`vat_number`, `address`, ...) restano perche mezza
+/// applicazione li legge; `snapshot` e la fotografia completa e autorevole.
+/// Vedi ADR-0052.
 model Invoice {
-  id              String          @id @default(uuid()) @db.Uuid
-  organization_id String          @db.Uuid
-  athlete_id      String?         @db.Uuid
-  payment_id      String?         @unique @db.Uuid
-  invoice_number  String
-  issue_date      DateTime
-  amount          Float
-  description     String
-  payment_method  String?
-  status          String          @default("issued")
-  is_electronic   Boolean         @default(false)
-  recipient_code  String?
-  vat_number      String?
-  fiscal_code     String?
-  address         String?
-  city            String?
-  postal_code     String?
-  province        String?
-  country         String?
-  notes           String?
-  data            Json?
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-  organization    Club            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete         Athlete?        @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  payment         AthletePayment? @relation(fields: [payment_id], references: [id], onDelete: SetNull)
-  receipts        Receipt[]
+  id                  String                @id @default(uuid()) @db.Uuid
+  organization_id     String                @db.Uuid
+  athlete_id          String?               @db.Uuid
+  payment_id          String?               @unique @db.Uuid
+  /// L'incasso documentato. Prima viveva dentro `data.transactionId`.
+  transaction_id      String?               @db.Uuid
+  invoice_number      String
+  /// Il codice della serie. Vuoto = serie predefinita.
+  series              String                @default("")
+  /// Il progressivo dentro la serie e l'anno. Ridondante con il numero, e apposta.
+  sequence            Int?
+  document_year       Int?
+  /// Vedi `FiscalOperationType.code`.
+  operation_type_code String?
+  /// La fotografia dei dati fiscalmente rilevanti al momento dell'emissione.
+  snapshot            Json?
+  cancelled_at        DateTime?
+  cancelled_by        String?               @db.Uuid
+  cancellation_reason String?
+  /// Il documento che questo rettifica o annulla.
+  cancels_document_id String?               @db.Uuid
+  issued_by           String?               @db.Uuid
+  issue_date          DateTime
+  amount              Float
+  description         String
+  payment_method      String?
+  status              String                @default("issued")
+  is_electronic       Boolean               @default(false)
+  recipient_code      String?
+  vat_number          String?
+  fiscal_code         String?
+  address             String?
+  city                String?
+  postal_code         String?
+  province            String?
+  country             String?
+  notes               String?
+  data                Json?
+  created_at          DateTime              @default(now())
+  updated_at          DateTime              @updatedAt
+  organization        Club                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete             Athlete?              @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment             AthletePayment?       @relation(fields: [payment_id], references: [id], onDelete: SetNull)
+  transaction         PaymentTransaction?   @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  receipts            Receipt[]
+  einvoice            EInvoiceTransmission?
 
   @@unique([organization_id, invoice_number])
   @@index([organization_id])
   @@index([athlete_id])
+  @@index([transaction_id])
   @@map("invoices")
 }
 
@@ -465,27 +533,39 @@ model Invoice {
 /// emesse prima del registro degli incassi e **non e piu univoco**: una rata
 /// incassata a rate ha piu ricevute (ADR-0036).
 model Receipt {
-  id              String              @id @default(uuid()) @db.Uuid
-  organization_id String              @db.Uuid
-  athlete_id      String?             @db.Uuid
-  payment_id      String?             @db.Uuid
-  transaction_id  String?             @unique @db.Uuid
-  invoice_id      String?             @db.Uuid
-  receipt_number  String?
-  issue_date      DateTime
-  amount          Float
-  description     String
-  status          String              @default("issued")
-  method          String?
-  file_url        String?
-  data            Json?
-  created_at      DateTime            @default(now())
-  updated_at      DateTime            @updatedAt
-  organization    Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete         Athlete?            @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  payment         AthletePayment?     @relation(fields: [payment_id], references: [id], onDelete: SetNull)
-  transaction     PaymentTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
-  invoice         Invoice?            @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
+  id                  String              @id @default(uuid()) @db.Uuid
+  organization_id     String              @db.Uuid
+  athlete_id          String?             @db.Uuid
+  payment_id          String?             @db.Uuid
+  transaction_id      String?             @unique @db.Uuid
+  invoice_id          String?             @db.Uuid
+  receipt_number      String?
+  /// Il codice della serie. Vuoto = serie predefinita.
+  series              String              @default("")
+  sequence            Int?
+  document_year       Int?
+  operation_type_code String?
+  /// La fotografia dei dati al momento dell'emissione: vedi la nota su Invoice.
+  snapshot            Json?
+  cancelled_at        DateTime?
+  cancelled_by        String?             @db.Uuid
+  cancellation_reason String?
+  cancels_document_id String?             @db.Uuid
+  issued_by           String?             @db.Uuid
+  issue_date          DateTime
+  amount              Float
+  description         String
+  status              String              @default("issued")
+  method              String?
+  file_url            String?
+  data                Json?
+  created_at          DateTime            @default(now())
+  updated_at          DateTime            @updatedAt
+  organization        Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete             Athlete?            @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment             AthletePayment?     @relation(fields: [payment_id], references: [id], onDelete: SetNull)
+  transaction         PaymentTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  invoice             Invoice?            @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
 
   @@unique([organization_id, receipt_number])
   @@index([organization_id])
@@ -517,21 +597,27 @@ model Receipt {
 /// Il corpo dell'evento **non** si conserva: contiene l'email di chi paga e
 /// i riferimenti dell'account connesso, e nessuno lo rilegge.
 model PaymentWebhookEvent {
-  id                 String   @id @default(uuid()) @db.Uuid
-  /// `stripe` | `paypal` | ... Vedi `CediPayProviderKey`.
-  provider           String
+  id                  String   @id @default(uuid()) @db.Uuid
+  /// `stripe` | `paypal` | ... Vedi `PaymentGatewayKey`.
+  provider            String
+  /// `connect` (atleta -> club) oppure `platform` (club -> Cedi Soft).
+  /// Sono due account Stripe e due segreti diversi: senza questo campo, un
+  /// evento dell'uno potrebbe essere elaborato come evento dell'altro.
+  flow                String   @default("connect")
+  /// L'account connesso che ha generato l'evento, quando ce n'e uno.
+  external_account_id String?
   /// L'identificativo dell'evento presso il provider: la chiave di deduplica.
-  event_id           String
-  event_type         String
-  organization_id    String?  @db.Uuid
-  external_reference String?
+  event_id            String
+  event_type          String
+  organization_id     String?  @db.Uuid
+  external_reference  String?
   /// `processed` | `ignored` | `failed`
-  status             String   @default("processed")
-  error              String?
-  received_at        DateTime @default(now())
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
-  organization       Club?    @relation(fields: [organization_id], references: [id], onDelete: SetNull)
+  status              String   @default("processed")
+  error               String?
+  received_at         DateTime @default(now())
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  organization        Club?    @relation(fields: [organization_id], references: [id], onDelete: SetNull)
 
   @@unique([provider, event_id])
   @@index([organization_id])
@@ -541,15 +627,18 @@ model PaymentWebhookEvent {
 model DocumentNumberSequence {
   id              String   @id @default(uuid()) @db.Uuid
   organization_id String   @db.Uuid
-  /// `receipt` | `invoice`. Vedi `DOCUMENT_NUMBER_KINDS`.
+  /// `receipt` | `invoice` | `credit_note`. Vedi `DOCUMENT_NUMBER_KINDS`.
   kind            String
+  /// La serie. Vuoto = serie predefinita, ed e cio che avevano tutte le righe
+  /// esistenti prima del Blocco D: la migrazione non le tocca.
+  series          String   @default("")
   year            Int
   last_number     Int      @default(0)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 
-  @@unique([organization_id, kind, year])
+  @@unique([organization_id, kind, series, year])
   @@map("document_number_sequences")
 }
 
@@ -1012,4 +1101,311 @@ model FormSubmission {
   @@index([organization_id, status])
   @@index([organization_id, template_id, submitted_at])
   @@map("form_submissions")
+}
+
+/**
+ * ==========================================================================
+ * Blocco D — Stripe Connect, billing di piattaforma e motore fiscale.
+ * Vedi ADR-0049, ADR-0050, ADR-0051, ADR-0052, ADR-0053.
+ * ==========================================================================
+ */
+
+/// Una **configurazione della piattaforma**: chiave, valore, chi l'ha scritta.
+///
+/// **Perche non `clubs.settings`.** Cio che sta in `clubs.settings` lo scrive
+/// il club — e il difetto che ADR-0048 ha dovuto chiudere a mano con una lista
+/// di chiavi protette. Le condizioni commerciali di EasyGame, gli
+/// identificativi Stripe di piattaforma e la scelta del provider fiscale non
+/// appartengono a nessun club: stanno in una tabella che nessuna rotta di club
+/// sa scrivere.
+///
+/// **Cosa non c'e qui: i segreti.** Le chiavi Stripe restano variabili
+/// d'ambiente. Una chiave segreta in una tabella si legge da qualunque query e
+/// finisce in qualunque backup. Qui stanno gli **identificativi** — ambiente,
+/// id dei prezzi, tipo di account Connect — che sono configurazione, non
+/// credenziali.
+model PlatformSetting {
+  id         String   @id @default(uuid()) @db.Uuid
+  key        String   @unique
+  value      Json
+  updated_by String?  @db.Uuid
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+/// Una **condizione commerciale**, con la sua data di decorrenza.
+///
+/// **Perche una riga per versione e non un campo che si sovrascrive.** La
+/// commissione di EasyGame cambia: per listino, per trattativa, per singolo
+/// cliente. Se il valore corrente fosse l'unico esistente, il giorno in cui
+/// passa dall'1% all'1,5% ogni incasso gia registrato verrebbe riletto con la
+/// percentuale nuova, e la contabilita del mese scorso cambierebbe da sola.
+///
+/// Questa tabella conserva **le decisioni**; la commissione effettivamente
+/// applicata a un incasso resta comunque congelata sull'incasso stesso
+/// (`payment_transactions.platform_fee_cents`). Sono due difese diverse contro
+/// lo stesso errore e servono entrambe: la prima spiega *perche* quel numero,
+/// la seconda garantisce che *quel* numero non cambi.
+///
+/// `organization_id` nullo e la regola predefinita di EasyGame; valorizzato, e
+/// l'override di un club. Vedi ADR-0050.
+model PlatformCommissionRule {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String?  @db.Uuid
+  /// Percentuale sull'importo lordo. `1` = 1%.
+  percent         Float
+  /// Quota fissa in centesimi, se il modello la prevede.
+  fixed_cents     Int      @default(0)
+  /// Da quando vale. Una regola futura si puo scrivere oggi.
+  effective_from  DateTime
+  /// Perche e stata decisa. Si rilegge mesi dopo.
+  note            String?
+  created_by      String?  @db.Uuid
+  created_at      DateTime @default(now())
+  organization    Club?    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, effective_from])
+  @@index([effective_from])
+  @@map("platform_commission_rules")
+}
+
+/// L'**account del club presso il PSP**: cio che Stripe dice, non cio che il
+/// club dichiara.
+///
+/// **Perche esce da `clubs.settings`.** Finche l'identificativo dell'account
+/// connesso stava in un campo scrivibile dalla pagina Organizzazione, una
+/// societa poteva digitarci l'account di chiunque e selezionare «attivo» da un
+/// menu a tendina: gli incassi delle famiglie sarebbero finiti su un conto
+/// scelto dal club, con EasyGame a fare da tramite. Qui lo scrivono due sole
+/// cose — la console di piattaforma e l'evento `account.updated` firmato da
+/// Stripe.
+///
+/// `online_payments_enabled` e l'interruttore **commerciale**, e lo tiene Cedi
+/// Soft. E diverso da «il club ha spento i pagamenti nelle sue impostazioni»,
+/// che resta una preferenza del club: uno dei due sospende un servizio,
+/// l'altro e una scelta operativa.
+model ClubPaymentAccount {
+  id                      String    @id @default(uuid()) @db.Uuid
+  organization_id         String    @unique @db.Uuid
+  provider                String    @default("stripe")
+  /// `acct_...`. Lo restituisce il PSP: nessun essere umano lo digita.
+  external_account_id     String?
+  /// `standard` o `express`. Scelta **irreversibile** per account: vedi ADR-0051.
+  account_type            String    @default("standard")
+  /// Vedi `CONNECT_ACCOUNT_STATES` in `src/lib/payments/connect-account.ts`.
+  status                  String    @default("not_configured")
+  charges_enabled         Boolean   @default(false)
+  payouts_enabled         Boolean   @default(false)
+  /// Cosa manca perche l'account diventi operativo, in parole di Stripe.
+  requirements            Json?
+  disabled_reason         String?
+  /// L'interruttore della piattaforma. Il club non lo tocca.
+  online_payments_enabled Boolean   @default(false)
+  last_synced_at          DateTime?
+  last_error              String?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+  organization            Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([external_account_id])
+  @@map("club_payment_accounts")
+}
+
+/// L'**abbonamento EasyGame** di una societa: il flusso Cedi Soft -> Club.
+///
+/// **Perche non e la tabella degli incassi degli atleti.** Sono due denari
+/// diversi su due account Stripe diversi: la quota che una societa paga a Cedi
+/// Soft entra sull'account **centrale** di Cedi Soft; la quota che una famiglia
+/// paga entra sull'account **connesso del club**. Mescolarle vorrebbe dire che
+/// il fatturato di EasyGame compare nel registro incassi di un club, e che il
+/// registro incassi di un club compare nel fatturato di EasyGame. Vedi
+/// ADR-0051.
+model PlatformBillingAccount {
+  id                       String    @id @default(uuid()) @db.Uuid
+  organization_id          String    @unique @db.Uuid
+  provider                 String    @default("stripe")
+  external_customer_id     String?
+  external_subscription_id String?
+  external_price_id        String?
+  /// `free` o `plus`: lo stesso vocabolario degli entitlement.
+  plan                     String    @default("free")
+  /// `not_active` | `trialing` | `active` | `past_due` | `cancelled` | `expired`
+  status                   String    @default("not_active")
+  current_period_end       DateTime?
+  cancel_at_period_end     Boolean   @default(false)
+  last_event_at            DateTime?
+  last_error               String?
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+  organization             Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([external_customer_id])
+  @@index([external_subscription_id])
+  @@map("platform_billing_accounts")
+}
+
+/// Il **profilo fiscale** di un'organizzazione.
+///
+/// **Perche non basta l'anagrafica del club.** L'anagrafica risponde a «come si
+/// chiama e dove ha sede»; questa risponde a «che soggetto e davanti al fisco».
+/// Sono due domande diverse e cambiano in momenti diversi: una societa cambia
+/// indirizzo di corrispondenza senza cambiare forma giuridica, e cambia regime
+/// senza traslocare.
+///
+/// **Perche la forma giuridica non decide il trattamento fiscale.** Due ASD
+/// possono avere trattamenti diversi — una in regime 398, una no; una con
+/// partita IVA per l'attivita commerciale, una senza. Dedurre l'IVA dalla sigla
+/// produrrebbe documenti sbagliati con l'aria di essere giusti. Qui la sigla si
+/// **registra**; cosa comporti lo dice la configurazione, e chi la configura se
+/// ne assume la responsabilita. Vedi ADR-0052.
+model OrganizationFiscalProfile {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organization_id      String    @unique @db.Uuid
+  /// Ragione sociale come compare sui documenti. Puo differire dal nome d'uso.
+  legal_name           String?
+  /// Vedi `LEGAL_FORMS` in `src/lib/fiscal/legal-forms.ts`.
+  legal_form           String    @default("altro")
+  fiscal_code          String?
+  vat_number           String?
+  /// Codice regime fiscale (`RF01`, `RF19`, ...): una codifica, non una conclusione.
+  tax_regime_code      String?
+  /// Regimi speciali dichiarati (per esempio L. 398/1991). Mai dedotti dalla sigla.
+  special_regimes      Json?
+  address              String?
+  city                 String?
+  province             String?
+  postal_code          String?
+  country              String    @default("IT")
+  /// Codice catastale del comune, dall'archivio ISTAT gia presente in EasyGame.
+  city_code            String?
+  pec                  String?
+  /// Codice destinatario SdI del **soggetto emittente**, quando ne ha uno.
+  recipient_code       String?
+  rea_office           String?
+  rea_number           String?
+  rea_capital          Float?
+  rea_sole_shareholder Boolean?
+  rea_in_liquidation   Boolean?
+  /// Imposta di bollo: soglia, importo, a carico di chi. Configurazione.
+  stamp_duty           Json?
+  /// Impostazioni fiscali ulteriori, dichiarate.
+  settings             Json?
+  /// Quando il profilo e stato dichiarato completo da chi lo governa.
+  completed_at         DateTime?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+  organization         Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@map("organization_fiscal_profiles")
+}
+
+/// Una **serie di numerazione** dei documenti di un club.
+///
+/// **Perche una tabella e non un campo.** Una societa che emette ricevute per
+/// le quote e fatture per le sponsorizzazioni tiene due registri con due
+/// progressioni: metterli nella stessa serie li mescola, e un registro
+/// mescolato non si riconcilia piu. `is_default` esiste perche la stragrande
+/// maggioranza dei club ne ha **una** e non deve accorgersi che il concetto
+/// esista.
+model DocumentSeries {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  /// `receipt` | `invoice` | `credit_note`
+  kind            String
+  /// Il codice della serie. Vuoto = serie predefinita, senza suffisso.
+  code            String   @default("")
+  label           String
+  /// Il prefisso che compare nel numero: `R`, `FT`, `NC`.
+  prefix          String
+  is_default      Boolean  @default(false)
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, kind, code])
+  @@index([organization_id, kind])
+  @@map("document_series")
+}
+
+/// Il **tipo di operazione** economica: cosa si sta incassando.
+///
+/// **Perche la classificazione e configurazione.** «Quota associativa» e
+/// «vendita di abbigliamento» non hanno lo stesso trattamento, ma quale
+/// trattamento abbiano dipende dal soggetto e dal suo regime — non da una
+/// tabella scritta dentro il codice di un gestionale. Qui si dichiara l'elenco
+/// delle operazioni del club e, per ognuna, cosa il club ha deciso che
+/// comporti. EasyGame **propone** il percorso documentale; non lo stabilisce al
+/// posto di un commercialista. Vedi ADR-0052.
+model FiscalOperationType {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  code            String
+  label           String
+  /// `none` | `receipt` | `invoice` | `invoice_or_receipt`
+  document_route  String   @default("receipt")
+  /// Aliquota IVA, quando configurata. `null` = non dichiarata.
+  vat_rate        Float?
+  /// Natura IVA (`N2.2`, `N4`, ...) quando l'operazione non e imponibile.
+  vat_nature      String?
+  /// `institutional` | `commercial` | `unspecified`. Lo dichiara chi configura.
+  activity_scope  String   @default("unspecified")
+  is_active       Boolean  @default(true)
+  /// Vero per le voci del catalogo predefinito: si disattivano, non si cancellano.
+  is_system       Boolean  @default(false)
+  notes           String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, code])
+  @@index([organization_id])
+  @@map("fiscal_operation_types")
+}
+
+/// La **trasmissione** di una fattura allo SdI: un oggetto separato dalla
+/// fattura.
+///
+/// **Perche separata.** Una fattura esiste, e valida ed e numerata anche se non
+/// e mai stata trasmessa; una trasmissione puo fallire, essere scartata e
+/// ripetuta senza che la fattura cambi. Tenere lo stato di trasmissione dentro
+/// la fattura vorrebbe dire che «scartata dallo SdI» diventa uno stato del
+/// documento — e non lo e.
+///
+/// **In questo rilascio la trasmissione non e attiva.** Non e stato scelto un
+/// intermediario accreditato: EasyGame prepara e valida, non invia, e `status`
+/// non puo superare `ready_to_send`. Marcare «inviata» una fattura che non e
+/// transitata dallo SdI farebbe credere a una societa di aver adempiuto. Vedi
+/// ADR-0053.
+model EInvoiceTransmission {
+  id                String    @id @default(uuid()) @db.Uuid
+  organization_id   String    @db.Uuid
+  invoice_id        String    @unique @db.Uuid
+  /// La chiave dell'intermediario, quando ce ne sara uno. Oggi sempre `null`.
+  provider          String?
+  /// Vedi `EINVOICE_STATES` in `src/lib/fiscal/fatturapa/states.ts`.
+  status            String    @default("draft")
+  format            String    @default("FPR12")
+  /// Il nome del file secondo la convenzione SdI: `IT01234567890_00001.xml`.
+  file_name         String?
+  /// L'XML preparato. La sua esistenza non significa che sia stato inviato.
+  payload           String?
+  payload_hash      String?
+  /// Cosa impedisce la trasmissione, in italiano, campo per campo.
+  validation_errors Json?
+  /// L'identificativo assegnato dallo SdI. Nullo finche non trasmette davvero.
+  sdi_identifier    String?
+  /// Le ricevute dello SdI, come sono arrivate. Mai inventate.
+  sdi_receipts      Json?
+  transmitted_at    DateTime?
+  last_error        String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  organization      Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  invoice           Invoice   @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, status])
+  @@map("einvoice_transmissions")
 }

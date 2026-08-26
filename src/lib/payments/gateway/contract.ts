@@ -195,6 +195,44 @@ export type GatewayRefund = {
 
 /* ------------------------------------------------------------- webhook */
 
+/**
+ * Il **rimborso** che un evento porta con se.
+ *
+ * E un oggetto a parte e non un pagamento con lo stato «rimborsato»: un
+ * rimborso ha un importo proprio, che puo essere una frazione dell'incasso, e
+ * deve produrre un **movimento** nel registro invece di modificare quello
+ * esistente. Vedi ADR-0050.
+ */
+export type GatewayRefundEvent = {
+  externalRefundId: string;
+  /** L'incasso rimborsato, con cui si ritrova la riga del registro. */
+  externalPaymentId: string;
+  amountCents: number;
+  currency: "EUR";
+  status: "succeeded" | "pending" | "failed";
+  reference: GatewayPaymentReference;
+  createdAt: string;
+};
+
+/**
+ * Lo stato dell'account connesso, come il provider lo racconta.
+ *
+ * Arriva con gli eventi che riguardano l'account, non con quelli di pagamento:
+ * e cio che permette di tenere aggiornato lo stato di un club senza
+ * interrogare il PSP a ogni caricamento di pagina.
+ */
+export type GatewayAccountEvent = {
+  externalId: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  currentlyDue: string[];
+  pastDue: string[];
+  pendingVerification: string[];
+  disabledReason: string | null;
+  /** Il club, quando il provider ce lo rimanda nei metadati. */
+  organizationId: string | null;
+};
+
 export type GatewayWebhookEvent = {
   provider: PaymentGatewayKey;
   /** L'identificativo dell'evento presso il provider: la chiave di deduplica. */
@@ -202,6 +240,19 @@ export type GatewayWebhookEvent = {
   type: string;
   /** Il pagamento a cui l'evento si riferisce, se ne ha uno. */
   payment: GatewayPayment | null;
+  /** Il rimborso, quando l'evento ne porta uno. */
+  refund: GatewayRefundEvent | null;
+  /** Lo stato dell'account connesso, quando l'evento lo riguarda. */
+  account: GatewayAccountEvent | null;
+  /**
+   * L'account connesso che ha generato l'evento.
+   *
+   * Su Stripe e il campo `account` dell'evento, presente solo sugli eventi di
+   * Connect. E il modo per sapere **di chi** e l'evento senza fidarsi dei
+   * metadati, che potrebbero essere stati scritti da chiunque abbia creato un
+   * pagamento su quell'account.
+   */
+  accountId: string | null;
   createdAt: string;
   /** Il corpo interpretato, per chi deve guardarci dentro. Mai loggato intero. */
   raw: Record<string, any>;
@@ -251,6 +302,15 @@ export type PaymentGateway = {
     clubName: string;
     email: string;
     country: string;
+    /**
+     * Il tipo di account presso il provider.
+     *
+     * **Non ha un valore predefinito qui.** E una scelta irreversibile per
+     * account gia creato, e un default nel contratto sarebbe la scelta fatta
+     * da chi ha scritto il codice invece che da chi risponde delle
+     * conseguenze. Lo passa la configurazione di piattaforma.
+     */
+    accountType: "standard" | "express";
   }) => Promise<GatewayMerchant>;
   createOnboardingLink: (input: {
     merchantExternalId: string;

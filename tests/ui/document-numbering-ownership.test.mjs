@@ -89,9 +89,14 @@ test("la numerazione ha un proprietario solo, e non conta le righe", () => {
   );
 });
 
-test("il servizio incassi non ha piu una numerazione propria", () => {
+test("chi emette documenti non ha una numerazione propria", () => {
+  /*
+    Dal Blocco D i documenti stanno in `fiscal-documents.ts`: un pagamento e
+    un documento sono due domini (ADR-0052), e il registro incassi non emette
+    piu niente.
+  */
   const service = fs.readFileSync(
-    path.join(process.cwd(), "src/lib/server/payment-transactions.ts"),
+    path.join(process.cwd(), "src/lib/server/fiscal-documents.ts"),
     "utf8",
   );
 

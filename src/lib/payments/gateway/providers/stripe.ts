@@ -34,11 +34,13 @@ import {
   type GatewayCheckoutRequest,
   type GatewayMerchant,
   type GatewayOnboardingLink,
+  type GatewayAccountEvent,
   type GatewayPayment,
   type GatewayPaymentReference,
   type GatewayPaymentStatus,
   type PaymentGateway,
   type GatewayRefund,
+  type GatewayRefundEvent,
   type GatewayRefundRequest,
   type GatewayWebhookEvent,
 } from "../contract";
@@ -256,12 +258,129 @@ const paymentFromIntent = (intent: any): GatewayPayment => {
   };
 };
 
-/** Traduce l'oggetto di un evento, qualunque dei due sia. */
+/**
+ * Un **charge**: l'oggetto che porta i rimborsi.
+ *
+ * Non e ne una sessione ne un intent, e va tradotto a parte. Il riferimento a
+ * EasyGame sta nei metadati del charge quando Stripe li propaga dall'intent;
+ * quando non ci sono, `external_payment_id` resta l'unico appiglio — ed e
+ * sufficiente, perche il registro conserva l'identificativo del pagamento.
+ */
+const paymentFromCharge = (charge: any): GatewayPayment => ({
+  provider: "stripe",
+  externalId: String(charge?.payment_intent || charge?.id || ""),
+  status: charge?.refunded
+    ? "refunded"
+    : Number(charge?.amount_refunded || 0) > 0
+      ? "partially_refunded"
+      : charge?.status === "succeeded"
+        ? "succeeded"
+        : charge?.status === "failed"
+          ? "failed"
+          : "pending",
+  money: {
+    amountCents: Math.round(Number(charge?.amount || 0)),
+    currency: "EUR",
+  },
+  platformFeeCents: Math.round(Number(charge?.application_fee_amount || 0)),
+  reference: readReference(charge?.metadata),
+  paidAt: charge?.created
+    ? new Date(Number(charge.created) * 1000).toISOString()
+    : null,
+});
+
+/** Traduce l'oggetto di un evento di pagamento, qualunque dei tre sia. */
 const paymentFromEventObject = (object: any): GatewayPayment | null => {
   const kind = String(object?.object || "");
   if (kind === "checkout.session") return paymentFromSession(object);
   if (kind === "payment_intent") return paymentFromIntent(object);
+  if (kind === "charge") return paymentFromCharge(object);
   return null;
+};
+
+/**
+ * Il rimborso che un evento porta, se ne porta uno.
+ *
+ * **Perche l'importo e `amount_refunded` e non `amount`.** Su
+ * `charge.refunded` l'oggetto e il *charge*, e il suo `amount` e l'incasso
+ * originale: usarlo vorrebbe dire stornare 130 € per un rimborso di 30 €.
+ * Sugli eventi `charge.refund.*` l'oggetto e il rimborso, e li `amount` e
+ * quello giusto. Sono due forme e vanno distinte.
+ */
+const refundFromEventObject = (
+  object: any,
+  eventType: string,
+): GatewayRefundEvent | null => {
+  const kind = String(object?.object || "");
+
+  if (kind === "refund") {
+    return {
+      externalRefundId: String(object?.id || ""),
+      externalPaymentId: String(object?.payment_intent || object?.charge || ""),
+      amountCents: Math.round(Number(object?.amount || 0)),
+      currency: "EUR",
+      status:
+        String(object?.status || "") === "succeeded"
+          ? "succeeded"
+          : String(object?.status || "") === "failed"
+            ? "failed"
+            : "pending",
+      reference: readReference(object?.metadata),
+      createdAt: object?.created
+        ? new Date(Number(object.created) * 1000).toISOString()
+        : "",
+    };
+  }
+
+  if (kind === "charge" && eventType === "charge.refunded") {
+    const amountRefunded = Math.round(Number(object?.amount_refunded || 0));
+    if (amountRefunded <= 0) return null;
+
+    /*
+      Il charge non dice quanto e stato rimborsato *da questo evento*, dice
+      quanto e stato rimborsato **in tutto**. L'ultimo rimborso dell'elenco e
+      quello che ha generato l'evento: si preferisce quello, e si ripiega sul
+      totale solo se l'elenco non e arrivato.
+    */
+    const refunds: any[] = Array.isArray(object?.refunds?.data)
+      ? object.refunds.data
+      : [];
+    const latest = refunds[0] || null;
+
+    return {
+      externalRefundId: String(latest?.id || `${object?.id}_refund`),
+      externalPaymentId: String(object?.payment_intent || object?.id || ""),
+      amountCents: Math.round(Number(latest?.amount || amountRefunded)),
+      currency: "EUR",
+      status: "succeeded",
+      reference: readReference(object?.metadata),
+      createdAt: object?.created
+        ? new Date(Number(object.created) * 1000).toISOString()
+        : "",
+    };
+  }
+
+  return null;
+};
+
+/** Lo stato dell'account connesso, quando l'evento lo riguarda. */
+const accountFromEventObject = (object: any): GatewayAccountEvent | null => {
+  if (String(object?.object || "") !== "account") return null;
+
+  return {
+    externalId: String(object?.id || ""),
+    chargesEnabled: Boolean(object?.charges_enabled),
+    payoutsEnabled: Boolean(object?.payouts_enabled),
+    currentlyDue: (object?.requirements?.currently_due || []).map(String),
+    pastDue: (object?.requirements?.past_due || []).map(String),
+    pendingVerification: (object?.requirements?.pending_verification || []).map(
+      String,
+    ),
+    disabledReason:
+      String(object?.requirements?.disabled_reason || "").trim() || null,
+    organizationId:
+      String(object?.metadata?.easygame_organization_id || "").trim() || null,
+  };
 };
 
 /* ------------------------------------------------------------- adapter */
@@ -274,10 +393,16 @@ export const stripeProvider: PaymentGateway = {
   createMerchant: async (input) => {
     const account = await callStripe("/accounts", {
       body: {
-        type: "standard",
+        type: input.accountType,
         country: input.country || "IT",
         email: input.email,
         "business_profile[name]": input.clubName,
+        /*
+          Il club torna indietro nei metadati dell'account: e cosi che un
+          evento `account.updated` si ricollega a una societa senza dover
+          interrogare il database su un identificativo che il PSP potrebbe
+          aver cambiato.
+        */
         "metadata[easygame_organization_id]": input.organizationId,
       },
     });
@@ -442,16 +567,25 @@ export const stripeProvider: PaymentGateway = {
     const type = String(parsed?.type || "");
 
     /*
-      Solo gli eventi il cui oggetto e una sessione o un intent producono un
-      pagamento. Per tutti gli altri l'evento resta, viene registrato e non
-      muove niente: un webhook che si rompe su un tipo che non conosce si
-      rompe al primo evento nuovo che Stripe introduce.
+      Solo gli eventi il cui oggetto e conosciuto producono qualcosa. Per tutti
+      gli altri l'evento resta, viene registrato e non muove niente: un webhook
+      che si rompe su un tipo che non conosce si rompe al primo evento nuovo
+      che Stripe introduce.
     */
     return {
       provider: "stripe",
       id: String(parsed?.id || ""),
       type,
       payment: paymentFromEventObject(object),
+      refund: refundFromEventObject(object, type),
+      account: accountFromEventObject(object),
+      /*
+        `event.account` c'e solo sugli eventi di Connect, ed e l'account
+        connesso che li ha generati. E piu affidabile dei metadati: i metadati
+        li puo scrivere chiunque crei un pagamento su quell'account, questo lo
+        scrive Stripe.
+      */
+      accountId: String(parsed?.account || "").trim() || null,
       createdAt: parsed?.created
         ? new Date(Number(parsed.created) * 1000).toISOString()
         : "",

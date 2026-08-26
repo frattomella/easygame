@@ -30,11 +30,14 @@
 import { prisma } from "./prisma";
 import {
   formatDocumentNumber,
+  normalizeSeriesCode,
   type DocumentNumberKind,
 } from "@/lib/documents/numbering";
 
 export type DocumentNumberAllocation = {
   kind: DocumentNumberKind;
+  /** Vuoto per la serie predefinita. */
+  series: string;
   year: number;
   sequence: number;
   /** Il numero gia scritto: `R-2026-0001`. */
@@ -50,10 +53,11 @@ const isDuplicateKey = (error: any) =>
 const allocateOnce = async (
   organizationId: string,
   kind: DocumentNumberKind,
+  series: string,
   year: number,
 ): Promise<number> =>
   (prisma as any).$transaction(async (tx: any) => {
-    const where = { organization_id: organizationId, kind, year };
+    const where = { organization_id: organizationId, kind, series, year };
 
     /*
       `updateMany` con `increment` e una sola istruzione SQL: il valore non
@@ -88,6 +92,8 @@ export const allocateDocumentNumber = async (input: {
   organizationId: string;
   kind: DocumentNumberKind;
   year: number;
+  /** Vuoto = serie predefinita, che e cio che ha ogni club che non ne usa. */
+  series?: string;
 }): Promise<DocumentNumberAllocation> => {
   const organizationId = String(input.organizationId || "").trim();
   if (!organizationId) {
@@ -95,16 +101,18 @@ export const allocateDocumentNumber = async (input: {
   }
 
   const year = Math.trunc(Number(input.year) || new Date().getFullYear());
+  const series = normalizeSeriesCode(input.series);
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const sequence = await allocateOnce(organizationId, input.kind, year);
+      const sequence = await allocateOnce(organizationId, input.kind, series, year);
       return {
         kind: input.kind,
+        series,
         year,
         sequence,
-        number: formatDocumentNumber(input.kind, year, sequence),
+        number: formatDocumentNumber(input.kind, year, sequence, series),
       };
     } catch (error) {
       if (!isDuplicateKey(error)) throw error;
@@ -129,11 +137,13 @@ export const peekDocumentNumber = async (input: {
   organizationId: string;
   kind: DocumentNumberKind;
   year: number;
+  series?: string;
 }): Promise<number> => {
   const row = await sequenceClient(prisma).findFirst({
     where: {
       organization_id: input.organizationId,
       kind: input.kind,
+      series: normalizeSeriesCode(input.series),
       year: Math.trunc(Number(input.year) || new Date().getFullYear()),
     },
   });

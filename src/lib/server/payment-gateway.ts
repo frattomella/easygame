@@ -1,5 +1,6 @@
 /**
- * Il gateway di incasso lato server: chi apre un checkout e chi crede a un webhook.
+ * Il gateway di incasso lato server: chi apre un checkout e chi crede a un
+ * webhook.
  *
  * **Il confine che questo file custodisce.** Un incasso online non e un
  * incasso perche il browser dice di essere tornato dalla pagina di pagamento:
@@ -15,20 +16,47 @@
  * rinvio manuale e a un clic di distanza nella sua dashboard. Un evento
  * consegnato due volte, senza memoria, registra l'incasso due volte: la rata
  * di una famiglia risulta pagata il doppio, e a scoprirlo e la famiglia.
+ *
+ * **Cosa e cambiato nel Blocco D.** Tre cose, e sono le tre che rendevano
+ * fragile il resto:
+ *
+ * 1. **l'account su cui incassare non arriva piu dalle impostazioni del
+ *    club.** Arriva da `club_payment_accounts`, che scrivono solo la console
+ *    di piattaforma e gli eventi firmati (ADR-0051);
+ * 2. **la commissione non arriva piu dalle impostazioni del club.** Arriva
+ *    dalle condizioni commerciali della piattaforma, e viene **congelata**
+ *    sulla riga dell'incasso (ADR-0050);
+ * 3. **i rimborsi e lo stato dell'account producono qualcosa.** Prima
+ *    arrivavano e non muovevano niente.
  */
 
 import { prisma } from "./prisma";
-import { createPaymentTransaction } from "./payment-transactions";
+import {
+  createPaymentTransaction,
+  findTransactionByExternalPaymentId,
+  recordRefundTransaction,
+} from "./payment-transactions";
+import {
+  applyProviderAccountSnapshot,
+  findOrganizationByExternalAccount,
+  getClubPaymentAccount,
+  resolveCheckoutReadiness,
+} from "./connect-accounts";
+import { resolveCommissionForClub } from "./platform-settings";
 import {
   PaymentGatewayError,
-  describeGatewayReadiness,
   requirePaymentGateway,
   type GatewayCheckout,
-  type PaymentGatewayKey,
-  type GatewayReadiness,
   type GatewayWebhookEvent,
+  type PaymentGatewayKey,
 } from "@/lib/payments/gateway";
+import {
+  freezeSettlement,
+  reverseSettlement,
+  type FrozenSettlement,
+} from "@/lib/payments/commission";
 import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
+import type { CheckoutReadiness } from "@/lib/payments/connect-account";
 import type { ClubPaymentSettings } from "@/lib/payments/payment-types";
 
 const asText = (value: unknown) => String(value ?? "").trim();
@@ -45,15 +73,16 @@ export type ClubGatewayContext = {
   provider: PaymentGatewayKey;
   settings: ClubPaymentSettings;
   merchantExternalId: string;
-  readiness: GatewayReadiness;
+  readiness: CheckoutReadiness;
 };
 
 /**
- * Il provider che questo club usa, e se puo davvero incassare adesso.
+ * Il gateway che questo club usa, e se puo davvero incassare adesso.
  *
- * Il provider **non arriva dalla richiesta**. Un client che potesse
- * sceglierlo sceglierebbe quello con meno controlli; qui lo dicono le
- * impostazioni del club, che solo chi governa il club puo cambiare.
+ * **Cosa arriva da dove, adesso.** L'account e lo stato arrivano dalla tabella
+ * degli account connessi; l'unica cosa che ancora arriva dalle impostazioni
+ * del club e `enabled` — la preferenza operativa di spegnere gli incassi
+ * online, che e legittimo che una segreteria governi da sola.
  */
 export const resolveClubGatewayContext = async (
   organizationId: string,
@@ -76,33 +105,17 @@ export const resolveClubGatewayContext = async (
     asRecord(club.settings).paymentSettings,
   );
 
-  /*
-    Il provider attivo e il primo abilitato fra quelli configurati per le
-    iscrizioni. Uno solo alla volta: due checkout attivi sullo stesso club
-    vorrebbero dire due conti su cui il denaro puo arrivare, e nessuno che
-    sappia quale guardare.
-  */
-  const provider: PaymentGatewayKey =
-    settings.enabledRegistrationMethods.find(
-      (key) => settings.providers[key]?.enabled,
-    ) || "stripe";
-
-  const merchantExternalId = asText(
-    settings.providers[provider]?.connectedAccountId,
-  );
+  const { account, readiness } = await resolveCheckoutReadiness({
+    organizationId: id,
+    clubEnabled: settings.enabled,
+  });
 
   return {
     organizationId: id,
-    provider,
+    provider: account.provider,
     settings,
-    merchantExternalId,
-    readiness: describeGatewayReadiness({
-      provider,
-      enabledByClub: Boolean(settings.enabled && settings.providers[provider]?.enabled),
-      merchantExternalId,
-      merchantChargesEnabled:
-        settings.providers[provider]?.status === "active",
-    }),
+    merchantExternalId: account.externalAccountId || "",
+    readiness,
   };
 };
 
@@ -122,21 +135,33 @@ export type OpenCheckoutInput = {
 };
 
 /**
- * Apre un checkout per una rata.
+ * Apre un checkout per una rata, anche per un **importo parziale**.
+ *
+ * L'importo arriva da chi paga: e il residuo per impostazione predefinita, ma
+ * una famiglia che vuole versare 50 dei 130 dovuti deve poterlo fare online
+ * esattamente come lo farebbe allo sportello. Il registro incassi sa gia
+ * gestire una rata pagata in piu volte (ADR-0036): non c'e nessuna ragione per
+ * cui il canale online debba essere piu rigido di quello manuale.
  *
  * **La chiave di idempotenza non e casuale, ed e apposta.** Se lo fosse, due
  * clic su «Paga» aprirebbero due checkout — e due addebiti a una famiglia.
  * Derivarla dal club, dalla rata e dall'importo fa si che lo stesso pulsante
- * premuto due volte chieda al provider **lo stesso** checkout.
+ * premuto due volte chieda al provider **lo stesso** checkout; premuto con un
+ * importo diverso, ne chiede uno diverso, che e cio che serve a chi versa un
+ * secondo acconto.
  */
 export const openGatewayCheckout = async (
   input: OpenCheckoutInput,
-): Promise<{ checkout: GatewayCheckout; context: ClubGatewayContext }> => {
+): Promise<{
+  checkout: GatewayCheckout;
+  context: ClubGatewayContext;
+  settlement: FrozenSettlement;
+}> => {
   const context = await resolveClubGatewayContext(input.organizationId);
 
   if (!context.readiness.canCheckout) {
     throw new PaymentGatewayError(
-      context.readiness.blocker === "not_configured"
+      context.readiness.blocker === "provider_not_configured"
         ? "not_configured"
         : "merchant_not_ready",
       context.readiness.message,
@@ -153,15 +178,30 @@ export const openGatewayCheckout = async (
     );
   }
 
+  /*
+    La commissione si risolve **adesso** dalle condizioni della piattaforma, e
+    non dalle impostazioni del club. Il valore che si manda al PSP e lo stesso
+    che verra congelato sull'incasso quando l'evento tornera indietro: se i due
+    divergessero, il club vedrebbe un numero e ne riceverebbe un altro.
+  */
+  const commission = await resolveCommissionForClub({
+    organizationId: context.organizationId,
+  });
+
+  const settlement = freezeSettlement({
+    grossAmountCents: amountCents,
+    commission,
+  });
+
   const provider = requirePaymentGateway(context.provider);
 
   const checkout = await provider.createCheckout({
     merchant: { externalId: context.merchantExternalId },
     money: { amountCents, currency: "EUR" },
     platformFee: {
-      percent: Number(context.settings.platformFeePercent || 0),
-      fixedCents: Number(context.settings.platformFeeFixedCents || 0),
-      paidBy: context.settings.platformFeePaidBy,
+      percent: commission.percent,
+      fixedCents: commission.fixedCents,
+      paidBy: "club",
     },
     description: asText(input.description) || "Quota sportiva",
     reference: {
@@ -180,7 +220,7 @@ export const openGatewayCheckout = async (
     ].join(":"),
   });
 
-  return { checkout, context };
+  return { checkout, context, settlement };
 };
 
 /* ------------------------------------------------------------- i webhook */
@@ -191,23 +231,53 @@ export type WebhookOutcome = {
   /** Vero se questo evento era gia stato ricevuto: non si rifa niente. */
   duplicate: boolean;
   status: "processed" | "ignored" | "failed";
-  /** L'incasso registrato, se l'evento ne ha prodotto uno. */
+  /** L'incasso registrato o stornato, se l'evento ne ha prodotto uno. */
   transactionId: string | null;
   message: string;
 };
 
 /**
+ * Il club a cui appartiene un evento.
+ *
+ * **L'account connesso vince sui metadati.** I metadati di un pagamento li puo
+ * scrivere chiunque sappia creare un pagamento sull'account connesso di un
+ * club; `event.account` lo scrive Stripe. Quando i due non coincidono l'evento
+ * **non** viene assecondato: in condizioni normali coincidono sempre, e proprio
+ * per questo una divergenza e un fatto da fermare, non da interpretare.
+ */
+const resolveEventOrganization = async (
+  event: GatewayWebhookEvent,
+): Promise<{ organizationId: string | null; mismatch: boolean }> => {
+  const fromMetadata =
+    asText(event.payment?.reference.organizationId) ||
+    asText(event.refund?.reference.organizationId) ||
+    asText(event.account?.organizationId) ||
+    null;
+
+  const accountId = asText(event.accountId) || asText(event.account?.externalId);
+  const fromAccount = accountId
+    ? await findOrganizationByExternalAccount(accountId)
+    : null;
+
+  if (fromAccount && fromMetadata && fromAccount !== fromMetadata) {
+    return { organizationId: null, mismatch: true };
+  }
+
+  return { organizationId: fromAccount || fromMetadata, mismatch: false };
+};
+
+/**
  * Traduce un evento verificato in cio che EasyGame deve fare.
  *
- * **Cosa produce un incasso e cosa no.** Solo un pagamento **riuscito** con
- * un riferimento a una rata di EasyGame. Un pagamento in corso, autorizzato,
+ * **Cosa produce un incasso e cosa no.** Solo un pagamento **riuscito** con un
+ * riferimento a una rata di EasyGame. Un pagamento in corso, autorizzato,
  * scaduto o fallito viene registrato come ricevuto e non muove denaro: una
  * sessione «completa» con SEPA significa che il modulo e stato compilato, non
  * che il denaro sia arrivato.
  *
- * **Cosa succede a un evento senza rata.** Viene marcato `ignored`. Puo
- * capitare — un pagamento nato fuori da EasyGame sull'account del club — e non
- * e un errore: EasyGame non e il registro di cassa di Stripe.
+ * **Cosa succede a un evento che non ci riguarda.** Viene marcato `ignored`.
+ * Puo capitare — un pagamento nato fuori da EasyGame sull'account del club — e
+ * non e un errore: EasyGame non e il registro di cassa di Stripe.
  */
 export const handleGatewayWebhookEvent = async (
   event: GatewayWebhookEvent,
@@ -221,24 +291,26 @@ export const handleGatewayWebhookEvent = async (
     );
   }
 
+  const { organizationId, mismatch } = await resolveEventOrganization(event);
+
   /*
     La riga si inserisce **prima** di agire, e il vincolo di unicita e cio che
-    rende la deduplica affidabile: se due consegne dello stesso evento
-    arrivano insieme, una delle due fallisce l'inserimento e si ferma. Un
-    controllo «esiste gia?» seguito da una scrittura avrebbe una finestra in
-    mezzo, e la finestra e proprio il caso che si vuole escludere.
+    rende la deduplica affidabile: se due consegne dello stesso evento arrivano
+    insieme, una delle due fallisce l'inserimento e si ferma. Un controllo
+    «esiste gia?» seguito da una scrittura avrebbe una finestra in mezzo, e la
+    finestra e proprio il caso che si vuole escludere.
   */
-  const payment = event.payment;
-  const organizationId = asText(payment?.reference.organizationId) || null;
-
   try {
     await webhookClient().create({
       data: {
         provider: event.provider,
         event_id: eventId,
         event_type: event.type,
+        flow: "connect",
         organization_id: organizationId,
-        external_reference: payment?.externalId || null,
+        external_account_id: asText(event.accountId) || null,
+        external_reference:
+          event.payment?.externalId || event.refund?.externalRefundId || null,
         status: "processed",
       },
     });
@@ -265,62 +337,187 @@ export const handleGatewayWebhookEvent = async (
     return { duplicate: false, status: "ignored", transactionId: null, message };
   };
 
-  if (!payment) {
-    return markIgnored("Evento senza pagamento: registrato e basta");
-  }
+  const markFailed = async (error: any) => {
+    await webhookClient().updateMany({
+      where: { provider: event.provider, event_id: eventId },
+      data: {
+        status: "failed",
+        error: String(error?.message || "").slice(0, 500),
+      },
+    });
+  };
 
-  if (payment.status !== "succeeded") {
+  if (mismatch) {
     return markIgnored(
-      `Pagamento in stato «${payment.status}»: nessun incasso registrato`,
-    );
-  }
-
-  if (!organizationId || !payment.reference.paymentId) {
-    return markIgnored(
-      "Pagamento senza riferimento a una rata di EasyGame: non e nostro",
+      "L'evento cita un club diverso da quello a cui appartiene l'account connesso: non viene elaborato",
     );
   }
 
   try {
-    /*
-      Uno scope ristretto al club **dichiarato dall'evento**.
+    /* --------------------------------------------- lo stato dell'account */
+    if (event.account) {
+      if (!organizationId) {
+        return markIgnored(
+          "Evento su un account connesso che non appartiene a nessuna societa di EasyGame",
+        );
+      }
 
-      Senza, l'incasso finirebbe sul club a cui appartiene la rata, e un
-      evento che citasse la rata di un'altra societa scriverebbe li dentro
-      senza che nessuno se ne accorgesse. I metadati li scrive EasyGame
-      quando apre il checkout, quindi in condizioni normali le due cose
-      coincidono: e proprio per questo che, se un giorno non coincidono, va
-      fermato invece che assecondato.
+      await applyProviderAccountSnapshot({
+        organizationId,
+        snapshot: {
+          externalId: event.account.externalId,
+          chargesEnabled: event.account.chargesEnabled,
+          payoutsEnabled: event.account.payoutsEnabled,
+          currentlyDue: event.account.currentlyDue,
+          pastDue: event.account.pastDue,
+          pendingVerification: event.account.pendingVerification,
+          disabledReason: event.account.disabledReason,
+        },
+      });
+
+      return {
+        duplicate: false,
+        status: "processed",
+        transactionId: null,
+        message: "Stato dell'account di incasso aggiornato",
+      };
+    }
+
+    /* ------------------------------------------------------- il rimborso */
+    if (event.refund) {
+      if (!organizationId) {
+        return markIgnored("Rimborso senza una societa riconoscibile");
+      }
+
+      if (event.refund.status !== "succeeded") {
+        return markIgnored(
+          `Rimborso in stato «${event.refund.status}»: nessun movimento registrato`,
+        );
+      }
+
+      const original = await findTransactionByExternalPaymentId({
+        organizationId,
+        externalPaymentId: event.refund.externalPaymentId,
+      });
+
+      if (!original) {
+        return markIgnored(
+          "Rimborso di un incasso che non risulta nel registro di questa societa",
+        );
+      }
+
+      /*
+        La commissione restituita e **proporzionale a quella trattenuta**, non
+        ricalcolata sulla condizione di oggi: il denaro da restituire e quello
+        che era stato trattenuto allora. Vedi `reverseSettlement`.
+      */
+      const settlement = reverseSettlement({
+        original: {
+          grossAmountCents:
+            Number(original.gross_amount_cents) ||
+            Math.round(Number(original.amount) * 100),
+          platformFeeCents: Number(original.platform_fee_cents) || 0,
+          providerFeeCents:
+            original.provider_fee_cents === null ? null : Number(original.provider_fee_cents),
+          appliedFeePercent: Number(original.applied_fee_percent) || 0,
+          appliedFeeFixedCents: Number(original.applied_fee_fixed_cents) || 0,
+          commissionRuleId: original.commission_rule_id || null,
+        },
+        refundedAmountCents: event.refund.amountCents,
+      });
+
+      const result = await recordRefundTransaction({
+        transactionId: String(original.id),
+        amountCents: event.refund.amountCents,
+        externalRefundId: event.refund.externalRefundId,
+        externalEventId: eventId,
+        paidAt: event.refund.createdAt || new Date().toISOString(),
+        reason: "Rimborso confermato dal provider",
+        settlement,
+        confirmedByProvider: true,
+      });
+
+      return {
+        duplicate: result.duplicate,
+        status: "processed",
+        transactionId: result.transaction.id,
+        message: result.duplicate
+          ? "Rimborso gia registrato"
+          : "Rimborso registrato",
+      };
+    }
+
+    /* ------------------------------------------------------- il pagamento */
+    const payment = event.payment;
+
+    if (!payment) {
+      return markIgnored("Evento senza pagamento: registrato e basta");
+    }
+
+    if (payment.status !== "succeeded") {
+      return markIgnored(
+        `Pagamento in stato «${payment.status}»: nessun incasso registrato`,
+      );
+    }
+
+    if (!organizationId || !payment.reference.paymentId) {
+      return markIgnored(
+        "Pagamento senza riferimento a una rata di EasyGame: non e nostro",
+      );
+    }
+
+    const account = await getClubPaymentAccount(organizationId);
+
+    /*
+      La commissione si congela **alla data dell'incasso**, non a quella in cui
+      l'evento viene elaborato: con i metodi differiti le due possono distare
+      giorni, e nel mezzo la condizione commerciale puo essere cambiata.
     */
-    const result = await createPaymentTransaction({
+    const commission = await resolveCommissionForClub({
       organizationId,
-      athleteId: payment.reference.athleteId,
-      paymentId: payment.reference.paymentId,
-      amount: payment.money.amountCents / 100,
-      paidAt: payment.paidAt || new Date().toISOString(),
-      paymentMethod: "online",
-      source: "STRIPE",
-      externalReference: payment.externalId,
-      notes: `Incasso online ${event.provider}`,
-      /*
-        L'unico punto in cui EasyGame accetta un incasso non manuale. Lo
-        accetta perche arriva da un evento la cui firma e stata verificata,
-        non perche qualcuno lo ha dichiarato: la rotta HTTP non puo impostare
-        questo flag, e infatti costruisce il suo input campo per campo.
-      */
-      confirmedByProvider: true,
-      /*
-        Il provider non conosce il residuo della rata, e potrebbe incassare
-        piu di quanto restava — per esempio se qualcuno ha registrato un
-        acconto in contanti mentre la famiglia pagava online. Rifiutare
-        l'incasso vorrebbe dire perdere denaro che e gia arrivato.
-      */
-      allowOverpayment: true,
-    }, {
-      userId: "",
-      activeOrganizationId: organizationId,
-      allowedOrganizationIds: [organizationId],
+      at: payment.paidAt || new Date(),
     });
+
+    const settlement = freezeSettlement({
+      grossAmountCents: payment.money.amountCents,
+      commission,
+    });
+
+    const result = await createPaymentTransaction(
+      {
+        organizationId,
+        athleteId: payment.reference.athleteId,
+        paymentId: payment.reference.paymentId,
+        amount: payment.money.amountCents / 100,
+        paidAt: payment.paidAt || new Date().toISOString(),
+        paymentMethod: "online",
+        source: "STRIPE",
+        externalReference: payment.externalId,
+        externalAccountId: account.externalAccountId,
+        externalPaymentId: payment.externalId,
+        externalEventId: eventId,
+        settlement,
+        /*
+          L'unico punto in cui EasyGame accetta un incasso non manuale. Lo
+          accetta perche arriva da un evento la cui firma e stata verificata,
+          non perche qualcuno lo ha dichiarato: la rotta HTTP non puo impostare
+          questo flag, e infatti costruisce il suo input campo per campo.
+        */
+        confirmedByProvider: true,
+        /*
+          Il provider non conosce il residuo della rata, e potrebbe incassare
+          piu di quanto restava — per esempio se qualcuno ha registrato un
+          acconto in contanti mentre la famiglia pagava online. Rifiutare
+          l'incasso vorrebbe dire perdere denaro che e gia arrivato.
+        */
+        allowOverpayment: true,
+      },
+      {
+        userId: "",
+        activeOrganizationId: organizationId,
+        allowedOrganizationIds: [organizationId],
+      },
+    );
 
     return {
       duplicate: false,
@@ -329,11 +526,7 @@ export const handleGatewayWebhookEvent = async (
       message: "Incasso registrato",
     };
   } catch (error: any) {
-    await webhookClient().updateMany({
-      where: { provider: event.provider, event_id: eventId },
-      data: { status: "failed", error: String(error?.message || "").slice(0, 500) },
-    });
-
+    await markFailed(error);
     throw error;
   }
 };

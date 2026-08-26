@@ -39,14 +39,43 @@ test("l'anno sta dentro il numero", () => {
 test("un numero gia emesso si rilegge", () => {
   assert.deepEqual(numbering.parseDocumentNumber("R-2026-0042"), {
     kind: "receipt",
+    series: "",
     year: 2026,
     sequence: 42,
   });
   assert.deepEqual(numbering.parseDocumentNumber("FT-2025-0003"), {
     kind: "invoice",
+    series: "",
     year: 2025,
     sequence: 3,
   });
+});
+
+test("una serie entra nel numero e si rilegge", () => {
+  /*
+    La serie predefinita e vuota, ed e quella in cui e stato emesso tutto fino
+    al Blocco D: il numero di un documento gia consegnato deve continuare a
+    scriversi identico, altrimenti la sua ristampa porta un numero che non e il
+    suo.
+  */
+  assert.equal(numbering.formatDocumentNumber("invoice", 2026, 7), "FT-2026-0007");
+  assert.equal(
+    numbering.formatDocumentNumber("invoice", 2026, 7, "SPO"),
+    "FT-SPO-2026-0007",
+  );
+
+  assert.deepEqual(numbering.parseDocumentNumber("FT-SPO-2026-0007"), {
+    kind: "invoice",
+    series: "SPO",
+    year: 2026,
+    sequence: 7,
+  });
+});
+
+test("il codice di una serie non puo rompere il numero", () => {
+  assert.equal(numbering.normalizeSeriesCode("a-b c"), "ABC");
+  assert.equal(numbering.normalizeSeriesCode("  sport  "), "SPORT");
+  assert.equal(numbering.normalizeSeriesCode("VERYLONGSERIESCODE"), "VERYLONG");
 });
 
 test("un numero scritto a mano non fa esplodere la rilettura", () => {

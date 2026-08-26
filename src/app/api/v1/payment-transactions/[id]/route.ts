@@ -4,10 +4,12 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import {
-  issueInvoiceForTransaction,
-  issueReceiptForTransaction,
   reversePaymentTransaction,
 } from "@/lib/server/payment-transactions";
+import {
+  issueInvoiceForTransaction,
+  issueReceiptForTransaction,
+} from "@/lib/server/fiscal-documents";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 

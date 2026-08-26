@@ -1,10 +1,5 @@
 import { prisma } from "./prisma";
-import { allocateDocumentNumber } from "./document-numbering";
-import { documentYearOf } from "@/lib/documents/numbering";
-import {
-  missingInvoiceFields,
-  resolveFiscalRecipient,
-} from "@/lib/documents/fiscal-recipient";
+import type { FrozenSettlement } from "@/lib/payments/commission";
 import {
   isSettledTransaction,
   normalizePaymentTransaction,
@@ -38,6 +33,18 @@ import {
  * Il confine di sicurezza e `organization_id`, come per ogni risorsa di club:
  * un incasso di un altro club non si legge, non si crea e non si storna, e il
  * messaggio contiene «Accesso negato» perche il route handler lo mappi su 403.
+ *
+ * **Cosa NON sta piu qui: i documenti.** Ricevute e fatture sono passate a
+ * `fiscal-documents.ts` nel Blocco D. Un pagamento e un documento sono due
+ * domini con cardinalita diverse — un incasso puo non produrre documenti, un
+ * documento puo coprire piu incassi — e tenerli nello stesso file li faceva
+ * sembrare la stessa cosa, che e precisamente l'errore che il motore fiscale
+ * esiste per impedire (ADR-0052).
+ *
+ * **Storno e rimborso non sono la stessa operazione.** Lo storno dice «questo
+ * incasso non e mai avvenuto» ed esclude dai totali entrambe le righe; il
+ * rimborso dice «il denaro e tornato indietro» ed e un movimento che conta.
+ * Vedi `reversePaymentTransaction` e `recordRefundTransaction`.
  */
 
 export type PaymentTransactionScope = {
@@ -272,6 +279,38 @@ export type CreatePaymentTransactionInput = {
    * denaro che nessuno ha versato.
    */
   confirmedByProvider?: boolean;
+  /**
+   * I numeri **congelati** di un incasso online: lordo, commissione della
+   * piattaforma, netto, e la regola che li ha prodotti.
+   *
+   * Assenti su un incasso manuale, che commissioni non ne ha. Non si
+   * ricalcolano mai: vedi `src/lib/payments/commission.ts` e ADR-0050.
+   */
+  settlement?: FrozenSettlement | null;
+  /** L'account connesso su cui il denaro e entrato. */
+  externalAccountId?: unknown;
+  /** PaymentIntent o Charge: con cui si riconcilia sul cruscotto del PSP. */
+  externalPaymentId?: unknown;
+  /** L'evento che ha prodotto questa riga. */
+  externalEventId?: unknown;
+  /** Il tipo di operazione, quando chi registra lo dichiara. */
+  operationTypeCode?: unknown;
+};
+
+/** I campi di riconciliazione, nella forma in cui vanno scritti sulla riga. */
+const settlementColumns = (settlement?: FrozenSettlement | null) => {
+  if (!settlement) return {};
+
+  return {
+    currency: settlement.currency,
+    gross_amount_cents: settlement.grossAmountCents,
+    platform_fee_cents: settlement.platformFeeCents,
+    provider_fee_cents: settlement.providerFeeCents,
+    net_amount_cents: settlement.netAmountCents,
+    applied_fee_percent: settlement.appliedFeePercent,
+    applied_fee_fixed_cents: settlement.appliedFeeFixedCents,
+    commission_rule_id: settlement.commissionRuleId,
+  };
 };
 
 /**
@@ -360,6 +399,11 @@ export const createPaymentTransaction = async (
         source,
         external_reference: asText(input.externalReference) || null,
         created_by: scope?.userId || null,
+        external_account_id: asText(input.externalAccountId) || null,
+        external_payment_id: asText(input.externalPaymentId) || null,
+        external_event_id: asText(input.externalEventId) || null,
+        operation_type_code: asText(input.operationTypeCode) || null,
+        ...settlementColumns(input.settlement),
         data: {},
       },
     });
@@ -475,205 +519,210 @@ export const reversePaymentTransaction = async (
   };
 };
 
-/* --------------------------------------------------------------- ricevute */
+/* --------------------------------------------------------------- rimborsi */
 
-const receiptClient = () => (prisma as any).receipt;
-
-/**
- * Emette la ricevuta di un incasso.
- *
- * **Perche per incasso e non per rata.** Una ricevuta attesta che del denaro e
- * arrivato: se il livello fosse la rata, una rata pagata in tre volte
- * produrrebbe una ricevuta sola, e le altre due somme resterebbero senza
- * documento. E la ragione per cui `receipts.payment_id` ha perso il vincolo di
- * unicita (ADR-0036).
- *
- * Resta **fuori scope** una contabilita fiscale: qui si emette il documento e
- * lo si numera, non si tiene un registro IVA. La fattura (`invoices`) e un
- * oggetto distinto e non viene toccata.
- */
-export const issueReceiptForTransaction = async (
-  input: { transactionId: string; description?: unknown },
-  scope?: PaymentTransactionScope,
-) => {
-  const transaction = await getPaymentTransactionById(input.transactionId, scope);
-
-  if (transaction.reversed_at || transaction.reverses_transaction_id) {
-    throw new Error(
-      "Un incasso stornato non produce una ricevuta: registra di nuovo l'incasso",
-    );
-  }
-
-  const existing = await receiptClient().findUnique({
-    where: { transaction_id: transaction.id },
-  });
-
-  if (existing) {
-    return existing;
-  }
-
-  const charge = transaction.payment_id
-    ? await chargeClient().findUnique({ where: { id: transaction.payment_id } })
-    : null;
-
-  const issueDate = transaction.paid_at || new Date();
-  const description =
-    asText(input.description) ||
-    `Ricevuta ${charge?.description || "incasso"}`.trim();
-
-  /*
-    Il numero lo assegna `document-numbering`, che e il proprietario del
-    dominio. Prima si contavano le ricevute gia emesse e si riprovava fino a
-    venticinque volte: funzionava, ma il conteggio era globale — due societa
-    che emettevano insieme la loro prima ricevuta dell'anno si contendevano
-    lo stesso numero — e produceva buchi proprio quando c'era traffico
-    (ADR-0044, chiude D28).
-  */
-  const allocation = await allocateDocumentNumber({
-    organizationId: transaction.organization_id,
-    kind: "receipt",
-    year: documentYearOf(issueDate),
-  });
-
-  return receiptClient().create({
-    data: {
-      organization_id: transaction.organization_id,
-      athlete_id: transaction.athlete_id,
-      payment_id: transaction.payment_id,
-      transaction_id: transaction.id,
-      receipt_number: allocation.number,
-      issue_date: issueDate,
-      amount: toPaymentAmount(transaction.amount),
-      description,
-      status: "issued",
-      method: transaction.payment_method,
-      data: {
-        source: "payment_transaction",
-        transactionId: transaction.id,
-        issuedBy: scope?.userId || null,
-      },
-    },
-  });
+export type RecordRefundInput = {
+  /** L'incasso rimborsato. */
+  transactionId: string;
+  amountCents: number;
+  /** L'identificativo del rimborso presso il provider: la chiave di deduplica. */
+  externalRefundId: string;
+  externalEventId?: unknown;
+  paidAt?: unknown;
+  reason?: unknown;
+  settlement?: FrozenSettlement | null;
+  /**
+   * Vero **solo** per un rimborso confermato da un evento firmato. Come per
+   * gli incassi, nessuna rotta HTTP lo imposta.
+   */
+  confirmedByProvider?: boolean;
 };
 
-/* --------------------------------------------------------------- fatture */
-
-const invoiceClient = () => (prisma as any).invoice;
-
 /**
- * Emette la **fattura** di un incasso.
+ * Registra un **rimborso**.
  *
- * **Perche non e la stessa cosa della ricevuta, e non basta un campo.** Una
- * ricevuta attesta che del denaro e arrivato; una fattura e un documento
- * fiscale con un intestatario, una posizione fiscale e una numerazione
- * propria. Confonderle vorrebbe dire trasformare in fattura ogni incasso —
- * inclusi quelli di una societa che le fatture non le emette affatto, che
- * sono la maggioranza delle ASD.
+ * **Perche non e uno storno, e perche la differenza conta.** Uno storno dice
+ * «questo incasso non e mai avvenuto»: e la correzione di un errore di
+ * registrazione, e infatti toglie dai totali **sia** l'incasso **sia** il
+ * movimento che lo compensa — netto zero, come se non fosse successo nulla. Un
+ * rimborso dice l'opposto: l'incasso e avvenuto davvero, e poi del denaro e
+ * tornato indietro. Sono due fatti, e restano due movimenti che **contano
+ * entrambi**.
  *
- * **Perche non ogni incasso ne produce una.** Il documento si sceglie:
- * ricevuta *oppure* fattura, a partire dallo stesso incasso. Le due
- * numerazioni sono registri distinti (`R-` e `FT-`) e non si mescolano.
+ * E anche l'unico modo di rappresentare un rimborso **parziale**. Con la
+ * meccanica dello storno, restituire 30 € su 130 avrebbe dovuto annullare
+ * l'incasso intero e registrarne uno nuovo da 100: la rata sarebbe risultata
+ * pagata 100 e la famiglia non avrebbe piu trovato traccia dei 130 che aveva
+ * versato.
  *
- * **A chi e intestata.** Non all'atleta, quasi mai: un minorenne non ha una
- * posizione fiscale, e la detrazione la chiede il genitore con il **suo**
- * codice fiscale. Vedi `resolveFiscalRecipient`.
+ *     Rata 130 → incasso +130 → PAGATA
+ *     rimborso 30 → movimento −30 → incassato 100, residuo 30, PARZIALE
  *
- * **Cosa resta fuori, e va detto.** La trasmissione allo SdI. Qui si emette
- * il documento e lo si numera; l'invio della fattura elettronica richiede un
- * intermediario accreditato, e non esiste in questo repository (ADR-0047).
+ * **Perche e idempotente sull'identificativo del rimborso.** Stripe consegna
+ * lo stesso evento piu volte, e la deduplica degli eventi copre il caso
+ * normale; questo controllo copre quello che resta — due eventi *diversi* che
+ * riguardano lo stesso rimborso, che e cosa che succede fra `charge.refunded`
+ * e `charge.refund.updated`.
  */
-export const issueInvoiceForTransaction = async (
-  input: { transactionId: string; description?: unknown },
+export const recordRefundTransaction = async (
+  input: RecordRefundInput,
   scope?: PaymentTransactionScope,
-) => {
-  const transaction = await getPaymentTransactionById(input.transactionId, scope);
+): Promise<PaymentTransactionResult & { duplicate: boolean }> => {
+  const original = await getPaymentTransactionById(input.transactionId, scope);
 
-  if (transaction.reversed_at || transaction.reverses_transaction_id) {
+  if (!input.confirmedByProvider) {
     throw new Error(
-      "Un incasso stornato non produce una fattura: registra di nuovo l'incasso",
+      "Un rimborso lo conferma il provider: da qui si registra uno storno, non un rimborso",
     );
   }
 
-  /*
-    Idempotente come l'emissione della ricevuta: chiederla due volte
-    restituisce quella gia emessa, invece di consumare un numero e creare un
-    secondo documento per lo stesso denaro.
-  */
-  const existing = await invoiceClient().findFirst({
+  const externalRefundId = asText(input.externalRefundId);
+  if (!externalRefundId) {
+    throw new Error("Rimborso senza identificativo del provider");
+  }
+
+  const existing = await transactionClient().findFirst({
     where: {
-      organization_id: transaction.organization_id,
-      data: { path: ["transactionId"], equals: transaction.id },
+      organization_id: original.organization_id,
+      external_reference: externalRefundId,
     },
   });
 
   if (existing) {
-    return existing;
+    const transactions = original.payment_id
+      ? await listPaymentTransactions({ paymentId: original.payment_id }, scope)
+      : [];
+
+    return {
+      duplicate: true,
+      transaction: normalizePaymentTransaction(
+        existing,
+      ) as NormalizedPaymentTransaction,
+      charge: null,
+      transactions,
+    };
   }
 
-  const charge = transaction.payment_id
-    ? await chargeClient().findUnique({ where: { id: transaction.payment_id } })
-    : null;
+  const refundedCents = Math.max(0, Math.round(Number(input.amountCents) || 0));
+  const originalCents = Math.round(toPaymentAmount(original.amount) * 100);
 
-  const athlete = transaction.athlete_id
-    ? await (prisma as any).athlete.findFirst({
-        where: {
-          id: transaction.athlete_id,
-          organization_id: transaction.organization_id,
-        },
-      })
-    : null;
+  if (refundedCents <= 0) {
+    throw new Error("L'importo del rimborso deve essere maggiore di zero");
+  }
 
-  const recipient = resolveFiscalRecipient(athlete);
-  const missing = missingInvoiceFields(recipient);
+  /*
+    Un rimborso non puo superare l'incasso, e non puo superare quel che ne
+    resta dopo i rimborsi gia registrati. Il provider non lo consentirebbe, ma
+    la difesa sta qui perche il registro deve restare coerente anche se
+    l'evento arriva malformato o fuori ordine.
+  */
+  const alreadyRefunded = await transactionClient().findMany({
+    where: {
+      organization_id: original.organization_id,
+      external_payment_id: original.external_payment_id || undefined,
+      amount: { lt: 0 },
+    },
+  });
 
-  if (missing.length) {
+  const alreadyRefundedCents = alreadyRefunded.reduce(
+    (total: number, row: any) =>
+      total + Math.abs(Math.round(toPaymentAmount(row.amount) * 100)),
+    0,
+  );
+
+  if (refundedCents + alreadyRefundedCents > originalCents) {
     throw new Error(
-      `Per emettere una fattura mancano: ${missing.join(", ")}. Completa l'anagrafica dell'intestatario, oppure emetti una ricevuta.`,
+      "Il rimborso supera quanto era stato incassato su questo movimento",
     );
   }
 
-  const issueDate = transaction.paid_at || new Date();
-  const allocation = await allocateDocumentNumber({
-    organizationId: transaction.organization_id,
-    kind: "invoice",
-    year: documentYearOf(issueDate),
+  const paymentId = original.payment_id || null;
+  const paidAt = toDateOrNull(input.paidAt) || new Date();
+  const reason = asText(input.reason) || "Rimborso registrato dal provider";
+
+  const result = await (prisma as any).$transaction(async (client: any) => {
+    const row = await client.paymentTransaction.create({
+      data: {
+        organization_id: original.organization_id,
+        athlete_id: original.athlete_id,
+        payment_id: paymentId,
+        /*
+          Negativo, e **senza** `reverses_transaction_id`: quel campo esclude la
+          riga dai totali, ed e esattamente cio che un rimborso non deve fare.
+          Il legame con l'incasso originale sta in `data` e nel PaymentIntent
+          condiviso.
+        */
+        amount: -(refundedCents / 100),
+        paid_at: paidAt,
+        payment_method: original.payment_method,
+        notes: reason,
+        source: normalizePaymentTransactionSource(original.source),
+        external_reference: externalRefundId,
+        external_account_id: original.external_account_id,
+        external_payment_id: original.external_payment_id,
+        external_event_id: asText(input.externalEventId) || null,
+        operation_type_code: original.operation_type_code,
+        created_by: null,
+        ...settlementColumns(input.settlement),
+        data: {
+          kind: "refund",
+          refundOfTransactionId: original.id,
+          externalRefundId,
+        },
+      },
+    });
+
+    const updatedCharge = paymentId
+      ? await recomputeChargeFromLedger(client, paymentId)
+      : null;
+
+    const transactions = paymentId
+      ? normalizePaymentTransactions(
+          await client.paymentTransaction.findMany({
+            where: { payment_id: paymentId },
+            orderBy: [{ paid_at: "asc" }, { created_at: "asc" }],
+          }),
+        )
+      : [];
+
+    return { row, updatedCharge, transactions };
   });
 
-  return invoiceClient().create({
-    data: {
-      organization_id: transaction.organization_id,
-      athlete_id: transaction.athlete_id,
-      payment_id: transaction.payment_id,
-      invoice_number: allocation.number,
-      issue_date: issueDate,
-      amount: toPaymentAmount(transaction.amount),
-      description:
-        asText(input.description) ||
-        `Quota ${charge?.description || "sportiva"}`.trim(),
-      payment_method: transaction.payment_method,
-      status: "issued",
-      /*
-        `is_electronic` resta falso: EasyGame produce il documento, non lo
-        trasmette. Dichiararlo elettronico senza un canale verso lo SdI
-        significherebbe far credere a una societa di aver adempiuto.
-      */
-      is_electronic: false,
-      recipient_code: recipient.recipientCode || null,
-      vat_number: recipient.vatNumber || null,
-      fiscal_code: recipient.fiscalCode || null,
-      address: recipient.address || null,
-      city: recipient.city || null,
-      postal_code: recipient.postalCode || null,
-      province: recipient.province || null,
-      country: recipient.country || null,
-      data: {
-        source: "payment_transaction",
-        transactionId: transaction.id,
-        recipientName: recipient.name,
-        recipientSource: recipient.source,
-        issuedBy: scope?.userId || null,
-      },
+  return {
+    duplicate: false,
+    transaction: normalizePaymentTransaction(
+      result.row,
+    ) as NormalizedPaymentTransaction,
+    charge: result.updatedCharge,
+    transactions: result.transactions,
+  };
+};
+
+/**
+ * L'incasso a cui un rimborso si riferisce, cercato per identificativo del
+ * pagamento presso il provider.
+ *
+ * Serve al webhook: un evento di rimborso cita il PaymentIntent, non la riga
+ * di EasyGame. La ricerca e **ristretta al club** dell'account connesso che ha
+ * generato l'evento, perche un identificativo di pagamento arriva dall'esterno
+ * e non e un lasciapassare per il registro di un'altra societa.
+ */
+export const findTransactionByExternalPaymentId = async (input: {
+  organizationId: string;
+  externalPaymentId: string;
+}) => {
+  const organizationId = asText(input.organizationId);
+  const externalPaymentId = asText(input.externalPaymentId);
+  if (!organizationId || !externalPaymentId) return null;
+
+  return transactionClient().findFirst({
+    where: {
+      organization_id: organizationId,
+      external_payment_id: externalPaymentId,
+      /* Solo l'incasso, non i rimborsi che ne discendono. */
+      amount: { gt: 0 },
     },
+    orderBy: { created_at: "asc" },
   });
 };
 
