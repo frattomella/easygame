@@ -13,7 +13,8 @@ import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { sendNotificationEmails } from "@/lib/server/email/email-service";
 import {
   AUDIT_ACTIONS,
-  AUDITED_RESOURCES,
+  AUDITED_ANAGRAFICA_RESOURCES,
+  isAuditedResource,
   recordAuditEvent,
 } from "@/lib/server/audit";
 
@@ -165,10 +166,18 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
-    if (AUDITED_RESOURCES.has(resource)) {
+    if (isAuditedResource(resource)) {
       for (const item of created) {
         await recordAuditEvent({
-          action: AUDIT_ACTIONS.resourceCreated,
+          /*
+            Anche una persona **nata** in anagrafica genera
+            `anagrafica.updated`: chi la cerca vuole la storia di quella
+            persona, e il primo evento di quella storia e la sua creazione
+            (R-07).
+          */
+          action: AUDITED_ANAGRAFICA_RESOURCES.has(resource)
+            ? AUDIT_ACTIONS.anagraficaUpdated
+            : AUDIT_ACTIONS.resourceCreated,
           actorUserId: session.db.user_id,
           actorEmail: session.db.user.email,
           actorRole: scope.activeRole,

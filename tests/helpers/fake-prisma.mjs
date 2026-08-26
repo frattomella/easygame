@@ -74,8 +74,27 @@ const matchesWhere = (record, where) => {
         if (value === condition.not) return false;
         continue;
       }
+      /*
+        I quattro confronti d'ordine, e non per completezza: senza `lt` una
+        `deleteMany({ where: { expires_at: { lt: now } } })` cadeva nel ramo
+        «condizione non supportata», che la considera soddisfatta — e
+        cancellava **tutte** le righe. Un test sulla pulizia dei dati scaduti
+        sarebbe passato provando il contrario di cio che deve provare.
+      */
       if ("gt" in condition) {
         if (!(value > condition.gt)) return false;
+        continue;
+      }
+      if ("gte" in condition) {
+        if (!(value >= condition.gte)) return false;
+        continue;
+      }
+      if ("lt" in condition) {
+        if (!(value < condition.lt)) return false;
+        continue;
+      }
+      if ("lte" in condition) {
+        if (!(value <= condition.lte)) return false;
         continue;
       }
       // condizione non supportata: la si considera soddisfatta, cosi il test

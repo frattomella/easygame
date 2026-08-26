@@ -12,6 +12,12 @@ import {
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { ENTITLEMENTS } from "@/lib/entitlements";
+import {
+  isValidationError,
+  parseInput,
+  validationErrorPayload,
+} from "@/lib/validation";
+import { entitlementWriteSchema } from "@/lib/validation/schemas";
 
 /**
  * Cosa questo club puo usare.
@@ -42,6 +48,10 @@ const unauthorized = () =>
   );
 
 const failure = (error: any, fallback: string) => {
+  if (isValidationError(error)) {
+    return NextResponse.json(validationErrorPayload(error), { status: 400 });
+  }
+
   const message = String(error?.message || fallback);
   const status = message.includes("Accesso negato")
     ? 403
@@ -129,10 +139,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json().catch(() => ({}));
-    const organizationId = String(
-      body?.organization_id || body?.organizationId || "",
-    ).trim();
+    const raw = await request.json().catch(() => ({}));
+    const rawRecord =
+      raw && typeof raw === "object" && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
 
     /*
       Tre scritture diverse sulla stessa rotta, distinte da `operation`:
@@ -140,18 +151,26 @@ export async function POST(request: Request) {
       predefinito), il piano, e un servizio aggiuntivo. Sono tre cose che
       cambiano insieme quando Cedi vende o sospende qualcosa, e tenerle su tre
       rotte avrebbe voluto dire tre controlli di ruolo da tenere allineati.
-    */
-    const operation = String(body?.operation || "override");
 
-    if (operation === "plan") {
+      Uno schema discriminato invece di tre letture a mano: cosi «piano» puo
+      valere solo `free` o `plus`, e uno stato inventato viene rifiutato qui
+      con scritto perche, invece di essere normalizzato in silenzio in un
+      valore che nessuno ha chiesto.
+    */
+    const body = parseInput(entitlementWriteSchema, {
+      ...rawRecord,
+      organization_id:
+        (rawRecord.organization_id as string) ??
+        (rawRecord.organizationId as string),
+    });
+    const organizationId = body.organization_id;
+
+    if (body.operation === "plan") {
       const subscription = await setClubPlan({
         organizationId,
-        plan: body?.plan === undefined ? undefined : body.plan,
-        status: body?.status === undefined ? undefined : body.status,
-        renewalDate:
-          body?.renewal_date === undefined
-            ? undefined
-            : String(body.renewal_date || ""),
+        plan: body.plan,
+        status: body.status,
+        renewalDate: body.renewal_date,
       });
 
       await recordAuditEvent({
@@ -173,11 +192,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ data: { subscription }, error: null });
     }
 
-    if (operation === "service") {
+    if (body.operation === "service") {
       const services = await setClubExtraService({
         organizationId,
-        key: String(body?.key || ""),
-        enabled: Boolean(body?.value),
+        key: body.key,
+        enabled: body.value,
       });
 
       await recordAuditEvent({
@@ -187,9 +206,9 @@ export async function POST(request: Request) {
         actorRole: "platform_admin",
         organizationId,
         resource: "club_service",
-        resourceId: String(body?.key || ""),
+        resourceId: body.key,
         request,
-        metadata: { key: body?.key, enabled: Boolean(body?.value) },
+        metadata: { key: body.key, enabled: body.value },
       });
 
       return NextResponse.json({ data: { services }, error: null });
@@ -197,14 +216,14 @@ export async function POST(request: Request) {
 
     const overrides = await setClubEntitlementOverride({
       organizationId,
-      key: String(body?.key || ""),
+      key: body.key,
       /*
         `null` toglie l'eccezione e riporta la funzione alla regola del
         listino. E diverso da `false`, che la vieta anche a chi il listino la
         comprende: senza la distinzione, «rimetti com'era» sarebbe
         irraggiungibile.
       */
-      value: body?.value === null ? null : Boolean(body?.value),
+      value: body.value,
     });
 
     await recordAuditEvent({
@@ -214,9 +233,9 @@ export async function POST(request: Request) {
       actorRole: "platform_admin",
       organizationId,
       resource: "entitlements",
-      resourceId: String(body?.key || ""),
+      resourceId: body.key,
       request,
-      metadata: { key: body?.key, value: body?.value },
+      metadata: { key: body.key, value: body.value },
     });
 
     return NextResponse.json({ data: { overrides }, error: null });

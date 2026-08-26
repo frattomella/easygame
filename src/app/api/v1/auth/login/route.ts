@@ -28,6 +28,8 @@ import {
 } from "@/lib/server/email/email-service";
 import { resolveEmailVerificationPolicy } from "@/lib/auth/email-verification-policy";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { parseInput, validationErrorPayload } from "@/lib/validation";
+import { loginInputSchema } from "@/lib/validation/schemas";
 
 const DUMMY_PASSWORD_HASH =
   "$2a$10$3gQkUQ3VL89S/gY5KFIC0OG/lquhesFrvFvKtZk4ebmerY.cPiUuO";
@@ -50,17 +52,25 @@ const rateLimitedResponse = (result: {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const email = String(body?.email || "")
-      .trim()
-      .toLowerCase();
-    const password = String(body?.password || "");
+    const body = await request.json().catch(() => ({}));
 
-    if (!email || !password) {
+    /*
+      La forma del corpo la dichiara uno schema, non tre coercizioni a mano:
+      cosi «quanto puo essere lunga un'email» ha una risposta sola in tutto il
+      progetto, e chi legge la rotta vede cosa accetta senza ricostruirlo dal
+      codice che la smonta (D14, WP-05).
+    */
+    let email = "";
+    let password = "";
+    try {
+      const input = parseInput(loginInputSchema, body);
+      email = input.email;
+      password = input.password;
+    } catch (error) {
       return NextResponse.json(
         {
+          ...validationErrorPayload(error),
           data: { user: null, session: null },
-          error: { message: "Email e password sono obbligatori" },
         },
         { status: 400 },
       );

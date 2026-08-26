@@ -43,6 +43,43 @@ Regole:
 errore di autorizzazione, il messaggio **deve** contenere `Accesso negato`,
 altrimenti diventa un 400.
 
+## Validazione del corpo — `VALIDATION_ERROR`
+
+Dal Blocco Finale C gli endpoint a **corpo chiuso e conosciuto** dichiarano la
+loro forma con uno schema `zod` in `src/lib/validation/`, invece di
+coercizzarla a mano (D14, WP-05). Un corpo malformato produce:
+
+```jsonc
+{
+  "data": null,
+  "error": {
+    "message": "amount: Importo dell'incasso deve essere maggiore di zero",
+    "code": "VALIDATION_ERROR",
+    "issues": [{ "path": "amount", "message": "…" }]
+  }
+}
+```
+
+con stato **400**. Il codice sta nell'envelope e non nel testo: un client puo
+distinguere «hai sbagliato il corpo» da «non hai il permesso» senza leggere
+dell'italiano.
+
+**Dove sono gli schemi, e dove deliberatamente non sono.**
+
+| Coperto | Non coperto, e perche |
+|---------|----------------------|
+| `auth/login`, `auth/register` | Il **CRUD generico** `/api/v1/<resource>`: cinquanta risorse con forme aperte e in evoluzione. Uno schema chiuso le rifiuterebbe a raffica |
+| `payment-transactions` | I **moduli online**, che hanno gia una validazione propria guidata dallo schema del modulo (`src/lib/forms/validation.ts`) |
+| `seasons`, `entitlements` | |
+| `funding/programs`, `funding/settlements` | |
+
+Due schemi sono **volutamente `passthrough`**: la registrazione, che trasporta
+i dati anagrafici raccolti dal form, e il bando, le cui regole sono
+configurazione e non codice. Chiuderli scarterebbe in silenzio cio che serve.
+
+La **forza della password** non si valida negli schemi: la politica vive in
+`src/lib/auth/password-policy.ts` e resta l'unica a conoscerla.
+
 ## Header di contesto
 
 Impostati automaticamente da `apiRequest` (web) e da `services/api.ts` (mobile):

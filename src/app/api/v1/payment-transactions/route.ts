@@ -9,6 +9,12 @@ import {
 } from "@/lib/server/payment-transactions";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import {
+  isValidationError,
+  parseInput,
+  validationErrorPayload,
+} from "@/lib/validation";
+import { paymentTransactionInputSchema } from "@/lib/validation/schemas";
 
 /**
  * Il registro degli incassi.
@@ -38,6 +44,15 @@ const unauthorized = () =>
   );
 
 const failure = (error: any, fallback: string) => {
+  /*
+    Un corpo malformato non e un errore di dominio: risponde 400 con
+    `VALIDATION_ERROR` nell'envelope, cosi un client puo distinguerlo da «non
+    hai il permesso» senza leggere del testo italiano.
+  */
+  if (isValidationError(error)) {
+    return NextResponse.json(validationErrorPayload(error), { status: 400 });
+  }
+
   const message = String(error?.message || fallback);
   const status = message.includes("Accesso negato") ? 403 : 400;
   return NextResponse.json({ data: null, error: { message } }, { status });
@@ -97,27 +112,23 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
 
-    const result = await createPaymentTransaction(
-      {
-        organizationId: body?.organization_id ?? body?.organizationId,
-        athleteId: body?.athlete_id ?? body?.athleteId,
-        paymentId: body?.payment_id ?? body?.paymentId,
-        amount: body?.amount,
-        paidAt: body?.paid_at ?? body?.paidAt,
-        paymentMethod: body?.payment_method ?? body?.paymentMethod,
-        notes: body?.notes,
-        source: body?.source,
-        externalReference:
-          body?.external_reference ?? body?.externalReference,
-        allowOverpayment: Boolean(
-          body?.allow_overpayment ?? body?.allowOverpayment,
-        ),
-      },
-      scope,
-    );
+    /*
+      Lo schema stabilisce che il corpo e della forma dichiarata — un importo
+      e un numero positivo, una data e una data. **Non** decide se l'incasso
+      ha senso: «supera il residuo della rata» resta una regola del registro,
+      dove il residuo esiste.
+    */
+    const input = parseInput(paymentTransactionInputSchema, body);
+
+    const result = await createPaymentTransaction(input, scope);
 
     await recordAuditEvent({
-      action: AUDIT_ACTIONS.resourceCreated,
+      /*
+        Un'azione propria e non `resource.created`: «chi ha incassato questi
+        cinquanta euro, e quando» e una domanda che una segreteria pone mesi
+        dopo, e cercarla fra tutte le creazioni di risorsa non la trova.
+      */
+      action: AUDIT_ACTIONS.paymentTransactionRecorded,
       actorUserId: session.db.user_id,
       actorEmail: session.db.user.email,
       actorRole: scope.activeRole,

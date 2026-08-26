@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { isValidationError, validationErrorPayload } from "@/lib/validation";
 import {
   AUDIT_ACTIONS,
   recordAuditEvent,
@@ -97,6 +98,10 @@ export const resolveSeasonRequestContext = async (
 };
 
 export const seasonErrorResponse = (error: any, fallbackStatus = 400) => {
+  if (isValidationError(error)) {
+    return NextResponse.json(validationErrorPayload(error), { status: 400 });
+  }
+
   const message = String(error?.message || "Errore sulla stagione");
   const status = message.includes("Accesso negato") ? 403 : fallbackStatus;
 

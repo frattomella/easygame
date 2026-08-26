@@ -197,6 +197,24 @@ stagioni (`season.created`, `season.activated`, `season.archived`,
 `season.rollover` — Blocco 6), e **tutti** i dinieghi di autorizzazione su
 qualunque risorsa.
 
+**Dal Blocco Finale C** (R-07, che ADR-0019 dichiarava bloccante per la
+produzione), con azioni **proprie** e non `resource.*`, perche la domanda che
+si pone su ognuna e diversa e cercarla fra tutte le scritture di risorsa non
+la trova:
+
+| Azione | Cosa risponde |
+|--------|---------------|
+| `anagrafica.updated` | «Chi ha cambiato i dati di questa persona?» — atleti, allenatori, staff, soci, appartenenze e certificati (`AUDITED_ANAGRAFICA_RESOURCES`). Serve perche l'approvazione di una compilazione scrive in anagrafica **per conto di qualcun altro** |
+| `payment.transaction.recorded` / `.reversed` | «Chi ha incassato questi cinquanta euro, e chi li ha stornati?» |
+| `document.issued` | Quale ricevuta o fattura e stata emessa, e da chi |
+| `funding.period.reported` / `.settled` | Gli atti verso un finanziatore. La **maturazione** no: e un calcolo, e tracciarla riempirebbe il log di righe che nessuno cerca |
+| `platform.club_plan.changed`, `platform.club_service.changed`, `platform.entitlement.overridden` | Il commerciale della piattaforma. Un club non le puo compiere: se compaiono con un attore che non e `platform_admin`, e successo qualcosa |
+
+**Cosa resta deliberatamente fuori.** Allenamenti, magazzino e programma
+settimanale: non hanno un soggetto, e tracciarli porterebbe il volume al punto
+in cui il log smette di essere leggibile — che e il modo piu comune in cui un
+audit diventa inutile.
+
 Registrati: azione, esito, actor (id, email, ruolo), organizzazione, risorsa e
 id, IP, user agent, metadati filtrati, timestamp.
 

@@ -78,16 +78,26 @@ test("la data di inizio si legge e si scrive con entrambe le chiavi", () => {
  * `trainers/[id]/edit` leggeva `birthYear` **prima** di `birthDate` e la
  * riscriveva come 1° gennaio: bastava aprire la modifica e salvare perche la
  * data di nascita diventasse fittizia — e con essa il codice fiscale.
+ *
+ * **Dal Blocco Finale C il difetto non ha piu dove esistere.** Quella pagina
+ * era orfana — nessun link, nessun `router.push` — e la modifica vera avviene
+ * nelle sezioni della scheda: e diventata un rimando alla scheda (D27, R-09).
+ * L'invariante cambia di conseguenza, e dirlo e piu onesto che tenere in vita
+ * un test su un form che non c'e piu.
  */
-test("la data di nascita non viene degradata ad anno", () => {
+test("la modifica dell'allenatore non ha una seconda pagina che degrada i dati", () => {
   const source = readCode(TRAINER_EDIT);
 
   assert.match(
     source,
-    /birthDate:\s*\n?\s*trainerFound\.birthDate \|\|/,
-    "la data vera viene prima dell'anno",
+    /redirect\(/,
+    "l'indirizzo deve portare alla scheda, dove la modifica avviene davvero",
   );
-  assert.match(source, /birthDate: trainerData\.birthDate \|\| null/);
+  assert.doesNotMatch(
+    source,
+    /birthYear/,
+    "nessun form residuo puo piu riscrivere la data di nascita come 1° gennaio",
+  );
 });
 
 test("la creazione chiede data di nascita e sesso, non il solo anno", () => {

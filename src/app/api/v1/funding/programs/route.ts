@@ -9,6 +9,12 @@ import {
 } from "@/lib/server/funding";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { requireClubEntitlement } from "@/lib/server/entitlements";
+import {
+  isValidationError,
+  parseInput,
+  validationErrorPayload,
+} from "@/lib/validation";
+import { fundingProgramInputSchema } from "@/lib/validation/schemas";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
@@ -37,6 +43,10 @@ const forbidden = (message: string) =>
   NextResponse.json({ data: null, error: { message } }, { status: 403 });
 
 const failure = (error: any, fallback: string) => {
+  if (isValidationError(error)) {
+    return NextResponse.json(validationErrorPayload(error), { status: 400 });
+  }
+
   const message = String(error?.message || fallback);
   const status = message.includes("Accesso negato")
     ? 403
@@ -102,7 +112,10 @@ export async function POST(request: Request) {
       isPlatformAdmin: isPlatformAdminUser(session.db.user),
     });
 
-    const body = await request.json().catch(() => ({}));
+    const body = parseInput(
+      fundingProgramInputSchema,
+      await request.json().catch(() => ({})),
+    );
     const program = await createFundingProgram(body, scope);
 
     await recordAuditEvent({

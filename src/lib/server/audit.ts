@@ -94,6 +94,41 @@ export const AUDITED_RESOURCES = new Set([
 ]);
 
 /**
+ * Le anagrafiche di persona (R-07, ADR-0019).
+ *
+ * **Perche sono un insieme a parte e non righe in piu di quello sopra.**
+ * L'azione che generano e diversa — `anagrafica.updated` invece di
+ * `resource.updated` — perche la domanda che si pone su un'anagrafica e
+ * diversa: non «chi ha scritto su questa tabella» ma «chi ha cambiato i dati
+ * di questa persona, e quando». Cercarla fra tutte le scritture di risorsa
+ * non la trova.
+ *
+ * **Perche adesso.** L'approvazione di una compilazione di modulo scrive in
+ * anagrafica per conto di qualcun altro: senza traccia non si sa chi ha
+ * approvato cosa, ed e il motivo per cui ADR-0019 dichiara questa copertura
+ * bloccante per la produzione.
+ *
+ * **Perche non tutte le risorse di club.** Un allenamento spostato o un
+ * articolo di magazzino aggiornato non hanno un soggetto: tracciarli
+ * porterebbe il volume al punto in cui il log smette di essere leggibile, che
+ * e il modo piu comune in cui un audit diventa inutile.
+ */
+export const AUDITED_ANAGRAFICA_RESOURCES = new Set([
+  "athletes",
+  "simplified_athletes",
+  "athlete_category_memberships",
+  "trainers",
+  "staff_members",
+  "members",
+  "medical_certificates",
+  "simplified_certificates",
+]);
+
+/** Vero se la scrittura su questa risorsa va tracciata, a qualunque titolo. */
+export const isAuditedResource = (resource: string) =>
+  AUDITED_RESOURCES.has(resource) || AUDITED_ANAGRAFICA_RESOURCES.has(resource);
+
+/**
  * Chiavi il cui valore non deve mai finire nel log, a qualunque profondita.
  *
  * Due liste, non una: cercare per sottostringa termini brevi come `iv` o `pin`

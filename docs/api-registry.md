@@ -46,6 +46,13 @@ Fonte ufficiale da mantenere aggiornata:
   (`true`), revoca (`false`) o toglie (`null`) l'eccezione su una funzione.
   **Solo platform_admin**, e ognuna delle tre lascia una riga di audit: il
   piano di un club non e una sua preferenza ([ADR-0048](knowledge-base/18-decision-log.md))
+- `POST /api/v1/maintenance` — toglie cio che e scaduto: sessioni, sfide OTP,
+  contatori di rate limit e audit oltre la retention. **Nessuna schermata le
+  legge, quindi nessuna schermata le pulira mai.** La aziona un cron con
+  `x-maintenance-token` (confrontato con `EASYGAME_MAINTENANCE_TOKEN`, e se la
+  variabile e vuota il token non vale) oppure un `platform_admin` a mano. Il
+  *trigger* sta fuori dall'applicazione: Vercel Cron, un'azione GitHub o il
+  cron di una macchina, per non legarsi a un servizio dell'hosting (ADR-0007)
 - `GET|POST /api/v1/funding/programs` — programmi di contributo (voucher,
   bandi). Le regole del bando sono colonne, non codice
 - `GET|PATCH /api/v1/funding/programs/:id` — nessun `DELETE`: un programma con

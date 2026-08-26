@@ -32,9 +32,9 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 192 |
-| `IN PROGRESS` | 16 |
-| `OPEN` | 22 |
+| `DONE` | 194 |
+| `IN PROGRESS` | 15 |
+| `OPEN` | 21 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
 | **Totale** | **240** |
@@ -53,7 +53,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | F1-02 | Gate automatici su ogni push e pull request | `DONE` | WP-02 |
 | F1-03 | Protezione uniforme delle route: nessuna area management raggiungibile senza sessione e ruolo | `DONE` | WP-03 |
 | F1-04 | Poter testare i route handler, a partire dall'isolamento multi-tenant | `DONE` | WP-04 |
-| F1-05 | Validare gli input delle API con uno schema | `OPEN` | — (WP-05, pronto) |
+| F1-05 | Validare gli input delle API con uno schema | `DONE` | **Blocco Finale C** — `src/lib/validation/` con `zod`: autenticazione, incassi, stagioni, piano commerciale, contributi. Il CRUD generico resta fuori **per scelta**: cinquanta risorse con forme aperte, che uno schema chiuso rifiuterebbe a raffica |
 | F1-06 | Togliere ORM e scaffold server dal mobile | `DONE` | WP-06 |
 | F1-07 | Spostare la logica di dominio dal client al server | `OPEN` | — (WP-07, dipende da WP-04, gia fatto) |
 | F1-08 | Rimuovere `.babelrc` e riabilitare SWC | `DONE` | WP-08 |
@@ -383,12 +383,12 @@ piu sotto: quelle vengono **dopo** il rilascio.
 | R-01 | Verifica su schermo delle pagine **restanti** a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Il Blocco A ha verificato le quattordici pagine dei suoi domini — anagrafiche, documenti, abbigliamento, numerazione — e ne ha corrette tre. **Restano** le pagine nate dall'integrazione: Contributi, Sedi, Moduli e il modulo pubblico, piu partite e presenze | BA-31, B3-03, ADR-0025 |
 | ~~R-02~~ | ~~La lista Atleti deve consumare la paginazione~~ | **Chiuso dal Blocco Finale C.** Due modi decisi dall'archivio: sotto una pagina niente cambia, sopra i filtri vanno al server. Misurato con `npm run measure:web` — la richiesta della lista resta a 121 kB e due interrogazioni **da 200 a 2.000 atleti**, contro 1.221 kB dell'archivio intero | F1-12, B8-21 |
 | R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon, e la Modulistica V2 ne aggiunge uno per ogni certificato caricato da un modulo pubblico | B8-13, ADR-0034 |
-| R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica, e la superficie pubblica e appena cresciuta con `/api/forms/public` | F1-05, WP-05 |
+| ~~R-04~~ | ~~Validazione input con uno schema (`zod`)~~ | **Chiuso dal Blocco Finale C** dove il corpo e chiuso e conosciuto: autenticazione, incassi, stagioni, piano, contributi. Un corpo malformato risponde 400 con `VALIDATION_ERROR` nell'envelope. Il CRUD generico resta fuori per scelta motivata; i moduli pubblici hanno gia una validazione guidata dallo schema del modulo | F1-05, WP-05 |
 | R-05 | Pagamenti online: implementarli o togliere la promessa | **Parzialmente chiuso dal Blocco Finale B** (ADR-0045). Il contratto provider-agnostico, l'adapter Stripe, la verifica della firma, la deduplica degli eventi e le rotte ci sono, e la promessa non e piu rotta: dove manca una configurazione l'interfaccia lo **dice**, con un messaggio diverso per ognuno dei quattro blocchi. **Resta aperto** cio che non si puo collaudare senza credenziali Stripe: un checkout vero, un webhook vero, un rimborso vero. Piu tre decisioni di prodotto elencate nell'ADR | F4-03, WP-13, ADR-0045 |
 | R-06 | Unificare i due sistemi di toast | Due sistemi montati insieme: due comportamenti per lo stesso avviso | F3-02, WP-14 |
-| R-07 | Completare l'audit log sulle anagrafiche | ADR-0019 lo dichiara bloccante per la produzione. L'approvazione di una compilazione scrive in anagrafica: senza audit non si sa chi ha approvato cosa | F3-04 |
-| R-08 | Scheduler dei promemoria certificati | Un certificato scaduto e un atleta che non puo scendere in campo, e oggi nessuno avvisa | F3-09 |
-| R-09 | Rimuovere i residui legacy classificati | 19 componenti `ui/*` non usati, due route di modifica orfane (D27) e `AddPaymentForm`, che e una terza finestra di pagamento mai montata e verosimile (D31) | F3-06, WP-18 |
+| ~~R-07~~ | ~~Completare l'audit log sulle anagrafiche~~ | **Chiuso dal Blocco Finale C**: `anagrafica.updated` su atleti, allenatori, staff, soci, appartenenze e certificati, piu azioni proprie per incassi, storni, documenti, rendicontazioni, liquidazioni e commerciale della piattaforma | F3-04 |
+| R-08 | Scheduler dei promemoria certificati | Un certificato scaduto e un atleta che non puo scendere in campo, e oggi avvisa solo chi apre la schermata e preme il pulsante. **Il posto dove agganciarlo c'e** (`runScheduledMaintenance`, `POST /api/v1/maintenance`); manca la decisione di prodotto su destinatari, frequenza e disiscrizione — vedi F3-09 | F3-09 |
+| R-09 | Rimuovere i residui legacy classificati | **Parzialmente chiuso dal Blocco Finale C**: le due route orfane (D27) sono diventate un rimando alla scheda — un indirizzo in un segnalibro merita un rimando, non un 404 — e `AddPaymentForm` (D31) e stata rimossa dopo aver dimostrato che nessun file la referenzia. **Restano** le 19 primitive `ui/*`, e restano **per scelta**: sono la libreria shadcn/ui, il tree-shaking le tiene fuori dal bundle, e rimuoverle costerebbe quattro dipendenze e nessun guadagno a runtime | F3-06, WP-18 |
 | R-10 | Ambiente di produzione, error tracking, backup provati, UAT | E la fase F5 per intero: senza, «rilasciato» non ha un significato operativo | F5-01, F5-02, F5-03, F5-04 |
 | R-11 | Voucher e contributi: primo bando reale caricato e riconciliato a mano | **Lo strumento c'e** dal Blocco Finale B: `GET /api/v1/funding/programs/:id/reconciliation`, anche in CSV, mette una riga per atleta e periodo con la misura grezza accanto al requisito. **Resta l'atto**: caricare un bando vero e farlo verificare una volta da chi lo rendiconta. E una verifica su dati reali, non un lavoro di codice | A2-18, WP-48 |
 | R-12 | Multi-sede: primo club con due sedi vere, configurato e usato | Il modello, i filtri e i gruppi operativi sono coperti dai test, ma «due sedi» diventa reale solo quando una segreteria assegna atleti veri e usa i filtri per una settimana | P-01, WP-49 |
@@ -419,12 +419,12 @@ blocco e non rinviate:
 | F3-01 | Pagamenti online reali | `IN PROGRESS` | **Blocco Finale B**, ADR-0045 — CediPay: contratto provider-agnostico, adapter Stripe (addebiti diretti, commissione, rimborsi, attivazione del club), firma dei webhook verificata e collaudata, deduplica degli eventi, rotte agganciate. **Manca** cio che richiede credenziali vere: un checkout, un webhook e un rimborso provati contro Stripe |
 | F3-02 | Unificare i sistemi di toast | `OPEN` | WP-14. Ne convivono due |
 | F3-03 | Spostare i file fuori dai record | `IN PROGRESS` | **Blocco 8**, ADR-0034 — un allegato e ora una riga di `attachments` e il record ne conserva solo il riferimento. **Mancano**: la tabella `assets` (logo club, moduli online) e la scelta di un provider esterno, che e una decisione del proprietario del prodotto (opzioni e raccomandazione nell'ADR) |
-| F3-04 | Audit log | `IN PROGRESS` | WP-16, ADR-0019. Copre auth, risorse economiche, stagioni e **tutti** i dinieghi. Manca la copertura delle anagrafiche |
+| F3-04 | Audit log | `DONE` | WP-16, ADR-0019. Copre auth, risorse economiche, stagioni, **tutti** i dinieghi e, dal **Blocco Finale C**, anagrafiche di persona, incassi e storni, documenti emessi, rendicontazioni e liquidazioni, e il commerciale della piattaforma — ognuno con un'azione propria. Restano fuori allenamenti e magazzino, che non hanno un soggetto |
 | F3-05 | Ridurre l'adapter `supabase.ts` | `OPEN` | WP-17, dipende da WP-07 |
 | F3-06 | Rimuovere i residui legacy | `IN PROGRESS` | WP-18. Il Blocco 7 ne ha tolti tre (`page-modals.tsx`, `TrainerPayments.tsx`, `pin-input.tsx`). **Mancano** i 19 componenti `ui/*` non usati e gli alias di compatibilita |
 | F3-07 | Scomporre le pagine monolitiche | `IN PROGRESS` | WP-19. **Blocco 8**: `athletes/[id]/page.tsx` da 8.696 a 8.480 righe pur aggiungendo funzioni, con genitori, campi dei form, sezioni, intestazione e barra estratti, e un test che impedisce di risalire sopra 8.500. **Mancano** i sette pannelli e i circa novanta `useState`, piu `clothing/page.tsx` e `registration-management/page.tsx` |
 | F3-08 | Deprecare gli alias di compatibilita | `DEFERRED` | WP-20, dipende da WP-21 che e differito |
-| F3-09 | Scheduler per promemoria certificati | `OPEN` | Nessun WP ancora |
+| F3-09 | Scheduler per promemoria certificati | `OPEN` | **Blocco Finale C** ha fatto l'audit di cosa deve essere periodico e cosa no (`src/lib/server/maintenance.ts`). Le pulizie sono scheduled e hanno una rotta; i **promemoria no, per scelta**: mandarli a orario richiede di decidere a chi, quanto spesso e come ci si toglie. Sono tre domande di prodotto, e inventarle qui vorrebbe dire spedire email a nome di una societa senza che l'abbia chiesto |
 | F3-10 | Automazione allenamenti | `OPEN` | Nessun WP ancora |
 
 ## Fase F4 — Mobile — **DIFFERITA**

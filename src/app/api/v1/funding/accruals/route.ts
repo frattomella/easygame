@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       );
 
       await recordAuditEvent({
-        action: AUDIT_ACTIONS.resourceUpdated,
+        action: AUDIT_ACTIONS.fundingReported,
         actorUserId: session.db.user_id,
         actorEmail: session.db.user.email,
         actorRole: scope.activeRole,

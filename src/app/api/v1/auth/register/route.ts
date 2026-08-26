@@ -18,6 +18,8 @@ import {
   validatePassword,
 } from "@/lib/auth/password-policy";
 import { normalizePublicRegistrationRole } from "@/lib/auth/registration-policy";
+import { parseInput, validationErrorPayload } from "@/lib/validation";
+import { registerInputSchema } from "@/lib/validation/schemas";
 import { resolveEmailVerificationPolicy } from "@/lib/auth/email-verification-policy";
 import {
   EmailDeliveryError,
@@ -60,21 +62,23 @@ const registrationResponse = ({
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const email = String(body?.email || "")
-      .trim()
-      .toLowerCase();
-    const password = String(body?.password || "");
+    const body = await request.json().catch(() => ({}));
     const userData =
       (typeof body?.options?.data === "object" && body.options.data) ||
       (typeof body?.userData === "object" && body.userData) ||
       {};
 
-    if (!email || !password) {
+    let email = "";
+    let password = "";
+    try {
+      const input = parseInput(registerInputSchema, body);
+      email = input.email;
+      password = input.password;
+    } catch (error) {
       return NextResponse.json(
         {
+          ...validationErrorPayload(error),
           data: { user: null, session: null },
-          error: { message: "Email e password sono obbligatori" },
         },
         { status: 400 },
       );

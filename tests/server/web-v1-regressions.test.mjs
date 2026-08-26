@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test, { before, beforeEach } from "node:test";
 
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
+
+const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 /**
  * Regressioni Web V1 sul layer dati server (WP-31, WP-32, WP-10).
@@ -530,5 +534,42 @@ test("un errore a meta sincronizzazione non lascia il club senza risorse", async
     categorieDelClub().length,
     3,
     "senza transazione le categorie sarebbero gia state cancellate",
+  );
+});
+
+/* ---------------------- Residui legacy rimossi (D27, D31, R-09) ---------- */
+
+test("le due rotte di modifica orfane non mostrano piu anagrafiche inventate", () => {
+  const percorsi = [
+    "src/app/athletes/[id]/edit/page.tsx",
+    "src/app/trainers/[id]/edit/page.tsx",
+  ];
+
+  for (const percorso of percorsi) {
+    const sorgente = fs.readFileSync(
+      path.join(PROJECT_ROOT, percorso),
+      "utf8",
+    );
+
+    assert.match(
+      sorgente,
+      /redirect\(/,
+      `${percorso} deve rimandare alla scheda, non ospitare un form proprio`,
+    );
+    assert.doesNotMatch(
+      sorgente,
+      /RSSGPP80A01H501Z|123 456 7890/,
+      "un'anagrafica inventata a un indirizzo indovinabile e peggio di una pagina mancante",
+    );
+  }
+});
+
+test("la terza finestra di pagamento non esiste piu", () => {
+  assert.equal(
+    fs.existsSync(
+      path.join(PROJECT_ROOT, "src/components/forms/AddPaymentForm.tsx"),
+    ),
+    false,
+    "era verosimile: chi cercasse «form pagamento» l'avrebbe trovata per prima e avrebbe reintrodotto metodo libero e stato impostato a mano (D31)",
   );
 });

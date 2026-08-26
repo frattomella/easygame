@@ -164,6 +164,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "maintenance.run",
+    method: "POST",
+    path: "/api/v1/maintenance",
+    description:
+      "Toglie cio che e scaduto: sessioni, sfide OTP, contatori di rate limit e audit oltre la retention. La aziona un cron con un segreto condiviso, o un platform_admin a mano",
+    mobile_ready: false,
+  },
+  {
     name: "funding.programs",
     method: "GET|POST",
     path: "/api/v1/funding/programs",

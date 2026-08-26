@@ -115,6 +115,8 @@ invocato a mano.
 |-----------|----------------------|
 | `SMTP_CREDENTIALS_SECRET` | Fallback su `AUTH_RATE_LIMIT_SECRET` — funziona, ma le password SMTP **e IMAP** restano legate a quel segreto: cambiarlo le rende indecifrabili e vanno riconfigurate dal pannello |
 | `CRON_SECRET` | Job automatico allenamenti «tutti i club» non invocabile |
+| `EASYGAME_MAINTENANCE_TOKEN` | `POST /api/v1/maintenance` non accetta il token e resta azionabile solo da una sessione `platform_admin`. **E il comportamento voluto**: un confronto con una stringa vuota aprirebbe a chiunque una rotta che cancella righe. Finche non e impostata, sessioni, sfide OTP e contatori di rate limit scaduti **restano nel database** e crescono |
+| `AUDIT_LOG_RETENTION_DAYS` | L'audit non viene mai cancellato. Voluto: il periodo di conservazione e una decisione di compliance, non un valore predefinito che si scopre dopo aver perso dei dati |
 | `TWILIO_*` | Verifica telefono disattivata |
 | `GOOGLE_*`, `MICROSOFT_*` | OAuth disattivato |
 | `STRIPE_SECRET_KEY` | Nessun checkout online. `describeCediPayReadiness` risponde `not_configured` e l'interfaccia lo dice, invece di offrire il pulsante ([ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce)) |

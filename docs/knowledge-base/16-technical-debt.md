@@ -283,12 +283,20 @@ campo JSON. Finche non succede, `src/lib/document-templates.ts` resta.
 
 → B9-15 e B9-16 in [21](21-backlog.md)
 
-### D14 — Validazione input disomogenea
+### D14 — Validazione input disomogenea — **CHIUSO DOVE IL CORPO E CHIUSO** (2026-08-26, Blocco Finale C)
 
-Coercizioni manuali (`String(x || "").trim()`) ovunque; `zod` e installato ma
-usato in un solo file.
+`src/lib/validation/` dichiara con `zod` la forma degli endpoint a corpo
+chiuso e conosciuto — autenticazione, incassi, stagioni, piano commerciale,
+contributi — e un corpo malformato produce `400` con `VALIDATION_ERROR`
+nell'envelope ([09](09-api-conventions.md)).
 
-→ WP-05
+**Resta fuori, per scelta**, il CRUD generico `/api/v1/<resource>`: cinquanta
+risorse con forme aperte e in evoluzione, che uno schema chiuso rifiuterebbe a
+raffica. Li la difesa e altrove — `normalizeModelInput`, `assertAnagraficaIsValid`,
+la guardia sui campi di proprieta della piattaforma — e va lasciata li finche
+le risorse non hanno un contratto stabile.
+
+→ WP-05 chiuso per lo scope dichiarato
 
 ### D15 — Alias di compatibilita mai dismessi
 
@@ -405,7 +413,7 @@ dopo il rifacimento della home account.
 Sono asset statici: non pesano sul bundle, pesano sul repository. Da valutare
 insieme agli altri residui di `public/`.
 
-### D27 — Due route di modifica orfane, una su dati finti
+### D27 — ~~Due route di modifica orfane, una su dati finti~~ — RISOLTO (2026-08-26, Blocco Finale C)
 
 `src/app/athletes/[id]/edit/page.tsx` e
 `src/app/trainers/[id]/edit/page.tsx` non sono raggiungibili: **nessun link,
@@ -417,12 +425,14 @@ vedrebbe un'anagrafica che non esiste.
 La modifica vera avviene nelle schede di dettaglio (`[id]/page.tsx`), che
 hanno le proprie sezioni in modifica.
 
-**Perche non sono state rimosse nel Blocco 8:** [ADR-0016](18-decision-log.md)
-limita le eliminazioni ai residui gia classificati `SAFE TO DELETE` in
-[cleanup-report](cleanup-report.md), dove queste due non compaiono. Vanno
-classificate prima, e rimosse in un commit proprio.
+**Come sono state chiuse (Blocco Finale C).** Non cancellate: **sostituite
+con un rimando** alla scheda di dettaglio, come gia faceva `/staff/:id/edit`.
+Un indirizzo puo essere in un segnalibro o in una vecchia email, e un 404 non
+aiuta chi lo apre; il rimando porta dove la modifica avviene davvero. I dati
+inventati sono spariti con il form, e un test statico impedisce di
+reintrodurli.
 
-→ WP-18
+→ chiuso da Blocco Finale C
 
 ### D28 — ~~`receipts.receipt_number` e univoco su tutta la tabella, non per club~~ CHIUSO
 
@@ -588,7 +598,7 @@ per la macchina successiva, CI compresa.
 
 → chiuso, nessun WP
 
-### D31 — `AddPaymentForm` e una terza finestra di pagamento, mai montata
+### D31 — ~~`AddPaymentForm` e una terza finestra di pagamento, mai montata~~ — RISOLTO (2026-08-26, Blocco Finale C)
 
 `src/components/forms/AddPaymentForm.tsx` (200 righe) non e importata da
 nessuna parte: **nessun** file del repository la referenzia. Porta con se un
@@ -602,13 +612,12 @@ cercasse «form pagamento» la troverebbe per prima, e montandola
 reintrodurrebbe il testo libero sul metodo e lo stato impostato a mano, senza
 accorgersene.
 
-**Perche non e stata rimossa nel Workstream A:** vale la stessa regola di
-[D27](#d27--due-route-di-modifica-orfane-una-su-dati-finti) —
-[ADR-0016](18-decision-log.md) limita le eliminazioni ai residui gia
-classificati `SAFE TO DELETE` in [cleanup-report](cleanup-report.md), dove
-questa non compare. Va classificata prima, e rimossa in un commit proprio.
+**Come e stata chiusa (Blocco Finale C).** Rimossa, dopo aver dimostrato che
+nessun file del repository la referenzia. Qui la cancellazione e la cosa
+giusta e il rimando no: non e un indirizzo, e un componente — e il danno che
+faceva era proprio essere trovabile.
 
-→ WP-18
+→ chiuso da Blocco Finale C
 
 ### D32 — ~~L'API assegnazioni scrive `clubs.<json>` aggirando `resources.ts`~~ — RISOLTO (2026-08-25, integrazione Web V1)
 

@@ -284,3 +284,85 @@ test("il modulo di audit non registra mai il corpo delle richieste", () => {
     "l'audit non deve leggere il corpo della richiesta",
   );
 });
+
+/* ------------------------- ANAGRAFICHE E DENARO (R-07, Blocco Finale C) --- */
+
+/**
+ * ADR-0019 dichiara la copertura delle anagrafiche **bloccante per la
+ * produzione**, e la ragione e concreta: l'approvazione di una compilazione
+ * di modulo scrive in anagrafica per conto di qualcun altro. Senza traccia,
+ * «chi ha cambiato la residenza di questo atleta» non ha risposta.
+ */
+test("le anagrafiche di persona sono tracciate, gli allenamenti no", () => {
+  for (const risorsa of [
+    "athletes",
+    "simplified_athletes",
+    "trainers",
+    "staff_members",
+    "members",
+    "medical_certificates",
+  ]) {
+    assert.equal(
+      audit.isAuditedResource(risorsa),
+      true,
+      `${risorsa} e un'anagrafica di persona: va tracciata`,
+    );
+  }
+
+  for (const risorsa of ["trainings", "clothing_inventory", "weekly_schedule"]) {
+    assert.equal(
+      audit.isAuditedResource(risorsa),
+      false,
+      `${risorsa} non ha un soggetto: tracciarla rende il log illeggibile`,
+    );
+  }
+});
+
+test("un'anagrafica non si confonde con una scrittura qualunque", () => {
+  assert.equal(audit.AUDIT_ACTIONS.anagraficaUpdated, "anagrafica.updated");
+  assert.notEqual(
+    audit.AUDIT_ACTIONS.anagraficaUpdated,
+    audit.AUDIT_ACTIONS.resourceUpdated,
+    "cercare «chi ha cambiato i dati di questa persona» fra tutte le scritture non la trova",
+  );
+});
+
+test("denaro, documenti e contributi hanno un'azione propria", () => {
+  const attese = {
+    paymentTransactionRecorded: "payment.transaction.recorded",
+    paymentTransactionReversed: "payment.transaction.reversed",
+    documentIssued: "document.issued",
+    fundingReported: "funding.period.reported",
+    fundingSettled: "funding.period.settled",
+    clubPlanChanged: "platform.club_plan.changed",
+    clubServiceChanged: "platform.club_service.changed",
+    clubEntitlementOverridden: "platform.entitlement.overridden",
+    paymentProviderConfigured: "admin.payment_provider.updated",
+  };
+
+  for (const [chiave, valore] of Object.entries(attese)) {
+    assert.equal(audit.AUDIT_ACTIONS[chiave], valore);
+  }
+});
+
+test("le rotte che muovono denaro usano l'azione del denaro", () => {
+  const leggi = (percorso) =>
+    fs.readFileSync(path.join(PROJECT_ROOT, percorso), "utf8");
+
+  assert.match(
+    leggi("src/app/api/v1/payment-transactions/route.ts"),
+    /AUDIT_ACTIONS\.paymentTransactionRecorded/,
+  );
+  assert.match(
+    leggi("src/app/api/v1/payment-transactions/[id]/route.ts"),
+    /AUDIT_ACTIONS\.paymentTransactionReversed/,
+  );
+  assert.match(
+    leggi("src/app/api/v1/payment-transactions/[id]/route.ts"),
+    /AUDIT_ACTIONS\.documentIssued/,
+  );
+  assert.match(
+    leggi("src/app/api/v1/funding/settlements/route.ts"),
+    /AUDIT_ACTIONS\.fundingSettled/,
+  );
+});

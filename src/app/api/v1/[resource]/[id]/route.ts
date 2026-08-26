@@ -14,7 +14,8 @@ import { assertClubResourceAccess } from "@/lib/access-roles";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import {
   AUDIT_ACTIONS,
-  AUDITED_RESOURCES,
+  AUDITED_ANAGRAFICA_RESOURCES,
+  isAuditedResource,
   recordAuditEvent,
 } from "@/lib/server/audit";
 
@@ -31,10 +32,19 @@ const auditResourceWrite = async (
   id: string,
   outcome: "success" | "denied" = "success",
 ) => {
-  if (outcome === "success" && !AUDITED_RESOURCES.has(resource)) return;
+  if (outcome === "success" && !isAuditedResource(resource)) return;
 
   await recordAuditEvent({
-    action,
+    /*
+      Un'anagrafica di persona genera `anagrafica.updated`, non
+      `resource.updated`: la domanda a cui il log deve rispondere e «chi ha
+      cambiato i dati di questa persona», e cercarla fra tutte le scritture di
+      risorsa non la trova (R-07, ADR-0019).
+    */
+    action:
+      outcome === "success" && AUDITED_ANAGRAFICA_RESOURCES.has(resource)
+        ? AUDIT_ACTIONS.anagraficaUpdated
+        : action,
     outcome,
     actorUserId: session?.db?.user_id,
     actorEmail: session?.db?.user?.email,

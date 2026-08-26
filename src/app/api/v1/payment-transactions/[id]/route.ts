@@ -90,7 +90,7 @@ export async function POST(request: Request, context: Context) {
       );
 
       await recordAuditEvent({
-        action: AUDIT_ACTIONS.resourceCreated,
+        action: AUDIT_ACTIONS.documentIssued,
         actorUserId: session.db.user_id,
         actorEmail: session.db.user.email,
         actorRole: scope.activeRole,
@@ -115,7 +115,7 @@ export async function POST(request: Request, context: Context) {
       );
 
       await recordAuditEvent({
-        action: AUDIT_ACTIONS.resourceCreated,
+        action: AUDIT_ACTIONS.documentIssued,
         actorUserId: session.db.user_id,
         actorEmail: session.db.user.email,
         actorRole: scope.activeRole,
@@ -152,7 +152,7 @@ export async function POST(request: Request, context: Context) {
     );
 
     await recordAuditEvent({
-      action: AUDIT_ACTIONS.resourceUpdated,
+      action: AUDIT_ACTIONS.paymentTransactionReversed,
       actorUserId: session.db.user_id,
       actorEmail: session.db.user.email,
       actorRole: scope.activeRole,

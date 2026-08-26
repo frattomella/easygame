@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     );
 
     await recordAuditEvent({
-      action: AUDIT_ACTIONS.resourceCreated,
+      action: AUDIT_ACTIONS.fundingSettled,
       actorUserId: session.db.user_id,
       actorEmail: session.db.user.email,
       actorRole: scope.activeRole,

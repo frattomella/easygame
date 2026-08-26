@@ -130,21 +130,27 @@ multi-tenant.
 
 ---
 
-### WP-05 · Validazione input con zod — `READY`
+### WP-05 · Validazione input con zod — `DONE` (2026-08-26, Blocco Finale C)
 
 **Obiettivo.** Sostituire le coercizioni manuali con schemi dichiarativi.
 
-**Scope.** Introdurre `src/lib/validation/` con schemi riusabili; applicarli
-prima a `/api/v1/auth/*` e `/api/v1/admin/*`; poi al CRUD generico, uno
-schema per risorsa dove ha senso. Gli errori di validazione devono restare
-nell'envelope `{ data: null, error: { message, code: "VALIDATION_ERROR" } }`.
+**Scope realizzato.** `src/lib/validation/` con i mattoni condivisi
+(`fields`) e `schemas.ts` per endpoint: `auth/login`, `auth/register`,
+`payment-transactions`, `seasons`, `entitlements`, `funding/programs`,
+`funding/settlements`. Errori nell'envelope con `code: "VALIDATION_ERROR"` e
+la lista `issues`, cosi un client puo segnare i campi sbagliati.
 
-**Dipendenze.** WP-04 (per avere test su cui appoggiarsi).
+**Cosa e stato deliberatamente lasciato fuori, e perche.** Il **CRUD
+generico** `/api/v1/<resource>`: cinquanta risorse con forme aperte e in
+evoluzione, che uno schema chiuso rifiuterebbe a raffica rompendo cose che
+funzionano. Due schemi sono `passthrough` per la stessa ragione: la
+registrazione, che trasporta i dati anagrafici del form, e il bando, le cui
+regole sono configurazione e non codice.
 
 **Acceptance criteria.**
-- [ ] Nessun cambiamento nei messaggi visibili all'utente per input validi
-- [ ] Un body malformato produce 400 con `code: "VALIDATION_ERROR"`
-- [ ] Test per almeno 5 endpoint
+- [x] Nessun cambiamento nei messaggi visibili all'utente per input validi
+- [x] Un body malformato produce 400 con `code: "VALIDATION_ERROR"`
+- [x] Test per almeno 5 endpoint (16 test in `tests/server/input-validation.test.mjs`)
 
 **File.** `src/lib/validation/**`, `src/app/api/v1/**/route.ts`,
 [09](09-api-conventions.md).
@@ -1531,13 +1537,20 @@ pagamenti/fatture/ricevute, cancellazioni, azioni platform admin.
 
 **Dipendenze.** WP-04. Legato alla decisione A9.
 
+**Blocco Finale C (2026-08-26).** Chiusa la copertura che ADR-0019 dichiarava
+bloccante per la produzione: `anagrafica.updated` sulle sei anagrafiche di
+persona, e azioni proprie per incassi, storni, documenti emessi,
+rendicontazioni, liquidazioni e commerciale della piattaforma. Restano i tre
+punti aperti qui sotto, che non sono copertura ma **strumenti**.
+
 **Acceptance criteria.**
 - [x] Ogni operazione elencata produce una riga
+- [x] Anagrafiche di persona coperte (R-07)
 - [x] Il log non contiene segreti (`sanitizeMetadata`, verificato anche sul
       record salvato su database reale)
 - [x] Migrazione applicata prima allo sviluppo, poi a staging con il deploy
 - [x] Retention configurabile con `AUDIT_LOG_RETENTION_DAYS`
-- [ ] **Scheduler** che invochi `purgeExpiredAuditEvents()`
+- [x] **Punto di ingresso** per la purge: `POST /api/v1/maintenance` la chiama insieme alle altre pulizie. Il *trigger* sta fuori dall'applicazione (cron, azione GitHub, Vercel Cron) per non legarsi a un servizio dell'hosting (ADR-0007), e va configurato sull'ambiente
 - [ ] **UI di consultazione** per il platform admin
 - [ ] Decisione di prodotto sul periodo di retention
 

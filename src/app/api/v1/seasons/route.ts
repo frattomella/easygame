@@ -6,6 +6,8 @@ import {
 } from "@/lib/club-seasons";
 import { AUDIT_ACTIONS } from "@/lib/server/audit";
 import { createClubSeason, summarizeSeasonContents } from "@/lib/server/seasons";
+import { parseInput } from "@/lib/validation";
+import { seasonInputSchema } from "@/lib/validation/schemas";
 import {
   isSeasonRequestFailure,
   resolveSeasonRequestContext,
@@ -44,17 +46,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = parseInput(
+      seasonInputSchema,
+      await request.json().catch(() => ({})),
+    );
 
     const result = await createClubSeason({
       organizationId: context.organizationId,
       input: {
-        label: body?.label,
-        startDate: body?.startDate,
-        endDate: body?.endDate,
+        label: body.label,
+        startDate: body.startDate,
+        endDate: body.endDate,
       },
-      activate: Boolean(body?.activate),
-      rollover: body?.rollover || null,
+      activate: Boolean(body.activate),
+      rollover: body.rollover || null,
     });
 
     await context.audit({
@@ -66,7 +71,7 @@ export async function POST(request: Request) {
         startDate: result.season.startDate,
         endDate: result.season.endDate,
         status: result.season.status,
-        activated: Boolean(body?.activate),
+        activated: Boolean(body.activate),
       },
     });
 
@@ -85,7 +90,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (body?.activate) {
+    if (body.activate) {
       await context.audit({
         action: AUDIT_ACTIONS.seasonActivated,
         resource: "seasons",
