@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import { ClubServicesSection } from "@/components/platform-admin/club-services-section";
+import { PaymentsBillingSection } from "@/components/platform-admin/payments-billing-section";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
 import { sortByName } from "@/lib/sorting";
@@ -22,6 +23,7 @@ import {
   BarChart3,
   Building2,
   BookOpen,
+  CreditCard,
   Inbox,
   Loader2,
   Mail,
@@ -155,6 +157,12 @@ const PLATFORM_SECTIONS: PlatformAdminSection[] = [
     label: "Servizi e piani",
     description: "Piano, servizi attivi e funzioni per club",
     icon: ShieldCheck,
+  },
+  {
+    id: "payments",
+    label: "Pagamenti & Billing",
+    description: "Commissioni, Connect, abbonamenti, fiscalita",
+    icon: CreditCard,
   },
   {
     id: "email",
@@ -860,6 +868,8 @@ export default function PlatformAdminPage() {
       {section === "services" ? (
         <ClubServicesSection clubs={overview?.clubs || []} />
       ) : null}
+
+      {section === "payments" ? <PaymentsBillingSection /> : null}
 
       {section === "clubs" || section === "accounts" ? (
         <Input

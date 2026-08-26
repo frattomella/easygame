@@ -99,7 +99,15 @@ const PUBLIC_BY_DESIGN = new Map([
   ],
   ["v1/registry", "catalogo endpoint per il client mobile"],
   ["public/forms/[publicSlug]", "modulo online pubblico, per contratto"],
-  ["payments/webhook", "callback del PSP; non processa eventi (WP-13)"],
+  /*
+    I due webhook del PSP. Non hanno sessione e non possono averla: chi
+    chiama e Stripe. Cio che li difende e la **firma**, verificata sul corpo
+    grezzo prima di guardarci dentro, piu la deduplica sull'identificativo
+    dell'evento. Sono due e non uno perche sono due account Stripe con due
+    segreti diversi (ADR-0051).
+  */
+  ["payments/webhook", "callback del PSP: firma verificata, evento deduplicato"],
+  ["billing/webhook", "callback del billing di piattaforma: firma verificata, evento deduplicato"],
 ]);
 
 /**
@@ -246,10 +254,18 @@ test("nessun endpoint restituisce hash, credenziali o token di sessione", () => 
 });
 
 test("la deroga pubblica resta piccola e giustificata", () => {
-  // Se questo numero cresce, qualcuno sta rendendo pubblico un endpoint:
-  // deve essere una scelta consapevole, non un effetto collaterale.
+  /*
+    Se questo numero cresce, qualcuno sta rendendo pubblico un endpoint: deve
+    essere una scelta consapevole, non un effetto collaterale.
+
+    Da 15 a 16 nel Blocco D, per `billing/webhook`. E il secondo dei due
+    callback di Stripe, e sono due per una ragione precisa: due account con
+    due segreti di firma diversi (ADR-0051). Un endpoint solo avrebbe dovuto
+    provare entrambi i segreti, e una firma valida «con uno dei due» non dice
+    piu quale flusso ha parlato.
+  */
   assert.ok(
-    PUBLIC_BY_DESIGN.size <= 15,
+    PUBLIC_BY_DESIGN.size <= 16,
     `troppi endpoint pubblici: ${PUBLIC_BY_DESIGN.size}`,
   );
   for (const [id, motivo] of PUBLIC_BY_DESIGN) {

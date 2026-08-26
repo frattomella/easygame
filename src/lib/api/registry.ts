@@ -148,6 +148,118 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "platform.payments.read",
+    method: "GET",
+    path: "/api/v1/platform/payments",
+    description:
+      "Il centro di controllo commerciale: stato Stripe Connect e billing, commissione standard e override per club, ultimi eventi. Solo platform_admin; non restituisce mai una chiave segreta",
+    mobile_ready: false,
+  },
+  {
+    name: "platform.payments.write",
+    method: "POST",
+    path: "/api/v1/platform/payments",
+    description:
+      "Commissione (operation=commission), rientro allo standard (commission_reset), collegamento Connect (connect_onboarding), risincronizzazione (connect_sync), sospensione (connect_toggle), configurazione (settings). Solo platform_admin",
+    mobile_ready: false,
+  },
+  {
+    name: "fiscal.profile.read",
+    method: "GET",
+    path: "/api/v1/fiscal/profile",
+    description:
+      "Il profilo fiscale della societa, con i vocabolari (forme giuridiche, regimi) e cosa manca per fatturare e per la fattura elettronica",
+    mobile_ready: false,
+  },
+  {
+    name: "fiscal.profile.write",
+    method: "PUT",
+    path: "/api/v1/fiscal/profile",
+    description:
+      "Aggiornamento del profilo fiscale. Dominio del club: la piattaforma legge per assistere, non scrive al posto di chi risponde del contenuto",
+    mobile_ready: false,
+  },
+  {
+    name: "fiscal.operations.read",
+    method: "GET",
+    path: "/api/v1/fiscal/operation-types",
+    description:
+      "Classificazione delle operazioni economiche e serie di numerazione. Semina il catalogo iniziale al primo accesso",
+    mobile_ready: false,
+  },
+  {
+    name: "fiscal.operations.write",
+    method: "PUT",
+    path: "/api/v1/fiscal/operation-types",
+    description:
+      "Configurazione di un tipo di operazione: percorso documentale, aliquota, natura IVA, ambito. Il codice non si cambia: lo citano gli incassi gia registrati",
+    mobile_ready: false,
+  },
+  {
+    name: "fiscal.series.write",
+    method: "POST",
+    path: "/api/v1/fiscal/operation-types",
+    description:
+      "Creazione o aggiornamento di una serie di numerazione. Una sola serie predefinita per tipo di documento",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.cancel",
+    method: "POST",
+    path: "/api/v1/documents/:kind/:id/cancel",
+    description:
+      "Annullamento di un documento emesso, con motivo obbligatorio. Il numero non si libera: un buco e spiegabile, un duplicato no",
+    mobile_ready: false,
+  },
+  {
+    name: "einvoice.read",
+    method: "GET",
+    path: "/api/v1/einvoice/:invoiceId",
+    description:
+      "Stato della fattura elettronica e capability dell'ambiente. Oggi la trasmissione allo SdI non e attiva: nessun intermediario accreditato configurato",
+    mobile_ready: false,
+  },
+  {
+    name: "einvoice.prepare",
+    method: "POST",
+    path: "/api/v1/einvoice/:invoiceId",
+    description:
+      "action=prepare genera e valida il tracciato FatturaPA dallo snapshot del documento; action=transmit risponde 503 con il motivo finche non e configurato un intermediario",
+    mobile_ready: false,
+  },
+  {
+    name: "payments.checkout.create",
+    method: "POST",
+    path: "/api/payments/create-checkout-session",
+    description:
+      "Apre un checkout online per una rata, anche per un importo parziale. Provider, conto e commissione non arrivano dal client",
+    mobile_ready: false,
+  },
+  {
+    name: "payments.checkout.status",
+    method: "GET",
+    path: "/api/payments/checkout-status",
+    description:
+      "Lo stato di un pagamento online secondo il registro incassi. Il ritorno dal browser non e una fonte: finche il webhook non conferma, lo stato e «in verifica»",
+    mobile_ready: false,
+  },
+  {
+    name: "payments.webhook",
+    method: "POST",
+    path: "/api/payments/webhook",
+    description:
+      "Callback del PSP per gli incassi degli atleti (Connect). Firma verificata sul corpo grezzo, evento deduplicato. Nessuna sessione: chi chiama e Stripe",
+    mobile_ready: false,
+  },
+  {
+    name: "billing.webhook",
+    method: "POST",
+    path: "/api/billing/webhook",
+    description:
+      "Callback del billing di piattaforma (abbonamenti EasyGame sull'account centrale di Cedi Soft). Segreto di firma distinto da quello degli incassi",
+    mobile_ready: false,
+  },
+  {
     name: "entitlements.read",
     method: "GET",
     path: "/api/v1/entitlements",

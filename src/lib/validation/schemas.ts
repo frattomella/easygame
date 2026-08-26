@@ -240,3 +240,200 @@ export const fundingSettlementInputSchema = z.object({
     )
     .optional(),
 });
+
+/* ------------------------------------------- piattaforma: Stripe e billing */
+
+/**
+ * Le scritture della console «Pagamenti & Billing».
+ *
+ * **Perche uno schema discriminato e non cinque rotte.** Sono cinque atti
+ * commerciali che la stessa persona compie nella stessa schermata — cambiare
+ * la commissione, aprire un collegamento, sospendere un servizio,
+ * risincronizzare, configurare il listino — e tenerli su cinque rotte avrebbe
+ * voluto dire cinque controlli di ruolo da tenere allineati. Cio che li
+ * distingue e `operation`, e cio che ogni ramo accetta e chiuso: una
+ * percentuale sopra 100 o un tipo di account inventato vengono rifiutati qui,
+ * con scritto perche, invece di arrivare al PSP.
+ */
+export const platformPaymentsWriteSchema = z.discriminatedUnion("operation", [
+  z.object({
+    operation: z.literal("commission"),
+    /** Assente = la condizione standard di EasyGame. */
+    organization_id: z.string().trim().optional(),
+    percent: z.coerce
+      .number({ invalid_type_error: "La percentuale deve essere un numero" })
+      .min(0, "La percentuale non puo essere negativa")
+      .max(100, "Una commissione sopra il 100% si porterebbe via l'incasso"),
+    fixed_cents: z.coerce.number().int().nonnegative().optional(),
+    effective_from: fields.isoDate("Data di decorrenza").optional(),
+    note: z.string().trim().max(500).optional(),
+  }),
+  z.object({
+    operation: z.literal("commission_reset"),
+    organization_id: fields.id("Club"),
+  }),
+  z.object({
+    operation: z.literal("connect_onboarding"),
+    organization_id: fields.id("Club"),
+    return_url: z.string().trim().url("URL di ritorno non valido"),
+    refresh_url: z.string().trim().url("URL di rinnovo non valido"),
+  }),
+  z.object({
+    operation: z.literal("connect_sync"),
+    organization_id: fields.id("Club"),
+  }),
+  z.object({
+    operation: z.literal("connect_toggle"),
+    organization_id: fields.id("Club"),
+    enabled: z.boolean(),
+  }),
+  z.object({
+    operation: z.literal("settings"),
+    connect: z
+      .object({
+        /*
+          Il tipo di account e **irreversibile** per gli account gia creati: si
+          accetta il valore, e la console avverte. Vedi ADR-0051.
+        */
+        accountType: z.enum(["standard", "express"]).optional(),
+        defaultCountry: z.string().trim().length(2).optional(),
+        onboardingEnabled: z.boolean().optional(),
+      })
+      .optional(),
+    billing: z
+      .object({
+        prices: z
+          .object({
+            plusMonthly: z.string().trim().max(120).optional(),
+            plusAnnual: z.string().trim().max(120).optional(),
+          })
+          .optional(),
+        customerPortalEnabled: z.boolean().optional(),
+      })
+      .optional(),
+    fiscal: z
+      .object({
+        /** `null` toglie la scelta e riporta la trasmissione a «non attiva». */
+        providerKey: z.string().trim().max(60).nullable().optional(),
+        environment: z.enum(["sandbox", "production"]).optional(),
+      })
+      .optional(),
+  }),
+]);
+
+/* --------------------------------------------------- fiscalita del club */
+
+/**
+ * Il profilo fiscale.
+ *
+ * **Chiuso, ma quasi tutto opzionale.** Chiuso perche i campi sono noti e un
+ * campo in piu qui e quasi sempre un errore di battitura che finirebbe in un
+ * documento. Opzionale perche un profilo a meta e la condizione normale di chi
+ * sta configurando: cio che manca lo si chiede al momento di emettere, dove
+ * serve davvero (`missingForInvoicing`).
+ */
+export const fiscalProfileInputSchema = z.object({
+  legalName: z.string().trim().max(200).optional(),
+  legalForm: z.string().trim().max(40).optional(),
+  fiscalCode: z.string().trim().max(20).optional(),
+  vatNumber: z.string().trim().max(20).optional(),
+  taxRegimeCode: z.string().trim().max(10).optional(),
+  specialRegimes: z.array(z.string().trim().max(40)).optional(),
+  address: z.string().trim().max(200).optional(),
+  city: z.string().trim().max(120).optional(),
+  province: z.string().trim().max(4).optional(),
+  postalCode: z.string().trim().max(10).optional(),
+  country: z.string().trim().max(4).optional(),
+  cityCode: z.string().trim().max(8).optional(),
+  pec: z.string().trim().max(320).optional(),
+  recipientCode: z.string().trim().max(10).optional(),
+  reaOffice: z.string().trim().max(4).optional(),
+  reaNumber: z.string().trim().max(40).optional(),
+  reaCapital: z.coerce.number().nonnegative().nullable().optional(),
+  reaSoleShareholder: z.boolean().nullable().optional(),
+  reaInLiquidation: z.boolean().nullable().optional(),
+  stampDuty: z
+    .object({
+      enabled: z.boolean().optional(),
+      thresholdCents: z.coerce.number().int().nonnegative().optional(),
+      amountCents: z.coerce.number().int().nonnegative().optional(),
+      chargedTo: z.enum(["issuer", "recipient"]).optional(),
+    })
+    .optional(),
+  markCompleted: z.boolean().optional(),
+});
+
+/**
+ * Un tipo di operazione.
+ *
+ * `code` c'e ma non e modificabile a valle **di proposito**: e la chiave con
+ * cui gli incassi gia registrati citano la classificazione, e cambiarlo li
+ * lascerebbe a citare qualcosa che non esiste piu.
+ */
+export const fiscalOperationTypeInputSchema = z.object({
+  code: fields.id("Codice operazione"),
+  label: z.string().trim().max(200).optional(),
+  documentRoute: z
+    .enum(["none", "receipt", "invoice", "invoice_or_receipt"])
+    .optional(),
+  vatRate: z.coerce.number().min(0).max(100).nullable().optional(),
+  vatNature: z.string().trim().max(10).nullable().optional(),
+  activityScope: z
+    .enum(["institutional", "commercial", "unspecified"])
+    .optional(),
+  isActive: z.boolean().optional(),
+  notes: z.string().trim().max(1000).optional(),
+});
+
+export const documentSeriesInputSchema = z.object({
+  kind: z.enum(["receipt", "invoice", "credit_note"]),
+  code: z.string().trim().max(8),
+  label: z.string().trim().max(120),
+  prefix: z.string().trim().max(4).optional(),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+});
+
+/**
+ * L'annullamento di un documento emesso.
+ *
+ * Il motivo e **obbligatorio**: un annullamento senza motivo non si
+ * ricostruisce mesi dopo, ed e esattamente la domanda che si pone chi trova un
+ * buco in una numerazione.
+ */
+export const documentCancellationSchema = z.object({
+  reason: fields.text("Motivo dell'annullamento", 500),
+});
+
+/* ----------------------------------------------------- checkout online */
+
+/**
+ * L'apertura di un checkout online.
+ *
+ * **Cosa non compare qui, e non e una dimenticanza:** il provider, il conto su
+ * cui il denaro finisce e la commissione. Un client che potesse sceglierli
+ * sceglierebbe il provider con meno controlli, il proprio conto e nessuna
+ * commissione. Li dicono la configurazione di piattaforma e l'account connesso
+ * della societa.
+ */
+export const checkoutSessionInputSchema = z.object({
+  clubId: z.string().trim().optional(),
+  club_id: z.string().trim().optional(),
+  paymentId: z.string().trim().optional(),
+  payment_id: z.string().trim().optional(),
+  athleteId: z.string().trim().optional(),
+  athlete_id: z.string().trim().optional(),
+  amountCents: z.coerce.number().int().optional(),
+  amount_cents: z.coerce.number().int().optional(),
+  description: z.string().trim().max(300).optional(),
+  successUrl: z.string().trim().url("URL di ritorno non valido").optional(),
+  success_url: z.string().trim().url("URL di ritorno non valido").optional(),
+  cancelUrl: z.string().trim().url("URL di annullamento non valido").optional(),
+  cancel_url: z.string().trim().url("URL di annullamento non valido").optional(),
+  payer: z
+    .object({
+      email: z.string().trim().max(320).optional(),
+      name: z.string().trim().max(200).optional(),
+    })
+    .optional(),
+});

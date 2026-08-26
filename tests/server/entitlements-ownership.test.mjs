@@ -488,6 +488,12 @@ test("nessuna schermata decide da sola guardando il piano", () => {
         relativo.startsWith("src/lib/entitlements/") ||
         relativo.startsWith("src/lib/payments/") ||
         relativo.startsWith("src/lib/server/entitlements") ||
+        /*
+          Il billing di piattaforma traduce lo stato di una sottoscrizione
+          Stripe nel piano di una societa: e il posto in cui quella
+          traduzione **deve** avvenire, e l'unico che la scrive (ADR-0051).
+        */
+        relativo.startsWith("src/lib/server/platform-billing") ||
         relativo.includes("platform-admin") ||
         relativo.includes("ClubSubscriptionPanel") ||
         relativo.includes("HubExtraServicesPanel")

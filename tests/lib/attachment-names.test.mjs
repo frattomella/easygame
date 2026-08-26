@@ -152,8 +152,16 @@ const APP_FILES = walk(SRC);
  * passato da `openClientFileUrl`, che converte in object URL.
  */
 test("nessuno apre un allegato con window.open diretto", () => {
+  /*
+    L'unica deroga e `lib/navigation/external-link.ts`, che e il proprietario
+    unico dell'apertura di un indirizzo **esterno**: aggiunge `noopener` e
+    rifiuta gli schemi diversi da http(s), che e cio che serve quando
+    l'indirizzo arriva dalla risposta di un PSP. Un file dell'applicazione
+    continua a passare da `openClientFileUrl`.
+  */
   const offenders = APP_FILES.filter((file) => {
     const source = readFileSync(file, "utf8");
+    if (/lib[\\/]navigation[\\/]external-link\.ts$/.test(file)) return false;
     return /window\.open\(\s*[a-zA-Z_$][\w.$[\]]*(File|Url|url)\b/.test(source);
   }).map((file) => path.relative(SRC, file).replace(/\\/g, "/"));
 

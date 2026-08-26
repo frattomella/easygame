@@ -1848,6 +1848,7 @@ const [federations, setFederations] = useState<any[]>([]);
               <ClubPaymentSettings
                 value={paymentSettings}
                 onChange={setPaymentSettings}
+                organizationId={clubId}
               />
             </CapabilityGate>
           </TabsContent>

@@ -7,6 +7,17 @@ import { openGatewayCheckout } from "@/lib/server/payment-gateway";
 import { requireClubEntitlement } from "@/lib/server/entitlements";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { PaymentGatewayError } from "@/lib/payments/gateway";
+import {
+  isValidationError,
+  parseInput,
+  validationErrorPayload,
+} from "@/lib/validation";
+import { checkoutSessionInputSchema } from "@/lib/validation/schemas";
+import { prisma } from "@/lib/server/prisma";
+import {
+  normalizePaymentTransactions,
+  resolveInstallmentLedger,
+} from "@/lib/payments/installment-ledger";
 
 /**
  * Apre un checkout online per una rata.
@@ -14,11 +25,21 @@ import { PaymentGatewayError } from "@/lib/payments/gateway";
  *   POST /api/payments/create-checkout-session
  *
  * **Cosa arriva dal client e cosa no.** Dal client arrivano la rata, l'importo
- * e dove tornare. **Non** arrivano — e non verrebbero creduti — il provider,
- * il conto su cui il denaro finisce e la commissione della piattaforma:
- * quelli li dicono le impostazioni del club. Un client che potesse scegliere
- * il provider sceglierebbe quello con meno controlli; un client che potesse
- * scegliere il conto sceglierebbe il proprio.
+ * e dove tornare. **Non** arrivano — e non verrebbero creduti — il provider, il
+ * conto su cui il denaro finisce e la commissione della piattaforma: quelli li
+ * dicono la configurazione di piattaforma e l'account connesso della societa.
+ * Un client che potesse scegliere il provider sceglierebbe quello con meno
+ * controlli; uno che potesse scegliere il conto sceglierebbe il proprio.
+ *
+ * **L'importo si valida contro il residuo.** Il client propone; il server
+ * verifica che la rata esista, sia del club giusto e abbia ancora scoperto
+ * almeno quell'importo. Un checkout aperto per piu del dovuto sarebbe denaro
+ * incassato in eccesso che poi qualcuno deve rimborsare — e un rimborso costa
+ * a tutti.
+ *
+ * **Il pagamento parziale e ammesso.** Il registro incassi sa gia gestire una
+ * rata pagata in piu volte (ADR-0036): non c'e ragione perche il canale online
+ * sia piu rigido di quello allo sportello.
  *
  * **Perche il ritorno del browser non conclude niente.** L'URL di successo
  * mostra una pagina, non registra un incasso: chi paga puo chiudere la
@@ -36,9 +57,9 @@ const jsonError = (
 
 /*
   Un blocco per gradino, con lo stato HTTP che gli corrisponde. `501` resta
-  soltanto per «quel provider non e stato scritto»: gli altri tre non sono
-  funzioni mancanti, sono configurazioni mancanti, e dirlo con lo stesso
-  codice li farebbe sembrare tutti un problema di chi scrive il software.
+  soltanto per «quel provider non e stato scritto»: gli altri non sono funzioni
+  mancanti, sono configurazioni mancanti, e dirlo con lo stesso codice li
+  farebbe sembrare tutti un problema di chi scrive il software.
 */
 const STATUS_BY_CODE: Record<string, number> = {
   not_implemented: 501,
@@ -55,10 +76,15 @@ export async function POST(request: Request) {
       return jsonError("Sessione non valida", 401);
     }
 
-    const body = (await request.json().catch(() => ({}))) as Record<string, any>;
+    const body = parseInput(
+      checkoutSessionInputSchema,
+      await request.json().catch(() => ({})),
+    );
+
     const clubId = String(body.clubId || body.club_id || "").trim();
     const successUrl = String(body.successUrl || body.success_url || "").trim();
     const cancelUrl = String(body.cancelUrl || body.cancel_url || "").trim();
+    const paymentId = String(body.paymentId || body.payment_id || "").trim();
 
     if (!clubId) {
       return jsonError("Club non disponibile");
@@ -79,9 +105,9 @@ export async function POST(request: Request) {
 
     /*
       Il gating vero, non la sua descrizione. Il messaggio arriva dal calcolo
-      degli entitlement — «Disponibile con il piano Plus», «L'abbonamento non
-      e in corso» — perche sono due cose che si risolvono in modi diversi, e
-      un «Accesso negato» generico le farebbe finire entrambe al telefono.
+      degli entitlement — «Disponibile con il piano Plus», «L'abbonamento non e
+      in corso» — perche sono due cose che si risolvono in modi diversi, e un
+      «Accesso negato» generico le farebbe finire entrambe al telefono.
     */
     await requireClubEntitlement({
       organizationId: clubId,
@@ -89,12 +115,66 @@ export async function POST(request: Request) {
       isPlatformAdmin: isPlatformAdminUser(session.db.user),
     });
 
-    const { checkout, context } = await openGatewayCheckout({
+    let amountCents = Math.round(
+      Number(body.amountCents || body.amount_cents || 0),
+    );
+    let description = String(body.description || "");
+    let athleteId = String(body.athleteId || body.athlete_id || "").trim() || null;
+
+    if (paymentId) {
+      const charge = await (prisma as any).athletePayment.findUnique({
+        where: { id: paymentId },
+      });
+
+      if (!charge) {
+        return jsonError("Rata non trovata", 404);
+      }
+
+      /*
+        La rata comanda sul club: fidarsi del `clubId` mandato dal client
+        permetterebbe di aprire un checkout su una rata di un'altra societa
+        purche si abbia accesso alla propria.
+      */
+      if (String(charge.organization_id) !== clubId) {
+        return jsonError("Accesso negato: la rata appartiene a un altro club", 403);
+      }
+
+      const transactions = normalizePaymentTransactions(
+        await (prisma as any).paymentTransaction.findMany({
+          where: { payment_id: paymentId },
+        }),
+      );
+
+      const ledger = resolveInstallmentLedger({ charge, transactions });
+      const residualCents = Math.round(ledger.residualAmount * 100);
+
+      if (residualCents <= 0) {
+        return jsonError("Questa rata e gia saldata", 409);
+      }
+
+      /* Nessun importo dal client = il residuo, che e cio che si paga di solito. */
+      if (!amountCents) amountCents = residualCents;
+
+      if (amountCents > residualCents) {
+        return jsonError(
+          `L'importo supera il residuo della rata (${ledger.residualAmount.toFixed(2)} €)`,
+        );
+      }
+
+      description = description || String(charge.description || "Quota sportiva");
+      athleteId = athleteId || (charge.athlete_id ? String(charge.athlete_id) : null);
+    }
+
+    if (!amountCents || amountCents <= 0) {
+      return jsonError("Importo del pagamento non valido");
+    }
+
+    const { checkout, context, settlement } = await openGatewayCheckout({
       organizationId: clubId,
-      paymentId: body.paymentId || body.payment_id || null,
-      athleteId: body.athleteId || body.athlete_id || null,
-      amountCents: Math.round(Number(body.amountCents || body.amount_cents || 0)),
-      description: String(body.description || ""),
+      paymentId: paymentId || null,
+      athleteId,
+      amountCents,
+      description,
       successUrl,
       cancelUrl,
       payer: {
@@ -110,11 +190,21 @@ export async function POST(request: Request) {
         provider: context.provider,
         externalId: checkout.externalId,
         amountCents: checkout.money.amountCents,
-        platformFeeCents: checkout.platformFeeCents,
+        /*
+          La commissione si restituisce perche la segreteria la veda **prima**
+          di mandare la famiglia a pagare: una trattenuta che si scopre
+          sull'estratto conto e una telefonata.
+        */
+        platformFeeCents: settlement.platformFeeCents,
+        clubNetAmountCents: settlement.netAmountCents,
       },
       error: null,
     });
   } catch (error: any) {
+    if (isValidationError(error)) {
+      return NextResponse.json(validationErrorPayload(error), { status: 400 });
+    }
+
     if (error instanceof PaymentGatewayError) {
       return jsonError(error.message, STATUS_BY_CODE[error.code] || 400, {
         code: error.code,

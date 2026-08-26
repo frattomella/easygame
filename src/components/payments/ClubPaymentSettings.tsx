@@ -1,27 +1,40 @@
 "use client";
 
-import { AlertTriangle, CreditCard } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type {
-  ClubPaymentProviderConfig,
-  ClubPaymentSettings as ClubPaymentSettingsType,
-  PaymentProviderKey,
-} from "@/lib/payments/payment-types";
+import type { ClubPaymentSettings as ClubPaymentSettingsType } from "@/lib/payments/payment-types";
 import {
   isProviderConfigUsableForRegistration,
   normalizePaymentSettings,
 } from "@/lib/payments/payment-config-utils";
-import { PAYMENT_PROVIDER_ORDER } from "@/lib/payments/provider-registry";
 import { PaymentMethodEnablementTable } from "./PaymentMethodEnablementTable";
-import { PaymentProviderCard } from "./PaymentProviderCard";
+import { ClubPaymentAccountPanel } from "./ClubPaymentAccountPanel";
+
+/**
+ * La scheda **Pagamenti** della societa.
+ *
+ * **Cosa la societa governa davvero, dopo il Blocco D.** Un interruttore — se
+ * accettare pagamenti online in questo momento — e quali metodi esporre in
+ * Gestione Iscrizioni. Sono scelte operative: spegnere gli incassi durante la
+ * chiusura estiva e una decisione della segreteria e nessuno gliela deve
+ * togliere.
+ *
+ * **Cosa non governa piu, e non e una limitazione ma una riparazione.** Il
+ * conto su cui il denaro arriva, lo stato di verifica e la commissione. Erano
+ * tre campi modificabili da questa pagina: il primo decideva **dove finisce il
+ * denaro delle famiglie**, il secondo **se si puo incassare**, il terzo
+ * **quanto trattiene EasyGame**. Adesso i primi due li scrive Stripe e il
+ * terzo lo decide Cedi Soft. Vedi ADR-0050 e ADR-0051.
+ */
 
 type ClubPaymentSettingsProps = {
   value: ClubPaymentSettingsType;
   onChange: (nextSettings: ClubPaymentSettingsType) => void;
+  organizationId?: string | null;
 };
 
 const countAvailableRegistrationMethods = (
@@ -34,44 +47,26 @@ const countAvailableRegistrationMethods = (
 export function ClubPaymentSettings({
   value,
   onChange,
+  organizationId,
 }: ClubPaymentSettingsProps) {
   const settings = normalizePaymentSettings(value);
   const availableCount = countAvailableRegistrationMethods(settings);
-
-  const updateProvider = (
-    provider: PaymentProviderKey,
-    nextProvider: ClubPaymentProviderConfig,
-  ) => {
-    const nextSettings = {
-      ...settings,
-      providers: {
-        ...settings.providers,
-        [provider]: nextProvider,
-      },
-    };
-
-    if (!isProviderConfigUsableForRegistration(nextProvider)) {
-      nextSettings.enabledRegistrationMethods =
-        nextSettings.enabledRegistrationMethods.filter(
-          (item) => item !== provider,
-        );
-    }
-
-    onChange(nextSettings);
-  };
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Stato pagamenti online
+          <CardTitle className="text-base">
+            Accetta pagamenti online
           </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            L&apos;unico interruttore di questa pagina: sospende i pagamenti
+            online senza disfare il collegamento del conto.
+          </p>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-4">
+        <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-md border p-3">
-            <p className="text-sm text-muted-foreground">Pagamenti online</p>
+            <p className="text-sm text-muted-foreground">Stato scelto dal club</p>
             <div className="mt-2 flex items-center gap-2">
               <Switch
                 checked={settings.enabled}
@@ -81,7 +76,7 @@ export function ClubPaymentSettings({
                 aria-label="Abilita pagamenti online"
               />
               <Badge variant={settings.enabled ? "default" : "secondary"}>
-                {settings.enabled ? "Attivi" : "Disattivi"}
+                {settings.enabled ? "Attivi" : "Sospesi"}
               </Badge>
             </div>
           </div>
@@ -89,52 +84,27 @@ export function ClubPaymentSettings({
             <p className="text-sm text-muted-foreground">Valuta</p>
             <p className="mt-2 text-lg font-semibold">EUR</p>
           </div>
-          <div className="rounded-md border p-3">
-            <p className="text-sm text-muted-foreground">Modalita</p>
-            <p className="mt-2 text-lg font-semibold">
-              {Object.values(settings.providers).some(
-                (provider) => provider.mode === "live",
-              )
-                ? "Live"
-                : "Test"}
-            </p>
-          </div>
-          <div className="rounded-md border p-3">
-            <p className="text-sm text-muted-foreground">
-              Commissione piattaforma
-            </p>
-            <p className="mt-2 text-lg font-semibold">
-              {settings.platformFeePercent}%
-            </p>
-          </div>
         </CardContent>
       </Card>
+
+      <ClubPaymentAccountPanel organizationId={organizationId} />
 
       <Alert>
         <AlertTriangle className="h-4 w-4" />
         <AlertTitle>Dati carta non salvati</AlertTitle>
         <AlertDescription>
-          EasyGame non richiede, salva o processa numeri carta, CVV o PAN. I
-          pagamenti online sono predisposti per provider esterni server-side.
+          EasyGame non richiede, salva o processa numeri carta, CVV o PAN. Il
+          pagamento avviene sulla pagina del provider.
         </AlertDescription>
       </Alert>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        {PAYMENT_PROVIDER_ORDER.map((provider) => (
-          <PaymentProviderCard
-            key={provider}
-            provider={provider}
-            value={settings.providers[provider]}
-            onChange={(nextProvider) => updateProvider(provider, nextProvider)}
-          />
-        ))}
-      </div>
-
       <Card>
         <CardHeader>
-          <CardTitle>Metodi disponibili in Gestione Iscrizioni</CardTitle>
+          <CardTitle className="text-base">
+            Metodi disponibili in Gestione Iscrizioni
+          </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Sono selezionabili solo provider abilitati e configurati nel club.
+            Sono selezionabili solo i metodi il cui conto risulta operativo.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">

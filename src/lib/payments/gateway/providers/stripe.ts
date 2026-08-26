@@ -45,101 +45,7 @@ import {
   type GatewayWebhookEvent,
 } from "../contract";
 import { verifyStripeSignature } from "./stripe-signature";
-
-const STRIPE_API_BASE = "https://api.stripe.com/v1";
-
-const readSecretKey = () => String(process.env.STRIPE_SECRET_KEY || "").trim();
-
-/**
- * Il corpo di una richiesta Stripe: `form-urlencoded` con le parentesi
- * quadre per le strutture annidate (`payment_intent_data[application_fee_amount]`).
- */
-const encodeForm = (
-  values: Record<string, string | number | undefined | null>,
-) => {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(values)) {
-    if (value === undefined || value === null || value === "") continue;
-    params.append(key, String(value));
-  }
-
-  return params.toString();
-};
-
-const callStripe = async (
-  path: string,
-  options: {
-    method?: "GET" | "POST";
-    body?: Record<string, string | number | undefined | null>;
-    /** L'account connesso su cui agire: e cio che rende l'addebito diretto. */
-    stripeAccount?: string;
-    idempotencyKey?: string;
-  } = {},
-): Promise<Record<string, any>> => {
-  const secretKey = readSecretKey();
-  if (!secretKey) {
-    throw new PaymentGatewayError(
-      "not_configured",
-      "Stripe non e configurato: manca la chiave segreta",
-      "stripe",
-    );
-  }
-
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${secretKey}`,
-    "Content-Type": "application/x-www-form-urlencoded",
-  };
-
-  if (options.stripeAccount) {
-    headers["Stripe-Account"] = options.stripeAccount;
-  }
-
-  /*
-    La chiave di idempotenza non e un vezzo: senza, un doppio clic o un
-    tentativo ripetuto dopo un timeout di rete crea due checkout, e due
-    checkout su una rata sola sono due addebiti a una famiglia.
-  */
-  if (options.idempotencyKey) {
-    headers["Idempotency-Key"] = options.idempotencyKey;
-  }
-
-  const method = options.method || (options.body ? "POST" : "GET");
-
-  let response: Response;
-  try {
-    response = await fetch(`${STRIPE_API_BASE}${path}`, {
-      method,
-      headers,
-      body: options.body ? encodeForm(options.body) : undefined,
-    });
-  } catch (error: any) {
-    throw new PaymentGatewayError(
-      "provider_error",
-      `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
-      "stripe",
-    );
-  }
-
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    any
-  >;
-
-  if (!response.ok) {
-    /*
-      Il messaggio del provider si riporta, la richiesta no: contiene
-      l'importo, l'email di chi paga e la chiave dell'account connesso.
-    */
-    throw new PaymentGatewayError(
-      "provider_error",
-      String(payload?.error?.message || `Stripe ha risposto ${response.status}`),
-      "stripe",
-    );
-  }
-
-  return payload;
-};
+import { callStripe, readStripeSecretKey } from "./stripe-http";
 
 /* ------------------------------------------------------------ traduzioni */
 
@@ -388,7 +294,7 @@ const accountFromEventObject = (object: any): GatewayAccountEvent | null => {
 export const stripeProvider: PaymentGateway = {
   key: "stripe",
 
-  isConfigured: () => Boolean(readSecretKey()),
+  isConfigured: () => Boolean(readStripeSecretKey()),
 
   createMerchant: async (input) => {
     const account = await callStripe("/accounts", {
