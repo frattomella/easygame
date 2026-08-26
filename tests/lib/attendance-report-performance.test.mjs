@@ -16,17 +16,68 @@ import { calculateCategoryAthleteStats } from "../../src/lib/category-athlete-st
  * report chiedeva al browser centinaia di milioni di confronti per disegnare
  * una tabella.
  *
- * Non e un benchmark e non fissa millisecondi: misura il **rapporto** fra due
- * scenari, uno doppio dell'altro. Lineare raddoppia, quadratico quadruplica,
- * e la soglia sta in mezzo con margine. E la stessa forma di
- * `multisite-performance`, per la stessa ragione: una soglia assoluta su una
- * macchina carica e rumore.
+ * **Perche non si cronometra.** La versione precedente di questo file
+ * misurava due tempi e ne faceva il rapporto. Falliva circa una volta su
+ * cinque per due ragioni, e nessuna delle due era una regressione:
+ *
+ * 1. lo scenario piccolo dura frazioni di millisecondo, e a quella scala un
+ *    passaggio del garbage collector o un altro processo sulla macchina
+ *    valgono piu dell'algoritmo;
+ * 2. il giro di riscaldamento girava sullo **stesso** array dello scenario
+ *    piccolo, e l'indice delle presenze e memorizzato in una `WeakMap`
+ *    legata a quell'array: il piccolo veniva cronometrato con l'indice gia
+ *    costruito, il grande no. Il rapporto era truccato in partenza.
+ *
+ * Qui non si misura il tempo ma il **lavoro**: ogni riga di presenza conta
+ * quante volte viene letta. E la grandezza che il difetto faceva esplodere, e
+ * si conta allo stesso modo su qualsiasi macchina. Un'implementazione lineare
+ * legge ogni riga un numero fisso di volte; quella con il `filter()` dentro
+ * il ciclo la rilegge una volta per allenamento.
  */
 
-/** Raddoppiando l'ingresso: lineare ~2x, quadratico ~4x. */
-const MAX_SCALING_RATIO = 3;
+/**
+ * Letture per riga di presenza tollerate.
+ *
+ * Le implementazioni odierne ne fanno quattro (report) e tre (statistiche):
+ * l'indice legge `training_id`, poi si leggono `athlete_id`, `id` e
+ * `is_present`. Otto lascia margine a un campo in piu senza lasciar passare
+ * un secondo giro sull'elenco, che di letture ne farebbe centoventi volte
+ * tante.
+ */
+const MAX_READS_PER_RECORD = 8;
+
+/** Raddoppiando gli atleti: lineare ~2x, quadratico ~4x o piu. */
+const MAX_SCALING_RATIO = 2.5;
 
 const TRAINING_COUNT = 120;
+
+let reads = 0;
+
+/**
+ * Una riga di presenza che si conta quando viene letta.
+ *
+ * I campi sono getter e non valori: e l'unico modo di misurare il lavoro
+ * senza chiedere al codice di dominio di collaborare, cioe senza mettere un
+ * contatore dentro cio che si sta verificando.
+ */
+const attendanceRecord = ({ id, athleteId, trainingId }) => ({
+  get id() {
+    reads += 1;
+    return id;
+  },
+  get athlete_id() {
+    reads += 1;
+    return athleteId;
+  },
+  get training_id() {
+    reads += 1;
+    return trainingId;
+  },
+  get is_present() {
+    reads += 1;
+    return true;
+  },
+});
 
 const buildScenario = (athleteCount) => {
   const categories = [{ id: "cat-1", name: "Under 14" }];
@@ -47,76 +98,33 @@ const buildScenario = (athleteCount) => {
   }));
 
   const attendanceRecords = athletes.flatMap((athlete) =>
-    trainings.map((training) => ({
-      id: `${athlete.id}-${training.id}`,
-      athlete_id: athlete.id,
-      training_id: training.id,
-      is_present: true,
-    })),
+    trainings.map((training) =>
+      attendanceRecord({
+        id: `${athlete.id}-${training.id}`,
+        athleteId: athlete.id,
+        trainingId: training.id,
+      }),
+    ),
   );
 
   return { athletes, trainings, attendanceRecords, categories };
 };
 
-const timeOf = (run) => {
-  const started = process.hrtime.bigint();
-  run();
-  return Number(process.hrtime.bigint() - started) / 1e6;
+/**
+ * Le letture di un giro su uno scenario **nuovo**.
+ *
+ * Nuovo per forza: l'indice delle presenze vive in una `WeakMap` legata
+ * all'array, e riusare lo scenario misurerebbe la memoria invece del calcolo.
+ */
+const readsOf = (run, athleteCount) => {
+  const scenario = buildScenario(athleteCount);
+  reads = 0;
+  run(scenario);
+  return { reads, records: scenario.attendanceRecords.length };
 };
 
-const ratioOf = (run) => {
-  const small = buildScenario(40);
-  const large = buildScenario(80);
-
-  // Un giro a vuoto: la prima esecuzione paga la compilazione, non l'algoritmo.
-  run(small);
-
-  const smallMs = Math.max(timeOf(() => run(small)), 0.05);
-  const largeMs = timeOf(() => run(large));
-
-  return largeMs / smallMs;
-};
-
-test("il riepilogo presenze cresce con gli atleti, non con il loro quadrato", () => {
-  const ratio = ratioOf((scenario) =>
-    calculateAttendanceReport({
-      athletes: scenario.athletes,
-      trainings: scenario.trainings,
-      attendanceRecords: scenario.attendanceRecords,
-      categories: scenario.categories,
-      selectedCategoryId: "",
-      period: "all",
-    }),
-  );
-
-  assert.ok(
-    ratio < MAX_SCALING_RATIO,
-    `raddoppiando gli atleti il tempo e cresciuto ${ratio.toFixed(1)}x: e tornato un filtro dentro il ciclo`,
-  );
-});
-
-test("le statistiche per categoria non rileggono le presenze per ogni atleta", () => {
-  const ratio = ratioOf((scenario) =>
-    calculateCategoryAthleteStats(
-      "cat-1",
-      scenario.athletes,
-      scenario.trainings,
-      scenario.attendanceRecords,
-      [],
-      scenario.categories,
-    ),
-  );
-
-  assert.ok(
-    ratio < MAX_SCALING_RATIO,
-    `raddoppiando gli atleti il tempo e cresciuto ${ratio.toFixed(1)}x: era atleti x allenamenti x presenze`,
-  );
-});
-
-test("l'indice non cambia il risultato", () => {
-  const scenario = buildScenario(12);
-
-  const report = calculateAttendanceReport({
+const runAttendanceReport = (scenario) =>
+  calculateAttendanceReport({
     athletes: scenario.athletes,
     trainings: scenario.trainings,
     attendanceRecords: scenario.attendanceRecords,
@@ -124,6 +132,46 @@ test("l'indice non cambia il risultato", () => {
     selectedCategoryId: "",
     period: "all",
   });
+
+const runCategoryStats = (scenario) =>
+  calculateCategoryAthleteStats(
+    "cat-1",
+    scenario.athletes,
+    scenario.trainings,
+    scenario.attendanceRecords,
+    [],
+    scenario.categories,
+  );
+
+const assertLinear = (run, message) => {
+  const small = readsOf(run, 40);
+  const large = readsOf(run, 80);
+
+  const perRecord = large.reads / large.records;
+  assert.ok(
+    perRecord <= MAX_READS_PER_RECORD,
+    `${message}: ogni riga di presenza viene letta ${perRecord.toFixed(1)} volte (massimo ${MAX_READS_PER_RECORD})`,
+  );
+
+  const ratio = large.reads / small.reads;
+  assert.ok(
+    ratio < MAX_SCALING_RATIO,
+    `${message}: raddoppiando gli atleti le letture sono cresciute ${ratio.toFixed(2)}x`,
+  );
+};
+
+test("il riepilogo presenze cresce con gli atleti, non con il loro quadrato", () => {
+  assertLinear(runAttendanceReport, "e tornato un filtro dentro il ciclo");
+});
+
+test("le statistiche per categoria non rileggono le presenze per ogni atleta", () => {
+  assertLinear(runCategoryStats, "era atleti x allenamenti x presenze");
+});
+
+test("l'indice non cambia il risultato", () => {
+  const scenario = buildScenario(12);
+
+  const report = runAttendanceReport(scenario);
 
   assert.equal(
     report.expectedAttendances,
@@ -133,14 +181,7 @@ test("l'indice non cambia il risultato", () => {
   assert.equal(report.presentAttendances, 12 * TRAINING_COUNT);
   assert.equal(report.absentAttendances, 0);
 
-  const stats = calculateCategoryAthleteStats(
-    "cat-1",
-    scenario.athletes,
-    scenario.trainings,
-    scenario.attendanceRecords,
-    [],
-    scenario.categories,
-  );
+  const stats = runCategoryStats(scenario);
 
   assert.equal(stats.length, 12);
   assert.equal(stats[0].presences, TRAINING_COUNT);
