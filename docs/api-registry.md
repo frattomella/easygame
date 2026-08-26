@@ -30,6 +30,9 @@ Fonte ufficiale da mantenere aggiornata:
   incasso, `{"action":"issue-receipt"}` ne emette la ricevuta e
   `{"action":"issue-invoice"}` la fattura. Entrambe idempotenti, con due
   numerazioni distinte. Non esiste `DELETE`: un incasso non si cancella
+- `GET /api/v1/documents/:kind/:id` — il documento stampabile di una ricevuta
+  (`receipt`) o di una fattura (`invoice`), con il branding della societa.
+  Restituisce **HTML**, non JSON: chi apre questo indirizzo vuole stampare
 - `GET /api/v1/entitlements` — cosa un club puo usare, funzione per funzione,
   con il **motivo** di ogni esito. Non e un campo salvato: e un calcolo su
   piano, servizi attivi ed eccezioni

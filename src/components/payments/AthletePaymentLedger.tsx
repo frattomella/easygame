@@ -206,6 +206,21 @@ export function AthletePaymentLedger({
     showToast("success", "Incasso stornato: resta visibile nello storico");
   };
 
+  /*
+    Il documento si apre appena emesso, in una scheda nuova. Non e una
+    comodita: chi emette una ricevuta la emette **per darla a qualcuno**, e
+    costringerlo a ritrovarla in un elenco e il modo piu rapido perche non
+    la stampi affatto.
+  */
+  const openDocument = (kind: "receipt" | "invoice", id?: string) => {
+    if (!id || typeof window === "undefined") return;
+    window.open(
+      `/api/v1/documents/${kind}/${encodeURIComponent(id)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
+
   const handleGenerateReceipt = async (
     transaction: NormalizedPaymentTransaction,
   ) => {
@@ -225,6 +240,7 @@ export function AthletePaymentLedger({
       "success",
       `Ricevuta ${data?.receipt_number || ""} emessa`.trim(),
     );
+    openDocument("receipt", data?.id);
   };
 
   /*
@@ -253,6 +269,7 @@ export function AthletePaymentLedger({
       "success",
       `Fattura ${data?.invoice_number || ""} emessa`.trim(),
     );
+    openDocument("invoice", data?.id);
   };
 
   return (

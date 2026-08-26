@@ -473,6 +473,30 @@ scrittura, e cosa mostrare al club al posto dei campi modificabili.
 
 → nessun WP ancora
 
+
+### D38 — Il documento di una ricevuta non viene archiviato
+
+Ricevute e fatture si **ristampano** da `GET /api/v1/documents/:kind/:id`, che
+rigenera il documento dalla riga ([ADR-0047](18-decision-log.md#adr-0047--un-pagamento-non-e-un-documento-ricevuta-e-fattura-si-scelgono)).
+Nessuna copia impaginata viene conservata.
+
+**Per una ricevuta va bene**: il documento e una proiezione della riga, e una
+copia in piu diverge la prima volta che il club cambia logo. **Per una
+fattura e discutibile**: un documento fiscale, una volta emesso, dovrebbe
+restare identico a com'era.
+
+**Le due strade, e perche nessuna si prende scrivendo un file.**
+
+- *PDF in `attachments`* — serve una libreria di generazione, cioe una
+  dipendenza nel bundle del server. E la strada giusta, ed e una decisione;
+- *HTML in `attachments`* — richiederebbe di aggiungere `text/html`
+  all'elenco chiuso dei tipi accettati, che oggi lo esclude perche
+  `attachments` serve file **caricati dagli utenti**. Ammetterlo per un
+  documento generato dal server lo ammetterebbe anche per un file che arriva
+  da un modulo pubblico. **Non va fatto** senza separare i due percorsi.
+
+→ nessun WP ancora
+
 ### D29 — `payments.status` e una copia del registro incassi
 
 Dopo [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)

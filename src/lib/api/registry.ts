@@ -132,6 +132,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "documents.printable",
+    method: "GET",
+    path: "/api/v1/documents/:kind/:id",
+    description:
+      "Il documento stampabile di una ricevuta o di una fattura, con il branding della societa. Restituisce HTML",
+    mobile_ready: false,
+  },
+  {
     name: "entitlements.read",
     method: "GET",
     path: "/api/v1/entitlements",

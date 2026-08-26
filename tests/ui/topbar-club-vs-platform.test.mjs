@@ -241,6 +241,13 @@ const DOCUMENT_GENERATORS = new Set([
   "components/forms/FormShareDialog.tsx",
   "lib/people-pdf-export.ts",
   "lib/clothing-supplier-order-pdf.ts",
+  /*
+    Il documento di una ricevuta o di una fattura si stampa, e spesso da un
+    portatile che non ha i font dell'applicazione installati. Dichiarare li
+    dentro un font di sistema non e un'eccezione allo stile: e la stessa
+    ragione per cui la pagina non carica niente da fuori.
+  */
+  "lib/documents/document-view.ts",
   "lib/server/auth-workflows.ts",
 ]);
 
