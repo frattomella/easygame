@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -86,9 +86,15 @@ import {
 import type { ListPageMeta } from "@/lib/api/client";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import {
+  buildCategoryGroupLabel,
   buildSiteIndex,
+  compareCategoryGroups,
+  getActiveClubSites,
+  getMembershipGroupId,
+  isMultiSiteClub,
   normalizeClubSites,
   recordMatchesSite,
+  UNASSIGNED_SITE_LABEL,
   type ClubSite,
 } from "@/lib/club-sites";
 import { SiteFilter } from "@/components/sites/site-filter";
@@ -131,6 +137,13 @@ interface Athlete {
   /** Sede in cui l'atleta svolge la categoria di questa riga (ADR-0038). */
   siteId: string;
   siteName: string;
+  /**
+   * Il **gruppo operativo** di questa riga: la coppia (categoria, sede), cioe
+   * la squadra concreta. E l'unita con cui la pagina raggruppa gli elenchi,
+   * perche `Pulcini · Scauri` e `Pulcini · Santi Cosma` sono due liste di
+   * lavoro distinte e non due righe della stessa (ADR-0055).
+   */
+  groupId: string;
   primaryCategoryLabel?: string;
   allCategoryLabels: string[];
   age: number;
@@ -154,6 +167,12 @@ type PendingBulkAction = {
   scope: "selected" | "all";
   action: BulkActionType;
   targetCategoryId?: string | null;
+  /**
+   * La sede da assegnare insieme alla categoria. E la procedura con cui un
+   * club che ha appena configurato le sue sedi colloca il dato storico senza
+   * aprire duecento schede una per una (ADR-0055).
+   */
+  targetSiteId?: string | null;
 };
 
 const normalizeCategoryKey = (value: string) =>
@@ -259,6 +278,8 @@ const buildAthleteRows = (
         ? resolveCategoryLabel(membership.categoryName, normalizedCategories)
         : "Senza categoria";
 
+      const resolvedSiteId = siteIndex.resolveSiteId(membership.siteId);
+
       return {
         id: athlete.id,
         name: getAthleteDisplayName(athlete),
@@ -267,10 +288,20 @@ const buildAthleteRows = (
         categoryId,
         categoryLabel,
         membershipType: membership.isPrimary ? "primary" : "secondary",
-        siteId: siteIndex.resolveSiteId(membership.siteId),
+        siteId: resolvedSiteId,
         siteName: membership.siteId
           ? siteIndex.getSiteName(membership.siteId)
           : "",
+        /*
+          Il gruppo operativo della riga: la squadra concreta con cui questo
+          atleta si allena. Non e la categoria, ed e l'unita con cui questa
+          pagina raggruppa (ADR-0055).
+        */
+        groupId:
+          getMembershipGroupId(
+            { categoryId: categoryId || membership.categoryName, siteId: resolvedSiteId },
+            siteIndex,
+          ) || UNCATEGORIZED_CATEGORY_ID,
         primaryCategoryLabel:
           primaryMembership?.categoryName || categoryLabel || "Senza categoria",
         allCategoryLabels: rowMemberships.map((item) => item.categoryName),
@@ -314,6 +345,7 @@ export default function AthletesPage() {
     useState<PendingBulkAction | null>(null);
   const [showBulkCategoryDialog, setShowBulkCategoryDialog] = useState(false);
   const [bulkCategoryTargetId, setBulkCategoryTargetId] = useState("");
+  const [bulkSiteTargetId, setBulkSiteTargetId] = useState("");
 
   const [sites, setSites] = useState<ClubSite[]>([]);
   const [siteFilter, setSiteFilter] = useState("");
@@ -677,6 +709,10 @@ export default function AthletesPage() {
         // visibile con qualunque filtro finche non gliene si assegna una.
         siteId: "",
         siteName: "",
+        groupId: getMembershipGroupId({
+          categoryId: linkedCategory?.id || "",
+          siteId: "",
+        }) || UNCATEGORIZED_CATEGORY_ID,
         primaryCategoryLabel: linkedCategory?.name || "Senza categoria",
         allCategoryLabels: categoryMemberships.map(
           (membership) => membership.category_name,
@@ -1333,6 +1369,14 @@ export default function AthletesPage() {
                 category_id: targetCategory.id,
                 categoryName: targetCategory.name,
                 category_name: targetCategory.name,
+                /*
+                  Senza sede indicata quella dell'atleta resta com'era: un
+                  cambio di categoria non e il momento per cancellare
+                  un'informazione che nessuno ha chiesto di cambiare.
+                */
+                ...(pendingBulkAction.targetSiteId
+                  ? { site_id: pendingBulkAction.targetSiteId }
+                  : {}),
               });
             }
 
@@ -1368,34 +1412,95 @@ export default function AthletesPage() {
     }
   };
 
-  // Get unique categories from athletes (including those without registered categories)
-  const getUniqueCategories = () => {
-    const allCategories = new Map<
+  /**
+   * Gli elenchi operativi: **un gruppo, una lista**.
+   *
+   * `Pulcini` che porta dentro Scauri e Santi Cosma non e utilizzabile: chi
+   * stampa l'appello o conta gli iscritti di una squadra deve poter prendere
+   * *una* squadra. Su un club mono-gruppo l'etichetta resta la categoria
+   * nuda — il concetto di gruppo non compare a chi non ne ha bisogno
+   * (ADR-0055).
+   *
+   * Una passata sola sulle righe gia filtrate: niente categorie x gruppi x
+   * atleti a ogni render.
+   */
+  const athleteGroups = useMemo(() => {
+    const buckets = new Map<
       string,
-      { id: string; name: string; birthYearsLabel?: string }
+      {
+        id: string;
+        categoryId: string | null;
+        categoryName: string;
+        siteId: string;
+        siteName: string;
+        athletes: Athlete[];
+      }
     >();
 
-    categories.forEach((cat) => {
-      allCategories.set(cat.id, {
-        id: cat.id,
-        name: cat.name,
-        birthYearsLabel: cat.birthYearsLabel,
+    filteredAthletes.forEach((athlete) => {
+      const id = athlete.groupId || UNCATEGORIZED_CATEGORY_ID;
+      const bucket = buckets.get(id);
+
+      if (bucket) {
+        bucket.athletes.push(athlete);
+        return;
+      }
+
+      buckets.set(id, {
+        id,
+        categoryId: athlete.categoryId,
+        categoryName: athlete.categoryLabel || "Senza categoria",
+        siteId: athlete.siteId,
+        siteName: athlete.siteName,
+        athletes: [athlete],
       });
     });
 
-    filteredAthletes.forEach((athlete) => {
-      const fallbackId = athlete.categoryId || UNCATEGORIZED_CATEGORY_ID;
+    const groups = Array.from(buckets.values());
 
-      if (!allCategories.has(fallbackId)) {
-        allCategories.set(fallbackId, {
-          id: fallbackId,
-          name: athlete.categoryLabel || "Senza categoria",
-        });
-      }
+    /*
+      Quante squadre ha ogni categoria: e la domanda che decide se l'etichetta
+      deve dire anche la sede. Con una sola, dirla e rumore.
+    */
+    const groupCountByCategory = new Map<string, number>();
+    groups.forEach((group) => {
+      const key = group.categoryId || UNCATEGORIZED_CATEGORY_ID;
+      groupCountByCategory.set(key, (groupCountByCategory.get(key) || 0) + 1);
     });
 
-    return Array.from(allCategories.values());
-  };
+    return groups
+      .map((group) => {
+        const key = group.categoryId || UNCATEGORIZED_CATEGORY_ID;
+        const needsSite = (groupCountByCategory.get(key) || 0) > 1;
+
+        return {
+          ...group,
+          label:
+            needsSite && (group.siteName || group.siteId)
+              ? buildCategoryGroupLabel(group.categoryName, group.siteName)
+              : needsSite
+                ? buildCategoryGroupLabel(
+                    group.categoryName,
+                    UNASSIGNED_SITE_LABEL,
+                  )
+                : group.categoryName,
+        };
+      })
+      .sort((left, right) =>
+        compareCategoryGroups(
+          {
+            categoryName: left.categoryName,
+            siteName: left.siteName,
+            siteId: left.siteId,
+          },
+          {
+            categoryName: right.categoryName,
+            siteName: right.siteName,
+            siteId: right.siteId,
+          },
+        ),
+      );
+  }, [filteredAthletes]);
 
   // Render athlete table for a category
   const renderAthleteTable = (categoryAthletes: Athlete[]) => {
@@ -2218,24 +2323,16 @@ export default function AthletesPage() {
                 )}
               </div>
             ) : (
-              // Render categories with collapsible data grids
+              // Un gruppo operativo, un elenco: le squadre non si mescolano.
               <div className="space-y-4">
-                {getUniqueCategories().map((category) => {
-                  const categoryAthletes = filteredAthletes.filter(
-                    (athlete) =>
-                      (athlete.categoryId || UNCATEGORIZED_CATEGORY_ID) ===
-                      category.id,
-                  );
-
-                  if (categoryAthletes.length === 0) return null;
-
-                  const isCollapsed = collapsedCategories.has(category.id);
+                {athleteGroups.map((group: (typeof athleteGroups)[number]) => {
+                  const isCollapsed = collapsedCategories.has(group.id);
 
                   return (
-                    <Card key={category.id} className="overflow-hidden">
+                    <Card key={group.id} className="overflow-hidden">
                       <Collapsible
                         open={!isCollapsed}
-                        onOpenChange={() => toggleCategoryCollapse(category.id)}
+                        onOpenChange={() => toggleCategoryCollapse(group.id)}
                       >
                         <CardHeader className="pb-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2251,7 +2348,7 @@ export default function AthletesPage() {
                                     <ChevronDown className="h-5 w-5 text-gray-500" />
                                   )}
                                   <span className="inline-block w-3 h-3 rounded-full bg-blue-500"></span>
-                                  {category.name} ({categoryAthletes.length})
+                                  {group.label} ({group.athletes.length})
                                 </CardTitle>
                               </button>
                             </CollapsibleTrigger>
@@ -2259,10 +2356,13 @@ export default function AthletesPage() {
                               variant="outline"
                               size="sm"
                               className="w-full sm:w-auto"
-                              disabled={category.id === UNCATEGORIZED_CATEGORY_ID}
+                              disabled={
+                                !group.categoryId ||
+                                group.id === UNCATEGORIZED_CATEGORY_ID
+                              }
                               onClick={() =>
                                 router.push(
-                                  `/reports?report=categories&categoryId=${encodeURIComponent(category.id)}`,
+                                  `/reports?report=categories&categoryId=${encodeURIComponent(group.categoryId || "")}`,
                                 )
                               }
                             >
@@ -2273,7 +2373,7 @@ export default function AthletesPage() {
                         </CardHeader>
                         <CollapsibleContent>
                           <CardContent>
-                            {renderAthleteTable(categoryAthletes)}
+                            {renderAthleteTable(group.athletes)}
                           </CardContent>
                         </CollapsibleContent>
                       </Collapsible>
@@ -2499,6 +2599,31 @@ export default function AthletesPage() {
                 ))}
               </select>
             </div>
+
+            {/*
+              La sede in blocco esiste per un motivo solo: collocare il dato
+              storico. Un club che configura le sedi oggi ha centinaia di
+              atleti senza sede, e assegnarla scheda per scheda vuol dire non
+              assegnarla (ADR-0055).
+            */}
+            {isMultiSiteClub(sites) ? (
+              <div className="space-y-2">
+                <Label htmlFor="bulk-site-target">Sede</Label>
+                <select
+                  id="bulk-site-target"
+                  value={bulkSiteTargetId}
+                  onChange={(event) => setBulkSiteTargetId(event.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Lascia la sede attuale</option>
+                  {getActiveClubSites(sites).map((site) => (
+                    <option key={`bulk-site-${site.id}`} value={site.id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
             <Button
@@ -2515,6 +2640,7 @@ export default function AthletesPage() {
                   scope: "selected",
                   action: "changeCategory",
                   targetCategoryId: bulkCategoryTargetId,
+                  targetSiteId: bulkSiteTargetId || null,
                 });
                 setShowBulkCategoryDialog(false);
               }}

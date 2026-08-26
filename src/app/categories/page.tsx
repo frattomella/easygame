@@ -67,6 +67,8 @@ import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { updateClubAthlete } from "@/lib/simplified-db";
 import {
   buildCategoryGroups,
+  buildCategoryGroupsForSites,
+  getActiveClubSites,
   isMultiSiteClub,
   normalizeClubSites,
   serializeCategoryGroup,
@@ -74,7 +76,6 @@ import {
   type ClubSite,
 } from "@/lib/club-sites";
 import { SiteFilter } from "@/components/sites/site-filter";
-import { CategoryGroupsEditor } from "@/components/sites/category-groups-editor";
 import { MapPin } from "lucide-react";
 
 interface Category {
@@ -475,8 +476,6 @@ export default function CategoriesPage() {
   const [rawCategoryGroups, setRawCategoryGroups] = useState<any[]>([]);
   const [clubStructures, setClubStructures] = useState<any[]>([]);
   const [siteFilter, setSiteFilter] = useState("");
-  const [groupsEditorCategory, setGroupsEditorCategory] =
-    useState<Category | null>(null);
   const { showToast } = useToast();
   const router = useRouter();
 
@@ -755,6 +754,31 @@ const buildDialogAthletesForCategory = (category: Category) =>
         }
       }
 
+      /*
+        Le sedi spuntate diventano gruppi operativi nello stesso salvataggio.
+        Chiedere all'operatore di crearli a mano da un'altra schermata sarebbe
+        chiedergli di ripetere una cosa che ha appena detto (ADR-0055).
+      */
+      if (isMultiSiteClub(sites)) {
+        const existingForCategory = categoryGroups.filter(
+          (group) => group.categoryId === savedCategoryId && !group.implicit,
+        );
+
+        await persistCategoryGroups(
+          savedCategoryId,
+          buildCategoryGroupsForSites({
+            categoryId: savedCategoryId,
+            categoryName: payload.name,
+            siteIds: Array.isArray(categoryData.siteIds)
+              ? categoryData.siteIds
+              : [],
+            sites: getActiveClubSites(sites),
+            existing: existingForCategory,
+          }),
+          { silent: true },
+        );
+      }
+
       showToast(
         "success",
         editingCategory
@@ -966,9 +990,23 @@ const buildDialogAthletesForCategory = (category: Category) =>
     return byCategory;
   }, [categoryGroups]);
 
+  /*
+    Le sedi gia spuntate su questa categoria. Stabile fra un render e l'altro
+    perche il modulo la usa come stato iniziale: un array nuovo a ogni render
+    ricostruirebbe il modulo e cancellerebbe le spunte appena messe.
+  */
+  const editorSiteIds = useMemo(() => {
+    if (!editingCategory || !selectedCategory) return [];
+
+    return (groupsByCategoryId.get(selectedCategory.id) || [])
+      .filter((group) => !group.implicit && group.active && group.siteId)
+      .map((group) => group.siteId);
+  }, [editingCategory, selectedCategory, groupsByCategoryId]);
+
   const persistCategoryGroups = async (
     categoryId: string,
     nextForCategory: CategoryGroup[],
+    { silent = false }: { silent?: boolean } = {},
   ) => {
     if (!activeClub) return;
 
@@ -983,7 +1021,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
     try {
       const { updateClubData } = await import("@/lib/simplified-db");
       await updateClubData(activeClub.id, "category_groups", next);
-      showToast("success", "Gruppi operativi aggiornati");
+      if (!silent) showToast("success", "Gruppi operativi aggiornati");
     } catch {
       setRawCategoryGroups(previous);
       showToast("error", "Salvataggio dei gruppi operativi fallito");
@@ -1166,11 +1204,19 @@ const buildDialogAthletesForCategory = (category: Category) =>
                                 {group.siteName}
                               </Badge>
                             ))}
+                          {/*
+                            Le sedi si cambiano dove si cambia la categoria:
+                            una superficie sola, non due (ADR-0055).
+                          */}
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-6 px-2 text-xs text-blue-600"
-                            onClick={() => setGroupsEditorCategory(category)}
+                            onClick={() => {
+                              setSelectedCategory(category);
+                              setEditingCategory(true);
+                              setShowAddCategoryModal(true);
+                            }}
                           >
                             {(groupsByCategoryId.get(category.id) || []).some(
                               (group) => !group.implicit,
@@ -1253,27 +1299,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
         </main>
       </div>
 
-      {groupsEditorCategory ? (
-        <CategoryGroupsEditor
-          open={Boolean(groupsEditorCategory)}
-          onOpenChange={(open) => {
-            if (!open) setGroupsEditorCategory(null);
-          }}
-          categoryId={groupsEditorCategory.id}
-          categoryName={groupsEditorCategory.name}
-          sites={sites}
-          structures={clubStructures.map((structure: any) => ({
-            id: String(structure?.id || ""),
-            name: String(structure?.name || "Struttura"),
-            siteId: String(structure?.siteId || structure?.site_id || ""),
-          }))}
-          groups={categoryGroups}
-          onSave={(next) =>
-            persistCategoryGroups(groupsEditorCategory.id, next)
-          }
-        />
-      ) : null}
-
       <CategoryEditorDialog
         isOpen={showAddCategoryModal}
         onClose={() => {
@@ -1303,6 +1328,11 @@ const buildDialogAthletesForCategory = (category: Category) =>
                 .map((trainer) => trainer.id)
             : []
         }
+        availableSites={getActiveClubSites(sites).map((site) => ({
+          id: site.id,
+          name: site.name,
+        }))}
+        initialSiteIds={editorSiteIds}
       />
 
       {selectedCategory && (

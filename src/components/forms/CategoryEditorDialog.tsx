@@ -37,11 +37,22 @@ interface CategoryEditorDialogProps {
     id: string;
     name: string;
   }[];
+  /**
+   * Le sedi attive del club. Vuote o con una sola voce il club e mono-sede e
+   * la sezione non compare: chi non ha il problema non vede la soluzione.
+   */
+  availableSites?: {
+    id: string;
+    name: string;
+  }[];
+  /** Le sedi in cui la categoria e gia attiva, in modifica. */
+  initialSiteIds?: string[];
 }
 
 const getInitialFormState = (
   initialData?: any,
   initialAssignedTrainerIds: string[] = [],
+  initialSiteIds: string[] = [],
 ) => {
   const birthYears = normalizeCategoryBirthYears(initialData || {});
 
@@ -53,6 +64,7 @@ const getInitialFormState = (
     color: initialData?.color || "bg-blue-500 text-white",
     assignedTrainerIds: initialAssignedTrainerIds,
     compatibleCategoryIds: readCategoryCompatibilityList(initialData),
+    siteIds: initialSiteIds,
   };
 };
 
@@ -65,15 +77,37 @@ export function CategoryEditorDialog({
   availableTrainers = [],
   initialAssignedTrainerIds = [],
   availableCategories = [],
+  availableSites = [],
+  initialSiteIds = [],
 }: CategoryEditorDialogProps) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState(
-    getInitialFormState(initialData, initialAssignedTrainerIds),
+    getInitialFormState(initialData, initialAssignedTrainerIds, initialSiteIds),
   );
 
   React.useEffect(() => {
-    setFormData(getInitialFormState(initialData, initialAssignedTrainerIds));
-  }, [initialData, initialAssignedTrainerIds, isOpen]);
+    setFormData(
+      getInitialFormState(
+        initialData,
+        initialAssignedTrainerIds,
+        initialSiteIds,
+      ),
+    );
+  }, [initialData, initialAssignedTrainerIds, initialSiteIds, isOpen]);
+
+  /*
+    Il club mono-sede non vede il concetto: una sola sede non aggiunge
+    informazione, e il gruppo operativo resta implicito (ADR-0055).
+  */
+  const showSites = availableSites.length >= 2;
+
+  const handleSiteToggle = (siteId: string) =>
+    setFormData((prev) => ({
+      ...prev,
+      siteIds: prev.siteIds.includes(siteId)
+        ? prev.siteIds.filter((id: string) => id !== siteId)
+        : [...prev.siteIds, siteId],
+    }));
 
   const colorOptions = [
     { value: "bg-blue-500 text-white", label: "Blu" },
@@ -180,6 +214,11 @@ export function CategoryEditorDialog({
         trainingsPerWeek: initialData?.trainingsPerWeek || 0,
         assignedTrainerIds: formData.assignedTrainerIds,
         compatibleCategoryIds: formData.compatibleCategoryIds,
+        /*
+          Le sedi spuntate diventano gruppi operativi: chi le indica qui non
+          deve poi crearli a mano da un'altra parte (ADR-0055).
+        */
+        siteIds: showSites ? formData.siteIds : [],
       });
 
       if (result === false) {
@@ -328,6 +367,52 @@ export function CategoryEditorDialog({
             ))}
           </select>
         </div>
+
+        {showSites ? (
+          <div className="space-y-3">
+            <div>
+              <Label>Sedi in cui e attiva</Label>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Ogni sede spuntata diventa un <strong>gruppo operativo</strong>:
+                una squadra con il suo elenco atleti, i suoi allenamenti e le
+                sue presenze. La categoria resta <strong>una sola</strong>, con
+                la sua fascia d&apos;anno e le sue compatibilita.
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Togliere una sede non cancella niente: il gruppo viene
+                archiviato e atleti, allenamenti e presenze restano leggibili.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-muted/30 p-4">
+              <div className="flex flex-wrap gap-2">
+                {availableSites.map((site) => {
+                  const selected = formData.siteIds.includes(site.id);
+
+                  return (
+                    <Button
+                      key={site.id}
+                      type="button"
+                      variant={selected ? "default" : "outline"}
+                      size="sm"
+                      aria-pressed={selected}
+                      className={selected ? "bg-blue-600 hover:bg-blue-700" : ""}
+                      onClick={() => handleSiteToggle(site.id)}
+                    >
+                      {site.name}
+                    </Button>
+                  );
+                })}
+              </div>
+              {formData.siteIds.length === 0 ? (
+                <p className="mt-3 text-sm text-amber-700">
+                  Nessuna sede indicata: la categoria resta una squadra sola,
+                  senza sede.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div className="space-y-3">
           <div>

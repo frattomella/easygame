@@ -22,6 +22,12 @@ import {
   matchConfirmationsToPeriods,
   parseConfirmationImport,
 } from "@/lib/funding/confirmation-import";
+import {
+  buildSiteIndex,
+  filterTrainingsForAthleteGroups,
+  getAthleteGroupIds,
+  normalizeClubSites,
+} from "@/lib/club-sites";
 
 /**
  * Il servizio dei contributi: **l'unico** punto in cui EasyGame calcola un
@@ -326,21 +332,35 @@ export const createFundingEnrollment = async (
  * ricavano le ore. Si leggono qui, in un punto solo, invece di essere passati
  * dal chiamante — un contributo calcolato su dati scelti da chi chiama non e
  * verificabile.
+ *
+ * **Gli allenamenti di un'altra squadra non contano** (ADR-0055). Mario si
+ * allena con `Pulcini · Scauri`: l'esistenza di un allenamento di
+ * `Pulcini · Santi Cosma` non deve produrgli ne ore ne previsione, nemmeno se
+ * un appello sbagliato lo aveva segnato presente. Un allenamento che non
+ * dichiara nessun gruppo resta dentro: e un dato precedente ai gruppi, ed
+ * escluderlo cancellerebbe frequenza vera da stagioni gia rendicontate.
  */
 const loadAttendanceInputs = async (
   organizationId: string,
   athleteId: string,
 ) => {
-  const [attendance, trainingItems] = await Promise.all([
+  const [attendance, trainingItems, club, memberships] = await Promise.all([
     (prisma as any).trainingAttendance.findMany({
       where: { organization_id: organizationId, athlete_id: athleteId },
     }),
     (prisma as any).clubResourceItem.findMany({
       where: { organization_id: organizationId, resource_type: "trainings" },
     }),
+    (prisma as any).club.findUnique({
+      where: { id: organizationId },
+      select: { club_sites: true },
+    }),
+    (prisma as any).athleteCategoryMembership.findMany({
+      where: { organization_id: organizationId, athlete_id: athleteId },
+    }),
   ]);
 
-  const trainings = (Array.isArray(trainingItems) ? trainingItems : []).map(
+  const allTrainings = (Array.isArray(trainingItems) ? trainingItems : []).map(
     (item: any) => {
       const payload = asRecord(item.payload);
       return {
@@ -352,6 +372,17 @@ const loadAttendanceInputs = async (
       };
     },
   );
+
+  const siteIndex = buildSiteIndex(normalizeClubSites(club?.club_sites));
+  const athleteGroupIds = getAthleteGroupIds(
+    Array.isArray(memberships) ? memberships : [],
+    siteIndex,
+  );
+
+  const trainings = filterTrainingsForAthleteGroups({
+    trainings: allTrainings,
+    athleteGroupIds,
+  });
 
   return { attendance, trainings };
 };

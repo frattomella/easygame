@@ -4,6 +4,12 @@ import test from "node:test";
 import { getJerseyGroupSummaries } from "../../src/lib/jersey-numbering-utils.ts";
 import { getKitDeliveryProgress } from "../../src/lib/clothing-delivery.ts";
 import { normalizeClubClothingState } from "../../src/lib/clothing-inventory-utils.ts";
+import {
+  buildCategoryGroups,
+  buildSiteIndex,
+  groupAthletesByCategoryGroup,
+  normalizeClubSites,
+} from "../../src/lib/club-sites.ts";
 
 /**
  * Il costo cresce con gli atleti, non con il loro quadrato.
@@ -171,4 +177,87 @@ test("il progresso di consegna cresce linearmente con i kit", () => {
     ratio < MAX_SCALING_RATIO,
     `raddoppiando i kit il costo si moltiplica per ${ratio.toFixed(2)}`,
   );
+});
+
+/* ------------------------------------- gli elenchi per gruppo operativo */
+
+/**
+ * Il difetto che questo test intercetta: raggruppare gli atleti
+ * ricalcolandone le appartenenze **dentro** il ciclo sui gruppi, cioe
+ * categorie x gruppi x atleti. Con 12 categorie, 3 sedi e 480 atleti sono
+ * quasi diciassettemila normalizzazioni per ogni render della pagina Atleti.
+ *
+ * La forma giusta e una passata sola sugli atleti, con i gruppi indicizzati.
+ */
+test("gli elenchi per gruppo crescono linearmente con gli atleti", () => {
+  const sites = normalizeClubSites(
+    SITES.map((id) => ({ id, name: id.replace("site-", "") })),
+  );
+  const siteIndex = buildSiteIndex(sites);
+  const groups = buildCategoryGroups({
+    categories: buildCategories(),
+    sites,
+    groups: buildCategories().flatMap((category) =>
+      SITES.map((siteId) => ({ categoryId: category.id, siteId })),
+    ),
+  });
+
+  const small = buildAthletes(300);
+  const large = buildAthletes(600);
+
+  const bucketsOf = (athletes) =>
+    groupAthletesByCategoryGroup({ athletes, groups, siteIndex });
+
+  const buckets = bucketsOf(large);
+  assert.equal(
+    buckets.reduce((total, bucket) => total + bucket.athletes.length, 0),
+    600,
+    "nessun atleta si perde e nessuno si duplica",
+  );
+  assert.equal(
+    buckets.length,
+    CATEGORY_COUNT * SITES.length,
+    "un elenco per gruppo operativo, sempre gli stessi",
+  );
+
+  const ratio = scalingRatio(
+    () => bucketsOf(small),
+    () => bucketsOf(large),
+  );
+
+  assert.ok(
+    ratio < MAX_SCALING_RATIO,
+    `raddoppiando gli atleti il costo si moltiplica per ${ratio.toFixed(2)}: ` +
+      "le appartenenze sono tornate dentro il ciclo sui gruppi",
+  );
+});
+
+test("gli atleti di un gruppo sono solo quelli della sua sede", () => {
+  const sites = normalizeClubSites(
+    SITES.map((id) => ({ id, name: id.replace("site-", "") })),
+  );
+  const siteIndex = buildSiteIndex(sites);
+  const groups = buildCategoryGroups({
+    categories: buildCategories(),
+    sites,
+    groups: buildCategories().flatMap((category) =>
+      SITES.map((siteId) => ({ categoryId: category.id, siteId })),
+    ),
+  });
+
+  const buckets = groupAthletesByCategoryGroup({
+    athletes: buildAthletes(300),
+    groups,
+    siteIndex,
+  });
+
+  for (const bucket of buckets) {
+    for (const athlete of bucket.athletes) {
+      assert.equal(
+        athlete.category_memberships[0].site_id,
+        bucket.group.siteId,
+        "nessuna contaminazione fra squadre, nemmeno su trecento atleti",
+      );
+    }
+  }
 });

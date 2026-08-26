@@ -113,19 +113,18 @@ nessun token noto, nessuna connection string con credenziali, nessun
 
 ## Impatto medio
 
-### D22 — Un secondo componente di programma settimanale, non collegato
+### D22 — Un secondo componente di programma settimanale, non collegato — **CHIUSO**
 
-`src/components/dashboard/WeeklyTrainingSchedule.tsx` non e importato da
-nessuna pagina: `/training` usa `WeeklyTrainingSchedulePanel.tsx`. Il
-componente orfano contiene un autosave a 3 secondi **senza deduplicazione**,
-che scriverebbe a ogni montaggio, e salva un programma settimanale nella
-colonna `clubs.trainings`.
+`src/components/dashboard/WeeklyTrainingSchedule.tsx` non era importato da
+nessuna pagina — `/training` usa `WeeklyTrainingSchedulePanel.tsx` — e
+conteneva un autosave a 3 secondi **senza deduplicazione**, che avrebbe scritto
+a ogni montaggio.
 
-**Perche pesa:** e la trappola descritta nell'errore tipico n. 1 di
-`CLAUDE.md` — chi cerca «autosave del programma settimanale» trova per primo
-la versione sbagliata.
-
-→ WP-18
+**Chiuso nel Blocco D2** ([ADR-0055](18-decision-log.md#adr-0055--configurazione-si-sceglie-per-categoria-operazione-si-sceglie-per-gruppo)):
+il file e stato rimosso. Il lavoro sui gruppi operativi ha attraversato quella
+schermata, ed e stato il momento in cui la trappola dell'errore tipico n. 1 di
+`CLAUDE.md` si e materializzata davvero — le prime modifiche sono finite nel
+componente sbagliato. Un test statico ora verifica che non torni.
 
 ### D7 — Adapter `supabase.ts` fuorviante
 

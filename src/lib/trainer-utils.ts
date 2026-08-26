@@ -427,3 +427,91 @@ export const getTrainerDisplayName = (trainer: any) => {
 
   return [firstName, lastName].filter(Boolean).join(" ").trim() || "Allenatore";
 };
+
+/* ------------------------------------------- allenatori e gruppi operativi */
+
+/**
+ * I **gruppi operativi** che un allenatore segue (ADR-0055).
+ *
+ * **Perche non basta la categoria.** Un club con due sedi ha due squadre di
+ * Pulcini, e quasi mai lo stesso allenatore le segue entrambe. Con la sola
+ * categoria, assegnare «Pulcini» significa assegnare tutte e due — e la
+ * proposta automatica degli allenatori su un allenamento di Scauri
+ * proporrebbe anche chi lavora a Santi Cosma.
+ *
+ * **Un elenco vuoto non significa «nessun gruppo».** Significa «non
+ * dichiarato», e chi non lo ha dichiarato segue tutte le squadre delle sue
+ * categorie: e cio che faceva prima, e nessuna assegnazione esistente cambia
+ * significato.
+ */
+export const getTrainerGroupIds = (
+  trainer: { groupIds?: unknown; group_ids?: unknown } | null | undefined,
+): string[] => {
+  const raw = Array.isArray(trainer?.groupIds)
+    ? trainer?.groupIds
+    : Array.isArray((trainer as any)?.group_ids)
+      ? (trainer as any).group_ids
+      : [];
+
+  return (raw as unknown[])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+};
+
+/**
+ * Questo allenatore segue quel gruppo?
+ *
+ * Due condizioni, in ordine: se dichiara dei gruppi vale l'elenco; altrimenti
+ * si ricade sulla categoria del gruppo, che e il comportamento precedente.
+ */
+export const trainerFollowsGroup = (
+  trainer:
+    | { categories?: TrainerCategoryLike[] | unknown; groupIds?: unknown }
+    | null
+    | undefined,
+  group: { id?: string | null; categoryId?: string | null; categoryName?: string | null },
+  clubCategories: ClubCategoryLike[] = [],
+) => {
+  if (!trainer || !group) return false;
+
+  const declared = getTrainerGroupIds(trainer);
+  if (declared.length) {
+    return declared.includes(String(group.id || ""));
+  }
+
+  return trainerHasCategory(
+    trainer,
+    { id: group.categoryId, name: group.categoryName },
+    clubCategories,
+  );
+};
+
+/**
+ * Gli allenatori da proporre per un allenamento, dati i suoi gruppi.
+ *
+ * E la versione per gruppi di `getAssociatedTrainerIds`: stessa idea, unita
+ * di misura diversa. Restituisce id, non oggetti, perche chi chiama tiene gia
+ * l'elenco completo e deve solo sapere **quali** spuntare.
+ */
+export const getAssociatedTrainerIdsForGroups = (
+  trainers: Array<{
+    id?: string | null;
+    categories?: TrainerCategoryLike[] | unknown;
+    groupIds?: unknown;
+  }> = [],
+  groups: Array<{
+    id?: string | null;
+    categoryId?: string | null;
+    categoryName?: string | null;
+  }> = [],
+  clubCategories: ClubCategoryLike[] = [],
+) => {
+  if (groups.length === 0) return [];
+
+  return trainers
+    .filter((trainer) =>
+      groups.some((group) => trainerFollowsGroup(trainer, group, clubCategories)),
+    )
+    .map((trainer) => String(trainer?.id || "").trim())
+    .filter(Boolean);
+};

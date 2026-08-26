@@ -1,6 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import {
+  TrainingGroupSelector,
+  categoryIdsFromGroups,
+  groupIdsForCategories,
+  type TrainingGroupOption,
+} from "@/components/training/TrainingGroupSelector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +56,8 @@ interface Training {
   location: string;
   trainerIds: string[];
   categories: string[];
+  /** I gruppi operativi a cui l'allenamento si riferisce (ADR-0055). */
+  groupIds?: string[];
 }
 
 interface EditTrainingFormProps {
@@ -59,6 +67,8 @@ interface EditTrainingFormProps {
   training: Training | null;
   trainers: Trainer[];
   categories?: Category[];
+  /** I gruppi operativi del club: e a questi che un allenamento si assegna. */
+  groups?: TrainingGroupOption[];
   locations: string[];
 }
 
@@ -69,6 +79,7 @@ export function EditTrainingForm({
   training,
   trainers,
   categories = [],
+  groups = [],
   locations = ["Campo Principale", "Campo Secondario", "Palestra"],
 }: EditTrainingFormProps) {
   const { showToast } = useToast();
@@ -81,10 +92,11 @@ export function EditTrainingForm({
     location: "",
     trainerIds: [],
     categories: [],
+    groupIds: [],
   });
 
   /** Aggiunge o toglie un elemento da un elenco di id. */
-  const toggleId = (field: "trainerIds" | "categories", id: string) => {
+  const toggleId = (field: "trainerIds", id: string) => {
     setFormData((previous) => {
       const current = new Set(previous[field]);
       if (current.has(id)) current.delete(id);
@@ -99,16 +111,55 @@ export function EditTrainingForm({
   const [changes, setChanges] = useState<string[]>([]);
   const [sendNotifications, setSendNotifications] = useState(true);
 
+  /**
+   * I gruppi selezionabili. Senza gruppi configurati si ricade sulle
+   * categorie, che e il comportamento di un club mono-sede.
+   */
+  const groupOptions: TrainingGroupOption[] = React.useMemo(() => {
+    if (groups.length) return groups;
+
+    return categories.map((category) => ({
+      id: `group:${category.id}`,
+      name: category.name,
+      categoryId: category.id,
+      categoryName: category.name,
+      siteId: "",
+      siteName: "",
+    }));
+  }, [groups, categories]);
+
+  const handleGroupToggle = (
+    group: TrainingGroupOption,
+    checked: boolean,
+  ) => {
+    setFormData((previous) => {
+      const groupIds = checked
+        ? Array.from(new Set([...(previous.groupIds || []), group.id]))
+        : (previous.groupIds || []).filter((id) => id !== group.id);
+
+      return {
+        ...previous,
+        groupIds,
+        categories: categoryIdsFromGroups(groupOptions, groupIds),
+      };
+    });
+  };
+
   useEffect(() => {
     if (training) {
-      setFormData({
-        ...training,
-      });
-      setOriginalTraining({
-        ...training,
-      });
+      /*
+        Un allenamento creato prima dei gruppi non ne dichiara nessuno: le
+        spunte partono da dove il dato lo colloca oggi — tutte le squadre di
+        quelle categorie — e chi modifica puo restringerle (ADR-0055).
+      */
+      const groupIds = training.groupIds?.length
+        ? training.groupIds
+        : groupIdsForCategories(groupOptions, training.categories || []);
+
+      setFormData({ ...training, groupIds });
+      setOriginalTraining({ ...training, groupIds });
     }
-  }, [training]);
+  }, [training, groupOptions]);
 
   // Track changes between original and current form data
   useEffect(() => {
@@ -334,31 +385,12 @@ export function EditTrainingForm({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Categorie</Label>
-              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
-                {categories.length ? (
-                  categories.map((category) => (
-                    <label
-                      key={category.id}
-                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
-                    >
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300"
-                        checked={formData.categories.includes(category.id)}
-                        onChange={() => toggleId("categories", category.id)}
-                      />
-                      {category.name}
-                    </label>
-                  ))
-                ) : (
-                  <p className="px-2 py-1 text-sm text-muted-foreground">
-                    Nessuna categoria configurata
-                  </p>
-                )}
-              </div>
-            </div>
+            <TrainingGroupSelector
+              groups={groupOptions}
+              selectedGroupIds={formData.groupIds || []}
+              onToggle={handleGroupToggle}
+              idPrefix="edit-training-group"
+            />
 
             {changes.length > 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2">

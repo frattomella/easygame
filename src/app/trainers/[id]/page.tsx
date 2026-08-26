@@ -103,8 +103,15 @@ import {
 import {
   getTrainerCategoryIds,
   getTrainerDisplayName,
+  getTrainerGroupIds,
   normalizeTrainerCategories,
 } from "@/lib/trainer-utils";
+import {
+  buildCategoryGroups,
+  compareCategoryGroups,
+  normalizeClubSites,
+  type CategoryGroup,
+} from "@/lib/club-sites";
 import {
   ClothingSizesFields,
   ClothingSizesSummary,
@@ -217,6 +224,7 @@ export default function TrainerDetailsPage() {
   const [searchValue, setSearchValue] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [categories, setCategories] = useState<any[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
 
   // Expand trainer data structure to include all fields
   const [trainer, setTrainer] = React.useState<any>(null);
@@ -282,7 +290,7 @@ export default function TrainerDetailsPage() {
         // Fetch club data - removed trainer_payments from select
         const { data: clubData, error: clubError } = await supabase
           .from("clubs")
-          .select("categories, trainers, staff_members")
+          .select("categories, trainers, staff_members, club_sites, category_groups")
           .eq("id", clubId)
           .maybeSingle();
 
@@ -307,6 +315,13 @@ export default function TrainerDetailsPage() {
         // Set categories
         const clubCategories = clubData?.categories || [];
         setCategories(clubCategories);
+        setCategoryGroups(
+          buildCategoryGroups({
+            categories: clubCategories,
+            sites: normalizeClubSites(clubData?.club_sites),
+            groups: clubData?.category_groups,
+          }),
+        );
 
         // Look for trainer in multiple places
         let trainerData = null;
@@ -676,12 +691,34 @@ export default function TrainerDetailsPage() {
     void refreshAccessControlData();
   }, [clubId, trainer?.accessTokenRecordId, trainer?.linkedUserId]);
 
+  /**
+   * Le squadre a cui si puo assegnare un allenatore.
+   *
+   * Solo quelle di categorie che hanno **piu** di una squadra: dove la
+   * categoria coincide con la squadra, spuntarla due volte non aggiunge
+   * niente (ADR-0055).
+   */
+  const assignableGroups = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    categoryGroups.forEach((group) => {
+      if (!group.active) return;
+      counts.set(group.categoryId, (counts.get(group.categoryId) || 0) + 1);
+    });
+
+    return categoryGroups
+      .filter(
+        (group) => group.active && (counts.get(group.categoryId) || 0) > 1,
+      )
+      .sort(compareCategoryGroups);
+  }, [categoryGroups]);
+
   // Add function to open edit modal for specific section
   const handleEditSection = (section: string) => {
     setEditingSection(section);
     setEditFormData({
       ...trainer,
       categoryIds: getTrainerCategoryIds(trainer?.categories, categories),
+      groupIds: getTrainerGroupIds(trainer),
     });
   };
 
@@ -956,6 +993,17 @@ export default function TrainerDetailsPage() {
         categories: nextCategoryIds,
       };
       delete normalizedUpdateData.categoryIds;
+
+      /*
+        I gruppi seguiti si salvano solo se il club ne ha piu d'uno per
+        categoria: su un club mono-sede sarebbero una copia delle categorie, e
+        una copia e una cosa che prima o poi diverge (ADR-0055).
+      */
+      if (editFormData.groupIds !== undefined) {
+        normalizedUpdateData.groupIds = Array.isArray(editFormData.groupIds)
+          ? editFormData.groupIds.filter(Boolean)
+          : [];
+      }
 
       // Le due chiavi della data di inizio restano allineate.
       if (normalizedUpdateData.startDate !== undefined) {
@@ -2914,6 +2962,54 @@ export default function TrainerDetailsPage() {
                       )}
                     </div>
                   </div>
+
+                  {/*
+                    I gruppi operativi compaiono solo dove esistono davvero:
+                    con una squadra sola per categoria sarebbero una seconda
+                    spunta che dice la stessa cosa (ADR-0055).
+                  */}
+                  {assignableGroups.length > 0 ? (
+                    <div className="space-y-3">
+                      <div>
+                        <Label>Gruppi seguiti</Label>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Lo stesso allenatore puo seguire piu squadre della
+                          stessa categoria in sedi diverse. Senza nessuna
+                          spunta segue tutte le squadre delle sue categorie.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-muted/30 p-3">
+                        {assignableGroups.map((group) => {
+                          const selected = (
+                            editFormData.groupIds || []
+                          ).includes(group.id);
+
+                          return (
+                            <Button
+                              key={group.id}
+                              type="button"
+                              variant={selected ? "default" : "outline"}
+                              size="sm"
+                              aria-pressed={selected}
+                              className={selected ? "bg-blue-600 hover:bg-blue-700" : ""}
+                              onClick={() =>
+                                setEditFormData({
+                                  ...editFormData,
+                                  groupIds: selected
+                                    ? (editFormData.groupIds || []).filter(
+                                        (id: string) => id !== group.id,
+                                      )
+                                    : [...(editFormData.groupIds || []), group.id],
+                                })
+                              }
+                            >
+                              {group.name}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )}
 

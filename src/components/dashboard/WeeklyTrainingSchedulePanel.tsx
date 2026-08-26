@@ -28,6 +28,10 @@ import {
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
+import {
+  CATEGORY_GROUP_SEPARATOR,
+} from "@/lib/club-sites";
+import type { TrainingGroupOption } from "@/components/training/TrainingGroupSelector";
 import { createCoalescingSaver } from "@/lib/performance";
 import { SaveStatus, type SaveState } from "@/components/ui/save-status";
 import {
@@ -54,6 +58,8 @@ export interface WeeklyTrainingItem {
   endTime: string;
   categoryId: string;
   categoryName?: string | null;
+  /** Il gruppo operativo. Vuoto sul dato precedente ai gruppi (ADR-0055). */
+  groupId?: string;
   trainerIds: string[];
   structureId: string;
   locationId: string;
@@ -62,6 +68,12 @@ export interface WeeklyTrainingItem {
 
 interface WeeklyTrainingSchedulePanelProps {
   categories: CategoryOption[];
+  /**
+   * I gruppi operativi del club: le squadre vere. Quando la stessa categoria
+   * si svolge in piu sedi, il programma deve dire **quale** si allena il
+   * martedi alle 18, non solo in che fascia (ADR-0055).
+   */
+  groups?: TrainingGroupOption[];
   trainers: TrainerOption[];
   locations: TrainingLocationOption[];
   onSave: (schedule: WeeklyTrainingItem[]) => void | Promise<void>;
@@ -131,6 +143,7 @@ const AUTOSAVE_DEBOUNCE_MS = 1200;
 
 export function WeeklyTrainingSchedule({
   categories = [],
+  groups = [],
   trainers = [],
   locations = [],
   onSave,
@@ -294,6 +307,7 @@ export function WeeklyTrainingSchedule({
           5,
         ),
         categoryId: resolvedCategoryId || String(categories[0]?.id || ""),
+        groupId: String(item?.groupId || item?.group_id || "").trim() || undefined,
         categoryName:
           resolvedCategoryName ||
           categories.find((category) => category.id === resolvedCategoryId)?.name ||
@@ -321,6 +335,7 @@ export function WeeklyTrainingSchedule({
           startTime: item.startTime,
           endTime: item.endTime,
           categoryId: item.categoryId,
+          groupId: item.groupId || null,
           categoryName: item.categoryName || null,
           trainerIds: [...(item.trainerIds || [])].sort(),
           structureId: item.structureId,
@@ -487,7 +502,7 @@ export function WeeklyTrainingSchedule({
       const conflictsLabel = conflicts
         .map(
           (conflict) =>
-            `${getCategoryName(conflict)} (${conflict.startTime}-${conflict.endTime})`,
+            `${getScheduleItemLabel(conflict)} (${conflict.startTime}-${conflict.endTime})`,
         )
         .join(", ");
 
@@ -653,6 +668,64 @@ export function WeeklyTrainingSchedule({
     );
   };
 
+  /**
+   * Le squadre selezionabili nel programma.
+   *
+   * Senza gruppi configurati sono le categorie, una per una: il club
+   * mono-sede non vede niente di diverso da prima.
+   */
+  const groupOptions: TrainingGroupOption[] = React.useMemo(() => {
+    if (groups.length) return groups;
+
+    return categories.map((category) => ({
+      id: `group:${category.id}`,
+      name: category.name,
+      categoryId: category.id,
+      categoryName: category.name,
+      siteId: "",
+      siteName: "",
+    }));
+  }, [groups, categories]);
+
+  const groupsPerCategory = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    groupOptions.forEach((group) => {
+      counts.set(group.categoryId, (counts.get(group.categoryId) || 0) + 1);
+    });
+    return counts;
+  }, [groupOptions]);
+
+  /*
+    L'etichetta porta la sede **solo** quando serve a distinguere: con una
+    squadra sola per categoria «Pulcini · Scauri» aggiunge rumore e non
+    informazione (ADR-0055).
+  */
+  const getGroupLabel = React.useCallback(
+    (group: TrainingGroupOption) =>
+      (groupsPerCategory.get(group.categoryId) || 0) > 1 && group.siteName
+        ? `${group.categoryName}${CATEGORY_GROUP_SEPARATOR}${group.siteName}`
+        : group.categoryName,
+    [groupsPerCategory],
+  );
+
+  /** Il gruppo di una riga: dichiarato, o dedotto dalla sua categoria. */
+  const resolveItemGroup = React.useCallback(
+    (item: Partial<WeeklyTrainingItem>) =>
+      groupOptions.find((group) => group.id === item.groupId) ||
+      groupOptions.find((group) => group.categoryId === item.categoryId) ||
+      null,
+    [groupOptions],
+  );
+
+  const getScheduleItemLabel = React.useCallback(
+    (item: Partial<WeeklyTrainingItem>) => {
+      const group = resolveItemGroup(item);
+      return group ? getGroupLabel(group) : getCategoryName(item);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [resolveItemGroup, getGroupLabel, categories],
+  );
+
   const getTrainerNames = (trainerIds: string[]) =>
     trainerIds
       .map((trainerId) => trainers.find((trainer) => trainer.id === trainerId)?.name)
@@ -789,7 +862,7 @@ export function WeeklyTrainingSchedule({
                                     <div className="flex items-start justify-between gap-2">
                                       <div>
                                         <p className="text-sm font-semibold text-slate-900">
-                                          {getCategoryName(item)}
+                                          {getScheduleItemLabel(item)}
                                         </p>
                                         <p className="text-xs text-slate-500">
                                           {item.startTime} - {item.endTime}
@@ -852,39 +925,44 @@ export function WeeklyTrainingSchedule({
             </div>
 
             <div className="space-y-2">
-              <Label>Categoria</Label>
+              <Label>Gruppo</Label>
               <select
-                value={newTraining.categoryId}
-                disabled={categories.length === 0}
+                value={resolveItemGroup(newTraining)?.id || ""}
+                disabled={groupOptions.length === 0}
                 onChange={(event) =>
-                  setNewTraining((current) => ({
-                    ...current,
-                    categoryId: event.target.value,
-                    categoryName:
-                      categories.find(
-                        (category) => category.id === event.target.value,
-                      )?.name || current.categoryName || null,
-                    trainerIds: syncTrainerIdsForCategory(
-                      current.trainerIds,
-                      current.categoryId,
-                      event.target.value,
-                    ),
-                  }))
+                  setNewTraining((current) => {
+                    const group = groupOptions.find(
+                      (option) => option.id === event.target.value,
+                    );
+                    const nextCategoryId = group?.categoryId || current.categoryId;
+
+                    return {
+                      ...current,
+                      groupId: event.target.value,
+                      categoryId: nextCategoryId,
+                      categoryName: group?.categoryName || current.categoryName || null,
+                      trainerIds: syncTrainerIdsForCategory(
+                        current.trainerIds,
+                        current.categoryId,
+                        nextCategoryId || "",
+                      ),
+                    };
+                  })
                 }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="" disabled>
-                  {categories.length > 0
-                    ? "Seleziona categoria"
-                    : "Nessuna categoria disponibile"}
+                  {groupOptions.length > 0
+                    ? "Seleziona gruppo"
+                    : "Nessun gruppo disponibile"}
                 </option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
+                {groupOptions.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {getGroupLabel(group)}
                   </option>
                 ))}
               </select>
-              {categories.length === 0 && (
+              {groupOptions.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   Nessuna categoria registrata per questo club.
                 </p>
@@ -1073,28 +1151,31 @@ export function WeeklyTrainingSchedule({
               </div>
 
               <div className="space-y-2">
-              <Label>Categoria</Label>
+              <Label>Gruppo</Label>
               <select
-                value={editingTraining.categoryId}
-                disabled={categories.length === 0}
+                value={resolveItemGroup(editingTraining)?.id || ""}
+                disabled={groupOptions.length === 0}
                 onChange={(event) =>
-                  setEditingTraining((current) =>
-                    current
-                      ? {
-                            ...current,
-                            categoryId: event.target.value,
-                            categoryName:
-                              categories.find(
-                                (category) => category.id === event.target.value,
-                              )?.name || current.categoryName || null,
-                            trainerIds: syncTrainerIdsForCategory(
-                              current.trainerIds,
-                              current.categoryId,
-                              event.target.value,
-                            ),
-                          }
-                        : current,
-                    )
+                  setEditingTraining((current) => {
+                    if (!current) return current;
+
+                    const group = groupOptions.find(
+                      (option) => option.id === event.target.value,
+                    );
+                    const nextCategoryId = group?.categoryId || current.categoryId;
+
+                    return {
+                      ...current,
+                      groupId: event.target.value,
+                      categoryId: nextCategoryId,
+                      categoryName: group?.categoryName || current.categoryName || null,
+                      trainerIds: syncTrainerIdsForCategory(
+                        current.trainerIds,
+                        current.categoryId,
+                        nextCategoryId,
+                      ),
+                    };
+                  })
                 }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >

@@ -91,6 +91,7 @@ const isTrainingRecord = (value: unknown): value is Record<string, any> =>
     "startTime",
     "category",
     "categoryId",
+    "groupId",
     "category_id",
     "trainer",
     "trainerId",
@@ -639,12 +640,21 @@ export async function runTrainingAutomationForClub(
         fieldId: scheduleItem.locationId,
         locationId: scheduleItem.locationId,
       });
+      const scheduleGroupId = getNonEmptyString(
+        scheduleItem.groupId,
+        scheduleItem.group_id,
+      );
+      /*
+        Il gruppo entra nella chiave di deduplica: due squadre della stessa
+        categoria, in due sedi diverse, alla stessa ora, sono **due**
+        allenamenti e non un duplicato (ADR-0055).
+      */
       const duplicateKey = buildTrainingDuplicateKey({
         trainingDate,
         time: scheduleItem.startTime,
         locationKey:
           location?.fieldId || scheduleItem.locationId || scheduleItem.location || "",
-        categoryKey,
+        categoryKey: scheduleGroupId || categoryKey,
       });
 
       if (existingKeys.has(duplicateKey)) {
@@ -682,6 +692,8 @@ export async function runTrainingAutomationForClub(
         endTime: scheduleItem.endTime,
         categoryId: resolvedCategoryId || categoryKey || null,
         categories: resolvedCategoryId || categoryKey ? [resolvedCategoryId || categoryKey] : [],
+        // La squadra concreta: e cio che decide chi comparira nell'appello.
+        groupIds: scheduleGroupId ? [scheduleGroupId] : [],
         category:
           resolvedCategoryLabel ||
           categoryOption?.name ||

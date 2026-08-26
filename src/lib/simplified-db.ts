@@ -613,6 +613,18 @@ const resolveRequestedAthleteMemberships = (
 
   if (hasSingleCategoryUpdate) {
     const currentMemberships = normalizeAthleteCategoryMemberships(currentAthlete);
+    const currentPrimary = currentMemberships.find(
+      (membership) => membership.isPrimary,
+    );
+    /*
+      La sede segue l'appartenenza, non l'anagrafica: cambiando categoria si
+      porta dietro quella dichiarata, a meno che l'aggiornamento non ne indichi
+      un'altra. Perderla qui vorrebbe dire che un cambio di categoria in blocco
+      scollega dalla sede tutti gli atleti che tocca (ADR-0055).
+    */
+    const requestedSiteId =
+      updates?.siteId ?? updates?.site_id ?? currentPrimary?.siteId ?? "";
+
     const nextPrimary = normalizeAthleteCategoryMemberships([
       {
         category_id: updates?.category ?? updates?.category_id,
@@ -622,6 +634,7 @@ const resolveRequestedAthleteMemberships = (
           updates?.category ??
           updates?.category_id,
         is_primary: true,
+        site_id: requestedSiteId,
       },
     ]);
 
@@ -638,6 +651,8 @@ const resolveRequestedAthleteMemberships = (
         category_id: membership.categoryId,
         category_name: membership.categoryName,
         is_primary: false,
+        // La sede delle secondarie non c'entra con la categoria che cambia.
+        site_id: membership.siteId,
       }));
 
     return normalizeAthleteCategoryMemberships([

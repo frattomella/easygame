@@ -71,9 +71,15 @@ import {
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import {
+  buildCategoryGroups,
+  buildSiteIndex,
+  getActiveCategoryGroups,
+  getAthleteGroupIds,
   normalizeClubSites,
   readSiteReference,
+  readTrainingGroupIds,
   recordMatchesSite,
+  type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
 import { SiteFilter } from "@/components/sites/site-filter";
@@ -154,6 +160,12 @@ interface TrainingSession {
   category: string;
   categoryId?: string | null;
   categoryReferences?: string[];
+  /**
+   * I **gruppi operativi** a cui l'allenamento si riferisce: le squadre vere,
+   * non la fascia. Vuoto su un allenamento precedente ai gruppi, e in quel
+   * caso si ricade sulla categoria (ADR-0055).
+   */
+  groupIds?: string[];
   historicalCategoryName?: string | null;
   /** Nomi uniti, per la lista. */
   trainer: string;
@@ -253,12 +265,14 @@ const formatTrainingSession = ({
   trainers,
   athletes,
   locations,
+  siteIndex,
 }: {
   training: any;
   categories: any[];
   trainers: any[];
   athletes: any[];
   locations: any[];
+  siteIndex: ReturnType<typeof buildSiteIndex>;
 }): TrainingSession | null => {
   const trainingDate = getTrainingDate(training);
   if (!trainingDate) {
@@ -268,14 +282,27 @@ const formatTrainingSession = ({
   const matchedCategories = categories.filter((category: any) =>
     trainingMatchesCategory(training, category),
   );
+
+  /*
+    Quanti sono attesi: la squadra, non la fascia. Con i gruppi dichiarati
+    contare tutti i Pulcini gonfierebbe il denominatore di ogni percentuale di
+    presenza di questo allenamento (ADR-0055).
+  */
+  const declaredGroupIds = readTrainingGroupIds(training);
   const expectedAttendees =
     typeof training?.expectedAttendees === "number"
       ? training.expectedAttendees
       : typeof training?.expected_attendees === "number"
         ? training.expected_attendees
-        : athletes.filter((athlete: any) =>
-            athleteMatchesAnyCategory(athlete, matchedCategories),
-          ).length;
+        : declaredGroupIds.length
+          ? athletes.filter((athlete: any) =>
+              getAthleteGroupIds(athlete, siteIndex).some((groupId) =>
+                declaredGroupIds.includes(groupId),
+              ),
+            ).length
+          : athletes.filter((athlete: any) =>
+              athleteMatchesAnyCategory(athlete, matchedCategories),
+            ).length;
 
   const matchedLocation = findTrainingLocationOption(locations, {
     structureId: training.structureId,
@@ -306,6 +333,7 @@ const formatTrainingSession = ({
           "",
       ).trim() || null,
     categoryReferences: getTrainingCategoryReferences(training),
+    groupIds: readTrainingGroupIds(training),
     historicalCategoryName:
       String(
         training?.category_name ||
@@ -400,6 +428,7 @@ export default function TrainingPage() {
   const [locations, setLocations] = useState<TrainingLocationOption[]>([]);
   const [sites, setSites] = useState<ClubSite[]>([]);
   const [siteFilter, setSiteFilter] = useState("");
+  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
   const [siteIdByStructureId, setSiteIdByStructureId] = useState<
     Record<string, string>
   >({});
@@ -547,6 +576,7 @@ export default function TrainingPage() {
         getClubTrainings(activeClub.id),
         getClubWeeklySchedule(activeClub.id),
         getClubData(activeClub.id, "club_sites"),
+        getClubData(activeClub.id, "category_groups"),
       ]);
 
       const failedSections: string[] = [];
@@ -571,6 +601,7 @@ export default function TrainingPage() {
       const clubTrainings = readArrayResult(4, "allenamenti");
       const clubWeeklySchedule = readArrayResult(5, "programma settimanale");
       const clubSites = readArrayResult(6, "sedi");
+      const clubCategoryGroups = readArrayResult(7, "gruppi operativi");
 
       const normalizedCategories = Array.isArray(clubCategories)
         ? clubCategories
@@ -589,7 +620,20 @@ export default function TrainingPage() {
       setClubAthletes(normalizedAthletes);
       setWeeklySchedule(normalizedWeeklySchedule);
 
-      setSites(normalizeClubSites(clubSites));
+      const normalizedSites = normalizeClubSites(clubSites);
+      setSites(normalizedSites);
+      /*
+        I gruppi operativi: e a questi che un allenamento si assegna, non alla
+        categoria. Le presenze che ne discendono riguardano una squadra sola
+        (ADR-0055).
+      */
+      setCategoryGroups(
+        buildCategoryGroups({
+          categories: normalizedCategories,
+          sites: normalizedSites,
+          groups: clubCategoryGroups,
+        }),
+      );
       // Un allenamento non porta una sede propria: si allena in una struttura,
       // e la struttura appartiene a una sede (ADR-0038). Un secondo campo si
       // disallineerebbe al primo allenamento in trasferta.
@@ -619,6 +663,7 @@ export default function TrainingPage() {
             trainers: normalizedTrainers,
             athletes: normalizedAthletes,
             locations: normalizedLocations,
+            siteIndex: buildSiteIndex(normalizedSites),
           }),
         )
         .filter(Boolean)
@@ -787,6 +832,8 @@ export default function TrainingPage() {
         time: trainingData.time,
         endTime: trainingData.endTime || null,
         categories: trainingData.categories || [],
+        // Le squadre concrete a cui l'allenamento si riferisce (ADR-0055).
+        groupIds: trainingData.groupIds || [],
         category:
           selectedCategories.length > 0
             ? selectedCategories.map((cat) => cat.name).join(", ")
@@ -838,6 +885,7 @@ export default function TrainingPage() {
           : newTraining.categoryId
             ? [newTraining.categoryId]
             : [],
+        groupIds: newTraining.groupIds,
         historicalCategoryName: newTraining.category,
         trainer: newTraining.trainer,
         location: newTraining.location,
@@ -864,6 +912,18 @@ export default function TrainingPage() {
     }
   };
 
+  /**
+   * Le squadre a cui un allenamento si puo assegnare.
+   *
+   * Solo i gruppi **attivi**: una categoria che in quella sede non si svolge
+   * piu non deve comparire fra le scelte, ma il suo storico resta leggibile
+   * (ADR-0055).
+   */
+  const groupOptions = React.useMemo(
+    () => getActiveCategoryGroups(categoryGroups),
+    [categoryGroups],
+  );
+
   const openAttendanceSheet = React.useCallback(
     (training: TrainingSession) => {
       const eventCategories = categories.filter((category) =>
@@ -879,12 +939,34 @@ export default function TrainingPage() {
         (athlete: any) =>
           !athlete.data?.status || athlete.data.status === "active",
       );
+
+      /*
+        **Chi c'e in campo, non chi e nella fascia** (ADR-0055). Un allenamento
+        di `Pulcini · Santi Cosma` apre l'appello dei Pulcini di Santi Cosma:
+        quelli di Scauri a quell'ora sono a trenta chilometri, e vederseli
+        davanti da segnare e il modo piu rapido per registrare una presenza che
+        non c'e stata — e per farla poi diventare un contributo rendicontato.
+
+        Un allenamento che non dichiara gruppi e un dato precedente: li si
+        ricade sulla categoria, cioe sul comportamento di prima.
+      */
+      const trainingGroupIds = readTrainingGroupIds(training);
+      const siteIndex = buildSiteIndex(sites);
+      const groupAthletes = trainingGroupIds.length
+        ? activeAthletes.filter((athlete: any) =>
+            getAthleteGroupIds(athlete, siteIndex).some((groupId) =>
+              trainingGroupIds.includes(groupId),
+            ),
+          )
+        : null;
+
       const categoryAthletes =
-        eventCategories.length > 0
+        groupAthletes ??
+        (eventCategories.length > 0
           ? activeAthletes.filter((athlete: any) =>
               athleteMatchesAnyCategory(athlete, eventCategories),
             )
-          : activeAthletes;
+          : activeAthletes);
       const savedOutsideCategoryAthletes = clubAthletes.filter(
         (athlete: any) =>
           existingEntriesByAthleteId.has(athlete.id) &&
@@ -934,7 +1016,7 @@ export default function TrainingPage() {
           ),
       });
     },
-    [categories, clubAthletes],
+    [categories, clubAthletes, sites],
   );
 
   React.useEffect(() => {
@@ -2014,6 +2096,7 @@ export default function TrainingPage() {
                 {shouldRenderSchedule ? (
                   <WeeklyTrainingSchedule
                     categories={categories}
+                    groups={groupOptions}
                     trainers={trainers}
                     locations={locations}
                     initialSchedule={weeklySchedule}
@@ -2058,6 +2141,7 @@ export default function TrainingPage() {
           onClose={() => setShowAddTrainingModal(false)}
           onSubmit={handleAddTraining}
           categories={categories}
+          groups={groupOptions}
           trainers={trainers}
           locations={locations}
           selectedDate={date}
@@ -2127,6 +2211,11 @@ export default function TrainingPage() {
                     .map((tr) => tr.name)
                     .join(", ") || editingTraining.trainer,
                 categories: updatedTraining.categories,
+                /*
+                  I gruppi dicono **quali squadre**: la categoria da sola non
+                  basta quando la stessa si svolge in piu sedi (ADR-0055).
+                */
+                groupIds: updatedTraining.groupIds || [],
                 categoryId: updatedTraining.categories[0] || null,
                 category:
                   categories
@@ -2170,6 +2259,7 @@ export default function TrainingPage() {
                       category: updateData.category,
                       categoryId: updateData.categoryId,
                       categoryReferences: updatedTraining.categories,
+                      groupIds: updatedTraining.groupIds || [],
                     }
                   : t,
               );
@@ -2206,9 +2296,11 @@ export default function TrainingPage() {
                     )
                     .map((trainer) => trainer.id),
             categories: editingTraining.categoryReferences || [],
+            groupIds: editingTraining.groupIds || [],
           }}
           trainers={trainers}
           categories={categories}
+          groups={groupOptions}
           locations={locations.map((loc) => loc.name)}
         />
       )}

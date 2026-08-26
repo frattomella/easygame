@@ -11,7 +11,12 @@ import {
   getStructureFieldOptions,
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
-import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
+import { getAssociatedTrainerIdsForGroups } from "@/lib/trainer-utils";
+import {
+  TrainingGroupSelector,
+  categoryIdsFromGroups,
+  type TrainingGroupOption,
+} from "@/components/training/TrainingGroupSelector";
 import { isValidTimeRange } from "@/lib/training-utils";
 
 interface AddTrainingFormProps {
@@ -19,6 +24,12 @@ interface AddTrainingFormProps {
   onClose: () => void;
   onSubmit: (data: any) => void;
   categories: { id: string; name: string }[];
+  /**
+   * I gruppi operativi del club. Un allenamento si assegna a **questi**, non
+   * alla categoria: la categoria dice in che fascia si gioca, il gruppo dice
+   * con chi ci si allena e dove (ADR-0055).
+   */
+  groups?: TrainingGroupOption[];
   trainers?: { id: string; name: string; categories?: any[] }[];
   locations?: TrainingLocationOption[];
   selectedDate?: Date;
@@ -31,6 +42,7 @@ export function AddTrainingForm({
   onClose,
   onSubmit,
   categories = [],
+  groups = [],
   trainers = [],
   locations = [],
   selectedDate,
@@ -46,6 +58,7 @@ export function AddTrainingForm({
     time: "18:00",
     endTime: "19:30",
     categories: [] as string[],
+    groupIds: [] as string[],
     trainerIds: [] as string[],
     structureId: "",
     locationId: "",
@@ -76,9 +89,42 @@ export function AddTrainingForm({
     [locations, formData.structureId],
   );
 
+  /*
+    Gli allenatori proposti seguono i **gruppi** scelti, non le categorie: con
+    due squadre di Pulcini in due sedi, proporre chi lavora nell'altra sede e
+    un invito a sbagliare (ADR-0055).
+  */
+  /**
+   * I gruppi selezionabili.
+   *
+   * Senza gruppi configurati si ricade sulle categorie, una per una: e il
+   * comportamento di un club mono-sede, e di un club che non ha ancora
+   * dichiarato le sue sedi.
+   */
+  const groupOptions: TrainingGroupOption[] = React.useMemo(() => {
+    if (groups.length) return groups;
+
+    return categories.map((category) => ({
+      id: `group:${category.id}`,
+      name: category.name,
+      categoryId: category.id,
+      categoryName: category.name,
+      siteId: "",
+      siteName: "",
+    }));
+  }, [groups, categories]);
+
+  /*
+    Gli allenatori proposti seguono i gruppi scelti.
+  */
   const autoTrainerIds = React.useMemo(
-    () => getAssociatedTrainerIds(trainers, formData.categories, categories),
-    [trainers, formData.categories, categories],
+    () =>
+      getAssociatedTrainerIdsForGroups(
+        trainers,
+        groupOptions.filter((group) => formData.groupIds.includes(group.id)),
+        categories,
+      ),
+    [trainers, groupOptions, formData.groupIds, categories],
   );
 
   React.useEffect(() => {
@@ -197,16 +243,25 @@ export function AddTrainingForm({
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleCategoryChange = (categoryId: string, checked: boolean) => {
+  /*
+    Le categorie restano nel dato — colori, titoli e compatibilita ci ragionano
+    ancora — ma si **derivano** dai gruppi invece di essere una seconda
+    selezione da tenere allineata a mano.
+  */
+  const handleGroupToggle = (
+    group: TrainingGroupOption,
+    checked: boolean,
+  ) => {
     setFormData((prev) => {
-      const categories = [...prev.categories];
-      if (checked && !categories.includes(categoryId)) {
-        categories.push(categoryId);
-      } else if (!checked && categories.includes(categoryId)) {
-        const index = categories.indexOf(categoryId);
-        categories.splice(index, 1);
-      }
-      return { ...prev, categories };
+      const groupIds = checked
+        ? Array.from(new Set([...prev.groupIds, group.id]))
+        : prev.groupIds.filter((id) => id !== group.id);
+
+      return {
+        ...prev,
+        groupIds,
+        categories: categoryIdsFromGroups(groupOptions, groupIds),
+      };
     });
   };
 
@@ -236,7 +291,7 @@ export function AddTrainingForm({
       !formData.time ||
       (isAppointment
         ? !formData.contactName
-        : formData.categories.length === 0 ||
+        : formData.groupIds.length === 0 ||
           !formData.structureId ||
           !formData.locationId ||
           formData.trainerIds.length === 0)
@@ -273,6 +328,7 @@ export function AddTrainingForm({
       time: "18:00",
       endTime: "19:30",
       categories: [],
+      groupIds: [],
       trainerIds: [],
       structureId: structureOptions[0]?.id || "",
       locationId: "",
@@ -399,44 +455,17 @@ export function AddTrainingForm({
 
         {!isAppointment ? (
           <>
-            <div className="space-y-2">
-              <Label>Categorie</Label>
-              <div className="border rounded-md p-3 max-h-32 overflow-y-auto">
-                {categories.length > 0 ? (
-                  categories.map((category) => (
-                    <div
-                      key={category.id}
-                      className="flex items-center space-x-2 mb-2"
-                    >
-                      <input
-                        type="checkbox"
-                        id={`category-${category.id}`}
-                        checked={formData.categories.includes(category.id)}
-                        onChange={(e) =>
-                          handleCategoryChange(category.id, e.target.checked)
-                        }
-                        className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                      />
-                      <Label
-                        htmlFor={`category-${category.id}`}
-                        className="text-sm"
-                      >
-                        {category.name}
-                      </Label>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-gray-500">
-                    Nessuna categoria disponibile
-                  </p>
-                )}
-              </div>
-              {formData.categories.length === 0 && (
-                <p className="text-xs text-red-500">
-                  Seleziona almeno una categoria
-                </p>
-              )}
-            </div>
+            <TrainingGroupSelector
+              groups={groupOptions}
+              selectedGroupIds={formData.groupIds}
+              onToggle={handleGroupToggle}
+              idPrefix="add-training-group"
+              error={
+                formData.groupIds.length === 0
+                  ? "Seleziona almeno un gruppo"
+                  : null
+              }
+            />
 
             <div className="space-y-2">
               <Label>Allenatori</Label>

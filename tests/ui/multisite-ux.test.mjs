@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -23,7 +23,6 @@ const read = (relative) =>
 const SITE_UI = [
   "components/sites/site-filter.tsx",
   "components/sites/club-sites-section.tsx",
-  "components/sites/category-groups-editor.tsx",
 ];
 
 test("il filtro sede non si monta se il club non e multi-sede", () => {
@@ -115,14 +114,191 @@ test("una sede con strutture collegate non si elimina, si disattiva", () => {
   assert.match(source, /disabled=\{disabled \|\| structureCount > 0\}/);
 });
 
-test("l'editor dei gruppi scrive gruppi, non categorie", () => {
-  const source = read("components/sites/category-groups-editor.tsx");
+/**
+ * Le sedi di una categoria si dichiarano **dove si dichiara la categoria**.
+ *
+ * Prima erano una finestra a parte, raggiungibile da un pulsante nell'elenco:
+ * due superfici per la stessa configurazione, e chi creava una categoria nuova
+ * doveva ricordarsi di aprire anche la seconda. Ora la spunta sta nel modulo, e
+ * il salvataggio della categoria scrive i gruppi (ADR-0055).
+ */
+test("le sedi di una categoria si spuntano nel modulo della categoria", () => {
+  const source = read("components/forms/CategoryEditorDialog.tsx");
 
-  assert.match(source, /buildCategoryGroupId\(categoryId, site\.id\)/);
-  assert.match(source, /buildCategoryGroupLabel\(categoryName, site\.name\)/);
+  assert.match(source, /Sedi in cui e attiva/);
+  assert.match(source, /siteIds: showSites \? formData\.siteIds : \[\]/);
   assert.equal(
     /setCategories|createCategory|categories\.push/.test(source),
     false,
     "spuntare una sede non deve creare una categoria",
+  );
+});
+
+test("non esiste una seconda superficie per i gruppi operativi", () => {
+  assert.equal(
+    existsSync(path.join(SRC, "components", "sites", "category-groups-editor.tsx")),
+    false,
+    "una configurazione, una schermata: la finestra separata e stata rimossa",
+  );
+});
+
+test("il salvataggio di una categoria scrive i gruppi delle sedi spuntate", () => {
+  const source = read("app/categories/page.tsx");
+
+  assert.match(source, /buildCategoryGroupsForSites\(\{/);
+  assert.match(
+    source,
+    /siteIds: Array\.isArray\(categoryData\.siteIds\)/,
+    "le spunte del modulo devono arrivare fino ai gruppi",
+  );
+});
+
+test("togliere una sede archivia il gruppo, non lo cancella", () => {
+  const source = read("lib/club-sites.ts");
+
+  assert.match(
+    source,
+    /const archived: CategoryGroup\[\] = existing[\s\S]{0,400}active: false,/,
+    "un gruppo con storico non si porta via",
+  );
+});
+
+/* ------------------------------- gli elenchi operativi sono per gruppo */
+
+/**
+ * La pagina Atleti raggruppa per **gruppo operativo**, non per categoria.
+ *
+ * Prima l'elenco `Pulcini` portava dentro Scauri e Santi Cosma: una lista che
+ * nessuno puo usare per stampare un appello o contare una squadra.
+ */
+test("la pagina Atleti raggruppa per gruppo operativo", () => {
+  const source = read("app/athletes/page.tsx");
+
+  assert.match(source, /const athleteGroups = useMemo\(/);
+  assert.match(
+    source,
+    /groupId:\s*\n?\s*getMembershipGroupId\(/,
+    "la riga porta il proprio gruppo, ricavato dalla funzione canonica",
+  );
+  assert.equal(
+    /const categoryAthletes = filteredAthletes\.filter\(/.test(source),
+    false,
+    "il raggruppamento per sola categoria e stato rimosso",
+  );
+});
+
+test("l'etichetta porta la sede solo quando ci sono piu squadre", () => {
+  const source = read("app/athletes/page.tsx");
+
+  assert.match(
+    source,
+    /const needsSite = \(groupCountByCategory\.get\(key\) \|\| 0\) > 1;/,
+    "il club mono-gruppo non deve vedere il concetto",
+  );
+});
+
+test("un allenamento si assegna ai gruppi, non alla categoria", () => {
+  for (const file of [
+    "components/forms/AddTrainingForm.tsx",
+    "components/forms/EditTrainingForm.tsx",
+  ]) {
+    const source = read(file);
+    assert.match(source, /<TrainingGroupSelector/, `${file} deve usare i gruppi`);
+    assert.match(
+      source,
+      /categories: categoryIdsFromGroups\(groupOptions, groupIds\)/,
+      `${file} deve derivare le categorie dai gruppi`,
+    );
+  }
+});
+
+test("l'appello mostra la squadra dell'allenamento, non tutta la categoria", () => {
+  const source = read("app/training/page.tsx");
+
+  assert.match(source, /const trainingGroupIds = readTrainingGroupIds\(training\)/);
+  assert.match(
+    source,
+    /getAthleteGroupIds\(athlete, siteIndex\)\.some\(\(groupId\) =>\s*\n?\s*trainingGroupIds\.includes\(groupId\)/,
+  );
+});
+
+test("un allenamento senza gruppi dichiarati ricade sulla categoria", () => {
+  const source = read("app/training/page.tsx");
+
+  assert.match(
+    source,
+    /const groupAthletes = trainingGroupIds\.length/,
+    "il dato precedente ai gruppi non deve sparire dall'appello",
+  );
+});
+
+test("il programma settimanale dice quale squadra, non solo quale fascia", () => {
+  const source = read("components/dashboard/WeeklyTrainingSchedulePanel.tsx");
+
+  assert.match(source, /<Label>Gruppo<\/Label>/);
+  assert.match(source, /const getGroupLabel = React\.useCallback\(/);
+  assert.match(
+    source,
+    /CATEGORY_GROUP_SEPARATOR/,
+    "l'etichetta composta usa il separatore del modulo proprietario",
+  );
+});
+
+test("il secondo componente di programma settimanale non esiste piu", () => {
+  assert.equal(
+    existsSync(
+      path.join(SRC, "components", "dashboard", "WeeklyTrainingSchedule.tsx"),
+    ),
+    false,
+    "era un duplicato non montato con un autosave senza deduplica (D22)",
+  );
+});
+
+test("un allenatore puo seguire piu squadre senza duplicare l'anagrafica", () => {
+  const utils = read("lib/trainer-utils.ts");
+
+  assert.match(utils, /export const getTrainerGroupIds/);
+  assert.match(utils, /export const trainerFollowsGroup/);
+  assert.match(
+    utils,
+    /const declared = getTrainerGroupIds\(trainer\);\s*\n\s*if \(declared\.length\)/,
+    "senza gruppi dichiarati vale la categoria, come prima",
+  );
+
+  const page = read("app/trainers/[id]/page.tsx");
+  assert.match(page, /Gruppi seguiti/);
+  assert.match(page, /assignableGroups/);
+});
+
+test("gli allenatori proposti seguono i gruppi scelti", () => {
+  assert.match(
+    read("components/forms/AddTrainingForm.tsx"),
+    /getAssociatedTrainerIdsForGroups\(/,
+  );
+});
+
+test("il dato senza sede si colloca in blocco, non scheda per scheda", () => {
+  const source = read("app/athletes/page.tsx");
+
+  assert.match(source, /bulk-site-target/);
+  assert.match(
+    source,
+    /Lascia la sede attuale/,
+    "un cambio di categoria non deve cancellare una sede che nessuno ha toccato",
+  );
+});
+
+test("cambiare categoria non scollega l'atleta dalla sua sede", () => {
+  const source = read("lib/simplified-db.ts");
+
+  assert.match(
+    source,
+    /site_id: requestedSiteId,/,
+    "la primaria nuova eredita la sede della precedente",
+  );
+  assert.match(
+    source,
+    /site_id: membership\.siteId,/,
+    "le secondarie tengono la loro",
   );
 });

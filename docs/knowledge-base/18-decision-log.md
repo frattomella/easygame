@@ -2610,3 +2610,103 @@ trova il suo periodo torna indietro elencato con il numero di riga.
 famiglia resta quella di ADR-0037: nessuna conferma, nessuna liquidazione e
 nessun maturato crea una `payment_transaction`. Liquidato resta l'unico dei sei
 importi che sia cassa.
+
+---
+
+## ADR-0055 — Configurazione si sceglie per categoria, operazione si sceglie per gruppo
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D2. Completa
+[ADR-0038](#adr-0038--la-sede-e-un-concetto-separato-dalla-categoria-e-il-gruppo-operativo-e-la-loro-coppia),
+che aveva introdotto sedi e gruppi operativi come **modello** e li aveva usati
+come **filtro**. Il filtro non bastava.
+
+**Il problema.** Un club con tre sedi ha tre squadre di Pulcini. Con la sede
+come solo attributo, l'elenco `Pulcini` restava **uno** — diciotto atleti di
+Scauri e quattordici di Santi Cosma nella stessa lista, distinguibili da una
+colonna. Quella lista non si puo usare: chi stampa un appello, chi ordina il
+materiale o chi conta gli iscritti di una squadra deve poter prendere *una*
+squadra. Peggio: aprendo l'appello di un allenamento di Santi Cosma comparivano
+anche i Pulcini di Scauri, che a quell'ora sono a trenta chilometri — e una
+presenza segnata per errore li diventa, tre passaggi dopo, un contributo
+pubblico rendicontato.
+
+**La decisione.** Il gruppo operativo smette di essere un'etichetta e diventa
+**l'unita delle operazioni**. La regola sta in una riga:
+
+| Superficie | Cosa si sceglie |
+|---|---|
+| *configurazione* — fascia d'anno, compatibilita, proprieta sportive | **categoria** |
+| *operazione* — elenco atleti, allenamenti, presenze, programma settimanale, assegnazione allenatori, numerazione, report operativi | **gruppo operativo** |
+
+**Una fonte sola per l'identita di un gruppo.** L'id si **deriva** sempre da
+`(categoryId, siteId)` con `buildCategoryGroupId`, anche quando il record
+salvato ne porta uno proprio: un id arbitrario in configurazione sarebbe una
+seconda identita per la stessa squadra, e le appartenenze degli atleti — che il
+loro id lo ricavano dalla coppia — non lo incontrerebbero mai.
+`getMembershipGroupId` e l'unico posto che fa quella traduzione.
+
+**Le sedi si spuntano dove si crea la categoria.** Prima erano una finestra a
+parte raggiungibile dall'elenco: due superfici per la stessa configurazione, e
+chi creava una categoria nuova doveva ricordarsi di aprire anche la seconda. Ora
+la spunta sta nel modulo della categoria e il salvataggio scrive i gruppi.
+`components/sites/category-groups-editor.tsx` e stato **rimosso**.
+
+**Togliere una sede archivia, non cancella.** Un gruppo che ha avuto atleti,
+allenamenti e presenze non si porta via: `active: false`, e resta leggibile.
+Cancellarlo lascerebbe orfano lo storico che lo cita per id.
+
+**Chi non ha sede non e in tutte le sedi — negli elenchi.** E la sola
+differenza rispetto a ADR-0038, e vale solo per il **raggruppamento**: un
+atleta senza sede dichiarata finisce in un gruppo suo, `Categoria · Sede non
+assegnata`, visibile e distinto. Metterlo in ogni squadra lo farebbe comparire
+in appelli a cui non appartiene; nasconderlo lo farebbe sparire. Il **filtro**
+sede resta non distruttivo come prima: `recordMatchesSite` non cambia.
+
+**Un allenamento dichiara i suoi gruppi, e possono essere piu d'uno.** Due sedi
+vicine che si allenano insieme una volta al mese sono **un** allenamento con due
+gruppi: duplicarlo vorrebbe dire due appelli da tenere allineati e due volte le
+stesse ore nei conteggi. Un allenamento che non dichiara gruppi e un dato
+precedente, e ricade sulla categoria — cioe si comporta come prima.
+
+**I contributi contano solo la squadra giusta.** `loadAttendanceInputs` filtra
+gli allenamenti sui gruppi dell'atleta prima di misurare: l'esistenza di un
+allenamento di un'altra sede non produce ne ore ne previsione ne maturato,
+nemmeno se un appello sbagliato aveva segnato l'atleta presente. Un allenamento
+senza gruppi resta dentro: escluderlo cancellerebbe frequenza vera da stagioni
+gia rendicontate.
+
+**Il club mono-sede non paga niente.** Con una squadra per categoria le
+etichette restano i nomi delle categorie, il modulo non mostra le sedi e il
+programma settimanale dice «Pulcini» come ha sempre detto. Il concetto di
+gruppo resta trasparente a chi non ha il problema.
+
+**Il dato storico si colloca in blocco.** Un club che configura le sedi oggi ha
+centinaia di atleti senza sede: assegnarla scheda per scheda vuol dire non
+assegnarla. Il cambio di categoria in blocco accetta una sede, e **preserva**
+quella esistente quando non se ne indica una — un difetto reale trovato qui:
+`resolveRequestedAthleteMemberships` scartava `site_id` a ogni cambio di
+categoria, primarie e secondarie comprese.
+
+**Conseguenze.**
+
+- `athlete_category_memberships.site_id` resta l'unica scrittura della sede: la
+  coppia con `category_id` **e** il gruppo, e non ci sono due filtri da
+  comporre a mano;
+- `groupIds` compare sugli allenamenti, sulle righe del programma settimanale e
+  sugli allenatori; ovunque un elenco vuoto significa «non dichiarato» e ricade
+  sul comportamento precedente;
+- la deduplica degli allenamenti generati dal programma include il gruppo: due
+  squadre della stessa categoria alla stessa ora in due sedi sono due
+  allenamenti, non un duplicato;
+- `src/components/dashboard/WeeklyTrainingSchedule.tsx` — il duplicato non
+  montato con l'autosave senza deduplica, debito D22 — e stato **rimosso**;
+- le sedi restano **globali** e i gruppi restano **stagionali**, come gia
+  previsto dal rollover: presenze e allenamenti non si riportano.
+
+**L'alternativa scartata.** Duplicare la categoria — `Pulcini Scauri`,
+`Pulcini Santi Cosma` — e cio che i club fanno oggi a mano, ed e esattamente il
+difetto che ADR-0038 esisteva per chiudere: due fasce d'anno da tenere
+allineate, due compatibilita da configurare due volte, e un atleta che «cambia
+categoria» quando ha solo cambiato citta.

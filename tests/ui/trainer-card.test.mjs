@@ -155,7 +155,13 @@ test("la modifica di un allenamento permette la selezione multipla", () => {
     /toggleId\("trainerIds"/,
     "gli allenatori si spuntano, come nella creazione",
   );
-  assert.match(source, /toggleId\("categories"/);
+  /*
+    Le categorie non si spuntano piu una per una: si **derivano** dai gruppi
+    operativi scelti, che sono le squadre vere (ADR-0055). Restano un elenco
+    nel dato, ed e cio che il resto dell'applicazione continua a leggere.
+  */
+  assert.match(source, /<TrainingGroupSelector/);
+  assert.match(source, /categories: categoryIdsFromGroups\(groupOptions, groupIds\)/);
 });
 
 test("il salvataggio della modifica scrive tutti gli allenatori e le categorie", () => {
