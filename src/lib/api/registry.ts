@@ -352,7 +352,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "GET|POST",
     path: "/api/v1/funding/accruals",
     description:
-      "Maturato per periodo: `recompute` lo ricalcola dalle presenze, `report` lo rendiconta all'ente",
+      "Maturato per periodo: `recompute` lo ricalcola dalle presenze, `confirm` registra cio che una fonte esterna ha riconosciuto, `import` ne carica un blocco, `report` lo rendiconta all'ente. Una previsione non si rendiconta",
     mobile_ready: false,
   },
   {

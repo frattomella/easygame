@@ -443,6 +443,49 @@ Conteggi letti in sola lettura dopo il deploy (nessuna scrittura eseguita):
 
 ---
 
+## Stato di staging verificato — 2026-08-26 (Blocco D2)
+
+| Voce | Valore |
+|------|--------|
+| Deployment | **READY**, target `production` del progetto `easygame-staging`, commit `a5d4231` |
+| Migrazioni | **Due applicate** durante il build: `20260826200000_platform_billing_and_fiscal` (arretrata dal Blocco D) e `20260826210000_funding_accrual_source`. Ora sono 17 |
+| Progetto production | **non esiste** nello scope, come dichiarato da CLAUDE.md sezione 9 |
+
+### Due cose successe durante questo deploy, e vanno dette
+
+**La CI di GitHub non ha eseguito.** Il push e arrivato — `git ls-remote`
+conferma `a5d4231` su `integration/web-v1` — e il workflow risulta
+`active`, ma nessun run e stato creato: l'ultimo sull'API delle Actions resta
+`2c94f8f` delle 10:36Z, e i tredici commit spinti dopo non ne hanno prodotto
+nessuno. E una condizione dell'account, non del repository, e non si vede senza
+autenticazione. **Al suo posto sono stati eseguiti in locale tutti e tre i job
+del workflow**, con gli stessi comandi: build, typecheck, lint, test,
+`--allowUnreachableCode false`, i due comandi del mobile e i quattro
+guardrail di sicurezza. Tutti verdi.
+
+**`npx vercel --prod` ha risposto `Not authorized` a meta build.** Il
+comando e uscito con errore *dopo* che le migrazioni erano gia state applicate,
+mentre Next stava costruendo. Il deployment pero **e proseguito lato server**:
+`vercel ls` lo ha mostrato prima `Building` e poi `Ready` in tre minuti.
+L'errore era della sessione della CLI, non della build. Chi rilancia un deploy
+e vede quel messaggio deve **controllare `vercel ls` prima di ripetere**, per
+non lanciarne un secondo su un primo che sta riuscendo.
+
+### Smoke test
+
+Sull'URL pubblico `easygame-staging-pi.vercel.app`. Le pagine sono state
+lette **nel contenuto**, non solo nello stato.
+
+| Verifica | Esito |
+|----------|-------|
+| `/`, `/login` | **200**, e `<title>EasyGame</title>` — non la pagina di autenticazione di Vercel |
+| `/dashboard`, `/athletes`, `/athletes/new`, `/categories`, `/training`, `/payments`, `/organization` senza sessione | **307** verso `/login?next=…`. La rotta nuova `/athletes/new` si comporta come le altre protette: un 404 direbbe che non esiste |
+| `GET /api/v1/registry` | **200**, 325 endpoint, e gli undici dei contributi ci sono tutti |
+| `GET /api/v1/funding/programs`, `/funding/accruals`, `/payment-transactions` senza sessione | **401** |
+| `POST /api/v1/funding/accruals` con `{"action":"confirm"}` e senza sessione | **401** — l'autenticazione viene prima della validazione dell'azione, come deve |
+
+---
+
 ## Stato di staging verificato — 2026-08-26 (Blocco Finale C)
 
 | Voce | Valore |
