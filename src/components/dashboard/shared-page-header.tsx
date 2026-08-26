@@ -48,7 +48,13 @@ export function SharedPageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+        /*
+          `shrink-0` solo da `sm` in su. Sotto, un pulsante con un'etichetta
+          lunga rendeva la riga piu larga dello schermo e sporgeva di qualche
+          pixel: pochi, ma tagliati via da `overflow-x-hidden`. Su una colonna
+          sola non c'e niente da cui difendersi restringendosi.
+        */
+        <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
           {actions}
         </div>
       ) : null}

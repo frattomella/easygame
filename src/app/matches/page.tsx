@@ -1189,9 +1189,15 @@ export default function MatchesPage() {
 
             <div className="grid grid-cols-1 gap-6">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+                {/*
+                  Su una colonna sola i tre pulsanti della settimana non ci
+                  stanno accanto al titolo: a 375 px «Settimana Successiva»
+                  usciva di quarantacinque pixel e veniva tagliata, cioe non
+                  si poteva piu avanzare di settimana da un telefono.
+                */}
+                <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle>Calendario Settimanale</CardTitle>
-                  <div className="flex space-x-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"
                       size="sm"

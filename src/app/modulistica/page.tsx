@@ -23,8 +23,13 @@ import {
 import DocumentEditor, {
   DOCUMENT_TEMPLATE_TOKENS,
 } from "@/components/forms/DocumentEditor";
-import LayoutWithMobileNav from "@/app/layout-with-mobile-nav";
-import { DashboardPageContainer } from "@/components/dashboard/dashboard-page-container";
+import Sidebar from "@/components/dashboard/Sidebar";
+import Header from "@/components/dashboard/Header";
+import { MobileTopBar } from "@/components/layout/MobileTopBar";
+import {
+  DashboardPageContainer,
+  dashboardMainClassName,
+} from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import {
   Dialog,
@@ -1082,7 +1087,13 @@ function ModulisticaPage() {
           }
           className="space-y-5"
         >
-          <TabsList className="h-auto flex-wrap justify-start">
+          {/*
+            `w-full` perche `flex-wrap` possa servire a qualcosa: la barra e
+            `inline-flex`, quindi si dimensiona sul contenuto e non manda mai
+            a capo. A 375 px «Archivio» finiva quarantanove pixel oltre il
+            bordo e veniva tagliata via.
+          */}
+          <TabsList className="h-auto w-full flex-wrap justify-start">
             <TabsTrigger value="documents">Documenti / Template</TabsTrigger>
             <TabsTrigger value="online-forms">Moduli online</TabsTrigger>
             <TabsTrigger value="archive">Archivio</TabsTrigger>
@@ -1460,10 +1471,38 @@ function ModulisticaPage() {
   );
 }
 
+/**
+ * Il guscio di questa pagina e lo stesso di tutte le altre.
+ *
+ * **Cosa c'era prima, e cosa faceva.** Modulistica era l'unica pagina che
+ * montava `LayoutWithMobileNav`, una seconda generazione di guscio che
+ * accostava `MobileNavigation` — una navigazione **in flusso normale** — al
+ * contenuto. Su un telefono quella colonna prendeva 229 pixel su 375: la
+ * pagina lavorava in 146, la targhetta della stagione finiva fuori schermo, e
+ * comparivano un secondo marchio EasyGame e un secondo menu accanto al primo.
+ *
+ * Era l'errore tipico numero 1 di CLAUDE.md — una seconda implementazione di
+ * qualcosa che esiste gia — e si vedeva solo aprendo la pagina a 375 px.
+ */
 export default function ModulisticaPageWithLayout() {
   return (
-    <LayoutWithMobileNav>
-      <ModulisticaPage />
-    </LayoutWithMobileNav>
+    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+      <div className="hidden lg:block">
+        <Sidebar />
+      </div>
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="hidden lg:block">
+          <Header title="Modulistica" />
+        </div>
+        <div className="lg:hidden">
+          <MobileTopBar />
+        </div>
+
+        <main className={dashboardMainClassName}>
+          <ModulisticaPage />
+        </main>
+      </div>
+    </div>
   );
 }

@@ -425,9 +425,20 @@ export default function DashboardPage() {
 
         <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm md:p-5">
           <div className="space-y-5">
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-lg border border-slate-200 bg-slate-100/80 p-3 md:p-4">
-                <div className="grid gap-4">
+            {/*
+              `minmax(0,1fr)` anche a una colonna sola, e `min-w-0` sui figli.
+
+              Senza, la traccia implicita del grid vale `auto` e rispetta la
+              larghezza **minima del contenuto**: a 375 px il riquadro degli
+              allenamenti chiedeva 396 px dentro una colonna da 317, usciva di
+              cinquanta pixel e veniva **tagliato** da `overflow-x-hidden`
+              della main — non nascosto dietro uno scorrimento, proprio
+              tagliato via. Su un telefono era un ottavo della schermata, e
+              intere schede laterali finivano fuori.
+            */}
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-100/80 p-3 md:p-4">
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
                   <div className="h-[420px] rounded-lg bg-white p-3 shadow-sm xl:h-[440px]">
                     <UpcomingTrainings
                       isLoading={isLoading}
@@ -452,7 +463,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <aside className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+              <aside className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-3 xl:grid-cols-1">
                 <DashboardSideCard
                   title="Gare"
                   count={todayMatches.length}

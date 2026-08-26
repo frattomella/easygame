@@ -401,8 +401,19 @@ export default function OnboardingPage() {
         </div>
       </header>
 
-      <main className="mx-auto grid w-full max-w-5xl gap-6 px-4 py-6 md:px-6 lg:grid-cols-[240px,1fr]">
-        <nav aria-label="Passi della configurazione" className="lg:pt-1">
+      {/*
+        `minmax(0,1fr)` e `min-w-0` sulla colonna dei passi.
+
+        L'elenco dei passi scorre gia nel proprio contenitore, ma la colonna
+        che lo contiene aveva larghezza minima pari al **contenuto**: a 375 px
+        la pagina diventava larga 722 e scorreva tutta di lato, intestazione
+        compresa. Il primo schermo che una societa vede era il piu rotto.
+      */}
+      <main className="mx-auto grid w-full max-w-5xl grid-cols-[minmax(0,1fr)] gap-6 px-4 py-6 md:px-6 lg:grid-cols-[240px,minmax(0,1fr)]">
+        <nav
+          aria-label="Passi della configurazione"
+          className="min-w-0 lg:pt-1"
+        >
           <ol className="flex gap-2 overflow-x-auto lg:flex-col lg:gap-1 lg:overflow-visible">
             {ONBOARDING_STEPS.map((step, index) => {
               const done = state.completedSteps.includes(step.id);
@@ -436,7 +447,7 @@ export default function OnboardingPage() {
           </ol>
         </nav>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
           <h1 className="font-display text-xl font-semibold tracking-tight text-slate-900 md:text-2xl">
             {ONBOARDING_STEPS[Math.max(stepIndex, 0)].title}
           </h1>

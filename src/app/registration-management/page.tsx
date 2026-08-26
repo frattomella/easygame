@@ -1164,31 +1164,41 @@ export default function RegistrationManagementPage() {
               subtitle="Configura piani, metodi di pagamento e gestione delle iscrizioni."
             />
             <Tabs defaultValue="payment-plans">
-              <TabsList className="mb-4">
+              {/*
+                La barra scorre nel proprio contenitore.
+
+                A 375 px le quattro schede chiedono 757 px: uscivano di 382
+                dal riquadro e `overflow-x-hidden` della main le **tagliava**.
+                «Sconti e Promozioni» e «Voucher e Contributi» erano
+                irraggiungibili da un telefono — non scomode: assenti. E la
+                stessa soluzione della pagina Organizzazione, che scorre le
+                sue schede invece di mandarle a capo.
+              */}
+              <TabsList className="mb-4 w-full justify-start overflow-x-auto whitespace-nowrap">
                 <TabsTrigger
                   value="payment-plans"
-                  className="flex items-center gap-2"
+                  className="flex shrink-0 items-center gap-2"
                 >
                   <CreditCard className="h-4 w-4" />
                   Piani di Pagamento
                 </TabsTrigger>
                 <TabsTrigger
                   value="payment-methods"
-                  className="flex items-center gap-2"
+                  className="flex shrink-0 items-center gap-2"
                 >
                   <Landmark className="h-4 w-4" />
                   Metodi di Pagamento
                 </TabsTrigger>
                 <TabsTrigger
                   value="discounts"
-                  className="flex items-center gap-2"
+                  className="flex shrink-0 items-center gap-2"
                 >
                   <Tag className="h-4 w-4" />
                   Sconti e Promozioni
                 </TabsTrigger>
                 <TabsTrigger
                   value="funding"
-                  className="flex items-center gap-2"
+                  className="flex shrink-0 items-center gap-2"
                 >
                   <HandCoins className="h-4 w-4" />
                   Voucher e Contributi

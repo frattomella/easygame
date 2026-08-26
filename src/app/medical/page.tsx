@@ -634,12 +634,28 @@ export default function MedicalPage() {
             <Card>
               <CardHeader className="pb-0">
                 <Tabs defaultValue="all" onValueChange={setActiveTab}>
-                  <TabsList>
-                    <TabsTrigger value="all">Tutti</TabsTrigger>
-                    <TabsTrigger value="valid">Validi</TabsTrigger>
-                    <TabsTrigger value="expiring">In Scadenza</TabsTrigger>
-                    <TabsTrigger value="expired">Scaduti</TabsTrigger>
-                    <TabsTrigger value="missing">Mancanti</TabsTrigger>
+                  {/*
+                    Cinque schede non stanno in 375 px: «Mancanti» — quella
+                    che una segreteria guarda per prima — usciva di
+                    cinquantacinque pixel e veniva tagliata. La barra scorre
+                    nel proprio contenitore, come in Organizzazione.
+                  */}
+                  <TabsList className="w-full justify-start overflow-x-auto whitespace-nowrap">
+                    <TabsTrigger className="shrink-0" value="all">
+                      Tutti
+                    </TabsTrigger>
+                    <TabsTrigger className="shrink-0" value="valid">
+                      Validi
+                    </TabsTrigger>
+                    <TabsTrigger className="shrink-0" value="expiring">
+                      In Scadenza
+                    </TabsTrigger>
+                    <TabsTrigger className="shrink-0" value="expired">
+                      Scaduti
+                    </TabsTrigger>
+                    <TabsTrigger className="shrink-0" value="missing">
+                      Mancanti
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               </CardHeader>

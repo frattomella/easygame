@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -323,4 +323,112 @@ test("l'anteprima del builder usa lo stesso renderer della compilazione", () => 
     /previewSchema/,
     "l'anteprima deve vedere le stesse opzioni che vedra chi compila",
   );
+});
+
+/* ------------ Blocco Finale C — cio che la verifica su schermo ha trovato -- */
+
+/**
+ * **Cinque difetti che nessuna invariante statica poteva vedere.** Sono usciti
+ * caricando le pagine a 375 px in un browser vero, e hanno tutti la stessa
+ * forma: un elemento di griglia o di flex con larghezza minima pari al
+ * **contenuto**. Il contenitore non si restringe, la riga diventa piu larga
+ * dello schermo, e `overflow-x-hidden` della main la **taglia** — non la
+ * nasconde dietro uno scorrimento: la taglia.
+ *
+ * Non e un difetto estetico. A 375 px la dashboard perdeva cinquanta pixel
+ * di larghezza, l'onboarding scorreva di 347, e su tre pagine intere schede
+ * — «Sconti e Promozioni», «Voucher e Contributi», «Mancanti» — erano
+ * irraggiungibili da un telefono.
+ *
+ * Questi test sono statici e non rifanno la misura: presidiano la **forma
+ * della correzione**, cosi che una modifica futura non la tolga per
+ * distrazione.
+ */
+
+test("le griglie a una colonna dichiarano una traccia che puo restringersi", () => {
+  const casi = [
+    ["app/dashboard/page.tsx", /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,80}xl:grid-cols-\[minmax\(0,1fr\)_320px\]/],
+    ["app/onboarding/page.tsx", /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,120}lg:grid-cols-\[240px,minmax\(0,1fr\)\]/],
+  ];
+
+  for (const [file, pattern] of casi) {
+    assert.match(
+      read(file),
+      pattern,
+      `${file}: una traccia \`auto\` rispetta la larghezza minima del contenuto, e a 375 px il contenuto e piu largo dello schermo`,
+    );
+  }
+});
+
+test("le colonne che contengono elenchi scorrevoli possono restringersi", () => {
+  assert.match(
+    read("app/onboarding/page.tsx"),
+    /aria-label="Passi della configurazione"[\s\S]{0,120}min-w-0/,
+    "l'elenco dei passi scorre gia; era la colonna a non potersi stringere",
+  );
+  assert.match(
+    read("app/dashboard/page.tsx"),
+    /<aside className="grid min-w-0/,
+    "le schede laterali uscivano di cinquanta pixel dallo schermo",
+  );
+});
+
+test("il nome del club puo troncare, cosi la stagione resta visibile", () => {
+  assert.match(
+    read("components/brand/club-identity.tsx"),
+    /min-w-0 truncate font-display/,
+    "senza `min-w-0` un `truncate` non tronca: la targhetta stagione finiva fuori",
+  );
+});
+
+test("le barre di schede non escono dallo schermo stretto", () => {
+  const casi = [
+    ["app/registration-management/page.tsx", /<TabsList className="mb-4 w-full justify-start overflow-x-auto/],
+    ["app/medical/page.tsx", /<TabsList className="w-full justify-start overflow-x-auto/],
+    ["app/modulistica/page.tsx", /<TabsList className="h-auto w-full flex-wrap/],
+  ];
+
+  for (const [file, pattern] of casi) {
+    assert.match(
+      read(file),
+      pattern,
+      `${file}: le schede oltre la terza erano tagliate via, cioe irraggiungibili da un telefono`,
+    );
+  }
+});
+
+test("i comandi di intestazione vanno a capo prima di uscire", () => {
+  assert.match(
+    read("components/dashboard/shared-page-header.tsx"),
+    /flex flex-wrap gap-2 sm:shrink-0/,
+    "`shrink-0` sotto sm faceva sporgere di qualche pixel un pulsante con etichetta lunga",
+  );
+  assert.match(
+    read("app/matches/page.tsx"),
+    /flex flex-col items-start gap-3 sm:flex-row/,
+    "i tre pulsanti della settimana non stanno accanto al titolo a 375 px",
+  );
+});
+
+test("esiste un guscio solo, e Modulistica usa quello", () => {
+  const modulistica = read("app/modulistica/page.tsx");
+
+  assert.match(modulistica, /<MobileTopBar \/>/);
+  assert.match(modulistica, /className={dashboardMainClassName}/);
+  assert.doesNotMatch(
+    modulistica,
+    /<LayoutWithMobileNav>/,
+    "era l'unica pagina con un guscio proprio, e su un telefono la navigazione in flusso normale le lasciava 146 pixel su 375",
+  );
+
+  for (const orfano of [
+    "app/layout-with-mobile-nav.tsx",
+    "components/ui/mobile-navigation.tsx",
+  ]) {
+    assert.equal(
+      existsSync(path.join(SRC, orfano)),
+      false,
+      `${orfano}: seconda generazione di guscio, ora senza nessun consumatore`,
+    );
+  }
 });

@@ -73,9 +73,16 @@ export function ClubIdentity({
       </span>
 
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 leading-tight">
+        {/*
+          `min-w-0` perche `truncate` possa davvero troncare: senza, la
+          larghezza minima di questo elemento e quella del nome per intero, la
+          riga diventa piu larga del contenitore e la targhetta della stagione
+          finisce **fuori dallo schermo** — tagliata, non nascosta. Si vedeva
+          a 375 px con un nome lungo.
+        */}
         <span
           className={cn(
-            "truncate font-display font-semibold tracking-tight text-slate-900",
+            "min-w-0 truncate font-display font-semibold tracking-tight text-slate-900",
             compact ? "text-base" : "text-xl",
           )}
           title={clubName}

@@ -78,3 +78,6 @@ node_modules
 # Worktree creati per i workstream paralleli: sono copie del repository,
 # non contenuto del repository.
 .claude/worktrees/
+
+# Build di verifica su una copia di lavoro condivisa (NEXT_DIST_DIR).
+.next-*

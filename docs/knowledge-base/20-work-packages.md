@@ -562,7 +562,7 @@ round trip a Neon ciascuna.
 
 ---
 
-### WP-34 · Responsivita verificata del Web — `PARZIALE` (2026-08-23)
+### WP-34 · Responsivita verificata del Web — `DONE` (2026-08-26, Blocco Finale C)
 
 **Obiettivo.** Rendere ogni area del Web usabile da desktop, tablet e
 smartphone, con una verifica ripetibile invece che a campione.
@@ -592,7 +592,7 @@ pagamenti, categorie, allenatori e gestione club va fatta a mano in staging.
 - [x] Nessuna pagina verificata produce scroll orizzontale del documento a 375 px
 - [x] Le dialog restano interamente raggiungibili a 375 px
 - [x] La regola e in [10 — UI/UX](10-ui-ux-conventions.md)
-- [ ] Verifica pagina per pagina delle aree gestionali (richiede sessione)
+- [x] Verifica pagina per pagina delle aree gestionali, **su schermo** (Blocco Finale C)
 
 **Avanzamento (Blocco 4).** Home account, onboarding, dialog di import e
 sezione «Provider email» della console sono state scritte con una sola
@@ -600,9 +600,21 @@ struttura che si riorganizza ai breakpoint, invece del doppio markup
 `hidden lg:flex` / `lg:hidden`. Restano da verificare a mano in staging le
 pagine gestionali dense: scheda atleta, pagamenti, categorie, allenatori.
 
+**Chiusura (Blocco Finale C, 2026-08-26).** Diciotto pagine gestionali
+caricate a 375, 768 e 1280 px su una build vera con sessione autenticata sul
+database di sviluppo, misurando per **ogni elemento** se esce dal riquadro e
+se un antenato lo taglia invece di lasciarlo scorrere. Sette difetti trovati,
+tutti invisibili a un test statico, tutti della stessa forma: un elemento di
+griglia o di flex con larghezza minima pari al contenuto. La correzione e
+presidiata da sei invarianti nuove in `responsive-invariants`.
+
+**Resta fuori una pagina sola**: la console di piattaforma. Il seed di
+sviluppo non contiene un account amministratore e crearne uno significa
+scrivere una credenziale — vedi le azioni richieste nel rapporto del blocco.
+
 **File.** `src/components/ui/dialog.tsx`, `src/components/ui/alert-dialog.tsx`,
 `src/app/globals.css`, `src/components/layout/MobileTopBar.tsx`,
-[10](10-ui-ux-conventions.md).
+`scripts/start-verify-server.mjs`, [10](10-ui-ux-conventions.md).
 
 ---
 

@@ -32,8 +32,8 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 194 |
-| `IN PROGRESS` | 15 |
+| `DONE` | 198 |
+| `IN PROGRESS` | 11 |
 | `OPEN` | 21 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
@@ -85,7 +85,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 |---|-----------|-------|-----------|
 | B3-01 | Identita visiva coerente: due font, una scala tipografica, token di colore | `DONE` | WP-37 |
 | B3-02 | Console di piattaforma separata dalla chrome di club | `DONE` | WP-37 |
-| B3-03 | Ogni pagina usabile a 375, 768 e 1280 px | `IN PROGRESS` | WP-34 — il Blocco 8 ha corretto 22 griglie e aggiunto sette invarianti; il **Blocco A** ha fatto la verifica su schermo delle quattordici pagine dei suoi domini e ne ha corrette tre. **Manca** il resto: Contributi, Sedi, Moduli, modulo pubblico, partite, presenze. Vedi R-01 |
+| B3-03 | Ogni pagina usabile a 375, 768 e 1280 px | `DONE` | **Blocco Finale C** — verifica su schermo eseguita su diciotto pagine a 375, 768 e 1280 px, con sessione autenticata sul database di sviluppo, misurando per ogni elemento se esce dal riquadro e se qualcuno lo taglia. **Sette difetti trovati e corretti**, tutti invisibili alle invarianti statiche. Resta fuori solo la console di piattaforma, che richiede un account amministratore assente dal seed di sviluppo |
 
 ### Blocco 4 — Account, onboarding, produttivita
 
@@ -214,7 +214,7 @@ stato pagato negli stessi campi.
 | A1-15 | Audit di regressione su servizi opzionali, pro-rata, totali e stato | `DONE` | WP-47 — trovato e corretto un difetto vero: i totali dell'atleta sommavano **per stato**, quindi un acconto valeva zero |
 | A1-16 | Separare Payment, Receipt e Invoice; generare la ricevuta da un incasso | `DONE` | WP-47 — `receipts.transaction_id`, emissione idempotente. La fattura resta un oggetto distinto e non e stata toccata |
 | A1-17 | Cronologie coerenti, con direzione documentata | `DONE` | WP-47 — incassi di una rata e rate di un atleta in ordine **crescente**; la tabella completa e in [10](10-ui-ux-conventions.md) |
-| A1-18 | Registrare un pagamento da smartphone deve essere semplice | `IN PROGRESS` | WP-47 — verificato staticamente a 375 px (una colonna, pulsanti a piena larghezza, finestra che scorre, tabella che scorre nel proprio contenitore). **Manca** la verifica su schermo, che richiede una sessione autenticata su un database: vedi R-01 |
+| A1-18 | Registrare un pagamento da smartphone deve essere semplice | `DONE` | **Blocco Finale C** — /payments e la scheda atleta verificate su schermo a 375, 768 e 1280 px: nessun elemento tagliato |
 | A1-19 | Contabilita fiscale completa | `DEFERRED` | WP-47 — dichiarata fuori scope dalla richiesta stessa. Si emette e si numera la ricevuta; nessun registro IVA |
 | A1-20 | Checkout online reale (Stripe / CediPay) | `DEFERRED` | WP-13, ADR-0013 — il modello e pronto, il canale no. Il webhook non va attivato prima della verifica di firma ([14](14-security.md), rischio 6) |
 
@@ -243,7 +243,7 @@ Caso reale di riferimento: Voucher per lo Sport, Regione Lazio / Sport e Salute
 | A2-15 | Convivenza con rate, pagamenti parziali, «Registra pagamento», ricevute, pro-rata e servizi opzionali | `DONE` | WP-48 — i due domini non si importano a vicenda; `npm test` copre entrambi |
 | A2-16 | Contratti chiari per programma, beneficiario, periodo, maturato e liquidazione | `DONE` | WP-48 — `FundingProgram`, `FundingEnrollment`, `FundingAccrual`, `FundingSettlement`, `FundingSettlementLine`. Il **periodo non e una tabella**: si ricava dalla configurazione e viene congelato dentro il maturato |
 | A2-17 | Audit, autorizzazioni e multi-tenant sui contributi | `DONE` | WP-48 — `canManageClubConfiguration` su ogni scrittura, audit log, e 27 test che provano ogni operazione dal club sbagliato |
-| A2-18 | Verifica su schermo dei pannelli contributi a 375, 768 e 1280 px | `IN PROGRESS` | WP-48 — verificato staticamente (i cinque importi in colonna, tabella dei periodi che scorre nel proprio contenitore, finestra di configurazione scorrevole). **Manca** la verifica su schermo: vedi R-01 |
+| A2-18 | Verifica su schermo dei pannelli contributi a 375, 768 e 1280 px | `DONE` | **Blocco Finale C** — la scheda «Voucher e Contributi» di Gestione iscrizioni era **irraggiungibile** da un telefono: la barra delle schede usciva di 382 px e veniva tagliata. Corretta e riverificata |
 | A2-19 | Compensazione automatica del contributo sulla rata della famiglia | `OPEN` | ADR-0037 — **scelta consapevole**: quale parte della quota il voucher copre lo decide il club, non l'importo maturato. Compensare in automatico farebbe risultare saldate rate che nessuno ha pagato |
 | A2-20 | Trasmissione telematica delle rendicontazioni all'ente | `OPEN` | ADR-0037 — `reported` e una marcatura interna; il canale verso il finanziatore cambia da bando a bando e non si puo implementare a memoria |
 
@@ -380,7 +380,7 @@ piu sotto: quelle vengono **dopo** il rilascio.
 
 | # | Cosa manca | Perche blocca | Dove |
 |---|-----------|---------------|------|
-| R-01 | Verifica su schermo delle pagine **restanti** a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Il Blocco A ha verificato le quattordici pagine dei suoi domini — anagrafiche, documenti, abbigliamento, numerazione — e ne ha corrette tre. **Restano** le pagine nate dall'integrazione: Contributi, Sedi, Moduli e il modulo pubblico, piu partite e presenze | BA-31, B3-03, ADR-0025 |
+| ~~R-01~~ | ~~Verifica su schermo delle pagine restanti a 375, 768 e 1280 px~~ | **Chiuso dal Blocco Finale C.** Diciotto pagine caricate a tre larghezze su una build vera con sessione autenticata, misurando elemento per elemento chi esce dal riquadro e chi lo taglia. **Sette difetti**, tutti invisibili a un test statico: la dashboard perdeva 50 px di larghezza, l'onboarding scorreva di lato di 347, tre barre di schede erano tagliate — «Sconti e Promozioni», «Voucher e Contributi», «Mancanti» irraggiungibili da un telefono — e Modulistica montava un **secondo guscio** che su 375 px lasciava 146 px al contenuto. **Resta fuori** la sola console di piattaforma: il seed di sviluppo non contiene un account amministratore, e crearne uno e una scrittura di credenziali | BA-31, B3-03, ADR-0025 |
 | ~~R-02~~ | ~~La lista Atleti deve consumare la paginazione~~ | **Chiuso dal Blocco Finale C.** Due modi decisi dall'archivio: sotto una pagina niente cambia, sopra i filtri vanno al server. Misurato con `npm run measure:web` — la richiesta della lista resta a 121 kB e due interrogazioni **da 200 a 2.000 atleti**, contro 1.221 kB dell'archivio intero | F1-12, B8-21 |
 | R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon, e la Modulistica V2 ne aggiunge uno per ogni certificato caricato da un modulo pubblico | B8-13, ADR-0034 |
 | ~~R-04~~ | ~~Validazione input con uno schema (`zod`)~~ | **Chiuso dal Blocco Finale C** dove il corpo e chiuso e conosciuto: autenticazione, incassi, stagioni, piano, contributi. Un corpo malformato risponde 400 con `VALIDATION_ERROR` nell'envelope. Il CRUD generico resta fuori per scelta motivata; i moduli pubblici hanno gia una validazione guidata dallo schema del modulo | F1-05, WP-05 |
@@ -465,7 +465,7 @@ Non sono cancellate: riprendono quando Web V1 e completa.
 | WB-09 | Numerazione per sede senza regressioni | `DONE` | `siteIds` sul gruppo; vuoto = tutte le sedi, cioe ogni gruppo esistente |
 | WB-10 | Performance con 200+ atleti e piu sedi | `DONE` | Rapporto sotto 3x raddoppiando gli atleti; `scripts/measure-multisite-performance.mjs` stampa i tempi |
 | WB-11 | Filtro sede sugli allenamenti | `DONE` | La sede viene dalla struttura, non da un campo proprio: un secondo campo si disallineerebbe al primo allenamento in trasferta |
-| WB-12 | Consegne usabili da smartphone | `IN PROGRESS` | Il dialogo consegne e a schede impilate e le invarianti statiche sono verdi. **Manca** la verifica su schermo: il database di sviluppo non e in esecuzione in questo ambiente (vedi B3-03) |
+| WB-12 | Consegne usabili da smartphone | `DONE` | **Blocco Finale C** — /clothing verificata su schermo a 375, 768 e 1280 px: nessun elemento tagliato |
 
 ---
 

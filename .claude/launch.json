@@ -4,9 +4,21 @@
     {
       "name": "easygame-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3001,
       "url": "http://127.0.0.1:3001"
+    },
+    {
+      "name": "easygame-web-verify",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/start-verify-server.mjs"
+      ],
+      "port": 3010,
+      "url": "http://127.0.0.1:3010"
     }
   ]
 }
