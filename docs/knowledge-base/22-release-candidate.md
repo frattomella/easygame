@@ -1,6 +1,6 @@
 # 22 — Matrice Release Candidate (Web V1)
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco Finale C)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco D — Stripe Connect, billing di piattaforma, motore fiscale)
 
 Questo documento risponde a **una domanda sola**: la Web V1 si puo dichiarare
 Release Candidate, e cosa manca perche lo sia.
@@ -52,6 +52,8 @@ un bando reale — lo stato riflette la prova, non il codice.
 | S-7 | Rate limiting | `DONE` | `auth-rate-limit` su login, registrazione, OTP, moduli pubblici | `auth-security` | No |
 | S-8 | Firma dei webhook | `DONE` | HMAC verificata, deduplica su `(provider, event_id)`, 503 senza segreto | 17 test | No |
 | S-9 | Nessun segreto nei log e nelle risposte | `DONE` | `sanitizeMetadata`; nessun endpoint restituisce hash o token | Test dedicati | No |
+| S-11 | Le condizioni commerciali escono dalle mani del club | `DONE` | [ADR-0050](18-decision-log.md#adr-0050--una-condizione-commerciale-ha-una-decorrenza-e-la-commissione-si-congela-sullincasso): la guardia lavora **campo per campo** dentro `paymentSettings`. Prima un club poteva azzerarsi la commissione e digitare l'account Stripe su cui far arrivare gli incassi delle famiglie — dai campi che la pagina mostrava | 12 test; un tentativo lascia audit `denied` con il percorso del campo | No |
+| S-12 | Un evento del PSP non attraversa il confine fra due societa | `DONE` | L'account connesso vince sui metadati; un evento da un account sconosciuto viene **ignorato** invece di ripiegare sui metadati | `payment-gateway-refunds`, 3 test di isolamento | No |
 | S-10 | Pulizia delle righe scadute | `DONE` | `POST /api/v1/maintenance`; il *trigger* e esterno per non legarsi all'hosting | 7 test | No — ma va **configurato** su ogni ambiente |
 
 ## 3. Denaro
@@ -65,10 +67,15 @@ un bando reale — lo stato riflette la prova, non il codice.
 | E-5 | Ricevuta ≠ fattura ≠ pagamento | `DONE` | [ADR-0047](18-decision-log.md): due registri, intestatario risolto dal tutore, emissione idempotente | `invoice-issuing`, `document-numbering` | No |
 | E-6 | Numerazione per club e per esercizio | `DONE` | [ADR-0044](18-decision-log.md): vincolo composto, sequenza in transazione | `document-numbering` (server e modello) | No |
 | E-7 | Documento stampabile con il marchio | `DONE` | `GET /api/v1/documents/:kind/:id`, HTML autonomo | `document-view`, 12 test | No |
-| E-8 | Archiviazione del documento emesso | `NOT_DONE` | D38: la ricevuta si **ristampa** dalla riga. Per una fattura e discutibile | — | No per la V1; **si** il giorno in cui si emettono fatture vere |
-| E-9 | Fatturazione elettronica (SdI) | `DEFERRED_POST_V1` | `is_electronic` e `false` **per costruzione**. L'interfaccia non promette la trasmissione | — | No, **a condizione** che nessuna schermata la prometta |
-| E-10 | Checkout online reale | `BLOCKED_EXTERNAL` | CediPay ([ADR-0045](18-decision-log.md)): contratto, adapter Stripe, firma, deduplica. **Nessun giro reale** | Test su mock | No, **a condizione** che l'interfaccia non offra un pulsante che non funziona (oggi lo dice) |
-| E-11 | Le tre decisioni Connect | `BLOCKED_EXTERNAL` | Tipo di dashboard (irreversibile), saldi negativi, percentuale di commissione | — | No |
+| E-8 | Archiviazione del documento emesso | `PARTIAL` | Dal Blocco D il documento porta uno **snapshot** dei dati al momento dell'emissione: la ristampa non rilegge piu l'anagrafica di oggi, e una fattura non cambia perche l'atleta trasloca. **Manca** il file archiviato ([ADR-0052](18-decision-log.md#adr-0052--la-sigla-non-decide-il-trattamento-fiscale-il-profilo-si-dichiara-il-documento-si-propone)) | `fiscal-documents`, 3 test sullo snapshot | No per la V1; **si** il giorno in cui si emettono fatture vere |
+| E-9 | Fatturazione elettronica (SdI) | `PARTIAL` | [ADR-0053](18-decision-log.md#adr-0053--easygame-prepara-il-tracciato-fatturapa-non-lo-trasmette-e-non-lo-dichiara-trasmesso): modello, nove stati, generazione e validazione del tracciato `FPR12` dallo snapshot, interfaccia adapter. **La trasmissione non e attiva**: il registro degli adapter e vuoto per costruzione e `canTransition` rifiuta ogni stato che presupponga un invio | `fatturapa`, 19 test — sei dei quali provano che «trasmessa» sia irraggiungibile | No, **a condizione** che nessuna schermata prometta l'invio (oggi lo nega esplicitamente) |
+| E-12 | La commissione applicata non cambia col listino | `DONE` | Congelata sulla riga dell'incasso: lordo, fee, netto, percentuale e regola applicata. Cambiare l'1% in 1,5% non tocca i movimenti gia registrati | `commission` + `payment-gateway-refunds` | No |
+| E-13 | Rimborsi e storni | `DONE` (su mock) | Un rimborso e un **movimento che conta**, distinto dallo storno: 130 incassati − 30 rimborsati = rata PARZIALE con residuo 30. La commissione restituita e proporzionale a quella trattenuta, non ricalcolata su oggi | 11 test, compreso il doppio evento sullo stesso rimborso | No |
+| E-14 | Billing EasyGame separato dagli incassi dei club | `PARTIAL` | [ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame): due account, due endpoint webhook, due segreti. Modello, adapter e webhook ci sono; **nessuna sottoscrizione reale** e mai stata creata | `platform-billing`, 14 test | No |
+| E-15 | Profilo fiscale non-ASD | `DONE` | Dieci forme giuridiche, regimi speciali dichiarati, dati REA dove pertinenti. **La sigla non deduce il trattamento**: due ASD possono avere trattamenti diversi | `fiscal-profile`, 18 test su ASD, SSD, altri soggetti, solo CF, con P.IVA | No |
+| E-16 | Un incasso non diventa una fattura | `DONE` | Il motore fiscale **propone** a partire da profilo + tipo di operazione + configurazione, e il predefinito e il piu conservativo. Da «non so cosa sia» non segue «non si puo fatturare» | `fiscal-engine`, 15 test | No |
+| E-10 | Checkout online reale | `BLOCKED_EXTERNAL` | Dal Blocco D: onboarding Connect dalla console, importi **parziali**, stato «in verifica» finche il webhook non conferma, rimborsi, `account.updated`. **Nessun giro reale**: non ci sono credenziali Stripe in questo repository | Test su mock; il pulsante compare solo quando il server dice che si puo incassare | No, **a condizione** che l'interfaccia non offra un pulsante che non funziona (oggi lo dice) |
+| E-11 | Le tre decisioni Connect | `PARTIAL` | La **percentuale** ha ora un posto dove essere scritta, con decorrenza e storico, e un valore di riserva dell'1%. Il **tipo di account** (`standard` o `express`) e configurabile in Platform Admin e va deciso *prima* del primo collegamento reale: e irreversibile per account gia creato. I **saldi negativi** restano una decisione aperta | [ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame) | No |
 
 ## 4. Contributi e voucher
 
@@ -186,8 +193,12 @@ professionale, o che rendono il rilascio irreversibile in caso di errore.
   che non funziona: dove manca una configurazione lo **dice**, con un messaggio
   diverso per ognuno dei quattro blocchi. Un rilascio con i pagamenti manuali e
   un rilascio onesto.
-- **SdI**. `is_electronic` e `false` per costruzione e nessuna schermata parla
-  di fatturazione elettronica.
+- **SdI**. `is_electronic` e `false` **per costruzione**, e dal Blocco D
+  l'interfaccia parla di fatturazione elettronica per **negarla**: la sezione
+  Fiscalita della console di piattaforma dice che l'invio non e configurato ed
+  elenca cosa EasyGame fa davvero. Il tracciato si genera e si scarica; e cio
+  che una societa fa gia oggi consegnandolo al commercialista, solo piu
+  rapido.
 - **Provider di storage esterno**. I file stanno nel database di Neon: cresce,
   ma funziona. Blocca la crescita, non il rilascio.
 - **I due sistemi di toast**, i 19 componenti `ui/*` non usati, le pagine
@@ -206,7 +217,8 @@ Nell'ordine in cui conviene affrontarli, non in ordine di dimensione.
 |---|------|-------------|
 | 1 | Provider di storage esterno | Serve prima che i file diventino un problema, non dopo. Decisione di prodotto |
 | 2 | Archiviazione dei documenti fiscali emessi (D38) | Diventa necessario appena si emettono fatture vere |
-| 3 | Stripe / CediPay reale | Serve un account, tre decisioni commerciali e un giro di collaudo |
+| 3 | Primo giro reale su Stripe | Serve un account in test mode, la scelta del tipo di account Connect (irreversibile) e un collaudo: checkout, webhook, rimborso |
+| 3-bis | Intermediario per la fattura elettronica | Decisione contrattuale di Cedi Soft. Il confine e gia disegnato: un file, una riga nel registro, la configurazione |
 | 4 | Promemoria certificati a orario | Il posto dove agganciarlo c'e; mancano destinatari, frequenza e disiscrizione |
 | 5 | Unificare i due sistemi di toast | Debito visibile all'utente: due comportamenti per lo stesso avviso |
 | 6 | Scomporre le pagine monolitiche | `athletes/[id]` 8.480 righe, `clothing`, `registration-management` |

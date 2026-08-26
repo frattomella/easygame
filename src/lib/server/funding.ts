@@ -830,3 +830,484 @@ export const getAthleteFundingOverview = async (
 
   return overviews;
 };
+
+/* ============================================================ il programma
+   aperto: chi c'e dentro, con quanto, e a che punto e
+   ========================================================================= */
+
+/**
+ * Il dettaglio di un programma: configurazione, beneficiari, e i cinque
+ * importi per ognuno.
+ *
+ * **Perche una funzione sola e non tre chiamate dal client.** Perche la scheda
+ * del programma mostra, per ogni atleta, assegnato/maturato/rendicontato/
+ * liquidato/residuo — e quei numeri non si sommano nel browser: si ricavano
+ * dagli stessi periodi e dalle stesse righe di liquidazione che il dominio
+ * conosce. Farli calcolare al client vorrebbe dire riscrivere il dominio in
+ * TypeScript di interfaccia, che e il debito D1 che EasyGame sta riducendo.
+ *
+ * **Perche le query sono quattro e non una per beneficiario.** Un programma
+ * regionale ha centinaia di iscritti: una lettura per atleta sarebbe un N+1
+ * che cresce con il successo del bando. Maturati e righe di liquidazione si
+ * caricano in blocco e si raggruppano in memoria.
+ */
+export type FundingProgramDetail = {
+  program: Record<string, any>;
+  enrollments: Array<{
+    enrollment: Record<string, any>;
+    athlete: { id: string; firstName: string; lastName: string } | null;
+    summary: ReturnType<typeof summarizeFunding>;
+    /** Vero se sono gia stati rendicontati o liquidati importi. */
+    hasSettledHistory: boolean;
+  }>;
+  totals: {
+    enrolledCount: number;
+    activeCount: number;
+    assignedAmount: number;
+    accruedAmount: number;
+    reportedAmount: number;
+    settledAmount: number;
+    residualAmount: number;
+  };
+};
+
+export const getFundingProgramDetail = async (
+  programId: string,
+  scope?: FundingScope,
+): Promise<FundingProgramDetail> => {
+  const program = await getFundingProgramById(programId, scope);
+
+  const enrollments = await enrollmentClient().findMany({
+    where: { organization_id: program.organization_id, program_id: program.id },
+    orderBy: [{ enrolled_at: "asc" }],
+  });
+
+  const rows: any[] = Array.isArray(enrollments) ? enrollments : [];
+  const enrollmentIds = rows.map((row) => row.id);
+  const athleteIds = Array.from(
+    new Set(rows.map((row) => String(row.athlete_id)).filter(Boolean)),
+  );
+
+  const [athletes, accruals] = await Promise.all([
+    athleteIds.length
+      ? (prisma as any).athlete.findMany({
+          where: {
+            id: { in: athleteIds },
+            organization_id: program.organization_id,
+          },
+          select: { id: true, first_name: true, last_name: true },
+        })
+      : Promise.resolve([]),
+    enrollmentIds.length
+      ? accrualClient().findMany({
+          where: { enrollment_id: { in: enrollmentIds } },
+          orderBy: [{ period_index: "asc" }],
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const accrualRows: any[] = Array.isArray(accruals) ? accruals : [];
+  const lines = accrualRows.length
+    ? await settlementLineClient().findMany({
+        where: { accrual_id: { in: accrualRows.map((row) => row.id) } },
+      })
+    : [];
+
+  const athleteById = new Map(
+    (Array.isArray(athletes) ? athletes : []).map((row: any) => [
+      String(row.id),
+      {
+        id: String(row.id),
+        firstName: asText(row.first_name),
+        lastName: asText(row.last_name),
+      },
+    ]),
+  );
+
+  const accrualsByEnrollment = new Map<string, any[]>();
+  for (const accrual of accrualRows) {
+    const key = String(accrual.enrollment_id);
+    accrualsByEnrollment.set(key, [
+      ...(accrualsByEnrollment.get(key) || []),
+      accrual,
+    ]);
+  }
+
+  const linesByAccrual = new Map<string, any[]>();
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const key = String((line as any).accrual_id);
+    linesByAccrual.set(key, [...(linesByAccrual.get(key) || []), line]);
+  }
+
+  const detail: FundingProgramDetail["enrollments"] = rows.map((row) => {
+    const own = accrualsByEnrollment.get(String(row.id)) || [];
+    const ownLines = own.flatMap(
+      (accrual: any) => linesByAccrual.get(String(accrual.id)) || [],
+    );
+
+    return {
+      enrollment: row,
+      athlete: athleteById.get(String(row.athlete_id)) || null,
+      summary: summarizeFunding({
+        assignedAmount: row.assigned_amount,
+        accruals: own,
+        settlementLines: ownLines,
+      }),
+      /*
+        «Storico gia maturato o liquidato» e cio che distingue una revoca da una
+        cancellazione: un'iscrizione che ha prodotto denaro non si toglie di
+        mezzo, si chiude.
+      */
+      hasSettledHistory:
+        ownLines.length > 0 ||
+        own.some((accrual: any) =>
+          ["reported", "settled"].includes(asText(accrual.status)),
+        ),
+    };
+  });
+
+  const totals = detail.reduce(
+    (acc, entry) => ({
+      enrolledCount: acc.enrolledCount + 1,
+      activeCount:
+        acc.activeCount + (asText(entry.enrollment.status) === "active" ? 1 : 0),
+      assignedAmount: acc.assignedAmount + entry.summary.assignedAmount,
+      accruedAmount: acc.accruedAmount + entry.summary.accruedAmount,
+      reportedAmount: acc.reportedAmount + entry.summary.reportedAmount,
+      settledAmount: acc.settledAmount + entry.summary.settledAmount,
+      residualAmount: acc.residualAmount + entry.summary.residualAmount,
+    }),
+    {
+      enrolledCount: 0,
+      activeCount: 0,
+      assignedAmount: 0,
+      accruedAmount: 0,
+      reportedAmount: 0,
+      settledAmount: 0,
+      residualAmount: 0,
+    },
+  );
+
+  return {
+    program,
+    enrollments: detail,
+    totals: {
+      ...totals,
+      assignedAmount: Number(totals.assignedAmount.toFixed(2)),
+      accruedAmount: Number(totals.accruedAmount.toFixed(2)),
+      reportedAmount: Number(totals.reportedAmount.toFixed(2)),
+      settledAmount: Number(totals.settledAmount.toFixed(2)),
+      residualAmount: Number(totals.residualAmount.toFixed(2)),
+    },
+  };
+};
+
+/**
+ * Gli atleti che si possono ancora iscrivere a un programma.
+ *
+ * **Perche l'elenco lo calcola il server.** Perche «non ancora iscritti» e una
+ * differenza fra due insiemi, e farla nel browser vorrebbe dire mandargli
+ * l'anagrafica intera per poi scartarne meta — su un club con duemila atleti e
+ * cinque megabyte per aprire una tendina.
+ */
+export const listEnrollableAthletes = async (
+  programId: string,
+  scope?: FundingScope,
+): Promise<Array<{ id: string; firstName: string; lastName: string }>> => {
+  const program = await getFundingProgramById(programId, scope);
+
+  const [athletes, enrollments] = await Promise.all([
+    (prisma as any).athlete.findMany({
+      where: { organization_id: program.organization_id },
+      select: { id: true, first_name: true, last_name: true },
+      orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
+    }),
+    enrollmentClient().findMany({
+      where: { program_id: program.id },
+      select: { athlete_id: true },
+    }),
+  ]);
+
+  const alreadyEnrolled = new Set(
+    (Array.isArray(enrollments) ? enrollments : []).map((row: any) =>
+      String(row.athlete_id),
+    ),
+  );
+
+  return (Array.isArray(athletes) ? athletes : [])
+    .filter((row: any) => !alreadyEnrolled.has(String(row.id)))
+    .map((row: any) => ({
+      id: String(row.id),
+      firstName: asText(row.first_name),
+      lastName: asText(row.last_name),
+    }));
+};
+
+/**
+ * I programmi a cui un atleta si puo ancora iscrivere.
+ *
+ * E la stessa domanda di sopra girata: la scheda atleta parte dall'atleta e
+ * cerca il programma. Le due direzioni usano **lo stesso servizio di
+ * iscrizione**, e questa e solo la lista da cui scegliere.
+ */
+export const listEnrollableProgramsForAthlete = async (
+  athleteId: string,
+  scope?: FundingScope,
+  organizationId?: string | null,
+): Promise<Record<string, any>[]> => {
+  const resolvedOrganizationId = resolveOrganizationId(scope, organizationId);
+  const id = asText(athleteId);
+
+  const [programs, enrollments] = await Promise.all([
+    programClient().findMany({
+      where: { organization_id: resolvedOrganizationId },
+      orderBy: [{ valid_from: "desc" }],
+    }),
+    enrollmentClient().findMany({
+      where: { organization_id: resolvedOrganizationId, athlete_id: id },
+      select: { program_id: true },
+    }),
+  ]);
+
+  const enrolled = new Set(
+    (Array.isArray(enrollments) ? enrollments : []).map((row: any) =>
+      String(row.program_id),
+    ),
+  );
+
+  /*
+    Un programma `closed` non ammette nuovi beneficiari — lo dice gia
+    `createFundingEnrollment` — e offrirlo nella tendina significherebbe far
+    scegliere qualcosa che poi viene rifiutato.
+  */
+  return (Array.isArray(programs) ? programs : []).filter(
+    (program: any) =>
+      !enrolled.has(String(program.id)) && asText(program.status) !== "closed",
+  );
+};
+
+/**
+ * Ammette **piu atleti** a un programma, in una sola operazione.
+ *
+ * **Perche non fallisce tutta insieme.** Iscrivere trenta atleti e un'azione
+ * di segreteria: se il ventitreesimo risulta gia iscritto, rifiutare l'intero
+ * lotto costringerebbe a rifare la selezione a mano per capire quale. Ogni
+ * atleta ha il suo esito, e chi ha premuto vede cosa e passato e cosa no.
+ *
+ * **Perche non e transazionale, e va detto.** Le iscrizioni riuscite restano
+ * anche se una fallisce. E il comportamento giusto qui — un'iscrizione e un
+ * atto indipendente dalle altre — ma non e quello di una transazione, e chi
+ * legge il codice deve saperlo.
+ */
+export type BulkEnrollmentOutcome = {
+  created: Record<string, any>[];
+  skipped: Array<{ athleteId: string; reason: string }>;
+};
+
+export const createFundingEnrollments = async (
+  input: {
+    programId: unknown;
+    athleteIds: unknown;
+    /** Valori per atleta, quando l'ente assegna importi differenziati. */
+    perAthlete?: Record<
+      string,
+      { assignedAmount?: unknown; voucherCode?: unknown }
+    >;
+    assignedAmount?: unknown;
+    enrolledAt?: unknown;
+    endsAt?: unknown;
+    notes?: unknown;
+  },
+  scope?: FundingScope,
+): Promise<BulkEnrollmentOutcome> => {
+  const athleteIds = Array.from(
+    new Set(
+      (Array.isArray(input.athleteIds) ? input.athleteIds : [])
+        .map(asText)
+        .filter(Boolean),
+    ),
+  );
+
+  if (!athleteIds.length) {
+    throw new Error("Seleziona almeno un atleta da iscrivere");
+  }
+
+  const created: Record<string, any>[] = [];
+  const skipped: BulkEnrollmentOutcome["skipped"] = [];
+
+  for (const athleteId of athleteIds) {
+    const overrides = input.perAthlete?.[athleteId] || {};
+
+    try {
+      created.push(
+        await createFundingEnrollment(
+          {
+            programId: input.programId,
+            athleteId,
+            assignedAmount:
+              overrides.assignedAmount === undefined
+                ? input.assignedAmount
+                : overrides.assignedAmount,
+            voucherCode: overrides.voucherCode,
+            enrolledAt: input.enrolledAt,
+            endsAt: input.endsAt,
+            notes: input.notes,
+          },
+          scope,
+        ),
+      );
+    } catch (error: any) {
+      const message = String(error?.message || "Iscrizione non riuscita");
+
+      /*
+        Un «Accesso negato» non e l'esito di un atleta: e un problema
+        dell'intera operazione, e continuare vorrebbe dire nasconderlo dentro
+        un elenco di righe saltate.
+      */
+      if (message.includes("Accesso negato")) throw error;
+
+      skipped.push({ athleteId, reason: message });
+    }
+  }
+
+  return { created, skipped };
+};
+
+/**
+ * Aggiorna un'iscrizione: plafond individuale, codice voucher, stato.
+ *
+ * **Il plafond non puo scendere sotto il gia maturato.** Abbassarlo sotto
+ * quello che l'atleta ha gia maturato produrrebbe un residuo negativo, e un
+ * residuo negativo non significa niente: significa che qualcuno ha assegnato
+ * meno di quanto e gia stato riconosciuto.
+ */
+export const updateFundingEnrollment = async (
+  enrollmentId: string,
+  updates: {
+    assignedAmount?: unknown;
+    voucherCode?: unknown;
+    status?: unknown;
+    endsAt?: unknown;
+    notes?: unknown;
+  },
+  scope?: FundingScope,
+) => {
+  const enrollment = await getFundingEnrollmentById(enrollmentId, scope);
+  const data: Record<string, any> = {};
+
+  if (updates.assignedAmount !== undefined) {
+    const assignedAmount = toFundingAmount(updates.assignedAmount);
+    if (!(assignedAmount > 0)) {
+      throw new Error("Il plafond assegnato deve essere maggiore di zero");
+    }
+
+    const accruals = await accrualClient().findMany({
+      where: { enrollment_id: enrollment.id },
+    });
+
+    const accrued = (Array.isArray(accruals) ? accruals : []).reduce(
+      (total: number, row: any) =>
+        total + toFundingAmount(row.accrued_amount ?? row.accruedAmount),
+      0,
+    );
+
+    if (assignedAmount < accrued) {
+      throw new Error(
+        `Il plafond non puo scendere sotto il gia maturato (${accrued.toFixed(2)} €)`,
+      );
+    }
+
+    data.assigned_amount = assignedAmount;
+  }
+
+  if (updates.voucherCode !== undefined) {
+    data.voucher_code = asText(updates.voucherCode) || null;
+  }
+
+  if (updates.status !== undefined) {
+    const status = asText(updates.status);
+    if (!["active", "suspended", "closed"].includes(status)) {
+      throw new Error("Stato dell'iscrizione non riconosciuto");
+    }
+    data.status = status;
+  }
+
+  if (updates.endsAt !== undefined) {
+    data.ends_at = toDateOrNull(updates.endsAt);
+  }
+
+  if (updates.notes !== undefined) {
+    data.notes = asText(updates.notes) || null;
+  }
+
+  if (!Object.keys(data).length) return enrollment;
+
+  return enrollmentClient().update({
+    where: { id: enrollment.id },
+    data,
+  });
+};
+
+/**
+ * Toglie un atleta da un programma.
+ *
+ * **Cancella solo se non e mai successo niente.** Un'iscrizione che ha gia
+ * prodotto maturati rendicontati o righe di liquidazione **non si cancella**:
+ * quei numeri sono stati comunicati a un ente e, in parte, gia incassati.
+ * Portarla via si porterebbe dietro la traccia di denaro vero. In quel caso
+ * l'iscrizione si **revoca** — passa a `closed`, smette di maturare, e resta
+ * leggibile.
+ *
+ * Restituisce quale delle due cose e successa, perche l'interfaccia deve
+ * poterlo dire a chi ha premuto invece di far sparire una riga in silenzio.
+ */
+export const removeFundingEnrollment = async (
+  enrollmentId: string,
+  input: { reason?: unknown } = {},
+  scope?: FundingScope,
+): Promise<{ outcome: "deleted" | "revoked"; enrollment: Record<string, any> }> => {
+  const enrollment = await getFundingEnrollmentById(enrollmentId, scope);
+
+  const accruals = await accrualClient().findMany({
+    where: { enrollment_id: enrollment.id },
+  });
+
+  const accrualRows: any[] = Array.isArray(accruals) ? accruals : [];
+  const lines = accrualRows.length
+    ? await settlementLineClient().findMany({
+        where: { accrual_id: { in: accrualRows.map((row) => row.id) } },
+      })
+    : [];
+
+  const hasHistory =
+    (Array.isArray(lines) ? lines : []).length > 0 ||
+    accrualRows.some((row) => ["reported", "settled"].includes(asText(row.status)));
+
+  if (hasHistory) {
+    const revoked = await enrollmentClient().update({
+      where: { id: enrollment.id },
+      data: {
+        status: "closed",
+        ends_at: new Date(),
+        notes: asText(input.reason) || enrollment.notes,
+      },
+    });
+
+    return { outcome: "revoked", enrollment: revoked };
+  }
+
+  /*
+    Nessuno storico: si cancellano anche i maturati calcolati, che sono un
+    risultato derivato dalle presenze e si ricalcolano da soli. Lasciarli
+    orfani riempirebbe la riconciliazione di righe senza beneficiario.
+  */
+  if (accrualRows.length) {
+    await accrualClient().deleteMany({ where: { enrollment_id: enrollment.id } });
+  }
+
+  const deleted = await enrollmentClient().delete({
+    where: { id: enrollment.id },
+  });
+
+  return { outcome: "deleted", enrollment: deleted };
+};

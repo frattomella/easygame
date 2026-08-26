@@ -129,6 +129,7 @@ const UNIQUE_CONSTRAINTS = {
   eInvoiceTransmission: [["invoice_id"]],
   platformSetting: [["key"]],
   receipt: [["transaction_id"]],
+  fundingEnrollment: [["program_id", "athlete_id"]],
   athleteCategoryMembership: [
     ["organization_id", "athlete_id", "category_id"],
   ],

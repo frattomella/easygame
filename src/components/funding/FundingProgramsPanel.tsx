@@ -28,7 +28,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { apiRequest } from "@/lib/api/client";
+import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
+import { canManageClubConfiguration } from "@/lib/access-roles";
+import { FundingProgramDetail } from "./FundingProgramDetail";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   requirementUnitLabel,
@@ -104,6 +106,18 @@ export function FundingProgramsPanel() {
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   const [form, setForm] = React.useState(emptyForm);
 
+  /*
+    Il programma aperto sta in stato e non in un indirizzo: questo pannello
+    vive dentro una scheda di Gestione Iscrizioni, e cambiare rotta
+    porterebbe via anche il resto della pagina.
+  */
+  const [openProgramId, setOpenProgramId] = React.useState<string | null>(null);
+  const [canManage, setCanManage] = React.useState(false);
+
+  React.useEffect(() => {
+    setCanManage(canManageClubConfiguration(readStoredActiveClub()?.role));
+  }, []);
+
   const load = React.useCallback(async () => {
     setIsLoading(true);
     const { data, error } = await apiRequest<any[]>("/api/v1/funding/programs");
@@ -153,6 +167,19 @@ export function FundingProgramsPanel() {
     showToast("success", "Programma di contributo creato");
   };
 
+  if (openProgramId) {
+    return (
+      <FundingProgramDetail
+        programId={openProgramId}
+        canManage={canManage}
+        onBack={() => {
+          setOpenProgramId(null);
+          void load();
+        }}
+      />
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -190,15 +217,26 @@ export function FundingProgramsPanel() {
                 STATUS_BADGE[String(program.status)] || STATUS_BADGE.draft;
 
               return (
-                <div
+                /*
+                  La riga intera apre la scheda: `funding_enrollments`
+                  esisteva nel modello e nessuna schermata lo sapeva
+                  scrivere, quindi un bando caricato restava senza
+                  beneficiari e non maturava niente.
+                */
+                <button
                   key={String(program.id)}
-                  className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+                  type="button"
+                  onClick={() => setOpenProgramId(String(program.id))}
+                  className="w-full rounded-lg border border-slate-200 p-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:border-slate-800 dark:hover:bg-slate-900"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium">{program.name}</p>
                     <Badge variant="outline" className={badge.className}>
                       {badge.label}
                     </Badge>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Apri la scheda
+                    </span>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">
                     {program.funder_name} · dal {formatDate(program.valid_from)}{" "}
@@ -224,7 +262,7 @@ export function FundingProgramsPanel() {
                       </strong>
                     </span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

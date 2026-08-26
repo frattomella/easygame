@@ -483,3 +483,69 @@ Quando aggiungi o rimuovi un endpoint pubblico aggiorna, nello stesso commit:
 1. `src/lib/api/registry.ts` (e/o `API_REGISTRY` in `resources.ts`);
 2. `src/lib/api-docs/internal-api-registry.ts` se compare in `/private/api-docs`;
 3. [`docs/api-registry.md`](../api-registry.md).
+
+## Le rotte del Blocco D (2026-08-26)
+
+### Piattaforma
+
+`GET|POST /api/v1/platform/payments` — il centro di controllo commerciale.
+Riservato a `platform_admin`, e il ruolo si ricava **sempre** dalla sessione:
+se arrivasse dal corpo, chiunque potrebbe dichiararsi amministratore e
+abbassarsi la commissione.
+
+La scrittura usa uno schema discriminato su `operation` — `commission`,
+`commission_reset`, `connect_onboarding`, `connect_sync`, `connect_toggle`,
+`settings` — per la stessa ragione della rotta degli entitlement: sono atti
+che la stessa persona compie nella stessa schermata, e sei rotte avrebbero
+voluto dire sei controlli di ruolo da tenere allineati.
+
+La lettura **non restituisce mai una chiave segreta**: dice *se* un ambiente e
+configurato, non con cosa.
+
+### Il conto di incasso, visto dal club
+
+`GET|POST /api/v1/payments/account` — la societa **vede** lo stato del proprio
+conto, cosa manca e la commissione che le viene applicata, e puo **chiedere il
+link** di collegamento. Non puo scrivere l'identificativo dell'account,
+dichiararsi attiva, cambiare la commissione ne accendersi il servizio: fino al
+Blocco D poteva fare tutte e quattro le cose da un campo di testo.
+
+### Checkout
+
+`POST /api/payments/create-checkout-session` accetta ora un importo
+**parziale** e lo valida contro il residuo letto dal registro. Il club della
+rata comanda su quello mandato dal client: fidarsi del secondo permetterebbe
+di aprire un checkout su una rata di un'altra societa.
+
+`GET /api/payments/checkout-status` risponde con tre stati e non due:
+`pending_confirmation` e uno stato vero, ed e quello in cui una famiglia si
+trova fra il pagamento e la conferma firmata. Non interroga Stripe: uno stato
+che il registro non ha ancora non e uno stato che EasyGame puo usare.
+
+### Fiscalita del club
+
+`GET|PUT /api/v1/fiscal/profile` e `GET|PUT|POST
+/api/v1/fiscal/operation-types`. Le serie di numerazione stanno sulla seconda
+rotta perche si configurano nella stessa schermata e nello stesso momento.
+Un amministratore di piattaforma **legge** qualunque profilo — e cio che gli
+permette di assistere — ma la scrittura resta di chi risponde del contenuto.
+
+`POST /api/v1/documents/:kind/:id/cancel` — l'annullamento e una rotta a se e
+non un `PATCH`, perche un documento emesso non si modifica affatto: l'unica
+cosa che gli puo succedere dopo l'emissione e essere annullato.
+
+### Fattura elettronica
+
+`GET|POST /api/v1/einvoice/:invoiceId`. `action: "prepare"` genera e valida il
+tracciato; `action: "transmit"` risponde **503 con il motivo**. Sembra strano
+scrivere un'azione che non funziona: e invece l'unico modo onesto di
+rappresentare lo stato delle cose. Se l'azione non esistesse, chi legge l'API
+concluderebbe che manca da implementare.
+
+### I due webhook
+
+`POST /api/payments/webhook` (Connect) e `POST /api/billing/webhook`
+(piattaforma) sono **due** perche sono due account Stripe con due segreti di
+firma diversi. Nessuno dei due ha sessione e nessuno dei due puo averla: chi
+chiama e Stripe. Cio che li difende e la firma verificata sul corpo grezzo
+prima di guardarci dentro, piu la deduplica sull'identificativo dell'evento.

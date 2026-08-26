@@ -2180,3 +2180,331 @@ attiva i servizi; il resto e commerciale e non sta in questo repository.
   `platform.club_service.changed`, `platform.entitlement.overridden`;
 - un test statico impedisce a qualunque file fuori dai moduli degli
   entitlement di scrivere `plan === "plus"`.
+
+## ADR-0049 — CediPay non e un prodotto della V1: sotto c'e Stripe, e si chiama Stripe
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D. Supera la parte **di prodotto** di
+[ADR-0045](#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce);
+l'astrazione tecnica che quell'ADR ha introdotto resta.
+
+**Il problema.** ADR-0045 aveva creato un livello di prodotto fra EasyGame e il
+PSP: «CediPay (Stripe)» era il nome che una societa leggeva nelle proprie
+impostazioni. Un marchio che sta in mezzo a un incasso deve pero poter
+rispondere a tre domande — **chi incassa**, **chi risponde di un rimborso**,
+**chi compare sull'estratto conto della famiglia** — e nella V1 la risposta a
+tutte e tre e «il club, tramite Stripe». Il nome prometteva quindi un soggetto
+che non esiste, e prometterlo a chi paga e peggio che non nominarlo affatto.
+
+**La decisione.** Nella V1 non esiste un prodotto chiamato CediPay. Cio che una
+societa legge e il nome del PSP. L'**astrazione** provider-agnostica resta ed e
+la parte che valeva la pena tenere: e cio che rende sostituibile il PSP senza
+riscrivere rate, ricevute e impostazioni.
+
+- `src/lib/payments/cedipay/` diventa `src/lib/payments/gateway/`;
+- `src/lib/server/cedipay.ts` diventa `src/lib/server/payment-gateway.ts`;
+- `CediPay*` diventa `PaymentGateway*` / `Gateway*`;
+- l'etichetta «CediPay (Stripe)» diventa «Stripe»;
+- il webhook scrive `source: "STRIPE"`.
+
+**Perche `CEDIPAY` resta nel vocabolario degli incassi.** Perche esistono righe
+gia scritte con quel valore, e riscriverle sarebbe modificare denaro registrato
+— la cosa che tutto il registro incassi esiste per non fare. Il valore resta
+**leggibile** e non si scrive piu.
+
+**Conseguenze.**
+
+- un test invariante vieta il marchio CediPay nelle etichette dei gateway;
+- se un giorno CediPay diventera un prodotto vero, questa ADR va superata da
+  una nuova che dica chi e il soggetto e cosa risponde.
+
+---
+
+## ADR-0050 — Una condizione commerciale ha una decorrenza, e la commissione si congela sull'incasso
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D. Estende la proprieta di piattaforma di
+[ADR-0048](#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa)
+ai dati commerciali dei pagamenti.
+
+**Il problema, in due parti.** La percentuale di EasyGame viveva in
+`clubs.settings.paymentSettings.platformFeePercent`. Quel campo lo scrive la
+pagina Organizzazione, e la guardia di ADR-0048 copriva `subscription`,
+`subscriptionSettings`, `extraServices` ed `entitlements` — non
+`paymentSettings`. Quindi:
+
+1. **una societa poteva azzerarsi la commissione**, e non serviva nemmeno la
+   console del browser: il campo era nella pagina;
+2. **non esisteva traccia di quale percentuale valesse il giorno di un
+   incasso**. Passare dall'1% all'1,5% riscriveva la lettura del passato,
+   perche il passato veniva riletto con il valore corrente.
+
+**La decisione, in due difese.**
+
+*La prima:* le condizioni commerciali stanno in `platform_commission_rules`, e
+**non si sovrascrivono**. Cambiare la percentuale significa aggiungere una riga
+con una `effective_from`. `organization_id` nullo e la condizione standard di
+EasyGame; valorizzato, e l'override di un club. Il passato resta leggibile
+perche le righe vecchie non spariscono.
+
+*La seconda:* la commissione effettivamente applicata viene **scritta sulla
+riga dell'incasso** — `platform_fee_cents`, `net_amount_cents`,
+`applied_fee_percent`, `commission_rule_id` — e non si ricalcola mai piu.
+
+**Perche servono entrambe, e non e ridondanza.** Rispondono a due domande
+diverse. La prima spiega *perche* quel numero: si puo ricostruire quale
+condizione era in vigore, da quando, e con quale motivazione. La seconda
+garantisce che *quel* numero non cambi: una regola scritta con decorrenza
+retroattiva — cosa legittima, si fa per correggere un errore — cambierebbe il
+risultato della risoluzione su incassi gia avvenuti.
+
+**Il criterio di spareggio, e perche non e nella data.** Due condizioni con la
+stessa decorrenza succedono davvero: riportare un club allo standard scrive una
+regola «da adesso» mentre quella da sostituire porta lo stesso istante. Il
+primo tentativo — spostare la nuova un millisecondo avanti — la rendeva
+tecnicamente **futura**, e su un orologio a bassa risoluzione non entrava in
+vigore affatto. Il criterio e quindi esplicito e fuori dalla data: decorrenza
+piu recente, poi scrittura piu recente, poi override del club sulla condizione
+generale, poi l'ultima incontrata — con `loadCommissionRules` che restituisce
+le righe in ordine crescente perche quell'«ultima» sia definita.
+
+**Cosa il club continua a governare.** L'interruttore
+`paymentSettings.enabled`: sospendere gli incassi online durante la chiusura
+estiva e una scelta operativa della segreteria, e toglierla sarebbe stato un
+danno senza un motivo. La guardia lavora quindi **campo per campo** dentro
+`paymentSettings`, non sull'intera chiave.
+
+**Storno e rimborso non sono la stessa operazione.** Lo storno dice «questo
+incasso non e mai avvenuto» — correzione di un errore di registrazione — e
+toglie dai totali entrambe le righe. Il rimborso dice l'opposto: l'incasso e
+avvenuto, e poi del denaro e tornato indietro. Restano due movimenti che
+**contano entrambi**, ed e anche l'unico modo di rappresentare un rimborso
+parziale: con la meccanica dello storno, restituire 30 € su 130 avrebbe dovuto
+annullare l'incasso intero e registrarne uno nuovo da 100, e la famiglia non
+avrebbe piu trovato traccia dei 130 versati.
+
+**Conseguenze.**
+
+- `PLATFORM_OWNED_PAYMENT_FIELDS` e `PLATFORM_OWNED_PROVIDER_FIELDS` elencano
+  cosa un club non scrive; un tentativo lascia una riga di audit `denied` con
+  il **percorso** del campo, non solo la chiave;
+- la commissione restituita da un rimborso e **proporzionale a quella
+  trattenuta**, non ricalcolata sulla condizione di oggi;
+- `DEFAULT_PLATFORM_FEE_PERCENT` scende da 2,5 a 1 e smette di essere il
+  listino: e solo il valore di riserva quando nessuna condizione e stata ancora
+  scritta.
+
+---
+
+## ADR-0051 — Due flussi Stripe, due account, due segreti: il denaro delle famiglie non e il fatturato di EasyGame
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D
+
+**Il problema.** EasyGame deve incassare due denari diversi. La quota che una
+**famiglia** paga appartiene economicamente al **club**; la quota che una
+**societa** paga per usare EasyGame appartiene a **Cedi Soft**. Prima del
+Blocco D esisteva solo il primo, a meta, e il secondo era un campo descrittivo
+che nessuno scriveva.
+
+**La decisione: due flussi separati fino in fondo.**
+
+*Flusso B — atleta/genitore verso il club.* Addebiti **diretti** su account
+connessi Stripe (`Stripe-Account` sulla richiesta), con la commissione della
+piattaforma in `application_fee_amount`. Chi paga sta pagando **la sua societa
+sportiva**, non EasyGame: sull'estratto conto della famiglia compare il club, e
+il denaro entra sul saldo del club senza passare da un conto di Cedi. Un
+marketplace avrebbe scelto l'addebito indiretto; un gestionale no — EasyGame non
+vende lo sport, lo amministra.
+
+*Flusso A — club verso Cedi Soft.* Abbonamenti sull'account **centrale** di Cedi
+Soft, senza `Stripe-Account`. Vive in `platform_billing_accounts` e non tocca
+**mai** `payment_transactions`: un abbonamento che comparisse nel registro
+incassi di un club sarebbe un errore contabile che nessuno cercherebbe li.
+
+**Perche due endpoint webhook e non uno.** Perche sono due account con **due
+segreti di firma diversi**. Un endpoint solo avrebbe dovuto provare entrambi i
+segreti su ogni richiesta, e quando una firma si verifica «con uno dei due» non
+si sa piu quale flusso ha parlato. `POST /api/payments/webhook` ascolta Connect,
+`POST /api/billing/webhook` ascolta la piattaforma, e ognuno rifiuta gli eventi
+dell'altro dicendolo.
+
+**L'account connesso esce da `clubs.settings`.** Finche l'identificativo stava
+in un campo scrivibile dalla pagina Organizzazione — con accanto un menu a
+tendina per dichiararsi «attivo» — una societa poteva incollarci l'account di
+chiunque: gli incassi delle famiglie sarebbero finiti su un conto scelto dal
+club, con EasyGame a fare da tramite. `club_payment_accounts` lo scrivono due
+sole cose: la console di piattaforma e un evento `account.updated` la cui firma
+e stata verificata.
+
+**Perche EasyGame non raccoglie i dati KYC.** Perche non e un intermediario
+finanziario e non deve diventarlo. Chiedere documento e dati del rappresentante
+legale dentro un gestionale sportivo significherebbe custodire dati di identita
+che il PSP e attrezzato a custodire e noi no. Si genera un **link di
+onboarding** — che scade, perche un indirizzo di attivazione riutilizzabile e a
+tutti gli effetti una credenziale — e li dentro ci va chi ha titolo.
+
+**L'account connesso vince sui metadati.** I metadati di un pagamento li puo
+scrivere chiunque sappia creare un pagamento su un account connesso;
+`event.account` lo scrive Stripe. Quando divergono l'evento **non** viene
+assecondato. E quando `event.account` cita un account che non risulta collegato
+a nessuna societa, l'evento viene ignorato invece di ripiegare sui metadati: era
+il buco piu grande rimasto, perche avrebbe permesso a chi puo generare un evento
+sul proprio account Connect di citare la rata di un'altra societa.
+
+**Le decisioni che restano da prendere, e che questo ADR non prende.**
+
+1. **Tipo di account Connect: `standard` o `express`.** E **irreversibile per
+   account gia creato**. Il valore predefinito e `standard` — la societa ha un
+   proprio cruscotto Stripe e un rapporto diretto con il PSP — ed e
+   configurabile in Platform Admin *prima* del primo collegamento reale. Con
+   `express` la piattaforma governa di piu e assume piu responsabilita di
+   assistenza.
+2. **Chi risponde dei saldi negativi** dopo un rimborso su un account con saldo
+   insufficiente.
+3. La percentuale del listino, che ha un posto dove essere scritta ma non un
+   valore deciso.
+
+**Conseguenze.**
+
+- `payment_webhook_events` porta `flow` (`connect` | `platform`) e
+  `external_account_id`;
+- la variabile `STRIPE_BILLING_WEBHOOK_SECRET` e distinta da
+  `STRIPE_WEBHOOK_SECRET`: riusare la stessa renderebbe impossibile ruotarne una
+  sola;
+- gli stati dell'account connesso sono **sette**, e ognuno dice **chi** deve
+  muoversi.
+
+---
+
+## ADR-0052 — La sigla non decide il trattamento fiscale: il profilo si dichiara, il documento si propone
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D. Estende
+[ADR-0047](#adr-0047--un-pagamento-non-e-un-documento-ricevuta-e-fattura-si-scelgono).
+
+**Il problema.** EasyGame trattava implicitamente ogni cliente come una ASD, e
+il profilo fiscale era un pugno di colonne su `clubs` — `vat_number`,
+`sdi_code`, `tax_regime` — senza forma giuridica ne regime strutturato. Due
+conseguenze: una SSD a r.l. non aveva dove dichiarare i propri dati REA, e
+nessuna schermata poteva sapere cosa una societa fosse davanti al fisco.
+
+**La tentazione da cui questo ADR difende.** Dedurre il trattamento dalla sigla
+— «e una ASD, quindi ricevuta senza IVA» — e la cosa piu naturale e piu dannosa
+che un gestionale sportivo possa fare. Due ASD possono avere trattamenti
+diversi: una in regime forfettario della L. 398/1991 e una no, una con partita
+IVA per l'attivita commerciale e una senza. Un software che indovina produce
+documenti sbagliati **con l'aria di essere giusti**, e chi li riceve non ha
+motivo di dubitarne.
+
+**La decisione, in tre pezzi.**
+
+1. **Il profilo fiscale e un'entita a se** (`organization_fiscal_profiles`),
+   separata dall'anagrafica. L'anagrafica risponde a «come si chiama e dove la
+   trovo»; il profilo a «che soggetto e davanti al fisco». Cambiano in momenti
+   diversi. La forma giuridica si **registra**; cio che comporta lo dicono il
+   regime, la partita IVA e la classificazione delle operazioni, tutti
+   dichiarati.
+2. **Le operazioni si classificano** (`fiscal_operation_types`), e la
+   classificazione e **configurazione**. EasyGame semina un catalogo iniziale di
+   nove voci — quota associativa, iscrizione, tesseramento, corso, vendita,
+   sponsorizzazione, contributo, altro — con i valori piu conservativi
+   possibili: nessuna aliquota, nessuna natura IVA, nessuna esenzione. Il giorno
+   in cui un commercialista li configura, li configura lui.
+3. **Il motore fiscale propone.** Da profilo + tipo di operazione +
+   configurazione esce una *proposta* con la sua motivazione, non una decisione.
+   Da «non so cosa sia questo incasso» non segue «non si puo fatturare»: si
+   propone la ricevuta — il documento che non afferma nulla di piu di quel che si
+   sa — e si dichiara che manca la classificazione.
+
+**Lo snapshot, e il difetto silenzioso che chiude.** Una ricevuta si ristampava
+leggendo l'anagrafica **di oggi**. Bastava che una famiglia traslocasse, o che
+qualcuno correggesse un codice fiscale digitato male, perche la ricevuta gia
+consegnata mesi prima diventasse un documento **diverso** da quello che quella
+famiglia aveva in mano: due documenti con lo stesso numero. Al momento
+dell'emissione si scrive ora una fotografia completa — emittente, intestatario,
+importi, causale, riferimenti — e la ristampa legge solo quella.
+
+**L'immutabilita e un elenco, non un divieto totale.** Alcune cose su un
+documento emesso si devono poter cambiare: l'allegato rigenerato, un riferimento
+interno, la marcatura di annullamento. Cio che non si tocca e **cio che qualcuno
+ha in mano su carta**: numero, serie, data, importo, intestatario. Un elenco
+esplicito si legge e si prova; «e immutabile» sparso nel codice no.
+
+**Conseguenze.**
+
+- l'emissione dei documenti esce da `payment-transactions.ts` e passa a
+  `fiscal-documents.ts`: un pagamento e un documento sono due domini con
+  cardinalita diverse — un incasso puo non produrre documenti, un documento puo
+  coprire piu incassi;
+- la numerazione appartiene a un club, a una **serie** e a un esercizio: il
+  vincolo di ADR-0044 si allarga, e la serie vuota — quella in cui e stato
+  emesso tutto fino a oggi — resta il caso predefinito;
+- annullare non libera il numero: un buco e leggibile e spiegabile, lo stesso
+  numero su due documenti no;
+- l'imposta di bollo e configurazione — soglia e importo cambiano per legge, e
+  una costante nel codice significherebbe un rilascio del software per una
+  modifica normativa — e nasce **spenta**.
+
+---
+
+## ADR-0053 — EasyGame prepara il tracciato FatturaPA; non lo trasmette, e non lo dichiara trasmesso
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D. Sostituisce lo stato `DEFERRED_POST_V1` di E-9 con un
+dominio implementato e una trasmissione dichiaratamente non attiva.
+
+**Il problema.** La fatturazione elettronica non e una chiamata HTTP a un
+indirizzo pubblico: richiede un intermediario accreditato, un canale, una firma
+e un contratto. Scegliere quell'intermediario e una decisione commerciale di
+Cedi Soft che non appartiene a chi scrive il codice — ma il momento in cui la si
+prende non deve essere il momento in cui si scopre che mezza applicazione parla
+direttamente con un fornitore.
+
+**La decisione.** Il dominio si implementa per intero **tranne** la
+trasmissione. EasyGame:
+
+- costruisce il tracciato `FatturaElettronica` versione `FPR12` a partire dallo
+  **snapshot** del documento, non dall'anagrafica di oggi;
+- lo valida formalmente — campi obbligatori, lunghezze, natura IVA obbligatoria
+  quando l'aliquota e zero, che e lo scarto piu comune dello SdI;
+- lo conserva in `einvoice_transmissions`, separato dalla fattura;
+- si ferma a `ready_to_send`.
+
+**Perche la trasmissione e un oggetto separato dalla fattura.** Una fattura
+esiste, e valida ed e numerata anche se non e mai stata trasmessa; una
+trasmissione puo fallire, essere scartata e ripetuta senza che la fattura cambi.
+Tenere lo stato di trasmissione dentro la fattura vorrebbe dire che «scartata
+dallo SdI» diventa uno stato del documento — e non lo e.
+
+**Perche il registro degli adapter e vuoto per costruzione.** Un adapter finto
+che risponde «trasmessa» e **peggio** di nessun adapter: produce esattamente lo
+stato che non si deve poter raggiungere, e lo produce in modo indistinguibile da
+quello vero. `canTransition` rifiuta ogni stato che presupponga un invio finche
+`providerConfigured` e falso, e quel parametro **non ha un valore predefinito**:
+chi chiama deve dirlo esplicitamente, perche un default `true` sarebbe la porta
+da cui la trasmissione finta rientrerebbe.
+
+**La riserva che va detta apertamente.** Il tracciato e scritto sulla specifica
+pubblica e **non e mai stato accettato dallo SdI**, perche non esiste un canale
+verso lo SdI in questo repository. Va considerato *da collaudare*, non
+funzionante. Il primo invio reale trovera differenze: e normale, ed e un'altra
+ragione per cui lo stato non puo superare `ready_to_send`.
+
+**Cosa serve per accendere la trasmissione.** Tre cose, e nient'altro cambia: un
+file sotto `src/lib/fiscal/fatturapa/providers/`, una riga nel registro degli
+adapter, e la configurazione in Platform Admin.
+
+**Conseguenze.**
+
+- `invoices.is_electronic` resta `false` **per costruzione**;
+- `POST /api/v1/einvoice/:invoiceId` con `action: "transmit"` risponde `503` con
+  il motivo, invece di non esistere: se l'azione non ci fosse, chi legge l'API
+  concluderebbe che manca da implementare;
+- la sezione «Fiscalita» della console di piattaforma dice a chiare lettere che
+  l'invio elettronico non e configurato, ed elenca cosa EasyGame fa davvero.

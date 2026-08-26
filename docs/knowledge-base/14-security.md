@@ -142,7 +142,7 @@ paga e i riferimenti dell'account connesso.
 `createPaymentTransaction` continua a rifiutare qualunque `source` diverso da
 `MANUAL`, con **una sola eccezione**: `confirmedByProvider`, che nessuna rotta
 HTTP puo impostare — le rotte costruiscono il loro input campo per campo — e
-che solo `handleCediPayWebhookEvent` imposta, dopo aver verificato la firma.
+che solo `handleGatewayWebhookEvent` imposta, dopo aver verificato la firma.
 
 ### 6-bis. Chi puo registrare o stornare un incasso — PRESIDIATO
 
@@ -319,3 +319,34 @@ disattivando `ensureOrganizationAccess` ne falliscono 11). Vedi
 9. Un valore che arriva da un form e finisce dentro un **protocollo testuale**
    (SMTP, IMAP, LDAP, CSV) va ripulito dai terminatori di riga prima di essere
    scritto sul canale: e la stessa classe di problema dell'iniezione SQL.
+
+## Blocco D — cosa e stato chiuso, e cosa resta presidiato (2026-08-26)
+
+### Tre buchi di ownership, chiusi
+
+| # | Cosa permetteva | Come e chiuso |
+|---|-----------------|---------------|
+| 1 | **Un club poteva azzerarsi la commissione.** `platformFeePercent` viveva in `clubs.settings.paymentSettings`, fuori dalla guardia di ADR-0048, e il campo era nella pagina | La guardia lavora **campo per campo** dentro `paymentSettings`. L'interruttore degli incassi resta della segreteria, le condizioni commerciali no |
+| 2 | **Un club poteva dirottare gli incassi delle famiglie.** La scheda Pagamenti aveva un campo di testo per l'account connesso e un menu a tendina per dichiararsi «attivo» | L'account passa in `club_payment_accounts`, che scrivono solo la console di piattaforma e gli eventi firmati. `PaymentProviderCard` e stato rimosso |
+| 3 | **Un evento da un account connesso sconosciuto veniva assecondato.** Si ripiegava sui metadati, che li puo scrivere chiunque crei un pagamento su un proprio account Connect | L'account connesso vince sui metadati; se non risulta collegato a nessuna societa, l'evento viene **ignorato** |
+
+### Cosa non e cambiato, e va ricordato
+
+- **Nessun dato di carta** entra in EasyGame: il pagamento avviene sulla
+  pagina del PSP;
+- **nessuna chiave segreta nel database**: `platform_settings` conserva
+  identificativi e scelte, non credenziali;
+- **nessun corpo di webhook conservato**: contiene l'email di chi paga e i
+  riferimenti dell'account connesso. Si conservano tipo, esito e ora;
+- **nessun link di onboarding nell'audit**: e a tutti gli effetti una
+  credenziale temporanea. Nell'audit finisce che e stato chiesto, non quale;
+- **`window.open` passa da un proprietario unico**
+  (`lib/navigation/external-link.ts`) che aggiunge `noopener` e rifiuta gli
+  schemi diversi da http(s): l'indirizzo arriva dalla risposta di un PSP.
+
+### Il confine fiscale
+
+Un documento di una societa non si legge, non si emette e non si annulla da
+un'altra: il controllo e in `fiscal-documents.ts` e ha tre test dedicati.
+L'errore contiene «Accesso negato» perche il route handler lo mappi su 403,
+come ogni altra risorsa di club.

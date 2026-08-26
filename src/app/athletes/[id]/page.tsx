@@ -5015,7 +5015,12 @@ export default function AthleteProfilePage() {
                     </p>
                   </CardHeader>
                   <CardContent>
-                    <AthleteFundingSummary athleteId={athleteId} />
+                    <AthleteFundingSummary
+                      athleteId={athleteId}
+                      athleteName={
+                        `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim()
+                      }
+                    />
                   </CardContent>
                 </Card>
 

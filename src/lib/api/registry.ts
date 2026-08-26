@@ -148,6 +148,46 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "funding.programs.detail",
+    method: "GET",
+    path: "/api/v1/funding/programs/:id?view=detail",
+    description:
+      "La scheda di un programma: configurazione, beneficiari con i cinque importi, totali e atleti ancora iscrivibili",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.enrollments.create",
+    method: "POST",
+    path: "/api/v1/funding/enrollments",
+    description:
+      "Iscrive uno o piu atleti a un programma. Ogni atleta puo avere plafond e codice voucher propri; chi era gia iscritto viene saltato con il motivo, non fa fallire il lotto",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.enrollments.enrollable",
+    method: "GET",
+    path: "/api/v1/funding/enrollments?view=enrollable",
+    description:
+      "I programmi a cui un atleta non e ancora iscritto, esclusi quelli chiusi. E la stessa domanda della scheda programma, girata",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.enrollments.update",
+    method: "PATCH",
+    path: "/api/v1/funding/enrollments/:id",
+    description:
+      "Plafond individuale, codice voucher, stato. Il plafond non puo scendere sotto il gia maturato",
+    mobile_ready: false,
+  },
+  {
+    name: "funding.enrollments.remove",
+    method: "DELETE",
+    path: "/api/v1/funding/enrollments/:id",
+    description:
+      "Toglie l iscrizione, oppure la **revoca** quando ha gia prodotto importi rendicontati o liquidati. La risposta dice quale delle due",
+    mobile_ready: false,
+  },
+  {
     name: "platform.payments.read",
     method: "GET",
     path: "/api/v1/platform/payments",

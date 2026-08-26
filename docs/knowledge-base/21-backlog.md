@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco Finale B: sede nei moduli, numerazione documenti, CediPay)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco D: Stripe Connect, billing di piattaforma, motore fiscale)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -36,12 +36,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 215 |
-| `IN PROGRESS` | 11 |
-| `OPEN` | 22 |
+| `DONE` | 233 |
+| `IN PROGRESS` | 13 |
+| `OPEN` | 24 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **258** |
+| **Totale** | **280** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -210,7 +210,7 @@ stato pagato negli stessi campi.
 | A1-07 | Una rata mostra dovuto, pagato, residuo, scadenza, stato e progress bar | `DONE` | WP-47 — `InstallmentLedgerList`: «50,00 EUR / 130,00 EUR pagati», «Residuo 80,00 EUR», barra e badge |
 | A1-08 | Il dettaglio di una rata elenca Data, Importo, Metodo, Note | `DONE` | WP-47 — si apre sulla riga, in ordine cronologico crescente |
 | A1-09 | Contratto unico del modello Payment | `DONE` | WP-47 — id, athleteId, installmentId, amount, paidAt, paymentMethod, notes, source, createdBy, createdAt, externalReference, storno |
-| A1-10 | `source` predisposto per MANUAL, STRIPE, CEDIPAY, IMPORT, OTHER | `DONE` | WP-47 — il modello li accetta, il servizio rifiuta tutto cio che non e `MANUAL`: Stripe e CediPay **non** sono implementati (WP-13) |
+| A1-10 | `source` predisposto per MANUAL, STRIPE, CEDIPAY, IMPORT, OTHER | `DONE` | WP-47. Dal Blocco D il webhook firmato scrive `STRIPE`; `CEDIPAY` resta leggibile per le righe gia scritte e non si scrive piu (ADR-0049). Un incasso non manuale lo puo registrare **solo** un evento firmato |
 | A1-11 | Correzione, annullamento, reversal e audit di un incasso | `DONE` | WP-47 — lo storno marca l'originale e crea il movimento opposto. Nessun `DELETE`. Ogni operazione nell'audit log |
 | A1-12 | Metodi di pagamento senza testo libero, con compatibilita legacy | `DONE` | WP-47 — si sceglie fra i metodi del club (`getClubPaymentMethodChoices`); il metodo gia salvato resta selezionabile anche se il club l'ha rimosso |
 | A1-13 | Un solo flusso UI fra scheda atleta e area Pagamenti | `DONE` | WP-47 — `AthletePaymentLedger` montato in entrambe. Un test statico impedisce che ne nasca una seconda |
@@ -409,6 +409,48 @@ tutto; Modulistica montava un secondo guscio che su un telefono le lasciava
 
 ---
 
+## Blocco D — Stripe Connect, billing di piattaforma, motore fiscale
+
+Il blocco che separa **tre denari** che fino a ieri si confondevano: la quota
+che una famiglia paga al club, la commissione che EasyGame trattiene, e la
+quota che una societa paga a Cedi Soft. E che smette di trattare ogni cliente
+come una ASD.
+
+**Cosa ha trovato senza cercarlo.** Sei difetti veri. Tre di ownership,
+trovati ricostruendo il flusso: la commissione stava in un campo che il club
+scriveva, l'account su cui arriva il denaro delle famiglie era un campo di
+testo nella pagina Organizzazione, e la commissione applicata non veniva
+congelata. Tre trovati dai test nuovi: un rimborso consegnato due volte
+esplodeva, un evento da un account connesso sconosciuto veniva assecondato, e
+«applica da adesso» poteva perdere contro la regola che stava sostituendo.
+
+| # | Voce | Stato | Chiuso da |
+|---|------|-------|-----------|
+| BD-01 | La commissione EasyGame esce dalle mani del club | `DONE` | [ADR-0050](18-decision-log.md#adr-0050--una-condizione-commerciale-ha-una-decorrenza-e-la-commissione-si-congela-sullincasso). `platform_commission_rules`: una riga per decisione, con decorrenza, storico e audit. La guardia lavora campo per campo dentro `paymentSettings`, perche l'interruttore degli incassi resta della segreteria |
+| BD-02 | Un club non puo piu dirottare gli incassi | `DONE` | [ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame). L'account connesso passa in `club_payment_accounts` e lo scrivono solo la console di piattaforma e gli eventi firmati. `PaymentProviderCard` rimosso |
+| BD-03 | La commissione si congela sull'incasso | `DONE` | Lordo, fee, netto, percentuale e regola applicata sulla riga di `payment_transactions`. Cambiare il listino non riscrive lo storico |
+| BD-04 | Onboarding Stripe Connect dalla Platform Admin | `DONE` | Provato su mock, mai contro Stripe. Creazione account, link di onboarding che scade, sincronizzazione, sospensione. EasyGame non raccoglie dati KYC: genera il link e lascia che il rappresentante legale li inserisca presso il PSP |
+| BD-05 | Sette stati dell'account connesso | `DONE` | Ognuno dice **chi** deve muoversi: la piattaforma, la societa, il provider, o nessuno |
+| BD-06 | Rimborsi e storni distinti | `DONE` | Provato su mock, mai contro Stripe. Un rimborso e un movimento che conta e regge il parziale; uno storno dice che l'incasso non e mai avvenuto. Erano la stessa cosa, e il parziale non si poteva rappresentare |
+| BD-07 | `account.updated` aggiorna lo stato del club | `DONE` | Provato su mock, mai contro Stripe. Prima arrivava e non muoveva niente |
+| BD-08 | Pagamento online parziale | `DONE` | Provato su mock, mai contro Stripe. Il checkout accetta un importo inferiore al residuo e lo valida contro il registro. Non c'era ragione perche il canale online fosse piu rigido dello sportello |
+| BD-09 | «Pagamento in verifica» invece di «pagato» | `DONE` | `GET /api/payments/checkout-status` risponde dal registro incassi. Il ritorno del browser non e una fonte: con SEPA il denaro arriva giorni dopo |
+| BD-10 | Billing EasyGame separato dagli incassi dei club | `IN PROGRESS` | Due account, due endpoint webhook, due segreti. Modello, adapter e webhook ci sono; **manca** una sottoscrizione reale, che richiede prodotti e prezzi configurati su Stripe |
+| BD-11 | Console «Pagamenti & Billing» | `DONE` | Quattro schede: commissioni con storico e override, Connect per societa, billing, fiscalita. Gli identificativi tecnici stanno nei dettagli, non nelle colonne |
+| BD-12 | Profilo fiscale dell'organizzazione | `DONE` | [ADR-0052](18-decision-log.md#adr-0052--la-sigla-non-decide-il-trattamento-fiscale-il-profilo-si-dichiara-il-documento-si-propone). Dieci forme giuridiche, regimi speciali dichiarati, dati REA. La sigla non deduce il trattamento |
+| BD-13 | Classificazione delle operazioni | `DONE` | Nove voci seminate come punto di partenza, con i valori piu conservativi: nessuna aliquota, nessuna natura IVA, nessuna esenzione inventata |
+| BD-14 | Il motore fiscale propone, non decide | `DONE` | Da profilo + operazione + configurazione esce una proposta con la sua motivazione. Da «non so cosa sia» non segue «non si puo fatturare» |
+| BD-15 | Snapshot sul documento emesso | `DONE` | Una ricevuta si ristampava leggendo l'anagrafica di oggi: bastava un trasloco perche il documento consegnato cambiasse |
+| BD-16 | Serie di numerazione | `DONE` | Il vincolo di [ADR-0044](18-decision-log.md) si allarga a (club, tipo, **serie**, anno). La serie vuota resta quella in cui e stato emesso tutto fino a oggi |
+| BD-17 | Annullamento e immutabilita dei documenti | `DONE` | Annullare non libera il numero; i campi fiscalmente rilevanti di un documento emesso non si modificano, e l'errore dice **quale** |
+| BD-18 | Dominio FatturaPA | `IN PROGRESS` | [ADR-0053](18-decision-log.md#adr-0053--easygame-prepara-il-tracciato-fatturapa-non-lo-trasmette-e-non-lo-dichiara-trasmesso). Modello, nove stati, generazione e validazione del tracciato, interfaccia adapter. **Manca** l'intermediario accreditato: la trasmissione non e attiva e il registro degli adapter e vuoto per costruzione |
+| BD-19 | Il prodotto CediPay esce dalla V1 | `DONE` | [ADR-0049](18-decision-log.md#adr-0049--cedipay-non-e-un-prodotto-della-v1-sotto-ce-stripe-e-si-chiama-stripe). Un marchio in mezzo a un incasso deve poter dire chi incassa e chi risponde di un rimborso: nella V1 la risposta e «il club, tramite Stripe». L'astrazione resta, il nome no |
+| BD-20 | Due difetti della fake-prisma | `DONE` | `orderBy` in forma di array veniva ignorato — il codice vero la usa per gli incassi e per le condizioni commerciali — e due `Date` con lo stesso istante risultavano diverse perche confrontate con `===` |
+| BD-21 | Primo giro reale su Stripe | `OPEN` | Non ci sono credenziali in questo repository e non se ne inventano. Servono un account in test mode, la scelta del tipo di account Connect (irreversibile) e un collaudo di checkout, webhook e rimborso |
+| BD-22 | Intermediario per la fattura elettronica | `OPEN` | Decisione contrattuale di Cedi Soft. Il confine e disegnato: un file, una riga nel registro, la configurazione |
+
+---
+
 ## Remaining Web V1 after integration
 
 Cio che manca perche la Web V1 si possa dichiarare **release candidate**, dopo
@@ -523,7 +565,7 @@ elenco. Nessuna e cominciata; ognuna vale un blocco o piu.
 | P-03 | **Modulistica V2** | `DONE` | Blocco 9, WP-50 — campi, versioni immutabili, firma, e i documenti generati collegati alla scheda della persona |
 | P-04 | **Moduli online** | `IN PROGRESS` | Blocco 9 — collegamento all'anagrafica e iscrizione online **fatti**. **Mancano** la validazione condizionale (B9-17) e il pagamento contestuale, che dipende da WP-13 |
 | P-05 | **Scanner documenti** | `IN PROGRESS` | La foundation e del Blocco 7 (ADR e KB). Restano: PDF, provider remoto, migrazione della scheda atleta. Vedi B7-32/33/34 |
-| P-06 | **Stripe / CediPay** | `IN PROGRESS` | **Blocco Finale B**, ADR-0045. La verifica di firma che bloccava l'attivazione del webhook adesso c'e ed e coperta da diciassette test; il rischio 6 di [14](14-security.md) e passato a PRESIDIATO. **Mancano** le credenziali e il primo giro reale |
+| P-06 | **Stripe** (gia «Stripe / CediPay») | `IN PROGRESS` | **Blocco D**, ADR-0049/0050/0051. Connect con onboarding, commissioni con decorrenza e congelamento, rimborsi, `account.updated`, pagamento parziale, billing di piattaforma separato. **Mancano** le credenziali e il primo giro reale (BD-21) |
 | P-07 | **SaaS ed entitlements** | `IN PROGRESS` | **Blocco Finale B**, ADR-0046 — lo strato centralizzato c'e: catalogo chiuso delle funzioni, risoluzione su piano, servizi ed eccezioni, con il **motivo** di ogni esito; `GET|POST /api/v1/entitlements`; sezione «Servizi e piani» nella console di piattaforma. **Manca** il gating vero, che non va acceso finche il piano resta modificabile dal club (D37), e l'ambiente di produzione (F5-01) |
 | P-08 | **Bonus Sport e Salute** | `OPEN` | **Il modello c'e** dal Workstream A (WP-48, ADR-0037): un bando si descrive con la configurazione, e il Voucher Lazio 2025 e gia coperto come scenario. Resta aperta la parte che **non si puo implementare a memoria**: la fonte dati esterna, le regole annuali del bando e il canale di trasmissione delle rendicontazioni, che cambia da ente a ente |
 | P-09 | **AI per gli allenamenti** | `OPEN` | Nessun requisito scritto. Va definito cosa deve produrre prima di scegliere come |

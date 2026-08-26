@@ -4,8 +4,9 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import {
-  createFundingEnrollment,
+  createFundingEnrollments,
   getAthleteFundingOverview,
+  listEnrollableProgramsForAthlete,
   listFundingEnrollments,
 } from "@/lib/server/funding";
 import { canManageClubConfiguration } from "@/lib/access-roles";
@@ -16,7 +17,14 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  *
  *   GET  /api/v1/funding/enrollments?athlete_id=…&program_id=…
  *   GET  /api/v1/funding/enrollments?athlete_id=…&view=overview
+ *   GET  /api/v1/funding/enrollments?athlete_id=…&view=enrollable
  *   POST /api/v1/funding/enrollments
+ *
+ * **Il POST iscrive uno o piu atleti dalla stessa rotta**, e non da due.
+ * Il flusso «programma → iscrivo atleti» e il flusso «atleta → lo iscrivo a
+ * un programma» sono la stessa operazione guardata da due parti: due rotte
+ * avrebbero voluto dire due implementazioni che divergono al primo
+ * cambiamento di regola.
  *
  * `view=overview` e la proiezione che serve alla scheda atleta: per ogni
  * programma restituisce il beneficiario, la configurazione, i periodi e i
@@ -57,6 +65,28 @@ export async function GET(request: Request) {
     );
 
     const athleteId = url.searchParams.get("athlete_id");
+
+    if (url.searchParams.get("view") === "enrollable") {
+      if (!athleteId) {
+        return NextResponse.json(
+          {
+            data: null,
+            error: {
+              message: "La proiezione enrollable richiede athlete_id",
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      const programs = await listEnrollableProgramsForAthlete(
+        athleteId,
+        scope,
+        url.searchParams.get("organization_id"),
+      );
+
+      return NextResponse.json({ data: programs, error: null });
+    }
 
     if (url.searchParams.get("view") === "overview") {
       if (!athleteId) {
@@ -119,12 +149,21 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
 
-    const enrollment = await createFundingEnrollment(
+    /*
+      Un atleta solo o trenta: la forma singolare resta accettata perche
+      circola gia fra i chiamanti, e diventa un elenco di uno. Il servizio
+      sotto e lo stesso in entrambi i casi.
+    */
+    const athleteIds = Array.isArray(body?.athlete_ids ?? body?.athleteIds)
+      ? body.athlete_ids ?? body.athleteIds
+      : [body?.athlete_id ?? body?.athleteId].filter(Boolean);
+
+    const result = await createFundingEnrollments(
       {
         programId: body?.program_id ?? body?.programId,
-        athleteId: body?.athlete_id ?? body?.athleteId,
+        athleteIds,
+        perAthlete: body?.per_athlete ?? body?.perAthlete,
         assignedAmount: body?.assigned_amount ?? body?.assignedAmount,
-        voucherCode: body?.voucher_code ?? body?.voucherCode,
         enrolledAt: body?.enrolled_at ?? body?.enrolledAt,
         endsAt: body?.ends_at ?? body?.endsAt,
         notes: body?.notes,
@@ -132,23 +171,42 @@ export async function POST(request: Request) {
       scope,
     );
 
-    await recordAuditEvent({
-      action: AUDIT_ACTIONS.resourceCreated,
-      actorUserId: session.db.user_id,
-      actorEmail: session.db.user.email,
-      actorRole: scope.activeRole,
-      organizationId: enrollment.organization_id,
-      resource: "funding_enrollments",
-      resourceId: enrollment.id,
-      request,
-      metadata: {
-        programId: enrollment.program_id,
-        athleteId: enrollment.athlete_id,
-        assignedAmount: enrollment.assigned_amount,
-      },
-    });
+    for (const enrollment of result.created) {
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.resourceCreated,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: enrollment.organization_id,
+        resource: "funding_enrollments",
+        resourceId: enrollment.id,
+        request,
+        metadata: {
+          programId: enrollment.program_id,
+          athleteId: enrollment.athlete_id,
+          assignedAmount: enrollment.assigned_amount,
+          hasVoucherCode: Boolean(enrollment.voucher_code),
+        },
+      });
+    }
 
-    return NextResponse.json({ data: enrollment, error: null }, { status: 201 });
+    /*
+      `201` solo se qualcosa e stato creato davvero. Un lotto in cui erano
+      tutti gia iscritti non ha creato niente, e dirlo con un 201
+      lascerebbe credere il contrario.
+    */
+    return NextResponse.json(
+      {
+        data: {
+          created: result.created,
+          skipped: result.skipped,
+          /* La forma singolare della risposta, per chi la usava gia. */
+          enrollment: result.created[0] || null,
+        },
+        error: null,
+      },
+      { status: result.created.length ? 201 : 200 },
+    );
   } catch (error: any) {
     return failure(error, "Ammissione al contributo non riuscita");
   }

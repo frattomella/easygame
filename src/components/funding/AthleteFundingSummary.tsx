@@ -1,13 +1,20 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, HandCoins, RefreshCw } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  HandCoins,
+  RefreshCw,
+  UserPlus,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { useToast } from "@/components/ui/toast-notification";
+import { EnrollAthletesDialog } from "./EnrollAthletesDialog";
 import {
   mergeFundingSummaries,
   requirementUnitLabel,
@@ -104,9 +111,12 @@ const AmountTile = ({
 
 export function AthleteFundingSummary({
   athleteId,
+  athleteName,
   canManage,
 }: {
   athleteId: string;
+  /** Solo per il testo della finestra di iscrizione. */
+  athleteName?: string | null;
   /** Se omesso si ricava dal ruolo attivo. L'autorizzazione vera la fa il server. */
   canManage?: boolean;
 }) {
@@ -118,6 +128,15 @@ export function AthleteFundingSummary({
   );
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [derivedCanManage, setDerivedCanManage] = React.useState(false);
+
+  /*
+    I programmi a cui questo atleta **non** e ancora iscritto. L'elenco lo
+    calcola il server: «non ancora iscritto» e una differenza fra due insiemi,
+    e farla qui vorrebbe dire ricevere tutti i programmi per poi scartarne
+    meta.
+  */
+  const [enrollablePrograms, setEnrollablePrograms] = React.useState<any[]>([]);
+  const [enrollOpen, setEnrollOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (canManage !== undefined) return;
@@ -132,17 +151,37 @@ export function AthleteFundingSummary({
     if (!athleteId) return;
 
     setIsLoading(true);
-    const { data, error } = await apiRequest<FundingOverview[]>(
-      `/api/v1/funding/enrollments?view=overview&athlete_id=${encodeURIComponent(athleteId)}`,
-    );
+
+    /*
+      Due letture in parallelo e non in fila: la seconda serve solo al
+      pulsante «Iscrivi a un programma», e metterla dopo aggiungerebbe un
+      giro di rete all'apertura della scheda economica.
+    */
+    const [overviewResponse, enrollableResponse] = await Promise.all([
+      apiRequest<FundingOverview[]>(
+        `/api/v1/funding/enrollments?view=overview&athlete_id=${encodeURIComponent(athleteId)}`,
+      ),
+      apiRequest<any[]>(
+        `/api/v1/funding/enrollments?view=enrollable&athlete_id=${encodeURIComponent(athleteId)}`,
+      ),
+    ]);
+
     setIsLoading(false);
 
-    if (error) {
-      showToast("error", error.message || "Errore nella lettura dei contributi");
+    if (overviewResponse.error) {
+      showToast(
+        "error",
+        overviewResponse.error.message || "Errore nella lettura dei contributi",
+      );
       return;
     }
 
-    setOverviews(Array.isArray(data) ? data : []);
+    setOverviews(
+      Array.isArray(overviewResponse.data) ? overviewResponse.data : [],
+    );
+    setEnrollablePrograms(
+      Array.isArray(enrollableResponse.data) ? enrollableResponse.data : [],
+    );
   }, [athleteId, showToast]);
 
   React.useEffect(() => {
@@ -171,16 +210,52 @@ export function AthleteFundingSummary({
     showToast("success", "Maturato ricalcolato dalle presenze registrate");
   };
 
+  const enrollAction =
+    allowManagement && enrollablePrograms.length > 0 ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full gap-2 sm:w-auto"
+        onClick={() => setEnrollOpen(true)}
+      >
+        <UserPlus className="h-4 w-4" />
+        Iscrivi a un programma
+      </Button>
+    ) : null;
+
+  const enrollDialog = (
+    <EnrollAthletesDialog
+      open={enrollOpen}
+      onOpenChange={setEnrollOpen}
+      onEnrolled={() => void load()}
+      mode="athlete"
+      athleteId={athleteId}
+      athleteName={athleteName || "questo atleta"}
+      programs={enrollablePrograms}
+    />
+  );
+
   if (!isLoading && overviews.length === 0) {
     return (
-      <p className="text-sm text-slate-500">
-        Nessun voucher o contributo assegnato a questo atleta.
-      </p>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500">
+          Nessun voucher o contributo assegnato a questo atleta.
+          {allowManagement && enrollablePrograms.length === 0
+            ? " Non ci sono programmi attivi a cui iscriverlo."
+            : ""}
+        </p>
+        {enrollAction}
+        {enrollDialog}
+      </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      {enrollAction ? (
+        <div className="flex justify-end">{enrollAction}</div>
+      ) : null}
+
       {overviews.length > 1 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <AmountTile label="Voucher assegnato" value={total.assignedAmount} />
@@ -387,6 +462,8 @@ export function AthleteFundingSummary({
           </div>
         );
       })}
+
+      {enrollDialog}
     </div>
   );
 }

@@ -151,3 +151,66 @@ Vedi [13 — Ambienti](13-environments.md).
 Push notification, object storage (i file possono finire in
 `assets.data_base64`), error tracking / APM, analytics, scheduler
 (nessun Vercel Cron configurato benche esistano endpoint pensati per un cron).
+
+## Stripe: due integrazioni, non una (Blocco D, 2026-08-26)
+
+EasyGame parla con Stripe per **due denari diversi**, e la distinzione non e
+organizzativa ma sostanziale.
+
+| | Flusso B — incassi | Flusso A — abbonamenti |
+|---|---|---|
+| Chi paga | La famiglia | La societa |
+| A chi | Al **club** | A **Cedi Soft** |
+| Account Stripe | Connesso del club (`Stripe-Account`) | Centrale di Cedi Soft |
+| Commissione | EasyGame trattiene `application_fee_amount` | Nessuna: e il ricavo |
+| Webhook | `POST /api/payments/webhook` | `POST /api/billing/webhook` |
+| Segreto | `STRIPE_WEBHOOK_SECRET` | `STRIPE_BILLING_WEBHOOK_SECRET` |
+| Dove atterra | `payment_transactions` | `platform_billing_accounts` |
+
+**Perche due endpoint e non uno.** Perche sono due account con due segreti di
+firma diversi. Un endpoint solo avrebbe dovuto provare entrambi i segreti su
+ogni richiesta, e quando una firma si verifica «con uno dei due» non si sa piu
+quale flusso ha parlato — e un abbonamento trattato come un incasso di club e
+un errore contabile che nessuno cercherebbe li. Ognuno dei due rifiuta gli
+eventi dell'altro, e lo dice.
+
+### Il modello Connect scelto: addebiti diretti
+
+Chi paga sta pagando **la sua societa sportiva**, non EasyGame: sull'estratto
+conto della famiglia compare il club, e il denaro entra sul saldo del club
+senza passare da un conto di Cedi. Un marketplace avrebbe scelto l'addebito
+indiretto; un gestionale no — EasyGame non vende lo sport, lo amministra.
+Vedi [ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame).
+
+### Gli eventi sottoscritti, e perche solo questi
+
+**Connect:** `checkout.session.completed`, `payment_intent.succeeded`,
+`payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`,
+`account.updated`.
+
+**Piattaforma:** `checkout.session.completed`,
+`customer.subscription.created|updated|deleted`, `invoice.payment_failed`.
+
+Sottoscrivere `invoice.*` per intero riempirebbe la tabella degli eventi di
+righe che nessuno legge e che nascondono quelle che contano.
+
+### Cosa non e collaudato
+
+La verifica della firma e la traduzione degli eventi hanno test. **Tutto cio
+che parla con `api.stripe.com` non e mai stato provato contro Stripe**: non ci
+sono credenziali in questo repository e non se ne inventano. Il codice e
+scritto sulla documentazione ufficiale e va considerato *da collaudare*, non
+funzionante.
+
+## Fatturazione elettronica: nessun intermediario collegato
+
+EasyGame genera e valida il tracciato `FPR12`, e si ferma li. Il registro
+degli adapter (`src/lib/fiscal/fatturapa/provider.ts`) e **vuoto per
+costruzione**: un adapter finto che risponde «trasmessa» e peggio di nessun
+adapter, perche produce esattamente lo stato che non si deve poter
+raggiungere e lo produce in modo indistinguibile da quello vero.
+
+I candidati noti — Aruba, Fatture in Cloud, A-Cube, canale SdI diretto — sono
+elencati nel registro **con `hasAdapter: false`**, perche la scelta va
+presentata a chi la deve prendere. Vedi
+[ADR-0053](18-decision-log.md#adr-0053--easygame-prepara-il-tracciato-fatturapa-non-lo-trasmette-e-non-lo-dichiara-trasmesso).

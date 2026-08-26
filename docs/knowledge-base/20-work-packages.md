@@ -1439,7 +1439,7 @@ scrittura e stato lanciato su nessun database.
 
 ---
 
-### WP-13 · Pagamenti online via CediPay / Platform.Payments — `PIANIFICATO`
+### WP-13 · Pagamenti online via Stripe Connect — `CHIUSO DAL BLOCCO D`
 
 **Obiettivo.** Decidere e chiudere: implementare davvero o rimuovere la
 promessa.
@@ -1452,7 +1452,16 @@ registrare la fee di piattaforma.
 **Scope (se non si implementa ora).** Nascondere l'ingresso nell'interfaccia e
 documentare la capability come `MISSING` senza UI.
 
-**Dipendenze.** ADR-0013: si passera da CediPay / Platform.Payments, non da un PSP diretto.
+**Chiuso.** Il Blocco D lo ha implementato per intero **tranne** il giro
+reale: onboarding Connect, checkout anche parziale, webhook con firma e
+deduplica, rimborsi, `account.updated`, commissioni con decorrenza e
+congelamento. Vedi ADR-0049, ADR-0050 e ADR-0051.
+
+**Cosa resta.** Le credenziali Stripe e il primo collaudo (BD-21 nella
+backlog). ADR-0013 prevedeva un livello CediPay fra EasyGame e il PSP:
+ADR-0049 lo toglie dalla V1, perche un marchio in mezzo a un incasso deve
+poter dire chi incassa e chi risponde di un rimborso, e nella V1 la risposta
+e «il club, tramite Stripe».
 
 **Acceptance criteria.**
 - [ ] Nessun endpoint di pagamento accetta eventi senza firma valida

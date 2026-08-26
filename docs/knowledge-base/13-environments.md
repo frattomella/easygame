@@ -119,10 +119,10 @@ invocato a mano.
 | `AUDIT_LOG_RETENTION_DAYS` | L'audit non viene mai cancellato. Voluto: il periodo di conservazione e una decisione di compliance, non un valore predefinito che si scopre dopo aver perso dei dati |
 | `TWILIO_*` | Verifica telefono disattivata |
 | `GOOGLE_*`, `MICROSOFT_*` | OAuth disattivato |
-| `STRIPE_SECRET_KEY` | Nessun checkout online. `describeCediPayReadiness` risponde `not_configured` e l'interfaccia lo dice, invece di offrire il pulsante ([ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce)) |
+| `STRIPE_SECRET_KEY` | Nessun checkout online e nessun collegamento Connect. `describeCheckoutReadiness` risponde `provider_not_configured` e l'interfaccia lo dice, invece di offrire il pulsante ([ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame)) |
 | `STRIPE_WEBHOOK_SECRET` | `/api/payments/webhook` risponde **503** e non crede a niente. E il comportamento voluto: senza segreto non si distingue un evento del PSP da un POST qualunque |
 | `PLATFORM_FEE_PERCENT` | Si usa il valore predefinito (2,5%). La commissione vera e configurazione per club e dipende da un accordo commerciale |
-| `PAYPAL_*` | PayPal non ha un adapter: il registro CediPay lo dichiara `no_adapter` |
+| `PAYPAL_*` | PayPal non ha un adapter: il registro dei gateway lo dichiara `no_adapter` |
 | `AUTH_ALLOW_TEST_CODES` | Codici OTP non esposti (corretto) |
 | `NEXT_PUBLIC_TEMPO` | Nessun effetto: il codice Tempo e stato rimosso |
 
@@ -542,3 +542,31 @@ push lascia un deployment rosso nella dashboard che non riguarda il codice.
 richiede di aggiungere le due variabili all'ambiente Preview su Vercel, che e
 una modifica alla configurazione e richiede autorizzazione (CLAUDE.md, sezione
 9). Vedi D39.
+
+## Le variabili del Blocco D (2026-08-26)
+
+| Variabile | Se manca |
+|-----------|----------|
+| `STRIPE_SECRET_KEY` | Nessun checkout e nessun collegamento Connect. `describeCheckoutReadiness` risponde `provider_not_configured` e l'interfaccia lo dice, invece di offrire il pulsante |
+| `STRIPE_WEBHOOK_SECRET` | `/api/payments/webhook` risponde **503** e non crede a niente. E il comportamento voluto: senza segreto non si distingue un evento del PSP da un POST qualunque |
+| `STRIPE_BILLING_WEBHOOK_SECRET` | `/api/billing/webhook` risponde **503**. E una variabile distinta e non un vezzo: riusare quella degli incassi renderebbe impossibile ruotarne una sola senza fermare l'altro flusso |
+| `PAYMENT_MODE` | Si assume `test`. Compare nell'interfaccia |
+| `PLATFORM_FEE_PERCENT` | Vale `1`. **Non e piu il listino**: dal Blocco D le condizioni commerciali stanno in `platform_commission_rules` e si scrivono dalla console di piattaforma, con una decorrenza ([ADR-0050](18-decision-log.md#adr-0050--una-condizione-commerciale-ha-una-decorrenza-e-la-commissione-si-congela-sullincasso)) |
+
+**Nessuna credenziale del provider fiscale.** Non esiste una variabile perche
+non esiste un intermediario collegato: quando ne verra scelto uno, la sua
+configurazione arrivera con il suo adapter.
+
+### Cosa va configurato **nel database**, non nell'ambiente
+
+Dalla console di piattaforma, sezione «Pagamenti & Billing»:
+
+1. **il tipo di account Connect** (`standard` o `express`) — **prima** del
+   primo collegamento reale, perche e irreversibile per account gia creato;
+2. **la condizione commerciale standard**, con la sua decorrenza;
+3. **gli identificativi dei prezzi** EasyGame su Stripe (`price_...`);
+4. **l'abilitazione degli incassi online** per ogni societa, una per una: e
+   un atto commerciale e non si concede da soli.
+
+Sono nel database e non nell'ambiente perche cambiano per contratto e non per
+rilascio del software.

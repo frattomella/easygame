@@ -5,6 +5,8 @@ import {
 } from "@/lib/server/auth";
 import {
   getFundingProgramById,
+  getFundingProgramDetail,
+  listEnrollableAthletes,
   updateFundingProgram,
 } from "@/lib/server/funding";
 import { canManageClubConfiguration } from "@/lib/access-roles";
@@ -14,7 +16,15 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  * Dettaglio e modifica di un programma di contributo.
  *
  *   GET   /api/v1/funding/programs/:id
+ *   GET   /api/v1/funding/programs/:id?view=detail
  *   PATCH /api/v1/funding/programs/:id
+ *
+ * `view=detail` e la proiezione che serve alla scheda del programma:
+ * configurazione, beneficiari con nome e cognome, i **cinque importi** per
+ * ognuno, i totali, e l'elenco degli atleti ancora iscrivibili. Farli
+ * calcolare al client vorrebbe dire riscrivere il dominio in TypeScript di
+ * interfaccia; mandargli l'anagrafica intera per filtrarla vorrebbe dire
+ * cinque megabyte per aprire una tendina.
  *
  * Non esiste `DELETE`: un programma su cui sono maturati contributi non si
  * cancella, si porta a `closed`. Cancellarlo porterebbe via anche i maturati e
@@ -51,6 +61,18 @@ export async function GET(request: Request, context: Context) {
       request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
+
+    if (new URL(request.url).searchParams.get("view") === "detail") {
+      const [detail, enrollable] = await Promise.all([
+        getFundingProgramDetail(context.params.id, scope),
+        listEnrollableAthletes(context.params.id, scope),
+      ]);
+
+      return NextResponse.json({
+        data: { ...detail, enrollableAthletes: enrollable },
+        error: null,
+      });
+    }
 
     const program = await getFundingProgramById(context.params.id, scope);
     return NextResponse.json({ data: program, error: null });

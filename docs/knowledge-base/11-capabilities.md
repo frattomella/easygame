@@ -85,7 +85,7 @@ Classificazione:
 | Riconciliazione di un bando | COMPLETE | `GET /api/v1/funding/programs/:id/reconciliation`, anche in CSV: una riga per atleta e periodo con la misura grezza accanto al requisito. Serve a provare che la **configurazione** dica quel che il bando prevede — cosa che nessun test puo dimostrare |
 | Ricevute e fatture | PARTIAL | Due documenti distinti a partire dallo stesso incasso, con due numerazioni per club e anno ([ADR-0047](18-decision-log.md#adr-0047--un-pagamento-non-e-un-documento-ricevuta-e-fattura-si-scelgono)). Intestatario risolto dal tutore. Documento stampabile con il branding della societa su `GET /api/v1/documents/:kind/:id`. **Non archiviato** (D38), e **non esiste** la trasmissione allo SdI |
 | Entitlements e piani | COMPLETE | Catalogo delle funzioni, risoluzione su piano/servizi/eccezioni con **motivo**, `GET|POST /api/v1/entitlements`, sezione «Servizi e piani» nella console di piattaforma ([ADR-0046](18-decision-log.md#adr-0046--chi-puo-usare-cosa-si-calcola-in-un-posto-solo-e-la-risposta-dice-sempre-perche)). Dal Blocco Finale C il piano e **di proprieta della piattaforma** e il gating e attivo su tre scritture — checkout online, creazione di un bando, creazione di un modulo — con `CapabilityGate` che nell'interfaccia mostra il motivo invece di far sparire la schermata ([ADR-0048](18-decision-log.md#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa)). La **lettura** non e mai negata |
-| Pagamenti online (CediPay) | PARTIAL | Il contratto provider-agnostico, l'adapter Stripe (addebiti diretti, commissione di piattaforma, rimborsi, attivazione del club) e la **verifica della firma dei webhook** ci sono e sono coperti dai test. **Non collaudato contro Stripe**: nel repository non ci sono credenziali. Vedi [ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce) |
+| Pagamenti online (Stripe Connect) | PARTIAL | Il contratto provider-agnostico, l'adapter Stripe (addebiti diretti, commissione di piattaforma, rimborsi, attivazione del club) e la **verifica della firma dei webhook** ci sono e sono coperti dai test. **Non collaudato contro Stripe**: nel repository non ci sono credenziali. Vedi [ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce) |
 | Storage file | PARTIAL | Modello `Asset` con `data_base64`: **i binari possono finire nel database**. Nessun object storage. Vedi [16](16-technical-debt.md) |
 | Export PDF | PARTIAL | Generazione client-side (`athletes-pdf-export.ts`, `clothing-supplier-order-pdf.ts`); `public/report-template.pdf` non e referenziato |
 
@@ -185,3 +185,17 @@ Classificazione:
 | Logging / observability | MISSING | Solo `console.error`. Nessun error tracking |
 | Audit log | MISSING | Nessuna traccia delle operazioni sensibili |
 | Backup / restore documentato | MISSING | Ci si affida a Neon |
+
+## Pagamenti online e fiscalita dopo il Blocco D (2026-08-26)
+
+| Funzione | Stato reale |
+|----------|-------------|
+| Registrare un incasso manuale | **Funziona.** E il canale in uso presso club veri |
+| Pagare una rata online | **Da collaudare.** Tutto il percorso c'e — onboarding, checkout anche parziale, webhook, rimborsi — ma nessun euro e mai passato da Stripe. Il pulsante compare solo quando il server dice che si puo incassare |
+| Rimborsare online | **Da collaudare.** Il movimento e il ricalcolo della rata sono coperti da undici test su mock |
+| Abbonamento EasyGame pagato dalla societa | **Da collaudare.** Modello, adapter e webhook ci sono; manca una sottoscrizione reale e i prezzi configurati su Stripe |
+| Commissione con decorrenza e storico | **Funziona.** Ed e congelata sull'incasso: cambiare il listino non riscrive il passato |
+| Profilo fiscale non-ASD | **Funziona.** Dieci forme giuridiche, regimi dichiarati, dati REA |
+| Emettere ricevuta o fattura | **Funziona.** Con snapshot, serie, annullamento e immutabilita |
+| Generare il tracciato FatturaPA | **Funziona, ma non e mai stato accettato dallo SdI**: e scritto sulla specifica pubblica e va considerato da collaudare |
+| **Trasmettere allo SdI** | **NON ATTIVA.** Nessun intermediario accreditato configurato. Nessun documento viene marcato come trasmesso, e la console lo dice a chiare lettere |

@@ -34,6 +34,42 @@ Fonte ufficiale da mantenere aggiornata:
   bando: una riga per atleta e per periodo, con la misura grezza accanto al
   requisito e il non maturato accanto al maturato. `?format=csv` la scarica in
   una forma che Excel in italiano apre senza chiedere niente
+- `GET /api/v1/funding/programs/:id?view=detail` — la scheda di un
+  programma di contributo: configurazione, beneficiari con i cinque importi
+  (assegnato, maturato, rendicontato, liquidato, residuo), totali e atleti
+  ancora iscrivibili
+- `POST /api/v1/funding/enrollments` — iscrive **uno o piu** atleti a un
+  programma. Plafond e codice voucher possono essere individuali; chi era
+  gia iscritto viene saltato con il motivo e non fa fallire il lotto
+- `GET /api/v1/funding/enrollments?view=enrollable&athlete_id=…` — i
+  programmi a cui un atleta non e ancora iscritto, esclusi quelli chiusi
+- `GET|PATCH|DELETE /api/v1/funding/enrollments/:id` — una singola
+  iscrizione. Il `DELETE` **revoca** invece di cancellare quando ci sono gia
+  importi rendicontati o liquidati, e lo dice nella risposta
+- `GET|POST /api/v1/platform/payments` — centro di controllo commerciale:
+  stato Stripe Connect e billing, commissione standard e override per club,
+  ultimi eventi. Scritture distinte da `operation`. Solo `platform_admin`;
+  non restituisce mai una chiave segreta
+- `GET|POST /api/v1/payments/account` — il conto di incasso visto dalla
+  societa: stato, requisiti mancanti, commissione applicata (sola lettura) e
+  richiesta del link di collegamento
+- `POST /api/payments/create-checkout-session` — apre un checkout online per
+  una rata, anche per un importo parziale. Provider, conto e commissione non
+  arrivano dal client
+- `GET /api/payments/checkout-status` — lo stato di un pagamento online
+  secondo il registro incassi: «in verifica» finche il webhook non conferma
+- `POST /api/payments/webhook` — callback del PSP per gli incassi (Connect)
+- `POST /api/billing/webhook` — callback degli abbonamenti EasyGame
+  (account centrale di Cedi Soft). Segreto di firma **distinto**
+- `GET|PUT /api/v1/fiscal/profile` — profilo fiscale della societa, con i
+  vocabolari e cosa manca per fatturare e per la fattura elettronica
+- `GET|PUT|POST /api/v1/fiscal/operation-types` — classificazione delle
+  operazioni e serie di numerazione
+- `POST /api/v1/documents/:kind/:id/cancel` — annullamento di un documento
+  emesso, con motivo obbligatorio. Il numero non si libera
+- `GET|POST /api/v1/einvoice/:invoiceId` — stato e preparazione del tracciato
+  FatturaPA. `action=transmit` risponde 503: nessun intermediario
+  accreditato e configurato
 - `GET /api/v1/documents/:kind/:id` — il documento stampabile di una ricevuta
   (`receipt`) o di una fattura (`invoice`), con il branding della societa.
   Restituisce **HTML**, non JSON: chi apre questo indirizzo vuole stampare

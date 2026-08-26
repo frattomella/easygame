@@ -339,3 +339,64 @@ SEED_DEMO_PASSWORD="$(openssl rand -base64 24)" npm run prisma:seed
 > esistevano davvero sullo staging raggiungibile da internet. Le credenziali
 > sono state ruotate e le sessioni revocate. Non reintrodurre credenziali
 > nella documentazione: vedi [14 — Sicurezza](14-security.md).
+
+## Blocco D — piattaforma e fiscalita (2026-08-26)
+
+Otto tabelle nuove e cinque estese. La migrazione
+`20260826200000_platform_billing_and_fiscal` e **additiva**: nessun DROP,
+nessun UPDATE, e le colonne nuove sono nullable oppure hanno il default che le
+righe esistenti gia significano.
+
+### Le tabelle di piattaforma
+
+| Tabella | Risponde a | Chi la scrive |
+|---------|-----------|---------------|
+| `platform_settings` | «com'e configurato questo ambiente» | Solo `platform_admin`. **Nessun segreto**: identificativi e scelte, non credenziali |
+| `platform_commission_rules` | «quanto trattiene EasyGame, da quando, e perche» | Solo `platform_admin`. Una riga per decisione: non si sovrascrive mai ([ADR-0050](18-decision-log.md#adr-0050--una-condizione-commerciale-ha-una-decorrenza-e-la-commissione-si-congela-sullincasso)) |
+| `club_payment_accounts` | «questa societa puo incassare online, adesso?» | La console di piattaforma e gli eventi `account.updated` **firmati**. Mai un club |
+| `platform_billing_accounts` | «questa societa ha pagato l'abbonamento EasyGame?» | Il webhook del flusso di piattaforma ([ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame)) |
+
+### Le tabelle fiscali, di proprieta del club
+
+| Tabella | Risponde a |
+|---------|-----------|
+| `organization_fiscal_profiles` | «che soggetto e questa societa davanti al fisco». Separata dall'anagrafica, che risponde a «come si chiama e dove la trovo» |
+| `fiscal_operation_types` | «cosa si sta incassando». Classificazione **configurata**, non dedotta ([ADR-0052](18-decision-log.md#adr-0052--la-sigla-non-decide-il-trattamento-fiscale-il-profilo-si-dichiara-il-documento-si-propone)) |
+| `document_series` | «in quale registro va questo documento». Chi non ne configura nessuna ne ha comunque una: quella vuota |
+| `einvoice_transmissions` | «a che punto e la fattura elettronica». Separata dalla fattura, che resta valida anche se non e mai stata trasmessa ([ADR-0053](18-decision-log.md#adr-0053--easygame-prepara-il-tracciato-fatturapa-non-lo-trasmette-e-non-lo-dichiara-trasmesso)) |
+
+### Le colonne aggiunte, e perche
+
+**`payment_transactions`** porta ora la **riconciliazione congelata** di un
+incasso online: `currency`, `gross_amount_cents`, `platform_fee_cents`,
+`provider_fee_cents`, `net_amount_cents`, `applied_fee_percent`,
+`applied_fee_fixed_cents`, `commission_rule_id`, `external_account_id`,
+`external_payment_id`, `external_event_id`, `operation_type_code`.
+
+Sono **nulle** sulle righe gia scritte, ed e corretto: quegli incassi sono
+manuali e una commissione di piattaforma non l'hanno mai avuta. Non si
+retrodata cio che non e successo.
+
+`provider_fee_cents` resta spesso `null` anche sugli incassi nuovi: Stripe
+espone la propria commissione sul `balance_transaction`, che non viaggia
+nell'evento del pagamento. `null` significa «non lo so», e non «e zero» — sono
+due affermazioni diverse e confonderle produrrebbe un netto sbagliato.
+
+**`invoices` e `receipts`** portano `series`, `sequence`, `document_year`,
+`operation_type_code`, `snapshot`, `cancelled_at`, `cancelled_by`,
+`cancellation_reason`, `cancels_document_id`, `issued_by`; `invoices` anche
+`transaction_id`, che prima viveva dentro `data.transactionId`.
+
+Lo **snapshot** e la fonte autorevole; i campi sciolti restano una copia
+interrogabile perche mezza applicazione li filtra. Quando divergono, vince lo
+snapshot.
+
+**`document_number_sequences`** guadagna `series`, e il vincolo di unicita
+passa da `(club, tipo, anno)` a `(club, tipo, serie, anno)`. Le righe
+esistenti prendono la serie vuota, che e esattamente quella in cui hanno
+sempre numerato: il vecchio vincolo e un caso particolare del nuovo e nessuna
+sequenza si azzera.
+
+**`payment_webhook_events`** guadagna `flow` (`connect` | `platform`) e
+`external_account_id`. Il default `connect` e cio che erano tutti gli eventi
+ricevuti finora: prima del Blocco D esisteva un solo webhook.

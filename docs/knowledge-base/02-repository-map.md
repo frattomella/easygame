@@ -110,3 +110,24 @@ easygame/
 `.git-backups/` sono ignorate da Git. `.codex-tmp/` conteneva uno **snapshot
 duplicato dell'intero repository** ed e stata rimossa dal tracking (commit di
 cleanup 2026-08-22).
+
+## I moduli del Blocco D (2026-08-26)
+
+| Percorso | Cosa c'e |
+|----------|----------|
+| `src/lib/payments/gateway/` | Il contratto provider-agnostico e l'adapter Stripe per gli **incassi** (Connect). Era `payments/cedipay/` ([ADR-0049](18-decision-log.md#adr-0049--cedipay-non-e-un-prodotto-della-v1-sotto-ce-stripe-e-si-chiama-stripe)) |
+| `src/lib/payments/billing/` | Il flusso **abbonamenti** verso l'account centrale di Cedi Soft. Separato di proposito: la differenza tecnica e una sola intestazione, e in un modulo condiviso sarebbe un parametro dimenticabile |
+| `src/lib/payments/commission.ts` | Quale condizione commerciale vale, e il congelamento sull'incasso. Puro |
+| `src/lib/payments/connect-account.ts` | I sette stati dell'account di incasso e i cinque ostacoli al checkout. Puro |
+| `src/lib/fiscal/` | Forme giuridiche, profilo fiscale, classificazione delle operazioni, motore fiscale. Tutto puro |
+| `src/lib/fiscal/fatturapa/` | Stati, generatore del tracciato, interfaccia adapter. **Registro degli adapter vuoto** |
+| `src/lib/documents/document-snapshot.ts` | La fotografia di un documento al momento dell'emissione, e l'elenco dei campi immutabili |
+| `src/lib/server/platform-settings.ts` | Configurazioni di piattaforma e condizioni commerciali. **Unico proprietario** |
+| `src/lib/server/connect-accounts.ts` | L'account di incasso di un club. Lo scrivono solo la console e gli eventi firmati |
+| `src/lib/server/platform-billing.ts` | Gli abbonamenti EasyGame. Non tocca mai `payment_transactions` |
+| `src/lib/server/fiscal-config.ts` | Profilo, serie e tipi di operazione di un club |
+| `src/lib/server/fiscal-documents.ts` | Emissione, annullamento e immutabilita dei documenti. **Usciti** da `payment-transactions.ts` |
+| `src/lib/server/einvoice.ts` | Preparazione del tracciato. `transmitEInvoice` esiste per dire di no in un posto solo |
+| `src/lib/navigation/external-link.ts` | Proprietario unico dell'apertura di un indirizzo esterno |
+| `src/components/platform-admin/payments-billing-section.tsx` | La console «Pagamenti & Billing», quattro schede |
+| `src/components/fiscal/FiscalProfilePanel.tsx` | Il profilo fiscale nella pagina Organizzazione |
