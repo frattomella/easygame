@@ -145,7 +145,7 @@ un bando reale — lo stato riflette la prova, non il codice.
 | # | Requisito | Stato | Prova | Blocca RC? |
 |---|-----------|-------|-------|-----------|
 | R-1 | Migrazioni versionate, nessun drift | `DONE` | 17 migrazioni; `prisma migrate status` verde su staging | No |
-| R-2 | CI verde su ogni push | `DONE` | Tre job: web, mobile, guardrail | No |
+| R-2 | CI verde su ogni push | `DONE` | Tre job: web, mobile, guardrail. Il Blocco Finale C ha trovato il job **guardrail rosso dal commit di CediPay**: un test scriveva una chiave Stripe finta con il prefisso vero, e il guardrail non puo distinguere una chiave inventata da una vera. Corretto, e i quattro guardrail sono ora rifatti anche come test (`tests/ui/ci-guardrails.test.mjs`), cosi si scoprono in un secondo invece che dopo un push | No |
 | R-3 | Deployment Preview funzionanti | `BLOCKED_EXTERNAL` | `DATABASE_URL` e `DIRECT_URL` sono su Production e non su Preview (D39) | No — ma e il rumore che fa smettere di guardare i deployment rossi |
 | R-4 | Ambiente di produzione | `NOT_DONE` | Non esiste nello scope Vercel corrente | **Si** — vedi blocker RC-1 |
 | R-5 | Error tracking e logging | `NOT_DONE` | Dipende da R-4 | No per la RC, si per il rilascio |

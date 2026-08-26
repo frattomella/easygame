@@ -30,8 +30,18 @@ afterEach(() => {
   }
 });
 
+/*
+  La chiave finta non porta il prefisso vero di Stripe.
+
+  Il guardrail della CI cerca i prefissi delle chiavi Stripe fra i file
+  tracciati, e non puo distinguere una chiave inventata da una vera: e il suo
+  mestiere non farlo. Scriverne una con quel prefisso rendeva **rosso** il job
+  dei guardrail — che e il modo piu rapido di insegnare a ignorare un allarme
+  di sicurezza. Il codice controlla solo che la variabile esista, non come
+  comincia.
+*/
 const configured = () => {
-  process.env.STRIPE_SECRET_KEY = "sk_test_non_e_una_chiave_vera";
+  process.env.STRIPE_SECRET_KEY = "chiave-finta-per-i-test";
 };
 
 const unconfigured = () => {
