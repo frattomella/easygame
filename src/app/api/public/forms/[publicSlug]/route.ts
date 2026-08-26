@@ -134,6 +134,19 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
+    /*
+      Un 500 su questa rotta e l'unico modo in cui EasyGame puo perdere una
+      compilazione arrivata da fuori, e finora non lasciava traccia da
+      nessuna parte: non nella risposta — giustamente, a un estraneo non si
+      raccontano gli errori interni — e nemmeno nei log. Il messaggio al
+      pubblico resta generico; il motivo si scrive dove lo legge chi tiene su
+      il servizio.
+    */
+    console.error("[public-form] invio fallito", {
+      slug: context.params.publicSlug,
+      message: String(error?.message || error),
+    });
+
     return NextResponse.json(
       { data: null, error: { message: "Errore nell'invio del modulo" } },
       { status: 500 },
