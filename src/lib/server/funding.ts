@@ -1,5 +1,9 @@
 import { prisma } from "./prisma";
 import {
+  buildFundingReconciliation,
+  type FundingReconciliation,
+} from "@/lib/funding/reconciliation";
+import {
   calculatePeriodAccrual,
   generateFundingPeriods,
   normalizeFundingProgram,
@@ -489,6 +493,74 @@ export const listFundingAccruals = async (
   });
 };
 
+/**
+ * La riconciliazione di un bando: tutte le righe, per tutti gli atleti.
+ *
+ * **Perche esiste.** Il primo bando vero non si puo dichiarare affidabile
+ * perche i test sono verdi: i test provano che il calcolo faccia quello che
+ * la configurazione dice, non che la configurazione dica quello che il bando
+ * prevede. Le due cose divergono per un giorno di calendario, per una soglia
+ * letta come «almeno» invece che «piu di», per un periodo che l'ente conta dal
+ * lunedi e il club dal primo del mese. Chi rendiconta deve poter mettere
+ * accanto, riga per riga, cio che EasyGame ha calcolato e cio che l'ente si
+ * aspetta.
+ *
+ * Lettura sola: non ricalcola niente. Il ricalcolo resta un'azione esplicita
+ * della segreteria, perche legge tutte le presenze del club.
+ */
+export const buildProgramReconciliation = async (
+  programId: string,
+  scope?: FundingScope,
+): Promise<FundingReconciliation & { program: Record<string, any> }> => {
+  const program = await getFundingProgramById(programId, scope);
+
+  const enrollments = await listFundingEnrollments(
+    { organizationId: program.organization_id, programId: program.id },
+    scope,
+  );
+
+  const enrollmentIds = enrollments.map((enrollment: any) => enrollment.id);
+
+  const accruals = enrollmentIds.length
+    ? await accrualClient().findMany({
+        where: {
+          organization_id: program.organization_id,
+          enrollment_id: { in: enrollmentIds },
+        },
+        orderBy: [{ period_index: "asc" }],
+      })
+    : [];
+
+  /*
+    I nomi si leggono in una volta sola. Una riga di riconciliazione senza il
+    nome dell'atleta e inutilizzabile da chi rendiconta, e leggerli uno per
+    uno costerebbe una query per periodo.
+  */
+  const athleteIds = Array.from(
+    new Set(enrollments.map((enrollment: any) => String(enrollment.athlete_id))),
+  );
+
+  const athletes = athleteIds.length
+    ? await (prisma as any).athlete.findMany({
+        where: {
+          organization_id: program.organization_id,
+          id: { in: athleteIds },
+        },
+        select: { id: true, first_name: true, last_name: true },
+      })
+    : [];
+
+  const athleteNames: Record<string, string> = {};
+  for (const athlete of athletes) {
+    athleteNames[athlete.id] =
+      `${athlete.last_name || ""} ${athlete.first_name || ""}`.trim();
+  }
+
+  return {
+    program,
+    ...buildFundingReconciliation({ enrollments, accruals, athleteNames }),
+  };
+};
 /**
  * Marca come rendicontati i periodi maturati indicati.
  *

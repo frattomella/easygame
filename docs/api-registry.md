@@ -30,6 +30,10 @@ Fonte ufficiale da mantenere aggiornata:
   incasso, `{"action":"issue-receipt"}` ne emette la ricevuta e
   `{"action":"issue-invoice"}` la fattura. Entrambe idempotenti, con due
   numerazioni distinte. Non esiste `DELETE`: un incasso non si cancella
+- `GET /api/v1/funding/programs/:id/reconciliation` — la riconciliazione di un
+  bando: una riga per atleta e per periodo, con la misura grezza accanto al
+  requisito e il non maturato accanto al maturato. `?format=csv` la scarica in
+  una forma che Excel in italiano apre senza chiedere niente
 - `GET /api/v1/documents/:kind/:id` — il documento stampabile di una ricevuta
   (`receipt`) o di una fattura (`invoice`), con il branding della societa.
   Restituisce **HTML**, non JSON: chi apre questo indirizzo vuole stampare

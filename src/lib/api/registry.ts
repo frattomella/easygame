@@ -132,6 +132,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "funding.reconciliation",
+    method: "GET",
+    path: "/api/v1/funding/programs/:id/reconciliation",
+    description:
+      "Riconciliazione di un bando: una riga per atleta e periodo, con la misura grezza accanto al requisito. `?format=csv` la scarica",
+    mobile_ready: false,
+  },
+  {
     name: "documents.printable",
     method: "GET",
     path: "/api/v1/documents/:kind/:id",
