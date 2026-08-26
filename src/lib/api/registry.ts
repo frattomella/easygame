@@ -132,6 +132,22 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "entitlements.read",
+    method: "GET",
+    path: "/api/v1/entitlements",
+    description:
+      "Cosa un club puo usare: esito e motivo funzione per funzione, calcolati su piano, servizi attivi ed eccezioni",
+    mobile_ready: false,
+  },
+  {
+    name: "entitlements.override",
+    method: "POST",
+    path: "/api/v1/entitlements",
+    description:
+      "Concede o revoca una funzione a un club. Solo platform_admin: e una decisione di Cedi verso un cliente",
+    mobile_ready: false,
+  },
+  {
     name: "funding.programs",
     method: "GET|POST",
     path: "/api/v1/funding/programs",

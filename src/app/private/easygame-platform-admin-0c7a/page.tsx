@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
+import { ClubServicesSection } from "@/components/platform-admin/club-services-section";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
 import { sortByName } from "@/lib/sorting";
@@ -125,8 +126,10 @@ const formatDate = (value?: string | null) => {
 };
 
 /**
- * Le quattro cose che si amministrano dalla piattaforma. Restano separate
- * dalle funzioni di club: qui non si gestiscono atleti o allenamenti.
+ * Le cinque cose che si amministrano dalla piattaforma. Restano separate
+ * dalle funzioni di club: qui non si gestiscono atleti o allenamenti, e non
+ * si tiene la contabilita di Cedi — «Servizi e piani» serve a rispondere al
+ * telefono e a sbloccare un cliente, non e un ERP interno.
  */
 const PLATFORM_SECTIONS: PlatformAdminSection[] = [
   {
@@ -146,6 +149,12 @@ const PLATFORM_SECTIONS: PlatformAdminSection[] = [
     label: "Account",
     description: "Utenti dell'applicazione",
     icon: Users,
+  },
+  {
+    id: "services",
+    label: "Servizi e piani",
+    description: "Piano, servizi attivi e funzioni per club",
+    icon: ShieldCheck,
   },
   {
     id: "email",
@@ -846,6 +855,10 @@ export default function PlatformAdminPage() {
             </CardContent>
           </Card>
         </>
+      ) : null}
+
+      {section === "services" ? (
+        <ClubServicesSection clubs={overview?.clubs || []} />
       ) : null}
 
       {section === "clubs" || section === "accounts" ? (

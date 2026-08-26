@@ -29,6 +29,11 @@ Fonte ufficiale da mantenere aggiornata:
 - `POST /api/v1/payment-transactions/:id` — `{"action":"reverse"}` storna un
   incasso, `{"action":"issue-receipt"}` ne emette la ricevuta (idempotente).
   Non esiste `DELETE`: un incasso non si cancella
+- `GET /api/v1/entitlements` — cosa un club puo usare, funzione per funzione,
+  con il **motivo** di ogni esito. Non e un campo salvato: e un calcolo su
+  piano, servizi attivi ed eccezioni
+- `POST /api/v1/entitlements` — concede (`true`), revoca (`false`) o toglie
+  l'eccezione (`null`) su una funzione di un club. **Solo platform_admin**
 - `GET|POST /api/v1/funding/programs` — programmi di contributo (voucher,
   bandi). Le regole del bando sono colonne, non codice
 - `GET|PATCH /api/v1/funding/programs/:id` — nessun `DELETE`: un programma con

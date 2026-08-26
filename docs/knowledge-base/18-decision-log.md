@@ -1967,3 +1967,73 @@ risolvono quattro persone diverse.
 
 **Stato:** ATTIVA. Chiude la parte architetturale di R-05; la parte
 collaudabile solo con credenziali resta aperta e dichiarata.
+
+## ADR-0046 — Chi puo usare cosa si calcola in un posto solo, e la risposta dice sempre perche
+
+**Data:** 2026-08-26
+**Contesto:** Blocco Finale B, fondamenta SaaS (P-07).
+
+Piano, servizi opzionali e stato dell'abbonamento esistevano gia come **dati**
+(`subscriptionSettings`, `extraServices`, `HUB_EXTRA_SERVICE_DEFINITIONS`), ma
+non esisteva niente che li trasformasse in una risposta. La domanda «questo
+club ha i report avanzati?» non aveva un posto dove essere posta.
+
+**Cosa succede se non lo si crea.** La domanda finisce scritta a mano in ogni
+componente che mostra un report: un `plan === "plus"` qui, un
+`extras.includes(...)` la, e dopo sei mesi nessuno sa piu quali schermate
+controllano davvero qualcosa. Aggiungere un piano diventa un lavoro di
+archeologia, e nel frattempo due schermate della stessa funzione danno due
+risposte diverse.
+
+**La decisione.** Un catalogo chiuso di funzioni (`EntitlementKey`) e una
+funzione pura che le risolve. Chi la usa non conosce ne i piani ne i servizi:
+conosce il nome della funzione.
+
+**La risposta e sempre motivata, e non e un vezzo.** Non basta sapere che una
+funzione e spenta: chi la vede spenta deve capire **cosa fare**. Passare a un
+piano superiore, attivare un servizio, rinnovare un abbonamento scaduto, o
+chiedere a Cedi sono quattro strade diverse, percorse da persone diverse. Una
+funzione che restituisse solo `false` costringerebbe ogni schermata a
+reinventarsi il messaggio — ed e cosi che nascono dieci spiegazioni diverse
+della stessa cosa.
+
+**L'ordine dei controlli e la regola.** Eccezione della piattaforma (in
+entrambe le direzioni), poi amministratore di piattaforma, poi piano che vale,
+poi servizio attivo. L'eccezione vince anche sull'amministratore, perche
+esiste apposta per i casi che il listino non prevede.
+
+**Tre scelte che sembrano dettagli.**
+
+- *Le funzioni gia in produzione stanno in `free`.* Multi-sede, moduli,
+  contributi e scanner sono in uso presso club veri da prima che esistesse un
+  piano. Metterli in `plus` non sarebbe una scelta di listino: sarebbe
+  **toglierli a chi li usa**, e non e una decisione che si prende scrivendo un
+  file di configurazione;
+- *`past_due` continua a pagare.* Un pagamento in ritardo non e una disdetta.
+  Spegnere il gestionale di una societa il giorno in cui una carta scade e un
+  modo per perdere il cliente invece dell'insoluto;
+- *un abbonamento scaduto riporta a `free`, non spegne tutto.* Toglie cio per
+  cui il club non sta piu pagando, non il gestionale.
+
+**Il platform admin vede tutto, e si vede che lo sta facendo.** Chi assiste
+deve poter aprire qualunque schermata di qualunque club. Ma la ragione resta
+scritta (`platform_admin`), cosi l'interfaccia puo dire «stai vedendo una
+funzione che questo club non ha» invece di far credere che il club ce l'abbia
+— che e il modo piu rapido per chiudere una segnalazione sbagliando.
+
+**Il limite dichiarato, e va letto prima di gating qualunque cosa.** Piano e
+servizi attivi stanno in `clubs.settings`, e la pagina Organizzazione permette
+al **club** di modificarli. Finche gli entitlement **descrivono** — la console
+li mostra, l'interfaccia puo spiegare cosa manca — non e un problema. Il
+giorno in cui cominciano a **negare** l'accesso, un club potra concedersi il
+piano superiore da solo. Il piano deve prima passare sotto il controllo della
+piattaforma: vedi D37. Le **eccezioni** nascono gia governate — le scrive solo
+`POST /api/v1/entitlements`, riservato a platform_admin.
+
+**Perche non e un ERP.** La console mostra piano, servizi, funzioni e stato
+degli incassi online, e permette di concedere o revocare. Non ci sono fatture
+verso Cedi, non c'e un listino modificabile, non c'e la contabilita della
+piattaforma: serve a rispondere al telefono e a sbloccare un cliente.
+
+**Stato:** ATTIVA. Nessuna funzione e ancora **negata** da questo strato: e
+descrittivo finche D37 non e chiuso.

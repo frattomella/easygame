@@ -33,8 +33,8 @@ succede.
 | Stato | Voci |
 |-------|------|
 | `DONE` | 179 |
-| `IN PROGRESS` | 17 |
-| `OPEN` | 23 |
+| `IN PROGRESS` | 18 |
+| `OPEN` | 22 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
 | **Totale** | **229** |
@@ -443,7 +443,7 @@ elenco. Nessuna e cominciata; ognuna vale un blocco o piu.
 | P-04 | **Moduli online** | `IN PROGRESS` | Blocco 9 — collegamento all'anagrafica e iscrizione online **fatti**. **Mancano** la validazione condizionale (B9-17) e il pagamento contestuale, che dipende da WP-13 |
 | P-05 | **Scanner documenti** | `IN PROGRESS` | La foundation e del Blocco 7 (ADR e KB). Restano: PDF, provider remoto, migrazione della scheda atleta. Vedi B7-32/33/34 |
 | P-06 | **Stripe / CediPay** | `IN PROGRESS` | **Blocco Finale B**, ADR-0045. La verifica di firma che bloccava l'attivazione del webhook adesso c'e ed e coperta da diciassette test; il rischio 6 di [14](14-security.md) e passato a PRESIDIATO. **Mancano** le credenziali e il primo giro reale |
-| P-07 | **SaaS ed entitlements** | `OPEN` | Presuppone un ambiente di produzione vero (F5-01) e un modello di abbonamento che oggi non esiste |
+| P-07 | **SaaS ed entitlements** | `IN PROGRESS` | **Blocco Finale B**, ADR-0046 — lo strato centralizzato c'e: catalogo chiuso delle funzioni, risoluzione su piano, servizi ed eccezioni, con il **motivo** di ogni esito; `GET|POST /api/v1/entitlements`; sezione «Servizi e piani» nella console di piattaforma. **Manca** il gating vero, che non va acceso finche il piano resta modificabile dal club (D37), e l'ambiente di produzione (F5-01) |
 | P-08 | **Bonus Sport e Salute** | `OPEN` | **Il modello c'e** dal Workstream A (WP-48, ADR-0037): un bando si descrive con la configurazione, e il Voucher Lazio 2025 e gia coperto come scenario. Resta aperta la parte che **non si puo implementare a memoria**: la fonte dati esterna, le regole annuali del bando e il canale di trasmissione delle rendicontazioni, che cambia da ente a ente |
 | P-09 | **AI per gli allenamenti** | `OPEN` | Nessun requisito scritto. Va definito cosa deve produrre prima di scegliere come |
 | P-10 | **OAuth Google e Microsoft** | `OPEN` | L'infrastruttura OAuth esiste (`/api/v1/auth/oauth/:provider`). Mancano le credenziali applicative e la decisione su quali domini ammettere |

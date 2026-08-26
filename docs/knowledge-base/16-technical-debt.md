@@ -446,6 +446,28 @@ ricevuta e fattura a partire da un incasso.
 
 → nessun WP ancora
 
+### D37 — Il piano di un club lo puo cambiare il club
+
+`subscriptionSettings.plan` e `extraServices` stanno in `clubs.settings`, e la
+pagina Organizzazione li rende modificabili **dal club**. Erano dati
+descrittivi e non decidevano niente; da
+[ADR-0046](18-decision-log.md#adr-0046--chi-puo-usare-cosa-si-calcola-in-un-posto-solo-e-la-risposta-dice-sempre-perche)
+sono l'ingresso del calcolo degli entitlement.
+
+**Oggi non e sfruttabile**, perche nessuna funzione viene *negata* da quello
+strato: e descrittivo. Il giorno in cui una schermata comincia a nascondersi
+in base agli entitlement, un club potra concedersi il piano superiore da solo.
+
+**Cosa lo chiude.** Il piano e i servizi devono diventare scrivibili solo
+dalla piattaforma — come gia sono le eccezioni, che passano da
+`POST /api/v1/entitlements` e richiedono `platform_admin`. Va deciso se
+spostarli in colonne proprie o lasciarli in `settings` con una guardia sulla
+scrittura, e cosa mostrare al club al posto dei campi modificabili.
+
+**Blocca:** qualunque gating reale delle funzioni.
+
+→ nessun WP ancora
+
 ### D29 — `payments.status` e una copia del registro incassi
 
 Dopo [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)
