@@ -204,9 +204,17 @@ test("la sezione «Remaining Web V1 after integration» esiste ed e collegata", 
       /\|\s*[^|]+\|\s*[^|]+\|\s*[^|]+\|/,
       `${id}: servono cosa manca, perche blocca e dove sta`,
     );
+    /*
+      Le forme di riferimento ammesse. `D\d+` — una voce di
+      16-technical-debt — e stata aggiunta nel Blocco Finale B: un residuo
+      puo essere tracciato li e non altrove, ed e il caso di R-19, che e un
+      difetto di configurazione dell'ambiente e non ha ne un WP ne un ADR.
+      Escluderlo costringeva a inventare un riferimento, che e peggio che non
+      averne uno.
+    */
     assert.match(
       line,
-      /(B\d+-\d+|F[1-5]-\d+|WP-\d+|ADR-\d+)/,
+      /(B\d+-\d+|F[1-5]-\d+|WP-\d+|ADR-\d+|D\d+)/,
       `${id}: senza un riferimento e un buon proposito, non una voce`,
     );
   }

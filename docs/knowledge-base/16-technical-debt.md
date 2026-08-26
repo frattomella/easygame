@@ -497,6 +497,30 @@ restare identico a com'era.
 
 → nessun WP ancora
 
+
+### D39 — I deployment Preview falliscono: mancano `DATABASE_URL` e `DIRECT_URL`
+
+Ogni push sul branch innesca un deployment **Preview** che si ferma alla
+validazione dello schema Prisma:
+
+    Error code: P1012
+    error: Environment variable not found: DIRECT_URL.
+
+Le due variabili sono configurate sull'ambiente **Production** del progetto
+`easygame-staging` e non su **Preview**. Il deploy da riga di comando con
+`--prod` funziona; quello automatico no.
+
+**Non e una regressione**: succede da almeno il 2026-08-25. **Non si corregge
+dal repository**: richiede di aggiungere le variabili all'ambiente Preview su
+Vercel, cioe una modifica alla configurazione che richiede autorizzazione
+(CLAUDE.md, sezione 9).
+
+**Costo di lasciarlo aperto.** Nessuna anteprima per branch, e un deployment
+rosso in dashboard a ogni push che non riguarda il codice — cioe il rumore
+che fa smettere di guardare i deployment rossi.
+
+→ nessun WP ancora
+
 ### D29 — `payments.status` e una copia del registro incassi
 
 Dopo [ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)

@@ -438,3 +438,52 @@ Smoke test eseguiti dopo il deploy, tutti conformi:
 Conteggi letti in sola lettura dopo il deploy (nessuna scrittura eseguita):
 20 utenti, 4 club, 308 atleti, 155 `club_resource_items`, 14 membership,
 1 configurazione email.
+
+---
+
+## Stato di staging verificato — 2026-08-26 (Blocco Finale B)
+
+| Voce | Valore |
+|------|--------|
+| Deployment | **READY**, target `production` del progetto `easygame-staging`, 2m di build |
+| Migrazioni | **17/17 applicate.** Le due nuove — `20260826170000_document_numbering` e `20260826180000_payment_webhook_events` — applicate durante il deploy, «All migrations have been successfully applied» |
+| Registro API | **305** endpoint (erano 261 al 2026-08-22) |
+| Progetto production | **non esiste** nello scope, come dichiarato da CLAUDE.md sezione 9 |
+
+Smoke test sull'URL pubblico `easygame-staging-pi.vercel.app`:
+
+| Verifica | Esito |
+|----------|-------|
+| `/`, `/login`, `GET /api/v1/registry` | HTTP 200 |
+| `GET /api/v1/entitlements` senza sessione | **401** |
+| `GET /api/v1/documents/receipt/:id` senza sessione | **401** |
+| `GET /api/v1/athletes` senza sessione | **401** |
+| `POST /api/payments/webhook` con evento non firmato | **503** «Ricezione pagamenti non configurata» |
+
+**Perche il 503 sul webhook e l'esito giusto e non un difetto.**
+`STRIPE_WEBHOOK_SECRET` non e configurato su staging, quindi non c'e niente
+con cui verificare una firma — e senza verifica non si puo credere a niente.
+Un 200 direbbe al provider «ricevuto, non riprovare» e l'evento andrebbe
+perso; il 503 dice che il problema e qui e che vale la pena riprovare. E la
+prova sul campo che l'endpoint **non** accetta un evento non firmato
+([ADR-0045](18-decision-log.md#adr-0045--cedipay-e-il-livello-di-prodotto-il-psp-sta-sotto-e-si-sostituisce)).
+
+### Un difetto d'ambiente trovato durante il deploy
+
+I deployment **Preview** falliscono, e falliscono da almeno quattordici ore —
+cioe da prima di questo blocco. Il motivo sta nei log:
+
+    Error code: P1012
+    error: Environment variable not found: DIRECT_URL.
+
+`DATABASE_URL` e `DIRECT_URL` sono configurate sull'ambiente **Production** del
+progetto e non su **Preview**, quindi `npm run vercel-build` si ferma alla
+validazione dello schema Prisma. Il deploy da riga di comando con `--prod`
+funziona; quello automatico che Vercel innesca a ogni push sul branch no.
+
+**Conseguenza pratica:** l'anteprima di un branch non e disponibile, e ogni
+push lascia un deployment rosso nella dashboard che non riguarda il codice.
+**Non e una regressione di questo blocco** e non si corregge dal repository:
+richiede di aggiungere le due variabili all'ambiente Preview su Vercel, che e
+una modifica alla configurazione e richiede autorizzazione (CLAUDE.md, sezione
+9). Vedi D39.
