@@ -159,6 +159,40 @@ const isAbsentAttendance = (entry: any) => {
   );
 };
 
+/**
+ * Le presenze raggruppate per allenamento, calcolate **una volta sola**.
+ *
+ * **Il difetto che chiude.** `getTrainingAttendanceEntries` scorreva l'intero
+ * elenco delle presenze del club per **ogni** allenamento. Con duemila atleti
+ * l'elenco e di centoventottomila righe e gli allenamenti sono qualche
+ * centinaio: il report chiedeva al browser decine di milioni di confronti per
+ * disegnare una tabella. Non si vedeva su un club piccolo, e si vedeva solo
+ * su quello grande — cioe presso il cliente.
+ *
+ * La memoria e legata all'array con una `WeakMap`: finche il report riceve lo
+ * stesso elenco, l'indice si costruisce una volta e si ricicla; quando
+ * l'elenco viene ricaricato, quello vecchio sparisce da solo.
+ */
+const attendanceIndexCache = new WeakMap<any[], Map<string, any[]>>();
+
+const getAttendanceByTrainingId = (attendanceRecords: any[]) => {
+  const cached = attendanceIndexCache.get(attendanceRecords);
+  if (cached) return cached;
+
+  const index = new Map<string, any[]>();
+  for (const entry of attendanceRecords) {
+    const trainingId = getAttendanceTrainingId(entry);
+    if (!trainingId) continue;
+
+    const bucket = index.get(trainingId);
+    if (bucket) bucket.push(entry);
+    else index.set(trainingId, [entry]);
+  }
+
+  attendanceIndexCache.set(attendanceRecords, index);
+  return index;
+};
+
 const getTrainingAttendanceEntries = (
   training: any,
   attendanceRecords: any[] = [],
@@ -168,9 +202,7 @@ const getTrainingAttendanceEntries = (
     ? training.attendance
     : [];
   const externalEntries = trainingId
-    ? attendanceRecords.filter(
-        (entry) => getAttendanceTrainingId(entry) === trainingId,
-      )
+    ? getAttendanceByTrainingId(attendanceRecords).get(trainingId) || []
     : [];
 
   return [...embeddedEntries, ...externalEntries];

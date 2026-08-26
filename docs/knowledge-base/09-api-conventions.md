@@ -216,16 +216,42 @@ e [ADR-0040](18-decision-log.md#adr-0040--una-compilazione-cita-una-versione-imm
 
 ### Filtri supportati in query string
 
-Solo una whitelist, confronto di uguaglianza esatta:
+Uguaglianza esatta, solo su una whitelist:
 
 `id`, `email`, `user_id`, `organization_id`, `athlete_id`, `payment_id`,
 `invoice_id`, `bucket`, `path`, `status`, `type`, `role`, `resource_type`.
 
 `club_id` e accettato come alias di `organization_id`.
 
-**Non esiste** paginazione, ordinamento configurabile, ricerca testuale o
-filtro per intervallo. Le liste tornano complete. Vedi
-[16 — Debito tecnico](16-technical-debt.md).
+### Pagina, ricerca e ordinamento
+
+Dal Blocco 8 (WP-12) le liste sanno impaginare. **Il default non e cambiato**:
+chi non chiede una pagina riceve la lista intera e nessun `meta`, perche un
+default paginato troncherebbe in silenzio ogni chiamante esistente.
+
+| Parametro | Significato |
+|-----------|-------------|
+| `?limit=` | Righe per pagina. Oltre 200 il server riduce a 200 |
+| `?page=` / `?offset=` | Quale pagina. `page` e 1-based |
+| `?q=` (o `?search=`) | Ricerca testuale, su un elenco chiuso di colonne per risorsa. Piu termini: ognuno deve comparire in almeno un campo |
+| `?order_by=` + `?order=` | Ordinamento, su un elenco chiuso di colonne per risorsa |
+
+Quando la pagina e stata chiesta la risposta porta anche
+`meta: { total, limit, offset, hasMore }`, dove `total` e il conteggio
+**dell'archivio**, non delle righe restituite.
+
+### Categoria e sede di un atleta (Blocco Finale C)
+
+Su `athletes` e `simplified_athletes`:
+
+| Parametro | Significato |
+|-----------|-------------|
+| `?category_id=` | La categoria principale storica (`athletes.category_id`) **oppure** una delle appartenenze (`athlete_category_memberships`). Un atleta si allena con piu gruppi: guardarne una sola perderebbe meta degli iscritti |
+| `?site_id=` | La sede di un'appartenenza. Chi non ha **nessuna** sede dichiarata resta visibile con qualunque filtro, perche sede vuota vuol dire «non dichiarata» e non «nessuna» ([ADR-0038](18-decision-log.md)) |
+
+Servono perche la lista Atleti possa consumare la paginazione: senza,
+chiedere una pagina avrebbe restituito duecento atleti da filtrare poi a tre,
+cioe una pagina che non e una pagina (R-02).
 
 ### `view=summary` — proiezione leggera delle liste
 

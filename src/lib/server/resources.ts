@@ -1293,7 +1293,57 @@ const buildWhereFromSearchParams = (
     where.resource_type = resource;
   }
 
+  Object.assign(where, buildAthleteMembershipFilters(resource, searchParams));
+
   return where;
+};
+
+/**
+ * Categoria e sede di un atleta, filtrate **dal database**.
+ *
+ * **Perche non basta `where.category_id`.** Un atleta si allena con piu
+ * gruppi: la categoria non e una colonna sola, e una riga di
+ * `athlete_category_memberships` per ogni appartenenza. La colonna
+ * `athletes.category_id` esiste ancora ed e la categoria principale del dato
+ * precedente alle appartenenze multiple: cercarla da sola perderebbe gli
+ * atleti la cui appartenenza a quella categoria e secondaria, cercare solo le
+ * appartenenze perderebbe l'archivio storico. Si guardano entrambe.
+ *
+ * **Perche la sede vuota resta visibile.** Sede vuota vuol dire «non
+ * dichiarata», non «nessuna» ([ADR-0038](../../../docs/knowledge-base/18-decision-log.md)):
+ * un club che attiva le sedi non deve veder sparire dagli elenchi gli atleti
+ * iscritti prima. E la stessa regola che `recordMatchesSite` applica nella
+ * pagina, scritta qui perche adesso il taglio lo fa il database.
+ */
+const buildAthleteMembershipFilters = (
+  resource: string,
+  searchParams: URLSearchParams,
+) => {
+  if (resource !== "athletes" && resource !== "simplified_athletes") return {};
+
+  const conditions: Record<string, any>[] = [];
+
+  const categoryId = String(searchParams.get("category_id") || "").trim();
+  if (categoryId) {
+    conditions.push({
+      OR: [
+        { category_id: categoryId },
+        { category_memberships: { some: { category_id: categoryId } } },
+      ],
+    });
+  }
+
+  const siteId = String(searchParams.get("site_id") || "").trim();
+  if (siteId) {
+    conditions.push({
+      OR: [
+        { category_memberships: { some: { site_id: siteId } } },
+        { category_memberships: { none: { site_id: { not: null } } } },
+      ],
+    });
+  }
+
+  return conditions.length ? { AND: conditions } : {};
 };
 
 /**
@@ -2136,7 +2186,13 @@ export const listResourcePage = async (
     searchParams.get("q") || searchParams.get("search") || "",
   );
   if (searchFilter) {
-    Object.assign(where, searchFilter);
+    /*
+      `AND` si somma, non si sostituisce. Un `Object.assign` qui cancellava i
+      filtri per categoria e sede appena l'operatore scriveva qualcosa nella
+      casella di ricerca: la lista si allargava invece di stringersi, che e il
+      contrario di cio che chi cerca si aspetta.
+    */
+    where.AND = [...(where.AND || []), ...searchFilter.AND];
   }
 
   if (resource === "clubs" || resource === "organizations") {

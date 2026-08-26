@@ -77,11 +77,12 @@ import {
   getAthleteLastName,
 } from "@/lib/athlete-name-utils";
 import {
-  getClubAthletes,
+  getClubAthletesPage,
   addClubAthlete,
   updateClubAthlete,
   deleteClubAthlete,
 } from "@/lib/simplified-db";
+import type { ListPageMeta } from "@/lib/api/client";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import {
   buildSiteIndex,
@@ -205,6 +206,93 @@ const coerceBoolean = (value: unknown) => {
   );
 };
 
+/**
+ * Quanti atleti stanno in una pagina.
+ *
+ * E il tetto che il server accetta (`MAX_PAGE_SIZE`), e non e scelto per
+ * caso: sotto questa soglia l'archivio intero arriva in una richiesta sola e
+ * la pagina si comporta come si e sempre comportata — ricerca, raggruppamento
+ * ed export nel browser, che con centocinquanta righe e piu rapido di un giro
+ * sulla rete. Sopra, la pagina passa a chiedere i filtri al server.
+ */
+const ATHLETE_PAGE_SIZE = 200;
+
+/**
+ * Da righe del database a righe della tabella.
+ *
+ * Una riga per **appartenenza**, non per atleta: chi si allena con due gruppi
+ * compare sotto entrambi. E il motivo per cui «visibili» e «totali» contano
+ * cose diverse, e la pagina lo dice invece di far tornare i conti per finta.
+ */
+const buildAthleteRows = (
+  rows: any[],
+  normalizedCategories: any[],
+  siteIndex: ReturnType<typeof buildSiteIndex>,
+): Athlete[] =>
+  rows.flatMap((athlete: any) => {
+    const memberships = normalizeAthleteCategoryMemberships(
+      athlete,
+      normalizedCategories,
+    );
+    const primaryMembership = getPrimaryAthleteCategoryMembership(
+      memberships,
+      normalizedCategories,
+    );
+    const rowMemberships =
+      memberships.length > 0
+        ? memberships
+        : [
+            {
+              categoryId: null,
+              categoryName: "Senza categoria",
+              isPrimary: true,
+              siteId: "",
+            },
+          ];
+
+    return rowMemberships.map((membership) => {
+      const categoryId = membership.categoryId
+        ? resolveCategoryId(membership.categoryId, normalizedCategories)
+        : null;
+      const categoryLabel = membership.categoryName
+        ? resolveCategoryLabel(membership.categoryName, normalizedCategories)
+        : "Senza categoria";
+
+      return {
+        id: athlete.id,
+        name: getAthleteDisplayName(athlete),
+        firstName: getAthleteFirstName(athlete),
+        lastName: getAthleteLastName(athlete),
+        categoryId,
+        categoryLabel,
+        membershipType: membership.isPrimary ? "primary" : "secondary",
+        siteId: siteIndex.resolveSiteId(membership.siteId),
+        siteName: membership.siteId
+          ? siteIndex.getSiteName(membership.siteId)
+          : "",
+        primaryCategoryLabel:
+          primaryMembership?.categoryName || categoryLabel || "Senza categoria",
+        allCategoryLabels: rowMemberships.map((item) => item.categoryName),
+        age: athlete.birth_date
+          ? new Date().getFullYear() -
+            new Date(athlete.birth_date).getFullYear()
+          : 0,
+        status: athlete.status || athlete.data?.status || "active",
+        medicalCertExpiry: athlete.data?.medicalCertExpiry || "",
+        birthDate: athlete.birth_date || "",
+        avatar: athlete.avatar_url || athlete.data?.avatar || null,
+        accessCode: athlete.access_code || athlete.data?.accessCode,
+        jerseyNumber: athlete.jersey_number || athlete.data?.jerseyNumber,
+        registrationComplete: coerceBoolean(
+          athlete.data?.enrollmentStatus ??
+            athlete.data?.isRegistered ??
+            athlete.data?.registered ??
+            athlete.data?.enrolled,
+        ),
+      } as Athlete;
+    });
+  });
+
 export default function AthletesPage() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [athletes, setAthletes] = React.useState<Athlete[]>([]);
@@ -228,6 +316,17 @@ export default function AthletesPage() {
 
   const [sites, setSites] = useState<ClubSite[]>([]);
   const [siteFilter, setSiteFilter] = useState("");
+
+  /*
+    `meta` arriva solo quando la pagina e stata chiesta: `total` e il conteggio
+    vero dell'archivio, non delle righe caricate. `paginated` dice se il
+    server sta gia filtrando — sotto la soglia non lo fa, e la pagina continua
+    a lavorare sui dati che ha in mano.
+  */
+  const [listMeta, setListMeta] = useState<ListPageMeta | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageLoading, setPageLoading] = useState(false);
+  const paginated = Boolean(listMeta && listMeta.total > listMeta.limit);
 
   // Status filter: "active" | "inactive" | "suspended" | "all"
   const [statusFilter, setStatusFilter] = useState<
@@ -317,7 +416,7 @@ export default function AthletesPage() {
     try {
       setLoading(true);
 
-      const [{ data: categoriesData }, { data: clubData }, athletesData] =
+      const [{ data: categoriesData }, { data: clubData }, athletesPage] =
         await Promise.all([
         supabase
           .from("categories")
@@ -331,8 +430,21 @@ export default function AthletesPage() {
           .single(),
         // La lista mostra anagrafica, categoria e stato: non serve trasportare
         // gli allegati base64 di 200 schede atleta (WP-31).
-        getClubAthletes(clubId, { view: "summary" }),
+        //
+        // E ne chiede una pagina, non l'archivio: con 2.000 atleti la
+        // differenza fra le due cose e il difetto originale di questa pagina
+        // (R-02). I filtri partono solo quando l'archivio e grande — vedi
+        // `paginated` piu sotto — cosi un club con settanta atleti continua a
+        // cercare e raggruppare nel browser, che li e piu rapido.
+        getClubAthletesPage(clubId, {
+          view: "summary",
+          limit: ATHLETE_PAGE_SIZE,
+        }),
       ]);
+
+      const athletesData = athletesPage.athletes;
+      setListMeta(athletesPage.meta);
+      setPage(1);
 
       const normalizedCategories = buildCategoryList(categoriesData || []);
       setCategories(normalizedCategories);
@@ -341,69 +453,11 @@ export default function AthletesPage() {
       const siteIndex = buildSiteIndex(normalizedSites);
       setSites(normalizedSites);
 
-      const transformedAthletes = athletesData.flatMap((athlete: any) => {
-        const memberships = normalizeAthleteCategoryMemberships(
-          athlete,
-          normalizedCategories,
-        );
-        const primaryMembership = getPrimaryAthleteCategoryMembership(
-          memberships,
-          normalizedCategories,
-        );
-        const rowMemberships =
-          memberships.length > 0
-            ? memberships
-            : [
-                {
-                  categoryId: null,
-                  categoryName: "Senza categoria",
-                  isPrimary: true,
-                  siteId: "",
-                },
-              ];
-
-        return rowMemberships.map((membership) => {
-          const categoryId = membership.categoryId
-            ? resolveCategoryId(membership.categoryId, normalizedCategories)
-            : null;
-          const categoryLabel = membership.categoryName
-            ? resolveCategoryLabel(membership.categoryName, normalizedCategories)
-            : "Senza categoria";
-
-          return {
-            id: athlete.id,
-            name: getAthleteDisplayName(athlete),
-            firstName: getAthleteFirstName(athlete),
-            lastName: getAthleteLastName(athlete),
-            categoryId,
-            categoryLabel,
-            membershipType: membership.isPrimary ? "primary" : "secondary",
-            siteId: siteIndex.resolveSiteId(membership.siteId),
-            siteName: membership.siteId
-              ? siteIndex.getSiteName(membership.siteId)
-              : "",
-            primaryCategoryLabel:
-              primaryMembership?.categoryName || categoryLabel || "Senza categoria",
-            allCategoryLabels: rowMemberships.map((item) => item.categoryName),
-            age: athlete.birth_date
-              ? new Date().getFullYear() -
-                new Date(athlete.birth_date).getFullYear()
-              : 0,
-            status: athlete.status || athlete.data?.status || "active",
-            medicalCertExpiry: athlete.data?.medicalCertExpiry || "",
-            birthDate: athlete.birth_date || "",
-            avatar: athlete.avatar_url || athlete.data?.avatar || null,
-            accessCode: athlete.access_code || athlete.data?.accessCode,
-            jerseyNumber: athlete.jersey_number || athlete.data?.jerseyNumber,
-            registrationComplete: coerceBoolean(
-              athlete.data?.enrollmentStatus ??
-                athlete.data?.isRegistered ??
-                athlete.data?.registered ??
-                athlete.data?.enrolled,
-            ),
-          } as Athlete;
-        });
-      });
+      const transformedAthletes = buildAthleteRows(
+        athletesData,
+        normalizedCategories,
+        siteIndex,
+      );
 
       transformedAthletes.sort(compareAthletesByLastName);
       setAthletes(transformedAthletes);
@@ -445,10 +499,74 @@ export default function AthletesPage() {
     }
   }, [activeClub?.id]);
 
+  /**
+   * Una pagina dell'archivio, con i filtri correnti applicati **dal server**.
+   *
+   * Si usa solo quando l'archivio supera una pagina. Sotto la soglia i dati
+   * sono gia tutti in memoria e rifare il giro sulla rete a ogni carattere
+   * digitato sarebbe piu lento, non piu veloce.
+   */
+  const loadAthletePage = React.useCallback(
+    async (targetPage: number) => {
+      const clubId = resolveCurrentClubId();
+      if (!clubId) return;
+
+      setPageLoading(true);
+      try {
+        const result = await getClubAthletesPage(clubId, {
+          view: "summary",
+          limit: ATHLETE_PAGE_SIZE,
+          page: targetPage,
+          search: searchQuery,
+          status: statusFilter,
+          siteId: siteFilter,
+        });
+
+        setListMeta(result.meta);
+
+        const rows = buildAthleteRows(
+          result.athletes,
+          categories,
+          buildSiteIndex(sites),
+        );
+        rows.sort(compareAthletesByLastName);
+        setAthletes(rows);
+      } finally {
+        setPageLoading(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [categories, searchQuery, siteFilter, sites, statusFilter],
+  );
+
   // Load athletes and categories from database
   useEffect(() => {
     refreshAthletesData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClub?.id, requestedClubId, user?.id]);
+
+  /*
+    Cambiare un filtro riporta alla prima pagina. Restare sulla settima
+    mentre l'insieme si restringe mostra una schermata vuota che sembra un
+    archivio vuoto.
+  */
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusFilter, siteFilter]);
+
+  useEffect(() => {
+    if (!paginated) return;
+
+    /*
+      Un quarto di secondo di pausa: senza, ogni carattere digitato nella
+      casella di ricerca sarebbe una query sull'archivio.
+    */
+    const timer = window.setTimeout(() => {
+      void loadAthletePage(page);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [paginated, page, loadAthletePage]);
 
   useEffect(() => {
     const action = searchParams.get("action");
@@ -919,8 +1037,17 @@ export default function AthletesPage() {
     });
   };
 
+  /*
+    Con l'archivio grande i filtri li ha gia applicati il server, e rifarli
+    qui non toglierebbe niente: filtrerebbe una pagina gia filtrata, e la
+    differenza fra i due criteri — il server cerca su nome, cognome, codice e
+    numero, la pagina anche sull'etichetta di categoria — farebbe sparire
+    righe che il server ha appena scelto di mandare.
+  */
   // Filter athletes by search and status
-  const filteredAthletes = athletes.filter((athlete) => {
+  const filteredAthletes = paginated
+    ? athletes
+    : athletes.filter((athlete) => {
     const matchesSearch =
       athlete.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       athlete.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -938,8 +1065,8 @@ export default function AthletesPage() {
       siteFilter,
     );
 
-    return matchesSearch && matchesStatus && matchesSite;
-  });
+        return matchesSearch && matchesStatus && matchesSite;
+      });
 
   const selectedAthletesCount = selectedAthleteIds.size;
 
@@ -1007,10 +1134,54 @@ export default function AthletesPage() {
     return "-";
   };
 
-  const exportAthletesPdf = () => {
-    const exportAthletes = selectedAthleteIds.size
-      ? athletes.filter((athlete) => selectedAthleteIds.has(athlete.id))
-      : filteredAthletes;
+  /**
+   * Tutte le righe che l'export deve contenere.
+   *
+   * **Un export non e cio che si vede.** Con l'archivio paginato la pagina ha
+   * in mano duecento righe su duemila: esportare quelle e chiamarle «atleti
+   * filtrati» sarebbe una bugia in cima a un PDF. Le pagine restanti si
+   * chiedono qui, una alla volta, e solo quando qualcuno preme Esporta — che
+   * e il momento giusto per pagare quel costo.
+   */
+  const collectAthletesForExport = async (): Promise<Athlete[]> => {
+    if (selectedAthleteIds.size) {
+      return athletes.filter((athlete) => selectedAthleteIds.has(athlete.id));
+    }
+
+    if (!paginated || !listMeta) {
+      return filteredAthletes;
+    }
+
+    const clubId = resolveCurrentClubId();
+    if (!clubId) return filteredAthletes;
+
+    const siteIndex = buildSiteIndex(sites);
+    const collected: Athlete[] = [];
+    const pages = Math.max(1, Math.ceil(listMeta.total / listMeta.limit));
+
+    for (let index = 1; index <= pages; index += 1) {
+      const result = await getClubAthletesPage(clubId, {
+        view: "summary",
+        limit: ATHLETE_PAGE_SIZE,
+        page: index,
+        search: searchQuery,
+        status: statusFilter,
+        siteId: siteFilter,
+      });
+
+      collected.push(
+        ...buildAthleteRows(result.athletes, categories, siteIndex),
+      );
+
+      if (!result.meta?.hasMore) break;
+    }
+
+    collected.sort(compareAthletesByLastName);
+    return collected;
+  };
+
+  const exportAthletesPdf = async () => {
+    const exportAthletes = await collectAthletesForExport();
     const columns = getVisibleAthleteExportColumns();
 
     if (!exportAthletes.length) {
@@ -1573,7 +1744,7 @@ export default function AthletesPage() {
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      onClick={exportAthletesPdf}
+                      onClick={() => void exportAthletesPdf()}
                       disabled={!filteredAthletes.length && !selectedAthleteIds.size}
                     >
                       <Download className="mr-2 h-4 w-4" />
@@ -1797,7 +1968,16 @@ export default function AthletesPage() {
                           Totali
                         </p>
                         <p className="mt-1 text-2xl font-semibold">
-                          {athletes.length}
+                          {/*
+                            Con l'archivio paginato «totali» e il conteggio
+                            del database, non delle righe caricate: mostrare
+                            duecento accanto a un elenco di duemila atleti
+                            sarebbe il numero sbagliato nel posto in cui si
+                            guarda per primo.
+                          */}
+                          {paginated && listMeta
+                            ? listMeta.total
+                            : athletes.length}
                         </p>
                       </div>
                     </div>
@@ -2087,6 +2267,44 @@ export default function AthletesPage() {
                 })}
               </div>
             )}
+
+            {/*
+              La barra delle pagine compare **solo** quando c'e piu di una
+              pagina. Un club con settanta atleti non deve imparare che
+              esistono le pagine per usare la propria lista.
+            */}
+            {paginated && listMeta ? (
+              <div className="mt-4 flex flex-col items-center justify-between gap-3 rounded-2xl border p-3 sm:flex-row">
+                <p className="text-sm text-muted-foreground">
+                  Pagina {page} di{" "}
+                  {Math.max(1, Math.ceil(listMeta.total / listMeta.limit))} —{" "}
+                  {listMeta.total} atleti nell&apos;archivio
+                  {pageLoading ? " · caricamento…" : ""}
+                </p>
+                <div className="flex w-full gap-2 sm:w-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 sm:flex-none"
+                    disabled={page <= 1 || pageLoading}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    Precedente
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 sm:flex-none"
+                    disabled={!listMeta.hasMore || pageLoading}
+                    onClick={() => setPage((current) => current + 1)}
+                  >
+                    Successiva
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </DashboardPageContainer>
         </main>
       </div>

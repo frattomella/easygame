@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { apiRequest, readStoredActiveClub } from "./api/client";
+import type { ListPageMeta } from "./api/client";
 import { normalizeTrainerList } from "./trainer-utils";
 import {
   getAthleteCategoryLabels,
@@ -244,6 +245,120 @@ const loadClubAthleteRows = async (
 
   return Array.isArray(response.data) ? response.data : [];
 };
+
+/**
+ * Come si chiede **una pagina** dell'archivio atleti.
+ *
+ * I filtri sono quelli che la lista mostra: ricerca, stato, categoria, sede e
+ * ordinamento. Vanno al server perche una pagina filtrata nel browser non e
+ * una pagina: e una lista intera scaricata e poi tagliata, cioe il difetto
+ * che R-02 chiede di chiudere.
+ */
+export type ClubAthletesQuery = {
+  view?: ClubAthletesView;
+  limit?: number;
+  page?: number;
+  search?: string;
+  status?: string;
+  categoryId?: string;
+  siteId?: string;
+  orderBy?: string;
+  order?: "asc" | "desc";
+};
+
+const buildAthleteListParams = (clubId: string, query: ClubAthletesQuery) => {
+  const params = new URLSearchParams({ club_id: clubId });
+
+  if ((query.view || "full") === "summary") params.set("view", "summary");
+  if (query.limit && query.limit > 0) params.set("limit", String(query.limit));
+  if (query.page && query.page > 1) params.set("page", String(query.page));
+
+  const search = String(query.search || "").trim();
+  if (search) params.set("q", search);
+
+  /*
+    «Tutti» non e un valore da mandare: `status=all` diventerebbe un filtro
+    su una stringa che nessun atleta ha, e la lista tornerebbe vuota.
+  */
+  const status = String(query.status || "").trim();
+  if (status && status !== "all") params.set("status", status);
+
+  const categoryId = String(query.categoryId || "").trim();
+  if (categoryId) params.set("category_id", categoryId);
+
+  const siteId = String(query.siteId || "").trim();
+  if (siteId) params.set("site_id", siteId);
+
+  params.set("order_by", query.orderBy || "last_name");
+  params.set("order", query.order || "asc");
+
+  return params;
+};
+
+/**
+ * Una pagina di atleti, gia unita alle sue appartenenze.
+ *
+ * **Le appartenenze si chiedono per gli atleti della pagina, non per il
+ * club.** Caricarle tutte insieme alla pagina avrebbe lasciato in piedi
+ * esattamente il trasferimento che la paginazione serve a togliere: con 2.000
+ * atleti sono qualche migliaio di righe scaricate per mostrarne venti.
+ */
+export async function getClubAthletesPage(
+  clubId: string,
+  query: ClubAthletesQuery = {},
+): Promise<{ athletes: any[]; meta: ListPageMeta | null }> {
+  if (!clubId) {
+    return { athletes: [], meta: null };
+  }
+
+  try {
+    const response = await apiRequest<any[]>(
+      `/api/v1/simplified_athletes?${buildAthleteListParams(clubId, query).toString()}`,
+    );
+
+    if (response.error) {
+      console.warn(
+        "Error fetching club athletes:",
+        response.error.message || response.error,
+      );
+      return { athletes: [], meta: null };
+    }
+
+    const rows = Array.isArray(response.data) ? response.data : [];
+    const athleteIds = rows
+      .map((row: any) => String(row?.id || "").trim())
+      .filter(Boolean);
+
+    const membershipRecords = athleteIds.length
+      ? await loadClubAthleteMemberships(clubId, athleteIds)
+      : [];
+
+    const membershipsByAthleteId = new Map<string, any[]>();
+    membershipRecords.forEach((membership: any) => {
+      const athleteId = String(membership?.athlete_id || "").trim();
+      if (!athleteId) return;
+      if (!membershipsByAthleteId.has(athleteId)) {
+        membershipsByAthleteId.set(athleteId, []);
+      }
+      membershipsByAthleteId.get(athleteId)?.push(membership);
+    });
+
+    return {
+      athletes: rows
+        .map((athlete: any) =>
+          hydrateAthleteWithMemberships(
+            athlete,
+            membershipsByAthleteId.get(String(athlete?.id || "").trim()) || [],
+          ),
+        )
+        .sort(compareAthletesByLastName),
+      meta: response.meta || null,
+    };
+  } catch (error: any) {
+    console.warn("Error fetching club athletes page:", error?.message || error);
+    return { athletes: [], meta: null };
+  }
+}
 
 const replaceAthleteMemberships = async (
   clubId: string,

@@ -32,8 +32,8 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 190 |
-| `IN PROGRESS` | 18 |
+| `DONE` | 192 |
+| `IN PROGRESS` | 16 |
 | `OPEN` | 22 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
@@ -60,7 +60,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | F1-09 | Database di sviluppo separato dallo staging | `DONE` | WP-09, ADR-0012 |
 | F1-10 | Sincronizzazione transazionale delle risorse club | `DONE` | WP-10 |
 | F1-11 | Filtro stagione applicato lato server | `DONE` | WP-11 |
-| F1-12 | Paginazione, ordinamento e filtri server-side | `IN PROGRESS` | **Blocco 8** — il server sa impaginare, cercare e ordinare (`?limit=`, `?page=`, `?q=`, `?order_by=`), con `meta` e tetto di 200 righe. **Manca** il consumo nella lista Atleti: raggruppa per categoria, conta per stato ed esporta su tutto l'archivio, quindi paginarla e una scelta di interfaccia |
+| F1-12 | Paginazione, ordinamento e filtri server-side | `DONE` | **Blocco 8** per il server (`?limit=`, `?page=`, `?q=`, `?order_by=`, `meta`, tetto di 200 righe); **Blocco Finale C** per il consumo nella lista Atleti. La scelta di interfaccia e stata: sotto una pagina tutto resta come prima, sopra i filtri vanno al server e compare la barra delle pagine. Aggiunti `category_id` e `site_id`, senza i quali una pagina non sarebbe stata una pagina |
 | F1-13 | Reset password via SMTP | `DONE` | WP-30 |
 
 ## Fase F2 — Web V1
@@ -185,7 +185,7 @@ corrisponde alle righe sotto e peggio di nessuna tabella.
 | B8-18 | Scomporre la scheda atleta | `IN PROGRESS` | WP-19 — **manca** l'estrazione dei sette pannelli, che richiede prima di raggruppare lo stato in hook |
 | B8-19 | Rimisurare la lista Atleti dopo l'estrazione degli allegati | `DONE` | Blocco 8 — `scripts/measure-athletes-payload.mjs`: la misura si rifa, non si ricopia |
 | B8-20 | La prossima ottimizzazione strutturale | `DONE` | Blocco 8 — la misura ha indicato gli **avatar**: 23,7 MB su 200 atleti. Serviti come immagini, la risposta scende a 140 kB (-99,4%) |
-| B8-21 | Paginazione, ricerca e filtri server-side | `IN PROGRESS` | **Manca** il consumo nella lista Atleti: vedi F1-12 |
+| B8-21 | Paginazione, ricerca e filtri server-side | `DONE` | Consumata dalla lista Atleti nel **Blocco Finale C**: vedi F1-12 |
 | B8-22 | Griglie a due colonne su schermi da 375 px | `DONE` | Blocco 8 — 22 griglie corrette, sette invarianti a difenderle |
 | B8-23 | Verifica su schermo a 375, 768 e 1280 px | `DONE` | **Blocco A** — eseguita con migrazioni e seed applicati in locale e una sessione autenticata, su quattordici pagine dei domini del blocco. Ha trovato tre difetti invisibili alle invarianti statiche, fra cui un guscio di club che cresceva con il contenuto invece di lasciarlo scorrere. Vedi BA-31 |
 
@@ -381,7 +381,7 @@ piu sotto: quelle vengono **dopo** il rilascio.
 | # | Cosa manca | Perche blocca | Dove |
 |---|-----------|---------------|------|
 | R-01 | Verifica su schermo delle pagine **restanti** a 375, 768 e 1280 px | E il criterio di uscita dichiarato da ADR-0025. Il Blocco A ha verificato le quattordici pagine dei suoi domini — anagrafiche, documenti, abbigliamento, numerazione — e ne ha corrette tre. **Restano** le pagine nate dall'integrazione: Contributi, Sedi, Moduli e il modulo pubblico, piu partite e presenze | BA-31, B3-03, ADR-0025 |
-| R-02 | La lista Atleti deve consumare la paginazione | Il server e pronto; finche la pagina scarica tutto, l'archivio grande resta il caso peggiore | F1-12, B8-21 |
+| ~~R-02~~ | ~~La lista Atleti deve consumare la paginazione~~ | **Chiuso dal Blocco Finale C.** Due modi decisi dall'archivio: sotto una pagina niente cambia, sopra i filtri vanno al server. Misurato con `npm run measure:web` — la richiesta della lista resta a 121 kB e due interrogazioni **da 200 a 2.000 atleti**, contro 1.221 kB dell'archivio intero | F1-12, B8-21 |
 | R-03 | Decisione sul provider di storage | Non blocca il funzionamento, blocca la crescita: oggi i file stanno nel database di Neon, e la Modulistica V2 ne aggiunge uno per ogni certificato caricato da un modulo pubblico | B8-13, ADR-0034 |
 | R-04 | Validazione input con uno schema (`zod`) | Oggi gli endpoint coercizzano a mano. E il presupposto di WP-12 e di ogni API pubblica, e la superficie pubblica e appena cresciuta con `/api/forms/public` | F1-05, WP-05 |
 | R-05 | Pagamenti online: implementarli o togliere la promessa | **Parzialmente chiuso dal Blocco Finale B** (ADR-0045). Il contratto provider-agnostico, l'adapter Stripe, la verifica della firma, la deduplica degli eventi e le rotte ci sono, e la promessa non e piu rotta: dove manca una configurazione l'interfaccia lo **dice**, con un messaggio diverso per ognuno dei quattro blocchi. **Resta aperto** cio che non si puo collaudare senza credenziali Stripe: un checkout vero, un webhook vero, un rimborso vero. Piu tre decisioni di prodotto elencate nell'ADR | F4-03, WP-13, ADR-0045 |

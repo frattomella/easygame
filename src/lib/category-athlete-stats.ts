@@ -46,13 +46,43 @@ const isPresentAttendanceEntry = (entry: any) => {
   return entry?.present === true || entry?.is_present === true || PRESENT_STATUSES.has(status);
 };
 
+/**
+ * Le presenze raggruppate per allenamento, calcolate **una volta sola**.
+ *
+ * **Il difetto che chiude, e qui era il peggiore.** Le presenze di un atleta
+ * si contavano con `categoryTrainings.filter(...)` **dentro** un
+ * `categoryAthletes.map(...)`, e ogni giro rileggeva l'intero elenco delle
+ * presenze del club. Con trenta atleti, cento allenamenti e centoventottomila
+ * righe di presenza sono trecentottantaquattro milioni di confronti per una
+ * sola categoria. Nessuno se ne accorge su un club di settanta atleti.
+ */
+const attendanceIndexCache = new WeakMap<any[], Map<string, any[]>>();
+
+const getAttendanceByTrainingId = (attendance: any[]) => {
+  const cached = attendanceIndexCache.get(attendance);
+  if (cached) return cached;
+
+  const index = new Map<string, any[]>();
+  for (const entry of attendance) {
+    const trainingId = getAttendanceTrainingId(entry);
+    if (!trainingId) continue;
+
+    const bucket = index.get(trainingId);
+    if (bucket) bucket.push(entry);
+    else index.set(trainingId, [entry]);
+  }
+
+  attendanceIndexCache.set(attendance, index);
+  return index;
+};
+
 const getTrainingAttendanceEntries = (training: any, attendance: any[] = []) => {
   const trainingId = getTrainingId(training);
   const embeddedEntries = Array.isArray(training?.attendance)
     ? training.attendance
     : [];
   const externalEntries = trainingId
-    ? attendance.filter((entry) => getAttendanceTrainingId(entry) === trainingId)
+    ? getAttendanceByTrainingId(attendance).get(trainingId) || []
     : [];
 
   return [...embeddedEntries, ...externalEntries];
@@ -112,18 +142,47 @@ export function calculateCategoryAthleteStats(
     recordMatchesCategory(match, targetCategory, categories),
   );
 
+  /*
+    Presenze e convocazioni si contano **prima**, per tutti gli atleti insieme.
+
+    Il ciclo di prima faceva, per ogni atleta, un giro su tutti gli
+    allenamenti e dentro un giro su tutte le presenze di quell'allenamento —
+    che sono una per atleta. Era atleti x allenamenti x atleti: raddoppiando
+    la categoria il lavoro quadruplicava, e un solo indice per allenamento non
+    bastava a toglierlo. Qui si scorre ogni riga una volta, e poi si legge.
+  */
+  const presentTrainingsByAthlete = new Map<string, Set<string>>();
+  categoryTrainings.forEach((training, index) => {
+    // Un allenamento senza id resta distinguibile dagli altri: contarne due
+    // come uno solo abbasserebbe le presenze di chi c'era.
+    const trainingKey = getTrainingId(training) || `#${index}`;
+
+    for (const entry of getTrainingAttendanceEntries(training, attendance)) {
+      if (!isPresentAttendanceEntry(entry)) continue;
+
+      const entryAthleteId = getAttendanceAthleteId(entry);
+      if (!entryAthleteId) continue;
+
+      const bucket = presentTrainingsByAthlete.get(entryAthleteId);
+      if (bucket) bucket.add(trainingKey);
+      else presentTrainingsByAthlete.set(entryAthleteId, new Set([trainingKey]));
+    }
+  });
+
+  const convocationsByAthlete = new Map<string, number>();
+  for (const match of categoryMatches) {
+    for (const convocatedId of new Set(getConvocatedAthleteIdsFromMatch(match))) {
+      convocationsByAthlete.set(
+        convocatedId,
+        (convocationsByAthlete.get(convocatedId) || 0) + 1,
+      );
+    }
+  }
+
   return categoryAthletes.map((athlete) => {
     const athleteId = getAthleteId(athlete);
-    const convocations = categoryMatches.filter((match) =>
-      getConvocatedAthleteIdsFromMatch(match).includes(athleteId),
-    ).length;
-    const presences = categoryTrainings.filter((training) =>
-      getTrainingAttendanceEntries(training, attendance).some(
-        (entry) =>
-          getAttendanceAthleteId(entry) === athleteId &&
-          isPresentAttendanceEntry(entry),
-      ),
-    ).length;
+    const convocations = convocationsByAthlete.get(athleteId) || 0;
+    const presences = presentTrainingsByAthlete.get(athleteId)?.size || 0;
     const totalMatches = categoryMatches.length;
     const totalTrainings = categoryTrainings.length;
 

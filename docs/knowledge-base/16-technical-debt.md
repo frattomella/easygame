@@ -71,12 +71,20 @@ Tre scelte che vale la pena conoscere prima di usarlo:
   si otterrebbe una pagina mezza vuota e un `total` che non corrisponde a cio
   che si vede.
 
-**Resta aperto: la lista Atleti non la usa ancora.** La pagina raggruppa per
-categoria, conta per stato, esporta e seleziona in blocco su tutto
-l'archivio: consumarla a pagine e una scelta di interfaccia, non una modifica
-meccanica. Vedi il punto corrispondente in [21 — Backlog](21-backlog.md).
+**RISOLTO (2026-08-26, Blocco Finale C): la lista Atleti la usa.** La scelta
+di interfaccia e stata: **due modi, decisi dall'archivio e non
+dall'operatore**. Sotto una pagina (200 atleti) tutto arriva in una richiesta
+sola e la pagina continua a cercare, raggruppare ed esportare nel browser —
+con centocinquanta righe e piu rapido di un giro sulla rete, e nessun club
+piccolo deve imparare che esistono le pagine. Sopra, ricerca, stato e sede
+vanno al server, compare la barra delle pagine, «totali» diventa il conteggio
+del database, e l'export si prende tutte le pagine prima di stampare.
 
-→ WP-12 (server fatto, interfaccia da decidere)
+Sono serviti due filtri nuovi (`category_id`, `site_id`) perche la categoria
+di un atleta non e una colonna ma una riga di appartenenza: senza, una pagina
+sarebbe stata «duecento atleti da filtrare poi a tre».
+
+→ WP-12 chiuso
 
 ### D5 — Copertura test — MOLTO MIGLIORATO (2026-08-22)
 
@@ -725,11 +733,9 @@ stesso commento moriva sull'import invece di misurare. Una misura che non si
 puo rifare torna a essere un numero copiato, che e esattamente cio che quegli
 script esistono per evitare.
 
-**Chiuso a meta nel Blocco A**: il comando e stato corretto nel commento. Resta
-che la conoscenza di come si esegue uno script di questo repository vive in due
-commenti e in nessuno script npm.
+**RISOLTO (2026-08-26, Blocco Finale C).** `package.json` ha tre voci che
+incapsulano i flag: `measure:athletes`, `measure:multisite` e `measure:web` —
+quest'ultima per lo scenario nuovo, che misura come **cresce** il costo di
+ogni dominio da 200 a 2.000 atleti e conta le interrogazioni, non solo i byte.
 
-**Cosa lo chiude:** due voci in `package.json` (`measure:athletes`,
-`measure:multisite`) che incapsulino i flag.
-
-→ nuovo WP da aprire
+→ chiuso da Blocco Finale C
