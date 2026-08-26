@@ -1,6 +1,6 @@
 # 22 — Matrice Release Candidate (Web V1)
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco D — Stripe Connect, billing di piattaforma, motore fiscale)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco D2 — voucher definitivo, scheda Iscrizione, multi-sede V2)
 
 Questo documento risponde a **una domanda sola**: la Web V1 si puo dichiarare
 Release Candidate, e cosa manca perche lo sia.
@@ -83,6 +83,12 @@ un bando reale — lo stato riflette la prova, non il codice.
 |---|-----------|-------|-----------------|-------|-----------|
 | V-1 | Assegnato / maturato / rendicontato / liquidato | `DONE` | [ADR-0037](18-decision-log.md): contabilita separata dai pagamenti della famiglia | `funding-model`, 31 test | No |
 | V-2 | Soglia, pro-rata, plafond, periodo gia liquidato | `DONE` | Regole del bando come **configurazione**, non codice | Scenari sopra e sotto soglia, liquidazione parziale, ricalcolo | No |
+| V-7 | Massimale del bando ≠ importo assegnato al club | `DONE` | [ADR-0054](18-decision-log.md#adr-0054--il-massimale-del-bando-non-e-limporto-assegnato-al-club-e-una-presenza-non-e-sempre-una-prova): due valori, due posti. Il massimale valida l'assegnato, la maturazione si ferma **sempre** all'assegnato | `funding-accrual-source` (27), `funding-confirmation` (20) | No |
+| V-8 | Fonte della maturazione configurabile | `DONE` | `easygame_attendance` / `external_confirmation` / `external_import`. Con fonte esterna le presenze restano **previsione** e il maturato resta zero | Scenari a fonte esterna nel servizio | No |
+| V-9 | Conferma di maturazione auditabile | `DONE` | Periodo, importo, data, utente, riferimento esterno, nota. Una correzione conserva la precedente e riapre la rendicontazione; un ricalcolo non la riscrive | `funding-confirmation`, provato anche contro il database di sviluppo | No |
+| V-10 | Import di conferme da file | `DONE` | Tracciato uguale alla riconciliazione in uscita; le righe illeggibili tornano elencate con il numero di riga | `funding-accrual-source` | No |
+| V-11 | Nessuna contaminazione fra squadre nel conteggio ore | `DONE` | [ADR-0055](18-decision-log.md#adr-0055--configurazione-si-sceglie-per-categoria-operazione-si-sceglie-per-gruppo): il dominio filtra gli allenamenti sui gruppi dell'atleta prima di misurare | `funding-multisite`, 6 test | No |
+| V-12 | Maturazione via API di un ente | `DEFERRED_POST_V1` | `external_api` esiste nel modello ed e **non selezionabile**: nessun ente espone oggi una API chiamabile, e un adapter finto sarebbe peggio di nessun adapter | — | No |
 | V-3 | Riconciliazione riga per riga | `DONE` | `GET /api/v1/funding/programs/:id/reconciliation`, anche CSV | `funding-reconciliation`, 12 test | No |
 | V-4 | Primo bando reale caricato e riconciliato | `NOT_DONE` | Lo strumento c'e; **manca l'atto** su dati veri | — | No, ma e la prima cosa da fare in UAT |
 | V-5 | Trasmissione telematica all'ente | `DEFERRED_POST_V1` | Il canale cambia da bando a bando e non si implementa a memoria | — | No |
@@ -112,7 +118,12 @@ un bando reale — lo stato riflette la prova, non il codice.
 | A-6 | Taglie per allenatori, staff e soci, **leggibili** | `DONE` | Erano di sola scrittura: riaperto e chiuso nel Blocco A | No |
 | A-7 | Numero di tessera mai obbligatorio | `DONE` | Invariante su tutte le schermate di persona | No |
 | A-8 | Categoria ≠ sede ≠ struttura ≠ gruppo | `DONE` | [ADR-0038](18-decision-log.md); `multisite-model`, `multisite-ux` | No |
-| A-9 | Club mono-sede senza complicazioni | `DONE` | `SiteFilter` non si monta sotto due sedi attive | No |
+| A-8b | Il gruppo operativo e l'unita delle **operazioni**, non un filtro | `DONE` | [ADR-0055](18-decision-log.md#adr-0055--configurazione-si-sceglie-per-categoria-operazione-si-sceglie-per-gruppo): elenchi atleti, allenamenti, presenze, programma settimanale e assegnazione allenatori si scelgono per gruppo. `multisite-groups` (24), `funding-multisite` (6), `multisite-ux` (21) | No |
+| A-8c | Le sedi di una categoria si spuntano dove si crea la categoria | `DONE` | Una superficie sola: la finestra separata e stata rimossa. Togliere una sede **archivia** il gruppo | No |
+| A-8d | Un allenamento su piu gruppi senza duplicarlo | `DONE` | Selezione multipla; la deduplica del generatore include il gruppo | No |
+| A-8e | Il dato senza sede resta visibile e si colloca in blocco | `DONE` | Gruppo «Sede non assegnata» distinto, e sede nel cambio categoria in blocco | No |
+| A-9 | Club mono-sede senza complicazioni | `DONE` | `SiteFilter` non si monta sotto due sedi attive; con una squadra per categoria le etichette restano i nomi delle categorie | No |
+| A-18 | Iscrizione atleta su pagina dedicata, come allenatori e soci | `DONE` | [ADR-0057](18-decision-log.md#adr-0057--iscrivere-un-atleta-e-una-pagina-e-il-numero-di-maglia-non-e-un-dato-anagrafico): `/athletes/new`. Il numero di maglia esce dall'anagrafica | `athlete-create-form`, verificata a schermo | No |
 | A-10 | Kit senza stagione, niente categorie compatibili su articoli | `DONE` | Tolte dal **modello**, non solo dal form (BA-19, BA-20) | No |
 | A-11 | Taglia proposta dall'anagrafica, override che non la riscrive | `DONE` | `clothing-delivery` copre entrambe le direzioni | No |
 | A-12 | Consegna per articolo con stato del kit derivato | `DONE` | Quattro stati per articolo, riepilogo mai scritto | No |
@@ -120,7 +131,7 @@ un bando reale — lo stato riflette la prova, non il codice.
 | A-14 | Import atleti: CSV, XML, `;`, date italiane, mapping, duplicati | `DONE` | `athlete-import` | No |
 | A-15 | Import massivo senza una richiesta per atleta | `DONE` | Dal Blocco Finale C l'import va a **scaglioni da 50**: due richieste per scaglione invece di due per atleta. Uno scaglione che fallisce ripiega riga per riga, cosi una sola anagrafica sbagliata non porta via le altre quarantanove. **Non e transazionale** e non lo era prima: un import interrotto lascia gli atleti gia creati | No |
 | A-16 | Export atleti, allenatori, staff, soci | `DONE` | `person-export` sopra `people-pdf-export`: un motore, tre insiemi di colonne | No |
-| A-17 | Primo club con due sedi vere | `NOT_DONE` | Modello e filtri coperti; «due sedi» diventa reale con una segreteria | No |
+| A-17 | Primo club con due sedi vere | `NOT_DONE` | Modello, gruppi operativi, elenchi separati, presenze e contributi coperti dai test; «due sedi» diventa reale con una segreteria che le configura | No, ma e la seconda cosa da fare in UAT |
 
 ## 7. Interfaccia, responsivita, accessibilita
 

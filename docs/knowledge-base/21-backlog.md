@@ -1,6 +1,6 @@
 # 21 — Backlog master
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco D: Stripe Connect, billing di piattaforma, motore fiscale)
+**Ultimo aggiornamento:** 2026-08-26 (Blocco D2: voucher definitivo, scheda Iscrizione, multi-sede V2)
 
 Questo documento risponde a una domanda sola: **«quella cosa che avevo chiesto,
 a che punto e?»**
@@ -36,12 +36,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 238 |
-| `IN PROGRESS` | 13 |
+| `DONE` | 257 |
+| `IN PROGRESS` | 14 |
 | `OPEN` | 24 |
-| `DEFERRED` | 8 |
+| `DEFERRED` | 9 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **285** |
+| **Totale** | **306** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -456,6 +456,38 @@ esplodeva, un evento da un account connesso sconosciuto veniva assecondato, e
 
 ---
 
+## Blocco D2 — Voucher definitivo, scheda Iscrizione, multi-sede V2
+
+L'ultimo blocco funzionale prima del Release Candidate. Tre lavori che hanno in
+comune una cosa sola: **un concetto tenuto dentro un altro**, e i difetti che
+ne discendono.
+
+| # | Voce | Stato | Note |
+|---|------|-------|------|
+| D2-01 | Massimale del bando ≠ importo assegnato al club | `DONE` | [ADR-0054](18-decision-log.md#adr-0054--il-massimale-del-bando-non-e-limporto-assegnato-al-club-e-una-presenza-non-e-sempre-una-prova). Il bando riconosce 500 a Mario, Mario ne usa 300 qui: il massimale valida l'assegnato e la maturazione si ferma sempre al secondo |
+| D2-02 | Fonte della maturazione configurabile | `DONE` | Presenze EasyGame, conferma esterna, importazione. La fonte e configurazione come tutto il resto del bando |
+| D2-03 | Previsione contro maturazione ufficiale | `DONE` | Con fonte esterna l'appello del club produce `estimated_amount` e stato `pending_confirmation`; il maturato resta zero fino alla conferma, e una previsione non si rendiconta |
+| D2-04 | Conferma di maturazione auditabile | `DONE` | Periodo, importo, data, utente, riferimento esterno, nota. Una correzione conserva la precedente e riapre la rendicontazione; un ricalcolo non la riscrive mai |
+| D2-05 | Import di conferme esterne | `DONE` | Cinque colonne, stesso tracciato della riconciliazione in uscita. Le righe illeggibili tornano elencate con il numero di riga |
+| D2-06 | Maturazione via API di un ente | `DEFERRED` | [ADR-0054](18-decision-log.md#adr-0054--il-massimale-del-bando-non-e-limporto-assegnato-al-club-e-una-presenza-non-e-sempre-una-prova): `external_api` e dichiarato e **non selezionabile**. Nessun ente espone oggi una API chiamabile, e un adapter finto sarebbe peggio di nessun adapter |
+| D2-07 | Dettaglio periodi leggibile | `DONE` | Periodo, frequenza, requisito, previsione, stato ufficiale, maturato, rendicontato, liquidato. Righe che si aprono, non otto colonne che scorrono di lato |
+| D2-08 | Scheda Iscrizione: un riepilogo solo | `DONE` | [ADR-0056](18-decision-log.md#adr-0056--la-scheda-iscrizione-ha-un-riepilogo-solo-e-una-fonte-sola-per-i-numeri). Erano tre rappresentazioni dei totali da due fonti diverse, che non coincidevano sempre |
+| D2-09 | Prossima rata come azione principale | `DONE` | La scaduta piu vecchia, poi la prima scoperta per scadenza. Con tutto saldato non compare nessun pulsante |
+| D2-10 | Rate, composizione e documenti a scomparsa | `DONE` | Le rate si aprono da sole solo quando c'e una scaduta o un parziale |
+| D2-11 | Legacy della scheda economica rimosso davvero | `DONE` | «Riepilogo Incasso», «Storico Pagamenti» con la sua tabella e i suoi totali, la griglia dei totali dentro il piano, il pannello «Status Iscrizione». Le azioni che vivevano solo li sono nel dettaglio della rata |
+| D2-12 | Il gruppo operativo e l'unita delle operazioni | `DONE` | [ADR-0055](18-decision-log.md#adr-0055--configurazione-si-sceglie-per-categoria-operazione-si-sceglie-per-gruppo). Elenchi atleti, allenamenti, presenze, programma settimanale, assegnazione allenatori |
+| D2-13 | Sedi di una categoria nel modulo della categoria | `DONE` | La spunta **e** il gruppo. La finestra separata e stata rimossa; togliere una sede archivia invece di cancellare |
+| D2-14 | Elenchi atleti separati per gruppo | `DONE` | `Pulcini · Scauri` e `Pulcini · Santi Cosma` sono due liste operative, non due righe della stessa |
+| D2-15 | Presenze senza contaminazione fra squadre | `DONE` | L'appello di un allenamento mostra la sua squadra; il conteggio ore dei contributi filtra sui gruppi dell'atleta |
+| D2-16 | Allenamento su piu gruppi | `DONE` | Selezione multipla senza duplicare l'allenamento; la deduplica del generatore include il gruppo |
+| D2-17 | Allenatore su piu squadre della stessa categoria | `DONE` | `trainers.groupIds`; senza dichiarazione segue tutte le squadre delle sue categorie, come prima |
+| D2-18 | Dato legacy senza sede | `DONE` | Gruppo «Sede non assegnata» distinto e visibile; si colloca in blocco dal cambio categoria, che ora **preserva** la sede invece di scartarla |
+| D2-19 | Iscrizione atleta su pagina dedicata | `DONE` | [ADR-0057](18-decision-log.md#adr-0057--iscrivere-un-atleta-e-una-pagina-e-il-numero-di-maglia-non-e-un-dato-anagrafico). Come allenatori e soci; il salvataggio porta alla scheda creata |
+| D2-20 | Numero di maglia fuori dall'iscrizione | `DONE` | Non e un dato della persona: e un'assegnazione con gruppo, stagione e unicita |
+| D2-21 | Primo bando reale a fonte esterna | `OPEN` | Il percorso e provato contro il database di sviluppo; **manca l'atto** su un prospetto vero di un ente |
+
+---
+
 ## Remaining Web V1 after integration
 
 Cio che manca perche la Web V1 si possa dichiarare **release candidate**, dopo
@@ -565,14 +597,14 @@ elenco. Nessuna e cominciata; ognuna vale un blocco o piu.
 
 | # | Proposta | Stato | Perche non ora |
 |---|----------|-------|----------------|
-| P-01 | **Multi-sede per le categorie** | `DONE` | **Workstream B** — WP-49, [ADR-0038](18-decision-log.md). La categoria non si duplica: sede, struttura e gruppo operativo sono concetti separati. Filtro sede su Categorie, Atleti, Strutture e gruppi numerazione; il club mono-sede non vede il concetto |
+| P-01 | **Multi-sede per le categorie** | `DONE` | **Workstream B** — WP-49, [ADR-0038](18-decision-log.md), completato dal **Blocco D2** con [ADR-0055](18-decision-log.md#adr-0055--configurazione-si-sceglie-per-categoria-operazione-si-sceglie-per-gruppo). La categoria non si duplica, e il gruppo operativo non e piu un filtro: e l'unita con cui si scelgono elenchi atleti, allenamenti, presenze, programma settimanale e assegnazioni. Il club mono-sede non vede il concetto |
 | P-02 | **Abbigliamento e consegne V2** | `IN PROGRESS` | **Workstream B** — WP-49: ciclo di consegna per articolo con stato del kit derivato, taglia proposta dall'anagrafica con override. **Manca** la riconciliazione con gli ordini fornitore, che resta un flusso a se |
 | P-03 | **Modulistica V2** | `DONE` | Blocco 9, WP-50 — campi, versioni immutabili, firma, e i documenti generati collegati alla scheda della persona |
 | P-04 | **Moduli online** | `IN PROGRESS` | Blocco 9 — collegamento all'anagrafica e iscrizione online **fatti**. **Mancano** la validazione condizionale (B9-17) e il pagamento contestuale, che dipende da WP-13 |
 | P-05 | **Scanner documenti** | `IN PROGRESS` | La foundation e del Blocco 7 (ADR e KB). Restano: PDF, provider remoto, migrazione della scheda atleta. Vedi B7-32/33/34 |
 | P-06 | **Stripe** (gia «Stripe / CediPay») | `IN PROGRESS` | **Blocco D**, ADR-0049/0050/0051. Connect con onboarding, commissioni con decorrenza e congelamento, rimborsi, `account.updated`, pagamento parziale, billing di piattaforma separato. **Mancano** le credenziali e il primo giro reale (BD-21) |
 | P-07 | **SaaS ed entitlements** | `IN PROGRESS` | **Blocco Finale B**, ADR-0046 — lo strato centralizzato c'e: catalogo chiuso delle funzioni, risoluzione su piano, servizi ed eccezioni, con il **motivo** di ogni esito; `GET|POST /api/v1/entitlements`; sezione «Servizi e piani» nella console di piattaforma. **Manca** il gating vero, che non va acceso finche il piano resta modificabile dal club (D37), e l'ambiente di produzione (F5-01) |
-| P-08 | **Bonus Sport e Salute** | `OPEN` | **Il modello c'e** dal Workstream A (WP-48, ADR-0037): un bando si descrive con la configurazione, e il Voucher Lazio 2025 e gia coperto come scenario. Resta aperta la parte che **non si puo implementare a memoria**: la fonte dati esterna, le regole annuali del bando e il canale di trasmissione delle rendicontazioni, che cambia da ente a ente |
+| P-08 | **Bonus Sport e Salute** | `IN PROGRESS` | **Il modello c'e** dal Workstream A (WP-48, ADR-0037): un bando si descrive con la configurazione, e il Voucher Lazio 2025 e gia coperto come scenario. Dal Blocco D2 ([ADR-0054](18-decision-log.md#adr-0054--il-massimale-del-bando-non-e-limporto-assegnato-al-club-e-una-presenza-non-e-sempre-una-prova)) c'e anche la **fonte esterna**: quando la frequenza ufficiale sta su una piattaforma dell'ente, EasyGame calcola la previsione e aspetta una conferma, che si registra a mano o si importa da file. **Manca** il canale di trasmissione delle rendicontazioni, che cambia da ente a ente e non si implementa a memoria |
 | P-09 | **AI per gli allenamenti** | `OPEN` | Nessun requisito scritto. Va definito cosa deve produrre prima di scegliere come |
 | P-10 | **OAuth Google e Microsoft** | `OPEN` | L'infrastruttura OAuth esiste (`/api/v1/auth/oauth/:provider`). Mancano le credenziali applicative e la decisione su quali domini ammettere |
 

@@ -196,13 +196,13 @@ La CI aggiunge anche `npx tsc --allowUnreachableCode false` e quattro
 guardrail di sicurezza (nessun `.env` committato, nessun token noto, nessuna
 connection string con credenziali, nessun `DATABASE_URL` nel mobile).
 
-### Baseline verificata il 2026-08-22
+### Baseline verificata il 2026-08-26 (Blocco D2)
 
 | Gate | Esito |
 |------|-------|
-| `npm test` | 1.198 pass / 0 fail (2026-08-26, Blocco Finale C) |
+| `npm test` | 1.535 pass / 0 fail (2026-08-26, Blocco D2) |
 | `npm run typecheck` | OK |
-| `npm run lint` | 0 errori, 42 warning (`no-img-element`, `exhaustive-deps`) |
+| `npm run lint` | 0 errori, 41 warning (`no-img-element`, `exhaustive-deps`) |
 | `npm run build` | OK |
 | `easygamemobile` `check:types` | OK |
 | `easygamemobile` `lint` | esce 0, 20 warning |
