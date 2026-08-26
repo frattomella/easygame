@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test, { before } from "node:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 /**
  * **Chi puo scrivere le condizioni commerciali dentro `paymentSettings`.**
@@ -231,4 +233,22 @@ test("i campi commerciali protetti sono dichiarati, non sparsi", () => {
       `${campo} decide dove finisce il denaro o se si puo incassare`,
     );
   }
+});
+
+/* ------------------------------------------------------- l audit resta leggibile */
+
+test("il campo dell audit non si chiama come un segreto", () => {
+  /*
+    Il sanitizzatore dell audit oscura ogni chiave che contenga il segmento
+    «key». Con `rejectedKeys` il valore finiva «[rimosso]»: restava la traccia
+    del tentativo e spariva **quale** campo qualcuno avesse provato a
+    cambiarsi — cioe la sola cosa per cui quella riga esiste.
+  */
+  const resources = readFileSync(
+    path.join(process.cwd(), "src/lib/server/resources.ts"),
+    "utf8",
+  );
+
+  assert.match(resources, /metadata: { rejectedFields:/);
+  assert.doesNotMatch(resources, /metadata: { rejectedKeys:/);
 });

@@ -2687,7 +2687,14 @@ const guardPlatformOwnedClubSettings = async (
     organizationId: organizationId || scope?.activeOrganizationId || null,
     resource: "club_plan",
     resourceId: organizationId || "",
-    metadata: { rejectedKeys: guard.rejectedKeys },
+    /*
+      `rejectedFields` e non `rejectedKeys`: il sanitizzatore dell'audit
+      oscura ogni chiave che contenga il segmento «key», e il valore finiva
+      «[rimosso]». Restava la traccia del tentativo e spariva **quale** campo
+      qualcuno avesse provato a cambiarsi — cioe la sola cosa per cui quella
+      riga di audit esiste.
+    */
+    metadata: { rejectedFields: guard.rejectedKeys },
   });
 };
 

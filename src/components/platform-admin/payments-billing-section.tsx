@@ -306,8 +306,8 @@ export function PaymentsBillingSection() {
             </CardTitle>
             <p className="text-sm text-muted-foreground">
               Vale per ogni societa che non abbia una condizione dedicata. Una
-              modifica **non** cambia i movimenti gia registrati: ogni incasso
-              porta con se la commissione applicata quel giorno.
+              modifica <strong>non</strong> cambia i movimenti gia registrati:
+              ogni incasso porta con se la commissione applicata quel giorno.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">

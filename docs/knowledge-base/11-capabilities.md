@@ -199,3 +199,17 @@ Classificazione:
 | Emettere ricevuta o fattura | **Funziona.** Con snapshot, serie, annullamento e immutabilita |
 | Generare il tracciato FatturaPA | **Funziona, ma non e mai stato accettato dallo SdI**: e scritto sulla specifica pubblica e va considerato da collaudare |
 | **Trasmettere allo SdI** | **NON ATTIVA.** Nessun intermediario accreditato configurato. Nessun documento viene marcato come trasmesso, e la console lo dice a chiare lettere |
+
+## Voucher e contributi dopo il Blocco D (2026-08-26)
+
+| Funzione | Stato reale |
+|----------|-------------|
+| Configurare un programma (bando, voucher, contributo) | **Funziona.** Le regole sono configurazione: importo per periodo, requisito minimo, cosa succede sotto la soglia |
+| **Aprire un programma e vederne la scheda** | **Funziona.** Era il buco: `funding_enrollments` esisteva nel modello e nessuna schermata lo sapeva scrivere |
+| Iscrivere uno o piu atleti | **Funziona.** Selezione multipla, plafond e codice voucher individuali, doppie iscrizioni impedite |
+| Iscrivere dalla scheda atleta | **Funziona.** Stesso servizio e stesso componente del flusso opposto |
+| Togliere o revocare un'iscrizione | **Funziona.** Con storico rendicontato o liquidato si revoca invece di cancellare |
+| Vedere i cinque importi per iscritto | **Funziona.** Assegnato, maturato, rendicontato, liquidato, residuo |
+| Calcolo del maturato dalle presenze | **Funziona.** E non si puo scavalcare: nessuna superficie accetta un importo maturato scritto a mano |
+| Trasmissione telematica all'ente | **NON IMPLEMENTATA.** Il canale cambia da bando a bando e non si scrive a memoria |
+| Compensazione automatica sulla rata | **NON IMPLEMENTATA**, per scelta: farebbe risultare saldate rate che nessuno ha pagato |

@@ -5018,7 +5018,9 @@ export default function AthleteProfilePage() {
                     <AthleteFundingSummary
                       athleteId={athleteId}
                       athleteName={
-                        `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim()
+                        athlete?.fullName ||
+                        `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim() ||
+                        null
                       }
                     />
                   </CardContent>
