@@ -8,6 +8,8 @@ import {
   listFundingPrograms,
 } from "@/lib/server/funding";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { requireClubEntitlement } from "@/lib/server/entitlements";
+import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -87,6 +89,18 @@ export async function POST(request: Request) {
         "Accesso negato: solo il proprietario o un gestore del club puo configurare un programma di contributo",
       );
     }
+
+    /*
+      Il ruolo dice se **questa persona** puo configurare un bando; gli
+      entitlement dicono se **questa societa** ha comprato i contributi. Sono
+      due domande diverse e vanno poste entrambe, nell'ordine in cui una
+      segreteria le capisce: prima «non tocca a te», poi «non e nel piano».
+    */
+    await requireClubEntitlement({
+      organizationId: String(scope.activeOrganizationId || ""),
+      key: "funding_programs",
+      isPlatformAdmin: isPlatformAdminUser(session.db.user),
+    });
 
     const body = await request.json().catch(() => ({}));
     const program = await createFundingProgram(body, scope);

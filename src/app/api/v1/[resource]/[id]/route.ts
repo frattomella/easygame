@@ -11,6 +11,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { assertClubResourceAccess } from "@/lib/access-roles";
+import { isPlatformAdminUser } from "@/lib/platform-admin";
 import {
   AUDIT_ACTIONS,
   AUDITED_RESOURCES,
@@ -136,6 +137,11 @@ export async function PATCH(request: Request, context: Context) {
     const payload = body?.data ?? body;
     const updated = await updateResource(resource, id, payload || {}, scope, {
       activeSeasonId: request.headers.get("x-active-season-id"),
+      /*
+        Si ricava dalla sessione, mai dal corpo: e cio che decide se il piano
+        e i servizi del club sono scrivibili (D37).
+      */
+      isPlatformAdmin: isPlatformAdminUser(session.db.user),
     });
     // Con `?fields=` la risposta porta le stesse colonne della lettura, invece
     // della riga intera del club (WP-31).

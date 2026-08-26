@@ -9,6 +9,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { assertClubResourceAccess } from "@/lib/access-roles";
+import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { sendNotificationEmails } from "@/lib/server/email/email-service";
 import {
   AUDIT_ACTIONS,
@@ -159,6 +160,7 @@ export async function POST(request: Request, context: Context) {
       created.push(
         await createResource(resource, item || {}, mode, scope, {
           activeSeasonId: request.headers.get("x-active-season-id"),
+          isPlatformAdmin: isPlatformAdminUser(session.db.user),
         }),
       );
     }

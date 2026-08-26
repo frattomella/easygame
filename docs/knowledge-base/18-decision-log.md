@@ -2035,8 +2035,10 @@ degli incassi online, e permette di concedere o revocare. Non ci sono fatture
 verso Cedi, non c'e un listino modificabile, non c'e la contabilita della
 piattaforma: serve a rispondere al telefono e a sbloccare un cliente.
 
-**Stato:** ATTIVA. Nessuna funzione e ancora **negata** da questo strato: e
-descrittivo finche D37 non e chiuso.
+**Stato:** ATTIVA. Il limite qui sopra e stato rimosso dal Blocco Finale C:
+[ADR-0048](#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa)
+ha portato piano e servizi sotto il controllo della piattaforma, e da allora
+questo strato **nega** su tre scritture.
 
 ## ADR-0047 — Un pagamento non e un documento: ricevuta e fattura si scelgono
 
@@ -2103,3 +2105,78 @@ dell'intermediario e una decisione commerciale, non tecnica.
   parte da un incasso, che e quello che genera il volume.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0048 — Il piano di una societa appartiene alla piattaforma, non alla societa
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco Finale C, chiude [D37](16-technical-debt.md) e R-18
+
+**Il problema.** Piano, stato dell'abbonamento e servizi aggiuntivi stavano in
+`clubs.settings`, e `clubs.settings` si scrive dalla pagina Organizzazione:
+c'era una tendina «Piano: Free / Plus» dentro il gestionale della societa.
+Finche quello strato **descriveva** non era sfruttabile — nessuna schermata
+veniva negata da li — ma [ADR-0046](#adr-0046--chi-puo-usare-cosa-si-calcola-in-un-posto-solo-e-la-risposta-dice-sempre-perche)
+lo ha reso l'ingresso del calcolo degli entitlement. Il gating vero non e mai
+stato acceso per questa ragione sola: il giorno in cui una funzione viene
+negata, un club si concede il piano superiore da solo.
+
+**La decisione.** Quattro chiavi di `clubs.settings` — `subscription`,
+`subscriptionSettings`, `extraServices`, `entitlements` — diventano di
+proprieta della piattaforma. Si scrivono solo da `setClubPlan`,
+`setClubExtraService` e `setClubEntitlementOverride`, cioe da
+`POST /api/v1/entitlements` con ruolo `platform_admin`. La societa le legge e
+basta.
+
+**Perche la guardia sta nella scrittura e non nell'interfaccia.** Togliere la
+tendina non protegge niente: la pagina Organizzazione rimanda l'intero blocco
+delle impostazioni a `PATCH /api/v1/clubs/:id`, e la stessa richiesta la puo
+rifare a mano chiunque sappia aprire la console del browser. La regola vive in
+`withPlatformOwnedSettings`, che e una funzione pura chiamata dentro
+`resources.ts` sia in creazione sia in modifica. Anche la creazione: un club
+che nascesse con `plan: "plus"` avrebbe aggirato un controllo messo solo sulla
+modifica.
+
+**Perche ignora invece di rifiutare.** Il salvataggio di un recapito manda
+anche il piano, perche quella pagina manda tutto. Rispondere «Accesso negato»
+al salvataggio di un numero di telefono renderebbe la pagina inutilizzabile
+per un campo che nessuno stava cercando di cambiare. Il valore che arriva
+dalla societa viene quindi **sostituito** con quello che c'e; se era
+**diverso** — cioe se era un tentativo vero — resta una riga di audit con
+esito `denied`.
+
+**Il difetto trovato mentre si chiudeva questo.** Il calcolo leggeva
+`settings.subscriptionSettings`; la pagina Organizzazione scriveva
+`settings.subscription`. **Nessun club aveva quindi il piano che credeva di
+avere**: il calcolo partiva sempre dai valori predefiniti, e una societa messa
+in Plus restava trattata come Free. Il test che avrebbe dovuto accorgersene
+seminava a sua volta `subscriptionSettings`, cioe provava la stessa cosa
+sbagliata. La scelta della chiave sta ora in `readSubscriptionSettingsSource`,
+un posto solo, e la chiave storica resta leggibile.
+
+**Il gating che si e potuto accendere di conseguenza.** Tre punti, e non di
+piu: `POST /api/payments/create-checkout-session` (`online_payments`),
+`POST /api/v1/funding/programs` (`funding_programs`), `POST /api/v1/forms`
+(`forms_v2`). La **lettura** non e mai negata: disattivare un servizio non
+deve nascondere a una societa le compilazioni che ha gia ricevuto o i
+contributi che ha gia maturato. Nell'interfaccia, `CapabilityGate` mostra il
+motivo invece di far sparire la schermata — «Disponibile con il piano Plus» e
+«L'abbonamento non e in corso» portano a fare due cose diverse, e un `403`
+generico le farebbe finire entrambe al telefono.
+
+**Cosa NON e stato fatto.** Nessun listino, nessuna fatturazione verso Cedi,
+nessuna scadenza automatica. La console di piattaforma assegna il piano e
+attiva i servizi; il resto e commerciale e non sta in questo repository.
+
+**Conseguenze.**
+
+- la scheda «Account e Fatturazione» della pagina Organizzazione e in **sola
+  lettura**, con scritto che i valori li gestisce Cedi;
+- `ResourceRequestOptions` porta `isPlatformAdmin`, ricavato **sempre** dalla
+  sessione nel route handler;
+- tre azioni nuove nell'audit: `platform.club_plan.changed`,
+  `platform.club_service.changed`, `platform.entitlement.overridden`;
+- un test statico impedisce a qualunque file fuori dai moduli degli
+  entitlement di scrivere `plan === "plus"`.

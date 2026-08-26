@@ -13,7 +13,12 @@ import { normalizeExtraServices } from "@/lib/payments/payment-config-utils";
 
 type HubExtraServicesPanelProps = {
   value: HubExtraService[];
-  onChange: (nextValue: HubExtraService[]) => void;
+  onChange?: (nextValue: HubExtraService[]) => void;
+  /**
+   * I servizi aggiuntivi li attiva Cedi, non il club: nel gestionale il
+   * pannello si monta in sola lettura. Vedi ClubSubscriptionPanel e D37.
+   */
+  readOnly?: boolean;
 };
 
 const statusLabel = (status: HubExtraBillingStatus) => {
@@ -30,6 +35,7 @@ const statusLabel = (status: HubExtraBillingStatus) => {
 export function HubExtraServicesPanel({
   value,
   onChange,
+  readOnly = false,
 }: HubExtraServicesPanelProps) {
   const services = normalizeExtraServices(value);
 
@@ -37,6 +43,7 @@ export function HubExtraServicesPanel({
     serviceKey: HubExtraServiceKey,
     updates: Partial<HubExtraService>,
   ) => {
+    if (readOnly || !onChange) return;
     onChange(
       services.map((service) =>
         service.key === serviceKey
@@ -73,16 +80,22 @@ export function HubExtraServicesPanel({
                       {service.description}
                     </p>
                   </div>
-                  <Switch
-                    checked={service.enabled}
-                    onCheckedChange={(checked) =>
-                      patch(service.key, {
-                        enabled: checked,
-                        billingStatus: checked ? "active" : "not_active",
-                      })
-                    }
-                    aria-label={`Abilita ${service.name}`}
-                  />
+                  {readOnly ? (
+                    <Badge variant={service.enabled ? "default" : "outline"}>
+                      {service.enabled ? "Attivo" : "Non attivo"}
+                    </Badge>
+                  ) : (
+                    <Switch
+                      checked={service.enabled}
+                      onCheckedChange={(checked) =>
+                        patch(service.key, {
+                          enabled: checked,
+                          billingStatus: checked ? "active" : "not_active",
+                        })
+                      }
+                      aria-label={`Abilita ${service.name}`}
+                    />
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant={service.enabled ? "default" : "secondary"}>
@@ -94,9 +107,15 @@ export function HubExtraServicesPanel({
                       : "Prezzo da configurare"}
                   </Badge>
                 </div>
-                <Button type="button" variant="outline" disabled={!service.enabled}>
-                  {service.enabled ? "Gestisci" : "Attiva"}
-                </Button>
+                {readOnly ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!service.enabled}
+                  >
+                    {service.enabled ? "Gestisci" : "Attiva"}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ))}

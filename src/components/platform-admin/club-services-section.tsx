@@ -12,7 +12,10 @@ import {
   describeCediPayReadiness,
   CEDIPAY_PROVIDERS,
 } from "@/lib/payments/cedipay/index";
-import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
+import {
+  HUB_EXTRA_SERVICE_DEFINITIONS,
+  normalizePaymentSettings,
+} from "@/lib/payments/payment-config-utils";
 import type { EntitlementReason } from "@/lib/entitlements";
 
 /**
@@ -74,6 +77,22 @@ const REASON_LABELS: Record<string, string> = {
 };
 
 const PLAN_LABELS: Record<string, string> = { free: "Free", plus: "Plus" };
+
+/**
+ * Gli stati in cui un abbonamento puo trovarsi.
+ *
+ * `past_due` e `cancelled` sono due cose diverse e restano separate: un
+ * pagamento in ritardo non spegne il gestionale (vedi `PAYING_STATUSES` nel
+ * calcolo), una disdetta si.
+ */
+const SUBSCRIPTION_STATUSES = [
+  { value: "not_active", label: "Non attivo" },
+  { value: "trialing", label: "In prova" },
+  { value: "active", label: "Attivo" },
+  { value: "past_due", label: "In ritardo" },
+  { value: "cancelled", label: "Disdetto" },
+  { value: "expired", label: "Scaduto" },
+] as const;
 
 export function ClubServicesSection({ clubs }: { clubs: ClubOption[] }) {
   const { showToast } = useToast();
@@ -141,6 +160,64 @@ export function ClubServicesSection({ clubs }: { clubs: ClubOption[] }) {
     }
 
     showToast("success", "Servizi del club aggiornati");
+    await load(selectedId);
+  };
+
+  /**
+   * Il piano di una societa si cambia **qui e solo qui**.
+   *
+   * Era un campo della pagina Organizzazione, cioe una scelta della societa:
+   * un club poteva concedersi il piano superiore da solo. Da ADR-0048 la
+   * scrittura passa da questa console e dal ruolo `platform_admin`, e ogni
+   * cambio finisce nell'audit — perche «chi ha messo questo club in Plus?» e
+   * una domanda commerciale, non tecnica, e va potuta rileggere.
+   */
+  const changePlan = async (updates: {
+    plan?: string;
+    status?: string;
+    renewal_date?: string;
+  }) => {
+    if (!selectedId) return;
+    setBusyKey("__plan__");
+
+    const { error } = await apiRequest("/api/v1/entitlements", {
+      method: "POST",
+      body: { organization_id: selectedId, operation: "plan", ...updates },
+    });
+
+    setBusyKey(null);
+
+    if (error) {
+      showToast("error", error.message || "Cambio piano non riuscito");
+      return;
+    }
+
+    showToast("success", "Piano aggiornato");
+    await load(selectedId);
+  };
+
+  const changeService = async (key: string, enabled: boolean) => {
+    if (!selectedId) return;
+    setBusyKey(`service:${key}`);
+
+    const { error } = await apiRequest("/api/v1/entitlements", {
+      method: "POST",
+      body: {
+        organization_id: selectedId,
+        operation: "service",
+        key,
+        value: enabled,
+      },
+    });
+
+    setBusyKey(null);
+
+    if (error) {
+      showToast("error", error.message || "Modifica del servizio non riuscita");
+      return;
+    }
+
+    showToast("success", enabled ? "Servizio attivato" : "Servizio disattivato");
     await load(selectedId);
   };
 
@@ -245,6 +322,111 @@ export function ClubServicesSection({ clubs }: { clubs: ClubOption[] }) {
                     ? payload.activeExtras.join(", ")
                     : "Nessuno"}
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Piano e servizi</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Il club vede queste informazioni in sola lettura. Si cambiano
+                da qui, e ogni cambio resta nell&apos;audit.
+              </p>
+
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Piano
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(["free", "plus"] as const).map((plan) => (
+                    <Button
+                      key={plan}
+                      type="button"
+                      size="sm"
+                      variant={payload.plan === plan ? "default" : "outline"}
+                      disabled={busyKey === "__plan__"}
+                      onClick={() => changePlan({ plan })}
+                    >
+                      {PLAN_LABELS[plan]}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Abbonamento
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {SUBSCRIPTION_STATUSES.map((status) => (
+                    <Button
+                      key={status.value}
+                      type="button"
+                      size="sm"
+                      variant={
+                        payload.subscriptionStatus === status.value
+                          ? "default"
+                          : "outline"
+                      }
+                      disabled={busyKey === "__plan__"}
+                      onClick={() => changePlan({ status: status.value })}
+                    >
+                      {status.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Rinnovo
+                </p>
+                <Input
+                  type="date"
+                  className="max-w-xs"
+                  defaultValue=""
+                  aria-label="Data di rinnovo dell'abbonamento"
+                  disabled={busyKey === "__plan__"}
+                  onChange={(event) =>
+                    changePlan({ renewal_date: event.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Servizi aggiuntivi
+                </p>
+                <div className="space-y-2">
+                  {HUB_EXTRA_SERVICE_DEFINITIONS.map((service) => {
+                    const active = payload.activeExtras.includes(service.key);
+                    return (
+                      <div
+                        key={service.key}
+                        className="flex flex-col gap-2 rounded-2xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="text-sm font-medium">{service.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {service.description}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={active ? "default" : "outline"}
+                          disabled={busyKey === `service:${service.key}`}
+                          onClick={() => changeService(service.key, !active)}
+                        >
+                          {active ? "Disattiva" : "Attiva"}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </CardContent>
           </Card>

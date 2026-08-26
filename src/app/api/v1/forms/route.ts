@@ -1,4 +1,5 @@
 import { createFormTemplate, listFormTemplates } from "@/lib/server/forms";
+import { requireClubEntitlement } from "@/lib/server/entitlements";
 import { failure, ok, resolveFormsScope } from "./http";
 
 /**
@@ -38,6 +39,19 @@ export async function POST(request: Request) {
     const organizationId = body?.organization_id || body?.organizationId || null;
     const resolved = await resolveFormsScope(request, organizationId);
     if (resolved.response) return resolved.response;
+
+    /*
+      Solo la creazione: leggere i moduli gia esistenti deve restare possibile
+      anche a una societa che non ha piu il servizio, altrimenti disattivarlo
+      le nasconderebbe le compilazioni gia ricevute.
+    */
+    await requireClubEntitlement({
+      organizationId: String(
+        organizationId || resolved.scope.activeOrganizationId || "",
+      ),
+      key: "forms_v2",
+      isPlatformAdmin: resolved.isPlatformAdmin,
+    });
 
     const template = await createFormTemplate(resolved.scope, {
       organizationId,

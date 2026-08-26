@@ -160,7 +160,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "POST",
     path: "/api/v1/entitlements",
     description:
-      "Concede o revoca una funzione a un club. Solo platform_admin: e una decisione di Cedi verso un cliente",
+      "Piano (operation=plan), servizio aggiuntivo (operation=service) o eccezione su una funzione. Solo platform_admin: sono decisioni di Cedi verso un cliente, non preferenze del club",
     mobile_ready: false,
   },
   {

@@ -3,6 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { isPlatformAdminUser } from "@/lib/platform-admin";
 import type { FormsAccessScope } from "@/lib/server/forms";
 
 /**
@@ -35,8 +36,17 @@ export const ok = (data: unknown) =>
   NextResponse.json({ data, error: null });
 
 export type ResolvedScope =
-  | { scope: FormsAccessScope; response?: undefined }
-  | { scope?: undefined; response: NextResponse };
+  | {
+      scope: FormsAccessScope;
+      /**
+       * Ricavato dalla sessione, mai dal corpo. Serve alle rotte che chiedono
+       * un entitlement: chi amministra la piattaforma deve poter aprire il
+       * modulo di un club qualunque per assisterlo.
+       */
+      isPlatformAdmin: boolean;
+      response?: undefined;
+    }
+  | { scope?: undefined; isPlatformAdmin?: undefined; response: NextResponse };
 
 /**
  * Il club con cui operare.
@@ -66,5 +76,5 @@ export const resolveFormsScope = async (
     };
   }
 
-  return { scope };
+  return { scope, isPlatformAdmin: isPlatformAdminUser(session.db.user) };
 };

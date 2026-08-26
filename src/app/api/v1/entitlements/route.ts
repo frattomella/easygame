@@ -6,6 +6,8 @@ import {
 import {
   loadClubEntitlements,
   setClubEntitlementOverride,
+  setClubExtraService,
+  setClubPlan,
 } from "@/lib/server/entitlements";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
@@ -132,6 +134,67 @@ export async function POST(request: Request) {
       body?.organization_id || body?.organizationId || "",
     ).trim();
 
+    /*
+      Tre scritture diverse sulla stessa rotta, distinte da `operation`:
+      l'eccezione su una funzione (il comportamento storico, e il valore
+      predefinito), il piano, e un servizio aggiuntivo. Sono tre cose che
+      cambiano insieme quando Cedi vende o sospende qualcosa, e tenerle su tre
+      rotte avrebbe voluto dire tre controlli di ruolo da tenere allineati.
+    */
+    const operation = String(body?.operation || "override");
+
+    if (operation === "plan") {
+      const subscription = await setClubPlan({
+        organizationId,
+        plan: body?.plan === undefined ? undefined : body.plan,
+        status: body?.status === undefined ? undefined : body.status,
+        renewalDate:
+          body?.renewal_date === undefined
+            ? undefined
+            : String(body.renewal_date || ""),
+      });
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.clubPlanChanged,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: "platform_admin",
+        organizationId,
+        resource: "club_plan",
+        resourceId: organizationId,
+        request,
+        metadata: {
+          plan: subscription.plan,
+          status: subscription.status,
+          renewalDate: (subscription as any).renewalDate || null,
+        },
+      });
+
+      return NextResponse.json({ data: { subscription }, error: null });
+    }
+
+    if (operation === "service") {
+      const services = await setClubExtraService({
+        organizationId,
+        key: String(body?.key || ""),
+        enabled: Boolean(body?.value),
+      });
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.clubServiceChanged,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: "platform_admin",
+        organizationId,
+        resource: "club_service",
+        resourceId: String(body?.key || ""),
+        request,
+        metadata: { key: body?.key, enabled: Boolean(body?.value) },
+      });
+
+      return NextResponse.json({ data: { services }, error: null });
+    }
+
     const overrides = await setClubEntitlementOverride({
       organizationId,
       key: String(body?.key || ""),
@@ -145,7 +208,7 @@ export async function POST(request: Request) {
     });
 
     await recordAuditEvent({
-      action: AUDIT_ACTIONS.resourceUpdated,
+      action: AUDIT_ACTIONS.clubEntitlementOverridden,
       actorUserId: session.db.user_id,
       actorEmail: session.db.user.email,
       actorRole: "platform_admin",

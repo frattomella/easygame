@@ -72,6 +72,8 @@ import {
   AssistedFiscalCodeField,
 } from "@/components/forms/assisted-anagrafica";
 import { ClubBillingSettings } from "@/components/payments/ClubBillingSettings";
+import { readSubscriptionSettingsSource } from "@/lib/entitlements";
+import { CapabilityGate } from "@/components/club/capability-gate";
 import { ClubPaymentSettings } from "@/components/payments/ClubPaymentSettings";
 import {
   normalizeExtraServices,
@@ -369,7 +371,14 @@ const [federations, setFederations] = useState<any[]>([]);
               : {};
           setPaymentSettings(normalizePaymentSettings(settings.paymentSettings));
           setSubscriptionSettings(
-            normalizeSubscriptionSettings(settings.subscription),
+            /*
+              Da quale chiave si legge il piano lo decide un posto solo:
+              questa pagina e il calcolo degli entitlement leggevano chiavi
+              diverse, e il club vedeva un piano che il server non usava.
+            */
+            normalizeSubscriptionSettings(
+              readSubscriptionSettingsSource(settings),
+            ),
           );
           setExtraServices(normalizeExtraServices(settings.extraServices));
 
@@ -729,17 +738,18 @@ const [federations, setFederations] = useState<any[]>([]);
         iban: organizationData.iban,
         federations,
         paymentSettings,
-        subscriptionSettings,
-        extraServices,
+        /*
+          Piano e servizi non compaiono nell'impronta: sono in sola lettura,
+          non possono cambiare, e includerli farebbe risultare «da salvare»
+          una scheda su cui non si e toccato niente.
+        */
       }),
     [
       customTaxRegime,
-      extraServices,
       federations,
       organizationData,
       paymentSettings,
       showCustomTaxRegimeInput,
-      subscriptionSettings,
       taxRegimePreset,
     ],
   );
@@ -931,11 +941,6 @@ const [federations, setFederations] = useState<any[]>([]);
       const { updateClub } = await import("@/lib/simplified-db");
       const normalizedPaymentSettings =
         sanitizePaymentSettingsForStorage(paymentSettings);
-      const normalizedSubscriptionSettings = {
-        ...normalizeSubscriptionSettings(subscriptionSettings),
-        updatedAt: new Date().toISOString(),
-      };
-      const normalizedExtraServices = normalizeExtraServices(extraServices);
 
       const updateData = {
         name: organizationData.name.trim(),
@@ -990,16 +995,18 @@ const [federations, setFederations] = useState<any[]>([]);
         // nel frattempo, e il salvataggio di un recapito rimetteva attiva
         // l'annata precedente.
         paymentSettings: normalizedPaymentSettings,
-        subscription: normalizedSubscriptionSettings,
-        extraServices: normalizedExtraServices,
+        /*
+          `subscription` ed `extraServices` non partono piu da qui: sono di
+          proprieta della piattaforma (D37). Il server li rimetterebbe
+          comunque al loro posto, ma mandarli lascerebbe credere il contrario
+          a chi legge questa pagina.
+        */
         updated_at: new Date().toISOString(),
       };
 
       const updatedClub = await updateClub(currentClubId, updateData);
       setClubSnapshot(updatedClub);
       setPaymentSettings(normalizedPaymentSettings);
-      setSubscriptionSettings(normalizedSubscriptionSettings);
-      setExtraServices(normalizedExtraServices);
 
       if (logoPreview) {
         localStorage.setItem("organization-logo", logoPreview);
@@ -1829,18 +1836,33 @@ const [federations, setFederations] = useState<any[]>([]);
             />
           </TabsContent>
           <TabsContent value="pagamenti" className="space-y-4 mt-4">
-            <ClubPaymentSettings
-              value={paymentSettings}
-              onChange={setPaymentSettings}
-            />
+            {/*
+              Gating vero, e non un 403 dopo il click: questa scheda configura
+              **solo** gli incassi online, che sono una funzione del piano. I
+              metodi manuali della societa non stanno qui e restano
+              raggiungibili. Il riquadro dice quale delle quattro strade
+              prendere — piano, abbonamento, servizio, assistenza — perche
+              sono quattro cose diverse e le percorrono persone diverse.
+            */}
+            <CapabilityGate feature="online_payments">
+              <ClubPaymentSettings
+                value={paymentSettings}
+                onChange={setPaymentSettings}
+              />
+            </CapabilityGate>
           </TabsContent>
 
           <TabsContent value="fatturazione" className="space-y-4 mt-4">
+            {/*
+              Sola lettura: il piano e i servizi appartengono alla
+              piattaforma. Lasciarli scegliere qui vorrebbe dire permettere a
+              una societa di concedersi il piano superiore da sola (D37), che
+              e esattamente cio che impediva di accendere il gating vero.
+            */}
             <ClubBillingSettings
               subscription={subscriptionSettings}
               extraServices={extraServices}
-              onSubscriptionChange={setSubscriptionSettings}
-              onExtraServicesChange={setExtraServices}
+              readOnly
             />
           </TabsContent>
 {/* SOCIAL */}

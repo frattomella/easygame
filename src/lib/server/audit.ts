@@ -42,6 +42,31 @@ export const AUDIT_ACTIONS = {
   formSubmissionRejected: "form.submission.rejected",
   adminEmailConfigUpdated: "admin.email_config.updated",
   adminEmailTestSent: "admin.email_config.test_sent",
+  /*
+    Denaro e documenti fiscali. Sono azioni che una segreteria puo dover
+    ricostruire mesi dopo — «chi ha stornato questo incasso?» — e la riga
+    incassata da sola non lo dice, perche dice solo com'e adesso.
+  */
+  paymentTransactionRecorded: "payment.transaction.recorded",
+  paymentTransactionReversed: "payment.transaction.reversed",
+  documentIssued: "document.issued",
+  /*
+    Contributi da enti: la maturazione e un calcolo e non si traccia, ma
+    rendicontare e liquidare sono atti verso un finanziatore.
+  */
+  fundingReported: "funding.period.reported",
+  fundingSettled: "funding.period.settled",
+  /*
+    Commerciale della piattaforma. Il club non le puo compiere: se compaiono
+    con un attore che non e `platform_admin`, e successo qualcosa.
+  */
+  clubPlanChanged: "platform.club_plan.changed",
+  clubServiceChanged: "platform.club_service.changed",
+  clubEntitlementOverridden: "platform.entitlement.overridden",
+  /** Configurazione di un provider di incasso: chiavi escluse dal metadata. */
+  paymentProviderConfigured: "admin.payment_provider.updated",
+  /** Anagrafiche di persona: chi ha cambiato i dati di chi (ADR-0019). */
+  anagraficaUpdated: "anagrafica.updated",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

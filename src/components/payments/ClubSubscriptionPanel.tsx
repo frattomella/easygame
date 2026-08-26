@@ -19,9 +19,22 @@ import {
   subscriptionStatusLabel,
 } from "@/lib/payments/payment-config-utils";
 
+/**
+ * Il piano di una societa.
+ *
+ * **`readOnly` non e una comodita: e la regola.** Il piano e cio che la
+ * societa ha comprato, e chi lo vende e Cedi. Finche questa scheda lo lasciava
+ * scegliere, un club poteva concedersi il piano superiore da solo — e il
+ * giorno in cui gli entitlement cominciano a **negare** qualcosa, quella
+ * scelta diventa un aggiramento (D37). Nel gestionale del club il pannello si
+ * monta quindi sempre in sola lettura; i comandi restano per la console di
+ * piattaforma, che e l'unica a poterli usare davvero: il server rimette al
+ * loro posto i valori che arrivassero da chiunque altro.
+ */
 type ClubSubscriptionPanelProps = {
   value: ClubSubscriptionSettings;
-  onChange: (nextValue: ClubSubscriptionSettings) => void;
+  onChange?: (nextValue: ClubSubscriptionSettings) => void;
+  readOnly?: boolean;
 };
 
 const isDevelopment = process.env.NODE_ENV !== "production";
@@ -29,10 +42,12 @@ const isDevelopment = process.env.NODE_ENV !== "production";
 export function ClubSubscriptionPanel({
   value,
   onChange,
+  readOnly = false,
 }: ClubSubscriptionPanelProps) {
   const subscription = normalizeSubscriptionSettings(value);
 
   const patch = (updates: Partial<ClubSubscriptionSettings>) => {
+    if (readOnly || !onChange) return;
     onChange({
       ...subscription,
       ...updates,
@@ -77,6 +92,14 @@ export function ClubSubscriptionPanel({
           </div>
         </div>
 
+        {readOnly ? (
+          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+            Piano, stato e servizi aggiuntivi sono gestiti da Cedi. Per
+            cambiarli scrivi all&apos;assistenza: da qui si leggono soltanto.
+          </p>
+        ) : null}
+
+        {readOnly ? null : (
         <div className="grid gap-3 md:grid-cols-3">
           <div className="space-y-2">
             <Label>Piano</Label>
@@ -125,6 +148,7 @@ export function ClubSubscriptionPanel({
             />
           </div>
         </div>
+        )}
 
         <div className="rounded-md border p-4">
           <h3 className="font-semibold">Abbonamento Plus</h3>
@@ -144,7 +168,7 @@ export function ClubSubscriptionPanel({
           <Button type="button" variant="outline" disabled>
             Gestisci abbonamento
           </Button>
-          {isDevelopment ? (
+          {isDevelopment && !readOnly ? (
             <Button
               type="button"
               variant="outline"

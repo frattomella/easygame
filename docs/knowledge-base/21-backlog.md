@@ -32,9 +32,9 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 189 |
+| `DONE` | 190 |
 | `IN PROGRESS` | 18 |
-| `OPEN` | 23 |
+| `OPEN` | 22 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
 | **Totale** | **240** |
@@ -356,7 +356,7 @@ numero 1 di CLAUDE.md.
 | BB-07 | Entitlements centralizzati e console piattaforma | `DONE` | ADR-0046 — catalogo chiuso, risoluzione con il **motivo** di ogni esito, `GET|POST /api/v1/entitlements`, sezione «Servizi e piani». Oggi **descrittivo**: vedi BB-10 |
 | BB-08 | Ricevuta e fattura come documenti distinti | `DONE` | ADR-0047 — due registri di numerazione, intestatario risolto dal tutore, `is_electronic` falso per costruzione. Chiude D36 sul percorso che genera il volume |
 | BB-09 | Il documento stampabile con il marchio del club | `DONE` | `GET /api/v1/documents/:kind/:id`. **Non archiviato**: le due strade — PDF con una libreria, o `text/html` in `attachments` — sono in D38 e nessuna si prende scrivendo un file |
-| BB-10 | Il gating vero delle funzioni | `OPEN` | **Per scelta.** Piano e servizi stanno in `clubs.settings` e la pagina Organizzazione li rende modificabili dal club: finche lo strato descrive non e un problema, il giorno in cui nega un club si concede il piano da solo. Va chiuso D37 prima |
+| BB-10 | Il gating vero delle funzioni | `DONE` | **Blocco Finale C**, [ADR-0048](18-decision-log.md#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa) — D37 chiuso: piano, abbonamento, servizi ed eccezioni sono di proprieta della piattaforma e la guardia sta nella scrittura, non nell'interfaccia. Il gating e acceso su tre scritture (checkout online, nuovo bando, nuovo modulo); la **lettura** non e mai negata, perche togliere un servizio non deve nascondere cio che una societa ha gia ricevuto |
 | BB-11 | Strumenti per riconciliare il primo bando reale | `DONE` | `GET /api/v1/funding/programs/:id/reconciliation`, anche in CSV: una riga per atleta e periodo, con la misura grezza accanto al requisito. **Non chiude R-11**, che e l'atto di caricare un bando vero |
 
 **Cosa il blocco ha trovato senza cercarlo.** Due seconde implementazioni gia
@@ -399,7 +399,7 @@ piu sotto: quelle vengono **dopo** il rilascio.
 | R-19 | I deployment Preview non partono | `DATABASE_URL` e `DIRECT_URL` sono configurate sull'ambiente Production del progetto e non su Preview: ogni push lascia un deployment rosso che non riguarda il codice, ed e il rumore che fa smettere di guardare i deployment rossi. Richiede una modifica alla configurazione Vercel | D39 |
 | R-16 | Credenziali Stripe e primo giro reale di CediPay | Contratto, adapter, firma e deduplica ci sono e sono coperti dai test. **Nessun checkout, nessun webhook e nessun rimborso e mai passato da Stripe**: non ci sono credenziali in questo repository. Finche non gira contro un account vero, l'integrazione e da collaudare, non funzionante | R-05, ADR-0045 |
 | R-17 | Le tre decisioni Connect che non sono tecniche | Tipo di dashboard dell'account connesso — **irreversibile** dopo la creazione dell'account —, responsabilita dei saldi negativi, e percentuale della commissione, che e un accordo commerciale. Sono elencate in ADR-0045 perche vanno prese, non perche siano state prese | ADR-0045 |
-| R-18 | Il piano di un club deve uscire dalle mani del club | Finche gli entitlement descrivono non e un problema; il giorno in cui negano l'accesso a qualcosa, un club si concede il piano superiore da solo. **Blocca il gating vero** | D37, ADR-0046, BB-10 |
+| ~~R-18~~ | ~~Il piano di un club deve uscire dalle mani del club~~ | **Chiuso dal Blocco Finale C** ([ADR-0048](18-decision-log.md#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa)). Quattro chiavi di `clubs.settings` sono ora scrivibili solo da `POST /api/v1/entitlements` con ruolo `platform_admin`; la guardia e in `resources.ts`, cioe dove il dato viene scritto, e un tentativo lascia una riga di audit. Chiudendolo si e trovato che il calcolo leggeva una chiave che nessuno scriveva: **nessun club aveva il piano che credeva di avere** | D37, ADR-0046, BB-10 |
 
 **Uscite dall'elenco con l'integrazione.** Erano due, entrambe chiuse in questo
 blocco e non rinviate:

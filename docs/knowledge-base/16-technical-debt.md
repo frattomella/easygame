@@ -451,27 +451,31 @@ chiuso spostando anche quelle sull'allocatore.
 
 → nessun WP ancora
 
-### D37 — Il piano di un club lo puo cambiare il club
+### D37 — ~~Il piano di un club lo puo cambiare il club~~ — RISOLTO (2026-08-26, Blocco Finale C)
 
-`subscriptionSettings.plan` e `extraServices` stanno in `clubs.settings`, e la
-pagina Organizzazione li rende modificabili **dal club**. Erano dati
-descrittivi e non decidevano niente; da
+Il piano, lo stato dell'abbonamento e i servizi aggiuntivi stavano in
+`clubs.settings` e la pagina Organizzazione li rendeva modificabili **dal
+club**. Erano descrittivi finche
 [ADR-0046](18-decision-log.md#adr-0046--chi-puo-usare-cosa-si-calcola-in-un-posto-solo-e-la-risposta-dice-sempre-perche)
-sono l'ingresso del calcolo degli entitlement.
+non ne ha fatto l'ingresso del calcolo degli entitlement: da li in poi
+accendere il gating avrebbe voluto dire lasciare che un club si concedesse il
+piano superiore da solo.
 
-**Oggi non e sfruttabile**, perche nessuna funzione viene *negata* da quello
-strato: e descrittivo. Il giorno in cui una schermata comincia a nascondersi
-in base agli entitlement, un club potra concedersi il piano superiore da solo.
+**Come e stato chiuso**
+([ADR-0048](18-decision-log.md#adr-0048--il-piano-di-una-societa-appartiene-alla-piattaforma-non-alla-societa)).
+Quattro chiavi di `clubs.settings` sono ora di proprieta della piattaforma e
+la guardia sta **nella scrittura** (`withPlatformOwnedSettings`, chiamata da
+`resources.ts` in creazione e in modifica), non nell'interfaccia: togliere la
+tendina non avrebbe protetto niente, perche la stessa `PATCH` la puo rifare a
+mano chiunque. Un valore diverso da quello presente viene ignorato e lascia
+una riga di audit con esito `denied`.
 
-**Cosa lo chiude.** Il piano e i servizi devono diventare scrivibili solo
-dalla piattaforma — come gia sono le eccezioni, che passano da
-`POST /api/v1/entitlements` e richiedono `platform_admin`. Va deciso se
-spostarli in colonne proprie o lasciarli in `settings` con una guardia sulla
-scrittura, e cosa mostrare al club al posto dei campi modificabili.
+**Il difetto trovato chiudendolo.** Il calcolo leggeva
+`settings.subscriptionSettings`, la pagina scriveva `settings.subscription`:
+nessun club aveva il piano che credeva di avere, e il test che avrebbe dovuto
+accorgersene seminava la chiave sbagliata.
 
-**Blocca:** qualunque gating reale delle funzioni.
-
-→ nessun WP ancora
+→ chiuso da Blocco Finale C, 22 test in `tests/server/entitlements-ownership.test.mjs`
 
 
 ### D38 — Il documento di una ricevuta non viene archiviato

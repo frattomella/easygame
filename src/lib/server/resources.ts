@@ -16,6 +16,8 @@ import {
   isSeasonScopedDataType,
   normalizeClubSeasons,
 } from "../club-seasons";
+import { withPlatformOwnedSettings } from "../entitlements/ownership";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 
 type ResourceConfig = {
   kind: "model" | "club_resource";
@@ -1459,6 +1461,15 @@ const getModelInclude = (resource: string) => {
  */
 export type ResourceRequestOptions = {
   activeSeasonId?: string | null;
+  /**
+   * Chi sta scrivendo amministra la piattaforma.
+   *
+   * Si ricava **sempre dalla sessione** nel route handler, mai dal corpo
+   * della richiesta: serve a decidere se il piano e i servizi di un club
+   * possono essere scritti, e un valore che arriva dal client renderebbe la
+   * guardia una formalita.
+   */
+  isPlatformAdmin?: boolean;
 };
 
 const isSeasonScopedResource = (resource: string) =>
@@ -2456,6 +2467,25 @@ export const createResource = async (
     if (scope?.userId && !normalized.creator_id) {
       normalized.creator_id = scope.userId;
     }
+
+    /*
+      Anche la creazione passa dalla guardia: un club che nasce con
+      `settings.subscription.plan = "plus"` si sarebbe concesso il piano
+      all'iscrizione, che e il modo piu semplice di aggirare un controllo
+      messo solo sulla modifica. In `upsert` il record puo gia esistere, e in
+      quel caso il confronto va fatto con cio che c'e.
+    */
+    const existingClub = normalized.id
+      ? await delegate.findUnique({ where: { id: String(normalized.id) } })
+      : null;
+    await guardPlatformOwnedClubSettings(
+      resource,
+      normalized,
+      existingClub?.settings,
+      scope,
+      options,
+      normalized.id || null,
+    );
   } else if (isOrganizationScopedResource(resource)) {
     normalized.organization_id = resolveScopedOrganizationId(
       scope,
@@ -2559,6 +2589,52 @@ export const createResource = async (
   return serializeRecord(resource, record);
 };
 
+/**
+ * Rimette al loro posto i campi di `clubs.settings` che appartengono alla
+ * piattaforma: piano, stato dell'abbonamento, servizi aggiuntivi ed eccezioni.
+ *
+ * **Perche qui e non nella pagina.** Nascondere i campi nell'interfaccia non
+ * protegge niente: la pagina Organizzazione rimanda l'intero blocco delle
+ * impostazioni a `PATCH /api/v1/clubs/:id`, e la stessa richiesta la puo
+ * rifare a mano chiunque sappia aprire la console del browser. La regola sta
+ * dove il dato viene scritto.
+ *
+ * **Perche ignora invece di rifiutare.** Il salvataggio di un recapito manda
+ * anche il piano, perche manda tutto. Rispondere «Accesso negato» renderebbe
+ * la pagina inutilizzabile per un campo che nessuno stava cercando di
+ * cambiare. Un tentativo vero — un valore **diverso** da quello che c'e —
+ * viene ignorato e registrato nell'audit come diniego.
+ */
+const guardPlatformOwnedClubSettings = async (
+  resource: string,
+  normalized: Record<string, any>,
+  existingSettings: unknown,
+  scope: ResourceAccessScope | undefined,
+  options: ResourceRequestOptions | undefined,
+  organizationId: string | null | undefined,
+) => {
+  if (resource !== "clubs" && resource !== "organizations") return;
+  if (normalized.settings === undefined) return;
+
+  const guard = withPlatformOwnedSettings(existingSettings, normalized.settings, {
+    isPlatformAdmin: Boolean(options?.isPlatformAdmin),
+  });
+
+  normalized.settings = guard.settings;
+
+  if (!guard.rejectedKeys.length) return;
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.resourceAccessDenied,
+    outcome: "denied",
+    actorUserId: scope?.userId,
+    organizationId: organizationId || scope?.activeOrganizationId || null,
+    resource: "club_plan",
+    resourceId: organizationId || "",
+    metadata: { rejectedKeys: guard.rejectedKeys },
+  });
+};
+
 export const updateResource = async (
   resource: string,
   id: string,
@@ -2646,6 +2722,14 @@ export const updateResource = async (
   });
   assertRecordAccess(resource, existing, scope);
   assertAnagraficaIsValid(resource, normalized, existing);
+  await guardPlatformOwnedClubSettings(
+    resource,
+    normalized,
+    existing?.settings,
+    scope,
+    options,
+    existing?.id || id,
+  );
 
   if (isOrganizationScopedResource(resource)) {
     normalized.organization_id = resolveScopedOrganizationId(

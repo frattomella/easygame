@@ -4,6 +4,8 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { openCediPayCheckout } from "@/lib/server/cedipay";
+import { requireClubEntitlement } from "@/lib/server/entitlements";
+import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { CediPayError } from "@/lib/payments/cedipay";
 
 /**
@@ -74,6 +76,18 @@ export async function POST(request: Request) {
     if (!scope.allowedOrganizationIds.includes(clubId)) {
       return jsonError("Accesso negato al club", 403);
     }
+
+    /*
+      Il gating vero, non la sua descrizione. Il messaggio arriva dal calcolo
+      degli entitlement — «Disponibile con il piano Plus», «L'abbonamento non
+      e in corso» — perche sono due cose che si risolvono in modi diversi, e
+      un «Accesso negato» generico le farebbe finire entrambe al telefono.
+    */
+    await requireClubEntitlement({
+      organizationId: clubId,
+      key: "online_payments",
+      isPlatformAdmin: isPlatformAdminUser(session.db.user),
+    });
 
     const { checkout, context } = await openCediPayCheckout({
       organizationId: clubId,

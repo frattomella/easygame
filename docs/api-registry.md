@@ -40,8 +40,12 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/entitlements` — cosa un club puo usare, funzione per funzione,
   con il **motivo** di ogni esito. Non e un campo salvato: e un calcolo su
   piano, servizi attivi ed eccezioni
-- `POST /api/v1/entitlements` — concede (`true`), revoca (`false`) o toglie
-  l'eccezione (`null`) su una funzione di un club. **Solo platform_admin**
+- `POST /api/v1/entitlements` — tre scritture distinte da `operation`:
+  `plan` assegna piano, stato dell'abbonamento e data di rinnovo; `service`
+  attiva o disdice un servizio aggiuntivo; il valore predefinito concede
+  (`true`), revoca (`false`) o toglie (`null`) l'eccezione su una funzione.
+  **Solo platform_admin**, e ognuna delle tre lascia una riga di audit: il
+  piano di un club non e una sua preferenza ([ADR-0048](knowledge-base/18-decision-log.md))
 - `GET|POST /api/v1/funding/programs` — programmi di contributo (voucher,
   bandi). Le regole del bando sono colonne, non codice
 - `GET|PATCH /api/v1/funding/programs/:id` — nessun `DELETE`: un programma con
