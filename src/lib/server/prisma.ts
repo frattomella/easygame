@@ -1,4 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 declare global {
@@ -22,14 +23,35 @@ const createPrismaClient = () => {
     );
   }
 
-  const adapter = new PrismaPg(databaseUrl, {
-    onPoolError: (error) => {
-      console.error("Prisma PostgreSQL pool error:", error);
-    },
-    onConnectionError: (error) => {
-      console.error("Prisma PostgreSQL connection error:", error);
-    },
+  /*
+    **Il pool si costruisce qui, e l'adapter lo riceve gia fatto.**
+
+    Non e uno stile: e la firma dell'adapter che corrisponde alla versione del
+    client. `@prisma/adapter-pg` 7 accetta una stringa di connessione e dei
+    callback; la 6 — quella che corrisponde a `@prisma/client` 6, cioe alla
+    versione con cui questo schema e generato — accetta un `pg.Pool` o la sua
+    configurazione.
+
+    **Il difetto che chiude** (Blocco E). Il repository aveva installato
+    l'adapter 7 con il client 6, e con quell'accoppiata **ogni scrittura su
+    una colonna `Bytes` falliva**: `attachmentBlob.upsert` rispondeva
+    `JS functions cannot be represented as a serde_json::Value`. In pratica
+    non si poteva caricare **nessun allegato** — documenti dell'atleta,
+    contratti e visite dell'allenatore, certificati, allegati dei moduli
+    pubblici — e non se ne accorgeva nessun test, perche i test del servizio
+    allegati usano un doppio del client e non toccano il driver. Si vedeva
+    solo caricando un file davvero.
+
+    L'errore del pool si continua ad ascoltare: cambia il posto in cui lo si
+    aggancia, non il fatto che si scriva nei log.
+  */
+  const pool = new Pool({ connectionString: databaseUrl });
+
+  pool.on("error", (error) => {
+    console.error("Prisma PostgreSQL pool error:", error);
   });
+
+  const adapter = new PrismaPg(pool, { disposeExternalPool: true });
 
   return new PrismaClient({
     adapter,
