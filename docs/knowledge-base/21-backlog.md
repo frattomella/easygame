@@ -36,12 +36,12 @@ succede.
 
 | Stato | Voci |
 |-------|------|
-| `DONE` | 213 |
+| `DONE` | 215 |
 | `IN PROGRESS` | 11 |
 | `OPEN` | 22 |
 | `DEFERRED` | 8 |
 | `SUPERSEDED` | 2 |
-| **Totale** | **256** |
+| **Totale** | **258** |
 
 Il conteggio e verificato da un test
 (`tests/ui/backlog-master.test.mjs`): una tabella di riepilogo che non
@@ -403,6 +403,8 @@ tutto; Modulistica montava un secondo guscio che su un telefono le lasciava
 | BC-13 | Import atleti senza una richiesta per atleta | `DONE` | Scaglioni da 50: due richieste per scaglione invece di due per atleta. Uno scaglione che fallisce ripiega riga per riga, cosi una sola anagrafica sbagliata non porta via le altre quarantanove |
 | BC-14 | Lo strumento per migrare i file legacy fuori dai record | `DONE` | `scripts/migrate-legacy-attachments.mjs`: prova a vuoto predefinita, conteggi, dimensioni, tipi, errori, `--limit`, ripetibile. **Non eseguito** su nessun ambiente: e una migrazione di dati e richiede autorizzazione |
 | BC-15 | Matrice Release Candidate | `DONE` | [22 — Matrice Release Candidate](22-release-candidate.md): ogni requisito storico con stato, implementazione, prova e «blocca il rilascio?». Tre blocker, tutti **fuori dal codice** |
+| BC-17 | Deploy su staging e smoke test del blocco | `DONE` | Deployment **READY**, nessuna migrazione nuova. Undici pagine e cinque API verificate **nel contenuto**: la validazione nuova risponde 400 con `VALIDATION_ERROR`, la manutenzione senza token risponde 403. Trovato e corretto un secondo difetto d'ambiente: la build di verifica del responsive finiva nel caricamento verso Vercel e lo faceva superare i 100 MB |
+| BC-18 | Il guardrail dei segreti della CI era rosso | `DONE` | Un test scriveva una chiave Stripe finta con il prefisso vero: il job era rosso dal commit di CediPay. Corretto, e i quattro guardrail sono ora anche test, cosi si scoprono in un secondo invece che dopo un push |
 | BC-16 | Console di piattaforma verificata su schermo | `OPEN` | **Per un motivo di ambiente, non di codice**: il seed di sviluppo non contiene un account amministratore, e crearne uno significa scrivere una credenziale. Serve una decisione |
 
 ---

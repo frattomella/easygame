@@ -443,6 +443,59 @@ Conteggi letti in sola lettura dopo il deploy (nessuna scrittura eseguita):
 
 ---
 
+## Stato di staging verificato — 2026-08-26 (Blocco Finale C)
+
+| Voce | Valore |
+|------|--------|
+| Deployment | **READY**, target `production` del progetto `easygame-staging` |
+| Migrazioni | **Nessuna nuova.** Il Blocco Finale C non tocca lo schema: `prisma migrate deploy` non ha avuto niente da applicare, e le 17 restano quelle del Blocco Finale B |
+| Progetto production | **non esiste** nello scope, come dichiarato da CLAUDE.md sezione 9 |
+
+Smoke test sull'URL pubblico `easygame-staging-pi.vercel.app`. Ogni riga e
+stata letta **nel contenuto**, non solo nello stato: un 200 che restituisce la
+pagina SSO di Vercel non e un 200 di EasyGame, ed e l'errore che il Blocco
+Finale B ha gia dimostrato di poter fare.
+
+| Verifica | Esito |
+|----------|-------|
+| `/`, `/login`, `/register`, `/account`, `/dashboard`, `/athletes`, `/payments`, `/modulistica`, `/organization`, console di piattaforma | **200**, e `<title>EasyGame</title>` — non la pagina di autenticazione di Vercel |
+| `GET /api/v1/registry` | **200**, e contiene `maintenance.run`: la rotta nuova e servita davvero |
+| `GET /api/v1/entitlements` senza sessione | **401** |
+| `GET /api/v1/payment-transactions` senza sessione | **401** |
+| `POST /api/v1/maintenance` senza token | **403** — la porta di servizio e chiusa, come deve essere quando `EASYGAME_MAINTENANCE_TOKEN` non e configurato |
+| `POST /api/v1/auth/login` con `{"email":"non-una-email"}` | **400** con `code: "VALIDATION_ERROR"` e la lista dei campi: `email` non valida, `password` obbligatoria |
+| `GET /api/public/forms/inesistente` | **404** |
+
+**Cosa dice l'ultima riga della tabella.** Lo strato di validazione nuovo non e
+solo compilato: risponde in produzione con il codice nell'envelope e con
+entrambi i campi sbagliati elencati, che e esattamente il contratto scritto in
+[09](09-api-conventions.md).
+
+### Due cose da configurare su staging, quando si decide
+
+- **`EASYGAME_MAINTENANCE_TOKEN`** non e impostata, quindi la pulizia delle
+  righe scadute non e azionabile da un cron: sessioni, sfide OTP e contatori di
+  rate limit scaduti restano nel database e crescono. Il 403 qui sopra e il
+  comportamento voluto, non un difetto;
+- **`AUDIT_LOG_RETENTION_DAYS`** non e impostata, quindi l'audit non viene mai
+  cancellato. Anche questo e voluto: il periodo e una decisione di compliance.
+
+### Il difetto d'ambiente di D39 non e cambiato
+
+I deployment **Preview** continuano a fallire per `DIRECT_URL` mancante
+sull'ambiente Preview del progetto. Non e una regressione di questo blocco e
+non si corregge dal repository. Vedi D39.
+
+### Un secondo difetto d'ambiente, trovato durante questo deploy
+
+Il primo tentativo di deploy e stato **rifiutato**: `File size limit exceeded
+(100 MB)`, con 612 MB caricati. La build di verifica del responsive
+(`.next-verify`, prodotta con `NEXT_DIST_DIR`) non era in `.vercelignore`, che
+elenca `.next/` per nome e non per prefisso. Aggiunto `.next-*/`: qualunque
+build di verifica futura resta fuori dal caricamento.
+
+---
+
 ## Stato di staging verificato — 2026-08-26 (Blocco Finale B)
 
 | Voce | Valore |

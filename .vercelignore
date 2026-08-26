@@ -2,6 +2,8 @@ easygamemobile/
 .codex-tmp/
 node_modules/
 .next/
+# Build di verifica locale su una copia di lavoro condivisa (NEXT_DIST_DIR).
+.next-*/
 .git/
 .env
 .env.*

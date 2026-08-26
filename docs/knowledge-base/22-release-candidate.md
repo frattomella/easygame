@@ -154,6 +154,21 @@ un bando reale — lo stato riflette la prova, non il codice.
 
 ---
 
+## Lo stato di staging al 2026-08-26
+
+| Voce | Valore |
+|------|--------|
+| Deployment | **READY** sul progetto `easygame-staging`, target `production` del progetto |
+| Migrazioni | Nessuna nuova: il Blocco Finale C non tocca lo schema |
+| Smoke test | Undici pagine e cinque API, verificate **nel contenuto** e non solo nello stato: un 200 che restituisce la pagina SSO di Vercel non e un 200 di EasyGame |
+| Validazione | `POST /api/v1/auth/login` con un corpo malformato risponde **400** con `VALIDATION_ERROR` e la lista dei campi. Lo strato nuovo non e solo compilato: risponde |
+| Manutenzione | `POST /api/v1/maintenance` senza token risponde **403**: la porta di servizio e chiusa finche `EASYGAME_MAINTENANCE_TOKEN` non e configurata |
+
+Il dettaglio, comprese le due variabili da configurare, e in
+[13 — Ambienti](13-environments.md).
+
+---
+
 ## I blocker della Release Candidate
 
 Sono tre. Non sono debiti tecnici: sono cose che impediscono un uso
