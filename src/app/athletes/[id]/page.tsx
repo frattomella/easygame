@@ -3467,6 +3467,7 @@ export default function AthleteProfilePage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label="Modifica le informazioni generali"
                       onClick={() => handleEditSection("general")}
                     >
                       <Edit className="h-4 w-4" />
@@ -3683,6 +3684,7 @@ export default function AthleteProfilePage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label="Modifica i contatti dell'atleta"
                       onClick={() => handleEditSection("contact")}
                     >
                       <Edit className="h-4 w-4" />
@@ -3736,6 +3738,7 @@ export default function AthleteProfilePage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                aria-label="Modifica questo genitore o tutore"
                                 onClick={() => openEditGuardianModal(idx)}
                               >
                                 <Edit className="h-4 w-4" />
@@ -3967,6 +3970,7 @@ export default function AthleteProfilePage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label="Modifica l'indirizzo"
                       onClick={() => handleEditSection("address")}
                     >
                       <Edit className="h-4 w-4" />
@@ -4423,6 +4427,7 @@ export default function AthleteProfilePage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label="Modifica l'anagrafica sanitaria"
                       onClick={() => handleEditSection("medical")}
                     >
                       <Edit className="h-4 w-4" />
@@ -5645,6 +5650,7 @@ export default function AthleteProfilePage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label="Modifica il documento di identita"
                         onClick={() => handleEditSection("identity")}
                       >
                         <Edit className="h-4 w-4" />

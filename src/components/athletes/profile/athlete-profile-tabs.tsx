@@ -25,8 +25,16 @@ import {
  *
  * Scorre orizzontalmente sotto `md` invece di mandare a capo: sette sezioni su
  * due righe a 375 px spingono il contenuto sotto la piega prima ancora che la
- * pagina cominci. E il comportamento che aveva prima, e l'estrazione non lo
- * cambia.
+ * pagina cominci.
+ *
+ * **Le etichette non spariscono mai** (Blocco E). Sotto `sm` cinque delle
+ * sette sezioni mostravano la sola icona, con l'etichetta chiusa in uno
+ * `span` nascosto sotto `sm`: `display: none` la toglie anche dall'albero di
+ * accessibilita, quindi da telefono restavano cinque schede **senza nome** —
+ * un cuore, un dollaro, una maglietta — e la sezione «Iscrizione», che e
+ * quella dove si guardano le rate, era una di quelle. Nascondere le etichette
+ * non serviva nemmeno a far stare la barra: la barra scorre, e le due sezioni
+ * che l'etichetta la tenevano sempre lo dimostravano gia.
  */
 
 const ICONS: Record<AthleteProfileTabValue, typeof User> = {
@@ -52,11 +60,7 @@ export function AthleteProfileTabsBar() {
               className="shrink-0 gap-2 whitespace-nowrap"
             >
               <Icon className="h-4 w-4 mr-2" />
-              {tab.labelAlwaysVisible ? (
-                tab.label
-              ) : (
-                <span className="hidden sm:inline">{tab.label}</span>
-              )}
+              {tab.label}
             </TabsTrigger>
           );
         })}

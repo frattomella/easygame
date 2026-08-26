@@ -10,13 +10,13 @@
  */
 
 export const ATHLETE_PROFILE_TABS = [
-  { value: "generale", label: "Generale", labelAlwaysVisible: false },
-  { value: "contatti", label: "Contatti", labelAlwaysVisible: false },
-  { value: "sanitari", label: "Dati Sanitari", labelAlwaysVisible: false },
-  { value: "pagamenti", label: "Iscrizione", labelAlwaysVisible: false },
-  { value: "abbigliamento", label: "Abbigliamento", labelAlwaysVisible: false },
-  { value: "documenti", label: "Documenti", labelAlwaysVisible: true },
-  { value: "analitiche", label: "Analitiche", labelAlwaysVisible: true },
+  { value: "generale", label: "Generale" },
+  { value: "contatti", label: "Contatti" },
+  { value: "sanitari", label: "Dati Sanitari" },
+  { value: "pagamenti", label: "Iscrizione" },
+  { value: "abbigliamento", label: "Abbigliamento" },
+  { value: "documenti", label: "Documenti" },
+  { value: "analitiche", label: "Analitiche" },
 ] as const;
 
 export type AthleteProfileTabValue =
