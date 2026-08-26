@@ -313,7 +313,7 @@ export function EnrollAthletesDialog(props: EnrollAthletesDialogProps) {
                                 htmlFor={`amount-${athlete.id}`}
                                 className="text-xs"
                               >
-                                Plafond assegnato
+                                Assegnato al club
                               </Label>
                               <Input
                                 id={`amount-${athlete.id}`}
@@ -379,14 +379,23 @@ export function EnrollAthletesDialog(props: EnrollAthletesDialogProps) {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="enroll-amount">Plafond assegnato</Label>
+                  <Label htmlFor="enroll-amount">Importo assegnato al club</Label>
                   <Input
                     id="enroll-amount"
                     inputMode="decimal"
                     value={amount}
                     onChange={(event) => setAmount(event.target.value)}
-                    placeholder="Predefinito del programma"
+                    placeholder="Massimale del programma"
                   />
+                  {/*
+                    Non e il massimale del bando: e quanto il beneficiario
+                    decide di usare qui. Il massimale lo limita, non lo
+                    sostituisce (ADR-0054).
+                  */}
+                  <p className="text-xs text-muted-foreground">
+                    Quanto l&apos;atleta usa presso questa societa. Vuoto = tutto
+                    il massimale del programma.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="enroll-voucher">Codice voucher</Label>

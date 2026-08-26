@@ -95,7 +95,9 @@ Fonte ufficiale da mantenere aggiornata:
   maturati si porta a `closed`
 - `GET|POST /api/v1/funding/enrollments` — beneficiari.
   `?view=overview&athlete_id=` restituisce i cinque importi gia calcolati
-- `GET|POST /api/v1/funding/accruals` — `{"action":"recompute"}` ricalcola il
+- `GET|POST /api/v1/funding/accruals` — `{"action":"confirm"}` e
+  `{"action":"import"}` registrano cio che una fonte esterna ha riconosciuto
+  (ADR-0054). `{"action":"recompute"}` ricalcola il
   maturato dalle presenze, `{"action":"report"}` lo rendiconta all'ente
 - `GET|POST /api/v1/funding/settlements` — liquidazioni dell'ente, con la
   ripartizione obbligatoria sui periodi maturati

@@ -32,9 +32,12 @@ import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { FundingProgramDetail } from "./FundingProgramDetail";
 import { useToast } from "@/components/ui/toast-notification";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
+  fundingAccrualSourceLabel,
   requirementUnitLabel,
   validateFundingProgram,
+  SELECTABLE_FUNDING_ACCRUAL_SOURCES,
 } from "@/lib/funding/funding-model";
 
 /**
@@ -88,6 +91,7 @@ const emptyForm = () => ({
   valid_from: "",
   valid_to: "",
   athlete_plafond: "",
+  accrual_source: "easygame_attendance",
   period_amount: "",
   period_frequency: "monthly",
   period_length_days: "",
@@ -244,7 +248,7 @@ export function FundingProgramsPanel() {
                   </p>
                   <div className="mt-2 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
                     <span>
-                      Plafond atleta:{" "}
+                      Massimale programma:{" "}
                       <strong>{formatCurrency(program.athlete_plafond)}</strong>
                     </span>
                     <span>
@@ -262,6 +266,12 @@ export function FundingProgramsPanel() {
                       </strong>
                     </span>
                   </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Fonte della maturazione:{" "}
+                    {fundingAccrualSourceLabel(
+                      program.accrual_source || "easygame_attendance",
+                    )}
+                  </p>
                 </button>
               );
             })}
@@ -329,7 +339,9 @@ export function FundingProgramsPanel() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="funding-plafond">Plafond per atleta (EUR) *</Label>
+                <Label htmlFor="funding-plafond">
+                  Massimale del programma per atleta (EUR) *
+                </Label>
                 <Input
                   id="funding-plafond"
                   type="number"
@@ -340,6 +352,11 @@ export function FundingProgramsPanel() {
                     setField("athlete_plafond", event.target.value)
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  E il tetto che il bando pone al beneficiario. L&apos;importo
+                  che ogni atleta usa <strong>presso questo club</strong> si
+                  indica quando lo si iscrive, e puo essere piu basso.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="funding-period-amount">
@@ -388,6 +405,54 @@ export function FundingProgramsPanel() {
                   />
                 </div>
               ) : null}
+            </div>
+
+            {/*
+              La fonte della maturazione e la domanda che decide se le presenze
+              di EasyGame fanno nascere un credito o solo una previsione. Sta
+              prima del requisito perche ne cambia il significato (ADR-0054).
+            */}
+            <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+              <Label>Fonte della maturazione *</Label>
+              <p className="text-xs text-muted-foreground">
+                Dove viene registrata la frequenza che fa maturare il
+                contributo. Se la fonte ufficiale e una piattaforma dell&apos;ente,
+                le presenze EasyGame restano una previsione: il maturato nasce
+                solo quando qualcuno lo conferma.
+              </p>
+              <RadioGroup
+                value={form.accrual_source}
+                onValueChange={(value) => setField("accrual_source", value)}
+                className="gap-2 pt-1"
+              >
+                {SELECTABLE_FUNDING_ACCRUAL_SOURCES.map((source) => (
+                  <div key={source} className="flex items-center gap-2">
+                    <RadioGroupItem
+                      value={source}
+                      id={`funding-source-${source}`}
+                    />
+                    <Label
+                      htmlFor={`funding-source-${source}`}
+                      className="font-normal"
+                    >
+                      {fundingAccrualSourceLabel(source)}
+                    </Label>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 opacity-50">
+                  <RadioGroupItem
+                    value="external_api"
+                    id="funding-source-external_api"
+                    disabled
+                  />
+                  <Label
+                    htmlFor="funding-source-external_api"
+                    className="font-normal"
+                  >
+                    API esterna — non ancora disponibile
+                  </Label>
+                </div>
+              </RadioGroup>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

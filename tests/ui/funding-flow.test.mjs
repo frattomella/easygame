@@ -24,6 +24,8 @@ const FUNDING_MODEL = "lib/funding/funding-model.ts";
 const ATTENDANCE_MEASURE = "lib/funding/attendance-measure.ts";
 const FUNDING_SERVICE = "lib/server/funding.ts";
 const ATHLETE_SUMMARY = "components/funding/AthleteFundingSummary.tsx";
+const PERIODS_TABLE = "components/funding/FundingPeriodsTable.tsx";
+const CONFIRM_DIALOG = "components/funding/ConfirmAccrualDialog.tsx";
 const PROGRAMS_PANEL = "components/funding/FundingProgramsPanel.tsx";
 const ATHLETE_PAGE = "app/athletes/[id]/page.tsx";
 const REGISTRATION_PAGE = "app/registration-management/page.tsx";
@@ -133,17 +135,18 @@ test("il Riepilogo Incassi dichiara di chi e il denaro", () => {
   );
 });
 
-// --- i cinque importi --------------------------------------------------------
+// --- gli importi che raccontano il ciclo -------------------------------------
 
-test("la scheda atleta mostra tutti e cinque gli importi", () => {
+test("la scheda atleta distingue il massimale del programma dall'assegnato", () => {
   const source = read(ATHLETE_SUMMARY);
 
   for (const label of [
-    "Voucher assegnato",
+    "Massimale programma",
+    "Assegnato al club",
     "Maturato",
+    "Rendicontato",
     "Liquidato",
-    "Da liquidare",
-    "Residuo voucher",
+    "Residuo",
   ]) {
     assert.match(
       source,
@@ -154,34 +157,47 @@ test("la scheda atleta mostra tutti e cinque gli importi", () => {
 
   assert.match(
     source,
-    /hint="Non e denaro incassato"/,
-    "il voucher assegnato deve dire cosa non e",
+    /hint="tetto del bando"/,
+    "il massimale deve dire di cosa e il tetto",
+  );
+  assert.match(
+    source,
+    /hint="limite di questa iscrizione"/,
+    "l'assegnato al club e il limite vero dell'iscrizione",
   );
 });
 
-test("il dettaglio periodo per periodo c'e, con requisito e maturato", () => {
-  const source = read(ATHLETE_SUMMARY);
+test("il dettaglio periodo per periodo c'e, con previsione e stato ufficiale", () => {
+  const source = read(PERIODS_TABLE);
 
-  for (const column of [
+  for (const label of [
     "Periodo",
-    "Frequenza",
+    "Frequenza EasyGame",
     "Requisito",
+    "Previsione EasyGame",
+    "Stato ufficiale",
     "Maturato",
-    "Non maturato",
-    "Stato",
+    "Rendicontato",
+    "Liquidato",
   ]) {
     assert.match(
       source,
-      new RegExp(`<th className="p-2">${column}</th>`),
-      `manca la colonna ${column}`,
+      new RegExp(`label="${label}"`),
+      `manca la voce ${label}`,
     );
   }
 });
 
-test("i quattro stati del maturato sono distinti a schermo", () => {
-  const source = read(ATHLETE_SUMMARY);
+test("i cinque stati del maturato sono distinti a schermo", () => {
+  const source = read(PERIODS_TABLE);
 
-  for (const status of ["not_accrued", "accrued", "reported", "settled"]) {
+  for (const status of [
+    "not_accrued",
+    "pending_confirmation",
+    "accrued",
+    "reported",
+    "settled",
+  ]) {
     assert.match(source, new RegExp(`${status}:`), `manca il badge ${status}`);
   }
 });
@@ -262,12 +278,28 @@ test("le superfici dei contributi non restano a due colonne a 375 px", () => {
   );
 });
 
-test("la tabella dei periodi scorre nel proprio contenitore", () => {
-  assert.match(read(ATHLETE_SUMMARY), /overflow-x-auto/);
+test("il dettaglio periodi non e una tabella che scorre di lato", () => {
+  const source = read(PERIODS_TABLE);
+
+  assert.equal(
+    /<table/.test(source),
+    false,
+    "otto colonne a 375 px non si leggono: la riga si apre, non scorre",
+  );
+  assert.match(
+    source,
+    /aria-expanded=\{isOpen\}/,
+    "la riga apribile deve dichiarare il proprio stato",
+  );
   assert.match(
     read(PROGRAMS_PANEL),
     /max-h-\[90vh\] overflow-y-auto/,
     "la finestra di configurazione ha molti campi: su schermo basso deve scorrere",
+  );
+  assert.match(
+    read(CONFIRM_DIALOG),
+    /max-h-\[92vh\] overflow-y-auto/,
+    "anche la conferma deve poter scorrere su schermo basso",
   );
 });
 

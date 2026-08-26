@@ -7,13 +7,21 @@ import {
   calculatePeriodAccrual,
   generateFundingPeriods,
   normalizeFundingProgram,
+  requiresExternalConfirmation,
   summarizeFunding,
   toFundingAmount,
+  validateAssignedAmount,
   validateFundingProgram,
   validateSettlementAllocation,
+  FUNDING_ACCRUAL_ORIGINS,
+  type FundingAccrualOrigin,
   type FundingPeriod,
 } from "@/lib/funding/funding-model";
 import { measureAttendanceByPeriod } from "@/lib/funding/attendance-measure";
+import {
+  matchConfirmationsToPeriods,
+  parseConfirmationImport,
+} from "@/lib/funding/confirmation-import";
 
 /**
  * Il servizio dei contributi: **l'unico** punto in cui EasyGame calcola un
@@ -141,6 +149,7 @@ const buildProgramData = (input: Record<string, any>) => {
     valid_from: new Date(normalized.validFrom as string),
     valid_to: new Date(normalized.validTo as string),
     athlete_plafond: normalized.athletePlafond,
+    accrual_source: normalized.accrualSource,
     period_amount: normalized.periodAmount,
     period_frequency: normalized.periodFrequency,
     period_length_days: normalized.periodLengthDays,
@@ -237,9 +246,15 @@ export const getFundingEnrollmentById = async (
 /**
  * Ammette un atleta a un programma.
  *
- * `assignedAmount` predefinito e il plafond del programma; il singolo
- * beneficiario puo averne uno diverso perche gli enti assegnano importi
- * differenziati (ISEE, numero di figli, residenza).
+ * `assignedAmount` e **l'importo utilizzabile presso questo club**, e non il
+ * massimale del bando: il programma riconosce fino a 500 EUR a Mario, ma
+ * Mario puo decidere di spenderne 300 qui e il resto in un'altra societa.
+ * EasyGame conosce solo i 300 e non deve assumere che gli altri 200 siano
+ * disponibili — sono il limite entro cui l'iscrizione puo maturare.
+ *
+ * Il massimale serve a **validare** l'assegnato, non a sostituirlo: senza
+ * indicazione esplicita l'assegnato coincide con il massimale, che e il caso
+ * piu comune (ADR-0054).
  */
 export const createFundingEnrollment = async (
   input: {
@@ -272,6 +287,9 @@ export const createFundingEnrollment = async (
   if (!(assignedAmount > 0)) {
     throw new Error("Il plafond assegnato deve essere maggiore di zero");
   }
+
+  const assignedError = validateAssignedAmount({ program, assignedAmount });
+  if (assignedError) throw new Error(assignedError);
 
   const existing = await enrollmentClient().findFirst({
     where: { program_id: program.id, athlete_id: athleteId },
@@ -347,13 +365,19 @@ export type RecomputeResult = {
 /**
  * Ricalcola il maturato di un beneficiario, periodo per periodo.
  *
- * Il plafond si consuma in ordine cronologico, quindi il calcolo e una
- * passata sola sui periodi ordinati: il residuo che entra in un periodo
+ * L'importo assegnato si consuma in ordine cronologico, quindi il calcolo e
+ * una passata sola sui periodi ordinati: il residuo che entra in un periodo
  * dipende da quanto hanno consumato i precedenti.
  *
  * I periodi gia liquidati **non** vengono riscritti — l'ente ha versato su un
- * numero — ma il loro maturato consuma comunque plafond, altrimenti i periodi
- * successivi ne troverebbero piu di quanto ce n'e.
+ * numero — ma il loro maturato consuma comunque l'assegnato, altrimenti i
+ * periodi successivi ne troverebbero piu di quanto ce n'e.
+ *
+ * **Con una fonte esterna il ricalcolo non fa maturare niente** (ADR-0054).
+ * Aggiorna la previsione — quanto il periodo varrebbe secondo l'appello di
+ * EasyGame — e lascia il maturato a zero finche non arriva una conferma. Una
+ * conferma gia registrata non viene mai riscritta da un ricalcolo: e un dato
+ * dichiarato da una fonte, non un risultato derivato dalle presenze.
  */
 export const recomputeEnrollmentAccruals = async (
   enrollmentId: string,
@@ -391,6 +415,7 @@ export const recomputeEnrollmentAccruals = async (
   );
 
   const now = new Date();
+  const external = requiresExternalConfirmation(program);
   let remainingPlafond = toFundingAmount(enrollment.assigned_amount);
   let skippedSettledPeriods = 0;
   const written: Record<string, any>[] = [];
@@ -400,8 +425,8 @@ export const recomputeEnrollmentAccruals = async (
 
     if (existing && existing.status === "settled") {
       /*
-        Gia liquidato: non si riscrive, ma consuma plafond. Saltarlo del tutto
-        farebbe trovare ai periodi successivi un residuo che non esiste.
+        Gia liquidato: non si riscrive, ma consuma l'assegnato. Saltarlo del
+        tutto farebbe trovare ai periodi successivi un residuo che non esiste.
       */
       remainingPlafond = Math.max(
         0,
@@ -417,10 +442,28 @@ export const recomputeEnrollmentAccruals = async (
     }
 
     const measure = measures[period.index];
+
+    /*
+      Una conferma esterna gia registrata e un dato, non un derivato: il
+      ricalcolo aggiorna la previsione attorno a essa e ne lascia l'importo
+      dov'e. Riscriverla dalle presenze significherebbe che il numero
+      dichiarato all'ente cambia da solo quando qualcuno corregge un appello.
+    */
+    const existingConfirmation =
+      external && existing?.confirmed_at
+        ? {
+            amount: toFundingAmount(existing.accrued_amount),
+            origin: (asText(existing.accrual_origin) ||
+              "manual_confirmation") as FundingAccrualOrigin,
+          }
+        : null;
+
     const result = calculatePeriodAccrual({
       program,
       measuredValue: measure?.value ?? 0,
       remainingPlafond,
+      confirmedAmount: existingConfirmation ? existingConfirmation.amount : null,
+      confirmationOrigin: existingConfirmation?.origin,
     });
 
     remainingPlafond = Math.max(
@@ -453,9 +496,19 @@ export const recomputeEnrollmentAccruals = async (
       measured_value: result.measuredValue,
       requirement_met: result.requirementMet,
       eligible_amount: result.eligibleAmount,
+      estimated_amount: result.estimatedAmount,
       accrued_amount: result.accruedAmount,
       unaccrued_amount: result.unaccruedAmount,
       status,
+      accrual_origin: result.origin,
+      confirmed_at: existingConfirmation ? existing?.confirmed_at ?? null : null,
+      confirmed_by: existingConfirmation ? existing?.confirmed_by ?? null : null,
+      external_reference: existingConfirmation
+        ? existing?.external_reference ?? null
+        : null,
+      confirmation_notes: existingConfirmation
+        ? existing?.confirmation_notes ?? null
+        : null,
       reported_at: status === "reported" ? existing?.reported_at ?? null : null,
       reported_by: status === "reported" ? existing?.reported_by ?? null : null,
       computed_at: now,
@@ -475,6 +528,277 @@ export const recomputeEnrollmentAccruals = async (
   }
 
   return { enrollment, accruals: written, skippedSettledPeriods };
+};
+
+/* -------------------------------------------- maturato: conferma esterna */
+
+export type AccrualConfirmationInput = {
+  /** Il periodo da confermare, per indice o per id della riga. */
+  accrualId?: unknown;
+  periodIndex?: unknown;
+  /** Quanto la fonte ufficiale ha riconosciuto. */
+  amount: unknown;
+  confirmedAt?: unknown;
+  externalReference?: unknown;
+  notes?: unknown;
+};
+
+const resolveConfirmationOrigin = (value: unknown): FundingAccrualOrigin => {
+  const token = asText(value).toLowerCase();
+  return (FUNDING_ACCRUAL_ORIGINS as readonly string[]).includes(token)
+    ? (token as FundingAccrualOrigin)
+    : "manual_confirmation";
+};
+
+/**
+ * Registra la **conferma di maturazione** di uno o piu periodi.
+ *
+ * E l'atto che, su un programma a fonte esterna, trasforma una previsione in
+ * un credito. Resta separato dal ricalcolo di proposito: il ricalcolo legge
+ * le presenze di EasyGame, la conferma dichiara cio che la piattaforma
+ * dell'ente ha riconosciuto, e le due cose possono non coincidere.
+ *
+ * **Tre limiti non negoziabili** (ADR-0054):
+ *
+ * 1. non si conferma su un programma la cui fonte e l'appello di EasyGame:
+ *    li il maturato si ricalcola, e digitarlo a mano riaprirebbe la porta
+ *    all'importo inventato;
+ * 2. la somma dei confermati non supera **l'importo assegnato al club**, che
+ *    e il tetto vero dell'iscrizione;
+ * 3. un periodo gia liquidato non si tocca: l'ente ha versato su quel numero.
+ *
+ * La conferma resta auditabile — data, utente, riferimento esterno, nota — e
+ * una correzione successiva sovrascrive l'importo lasciando la traccia
+ * precedente in `data.previousConfirmations`.
+ */
+export const confirmAccrualPeriods = async (
+  input: {
+    enrollmentId: unknown;
+    confirmations: AccrualConfirmationInput[];
+    origin?: unknown;
+  },
+  scope?: FundingScope,
+) => {
+  const enrollment = await getFundingEnrollmentById(
+    asText(input.enrollmentId),
+    scope,
+  );
+  const program = await getFundingProgramById(enrollment.program_id, scope);
+
+  if (!requiresExternalConfirmation(program)) {
+    throw new Error(
+      "Questo programma matura dalle presenze EasyGame: il maturato si ricalcola, non si conferma a mano",
+    );
+  }
+
+  const confirmations = (
+    Array.isArray(input.confirmations) ? input.confirmations : []
+  ).filter(Boolean);
+
+  if (!confirmations.length) {
+    throw new Error("Indica quali periodi stai confermando");
+  }
+
+  const origin = resolveConfirmationOrigin(input.origin);
+  const rows = await accrualClient().findMany({
+    where: { enrollment_id: enrollment.id },
+    orderBy: [{ period_index: "asc" }],
+  });
+  const existingRows: any[] = Array.isArray(rows) ? rows : [];
+
+  const byId = new Map(existingRows.map((row) => [String(row.id), row]));
+  const byIndex = new Map(
+    existingRows.map((row) => [Number(row.period_index), row]),
+  );
+
+  const targets = confirmations.map((confirmation) => {
+    const row = asText(confirmation.accrualId)
+      ? byId.get(asText(confirmation.accrualId))
+      : byIndex.get(Number(confirmation.periodIndex));
+
+    if (!row) {
+      throw new Error(
+        "Un periodo indicato non esiste: ricalcola prima di confermare",
+      );
+    }
+
+    ensureOrganizationAccess(scope, row.organization_id);
+
+    if (asText(row.status) === "settled") {
+      throw new Error(
+        `Il periodo «${row.period_label}» e gia liquidato: non si corregge`,
+      );
+    }
+
+    const amount = toFundingAmount(confirmation.amount);
+    if (amount < 0) {
+      throw new Error("Un importo confermato non puo essere negativo");
+    }
+
+    return { row, amount, confirmation };
+  });
+
+  /*
+    Il tetto si verifica sul **totale** dopo la conferma, non sulla singola
+    riga: confermare due periodi da 200 su un assegnato di 300 e sbagliato
+    anche se ognuno dei due, da solo, ci starebbe.
+  */
+  const confirmedIds = new Set(targets.map((target) => String(target.row.id)));
+  const untouchedAccrued = existingRows
+    .filter((row) => !confirmedIds.has(String(row.id)))
+    .reduce((total, row) => total + toFundingAmount(row.accrued_amount), 0);
+  const confirmedTotal = targets.reduce(
+    (total, target) => total + target.amount,
+    0,
+  );
+  const assigned = toFundingAmount(enrollment.assigned_amount);
+
+  if (
+    Math.round((untouchedAccrued + confirmedTotal) * 100) >
+    Math.round(assigned * 100)
+  ) {
+    throw new Error(
+      `La conferma porterebbe il maturato a ${(untouchedAccrued + confirmedTotal).toFixed(2)} EUR, oltre l'importo assegnato al club (${assigned.toFixed(2)} EUR)`,
+    );
+  }
+
+  const now = new Date();
+  const written: Record<string, any>[] = [];
+
+  for (const { row, amount, confirmation } of targets) {
+    const previous = Array.isArray(asRecord(row.data).previousConfirmations)
+      ? asRecord(row.data).previousConfirmations
+      : [];
+
+    /*
+      Una correzione non cancella lo storico: l'importo precedente resta
+      leggibile con la sua data e il suo autore, perche una rendicontazione
+      gia inviata all'ente si spiega con quel numero.
+    */
+    const history = row.confirmed_at
+      ? [
+          ...previous,
+          {
+            amount: toFundingAmount(row.accrued_amount),
+            confirmedAt: row.confirmed_at,
+            confirmedBy: row.confirmed_by,
+            externalReference: row.external_reference,
+            notes: row.confirmation_notes,
+            origin: row.accrual_origin,
+          },
+        ]
+      : previous;
+
+    const updated = await accrualClient().update({
+      where: { id: row.id },
+      data: {
+        accrued_amount: amount,
+        unaccrued_amount: Number(
+          Math.max(0, toFundingAmount(row.eligible_amount) - amount).toFixed(2),
+        ),
+        status: amount > 0 ? "accrued" : "not_accrued",
+        accrual_origin: amount > 0 ? origin : null,
+        confirmed_at: toDateOrNull(confirmation.confirmedAt) || now,
+        confirmed_by: scope?.userId || null,
+        external_reference: asText(confirmation.externalReference) || null,
+        confirmation_notes: asText(confirmation.notes) || null,
+        /*
+          Una conferma smentisce cio che era stato dichiarato all'ente: il
+          periodo torna «maturato» e va rendicontato di nuovo.
+        */
+        reported_at: null,
+        reported_by: null,
+        computed_at: now,
+        data: {
+          ...asRecord(row.data),
+          reason:
+            amount > 0
+              ? "Confermato dalla fonte ufficiale"
+              : "La fonte ufficiale non ha riconosciuto niente per questo periodo",
+          previousConfirmations: history,
+        },
+      },
+    });
+
+    written.push(updated);
+  }
+
+  return { enrollment, program, accruals: written };
+};
+
+export type ConfirmationImportOutcome = {
+  enrollment: Record<string, any>;
+  accruals: Record<string, any>[];
+  /** Righe illeggibili o che non corrispondono a nessun periodo. */
+  rejected: Array<{ line: number; content: string; reason: string }>;
+};
+
+/**
+ * Importa un blocco di conferme da una fonte esterna.
+ *
+ * E la stessa scrittura di `confirmAccrualPeriods`, con la stessa provenienza
+ * dichiarata (`external_import`) e gli stessi tre limiti: nessun import puo
+ * fare quello che una conferma a mano non potrebbe.
+ *
+ * **Nessuna riga sparisce in silenzio.** Cio che il parser non legge e cio che
+ * non trova il suo periodo torna indietro elencato: un import che scarta senza
+ * dirlo e peggio di un import che fallisce, perche il totale sembra giusto.
+ */
+export const importAccrualConfirmations = async (
+  input: { enrollmentId: unknown; text: unknown; reference?: unknown },
+  scope?: FundingScope,
+): Promise<ConfirmationImportOutcome> => {
+  const enrollment = await getFundingEnrollmentById(
+    asText(input.enrollmentId),
+    scope,
+  );
+  const program = await getFundingProgramById(enrollment.program_id, scope);
+
+  if (!requiresExternalConfirmation(program)) {
+    throw new Error(
+      "Questo programma matura dalle presenze EasyGame: non si importano conferme",
+    );
+  }
+
+  const parsed = parseConfirmationImport(input.text);
+  const periods = generateFundingPeriods(program);
+  const { matched, unmatched } = matchConfirmationsToPeriods({
+    rows: parsed.rows,
+    periods,
+  });
+
+  const rejected = [
+    ...parsed.rejected,
+    ...unmatched.map((row) => ({
+      line: row.line,
+      content: row.period,
+      reason: "Nessun periodo del programma corrisponde",
+    })),
+  ];
+
+  if (!matched.length) {
+    throw new Error(
+      rejected.length
+        ? `Nessuna riga importabile: ${rejected[0].reason} (riga ${rejected[0].line})`
+        : "Il file non contiene nessuna conferma",
+    );
+  }
+
+  const result = await confirmAccrualPeriods(
+    {
+      enrollmentId: enrollment.id,
+      origin: "external_import",
+      confirmations: matched.map((row) => ({
+        periodIndex: row.periodIndex,
+        amount: row.amount,
+        externalReference: row.externalReference || asText(input.reference),
+        notes: row.notes,
+      })),
+    },
+    scope,
+  );
+
+  return { enrollment: result.enrollment, accruals: result.accruals, rejected };
 };
 
 export const listFundingAccruals = async (
@@ -584,6 +908,18 @@ export const markAccrualsReported = async (
 
   for (const row of rows) {
     ensureOrganizationAccess(scope, row.organization_id);
+
+    /*
+      Una previsione non si rendiconta. Dichiarare all'ente un importo che la
+      sua piattaforma non ha ancora riconosciuto e il difetto che la conferma
+      esplicita esiste per impedire (ADR-0054).
+    */
+    if (asText(row.status) === "pending_confirmation") {
+      throw new Error(
+        `Il periodo «${row.period_label}» e ancora una previsione: conferma la maturazione prima di rendicontarlo`,
+      );
+    }
+
     if (toFundingAmount(row.accrued_amount) <= 0) {
       throw new Error(
         `Il periodo «${row.period_label}» non ha maturato niente: non si rendiconta`,
@@ -816,10 +1152,33 @@ export const getAthleteFundingOverview = async (
         })
       : [];
 
+    /*
+      Quanto e stato liquidato **su quel periodo**. Il dettaglio periodo per
+      periodo deve poter affiancare rendicontato e liquidato, e con
+      liquidazioni parziali il secondo non si deduce dallo stato: si legge
+      dalle righe (ADR-0054).
+    */
+    const settledByAccrual = new Map<string, number>();
+    for (const line of Array.isArray(lines) ? lines : []) {
+      const key = String((line as any).accrual_id);
+      settledByAccrual.set(
+        key,
+        Number(
+          (
+            (settledByAccrual.get(key) || 0) +
+            toFundingAmount((line as any).amount)
+          ).toFixed(2),
+        ),
+      );
+    }
+
     overviews.push({
       enrollment,
       program,
-      accruals: Array.isArray(accruals) ? accruals : [],
+      accruals: (Array.isArray(accruals) ? accruals : []).map((row: any) => ({
+        ...row,
+        settled_amount: settledByAccrual.get(String(row.id)) || 0,
+      })),
       summary: summarizeFunding({
         assignedAmount: enrollment.assigned_amount,
         accruals,
@@ -1216,6 +1575,19 @@ export const updateFundingEnrollment = async (
         `Il plafond non puo scendere sotto il gia maturato (${accrued.toFixed(2)} €)`,
       );
     }
+
+    /*
+      L'assegnato resta dentro il massimale del bando: e la sola relazione fra
+      i due numeri, e va verificata anche in modifica — altrimenti il limite
+      varrebbe solo alla prima iscrizione (ADR-0054).
+    */
+    const program = await getFundingProgramById(enrollment.program_id, scope);
+    const assignedError = validateAssignedAmount({
+      program,
+      assignedAmount,
+      alreadyAccrued: accrued,
+    });
+    if (assignedError) throw new Error(assignedError);
 
     data.assigned_amount = assignedAmount;
   }

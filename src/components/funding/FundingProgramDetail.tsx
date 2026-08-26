@@ -24,7 +24,11 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
-import { requirementUnitLabel } from "@/lib/funding/funding-model";
+import {
+  fundingAccrualSourceLabel,
+  requirementUnitLabel,
+  type FundingAccrualSource,
+} from "@/lib/funding/funding-model";
 import { EnrollAthletesDialog } from "./EnrollAthletesDialog";
 import { cn } from "@/lib/utils";
 
@@ -279,7 +283,7 @@ export function FundingProgramDetail({
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Plafond per atleta</p>
+            <p className="text-xs text-muted-foreground">Massimale programma</p>
             <p className="text-sm font-medium">
               {formatCurrency(program.athlete_plafond)}
             </p>
@@ -321,13 +325,24 @@ export function FundingProgramDetail({
               {detail.totals.enrolledCount} ({detail.totals.activeCount} attivi)
             </p>
           </div>
+          <div>
+            <p className="text-xs text-muted-foreground">
+              Fonte della maturazione
+            </p>
+            <p className="text-sm font-medium">
+              {fundingAccrualSourceLabel(
+                (program.accrual_source ||
+                  "easygame_attendance") as FundingAccrualSource,
+              )}
+            </p>
+          </div>
         </CardContent>
       </Card>
 
       {/* ------------------------------------------------------- i totali */}
       <Card>
         <CardContent className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5">
-          <Amount label="Assegnato" value={detail.totals.assignedAmount} />
+          <Amount label="Assegnato al club" value={detail.totals.assignedAmount} />
           <Amount label="Maturato" value={detail.totals.accruedAmount} />
           <Amount label="Rendicontato" value={detail.totals.reportedAmount} />
           <Amount label="Liquidato" value={detail.totals.settledAmount} />
@@ -439,7 +454,7 @@ export function FundingProgramDetail({
                         "mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5",
                       )}
                     >
-                      <Amount label="Assegnato" value={row.summary.assignedAmount} />
+                      <Amount label="Assegnato al club" value={row.summary.assignedAmount} />
                       <Amount label="Maturato" value={row.summary.accruedAmount} />
                       <Amount label="Rendicontato" value={row.summary.reportedAmount} />
                       <Amount label="Liquidato" value={row.summary.settledAmount} />

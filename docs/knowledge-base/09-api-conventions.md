@@ -189,7 +189,7 @@ Tre conseguenze da conoscere:
 | `GET|POST` | `/api/v1/funding/programs` | I bandi del club. Le regole sono colonne |
 | `GET|PATCH` | `/api/v1/funding/programs/:id` | Nessun `DELETE`: un programma con maturati si porta a `closed` |
 | `GET|POST` | `/api/v1/funding/enrollments` | Beneficiari. `?view=overview&athlete_id=` restituisce i **cinque importi gia calcolati** |
-| `GET|POST` | `/api/v1/funding/accruals` | `recompute` ricalcola dalle presenze, `report` rendiconta all'ente |
+| `GET|POST` | `/api/v1/funding/accruals` | `recompute` ricalcola dalle presenze, `confirm` registra cio che una fonte esterna ha riconosciuto, `import` ne carica un blocco, `report` rendiconta all'ente. Una previsione non si rendiconta |
 | `GET|POST` | `/api/v1/funding/settlements` | Il versamento dell'ente, con la ripartizione sui periodi |
 
 **Perche `view=overview` e non un calcolo nel client.** I cinque importi

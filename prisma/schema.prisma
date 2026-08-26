@@ -659,8 +659,15 @@ model FundingProgram {
   status             String              @default("draft")
   valid_from         DateTime
   valid_to           DateTime
-  /// Plafond predefinito per atleta. Il singolo beneficiario puo averne uno diverso.
+  /// **Massimale del programma** per beneficiario: il tetto che il bando pone.
+  /// Non e l'importo assegnato presso questo club, che sta su
+  /// `funding_enrollments.assigned_amount` e puo essere piu basso (ADR-0054).
   athlete_plafond    Float
+  /// easygame_attendance | external_confirmation | external_import | external_api
+  ///
+  /// Dice se le presenze EasyGame sono la fonte ufficiale della maturazione o
+  /// soltanto una previsione in attesa di conferma esterna.
+  accrual_source     String              @default("easygame_attendance")
   /// Importo riconosciuto per un periodo che matura per intero.
   period_amount      Float
   /// monthly | days
@@ -748,12 +755,23 @@ model FundingAccrual {
   requirement_met  Boolean                 @default(false)
   /// Importo che il periodo varrebbe se maturasse per intero.
   eligible_amount  Float                   @default(0)
-  /// Importo effettivamente maturato, dopo soglia e plafond.
+  /// **Previsione EasyGame**: quanto il periodo varrebbe secondo l'appello
+  /// registrato qui. Con la fonte esterna resta un numero da leggere mentre
+  /// `accrued_amount` resta zero fino alla conferma (ADR-0054).
+  estimated_amount Float                   @default(0)
+  /// Importo effettivamente maturato, dopo soglia, assegnato e conferma.
   accrued_amount   Float                   @default(0)
   /// Quanto e andato perso: `eligible_amount - accrued_amount`.
   unaccrued_amount Float                   @default(0)
-  /// not_accrued | accrued | reported | settled
+  /// not_accrued | pending_confirmation | accrued | reported | settled
   status           String                  @default("not_accrued")
+  /// easygame_attendance | manual_confirmation | external_import | external_api
+  accrual_origin   String?
+  confirmed_at     DateTime?
+  confirmed_by     String?                 @db.Uuid
+  /// Riferimento della fonte esterna: protocollo, id pratica, nome del file.
+  external_reference String?
+  confirmation_notes String?
   reported_at      DateTime?
   reported_by      String?                 @db.Uuid
   computed_at      DateTime

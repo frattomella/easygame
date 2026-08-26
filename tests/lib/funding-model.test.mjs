@@ -190,7 +190,7 @@ test("il plafond limita l'ultima mensilita utile", () => {
 
   assert.equal(risultato.accruedAmount, 20, "non 60: il plafond e finito");
   assert.equal(risultato.unaccruedAmount, 40);
-  assert.match(risultato.reason, /Plafond quasi esaurito/);
+  assert.match(risultato.reason, /Importo assegnato quasi esaurito/);
 });
 
 test("con il plafond esaurito una mensilita frequentata matura zero", () => {
@@ -202,7 +202,7 @@ test("con il plafond esaurito una mensilita frequentata matura zero", () => {
 
   assert.equal(risultato.accruedAmount, 0);
   assert.equal(risultato.requirementMet, true, "ha frequentato: il dato resta vero");
-  assert.match(risultato.reason, /Plafond esaurito/);
+  assert.match(risultato.reason, /Importo assegnato esaurito/);
 });
 
 test("il plafond si consuma in ordine cronologico, non periodo per periodo", () => {

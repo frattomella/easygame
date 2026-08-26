@@ -4,6 +4,8 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import {
+  confirmAccrualPeriods,
+  importAccrualConfirmations,
   listFundingAccruals,
   markAccrualsReported,
   recomputeEnrollmentAccruals,
@@ -16,7 +18,16 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  *
  *   GET  /api/v1/funding/accruals?enrollment_id=…
  *   POST /api/v1/funding/accruals  {"action":"recompute","enrollment_id":…}
+ *   POST /api/v1/funding/accruals  {"action":"confirm","enrollment_id":…,"confirmations":[…]}
+ *   POST /api/v1/funding/accruals  {"action":"import","enrollment_id":…,"text":…}
  *   POST /api/v1/funding/accruals  {"action":"report","accrual_ids":[…]}
+ *
+ * `confirm` e `import` esistono per i programmi la cui fonte ufficiale sta
+ * fuori da EasyGame: li il ricalcolo produce una **previsione**, e il credito
+ * nasce solo quando qualcuno dichiara cosa l'ente ha riconosciuto. Le due
+ * azioni scrivono la stessa cosa e si distinguono per provenienza, cosi una
+ * correzione a mano resta distinguibile da cio che ha portato un file
+ * (ADR-0054).
  *
  * **Perche il ricalcolo e un'azione e non un effetto collaterale della
  * lettura.** Legge tutte le presenze e tutti gli allenamenti del club: farlo
@@ -127,6 +138,75 @@ export async function POST(request: Request) {
       return NextResponse.json({ data: result, error: null });
     }
 
+    if (action === "confirm") {
+      const result = await confirmAccrualPeriods(
+        {
+          enrollmentId: body?.enrollment_id ?? body?.enrollmentId,
+          origin: body?.origin,
+          confirmations: Array.isArray(body?.confirmations)
+            ? body.confirmations.map((entry: any) => ({
+                accrualId: entry?.accrual_id ?? entry?.accrualId,
+                periodIndex: entry?.period_index ?? entry?.periodIndex,
+                amount: entry?.amount,
+                confirmedAt: entry?.confirmed_at ?? entry?.confirmedAt,
+                externalReference:
+                  entry?.external_reference ?? entry?.externalReference,
+                notes: entry?.notes,
+              }))
+            : [],
+        },
+        scope,
+      );
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.resourceUpdated,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: result.enrollment.organization_id,
+        resource: "funding_accruals",
+        resourceId: result.enrollment.id,
+        request,
+        metadata: {
+          confirmedPeriods: result.accruals.length,
+          confirmedAmount: result.accruals.reduce(
+            (total, row: any) => total + Number(row.accrued_amount || 0),
+            0,
+          ),
+        },
+      });
+
+      return NextResponse.json({ data: result, error: null });
+    }
+
+    if (action === "import") {
+      const result = await importAccrualConfirmations(
+        {
+          enrollmentId: body?.enrollment_id ?? body?.enrollmentId,
+          text: body?.text ?? body?.content,
+          reference: body?.reference,
+        },
+        scope,
+      );
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.resourceUpdated,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: result.enrollment.organization_id,
+        resource: "funding_accruals",
+        resourceId: result.enrollment.id,
+        request,
+        metadata: {
+          importedPeriods: result.accruals.length,
+          rejectedRows: result.rejected.length,
+        },
+      });
+
+      return NextResponse.json({ data: result, error: null });
+    }
+
     if (action === "report") {
       const accruals = await markAccrualsReported(
         body?.accrual_ids ?? body?.accrualIds ?? [],
@@ -153,7 +233,7 @@ export async function POST(request: Request) {
         data: null,
         error: {
           message:
-            "Azione non supportata: il maturato si ricalcola o si rendiconta, non si scrive a mano",
+            "Azione non supportata: il maturato si ricalcola, si conferma, si importa o si rendiconta, non si scrive a mano",
         },
       },
       { status: 400 },

@@ -64,6 +64,69 @@ export type FundingUnmetBehavior = (typeof FUNDING_UNMET_BEHAVIORS)[number];
 export const FUNDING_PROGRAM_STATUSES = ["draft", "active", "closed"] as const;
 export type FundingProgramStatus = (typeof FUNDING_PROGRAM_STATUSES)[number];
 
+/**
+ * **Da dove arriva la maturazione** (ADR-0054).
+ *
+ * Le presenze EasyGame non sono sempre la fonte ufficiale. Su molti bandi la
+ * frequenza si registra su una piattaforma istituzionale, e cio che EasyGame
+ * sa e al massimo una *previsione*: utile per accorgersi in tempo che un
+ * atleta non arrivera alla soglia, ma non sufficiente a dichiarare un credito
+ * verso un ente. Trattare le due cose come una sola vuol dire, prima o poi,
+ * rendicontare un importo che la piattaforma ufficiale non riconosce.
+ *
+ * - `easygame_attendance` — l'appello di EasyGame **e** la fonte: il periodo
+ *   matura da solo appena il requisito e raggiunto;
+ * - `external_confirmation` — la fonte e altrove: EasyGame calcola la
+ *   previsione e aspetta una conferma esplicita;
+ * - `external_import` — come sopra, ma le conferme arrivano da un file;
+ * - `external_api` — dichiarato nel modello, **non disponibile**: nessun
+ *   provider reale esiste, e un'integrazione finta sarebbe peggio di
+ *   nessuna integrazione.
+ */
+export const FUNDING_ACCRUAL_SOURCES = [
+  "easygame_attendance",
+  "external_confirmation",
+  "external_import",
+  "external_api",
+] as const;
+export type FundingAccrualSource = (typeof FUNDING_ACCRUAL_SOURCES)[number];
+
+/** Le fonti che un club puo davvero scegliere oggi. */
+export const SELECTABLE_FUNDING_ACCRUAL_SOURCES: readonly FundingAccrualSource[] =
+  ["easygame_attendance", "external_confirmation", "external_import"];
+
+/**
+ * **Come e nato un maturato**, riga per riga.
+ *
+ * Il programma dice quale fonte vale; il singolo periodo dice da dove e
+ * arrivato davvero il suo importo. I due non coincidono sempre: su un
+ * programma a import esterno una correzione a mano resta possibile, e deve
+ * restare distinguibile da cio che ha portato il file.
+ */
+export const FUNDING_ACCRUAL_ORIGINS = [
+  "easygame_attendance",
+  "manual_confirmation",
+  "external_import",
+  "external_api",
+] as const;
+export type FundingAccrualOrigin = (typeof FUNDING_ACCRUAL_ORIGINS)[number];
+
+export const fundingAccrualSourceLabel = (source: FundingAccrualSource) =>
+  ({
+    easygame_attendance: "Presenze EasyGame",
+    external_confirmation: "Conferma da piattaforma esterna",
+    external_import: "Importazione dati esterni",
+    external_api: "API esterna (non disponibile)",
+  })[source];
+
+export const fundingAccrualOriginLabel = (origin: FundingAccrualOrigin) =>
+  ({
+    easygame_attendance: "Presenze EasyGame",
+    manual_confirmation: "Conferma manuale",
+    external_import: "Importazione esterna",
+    external_api: "API esterna",
+  })[origin];
+
 export const FUNDING_ENROLLMENT_STATUSES = [
   "active",
   "suspended",
@@ -78,9 +141,15 @@ export type FundingEnrollmentStatus =
  * `not_accrued` non e un errore: e il periodo in cui l'atleta non ha
  * frequentato abbastanza, e va mostrato lo stesso — sapere quanto si e perso
  * e la ragione per cui una segreteria guarda questa tabella.
+ *
+ * `pending_confirmation` e il periodo di un programma la cui fonte ufficiale
+ * sta fuori da EasyGame: la previsione c'e gia, il credito no. Distinguerlo
+ * da `accrued` e l'unica cosa che impedisce di rendicontare all'ente un
+ * numero che l'ente non ha ancora riconosciuto.
  */
 export const FUNDING_ACCRUAL_STATUSES = [
   "not_accrued",
+  "pending_confirmation",
   "accrued",
   "reported",
   "settled",
@@ -95,7 +164,14 @@ export type NormalizedFundingProgram = {
   status: FundingProgramStatus;
   validFrom: string | null;
   validTo: string | null;
+  /**
+   * **Il massimale del programma**: il tetto che il bando pone al singolo
+   * beneficiario. Non e cio che l'atleta usa presso questo club — quello e
+   * `assigned_amount` sull'iscrizione, e puo essere molto piu basso.
+   */
   athletePlafond: number;
+  /** Da dove arriva la maturazione: presenze EasyGame o una fonte esterna. */
+  accrualSource: FundingAccrualSource;
   periodAmount: number;
   periodFrequency: FundingPeriodFrequency;
   periodLengthDays: number | null;
@@ -206,6 +282,11 @@ export const normalizeFundingProgram = (
     athletePlafond: toFundingAmount(
       record.athlete_plafond ?? record.athletePlafond,
     ),
+    accrualSource: pickEnum(
+      record.accrual_source ?? record.accrualSource,
+      FUNDING_ACCRUAL_SOURCES,
+      "easygame_attendance",
+    ),
     periodAmount: toFundingAmount(record.period_amount ?? record.periodAmount),
     periodFrequency: pickEnum(
       record.period_frequency ?? record.periodFrequency,
@@ -279,6 +360,61 @@ export const validateFundingProgram = (value: unknown): string | null => {
 
   if (program.unmetBehavior !== "full" && !(program.requirementMin > 0)) {
     return "Con un comportamento a soglia serve un requisito minimo maggiore di zero";
+  }
+
+  if (program.accrualSource === "external_api") {
+    return "L'API esterna non e ancora disponibile: scegli le presenze EasyGame, la conferma esterna o l'importazione";
+  }
+
+  return null;
+};
+
+/**
+ * Vero quando il maturato **non** puo nascere dalle sole presenze EasyGame.
+ *
+ * E la domanda che separa una previsione da un credito: con una fonte esterna
+ * l'appello di EasyGame resta utile — dice in tempo se un atleta sta per
+ * mancare la soglia — ma non fa maturare niente finche qualcuno non conferma.
+ */
+export const requiresExternalConfirmation = (program: unknown) =>
+  normalizeFundingProgram(program).accrualSource !== "easygame_attendance";
+
+/**
+ * Valida **l'importo assegnato presso questo club**.
+ *
+ * Massimale del programma e importo assegnato sono due numeri diversi
+ * (ADR-0054): il bando riconosce fino a 500 EUR a Mario, ma Mario puo
+ * decidere di usarne 300 qui e il resto altrove. EasyGame conosce solo i 300:
+ * sono il limite dell'iscrizione, e il massimale serve a validarli, non a
+ * sostituirli.
+ *
+ * `alreadyAccrued` impedisce di abbassare l'assegnato sotto cio che e gia
+ * maturato: quel credito e stato calcolato, in parte dichiarato, forse gia
+ * incassato, e non si cancella scrivendo un numero piu piccolo.
+ */
+export const validateAssignedAmount = ({
+  program,
+  assignedAmount,
+  alreadyAccrued = 0,
+}: {
+  program: unknown;
+  assignedAmount: unknown;
+  alreadyAccrued?: unknown;
+}): string | null => {
+  const normalized = normalizeFundingProgram(program);
+  const assigned = toFundingAmount(assignedAmount);
+
+  if (!(assigned > 0)) {
+    return "L'importo assegnato deve essere maggiore di zero";
+  }
+
+  if (toCents(assigned) > toCents(normalized.athletePlafond)) {
+    return `L'importo assegnato (${assigned.toFixed(2)} EUR) supera il massimale del programma (${normalized.athletePlafond.toFixed(2)} EUR)`;
+  }
+
+  const accrued = toFundingAmount(alreadyAccrued);
+  if (toCents(assigned) < toCents(accrued)) {
+    return `L'importo assegnato non puo scendere sotto il gia maturato (${accrued.toFixed(2)} EUR)`;
   }
 
   return null;
@@ -407,11 +543,22 @@ export type PeriodAccrualResult = {
   requirementMet: boolean;
   /** Quanto varrebbe il periodo se maturasse per intero. */
   eligibleAmount: number;
-  /** Quanto matura davvero, dopo soglia e plafond residuo. */
+  /**
+   * **La previsione EasyGame**: quanto il periodo varrebbe secondo l'appello
+   * registrato qui, gia limitato dal residuo assegnato.
+   *
+   * Con la fonte `easygame_attendance` coincide con `accruedAmount`. Con una
+   * fonte esterna resta un numero da leggere — «a questo ritmo maturera 60
+   * EUR» — mentre il maturato resta zero finche l'ente non conferma.
+   */
+  estimatedAmount: number;
+  /** Quanto matura davvero, dopo soglia, plafond residuo e conferma. */
   accruedAmount: number;
   /** Quanto e andato perso: `eligibleAmount - accruedAmount`. */
   unaccruedAmount: number;
   status: FundingAccrualStatus;
+  /** Da dove arriva l'importo maturato, quando ce n'e uno. */
+  origin: FundingAccrualOrigin | null;
   /** Perche l'importo e quello: si mostra all'operatore, non si deduce. */
   reason: string;
 };
@@ -419,19 +566,28 @@ export type PeriodAccrualResult = {
 /**
  * Quanto matura un periodo.
  *
- * `remainingPlafond` e cio che resta del plafond dell'atleta **prima** di
- * questo periodo: e la ragione per cui il calcolo va fatto in ordine
- * cronologico e non periodo per periodo in isolamento. Con un plafond di 500 e
- * mensilita da 60, l'ultima mensilita utile matura 20 e non 60.
+ * `remainingPlafond` e cio che resta dell'importo assegnato all'atleta
+ * **prima** di questo periodo: e la ragione per cui il calcolo va fatto in
+ * ordine cronologico e non periodo per periodo in isolamento. Con un
+ * assegnato di 300 e mensilita da 60, la sesta mensilita matura 0 e non 60.
+ *
+ * `confirmedAmount` e l'importo che una fonte esterna ha riconosciuto per
+ * questo periodo. Vale **solo** per i programmi a conferma esterna, e resta
+ * comunque limitato dal residuo assegnato: nessuna conferma puo far maturare
+ * piu di quanto il club ha in carico per quell'atleta (ADR-0054).
  */
 export const calculatePeriodAccrual = ({
   program,
   measuredValue,
   remainingPlafond,
+  confirmedAmount = null,
+  confirmationOrigin = "manual_confirmation",
 }: {
   program: unknown;
   measuredValue: unknown;
   remainingPlafond: unknown;
+  confirmedAmount?: unknown;
+  confirmationOrigin?: FundingAccrualOrigin;
 }): PeriodAccrualResult => {
   const normalized = normalizeFundingProgram(program);
   const measured = toFundingMeasure(measuredValue);
@@ -469,9 +625,62 @@ export const calculatePeriodAccrual = ({
   if (cappedCents < grossCents) {
     reason =
       cappedCents > 0
-        ? "Plafond quasi esaurito: riconosciuto fino al residuo"
-        : "Plafond esaurito";
+        ? "Importo assegnato quasi esaurito: riconosciuto fino al residuo"
+        : "Importo assegnato esaurito";
   }
+
+  const estimatedCents = cappedCents;
+  const external = normalized.accrualSource !== "easygame_attendance";
+
+  /*
+    Fonte EasyGame: la previsione **e** il maturato, e non c'e niente da
+    aspettare. E il caso dei bandi in cui l'appello del club fa fede.
+  */
+  if (!external) {
+    return {
+      requirementMin: requirement,
+      requirementUnit: normalized.requirementUnit,
+      measuredValue: measured,
+      requirementMet: met,
+      eligibleAmount: eligible,
+      estimatedAmount: fromCents(estimatedCents),
+      accruedAmount: fromCents(cappedCents),
+      unaccruedAmount: fromCents(Math.max(0, toCents(eligible) - cappedCents)),
+      status: cappedCents > 0 ? "accrued" : "not_accrued",
+      origin: cappedCents > 0 ? "easygame_attendance" : null,
+      reason,
+    };
+  }
+
+  /*
+    Fonte esterna e nessuna conferma: si mostra la previsione e si dichiara
+    che il periodo e da confermare. Anche un periodo senza presenze EasyGame
+    resta confermabile: la piattaforma ufficiale puo conoscere ore che qui
+    nessuno ha registrato, ed e proprio per questo che la fonte e la sua.
+  */
+  if (confirmedAmount === null || confirmedAmount === undefined) {
+    return {
+      requirementMin: requirement,
+      requirementUnit: normalized.requirementUnit,
+      measuredValue: measured,
+      requirementMet: met,
+      eligibleAmount: eligible,
+      estimatedAmount: fromCents(estimatedCents),
+      accruedAmount: 0,
+      unaccruedAmount: 0,
+      status: "pending_confirmation",
+      origin: null,
+      reason: met
+        ? "Previsione EasyGame: requisito raggiunto. In attesa di conferma dalla fonte ufficiale"
+        : "In attesa di conferma dalla fonte ufficiale",
+    };
+  }
+
+  const confirmedCents = Math.min(
+    Math.max(0, toCents(confirmedAmount)),
+    remainingCents,
+  );
+  const truncated = toCents(confirmedAmount) > remainingCents;
 
   return {
     requirementMin: requirement,
@@ -479,10 +688,18 @@ export const calculatePeriodAccrual = ({
     measuredValue: measured,
     requirementMet: met,
     eligibleAmount: eligible,
-    accruedAmount: fromCents(cappedCents),
-    unaccruedAmount: fromCents(Math.max(0, toCents(eligible) - cappedCents)),
-    status: cappedCents > 0 ? "accrued" : "not_accrued",
-    reason,
+    estimatedAmount: fromCents(estimatedCents),
+    accruedAmount: fromCents(confirmedCents),
+    unaccruedAmount: fromCents(
+      Math.max(0, toCents(eligible) - confirmedCents),
+    ),
+    status: confirmedCents > 0 ? "accrued" : "not_accrued",
+    origin: confirmedCents > 0 ? confirmationOrigin : null,
+    reason: truncated
+      ? "Conferma esterna ridotta al residuo dell'importo assegnato"
+      : confirmedCents > 0
+        ? "Confermato dalla fonte ufficiale"
+        : "La fonte ufficiale non ha riconosciuto niente per questo periodo",
   };
 };
 
@@ -501,20 +718,33 @@ export const calculateEnrollmentAccruals = ({
   assignedAmount,
   periods,
   measureForPeriod,
+  confirmationForPeriod,
 }: {
   program: unknown;
   assignedAmount: unknown;
   periods: FundingPeriod[];
   /** Quante ore o presenze valide ha l'atleta in quel periodo. */
   measureForPeriod: (period: FundingPeriod) => number;
+  /**
+   * L'importo che la fonte esterna ha riconosciuto per quel periodo, se una
+   * conferma esiste. `null` — o la funzione assente — vuol dire «non ancora
+   * confermato», che non e la stessa cosa di «confermato a zero».
+   */
+  confirmationForPeriod?: (period: FundingPeriod) => {
+    amount: number;
+    origin?: FundingAccrualOrigin;
+  } | null;
 }) => {
   let remainingCents = Math.max(0, toCents(assignedAmount));
 
   return periods.map((period) => {
+    const confirmation = confirmationForPeriod?.(period) ?? null;
     const result = calculatePeriodAccrual({
       program,
       measuredValue: measureForPeriod(period),
       remainingPlafond: fromCents(remainingCents),
+      confirmedAmount: confirmation ? confirmation.amount : null,
+      confirmationOrigin: confirmation?.origin ?? "manual_confirmation",
     });
 
     remainingCents = Math.max(0, remainingCents - toCents(result.accruedAmount));
@@ -526,10 +756,19 @@ export const calculateEnrollmentAccruals = ({
 /* ------------------------------------------------------------ riepilogo */
 
 export type FundingSummary = {
-  /** Il plafond riservato all'atleta. **Non e denaro incassato.** */
+  /**
+   * **L'importo assegnato presso questo club.** Non e il massimale del
+   * programma — quello sta sul programma — e non e denaro incassato.
+   */
   assignedAmount: number;
   /** Quanto ha guadagnato frequentando. E un credito, non cassa. */
   accruedAmount: number;
+  /**
+   * **La previsione**: quanto i periodi in attesa di conferma varrebbero
+   * secondo le presenze EasyGame. Non e un credito e non si somma al
+   * maturato: si mostra accanto, per far vedere cosa c'e da confermare.
+   */
+  estimatedAmount: number;
   /** Quanto e stato dichiarato all'ente. */
   reportedAmount: number;
   /** Quanto l'ente ha versato davvero. Questo, e solo questo, e cassa. */
@@ -543,6 +782,8 @@ export type FundingSummary = {
   periodCount: number;
   accruedPeriodCount: number;
   missedPeriodCount: number;
+  /** Periodi che aspettano la conferma di una fonte esterna. */
+  pendingConfirmationPeriodCount: number;
 };
 
 const accrualStatusOf = (accrual: Record<string, any>): FundingAccrualStatus =>
@@ -568,10 +809,12 @@ export const summarizeFunding = ({
   const assignedCents = Math.max(0, toCents(assignedAmount));
 
   let accruedCents = 0;
+  let estimatedCents = 0;
   let reportedCents = 0;
   let unaccruedCents = 0;
   let accruedPeriodCount = 0;
   let missedPeriodCount = 0;
+  let pendingConfirmationPeriodCount = 0;
 
   for (const raw of Array.isArray(accruals) ? accruals : []) {
     const accrual = asRecord(raw);
@@ -587,6 +830,14 @@ export const summarizeFunding = ({
       reportedCents += accrued;
     }
 
+    if (status === "pending_confirmation") {
+      pendingConfirmationPeriodCount += 1;
+      estimatedCents += toCents(
+        accrual.estimated_amount ?? accrual.estimatedAmount,
+      );
+      continue;
+    }
+
     if (accrued > 0) accruedPeriodCount += 1;
     else missedPeriodCount += 1;
   }
@@ -598,6 +849,7 @@ export const summarizeFunding = ({
   return {
     assignedAmount: fromCents(assignedCents),
     accruedAmount: fromCents(accruedCents),
+    estimatedAmount: fromCents(estimatedCents),
     reportedAmount: fromCents(reportedCents),
     settledAmount: fromCents(settledCents),
     pendingSettlementAmount: fromCents(Math.max(0, accruedCents - settledCents)),
@@ -606,6 +858,7 @@ export const summarizeFunding = ({
     periodCount: (Array.isArray(accruals) ? accruals : []).length,
     accruedPeriodCount,
     missedPeriodCount,
+    pendingConfirmationPeriodCount,
   };
 };
 
@@ -627,6 +880,9 @@ export const mergeFundingSummaries = (
       accruedAmount: fromCents(
         toCents(total.accruedAmount) + toCents(summary.accruedAmount),
       ),
+      estimatedAmount: fromCents(
+        toCents(total.estimatedAmount) + toCents(summary.estimatedAmount),
+      ),
       reportedAmount: fromCents(
         toCents(total.reportedAmount) + toCents(summary.reportedAmount),
       ),
@@ -647,10 +903,14 @@ export const mergeFundingSummaries = (
       accruedPeriodCount:
         total.accruedPeriodCount + summary.accruedPeriodCount,
       missedPeriodCount: total.missedPeriodCount + summary.missedPeriodCount,
+      pendingConfirmationPeriodCount:
+        total.pendingConfirmationPeriodCount +
+        summary.pendingConfirmationPeriodCount,
     }),
     {
       assignedAmount: 0,
       accruedAmount: 0,
+      estimatedAmount: 0,
       reportedAmount: 0,
       settledAmount: 0,
       pendingSettlementAmount: 0,
@@ -659,6 +919,7 @@ export const mergeFundingSummaries = (
       periodCount: 0,
       accruedPeriodCount: 0,
       missedPeriodCount: 0,
+      pendingConfirmationPeriodCount: 0,
     },
   );
 

@@ -387,12 +387,25 @@ test("il plafond individuale si puo cambiare", async () => {
 
   const aggiornata = await funding.updateFundingEnrollment(
     esito.created[0].id,
-    { assignedAmount: 400, voucherCode: "LZ-9" },
+    { assignedAmount: 250, voucherCode: "LZ-9" },
     scope(),
   );
 
-  assert.equal(aggiornata.assigned_amount, 400);
+  assert.equal(aggiornata.assigned_amount, 250);
   assert.equal(aggiornata.voucher_code, "LZ-9");
+});
+
+test("l'importo assegnato non supera il massimale del programma", async () => {
+  const esito = await iscrivi([ANNA]);
+
+  await assert.rejects(
+    funding.updateFundingEnrollment(
+      esito.created[0].id,
+      { assignedAmount: 400 },
+      scope(),
+    ),
+    /supera il massimale del programma/i,
+  );
 });
 
 test("il plafond non scende sotto il gia maturato", async () => {

@@ -2508,3 +2508,105 @@ adapter, e la configurazione in Platform Admin.
   concluderebbe che manca da implementare;
 - la sezione «Fiscalita» della console di piattaforma dice a chiare lettere che
   l'invio elettronico non e configurato, ed elenca cosa EasyGame fa davvero.
+
+---
+
+## ADR-0054 — Il massimale del bando non e l'importo assegnato al club, e una presenza non e sempre una prova
+
+**Data:** 2026-08-26
+**Stato:** ATTIVA
+**Contesto:** Blocco D2. Completa il modello economico di
+[ADR-0037](#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati),
+che aveva reso configurabili le regole di un bando ma teneva ancora due
+concetti distinti dentro un numero solo, e una previsione dentro un credito.
+
+**Il primo problema: un campo per due cose.** Un voucher regionale riconosce
+fino a 500 EUR a Mario. Mario decide di usarne 300 presso questa societa e il
+resto altrove — un'altra ASD, un centro estivo, una piscina. EasyGame non sa
+dove finiscano gli altri 200 e **non deve comportarsi come se li avesse**.
+Finora `athlete_plafond` era usato per entrambe le domande: quanto il bando
+riconosce, e quanto questo club puo far maturare. Con quell'ambiguita il club
+vede 500 in carico, matura oltre i 300, e li rendiconta a un ente che ne
+riconoscera 300.
+
+**La decisione, prima parte.** Due valori, con due nomi e due posti:
+
+| Valore | Dove vive | Cosa risponde |
+|---|---|---|
+| **Massimale del programma** | `funding_programs.athlete_plafond` | fin dove arriva il bando |
+| **Importo assegnato al club** | `funding_enrollments.assigned_amount` | quanto questo club ha in carico |
+
+Il massimale **valida** l'assegnato e non lo sostituisce: `validateAssignedAmount`
+rifiuta un assegnato maggiore del massimale, e senza indicazione esplicita
+l'assegnato coincide con il massimale — che resta il caso piu comune. Il tetto
+della maturazione, del ricalcolo e di ogni conferma e **sempre** l'assegnato.
+
+**Il secondo problema: la presenza come prova universale.** Su molti bandi la
+frequenza ufficiale non si registra in EasyGame: si registra su una piattaforma
+dell'ente, e l'appello del club e al massimo un'indicazione. Farlo maturare vuol
+dire dichiarare all'ente un credito che l'ente non ha riconosciuto — e
+accorgersene alla liquidazione, quando le due cifre non coincidono.
+
+**La decisione, seconda parte.** La fonte della maturazione diventa
+**configurazione**, come tutto il resto del bando:
+
+- `easygame_attendance` — l'appello di EasyGame **e** la fonte: il periodo
+  matura da solo al raggiungimento del requisito. E il comportamento
+  precedente, ed e il default: nessun programma esistente cambia;
+- `external_confirmation` — la fonte e altrove: EasyGame calcola la
+  **previsione** e aspetta una conferma esplicita;
+- `external_import` — come sopra, con le conferme che arrivano da un file;
+- `external_api` — dichiarato nel modello e **non selezionabile**. Nessun ente
+  espone oggi una API che EasyGame possa chiamare, e un adapter finto sarebbe
+  peggio di nessun adapter: la validazione lo rifiuta.
+
+**Previsione e maturato sono due numeri, non due letture dello stesso.**
+`funding_accruals.estimated_amount` porta quanto il periodo varrebbe secondo
+l'appello del club; `accrued_amount` resta a zero finche non arriva una
+conferma, e lo stato `pending_confirmation` lo dice a chiare lettere. Un
+periodo in attesa **non** e un periodo perso: nel riepilogo si conta a parte,
+perche «l'atleta non ha frequentato abbastanza» e «l'ente non ha ancora
+risposto» sono due problemi diversi con due rimedi diversi.
+
+**Perche la conferma e un atto e non un campo.** Quel numero finira in una
+rendicontazione, e qualcuno dovra poter dire da dove viene. La conferma
+registra periodo, importo, data, utente, riferimento esterno e nota; una
+correzione successiva sovrascrive l'importo e conserva il precedente in
+`data.previousConfirmations`. Tre limiti non sono negoziabili:
+
+1. non si conferma su un programma a fonte EasyGame — li il maturato si
+   ricalcola, e digitarlo riaprirebbe la porta all'importo inventato;
+2. la somma dei confermati non supera l'**importo assegnato al club**;
+3. un periodo gia liquidato non si tocca: l'ente ha versato su quel numero.
+
+**Perche un ricalcolo non riscrive una conferma.** Il ricalcolo legge le
+presenze; la conferma dichiara cio che una fonte esterna ha riconosciuto. Se il
+primo potesse sovrascrivere la seconda, il numero comunicato all'ente
+cambierebbe da solo ogni volta che qualcuno corregge un appello. Il ricalcolo
+aggiorna la previsione **attorno** alla conferma e ne lascia l'importo dov'e.
+
+**Perche l'import e un parser di cinque colonne e non un'integrazione.** Le
+conferme arrivano in blocco — un prospetto con un periodo e un importo per riga
+— e confermarne duecento a mano vuol dire non confermarne nessuna. Il tracciato
+e lo stesso della riconciliazione in uscita (punto e virgola, virgola
+decimale), cosi il file che il club esporta ha la forma di quello che rimanda
+indietro. Nessuna riga sparisce in silenzio: cio che non si legge e cio che non
+trova il suo periodo torna indietro elencato con il numero di riga.
+
+**Conseguenze.**
+
+- `POST /api/v1/funding/accruals` accetta due azioni nuove, `confirm` e
+  `import`, che scrivono la stessa cosa e si distinguono per provenienza
+  (`funding_accruals.accrual_origin`);
+- `markAccrualsReported` rifiuta un periodo `pending_confirmation` con un
+  messaggio che dice cosa fare: una previsione non si rendiconta;
+- la scheda economica dell'atleta mostra **sei** importi in sequenza —
+  massimale programma, assegnato al club, maturato, rendicontato, liquidato,
+  residuo — piu la previsione quando la fonte e esterna;
+- il dettaglio periodo per periodo smette di essere una tabella a otto colonne
+  e diventa una riga che si apre: otto colonne a 375 px non si leggono.
+
+**Cosa **non** cambia.** La separazione fra contributi e pagamenti della
+famiglia resta quella di ADR-0037: nessuna conferma, nessuna liquidazione e
+nessun maturato crea una `payment_transaction`. Liquidato resta l'unico dei sei
+importi che sia cassa.

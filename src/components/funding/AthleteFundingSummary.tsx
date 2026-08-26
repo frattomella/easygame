@@ -15,20 +15,33 @@ import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { useToast } from "@/components/ui/toast-notification";
 import { EnrollAthletesDialog } from "./EnrollAthletesDialog";
+import { FundingPeriodsTable } from "./FundingPeriodsTable";
 import {
+  ConfirmAccrualDialog,
+  type AccrualConfirmationSubmission,
+} from "./ConfirmAccrualDialog";
+import {
+  fundingAccrualSourceLabel,
   mergeFundingSummaries,
   requirementUnitLabel,
+  type FundingAccrualSource,
   type FundingSummary,
 } from "@/lib/funding/funding-model";
 
 /**
- * I contributi di un atleta nella sua parte economica (ADR-0037).
+ * I contributi di un atleta nella sua parte economica (ADR-0037, ADR-0054).
  *
- * **Cinque numeri, non uno.** Un voucher assegnato non e denaro incassato: fra
- * «assegnato» e «arrivato» ci sono la frequenza, la rendicontazione e il
- * versamento dell'ente, e ognuno dei tre puo non essere ancora successo.
- * Mostrarne un totale solo — che e cio che una segreteria si aspetterebbe di
- * vedere — porterebbe a contare come cassa dei soldi che nessuno ha versato.
+ * **Sei numeri, non uno.** Un voucher assegnato non e denaro incassato, e il
+ * massimale del bando non e cio che l'atleta usa qui: fra «il bando riconosce
+ * fino a 500» e «l'ente ci ha versato 60» ci sono quattro passaggi che possono
+ * fallire separatamente. Mostrarne un totale solo — che e cio che una
+ * segreteria si aspetterebbe di vedere — porterebbe a contare come cassa dei
+ * soldi che nessuno ha versato.
+ *
+ * **Massimale del programma e assegnato al club sono due righe diverse.**
+ * Mario ha diritto a 500 EUR complessivi e decide di usarne 300 qui: gli altri
+ * 200 non sono disponibili a questa societa, e EasyGame non deve mai
+ * comportarsi come se lo fossero. Il limite di questa iscrizione e 300.
  *
  * Il pannello e **separato** dal Riepilogo Incassi di proposito: quello e
  * denaro della famiglia, questo e un credito verso un ente. Sono due
@@ -43,36 +56,6 @@ const formatCurrency = (value: unknown) =>
     minimumFractionDigits: 2,
   }).format(Number(value || 0));
 
-const formatDate = (value?: unknown) => {
-  if (!value) return "-";
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-};
-
-const ACCRUAL_BADGE: Record<string, { label: string; className: string }> = {
-  not_accrued: {
-    label: "NON MATURATO",
-    className: "border-slate-200 bg-slate-100 text-slate-600",
-  },
-  accrued: {
-    label: "MATURATO",
-    className: "border-sky-200 bg-sky-50 text-sky-700",
-  },
-  reported: {
-    label: "RENDICONTATO",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
-  },
-  settled: {
-    label: "LIQUIDATO",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  },
-};
-
 type FundingOverview = {
   enrollment: Record<string, any>;
   program: Record<string, any>;
@@ -80,34 +63,38 @@ type FundingOverview = {
   summary: FundingSummary;
 };
 
-const AmountTile = ({
+/**
+ * Una riga del riepilogo economico.
+ *
+ * Righe e non riquadri affiancati: sei importi in griglia diventano due
+ * colonne strette a 375 px, e i sei numeri che raccontano una storia in
+ * sequenza vanno letti in sequenza.
+ */
+const AmountLine = ({
   label,
   value,
   hint,
-  tone = "neutral",
+  emphasis = false,
 }: {
   label: string;
   value: unknown;
   hint?: string;
-  tone?: "neutral" | "accrued" | "settled" | "pending";
-}) => {
-  const toneClass =
-    tone === "settled"
-      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
-      : tone === "accrued"
-        ? "bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300"
-        : tone === "pending"
-          ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-          : "bg-slate-50 text-slate-900 dark:bg-slate-900/40 dark:text-slate-100";
-
-  return (
-    <div className={`rounded-lg p-3 ${toneClass}`}>
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-bold">{formatCurrency(value)}</p>
-      {hint ? <p className="mt-1 text-xs opacity-80">{hint}</p> : null}
-    </div>
-  );
-};
+  emphasis?: boolean;
+}) => (
+  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
+    <span className="text-sm text-muted-foreground">
+      {label}
+      {hint ? (
+        <span className="ml-2 text-xs opacity-80">{hint}</span>
+      ) : null}
+    </span>
+    <span
+      className={`text-sm tabular-nums ${emphasis ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium"}`}
+    >
+      {formatCurrency(value)}
+    </span>
+  </div>
+);
 
 export function AthleteFundingSummary({
   athleteId,
@@ -128,6 +115,12 @@ export function AthleteFundingSummary({
   );
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [derivedCanManage, setDerivedCanManage] = React.useState(false);
+  const [confirmTarget, setConfirmTarget] = React.useState<{
+    enrollmentId: string;
+    accrual: Record<string, any>;
+    residualAmount: number;
+  } | null>(null);
+  const [isConfirming, setIsConfirming] = React.useState(false);
 
   /*
     I programmi a cui questo atleta **non** e ancora iscritto. L'elenco lo
@@ -207,7 +200,39 @@ export function AthleteFundingSummary({
     }
 
     await load();
-    showToast("success", "Maturato ricalcolato dalle presenze registrate");
+    showToast("success", "Calcolo aggiornato dalle presenze registrate");
+  };
+
+  const handleConfirm = async (submission: AccrualConfirmationSubmission) => {
+    if (!confirmTarget) return;
+
+    setIsConfirming(true);
+    const { error } = await apiRequest("/api/v1/funding/accruals", {
+      method: "POST",
+      body: {
+        action: "confirm",
+        enrollment_id: confirmTarget.enrollmentId,
+        confirmations: [
+          {
+            accrual_id: confirmTarget.accrual.id,
+            amount: submission.amount,
+            confirmed_at: submission.confirmedAt,
+            external_reference: submission.externalReference,
+            notes: submission.notes,
+          },
+        ],
+      },
+    });
+    setIsConfirming(false);
+
+    if (error) {
+      showToast("error", error.message || "Conferma non riuscita");
+      return;
+    }
+
+    setConfirmTarget(null);
+    await load();
+    showToast("success", "Maturazione confermata");
   };
 
   const enrollAction =
@@ -239,7 +264,7 @@ export function AthleteFundingSummary({
     return (
       <div className="space-y-3">
         <p className="text-sm text-slate-500">
-          Nessun voucher o contributo assegnato a questo atleta.
+          Nessun programma assegnato a questo atleta.
           {allowManagement && enrollablePrograms.length === 0
             ? " Non ci sono programmi attivi a cui iscriverlo."
             : ""}
@@ -251,22 +276,23 @@ export function AthleteFundingSummary({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {enrollAction ? (
         <div className="flex justify-end">{enrollAction}</div>
       ) : null}
 
       {overviews.length > 1 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <AmountTile label="Voucher assegnato" value={total.assignedAmount} />
-          <AmountTile label="Maturato" value={total.accruedAmount} tone="accrued" />
-          <AmountTile label="Liquidato" value={total.settledAmount} tone="settled" />
-          <AmountTile
-            label="Da liquidare"
-            value={total.pendingSettlementAmount}
-            tone="pending"
-          />
-          <AmountTile label="Residuo voucher" value={total.residualAmount} />
+        <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/40">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Totale contributi
+          </p>
+          <div className="mt-1">
+            <AmountLine label="Assegnato al club" value={total.assignedAmount} />
+            <AmountLine label="Maturato" value={total.accruedAmount} />
+            <AmountLine label="Rendicontato" value={total.reportedAmount} />
+            <AmountLine label="Liquidato" value={total.settledAmount} emphasis />
+            <AmountLine label="Residuo" value={total.residualAmount} />
+          </div>
         </div>
       ) : null}
 
@@ -277,6 +303,10 @@ export function AthleteFundingSummary({
         const unit = String(
           overview.program?.requirement_unit || "hours",
         ) as any;
+        const source = String(
+          overview.program?.accrual_source || "easygame_attendance",
+        ) as FundingAccrualSource;
+        const externalSource = source !== "easygame_attendance";
 
         return (
           <div
@@ -302,6 +332,9 @@ export function AthleteFundingSummary({
                   con almeno {overview.program?.requirement_min}{" "}
                   {requirementUnitLabel(unit)}
                 </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Fonte della maturazione: {fundingAccrualSourceLabel(source)}
+                </p>
               </div>
 
               {allowManagement ? (
@@ -315,55 +348,63 @@ export function AthleteFundingSummary({
                   <RefreshCw className="mr-2 h-4 w-4" />
                   {busyEnrollmentId === enrollmentId
                     ? "Ricalcolo..."
-                    : "Ricalcola dalle presenze"}
+                    : externalSource
+                      ? "Aggiorna previsione"
+                      : "Ricalcola dalle presenze"}
                 </Button>
               ) : null}
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <AmountTile
-                label="Voucher assegnato"
+            {/*
+              I sei importi in sequenza. Il massimale del programma sta in cima
+              perche e il contesto — «il bando arriva fino a qui» — e
+              l'assegnato subito sotto perche e il limite vero di questa
+              iscrizione (ADR-0054).
+            */}
+            <div className="mt-3">
+              <AmountLine
+                label="Massimale programma"
+                value={overview.program?.athlete_plafond}
+                hint="tetto del bando"
+              />
+              <AmountLine
+                label="Assegnato al club"
                 value={summary.assignedAmount}
-                hint="Non e denaro incassato"
+                hint="limite di questa iscrizione"
+                emphasis
               />
-              <AmountTile
-                label="Maturato"
-                value={summary.accruedAmount}
-                tone="accrued"
-                hint="Credito verso l'ente"
-              />
-              <AmountTile
+              {externalSource ? (
+                <AmountLine
+                  label="Previsione EasyGame"
+                  value={summary.estimatedAmount}
+                  hint="da confermare"
+                />
+              ) : null}
+              <AmountLine label="Maturato" value={summary.accruedAmount} />
+              <AmountLine label="Rendicontato" value={summary.reportedAmount} />
+              <AmountLine
                 label="Liquidato"
                 value={summary.settledAmount}
-                tone="settled"
-                hint="Versato dall'ente"
+                hint="versato dall'ente"
               />
-              <AmountTile
-                label="Da liquidare"
-                value={summary.pendingSettlementAmount}
-                tone="pending"
-              />
-              <AmountTile
-                label="Residuo voucher"
-                value={summary.residualAmount}
-                hint="Puo ancora maturare"
-              />
+              <AmountLine label="Residuo" value={summary.residualAmount} />
             </div>
 
             {summary.assignedAmount > 0 ? (
               <div className="mt-3 space-y-1">
                 <Progress
                   value={Math.round(
-                    Math.min(
-                      1,
-                      summary.accruedAmount / summary.assignedAmount,
-                    ) * 100,
+                    Math.min(1, summary.accruedAmount / summary.assignedAmount) *
+                      100,
                   )}
                   className="h-2"
                 />
                 <p className="text-xs text-slate-500">
                   {summary.accruedPeriodCount} periodi maturati su{" "}
                   {summary.periodCount}
+                  {summary.pendingConfirmationPeriodCount > 0
+                    ? ` · ${summary.pendingConfirmationPeriodCount} da confermare`
+                    : ""}
                   {summary.unaccruedAmount > 0
                     ? ` · ${formatCurrency(summary.unaccruedAmount)} non maturati per requisito non raggiunto`
                     : ""}
@@ -375,6 +416,7 @@ export function AthleteFundingSummary({
               variant="ghost"
               size="sm"
               className="mt-3 w-full sm:w-auto"
+              aria-expanded={isOpen}
               onClick={() =>
                 setExpanded((current) => ({
                   ...current,
@@ -387,81 +429,38 @@ export function AthleteFundingSummary({
               ) : (
                 <ChevronRight className="mr-1 h-4 w-4" />
               )}
-              Dettaglio per periodo ({overview.accruals.length})
+              Dettagli ({overview.accruals.length} periodi)
             </Button>
 
             {isOpen ? (
-              <div className="mt-3 overflow-x-auto rounded-md border border-slate-100 dark:border-slate-800">
-                <table className="w-full min-w-[620px] text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="p-2">Periodo</th>
-                      <th className="p-2">Frequenza</th>
-                      <th className="p-2">Requisito</th>
-                      <th className="p-2">Maturato</th>
-                      <th className="p-2">Non maturato</th>
-                      <th className="p-2">Stato</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {overview.accruals.map((accrual) => {
-                      const badge =
-                        ACCRUAL_BADGE[String(accrual.status)] ||
-                        ACCRUAL_BADGE.not_accrued;
-                      const accrualUnit = String(
-                        accrual.requirement_unit || "hours",
-                      ) as any;
-
-                      return (
-                        <tr key={String(accrual.id)} className="border-b">
-                          <td className="p-2">
-                            <span className="font-medium capitalize">
-                              {accrual.period_label}
-                            </span>
-                            <span className="block text-xs text-slate-500">
-                              {formatDate(accrual.period_start)} —{" "}
-                              {formatDate(accrual.period_end)}
-                            </span>
-                          </td>
-                          <td className="p-2 whitespace-nowrap">
-                            {accrual.measured_value}{" "}
-                            {requirementUnitLabel(accrualUnit)}
-                          </td>
-                          <td className="p-2 whitespace-nowrap">
-                            {accrual.requirement_min}{" "}
-                            {requirementUnitLabel(accrualUnit)}
-                            <span
-                              className={`ml-2 text-xs ${accrual.requirement_met ? "text-emerald-600" : "text-red-600"}`}
-                            >
-                              {accrual.requirement_met ? "raggiunto" : "non raggiunto"}
-                            </span>
-                          </td>
-                          <td className="p-2 whitespace-nowrap font-medium">
-                            {formatCurrency(accrual.accrued_amount)}
-                          </td>
-                          <td className="p-2 whitespace-nowrap text-slate-500">
-                            {formatCurrency(accrual.unaccrued_amount)}
-                          </td>
-                          <td className="p-2">
-                            <Badge variant="outline" className={badge.className}>
-                              {badge.label}
-                            </Badge>
-                            {accrual.data?.reason ? (
-                              <span className="block text-xs text-slate-500">
-                                {accrual.data.reason}
-                              </span>
-                            ) : null}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="mt-3">
+                <FundingPeriodsTable
+                  accruals={overview.accruals}
+                  externalSource={externalSource}
+                  canManage={allowManagement}
+                  onConfirm={(accrual) =>
+                    setConfirmTarget({
+                      enrollmentId,
+                      accrual,
+                      residualAmount: summary.residualAmount,
+                    })
+                  }
+                />
               </div>
             ) : null}
           </div>
         );
       })}
+
+      <ConfirmAccrualDialog
+        accrual={confirmTarget?.accrual ?? null}
+        residualAmount={confirmTarget?.residualAmount ?? 0}
+        isSaving={isConfirming}
+        onOpenChange={(open) => {
+          if (!open) setConfirmTarget(null);
+        }}
+        onSubmit={handleConfirm}
+      />
 
       {enrollDialog}
     </div>
