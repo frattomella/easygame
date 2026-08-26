@@ -122,11 +122,16 @@ const Section = ({
     <Card>
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
+          {/*
+            L'area toccabile e la riga intera, non la sola scritta: a 375 px
+            un bersaglio alto ventiquattro pixel si manca, e chi lo manca
+            crede che la sezione non si apra.
+          */}
           <button
             type="button"
             onClick={() => setOpen((current) => !current)}
             aria-expanded={open}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            className="-my-2 flex min-h-[44px] min-w-0 flex-1 items-center gap-2 py-2 text-left"
           >
             {open ? (
               <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
@@ -344,8 +349,14 @@ export function AthleteEnrollmentTab({
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
+              {/*
+                Senza piano ma con delle rate il titolo non puo dire «nessun
+                piano assegnato» sopra un totale di 150 EUR: sono voci create
+                a mano, e dirlo e piu utile che negarne l'esistenza.
+              */}
               <CardTitle className="truncate text-lg">
-                {planName || "Nessun piano assegnato"}
+                {planName ||
+                  (hasPlan ? "Quota senza piano" : "Nessun piano assegnato")}
               </CardTitle>
               {seasonLabel ? (
                 <p className="mt-1 text-sm text-muted-foreground">

@@ -78,12 +78,24 @@ export function EnrollmentPaymentBreakdown({
   mode = "club",
   showPayNow = false,
   showPaymentHistory = true,
+  showSettlementTotals = true,
 }: {
   summary?: Record<string, any> | null;
   payments?: Array<Record<string, any>>;
   mode?: "club" | "parent";
   showPayNow?: boolean;
   showPaymentHistory?: boolean;
+  /**
+   * «Totale dovuto», «Residuo» e «Pagato».
+   *
+   * **Vanno spenti dove il riepilogo dell'iscrizione li mostra gia**
+   * (ADR-0056). Non e solo una ripetizione: i due numeri vengono da due
+   * calcoli diversi — questo dal piano configurato, quello dalle rate reali —
+   * e su un atleta con voci fuori piano si contraddicono a schermo. La
+   * composizione spiega **come nasce** il totale; quanto e stato incassato lo
+   * dice il registro, e lo dice una volta sola.
+   */
+  showSettlementTotals?: boolean;
 }) {
   const services = Array.isArray(summary?.services) ? summary?.services : [];
   const discounts = Array.isArray(summary?.appliedDiscounts)
@@ -138,7 +150,13 @@ export function EnrollmentPaymentBreakdown({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <div
+        className={
+          showSettlementTotals
+            ? "grid grid-cols-1 gap-3 md:grid-cols-4"
+            : "grid grid-cols-1 gap-3 md:grid-cols-3"
+        }
+      >
         <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-900/40">
           <p className="text-sm font-medium text-muted-foreground">
             Totale servizi
@@ -155,21 +173,23 @@ export function EnrollmentPaymentBreakdown({
         </div>
         <div className="rounded-lg bg-green-50 p-4 dark:bg-green-900/20">
           <p className="text-sm font-medium text-muted-foreground">
-            Totale dovuto
+            {showSettlementTotals ? "Totale dovuto" : "Quota del piano"}
           </p>
           <p className="mt-1 text-2xl font-bold text-green-700 dark:text-green-300">
             {formatCurrency(summary?.expectedTotal)}
           </p>
         </div>
-        <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
-          <p className="text-sm font-medium text-muted-foreground">Residuo</p>
-          <p className="mt-1 text-2xl font-bold text-blue-700 dark:text-blue-300">
-            {formatCurrency(summary?.residual)}
-          </p>
-          <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
-            Pagato {formatCurrency(summary?.recordedPaid)}
-          </p>
-        </div>
+        {showSettlementTotals ? (
+          <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
+            <p className="text-sm font-medium text-muted-foreground">Residuo</p>
+            <p className="mt-1 text-2xl font-bold text-blue-700 dark:text-blue-300">
+              {formatCurrency(summary?.residual)}
+            </p>
+            <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
+              Pagato {formatCurrency(summary?.recordedPaid)}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">

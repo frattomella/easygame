@@ -244,3 +244,20 @@ test("i contributi restano fuori dai totali della famiglia", () => {
     "lo stato dei pagamenti non conosce i contributi",
   );
 });
+
+test("la composizione non ripete pagato e residuo", () => {
+  /*
+    Non e solo una ripetizione: i due numeri vengono da due calcoli diversi —
+    la composizione dal piano configurato, il riepilogo dalle rate reali — e su
+    un atleta con voci fuori piano si contraddicono a schermo. Trovato
+    aprendo la pagina, non da un test (ADR-0056).
+  */
+  assert.match(
+    read(PAGE),
+    /showSettlementTotals=\{false\}/,
+    "la composizione spiega come nasce il totale, non quanto e stato incassato",
+  );
+
+  const breakdown = read("components/payments/EnrollmentPaymentBreakdown.tsx");
+  assert.match(breakdown, /showSettlementTotals \? "Totale dovuto" : "Quota del piano"/);
+});

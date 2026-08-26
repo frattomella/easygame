@@ -4554,6 +4554,12 @@ export default function AthleteProfilePage() {
                       payments={mergedPaymentRecords}
                       mode="club"
                       showPaymentHistory={false}
+                      /*
+                        Pagato e residuo stanno nel riepilogo in cima: qui
+                        sarebbero un secondo calcolo che, su un atleta con voci
+                        fuori piano, lo contraddice (ADR-0056).
+                      */
+                      showSettlementTotals={false}
                     />
                   }
                   planEditor={
