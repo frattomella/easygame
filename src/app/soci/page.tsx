@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -17,15 +17,31 @@ import {
   LayoutGrid,
   Table as TableIcon,
   Settings2,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  BulkSelectionToolbar,
+  SelectAllCheckbox,
+  SelectRowCheckbox,
+  useListSelection,
+} from "@/components/ui/list-selection";
+import {
+  availableExportScopes,
+  exportScopeLabel,
+  resolveScopeRows,
+  type SelectionScope,
+} from "@/lib/list-selection";
+import { MEMBER_TYPES, normalizeMemberType } from "@/lib/member-types";
 import {
   Table,
   TableBody,
@@ -64,6 +80,8 @@ interface Socio {
   is_active?: boolean;
   status?: string;
   role?: string;
+  /** Ordinario, sostenitore, onorario: l'elenco sta in `lib/member-types.ts`. */
+  type?: string;
 }
 
 const getSocioIdentity = (member: Record<string, any>) => {
@@ -116,18 +134,47 @@ export default function SociPage() {
   const [loading, setLoading] = useState(true);
   const [clubId, setClubId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "table">("table");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const selection = useListSelection();
+  /**
+   * Gli ambiti di export che hanno senso adesso (RC Fix 2, punto 10).
+   *
+   * L'elenco Soci non ha filtri: «risultato filtrato» sarebbe una seconda
+   * voce «tutti» con un altro nome, e infatti `availableExportScopes` non la
+   * offre. Restano «selezionati» — quando una selezione c'e — e «tutti».
+   */
+  const exportScopes = availableExportScopes({
+    selectedCount: selection.count,
+    filteredCount: soci.length,
+    totalCount: soci.length,
+  });
+
+  const rowsForScope = (scope: SelectionScope) =>
+    resolveScopeRows({
+      scope,
+      rows: soci,
+      filteredRows: soci,
+      selectedIds: selection.selectedIds,
+      idOf: (socio) => String(socio.id),
+    });
+
   /**
    * Export PDF, con lo stesso motore dell'elenco Atleti.
    *
    * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
    * righe e non sa di che entita si tratti (Blocco 7, punto 13).
    */
-  const handleExportPdf = () => {
+  const handleExportPdf = (scope: SelectionScope) => {
+    const people = rowsForScope(scope);
     const result = exportPeoplePdf({
       entity: "members",
-      people: soci as unknown as Record<string, any>[],
+      people: people as unknown as Record<string, any>[],
       clubName: activeClub?.name || "EasyGame",
       visibleColumns,
+      scopeLabel:
+        scope === "selected"
+          ? `${people.length} soci selezionati`
+          : `${people.length} soci in elenco`,
     });
 
     if (!result.ok) {
@@ -173,8 +220,8 @@ export default function SociPage() {
     }
   }, [activeClub]);
 
-  useEffect(() => {
-    const fetchSoci = async () => {
+  const fetchSoci = React.useCallback(
+    async () => {
       // Don't query if clubId is not set or is invalid
       if (!clubId || clubId === "null" || clubId === "undefined") {
         setLoading(false);
@@ -215,6 +262,7 @@ export default function SociPage() {
               email: member.email || "",
               phone: member.phone || "",
               role: member.role || "socio",
+              type: normalizeMemberType(member.type),
               status: member.status || "active",
               is_active: member.status === "active",
               membership_start:
@@ -227,16 +275,101 @@ export default function SociPage() {
           .sort(comparePeopleByLastName);
 
         setSoci(transformedData);
+        // Un id selezionato che non esiste piu mostrerebbe un conteggio che
+        // non corrisponde a niente.
+        selection.prune(transformedData.map((socio: Socio) => String(socio.id)));
       } catch (error) {
         console.error("Error fetching soci:", error);
         setSoci([]);
       } finally {
         setLoading(false);
       }
-    };
+    },
+    // `selection` cambia a ogni spunta: fra le dipendenze rileggerebbe
+    // l'elenco a ogni casella premuta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubId],
+  );
 
-    fetchSoci();
-  }, [clubId]);
+  useEffect(() => {
+    void fetchSoci();
+  }, [fetchSoci]);
+
+  /**
+   * Scrive la stessa modifica su ogni socio selezionato.
+   *
+   * I soci vivono in un unico array JSONB (`clubs.members`): la modifica di
+   * massa e **una sola scrittura**, non una per riga. Non e
+   * un'ottimizzazione, e cio che la rende indivisibile — dieci scritture
+   * separate possono fermarsi alla settima e lasciare l'elenco a meta.
+   *
+   * Si rilegge l'array dal server invece di ricostruirlo da cio che la
+   * schermata mostra: l'elenco visualizzato e una **proiezione** (nomi
+   * ricomposti, stato derivato), e riscriverlo cancellerebbe tutti i campi
+   * che la proiezione non porta con se.
+   */
+  const applyToSelection = async (
+    updatesFor: (member: Record<string, any>) => Record<string, any>,
+    successMessage: (count: number) => string,
+  ) => {
+    if (!clubId || bulkBusy) return;
+
+    const targetIds = new Set(rowsForScope("selected").map((s) => String(s.id)));
+    if (!targetIds.size) return;
+
+    setBulkBusy(true);
+    try {
+      const { data: clubData, error: fetchError } = await supabase
+        .from("clubs")
+        .select("members")
+        .eq("id", clubId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const currentMembers = Array.isArray(clubData?.members)
+        ? clubData.members
+        : [];
+      const updatedMembers = currentMembers.map((member: any) =>
+        targetIds.has(String(member?.id))
+          ? { ...member, ...updatesFor(member) }
+          : member,
+      );
+
+      const { error: updateError } = await supabase
+        .from("clubs")
+        .update({ members: updatedMembers })
+        .eq("id", clubId);
+
+      if (updateError) throw updateError;
+
+      await fetchSoci();
+      showToast("success", successMessage(targetIds.size));
+    } catch (error) {
+      console.error("Error running bulk member action:", error);
+      showToast("error", "Operazione non riuscita");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const setSelectionStatus = (status: "active" | "inactive") =>
+    applyToSelection(
+      () => ({ status }),
+      (count) =>
+        `${count} soci ${status === "active" ? "attivati" : "disattivati"}`,
+    );
+
+  /**
+   * Il tipo di socio e **uno solo**: qui si sostituisce, non si aggiunge.
+   * L'elenco dei tipi e quello di `src/lib/member-types.ts`, lo stesso della
+   * scheda: inventarne uno qui vorrebbe dire avere due elenchi.
+   */
+  const setSelectionType = (type: string) =>
+    applyToSelection(
+      () => ({ type }),
+      (count) => `${count} soci impostati come ${type}`,
+    );
 
   const handleDelete = async (socioId: string) => {
     if (!confirm("Sei sicuro di voler eliminare questo socio?")) return;
@@ -302,10 +435,24 @@ export default function SociPage() {
                 gemelli con due comportamenti diversi a schermo stretto.
               */
               <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-                <Button variant="outline" onClick={handleExportPdf}>
-                  <FileDown className="mr-2 h-4 w-4" />
-                  Esporta PDF
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" disabled={!exportScopes.length}>
+                      <FileDown className="mr-2 h-4 w-4" />
+                      Esporta PDF
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {exportScopes.map((scope) => (
+                      <DropdownMenuItem
+                        key={scope}
+                        onClick={() => handleExportPdf(scope)}
+                      >
+                        {exportScopeLabel(scope, rowsForScope(scope).length)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   variant={viewMode === "table" ? "default" : "outline"}
                   size="icon"
@@ -424,6 +571,70 @@ export default function SociPage() {
               }
             />
 
+            <BulkSelectionToolbar
+              selection={selection}
+              nouns={{ one: "socio", many: "soci" }}
+              className="my-4"
+            >
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={bulkBusy}
+                onClick={() => void setSelectionStatus("active")}
+              >
+                <UserCheck className="mr-1.5 h-3.5 w-3.5 text-green-600" aria-hidden />
+                Attiva
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={bulkBusy}
+                onClick={() => void setSelectionStatus("inactive")}
+              >
+                <UserX className="mr-1.5 h-3.5 w-3.5 text-amber-600" aria-hidden />
+                Disattiva
+              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    disabled={bulkBusy}
+                  >
+                    <Users className="mr-1.5 h-3.5 w-3.5 text-blue-600" aria-hidden />
+                    Tipo socio
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Il tipo e uno solo: sostituisce</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {MEMBER_TYPES.map((memberType) => (
+                    <DropdownMenuItem
+                      key={memberType}
+                      onClick={() => void setSelectionType(memberType)}
+                    >
+                      {memberType}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={bulkBusy}
+                onClick={() => handleExportPdf("selected")}
+              >
+                <FileDown className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Esporta PDF
+              </Button>
+            </BulkSelectionToolbar>
+
             {/* Content */}
             {loading ? (
               <div className="text-center py-12">
@@ -437,6 +648,13 @@ export default function SociPage() {
                     <Table className="min-w-full">
                       <TableHeader>
                         <TableRow>
+                          <TableHead key="select" className="w-12">
+                            <SelectAllCheckbox
+                              selection={selection}
+                              ids={soci.map((socio) => String(socio.id))}
+                              label="i soci in elenco"
+                            />
+                          </TableHead>
                           {visibleColumns.name && (
                             <TableHead key="name">Nome</TableHead>
                           )}
@@ -483,6 +701,13 @@ export default function SociPage() {
                             key={socio.id}
                             className="cursor-pointer hover:bg-muted/50"
                           >
+                            <TableCell key={`${socio.id}-select`}>
+                              <SelectRowCheckbox
+                                selection={selection}
+                                id={String(socio.id)}
+                                label={socio.name}
+                              />
+                            </TableCell>
                             {visibleColumns.name && (
                               <TableCell
                                 key={`${socio.id}-name`}
@@ -609,6 +834,18 @@ export default function SociPage() {
                   >
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                       <div className="flex items-center gap-3">
+                        {/*
+                          La scheda si apre al clic: spuntare non deve aprirla,
+                          o selezionare dieci soci vorrebbe dire aprire dieci
+                          pagine.
+                        */}
+                        <span onClick={(event) => event.stopPropagation()}>
+                          <SelectRowCheckbox
+                            selection={selection}
+                            id={String(socio.id)}
+                            label={socio.name}
+                          />
+                        </span>
                         <EntityIcon
                           type="member"
                           size="sm"

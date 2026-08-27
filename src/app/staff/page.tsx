@@ -18,15 +18,29 @@ import {
   LayoutGrid,
   Table,
   Settings2,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  BulkSelectionToolbar,
+  SelectRowCheckbox,
+  useListSelection,
+} from "@/components/ui/list-selection";
+import {
+  availableExportScopes,
+  exportScopeLabel,
+  resolveScopeRows,
+  type SelectionScope,
+} from "@/lib/list-selection";
 import {
   Select,
   SelectContent,
@@ -103,6 +117,8 @@ export default function StaffPage() {
     status: true,
     hireDate: true,
   });
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const selection = useListSelection();
 
   useEffect(() => {
     // Get clubId from auth context first, then localStorage as fallback
@@ -157,6 +173,9 @@ export default function StaffPage() {
               : {};
           setStaffMembers(members);
           setDepartments(resolveStaffDepartments(settings, members));
+          // Un id selezionato che non esiste piu mostrerebbe un conteggio che
+          // non corrisponde a niente.
+          selection.prune(members.map((member: any) => String(member.id)));
         }
       } catch (error) {
         if (process.env.NODE_ENV === "development") {
@@ -170,6 +189,9 @@ export default function StaffPage() {
     };
 
     loadData();
+    // `selection` cambia a ogni spunta: fra le dipendenze rileggerebbe
+    // l'elenco a ogni casella premuta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId]);
 
   const handleDelete = async (memberId: string) => {
@@ -296,18 +318,45 @@ export default function StaffPage() {
   const staffCountsByDepartment = countStaffByDepartment(staffMembers);
 
   /**
+   * Gli ambiti di export che hanno senso adesso (RC Fix 2, punto 10).
+   *
+   * Con una selezione attiva il primo e «selezionati»: chi ne ha scelti
+   * quattro non vuole un PDF di tutto il reparto.
+   */
+  const exportScopes = availableExportScopes({
+    selectedCount: selection.count,
+    filteredCount: filteredStaffMembers.length,
+    totalCount: staffMembers.length,
+  });
+
+  const rowsForScope = (scope: SelectionScope) =>
+    resolveScopeRows({
+      scope,
+      rows: staffMembers,
+      filteredRows: filteredStaffMembers,
+      selectedIds: selection.selectedIds,
+      idOf: (member) => String(member.id),
+    });
+
+  /**
    * Export PDF, con lo stesso motore dell'elenco Atleti.
    *
    * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
-   * righe e non sa di che entita si tratti (Blocco 7, punto 13). Qui si
-   * passano solo l'elenco filtrato e le colonne visibili.
+   * righe e non sa di che entita si tratti (Blocco 7, punto 13).
    */
-  const handleExportPdf = () => {
+  const handleExportPdf = (scope: SelectionScope) => {
+    const people = rowsForScope(scope);
     const result = exportPeoplePdf({
       entity: "staff",
-      people: filteredStaffMembers as unknown as Record<string, any>[],
+      people: people as unknown as Record<string, any>[],
       clubName: activeClub?.name || "EasyGame",
       visibleColumns: visibleColumns,
+      scopeLabel:
+        scope === "selected"
+          ? `${people.length} membri dello staff selezionati`
+          : scope === "filtered"
+            ? `${people.length} membri dello staff nel risultato filtrato`
+            : `${people.length} membri dello staff in elenco`,
     });
 
     if (!result.ok) {
@@ -322,6 +371,70 @@ export default function StaffPage() {
 
     showToast("success", "PDF pronto: si apre la finestra di stampa");
   };
+
+  /**
+   * Scrive la stessa modifica su ogni membro selezionato.
+   *
+   * Lo staff vive in un unico array JSONB (`clubs.staff_members`): la
+   * modifica di massa e **una sola scrittura**, non una per riga. Non e
+   * un'ottimizzazione, e cio che rende l'operazione indivisibile — dieci
+   * scritture separate possono fermarsi alla settima e lasciare l'elenco a
+   * meta.
+   */
+  const applyToSelection = async (
+    updatesFor: (member: StaffMember) => Record<string, any>,
+    successMessage: (count: number) => string,
+  ) => {
+    if (!clubId || bulkBusy) return;
+
+    const targetIds = new Set(rowsForScope("selected").map((m) => String(m.id)));
+    if (!targetIds.size) return;
+
+    setBulkBusy(true);
+    const previous = staffMembers;
+    const updated = staffMembers.map((member) =>
+      targetIds.has(String(member.id))
+        ? { ...member, ...updatesFor(member) }
+        : member,
+    );
+
+    try {
+      setStaffMembers(updated);
+      const { error } = await supabase
+        .from("clubs")
+        .update({ staff_members: updated })
+        .eq("id", clubId);
+
+      if (error) throw error;
+      showToast("success", successMessage(targetIds.size));
+    } catch (error) {
+      console.error("Error running bulk staff action:", error);
+      // Si torna a com'era: un elenco che mostra una modifica non salvata e
+      // peggio di uno che non l'ha mai mostrata.
+      setStaffMembers(previous);
+      showToast("error", "Operazione non riuscita");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const setSelectionStatus = (status: "active" | "inactive") =>
+    applyToSelection(
+      () => ({ status }),
+      (count) =>
+        `${count} membri dello staff ${status === "active" ? "attivati" : "disattivati"}`,
+    );
+
+  /**
+   * Il reparto e **uno solo** per persona: qui si sostituisce, non si aggiunge.
+   * E la differenza con l'assegnazione degli allenatori, che di categorie ne
+   * hanno piu d'una.
+   */
+  const setSelectionDepartment = (department: Department) =>
+    applyToSelection(
+      () => ({ department: department.name }),
+      (count) => `${count} membri dello staff spostati in ${department.name}`,
+    );
 
   const renderStaffMainContent = () => (
     <main className={dashboardMainClassName}>
@@ -356,10 +469,24 @@ export default function StaffPage() {
               <Building className="mr-2 h-4 w-4" />
               Reparti
             </Button>
-            <Button variant="outline" onClick={handleExportPdf}>
-              <FileDown className="mr-2 h-4 w-4" />
-              Esporta PDF
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" disabled={!exportScopes.length}>
+                  <FileDown className="mr-2 h-4 w-4" />
+                  Esporta PDF
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {exportScopes.map((scope) => (
+                  <DropdownMenuItem
+                    key={scope}
+                    onClick={() => handleExportPdf(scope)}
+                  >
+                    {exportScopeLabel(scope, rowsForScope(scope).length)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               variant={viewMode === "table" ? "default" : "outline"}
               size="icon"
@@ -499,6 +626,72 @@ export default function StaffPage() {
           </div>
         </div>
 
+        <BulkSelectionToolbar
+          selection={selection}
+          nouns={{ one: "membro dello staff", many: "membri dello staff" }}
+          className="mb-4"
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            disabled={bulkBusy}
+            onClick={() => void setSelectionStatus("active")}
+          >
+            <UserCheck className="mr-1.5 h-3.5 w-3.5 text-green-600" aria-hidden />
+            Attiva
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            disabled={bulkBusy}
+            onClick={() => void setSelectionStatus("inactive")}
+          >
+            <UserX className="mr-1.5 h-3.5 w-3.5 text-amber-600" aria-hidden />
+            Disattiva
+          </Button>
+
+          {departments.length ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  disabled={bulkBusy}
+                >
+                  <Building className="mr-1.5 h-3.5 w-3.5 text-blue-600" aria-hidden />
+                  Sposta in un reparto
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+                <DropdownMenuLabel>Il reparto e uno solo: sostituisce</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {departments.map((department) => (
+                  <DropdownMenuItem
+                    key={department.id}
+                    onClick={() => void setSelectionDepartment(department)}
+                  >
+                    {department.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            disabled={bulkBusy}
+            onClick={() => handleExportPdf("selected")}
+          >
+            <FileDown className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+            Esporta PDF
+          </Button>
+        </BulkSelectionToolbar>
+
         {/* Staff List */}
         {filteredStaffMembers.length > 0 ? (
           viewMode === "table" ? (
@@ -506,6 +699,7 @@ export default function StaffPage() {
               <CardContent className="p-6">
                 <StaffTable
                   staffMembers={filteredStaffMembers}
+                  selection={selection}
                   departments={departments}
                   onEdit={(member) =>
                     router.push(`/staff/${member.id}?clubId=${clubId}`)
@@ -547,6 +741,18 @@ export default function StaffPage() {
               >
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <div className="flex items-center gap-3">
+                    {/*
+                      La scheda si apre al clic: spuntare non deve aprirla, o
+                      selezionare dieci persone vorrebbe dire aprire dieci
+                      pagine.
+                    */}
+                    <span onClick={(event) => event.stopPropagation()}>
+                      <SelectRowCheckbox
+                        selection={selection}
+                        id={String(member.id)}
+                        label={getStaffDisplayName(member)}
+                      />
+                    </span>
                     <EntityIcon
                       type="staff"
                       size="sm"

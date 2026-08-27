@@ -14,6 +14,11 @@ import {
 import { Trash2, Edit } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import {
+  SelectAllCheckbox,
+  SelectRowCheckbox,
+  type ListSelection,
+} from "@/components/ui/list-selection";
 
 interface StaffMember {
   id: string;
@@ -38,6 +43,14 @@ interface Department {
 
 interface StaffTableProps {
   staffMembers: StaffMember[];
+  /**
+   * Selezione multipla, quando l'elenco la offre (RC Fix 2, punto 6).
+   *
+   * E facoltativa perche la tabella e usata anche dove selezionare non ha
+   * senso: un componente che pretende sempre una selezione costringe chi non
+   * ne ha bisogno a inventarne una finta.
+   */
+  selection?: ListSelection;
   departments?: Department[];
   onEdit: (member: StaffMember) => void;
   onDelete: (id: string) => void;
@@ -78,6 +91,7 @@ const getDepartmentBadgeClassName = (department?: Department) =>
 
 export function StaffTable({
   staffMembers,
+  selection,
   departments = [],
   onEdit,
   onDelete,
@@ -106,6 +120,15 @@ export function StaffTable({
       <Table className="min-w-full">
         <TableHeader>
           <TableRow>
+            {selection ? (
+              <TableHead className="w-12">
+                <SelectAllCheckbox
+                  selection={selection}
+                  ids={staffMembers.map((member) => String(member.id))}
+                  label="i membri dello staff in elenco"
+                />
+              </TableHead>
+            ) : null}
             {visibleColumns.name && <TableHead>Nome</TableHead>}
             {visibleColumns.role && <TableHead>Ruolo</TableHead>}
             {visibleColumns.department && (
@@ -135,6 +158,16 @@ export function StaffTable({
               className="cursor-pointer hover:bg-muted/50"
               onClick={() => router.push(getMemberUrl(member.id))}
             >
+              {selection ? (
+                /* La riga apre la scheda: spuntare non deve navigare. */
+                <TableCell onClick={(event) => event.stopPropagation()}>
+                  <SelectRowCheckbox
+                    selection={selection}
+                    id={String(member.id)}
+                    label={getStaffDisplayName(member)}
+                  />
+                </TableCell>
+              ) : null}
               {visibleColumns.name && (
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
