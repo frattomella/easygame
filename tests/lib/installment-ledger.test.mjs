@@ -519,3 +519,102 @@ test("online: la virgola decimale italiana si accetta", () => {
     null,
   );
 });
+
+/* ------------------------------- normalizzare due volte non toglie niente */
+
+/**
+ * **Il difetto trovato a runtime nel collaudo E-13.**
+ *
+ * Il client riceve dall'API movimenti gia normalizzati e li ripassa a
+ * `buildInstallmentLedgers`, che li rinormalizza: e legittimo, e la funzione lo
+ * dichiara («una riga di `payment_transactions` **o il suo equivalente in
+ * camelCase dal client**»). Solo che i numeri congelati, sulla riga del
+ * database, stanno in colonne piatte e su una riga gia normalizzata stanno
+ * annidati in `settlement`: il secondo passaggio li cercava piatti, non li
+ * trovava, e cancellava cio che il primo aveva letto.
+ *
+ * Si vedeva nella finestra «Rimborsa»: la commissione EasyGame restituita
+ * mostrava «—» su un incasso da 130 € che una commissione dell'1% ce l'aveva.
+ */
+
+const RIGA_ONLINE = {
+  id: "tx-online",
+  organization_id: "club-1",
+  payment_id: "rata-1",
+  amount: 130,
+  source: "STRIPE",
+  paid_at: "2026-08-27T13:54:12.000Z",
+  external_payment_id: "pi_1",
+  external_reference: "pi_1",
+  gross_amount_cents: 13000,
+  platform_fee_cents: 130,
+  provider_fee_cents: null,
+  net_amount_cents: 12870,
+  applied_fee_percent: 1,
+  applied_fee_fixed_cents: 0,
+  commission_rule_id: null,
+};
+
+test("i numeri congelati sopravvivono a una seconda normalizzazione", () => {
+  const unaVolta = normalizePaymentTransaction(RIGA_ONLINE);
+  const dueVolte = normalizePaymentTransaction(unaVolta);
+
+  assert.deepEqual(
+    dueVolte.settlement,
+    unaVolta.settlement,
+    "normalizzare n volte deve dare quel che da normalizzarne una",
+  );
+
+  assert.equal(dueVolte.settlement.platformFeeCents, 130);
+  assert.equal(dueVolte.settlement.grossAmountCents, 13000);
+  assert.equal(dueVolte.settlement.netAmountCents, 12870);
+  assert.equal(dueVolte.settlement.appliedFeePercent, 1);
+
+  /* `null` resta «non ancora noto», e non diventa zero. */
+  assert.equal(dueVolte.settlement.providerFeeCents, null);
+});
+
+test("il registro di una rata porta i numeri congelati anche dal client", () => {
+  /*
+    Il giro vero: l'API restituisce movimenti normalizzati, la schermata li da
+    a `buildInstallmentLedgers`, e la finestra «Rimborsa» legge da li.
+  */
+  const dallApi = normalizePaymentTransactions([RIGA_ONLINE]);
+
+  const [ledger] = buildInstallmentLedgers({
+    charges: [
+      {
+        id: "rata-1",
+        description: "QA 130",
+        amount: 130,
+        due_date: "2026-09-30T00:00:00.000Z",
+      },
+    ],
+    transactions: dallApi,
+    now: OGGI,
+  });
+
+  assert.equal(ledger.transactions.length, 1);
+  assert.equal(
+    ledger.transactions[0].settlement?.platformFeeCents,
+    130,
+    "senza questo la finestra di rimborso non sa dire quanto torna al club",
+  );
+});
+
+test("un incasso manuale continua a non avere numeri congelati", () => {
+  const manuale = normalizePaymentTransaction({
+    id: "tx-manuale",
+    payment_id: "rata-1",
+    amount: 45,
+    source: "MANUAL",
+  });
+
+  assert.equal(manuale.settlement, null);
+
+  /*
+    E resta `null` anche al secondo passaggio: un oggetto di zeri direbbe che
+    una commissione c'e stata ed era nulla.
+  */
+  assert.equal(normalizePaymentTransaction(manuale).settlement, null);
+});

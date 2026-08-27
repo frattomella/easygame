@@ -194,15 +194,41 @@ const toCentsOrNull = (value: unknown) => {
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 };
 
-/** I numeri congelati di una riga, se ne porta. */
+/**
+ * I numeri congelati di una riga, se ne porta.
+ *
+ * **Perche accetta anche una riga gia normalizzata.** Perche normalizzare due
+ * volte succede, ed e legittimo: il client riceve dall'API movimenti gia in
+ * forma normale e li ripassa a `buildInstallmentLedgers`, che li rinormalizza.
+ * Su una riga del database i numeri stanno in colonne piatte; su una gia
+ * normalizzata stanno **annidati** in `settlement`, e cercarli piatti li
+ * trovava assenti: il secondo passaggio cancellava cio che il primo aveva
+ * letto.
+ *
+ * Si vedeva nella finestra «Rimborsa», dove la commissione EasyGame restituita
+ * mostrava «—» su un incasso che una commissione ce l'aveva eccome — cioe
+ * proprio il numero che quella riga esiste per far notare se un giorno
+ * smettesse di tornare indietro. Trovato a runtime nel collaudo E-13.
+ *
+ * Questa funzione e ora **idempotente**: normalizzare n volte da lo stesso
+ * risultato di normalizzare una volta.
+ */
 const readSettlement = (
   record: Record<string, any>,
 ): TransactionSettlement | null => {
+  /*
+    `null` esplicito significa «questa riga non ha numeri congelati» e va
+    rispettato: ripiegare sulla riga cercherebbe colonne che li non ci sono e
+    darebbe comunque `null`, ma per la ragione sbagliata.
+  */
+  const source =
+    record.settlement === undefined ? record : asRecord(record.settlement);
+
   const gross = toCentsOrNull(
-    record.gross_amount_cents ?? record.grossAmountCents,
+    source.gross_amount_cents ?? source.grossAmountCents,
   );
   const platformFee = toCentsOrNull(
-    record.platform_fee_cents ?? record.platformFeeCents,
+    source.platform_fee_cents ?? source.platformFeeCents,
   );
 
   /*
@@ -216,20 +242,20 @@ const readSettlement = (
     grossAmountCents: gross,
     platformFeeCents: platformFee,
     providerFeeCents: toCentsOrNull(
-      record.provider_fee_cents ?? record.providerFeeCents,
+      source.provider_fee_cents ?? source.providerFeeCents,
     ),
     netAmountCents: toCentsOrNull(
-      record.net_amount_cents ?? record.netAmountCents,
+      source.net_amount_cents ?? source.netAmountCents,
     ),
     appliedFeePercent:
-      Number(record.applied_fee_percent ?? record.appliedFeePercent) || 0,
+      Number(source.applied_fee_percent ?? source.appliedFeePercent) || 0,
     appliedFeeFixedCents:
       Math.round(
-        Number(record.applied_fee_fixed_cents ?? record.appliedFeeFixedCents) ||
+        Number(source.applied_fee_fixed_cents ?? source.appliedFeeFixedCents) ||
           0,
       ),
     commissionRuleId:
-      firstText(record.commission_rule_id, record.commissionRuleId) || null,
+      firstText(source.commission_rule_id, source.commissionRuleId) || null,
   };
 };
 
