@@ -88,6 +88,8 @@ import {
   writePersonIdentity,
 } from "@/lib/person-identity";
 import { useToast } from "@/components/ui/toast-notification";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { resolveActiveClubId } from "@/lib/active-club";
 import { supabase } from "@/lib/supabase";
 import {
   getLatestMedicalCertificateExpiry,
@@ -225,7 +227,24 @@ export default function AthleteProfilePage() {
   const searchParams = useSearchParams();
   const { showToast } = useToast();
   const athleteId = params?.id as string;
-  const clubId = searchParams?.get("clubId");
+  const clubIdFromUrl = searchParams?.get("clubId");
+  /**
+   * Il club della scheda, quando l'URL non lo dice (RC Fix 2, punto 17).
+   *
+   * **Il difetto.** `/athletes/<id>` senza `?clubId=` rispondeva «ID del club
+   * mancante» e non caricava niente — anche con un club attivo in sessione.
+   * Bastava un link copiato, un preferito salvato prima che il parametro
+   * esistesse, o un ritorno indietro dal browser.
+   *
+   * **La regola** e quella di `resolveActiveClubId` (Blocco 7, punto 4): se
+   * l'URL nomina un club vince l'URL, altrimenti vale il club attivo della
+   * sessione. Il parametro puo solo **restringere** lo scope, mai allargarlo:
+   * chi lo scrive a mano non ottiene niente che la sessione non gli desse gia,
+   * perche a decidere cosa si vede resta il server
+   * (`resolveOrganizationScopeForUser` su ogni rotta).
+   */
+  const { activeClub } = useAuth();
+  const [clubId, setClubId] = useState<string | null>(clubIdFromUrl || null);
   const requestedTab = searchParams?.get("tab");
   const initialTab = resolveAthleteProfileTab(requestedTab);
   const [isLoading, setIsLoading] = useState(true);
@@ -560,20 +579,18 @@ export default function AthleteProfilePage() {
     return nextDocuments;
   }, [athleteId]);
 
+  /*
+    Il club attivo si risolve dopo il primo render: `resolveActiveClubId` legge
+    `window`, e calcolarlo durante il render darebbe un markup diverso fra
+    server e client.
+  */
+  useEffect(() => {
+    setClubId((current) => resolveActiveClubId(current || activeClub?.id) || null);
+  }, [activeClub?.id, clubIdFromUrl]);
+
   // Fetch athlete data from database
   useEffect(() => {
     const fetchAthleteData = async () => {
-      if (!clubId || clubId === "null" || clubId.trim() === "") {
-        console.error("Invalid or missing clubId parameter:", clubId);
-        showToast({
-          title: "Errore",
-          description: "ID del club mancante. Torna alla lista atleti.",
-          variant: "destructive",
-        });
-        setIsLoading(false);
-        return;
-      }
-
       if (!athleteId) {
         console.error("Missing athleteId parameter");
         showToast({
@@ -630,6 +647,17 @@ export default function AthleteProfilePage() {
           });
           setIsLoading(false);
           return;
+        }
+
+        /*
+          L'atleta sa a che club appartiene. Se ci si e arrivati senza `clubId`
+          e senza un club attivo — un link vecchio, un preferito — lo si adotta
+          da qui, invece di lasciare mezza scheda vuota: le sezioni che
+          leggono dal club (categorie, piani, gruppi) altrimenti resterebbero
+          senza dati e sembrerebbero rotte.
+        */
+        if (!clubId && athleteRecord.club_id) {
+          setClubId(String(athleteRecord.club_id));
         }
 
         // Transform the simplified_athletes record to the expected format
@@ -1109,7 +1137,7 @@ export default function AthleteProfilePage() {
         const { deleteClubAthlete } = await import("@/lib/simplified-db");
         await deleteClubAthlete(clubId, athleteId);
         showToast("success", "Atleta eliminato con successo");
-        router.push(`/athletes?clubId=${clubId}`);
+        router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes");
       } catch (error) {
         console.error("Error deleting athlete:", error);
         showToast({
@@ -3462,7 +3490,7 @@ export default function AthleteProfilePage() {
           <main className={dashboardMainClassName}>
             <div className="flex flex-col items-center justify-center py-8">
               <h2 className="text-xl font-semibold mb-4">Atleta non trovato</h2>
-              <Button onClick={() => router.push(`/athletes?clubId=${clubId}`)}>
+              <Button onClick={() => router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes")}>
                 Torna alla lista atleti
               </Button>
             </div>
