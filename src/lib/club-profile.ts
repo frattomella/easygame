@@ -3,7 +3,11 @@ import {
   isValidPostalCode,
   isWellFormedCodiceFiscale,
 } from "@/lib/italian-registry";
-import { validatePaymentSettingsForSave } from "@/lib/payments/payment-config-utils";
+import {
+  normalizePaymentSettings,
+  sanitizePaymentSettingsForStorage,
+  validatePaymentSettingsForSave,
+} from "@/lib/payments/payment-config-utils";
 
 /**
  * Salvataggio per sezione della scheda club.
@@ -335,10 +339,19 @@ export const buildClubProfileSectionUpdate = (
   }
 
   if (section === "pagamenti") {
+    /*
+      **Deterministica, come tutte le altre.** Qui passava
+      `sanitizePaymentSettingsForStorage`, che marca `updatedAt` con l'ora
+      corrente: l'impronta risultava diversa a ogni render, la sezione non
+      tornava mai «pulita» e ogni tasto premuto in qualunque scheda della
+      pagina riscriveva le impostazioni di incasso. Trovato in UAT su
+      staging. L'ora di scrittura la mette `saveClubProfileSection`, che e il
+      solo punto in cui una scrittura avviene davvero.
+    */
     return {
       columns: {},
       settings: draft.paymentSettings
-        ? { paymentSettings: draft.paymentSettings }
+        ? { paymentSettings: normalizePaymentSettings(draft.paymentSettings as any) }
         : {},
     };
   }
@@ -420,11 +433,42 @@ export const validateClubProfileSection = (
   return null;
 };
 
+/**
+ * Toglie dall'impronta cio che cambia da solo.
+ *
+ * Un'impronta confronta **cio che l'utente puo cambiare**; l'ora dell'ultima
+ * scrittura non lo e. `normalizePaymentSettings` marca `updatedAt` su ogni
+ * provider che nel dato salvato non c'e ancora, quindi due letture della
+ * stessa bozza davano impronte diverse di qualche millisecondo: la sezione
+ * non tornava mai «pulita» e l'autosave riscriveva a ogni tasto premuto in
+ * qualunque scheda della pagina. Trovato in UAT su staging, e poi una seconda
+ * volta dal test — perche il primo tentativo di correzione aveva tolto solo
+ * lo strato piu esterno.
+ */
+const withoutWriteStamps = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(withoutWriteStamps);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "updatedAt" && key !== "updated_at")
+      .map(([key, nested]) => [key, withoutWriteStamps(nested)]),
+  );
+};
+
 /** Impronta della sezione: due impronte uguali = niente da salvare. */
 export const clubProfileSectionSnapshot = (
   section: ClubProfileSectionId,
   draft: ClubProfileDraft,
-) => JSON.stringify(buildClubProfileSectionUpdate(section, draft));
+) =>
+  JSON.stringify(
+    withoutWriteStamps(buildClubProfileSectionUpdate(section, draft)),
+  );
 
 const readClubSettings = async (clubId: string) => {
   const params = new URLSearchParams({ id: clubId, fields: "settings" });
@@ -456,9 +500,24 @@ export const saveClubProfileSection = async (
   const { columns, settings } = buildClubProfileSectionUpdate(section, draft);
   const payload: Record<string, any> = { ...columns };
 
-  if (Object.keys(settings).length) {
+  /*
+    L'ora di scrittura si mette **qui**, non nell'impronta: dentro
+    `buildClubProfileSectionUpdate` renderebbe la sezione diversa a ogni
+    render, quindi sempre da salvare.
+  */
+  const stamped =
+    section === "pagamenti" && settings.paymentSettings
+      ? {
+          ...settings,
+          paymentSettings: sanitizePaymentSettingsForStorage(
+            settings.paymentSettings,
+          ),
+        }
+      : settings;
+
+  if (Object.keys(stamped).length) {
     const currentSettings = await readClubSettings(clubId);
-    payload.settings = { ...currentSettings, ...settings };
+    payload.settings = { ...currentSettings, ...stamped };
   }
 
   if (!Object.keys(payload).length) {

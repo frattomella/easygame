@@ -79,7 +79,6 @@ import {
   normalizeExtraServices,
   normalizePaymentSettings,
   normalizeSubscriptionSettings,
-  sanitizePaymentSettingsForStorage,
 } from "@/lib/payments/payment-config-utils";
 import type {
   ClubPaymentSettings as ClubPaymentSettingsType,
@@ -721,7 +720,7 @@ const [federations, setFederations] = useState<any[]>([]);
       bankName: organizationData.bankName,
       iban: organizationData.iban,
       federations,
-      paymentSettings: sanitizePaymentSettingsForStorage(paymentSettings),
+      paymentSettings: normalizePaymentSettings(paymentSettings),
     }),
     [
       companyEmail,
@@ -742,6 +741,15 @@ const [federations, setFederations] = useState<any[]>([]);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const persistedSectionsRef = React.useRef(new Map<string, string>());
+  /*
+    Cosa sta trattenendo una sezione, se qualcosa lo sta facendo.
+
+    Serve al salvataggio: senza, il successo di **un'altra** sezione scriveva
+    «Salvato» sopra l'errore di quella che si sta modificando, e chi aveva
+    appena digitato un IBAN incompleto leggeva che era stato salvato. Trovato
+    in UAT su staging.
+  */
+  const blockingRef = React.useRef<string | null>(null);
   const seededClubIdRef = React.useRef<string | null>(null);
   const autosaveRunnerRef = React.useRef<
     | ((value: {
@@ -838,8 +846,13 @@ const [federations, setFederations] = useState<any[]>([]);
               }
 
               setSavedAt(new Date());
-              setSaveError(null);
-              setSaveState("saved");
+              if (blockingRef.current) {
+                setSaveError(blockingRef.current);
+                setSaveState("error");
+              } else {
+                setSaveError(null);
+                setSaveState("saved");
+              }
             } catch (error: any) {
               console.error("Error autosaving club section:", error);
               setSaveError(
@@ -900,6 +913,8 @@ const [federations, setFederations] = useState<any[]>([]);
 
       dirty.push({ section, snapshot });
     }
+
+    blockingRef.current = blocking;
 
     if (blocking) {
       setSaveError(blocking);

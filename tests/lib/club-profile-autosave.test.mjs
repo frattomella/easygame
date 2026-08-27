@@ -186,7 +186,13 @@ test("ogni sezione scrive solo il proprio, anche quelle nuove", () => {
     paymentSettings: { enabled: true },
   });
   assert.deepEqual(Object.keys(pagamenti.columns), []);
-  assert.deepEqual(pagamenti.settings, { paymentSettings: { enabled: true } });
+  assert.deepEqual(Object.keys(pagamenti.settings), ["paymentSettings"]);
+  assert.equal(pagamenti.settings.paymentSettings.enabled, true);
+  assert.equal(
+    pagamenti.settings.paymentSettings.currency,
+    "EUR",
+    "si scrive la forma normalizzata, non il frammento che arriva dallo stato",
+  );
 });
 
 test("una sezione che non e un modulo non produce nessuna scrittura", () => {
@@ -257,6 +263,47 @@ test("un club senza nome non si salva", () => {
     /nome del club/,
   );
   assert.equal(validateClubProfileSection("generale", draft()), null);
+});
+
+test("l'impronta di una sezione non cambia da sola fra due render", () => {
+  /*
+    Difetto trovato in UAT su staging. La scheda Pagamenti costruiva la
+    propria scrittura con `sanitizePaymentSettingsForStorage`, che marca
+    `updatedAt` con **l'ora corrente**: l'impronta risultava diversa a ogni
+    render, la sezione non tornava mai «pulita» e ogni tasto premuto in
+    qualunque scheda della pagina riscriveva le impostazioni di incasso.
+    Misurato sul club di staging: `paymentSettings.updatedAt` avanzava di
+    pochi secondi mentre si digitava nella scheda Dati Bancari.
+
+    L'invariante vale per **tutte** le sezioni: due letture della stessa
+    bozza devono dare la stessa impronta, o l'autosave non si ferma mai.
+  */
+  const base = {
+    ...draft(),
+    paymentSettings: {
+      enabled: true,
+      currency: "EUR",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+  };
+
+  for (const section of CLUB_PROFILE_SECTIONS.filter((s) => s.autosave)) {
+    assert.equal(
+      clubProfileSectionSnapshot(section.id, base),
+      clubProfileSectionSnapshot(section.id, base),
+      `${section.id}: l'impronta cambia senza che cambi la bozza`,
+    );
+  }
+
+  /*
+    La scrittura puo contenere un'ora — normalizzare un provider mancante ne
+    produce una — ma **l'impronta no**: e il confronto a dover essere stabile.
+  */
+  assert.equal(
+    clubProfileSectionSnapshot("pagamenti", base).includes("updatedAt"),
+    false,
+    "l'ora di scrittura non entra nell'impronta",
+  );
 });
 
 test("l'impronta cambia solo quando cambia la sezione interessata", () => {
@@ -342,6 +389,22 @@ test("dalla pagina Club sparisce il pulsante Salva", () => {
     /updateClub\b/.test(PAGE),
     false,
     "il salvataggio monolitico riscriveva anche le sezioni gia salvate",
+  );
+});
+
+test("un salvataggio riuscito non cancella l'errore di un'altra sezione", () => {
+  /*
+    Difetto trovato in UAT su staging: digitando un IBAN incompleto lo
+    schermo mostrava l'errore per mezzo secondo e poi «Salvato», perche il
+    successo di **un'altra** sezione sovrascriveva lo stato. Chi guardava
+    leggeva che l'IBAN era stato salvato: non lo era.
+  */
+  assert.match(PAGE, /const blockingRef = React\.useRef<string \| null>\(null\)/);
+  assert.match(PAGE, /blockingRef\.current = blocking;/);
+  assert.match(
+    PAGE,
+    /if \(blockingRef\.current\) \{\s*setSaveError\(blockingRef\.current\);\s*setSaveState\("error"\);/,
+    "dopo una scrittura riuscita lo stato deve restare l'errore, se ce n'e uno aperto",
   );
 });
 
