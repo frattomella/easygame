@@ -1,6 +1,6 @@
 # 23 — Matrice definitiva Web V1
 
-**Ultimo aggiornamento:** 2026-08-26 (Blocco E — Final Release Candidate, UAT e hard check)
+**Ultimo aggiornamento:** 2026-08-27 (collaudo runtime E-13 — rimborso avviato da EasyGame)
 
 Questo documento risponde a **una domanda sola**, requisito per requisito:
 *questa cosa e fatta, e come lo sappiamo?*
@@ -54,6 +54,43 @@ Piu due difetti di qualita degli strumenti, non del prodotto:
 - il test `attendance-report-performance` falliva **una volta su cinque**: cronometrava due scenari di frazioni di millisecondo, e il giro di riscaldamento scaldava solo quello piccolo — l'indice delle presenze vive in una `WeakMap` legata all'array. Ora conta le **letture** su ogni riga di presenza invece dei millisecondi: e deterministico, e su codice mutato apposta segnala 123 letture per riga contro un massimo di 8;
 - un `500` sul modulo pubblico — l'unica rotta che accetta scritture da chi non ha una sessione — non lasciava traccia **da nessuna parte**: ne nella risposta, giustamente, ne nei log. Ora il motivo si scrive nei log e il messaggio al pubblico resta generico.
 
+### 0.1 — Il collaudo del rimborso avviato da EasyGame (2026-08-27)
+
+E-13 era rimasto `PARTIAL` con una condizione scritta: il rimborso avviato da
+EasyGame non aveva mai fatto un giro reale. Il giro e stato fatto — rata da
+130 EUR, carta vera in Stripe Sandbox, rimborso parziale e poi totale — e ha
+trovato **altri sei difetti**, nessuno dei quali visibile dai gate: i 1.727
+test erano verdi mentre il pulsante «Paga online» non funzionava affatto.
+
+| # | Difetto | Come si e visto | Stato |
+|---|---------|-----------------|-------|
+| E13-1 | **Il checkout online non partiva mai.** La rotta pretendeva `clubId` nel corpo; l'unica schermata che apre un checkout manda rata, importo e URL di ritorno, e il club nell'header come ogni altra chiamata. Risposta: `400 Club non disponibile`, sempre | Al primo clic del collaudo. Nessun test chiamava quella rotta: i test del Blocco D e E esercitavano `openGatewayCheckout`, cioe il pezzo **dopo** il controllo che rifiutava | **Corretto** |
+| E13-2 | **La CTA si accendeva su un club senza abbonamento.** `readiness.canCheckout` non consultava l'entitlement `online_payments`, che e una funzione Plus; la rotta che incassa lo consultava. Il clic rispondeva «Accesso negato: l'abbonamento non e in corso» | Al secondo clic, dopo la correzione di E13-1 | **Corretto** |
+| E13-3 | **Chi aveva appena pagato veniva accolto da un errore.** L'URL di ritorno era ricomposto da zero e perdeva `?clubId=…`, senza il quale la scheda atleta non si apre: «ID del club mancante. Torna alla lista atleti.» | Tornando dal checkout dopo un pagamento riuscito di 130 EUR | **Corretto** |
+| E13-4 | **La commissione restituita spariva dalla finestra di rimborso.** `readSettlement` cercava i numeri congelati in colonne piatte; su una riga gia normalizzata stanno annidati in `settlement`, e il client normalizza due volte. La riga diceva «—» su un incasso che l'1% ce l'aveva | Aprendo «Rimborsa» su un incasso Stripe vero | **Corretto** |
+| E13-5 | **L'importo digitato si riscriveva da solo.** L'effetto che ricompone i campi dipendeva da `availability`, un oggetto che il genitore ricalcola a ogni render: qualunque aggiornamento riportava il campo al massimo rimborsabile. Si scriveva 30 e si poteva confermare 130 | Digitando 30 su un incasso da 130 e vedendo il campo tornare a 130 | **Corretto** |
+| E13-6 | **Il netto di un secondo rimborso ignorava il primo.** Su 130 gia rimborsati di 30, restituendo i 100 restanti la finestra diceva «Netto incassato 30,00 EUR» invece di zero | Aprendo il secondo rimborso. Visto **prima** della conferma | **Corretto** |
+
+Cinque dei sei stanno fra il clic e la rete, cioe esattamente dove i test con
+il trasporto sostituito non guardano. Il sesto — E13-5 — sta fra due render, e
+nessun test di questo repository puo vederlo senza montare un componente: al
+suo posto un test statico presidia la proprieta rotta, cioe che le dipendenze
+dell'effetto siano valori stabili e non oggetti ricalcolati.
+
+Per arrivarci e servita anche una cosa negli strumenti: `next/server` esiste
+come `next/server.js` e Next 14 non dichiara una mappa `exports` che lo dica a
+Node, quindi **nessun route handler era importabile da un test**. Il resolver
+dei test ora ripiega sul suffisso, come gia faceva per gli import relativi. E
+la ragione per cui E13-1 era invisibile.
+
+Il resto del giro ha confermato quel che era stato scritto: movimento
+originale preservato, rimborsi append-only, netto 100 e residuo 30 dopo il
+parziale, rata PARZIALMENTE PAGATA e poi IN ATTESA, application fee restituita
+in proporzione esatta (30 centesimi su 130, poi 100), `provider_fee_cents`
+lasciata a `null` perche il `balance_transaction` non era ancora maturato — e
+un doppio clic sulla conferma ha prodotto due richieste HTTP e **un solo**
+rimborso presso il provider.
+
 ---
 
 ## 1. Prestazioni e scala
@@ -104,7 +141,7 @@ Piu due difetti di qualita degli strumenti, non del prodotto:
 | E-10 | Checkout online reale | `DONE` | **Collaudato contro Stripe**, non piu su mock: Sandbox Cedi Soft, 2026-08-27. Connected account dal percorso EasyGame, onboarding, 50 € + 80 € su 130 €, fee 1% e override 0,75%, webhook e idempotenza, rimborso parziale (fee proporzionale) e totale, pagamento rifiutato, isolamento multi-tenant. Quattro difetti di contabilita trovati e corretti: doppio accredito da due eventi (ADR-0062), sessione riusata sul secondo acconto (ADR-0063), commissione del PSP mai recuperata, doppio storno da identificativo di rimborso inventato |
 | E-11 | Le tre decisioni Connect | `DONE` | Percentuale: 1% di riserva, override 0,75% con decorrenza, **non retroattivo**. Tipo di account: `dashboard: "full"` (equivalente Standard). Saldi negativi: `losses_collector: "stripe"`, con `fees_collector: "stripe"`. Le responsabilita **si congelano alla creazione** e non si correggono dopo (ADR-0061) |
 | E-12 | La commissione non cambia col listino | `DONE` | Congelata sull'incasso; `commission`, `payment-gateway-refunds` |
-| E-13 | Rimborsi e storni | `PARTIAL` | Il rimborso **registrato dal webhook** e `DONE` e provato contro Stripe (collaudo del 2026-08-27, rimborso avviato dal cruscotto del provider). Il rimborso **avviato da EasyGame** e implementato e non ancora collaudato a runtime: cita un incasso e non una rata (una rata pagata con 50 + 80 ha due residui rimborsabili distinti), la risposta HTTP non e il registro, e finche il webhook non conferma la riga dice «in elaborazione». Permessi: proprietario e gestore. 79 test con trasporto sostituito, compreso il doppio evento sullo stesso rimborso e la doppia richiesta sullo stesso incasso ([ADR-0065](18-decision-log.md#adr-0065--il-rimborso-si-avvia-da-easygame-a-scriverlo-nel-registro-resta-levento-firmato)). **Manca il giro reale**: e la stessa classe di prova che a questo blocco ha lasciato passare quattro difetti di contabilita |
+| E-13 | Rimborsi e storni | `DONE` | Il rimborso **registrato dal webhook** e il rimborso **avviato da EasyGame** sono entrambi provati contro Stripe Sandbox (collaudo del 2026-08-27). Un rimborso cita un incasso e non una rata; la risposta HTTP non e il registro, e finche il webhook non conferma la riga dice «in elaborazione». Permessi: proprietario e gestore. Giro reale: 130 EUR incassati con carta, −30 (netto 100, residuo 30, PARZIALMENTE PAGATA, application fee restituita 30 centesimi su 130 = la proporzione esatta), poi −100 (rata IN ATTESA, fee restituita 1,00 EUR). Movimento originale preservato, rimborsi append-only, `provider_fee_cents` resta `null` = «non ancora noto» e non zero. Doppio clic: due POST, un solo `re_…`. Responsive verificato a 375 e 768 ([ADR-0065](18-decision-log.md#adr-0065--il-rimborso-si-avvia-da-easygame-a-scriverlo-nel-registro-resta-levento-firmato)). **Il giro reale ha trovato sei difetti**, tutti corretti e coperti da regressione: vedi [22 — Release candidate](22-release-candidate.md) |
 | E-14 | Billing EasyGame separato dagli incassi dei club | `BLOCKED_EXTERNAL` | Due account, due endpoint, due segreti; 14 test. Manca una sottoscrizione reale |
 | E-15 | Profilo fiscale non-ASD | `DONE` | 18 test su ASD, SSD, altri soggetti, solo CF, con P.IVA |
 | E-16 | Un incasso non diventa una fattura | `DONE` | 15 test; il motore **propone**, il predefinito e il piu conservativo. A runtime, su un intestatario senza dati fiscali, rifiuta la fattura **elencando cosa manca** e suggerisce la ricevuta: «mancano codice fiscale o partita IVA, indirizzo, comune, CAP» |
@@ -252,7 +289,7 @@ Nell'ordine in cui conviene affrontarli.
 
 | Gate | Esito |
 |------|-------|
-| `npm test` | **1.596 test, 0 falliti** (erano 1.535 all'inizio del blocco: +61 — +20 su difetti trovati qui, +21 su separazione sandbox/produzione e commissione Stripe (ADR-0060), +20 sul pagamento online parziale) |
+| `npm test` | **1.746 test, 0 falliti**. Erano 1.535 all'inizio del Blocco E e 1.596 alla sua chiusura (+61: +20 su difetti trovati li, +21 su separazione sandbox/produzione e commissione Stripe (ADR-0060), +20 sul pagamento online parziale). Il rimborso avviato da EasyGame ne ha portati 79, e il **collaudo runtime di quel rimborso** altri 19 — uno per ciascuno dei sei difetti che ha trovato, piu le proprieta che li circondano |
 | `npm run typecheck` | nessun output |
 | `npm run lint` | 0 errori, 41 warning — **lo stesso numero** con cui il blocco e cominciato |
 | `npm run build` | completa |
