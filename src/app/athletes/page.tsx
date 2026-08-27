@@ -84,6 +84,7 @@ import {
   deleteClubAthlete,
 } from "@/lib/simplified-db";
 import type { ListPageMeta } from "@/lib/api/client";
+import { describeSelection } from "@/lib/list-selection";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import {
   buildCategoryGroups,
@@ -1215,8 +1216,12 @@ export default function AthletesPage() {
         ),
       })),
       scopeLabel: selectedAthleteIds.size
-        ? `${exportAthletes.length} atleti selezionati`
-        : `${exportAthletes.length} atleti filtrati`,
+        ? describeSelection(exportAthletes.length, {
+            one: "atleta",
+            many: "atleti",
+          })
+        : `${exportAthletes.length} ${exportAthletes.length === 1 ? "atleta filtrato" : "atleti filtrati"}`,
+      countLabel: "Atleti esportati",
     });
 
     if (!success) {
@@ -1737,8 +1742,14 @@ export default function AthletesPage() {
               secondarie — colonne, report, export, import — stavano in fila
               come la principale e su telefono riempivano due schermate.
               Ora vivono in un menu e la barra ha una sola azione evidente.
+
+              `lg:flex-wrap` non e cosmesi: da quando il filtro Gruppo si e
+              aggiunto a quello Sede, a 1280 px i cinque blocchi chiedono piu
+              spazio di quanto la riga ne abbia, e senza andare a capo il
+              gruppo delle azioni veniva compresso sotto la sua larghezza —
+              con «Nuovo atleta» tagliato da `overflow-x-hidden` del main.
             */}
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
               <div className="relative w-full lg:max-w-xs">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
@@ -1819,7 +1830,7 @@ export default function AthletesPage() {
                 id="athletes-group-filter"
               />
 
-              <div className="flex items-center gap-2 lg:ml-auto">
+              <div className="flex shrink-0 items-center gap-2 lg:ml-auto">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="h-9">

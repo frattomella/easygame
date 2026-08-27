@@ -80,9 +80,13 @@ import { FileDown } from "lucide-react";
 interface Trainer {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
   phone: string;
   categories: { id: string; name: string }[];
+  /** I gruppi operativi dichiarati: e cio che scrive l'assegnazione di massa. */
+  groupIds?: string[];
   salary: string;
   avatar?: string;
   status?: string;
@@ -283,6 +287,34 @@ export default function TrainersPage() {
       idOf: (trainer) => String(trainer.id),
     });
 
+  const groupNameById = new Map(
+    categoryGroups.map((group) => [String(group.id), group.name]),
+  );
+
+  /**
+   * Le squadre che un allenatore segue, come si leggono in tabella e nel PDF.
+   *
+   * **Un'assegnazione che non si vede e un'assegnazione che non e successa.**
+   * L'azione di massa scrive `groupIds`, ma la colonna leggeva solo
+   * `categories`: chi assegnava due allenatori a «Pulcini · Roma» vedeva la
+   * barra dire «fatto» e la tabella restare identica (RC Fix 2, punto 9).
+   *
+   * I gruppi vincono sulle categorie quando ci sono, perche sono l'unita piu
+   * precisa: dire «Pulcini» a chi segue solo Roma direbbe una cosa in piu di
+   * quella vera.
+   */
+  const trainerAssignmentLabels = (trainer: Trainer): string[] => {
+    const groupLabels = getTrainerGroupIds(trainer as any)
+      .map((groupId) => groupNameById.get(groupId))
+      .filter((name): name is string => Boolean(name));
+
+    if (groupLabels.length) return groupLabels;
+
+    return (Array.isArray(trainer.categories) ? trainer.categories : [])
+      .map((category) => category?.name)
+      .filter((name): name is string => Boolean(name));
+  };
+
   /**
    * Export PDF, con lo stesso motore dell'elenco Atleti.
    *
@@ -290,18 +322,21 @@ export default function TrainersPage() {
    * righe e non sa di che entita si tratti (Blocco 7, punto 13).
    */
   const handleExportPdf = (scope: SelectionScope) => {
-    const people = rowsForScope(scope);
+    // La colonna del PDF deve dire cio che dice la tabella: i gruppi, quando
+    // ci sono, altrimenti le categorie.
+    const people = rowsForScope(scope).map((trainer) => ({
+      ...trainer,
+      categories: trainerAssignmentLabels(trainer).map((name) => ({
+        id: name,
+        name,
+      })),
+    }));
     const result = exportPeoplePdf({
       entity: "trainers",
       people: people as unknown as Record<string, any>[],
       clubName: activeClub?.name || "EasyGame",
       visibleColumns: null,
-      scopeLabel:
-        scope === "selected"
-          ? `${people.length} allenatori selezionati`
-          : scope === "filtered"
-            ? `${people.length} allenatori nel risultato filtrato`
-            : `${people.length} allenatori in elenco`,
+      scope,
     });
 
     if (!result.ok) {
@@ -813,22 +848,25 @@ export default function TrainersPage() {
                             )}
                             {visibleColumns.categories && (
                               <td className="py-3 px-4">
-                                {Array.isArray(trainer.categories) &&
-                                trainer.categories.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {trainer.categories.map((cat, index) => (
-                                      <Badge
-                                        key={cat.id || `cat-${index}`}
-                                        variant="outline"
-                                        className="border-blue-100 bg-blue-50 text-blue-700"
-                                      >
-                                        {cat.name}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  "-"
-                                )}
+                                {(() => {
+                                  const labels =
+                                    trainerAssignmentLabels(trainer);
+                                  if (!labels.length) return "-";
+
+                                  return (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {labels.map((label, index) => (
+                                        <Badge
+                                          key={`${label}-${index}`}
+                                          variant="outline"
+                                          className="border-blue-100 bg-blue-50 text-blue-700"
+                                        >
+                                          {label}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </td>
                             )}
                             {visibleColumns.status && (

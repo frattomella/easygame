@@ -1,4 +1,5 @@
 import { formatClothingSizes } from "./clothing-sizes";
+import { describeSelection, type SelectionScope } from "./list-selection";
 import { normalizeMemberType } from "./member-types";
 import { printPeoplePdf, type PeoplePdfColumn } from "./people-pdf-export";
 
@@ -64,7 +65,16 @@ const formatStatus = (value?: string | null) => {
 };
 
 const LAST_NAME_KEYS = ["surname", "lastName", "last_name"];
-const FIRST_NAME_KEYS = ["name", "firstName", "first_name"];
+/**
+ * `name` sta **per ultimo**, e non e un dettaglio d'ordine.
+ *
+ * Sugli atleti `name` e il nome di battesimo e `surname` il cognome. Su
+ * allenatori e soci `name` e il nome **intero**, in due ordini diversi:
+ * «Anna Rossi Uat» sull'uno, «Della Valle Uat Chiara» sull'altro. Leggendolo
+ * per primo la colonna «Nome» del PDF riceveva il nome intero e la colonna
+ * «Cognome» l'ultima parola — cioe «Uat» al posto di «Rossi Uat».
+ */
+const FIRST_NAME_KEYS = ["firstName", "first_name", "name"];
 const FULL_NAME_KEYS = ["fullName", "full_name", "name"];
 
 const lastNameOf = (person: Record<string, any>) => {
@@ -77,12 +87,37 @@ const lastNameOf = (person: Record<string, any>) => {
   return parts.length > 1 ? parts[parts.length - 1] : "";
 };
 
+/**
+ * Toglie il cognome da un valore che potrebbe essere il nome intero.
+ *
+ * Il cognome sta in testa o in coda a seconda di come l'elenco compone
+ * l'etichetta, e puo essere di piu parole: si confronta il cognome per
+ * intero, non si contano gli spazi.
+ */
+const withoutLastName = (value: string, lastName: string) => {
+  if (!value || !lastName || value === lastName) return value;
+
+  const lower = value.toLowerCase();
+  const last = lastName.toLowerCase();
+
+  if (lower.startsWith(`${last} `)) return value.slice(lastName.length).trim();
+  if (lower.endsWith(` ${last}`)) {
+    return value.slice(0, value.length - lastName.length).trim();
+  }
+
+  return value;
+};
+
 const firstNameOf = (person: Record<string, any>) => {
-  const explicit = pick(person, FIRST_NAME_KEYS);
-  const last = pick(person, LAST_NAME_KEYS);
+  const last = lastNameOf(person);
+
+  const explicit = withoutLastName(pick(person, FIRST_NAME_KEYS), last);
   if (explicit && explicit !== last) return explicit;
 
   const full = pick(person, FULL_NAME_KEYS);
+  const stripped = withoutLastName(full, last);
+  if (stripped && stripped !== last) return stripped;
+
   const parts = full.split(/\s+/).filter(Boolean);
   return parts.length > 1 ? parts.slice(0, -1).join(" ") : full;
 };
@@ -124,10 +159,42 @@ const ENTITY_TITLES: Record<PersonEntity, string> = {
   members: "Elenco Soci",
 };
 
-const ENTITY_NOUNS: Record<PersonEntity, string> = {
-  trainers: "allenatori",
-  staff: "membri dello staff",
-  members: "soci",
+/** Singolare e plurale: un PDF che dice «1 allenatori» si e scritto da solo. */
+const ENTITY_NOUNS: Record<PersonEntity, { one: string; many: string }> = {
+  trainers: { one: "allenatore", many: "allenatori" },
+  staff: { one: "membro dello staff", many: "membri dello staff" },
+  members: { one: "socio", many: "soci" },
+};
+
+/** L'intestazione del riquadro con il conteggio, in cima al PDF. */
+const ENTITY_COUNT_LABELS: Record<PersonEntity, string> = {
+  trainers: "Allenatori esportati",
+  staff: "Membri dello staff esportati",
+  members: "Soci esportati",
+};
+
+/**
+ * Cosa dice il PDF di se stesso, in una riga.
+ *
+ * **Sta qui e non nelle pagine.** Le tre schermate scrivevano tre volte la
+ * stessa frase a mano, e tre volte con il plurale fisso: «1 allenatori
+ * selezionati» accanto a una barra che diceva correttamente «1 allenatore
+ * selezionato». Nei Soci il ramo del risultato filtrato mancava del tutto e
+ * un export filtrato si dichiarava «in elenco».
+ */
+export const personExportScopeLabel = (
+  entity: PersonEntity,
+  scope: SelectionScope,
+  count: number,
+) => {
+  const nouns = ENTITY_NOUNS[entity];
+
+  if (scope === "selected") return describeSelection(count, nouns);
+
+  const noun = count === 1 ? nouns.one : nouns.many;
+  return scope === "filtered"
+    ? `${count} ${noun} nel risultato filtrato`
+    : `${count} ${noun} in elenco`;
 };
 
 /**
@@ -216,13 +283,14 @@ export const exportPeoplePdf = ({
   people,
   clubName,
   visibleColumns,
-  scopeLabel,
+  scope,
 }: {
   entity: PersonEntity;
   people: Record<string, any>[];
   clubName: string;
   visibleColumns?: Record<string, boolean> | null;
-  scopeLabel?: string;
+  /** L'ambito su cui la pagina ha risolto le righe, non la frase da stampare. */
+  scope: SelectionScope;
 }): PersonExportResult => {
   if (!people.length) {
     return { ok: false, reason: "empty" };
@@ -243,8 +311,8 @@ export const exportPeoplePdf = ({
         ]),
       ),
     })),
-    scopeLabel:
-      scopeLabel || `${people.length} ${ENTITY_NOUNS[entity]} in elenco`,
+    scopeLabel: personExportScopeLabel(entity, scope, people.length),
+    countLabel: ENTITY_COUNT_LABELS[entity],
   });
 
   return success ? { ok: true, count: people.length } : { ok: false, reason: "popup" };

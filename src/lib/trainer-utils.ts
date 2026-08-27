@@ -14,9 +14,27 @@ type ClubCategoryLike = {
 export type NormalizedTrainerViewModel = {
   id: string;
   name: string;
+  /**
+   * Nome e cognome **separati**, accanto al nome intero.
+   *
+   * `name` qui e il nome intero, non il nome di battesimo: chi legge questo
+   * modello per stampare una colonna «Cognome» non puo ricavarlo spezzando la
+   * stringa, perche «Anna Rossi Uat» ha due parole di cognome. Il record di
+   * origine i due campi li ha: vanno portati qui, non indovinati dopo.
+   */
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
   categories: { id: string; name: string }[];
+  /**
+   * I gruppi operativi dichiarati, cosi come stanno nel record.
+   *
+   * Senza questo campo l'assegnazione di massa a un gruppo rileggeva sempre un
+   * elenco vuoto e **sostituiva** invece di aggiungere: assegnare ad Aprilia
+   * toglieva Roma, in silenzio (RC Fix 2, punto 9).
+   */
+  groupIds: string[];
   salary: string;
   avatar?: string;
   status: "active" | "suspended";
@@ -338,6 +356,17 @@ export const normalizeTrainerList = (
     const candidate: NormalizedTrainerViewModel = {
       id: id || email || rawLabel,
       name: rawLabel ? getTrainerDisplayName(entry) : email || "Allenatore",
+      firstName: firstNonEmptyString(
+        entry.firstName,
+        entry.first_name,
+        entry.nome,
+      ),
+      lastName: firstNonEmptyString(
+        entry.lastName,
+        entry.last_name,
+        entry.surname,
+        entry.cognome,
+      ),
       email,
       phone: firstNonEmptyString(
         entry.phone,
@@ -346,6 +375,7 @@ export const normalizeTrainerList = (
         entry.telefono,
       ),
       categories,
+      groupIds: getTrainerGroupIds(entry),
       salary:
         String(firstDefinedValue(entry.salary, entry.compensation, "0") || "0").trim() ||
         "0",
@@ -389,11 +419,18 @@ export const normalizeTrainerList = (
         current.name && normalizeValue(current.name) !== "allenatore"
           ? current.name
           : candidate.name || current.name,
+      firstName: current.firstName || candidate.firstName,
+      lastName: current.lastName || candidate.lastName,
       email: current.email || candidate.email,
       phone: current.phone || candidate.phone,
       categories: normalizeTrainerCategories(
         [...current.categories, ...candidate.categories],
         clubCategories,
+      ),
+      // Lo stesso allenatore puo arrivare da `clubs.trainers` e dalla riga
+      // risorsa: i gruppi si uniscono, come le categorie.
+      groupIds: Array.from(
+        new Set([...current.groupIds, ...candidate.groupIds]),
       ),
       salary: current.salary || candidate.salary,
       avatar: current.avatar || candidate.avatar,

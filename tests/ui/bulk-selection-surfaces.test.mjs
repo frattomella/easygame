@@ -87,10 +87,21 @@ test("l'export dei tre elenchi passa dagli ambiti condivisi", () => {
       /resolveScopeRows\(/,
       `${label} (${file}): le righe da esportare vanno risolte dal modulo condiviso`,
     );
+    /*
+      Il PDF deve dire su cosa e stato generato — e deve dirlo **con la stessa
+      voce della barra di selezione**. Finche ogni pagina scriveva la frase a
+      mano, tre pagine su tre sbagliavano il plurale a uno e i Soci non
+      avevano nemmeno il caso del risultato filtrato.
+    */
     assert.match(
       source,
+      /^\s*scope,\s*$/m,
+      `${label} (${file}): l'ambito si passa, la frase la costruisce person-export`,
+    );
+    assert.doesNotMatch(
+      source,
       /scopeLabel:/,
-      `${label} (${file}): il PDF deve dire su cosa e stato generato`,
+      `${label} (${file}): l'intestazione del PDF non si riscrive nella pagina`,
     );
   }
 });

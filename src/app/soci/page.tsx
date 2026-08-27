@@ -171,10 +171,7 @@ export default function SociPage() {
       people: people as unknown as Record<string, any>[],
       clubName: activeClub?.name || "EasyGame",
       visibleColumns,
-      scopeLabel:
-        scope === "selected"
-          ? `${people.length} soci selezionati`
-          : `${people.length} soci in elenco`,
+      scope,
     });
 
     if (!result.ok) {

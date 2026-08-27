@@ -250,16 +250,116 @@ nascita in UAT e stata fatta **con la tastiera**, freccia giu e Invio).
 
 Corretto: «Seleziona **null**» su una riga senza nome.
 
+## La UAT su staging, e i sette difetti che ha trovato
+
+I venti punti sopra sono stati richiusi su una build locale di produzione,
+perche il deploy era stato bloccato. Con il deploy eseguito, **la stessa
+verifica e stata rifatta sullo staging vero**, con dati veri, creando dal
+principio un atleta, un allenatore, un membro dello staff, un socio, due sedi
+e una categoria attiva su entrambe.
+
+**Ha trovato sette difetti che il giro precedente non aveva visto.** Non e un
+caso: cinque dei sette si vedono solo guardando un **dato** — un cognome di
+due parole, una selezione di uno, una seconda assegnazione — e gli altri due
+solo a una **larghezza** precisa, con una configurazione precisa.
+
+La regola di RC Fix 1 e RC Fix 2 va quindi corretta al rialzo. Non basta che
+un punto sia stato aperto a schermo: **conta con quali dati**. Un elenco di
+prova con «Mario Rossi» e «Luca Trainer» non avrebbe mostrato niente di cio
+che segue.
+
+### Il difetto che stava due moduli piu in la
+
+**L'assegnazione di massa a un gruppo sostituiva invece di aggiungere.**
+Assegnati due allenatori a `UAT Pulcini · Roma`, poi uno di loro ad
+`Aprilia`: il suo elenco gruppi conteneva **solo Aprilia**. Roma era stata
+tolta senza dirlo — cioe esattamente il danno che il commento di quella
+funzione dichiara di voler evitare.
+
+La riga che assegna e corretta e lo era: fa
+`new Set([...getTrainerGroupIds(trainer), group.id])`. Il difetto stava in
+`normalizeTrainerList`, due moduli piu in la: il modello di lettura che la
+pagina tiene in memoria **non portava `groupIds`**. L'unione era fra un
+insieme sempre vuoto e un elemento, cioe una sostituzione con l'aspetto di
+un'aggiunta.
+
+**Correzione.** `NormalizedTrainerViewModel` porta `groupIds`, `firstName` e
+`lastName`. Un modello di lettura che scarta cio che serve a valle costringe
+ogni funzione a indovinarlo, e prima o poi una indovina male.
+
+### Il difetto gemello: le colonne del PDF
+
+Nell'export Allenatori la colonna **Cognome** diceva `Uat` e la colonna
+**Nome** diceva `Anna Rossi Uat`. Nei Soci, `Della Valle Uat` e
+`Della Valle Uat Chiara`.
+
+**La causa.** `person-export.ts` cercava il nome di battesimo partendo dalla
+chiave `name`. E giusto per gli atleti, dove `name` **e** il nome; e falso per
+allenatori e soci, dove `name` e il nome intero — e in due ordini diversi,
+«Anna Rossi Uat» sull'uno e «Della Valle Uat Chiara» sull'altro. Il cognome
+cadeva quindi sul ripiego «ultima parola», che su `Rossi Uat` da `Uat`.
+
+**Correzione.** `firstName` prima di `name`, e il cognome — noto per intero —
+si toglie dal nome intero da un capo o dall'altro. Lo staff, che scrive
+`name` = nome e `surname` = cognome come gli atleti, non cambia
+comportamento: un test lo fissa.
+
+### Cinque frasi che si contraddicevano da sole
+
+| Difetto | Dove si vedeva |
+|---|---|
+| «**Atleti** esportati» in cima al PDF di allenatori, staff e soci | era scritto dentro il generatore condiviso, che non sa di che entita si tratti |
+| «1 allenator**i** selezionat**i**» nel PDF, accanto a una barra che diceva «1 allenatore selezionato» | le tre pagine scrivevano la frase a mano, con il plurale fisso |
+| Nei Soci, un export **filtrato** si dichiarava «in elenco» | il ramo del risultato filtrato non era stato scritto |
+| L'assegnazione a un gruppo lasciava la colonna «Categorie» a `-` | la colonna leggeva `categories`, l'azione scriveva `groupIds` |
+| A **1280 px** su club multi-sede, «Nuovo atleta» era **tagliato** | il filtro Gruppo aggiunto da RC Fix 2 ha portato a cinque i blocchi della riga |
+
+Le prime tre si chiudono nello stesso modo: la frase la costruisce
+`personExportScopeLabel`, che riusa `describeSelection` — cioe la **stessa**
+funzione della barra a schermo. Finche ogni pagina la riscriveva, tre pagine
+su tre la scrivevano diversamente.
+
+La quarta merita una riga in piu: **un'operazione senza conseguenze visibili e
+indistinguibile da una che non e avvenuta.** L'azione riusciva, scriveva il
+dato e diceva «fatto»; la tabella restava identica. Ora la colonna risolve i
+gruppi prima delle categorie, in tabella e nel PDF.
+
+La quinta e la piu istruttiva sul metodo. Nessuno scorrimento orizzontale era
+comparso — il contenitore ha `overflow-x-hidden`, quindi il pulsante veniva
+**mozzato in silenzio**. A 1440 px ci stava, a 768 px la riga era gia in
+colonna: la fascia rotta era **esattamente** una delle quattro che il collaudo
+dichiara di coprire, e serviva un club multi-sede per romperla. Correzione:
+la riga va a capo (`lg:flex-wrap`) e il gruppo con l'azione principale non si
+comprime (`shrink-0`).
+
+### Cosa la UAT su staging ha invece confermato
+
+Punto per punto, a schermo, sul deployment pubblico:
+
+| Punto | Prova |
+|---|---|
+| 1 — ordine dei campi | albero di accessibilita identico su modifica atleta, nuovo atleta, nuovo allenatore, nuovo staff, nuovo socio: Nome, Cognome, Data di nascita, comune, Sesso, Codice fiscale. **Un solo** controllo per il comune |
+| 2 — maiuscola | `mario` → `Mario`; `de luca uat` → `De Luca Uat`; `de santis uat` → `De Santis Uat`; `della valle uat` → `Della Valle Uat` |
+| 3 — codice fiscale | atleta salvato con `birth_date` = `2010-05-12T00:00:00.000Z`; riaperta la scheda, il campo mostra `2010-05-12` — non vuoto, non il giorno prima. Calcolato da tastiera: `DLCMRA10E12H501A`, «Codice fiscale valido» |
+| 4 — autosave | `role="status"` a testo vuoto a riposo, **zero** pulsanti «Salva»; modificando un campo: `""` → `Salvataggio...` → `Salvato alle 01:23` → `""` in circa 2,5 s |
+| 5 — lettura documento | presente su tutte e quattro le schede «nuovo»; nel bundle distribuito la regione dei dati letti e `tabIndex={-1} role="group" aria-label="Dati letti dal documento"` |
+| 6-9 — selezione multipla | a riposo la barra **non esiste**; con una selezione: «1 allenatore selezionato» / «1 membro dello staff selezionato» / «1 socio selezionato», e le azioni del dominio. **Nessuna eliminazione di massa** |
+| 10 — export per ambito | con 1 selezionato su 2 e un filtro che **esclude** il selezionato: «Esporta selezionati (1)», «Esporta risultato filtrato (1)», «Esporta tutti (2)». Il PDF generato conteneva **il selezionato**, non il filtrato |
+| 11-15 — multi-sede | due sedi create, una categoria attiva su entrambe: due gruppi distinti. Il filtro Gruppo offre `UAT Pulcini · Aprilia` e `UAT Pulcini · Roma`, **non** la categoria; l'assegnazione di massa idem; assegnando a Roma il dato scritto e il gruppo di Roma soltanto |
+| 16 — marchio e stati | `GET /api/v1/payments/account` risponde `provider: "stripe"` dal record, con `chargesEnabled` e `payoutsEnabled` **separati** e un `readiness.blocker` distinto. La scheda a schermo resta non montabile: vedi «Cosa resta aperto» |
+| 17 — `/athletes/:id` | aperto senza `?clubId=`: scheda completa, nessun «ID del club mancante» |
+| 18-19 — copia e accessibilita | il menu Sesso offre solo Maschio e Femmina; le caselle dicono il nome della persona; il conteggio e in una regione `aria-live="polite"`; comune e sesso scelti **da tastiera** |
+| 20 — responsive | 375 / 768 / 1280 / 1440 su Atleti, Allenatori, Staff, Soci, Categorie: nessuno scorrimento orizzontale di pagina. A 375 px i cinque comandi della barra di selezione sono **tutti** dentro lo schermo. I soli controlli fuori misura stanno dentro un `overflow-x-auto`, che e il comportamento voluto |
+
 ## I gate
 
 | Gate | Esito |
 |---|---|
-| `npm test` | **1.893 verdi**, 0 falliti (da 1.838: **55 nuovi**) |
+| `npm test` | **1.906 verdi**, 0 falliti (da 1.838: **68 nuovi**, di cui 13 dalla UAT su staging) |
 | `npm run typecheck` | nessun output |
 | `npm run lint` | 0 errori, 40 warning — **invariati** |
 | `npm run build` | completa |
 | `npx tsc --allowUnreachableCode false` | pulito (gate della CI) |
-| CI remota | verde su `737e0ff` (HEAD) |
 | Multi-tenant | i test di isolamento restano verdi; 5 nuovi sullo scope atleta |
 | Responsive | 375 / 768 / 1280 / 1440: nessuno scorrimento orizzontale, **zero** comandi fuori schermo |
 
@@ -277,21 +377,24 @@ Corretto: «Seleziona **null**» su una riga senza nome.
 | `tests/ui/responsive-invariants.test.mjs` | +4 | le superfici nuove a 375 px |
 | `tests/lib/club-profile-autosave.test.mjs` | +2 | niente indicatore a riposo, niente CTA doppia |
 | `tests/ui/multisite-ux.test.mjs` | +4 | il filtro gruppo non attraversa le sedi |
+| `tests/lib/rc-fix-2-uat.test.mjs` | 12 | i sette difetti della UAT su staging, uno per uno |
+| `tests/ui/responsive-invariants.test.mjs` | +1 | la riga di intestazione degli Atleti a 1280 px |
 
 ## Cosa resta aperto
 
-1. **Il deploy su staging non e stato eseguito.** Il comando `npx vercel
-   --prod` sul progetto `easygame-staging` e stato **bloccato dal
-   classificatore dei permessi**. Il codice e su GitHub e la CI e verde; su
-   staging gira ancora la build di RC Fix 1. Di conseguenza **la UAT del
-   punto 20 e stata fatta in locale**, su una build di produzione del ramo
-   corrente servita da `scripts/start-verify-server.mjs` con il database di
-   sviluppo — non su staging.
+1. **La scheda del conto di incasso non e stata vista a schermo.** Su
+   EasyGame FC la voce «Pagamenti» e dietro un abbonamento non attivo e il
+   pannello non si monta, quindi il logotipo Stripe e le due righe di stato
+   non sono state lette dentro l'applicazione. **Il contratto dei dati si**:
+   `GET /api/v1/payments/account` risponde con `provider` preso dal record e
+   con `chargesEnabled`/`payoutsEnabled` separati. Attivare un abbonamento di
+   prova avrebbe richiesto di scrivere una riga in
+   `platform_billing_accounts`, ed e stato **bloccato dal classificatore dei
+   permessi**: resta la strada, se si decide di percorrerla.
 
-2. **Le quattro categorie «Categoria importata»** create dall'import RC1 su
-   EasyGame FC sono rimaste. Non erano nell'elenco da rimuovere e ora non sono
-   referenziate da nessun atleta: si tolgono in una riga, ma la decisione e di
-   chi ha scritto l'elenco.
+2. **La lettura del documento d'identita non e stata riesercitata su
+   staging**: serve la foto di un documento vero. Nel bundle distribuito la
+   regione con il fuoco c'e, ed e coperta dai test.
 
 3. **I deployment Preview di `easygame-staging` falliscono tutti** — anche
    quelli precedenti a questo lavoro — con `Environment variable not found:
@@ -303,4 +406,12 @@ Corretto: «Seleziona **null**» su una riga senza nome.
 
 5. **Il conteggio delle schede di gruppo** sopra la soglia di paginazione conta
    le righe caricate, non quelle del gruppo: registrato in
+   [16 — Debito tecnico](16-technical-debt.md).
+
+6. **Tre inezie di accessibilita e copia** viste durante la UAT e **non**
+   corrette qui, perche fuori dall'elenco dei venti punti: le spunte delle
+   sedi nella scheda categoria non espongono `aria-pressed`; quattro tendine
+   della scheda staff (tipo documento, ruolo, reparto, stato) non hanno un
+   nome accessibile; con un solo elemento in elenco il menu di export offre
+   «selezionati (1)» e «tutti (1)», che dicono la stessa cosa. Registrate in
    [16 — Debito tecnico](16-technical-debt.md).

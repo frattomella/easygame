@@ -24,6 +24,15 @@ type PrintPeoplePdfOptions = {
   rows: PeoplePdfRow[];
   generatedAt?: Date;
   scopeLabel?: string;
+  /**
+   * Come si chiamano le righe di questo elenco.
+   *
+   * Era scritto «Atleti esportati» dentro il modello: da quando lo stesso
+   * generatore stampa anche allenatori, staff e soci, quella riga diceva la
+   * cosa sbagliata su tre PDF su quattro. Il generatore non sa di che entita
+   * si tratti — deve chiederlo.
+   */
+  countLabel?: string;
 };
 
 const escapeHtml = (value: unknown) =>
@@ -50,6 +59,7 @@ export const printPeoplePdf = ({
   rows,
   generatedAt = new Date(),
   scopeLabel,
+  countLabel = "Persone esportate",
 }: PrintPeoplePdfOptions) => {
   if (typeof window === "undefined") {
     return false;
@@ -180,7 +190,7 @@ export const printPeoplePdf = ({
           ${scopeLabel ? `<p>${escapeHtml(scopeLabel)}</p>` : ""}
           <section class="summary">
             <div>
-              <strong>Atleti esportati</strong>
+              <strong>${escapeHtml(countLabel)}</strong>
               <p>${escapeHtml(rows.length)}</p>
             </div>
             <div>

@@ -525,3 +525,32 @@ test("l'intestazione del conto di incasso va a capo", () => {
     "titolo e marchio devono poter andare a capo",
   );
 });
+
+/**
+ * A 1280 px, su un club multi-sede, «Nuovo atleta» era **tagliato**.
+ *
+ * E il difetto che si vede solo aprendo la pagina alla larghezza giusta con i
+ * dati giusti: il filtro Gruppo aggiunto da RC Fix 2 ha portato a cinque i
+ * blocchi della riga di intestazione, che a 1280 px ne chiedono piu di quanto
+ * la riga ne abbia. Il gruppo delle azioni, senza `shrink-0`, veniva
+ * compresso sotto la larghezza del suo contenuto — 173 px per 208 — e
+ * `overflow-x-hidden` del contenitore principale tagliava il resto. Nessuno
+ * scorrimento orizzontale comparso: solo un pulsante mozzato.
+ *
+ * A 1440 px ci stava, a 768 px la riga era gia in colonna: la fascia rotta
+ * era esattamente quella che il collaudo dichiara di coprire.
+ */
+test("la riga di intestazione degli Atleti va a capo invece di tagliare le azioni", () => {
+  const source = read("app/athletes/page.tsx");
+
+  assert.match(
+    source,
+    /flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center/,
+    "i blocchi della riga devono poter andare a capo da lg in su",
+  );
+  assert.match(
+    source,
+    /flex shrink-0 items-center gap-2 lg:ml-auto/,
+    "il gruppo con l'azione principale non si comprime sotto il suo contenuto",
+  );
+});

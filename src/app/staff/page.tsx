@@ -351,12 +351,7 @@ export default function StaffPage() {
       people: people as unknown as Record<string, any>[],
       clubName: activeClub?.name || "EasyGame",
       visibleColumns: visibleColumns,
-      scopeLabel:
-        scope === "selected"
-          ? `${people.length} membri dello staff selezionati`
-          : scope === "filtered"
-            ? `${people.length} membri dello staff nel risultato filtrato`
-            : `${people.length} membri dello staff in elenco`,
+      scope,
     });
 
     if (!result.ok) {

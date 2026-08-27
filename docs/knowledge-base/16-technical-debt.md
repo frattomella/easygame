@@ -981,3 +981,56 @@ nuova sulla rotta di elenco — e non e una riga.
 conteggi per `(category_id, site_id)` accanto a `meta.total`, e usarli nelle
 intestazioni delle schede invece di contare le righe in memoria. Finche non
 c'e, il numero da credere e quello che si ottiene **filtrando** per gruppo.
+
+---
+
+## Debito registrato dalla UAT su staging di RC Fix 2 (2026-08-28)
+
+Tre inezie viste provando l'applicazione sul deployment pubblico. Nessuna
+delle tre era fra i venti punti di RC Fix 2, e nessuna e stata corretta li:
+un commit che chiude un elenco non e il posto dove infilare altro.
+
+### Le spunte delle sedi non dicono se sono premute
+
+**Dove:** la scheda «Nuova categoria» / «Modifica categoria», sezione «Sedi in
+cui e attiva» (`src/app/categories/page.tsx`).
+
+**Cosa succede.** Le sedi si accendono e si spengono con dei `Button` che
+cambiano colore. A schermo si capisce; con uno screen reader no: non c'e
+`aria-pressed`, quindi la sola differenza fra sede attiva e sede spenta e il
+colore.
+
+**Cosa farebbe la differenza:** `aria-pressed={selected}` sui pulsanti, come
+gia fanno i filtri di stato dell'elenco Atleti.
+
+### Quattro tendine della scheda staff non hanno un nome
+
+**Dove:** `src/app/staff/new/page.tsx` — tipo documento, ruolo, reparto,
+stato.
+
+**Cosa succede.** Nell'albero di accessibilita compaiono come
+`combobox` senza nome. Il campo ha un'etichetta visibile accanto, ma non
+associata al controllo: chi naviga a voce sente «casella combinata» e basta.
+
+**Perche non e stato corretto qui.** E precedente a RC Fix 2, che su quella
+scheda ha toccato solo i sei campi di identita in cima — quelli, il nome ce
+l'hanno.
+
+**Cosa farebbe la differenza:** `aria-label` sul trigger, oppure legare
+l'etichetta con `id`/`aria-labelledby`.
+
+### Con un solo elemento, il menu di export offre due voci uguali
+
+**Dove:** `availableExportScopes` in `src/lib/list-selection.ts`.
+
+**Cosa succede.** Su un elenco con una riga sola, selezionata, il menu offre
+«Esporta selezionati (1)» **e** «Esporta tutti (1)»: due voci che producono
+lo stesso documento.
+
+**Perche non e stato corretto qui.** La regola scritta riguarda il **filtro**
+— «risultato filtrato» si offre solo se il filtro toglie davvero qualcosa — e
+allargarla a «selezionati» significa cambiare una funzione coperta da nove
+test per un caso limite che non fa danni. Va fatto, non di corsa.
+
+**Cosa farebbe la differenza:** non offrire `all` quando
+`selectedCount === totalCount`.
