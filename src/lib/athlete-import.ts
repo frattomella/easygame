@@ -100,6 +100,15 @@ const HEADER_CANDIDATES: Record<AthleteImportField, string[]> = Object.
       birthDate: [
         "data nascita",
         "data di nascita",
+        /*
+          «Nascita», «Nato il», «Nata il»: intestazioni comuni quanto «Data di
+          nascita» negli export dei gestionali italiani. Senza, la colonna non
+          veniva riconosciuta, ogni riga risultava senza data e l'intero file
+          finiva fra gli scarti (RC Fix 1, punto 3).
+        */
+        "nascita",
+        "nato il",
+        "nata il",
         "birth date",
         "birthdate",
         "dob",
