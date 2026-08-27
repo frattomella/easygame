@@ -422,3 +422,79 @@ test("lo stato del salvataggio e discreto, temporaneo e condiviso", () => {
     "uno solo, in testa alla pagina, valido per tutte le schede",
   );
 });
+
+/* ------------------- niente da mostrare quando non succede niente (RC Fix 2, punto 4) */
+
+/**
+ * A riposo l'indicatore non disegna **niente**.
+ *
+ * Non e un dettaglio grafico: un badge permanente che annuncia il salvataggio
+ * automatico e un'istruzione ovvia ripetuta a ogni caricamento di pagina, e
+ * occupa spazio — a 375 px lo toglie a cio che serve. I tre stati che
+ * meritano un segno sono «sto salvando», «salvato» (che sparisce da solo) e
+ * l'errore (che resta finche dura).
+ */
+test("a riposo l'indicatore non disegna niente", () => {
+  assert.match(
+    SAVE_STATUS,
+    /:\s*null;/,
+    "lo stato «idle» deve produrre nessun contenuto",
+  );
+  assert.match(
+    SAVE_STATUS,
+    /\{content \? \(/,
+    "il contenuto si disegna solo quando c'e",
+  );
+  /*
+    Il contenitore pero resta montato: uno `aria-live` che compare e scompare
+    dal DOM non viene annunciato, e l'errore passerebbe in silenzio.
+  */
+  assert.match(SAVE_STATUS, /role="status"/);
+  assert.match(SAVE_STATUS, /aria-live="polite"/);
+});
+
+/**
+ * Una sola implementazione, e nessuna CTA che la duplichi.
+ *
+ * Le superfici in autosave non devono avere anche un pulsante «Salva» in
+ * pagina: due modi di salvare la stessa cosa fanno chiedere quale dei due
+ * abbia funzionato. I pulsanti dentro una finestra di modifica sono un'altra
+ * cosa — li si conferma un gesto, non si salva una pagina.
+ */
+test("le superfici in autosave non hanno anche un pulsante Salva in pagina", () => {
+  const AUTOSAVE_SURFACES = [
+    ["app/organization/page.tsx", "scheda club"],
+    ["components/forms/form-builder.tsx", "costruttore moduli"],
+  ];
+
+  for (const [relative, label] of AUTOSAVE_SURFACES) {
+    const raw = readFileSync(
+      path.join(process.cwd(), "src", ...relative.split("/")),
+      "utf8",
+    );
+    /*
+      Si guarda cio che finisce a schermo, non i commenti: «le sezioni che si
+      salvano da sole» e la spiegazione di una scelta a chi legge il codice,
+      non un badge mostrato a chi usa la pagina.
+    */
+    const source = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+    assert.match(
+      source,
+      /<SaveStatus/,
+      `${label}: manca l'indicatore condiviso`,
+    );
+    assert.equal(
+      /Salva modifiche|Salva sezione|Salva tutto/.test(source),
+      false,
+      `${label} (${relative}): un pulsante «Salva» accanto all'autosave e una seconda CTA per la stessa cosa`,
+    );
+    assert.equal(
+      /si salvano da sole|Salvato automaticamente|Salvataggio automatico attivo/.test(
+        source,
+      ),
+      false,
+      `${label} (${relative}): resta un badge che spiega l'ovvio`,
+    );
+  }
+});

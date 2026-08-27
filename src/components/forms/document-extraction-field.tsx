@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -55,6 +55,16 @@ export function DocumentExtractionField({
   className,
 }: DocumentExtractionFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  /**
+   * L'anteprima dei dati letti.
+   *
+   * Ci si porta il fuoco quando la lettura riesce (RC Fix 2, punto 19). Chi
+   * naviga da tastiera preme «Carica documento», sceglie un file e si ritrova
+   * il fuoco sul pulsante: l'elenco dei dati riconosciuti compare **sotto**,
+   * e per accorgersene bisogna andarlo a cercare. Chi naviga a voce non se ne
+   * accorge affatto.
+   */
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -119,6 +129,12 @@ export function DocumentExtractionField({
       if (inputRef.current) inputRef.current.value = "";
     }
   };
+
+  const entriesCount = result ? listExtractedFields(result.fields).length : 0;
+
+  useEffect(() => {
+    if (entriesCount) resultsRef.current?.focus();
+  }, [entriesCount]);
 
   const toggle = (key: keyof ExtractedPersonFields) =>
     setAccepted((current) => {
@@ -185,8 +201,14 @@ export function DocumentExtractionField({
       ) : null}
 
       {entries.length ? (
-        <div className="space-y-3">
-          <p className="text-xs font-medium text-slate-600">
+        <div
+          ref={resultsRef}
+          tabIndex={-1}
+          role="group"
+          aria-label="Dati letti dal documento"
+          className="space-y-3 outline-none"
+        >
+          <p className="text-xs font-medium text-slate-600" role="status">
             Dati letti — scegli cosa applicare:
           </p>
 

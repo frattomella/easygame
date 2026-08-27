@@ -443,3 +443,85 @@ test("esiste un guscio solo, e Modulistica usa quello", () => {
     );
   }
 });
+
+/* ----------------------------------- superfici di RC Fix 2 (punto 21) */
+
+/** Cio che RC Fix 2 ha aggiunto o riscritto. */
+const RC_FIX_2_SURFACES = [
+  "components/forms/person-identity-fields.tsx",
+  "components/ui/list-selection.tsx",
+  "components/sites/site-filter.tsx",
+  "components/payments/ClubPaymentAccountPanel.tsx",
+  "components/brand/stripe-brand.tsx",
+];
+
+test("le superfici di RC Fix 2 non restano a due colonne a 375 px", () => {
+  const offenders = [];
+
+  for (const file of RC_FIX_2_SURFACES) {
+    read(file)
+      .split(/\r?\n/)
+      .forEach((line, index) => {
+        if (/(?<![a-z:])grid-cols-[23]\b/.test(line)) {
+          offenders.push(`${file}:${index + 1}`);
+        }
+      });
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "una griglia senza punto di rottura vale anche a 375 px",
+  );
+});
+
+/**
+ * La barra della selezione a schermo stretto.
+ *
+ * Ha un conteggio a sinistra e da tre a cinque pulsanti a destra: in riga
+ * fissa a 375 px l'ultimo esce dallo schermo, e l'ultimo e «Cancella
+ * selezione» — cioe l'unico modo di tornare indietro.
+ */
+test("la barra della selezione impila e va a capo su schermo stretto", () => {
+  const toolbar = read("components/ui/list-selection.tsx");
+
+  assert.match(
+    toolbar,
+    /flex flex-col gap-2 [^"]*sm:flex-row/,
+    "sotto i 640 px conteggio e azioni stanno uno sopra l'altro",
+  );
+  assert.match(
+    toolbar,
+    /flex flex-wrap items-center gap-2/,
+    "le azioni vanno a capo invece di uscire",
+  );
+});
+
+/**
+ * I due filtri di elenco — sede e gruppo — occupano tutta la riga su
+ * schermo stretto e si affiancano da 640 px in su. Larghezza fissa a 375 px
+ * vorrebbe dire due tendine che non ci stanno.
+ */
+test("i filtri sede e gruppo non hanno larghezza fissa a 375 px", () => {
+  const filters = read("components/sites/site-filter.tsx");
+  const fixedWidths = filters.match(/className="mt-1 w-full sm:w-56"/g) || [];
+
+  assert.equal(
+    fixedWidths.length,
+    2,
+    "sede e gruppo devono avere entrambi la stessa regola di larghezza",
+  );
+});
+
+/**
+ * La scheda del conto di incasso: marchio a sinistra, stato a destra, e a
+ * capo quando non ci stanno. A 375 px il marchio e lo stato in riga fissa si
+ * sovrapporrebbero al titolo.
+ */
+test("l'intestazione del conto di incasso va a capo", () => {
+  assert.match(
+    read("components/payments/ClubPaymentAccountPanel.tsx"),
+    /flex flex-wrap items-center justify-between gap-3/,
+    "titolo e marchio devono poter andare a capo",
+  );
+});
