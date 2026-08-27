@@ -236,7 +236,10 @@ export const openGatewayCheckout = async (
   */
   const giaIncassatoCents = asText(input.paymentId)
     ? Math.round(
-        (await getSettledAmountForCharge(String(input.paymentId))) * 100,
+        (await getSettledAmountForCharge({
+          paymentId: String(input.paymentId),
+          organizationId: context.organizationId,
+        })) * 100,
       )
     : 0;
 

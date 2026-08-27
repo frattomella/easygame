@@ -741,9 +741,22 @@ export const findTransactionByExternalPaymentId = async (input: {
 
 /** Il totale incassato su una rata, letto dal registro. */
 export const getSettledAmountForCharge = async (
-  paymentId: string,
+  input: { paymentId: string; organizationId?: string | null },
   scope?: PaymentTransactionScope,
 ) => {
-  const transactions = await listPaymentTransactions({ paymentId }, scope);
+  /*
+    Il club si passa esplicitamente perche questa funzione la chiama anche chi
+    **uno scope non ce l'ha**: l'apertura di un checkout risolve il club dalle
+    impostazioni della societa, non da una sessione utente. Senza, la lettura
+    falliva con «nessun club indicato» — lo stesso inciampo gia documentato in
+    `recordRefundTransaction`.
+  */
+  const transactions = await listPaymentTransactions(
+    {
+      paymentId: input.paymentId,
+      organizationId: input.organizationId ?? undefined,
+    },
+    scope,
+  );
   return sumSettledTransactions(transactions);
 };

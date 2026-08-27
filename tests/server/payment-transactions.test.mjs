@@ -385,3 +385,47 @@ test("ogni lettura filtra per organization_id, sempre", async () => {
   const chiamata = fake.lastCall("paymentTransaction", "findMany");
   assert.equal(chiamata.args.where.organization_id, CLUB_A);
 });
+
+/* --------------------------------- il totale incassato, senza una sessione */
+
+test("il totale incassato si legge anche senza uno scope, dando il club", async () => {
+  /*
+    **Il difetto trovato nel collaudo sandbox del Blocco E.** Questa funzione
+    risolveva il club solo dallo scope. Chi non ha uno scope — l'apertura di un
+    checkout, che risolve il club dalle impostazioni della societa e non da una
+    sessione utente — riceveva «nessun club indicato», e il pagamento online
+    falliva con un errore generico.
+
+    E' lo stesso inciampo gia documentato in `recordRefundTransaction`, dove si
+    era manifestato **solo sul secondo evento** di un rimborso.
+  */
+  await service.createPaymentTransaction(
+    {
+      organizationId: CLUB_A,
+      paymentId: RATA_A,
+      amount: 50,
+      paidAt: "2026-08-27T10:00:00.000Z",
+      paymentMethod: "online",
+    },
+    scopeA(),
+  );
+
+  const totale = await service.getSettledAmountForCharge({
+    paymentId: RATA_A,
+    organizationId: CLUB_A,
+  });
+
+  assert.equal(totale, 50);
+});
+
+test("senza club e senza scope il totale non si legge", async () => {
+  /*
+    La correzione non deve diventare una porta aperta: un identificativo di
+    rata arriva dall'esterno e non e un lasciapassare per il registro di
+    un'altra societa.
+  */
+  await assert.rejects(
+    () => service.getSettledAmountForCharge({ paymentId: RATA_A }),
+    /Nessun club indicato/,
+  );
+});
