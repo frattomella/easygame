@@ -24,15 +24,23 @@ const read = (relative) =>
 test("ogni casella di selezione dice cosa sta selezionando", () => {
   const selection = read("components/ui/list-selection.tsx");
 
-  assert.match(
-    selection,
-    /aria-label=\{`Seleziona \$\{label\}`\}/g,
-    "il nome accessibile si costruisce da cio che si sta selezionando",
-  );
   assert.equal(
-    (selection.match(/aria-label=\{`Seleziona \$\{label\}`\}/g) || []).length,
+    (selection.match(/aria-label=\{`Seleziona \$\{selectionLabel\(label\)\}`\}/g) || [])
+      .length,
     2,
     "sia la casella di riga sia quella «tutti visibili» devono avere un nome",
+  );
+
+  /*
+    In archivio esistono anagrafiche senza nome — un membro dello staff creato
+    con il solo ruolo. Il nome finisce a `null`, e l'etichetta diceva
+    **«Seleziona null»**: chi naviga a voce sentiva la parola `null` al posto
+    di una persona.
+  */
+  assert.match(
+    selection,
+    /String\(label \?\? ""\)\.trim\(\) \|\| "questa riga, senza nome"/,
+    "una riga senza nome deve annunciarsi per quello che e, non come «null»",
   );
 
   /*

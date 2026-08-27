@@ -950,3 +950,34 @@ tiene chiuso di proposito.
 registro di numerazione — che gia lo prevede — e l'emissione a partire dal
 documento originale, non dal movimento di rimborso. **Non** la trasmissione
 allo SdI, che resta bloccata altrove.
+
+---
+
+## Debito registrato da RC Fix 2 (2026-08-28)
+
+### Il conteggio di un gruppo operativo e quello della pagina, non dell'archivio
+
+**Dove:** `src/app/athletes/page.tsx`, `athleteGroups`.
+
+**Cosa succede.** Ogni squadra ha la propria scheda con il proprio conteggio —
+`Pulcini · Scauri (99)`. Quel numero conta le righe **caricate**, non quelle
+che il gruppo ha davvero: sopra la soglia di paginazione la pagina ne ha
+duecento su tutto l'archivio, e il conteggio si divide fra i gruppi presenti in
+quelle duecento.
+
+**Come si vede.** Su un club di collaudo con 224 atleti, la scheda
+`Pulcini · Scauri` diceva **99** senza filtri e **110** — il numero vero —
+scegliendo quel gruppo dal filtro, perche a quel punto e il server a
+restringere. Due numeri diversi per la stessa squadra, a seconda di come ci si
+e arrivati.
+
+**Perche non e stato corretto qui.** Non e una regressione di RC Fix 2: e il
+comportamento della lista paginata da quando esiste, e valeva gia per le
+schede di categoria prima che diventassero gruppi. Correggerlo vuol dire
+chiedere al server un conteggio **per gruppo** — una query di aggregazione
+nuova sulla rotta di elenco — e non e una riga.
+
+**Cosa farebbe la differenza:** far tornare a `/api/v1/simplified_athletes` i
+conteggi per `(category_id, site_id)` accanto a `meta.total`, e usarli nelle
+intestazioni delle schede invece di contare le righe in memoria. Finche non
+c'e, il numero da credere e quello che si ottiene **filtrando** per gruppo.

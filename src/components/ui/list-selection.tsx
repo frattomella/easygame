@@ -65,6 +65,18 @@ export function useListSelection(): ListSelection {
 }
 
 /**
+ * Il nome da annunciare, quando un nome non c'e.
+ *
+ * In archivio esistono anagrafiche senza nome — un membro dello staff creato
+ * con il solo ruolo, per esempio. Il nome finisce a `null`, e il modello di
+ * etichetta produceva **«Seleziona null»**: chi naviga a voce sentiva la
+ * parola `null` al posto di una persona. Una riga senza nome resta
+ * selezionabile, ma si annuncia per quello che e.
+ */
+const selectionLabel = (label?: string | null) =>
+  String(label ?? "").trim() || "questa riga, senza nome";
+
+/**
  * La casella in testa alla colonna: «tutti quelli che vedi».
  *
  * `aria-label` dice **cosa** si sta per selezionare, non «seleziona tutto»:
@@ -91,7 +103,7 @@ export function SelectAllCheckbox({
       checked={state}
       disabled={!ids.length}
       onCheckedChange={(checked) => selection.toggleMany(ids, Boolean(checked))}
-      aria-label={`Seleziona ${label}`}
+      aria-label={`Seleziona ${selectionLabel(label)}`}
     />
   );
 }
@@ -114,7 +126,7 @@ export function SelectRowCheckbox({
       className={className}
       checked={selection.isSelected(id)}
       onCheckedChange={(checked) => selection.toggle(id, Boolean(checked))}
-      aria-label={`Seleziona ${label}`}
+      aria-label={`Seleziona ${selectionLabel(label)}`}
     />
   );
 }
