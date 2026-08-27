@@ -60,7 +60,10 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
+    className={cn(
+      "max-h-[min(18rem,50vh)] overflow-y-auto overflow-x-hidden overscroll-contain",
+      className,
+    )}
     {...props}
   />
 ));
@@ -108,6 +111,21 @@ const CommandSeparator = React.forwardRef<
 ));
 CommandSeparator.displayName = CommandPrimitive.Separator.displayName;
 
+/**
+ * Voce di un elenco a ricerca.
+ *
+ * **Perche `data-[disabled=true]` e non `data-[disabled]`.** `cmdk` scrive
+ * `data-disabled={!!disabled}` su **ogni** voce: quelle abilitate escono con
+ * `data-disabled="false"`, non senza attributo. Il selettore CSS
+ * `[data-disabled]` verifica la **presenza** dell'attributo, non il valore,
+ * quindi corrispondeva anche alle voci abilitate e applicava a tutte
+ * `opacity-50` e `pointer-events-none`.
+ *
+ * Effetto pratico misurato in RC Fix 1: nella pagina Abbigliamento →
+ * «Nuova assegnazione» l'elenco degli atleti appariva **spento e non
+ * cliccabile**. Non era un guardrail: era questo selettore. Vale per ogni
+ * combobox costruita su `Command`, non solo per quella.
+ */
 const CommandItem = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Item>
@@ -115,7 +133,7 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50",
       className,
     )}
     {...props}

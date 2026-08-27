@@ -103,6 +103,30 @@ ogni schermata con barra laterale: radice `h-[100dvh]`, nessuna `min-h-screen`
 fuori dai segnaposto centrati, e il taglio dello scorrimento fra radice e
 `main`.
 
+### Tendine, menu e popover
+
+Valgono per **tutte** le superfici sovrapposte, non per la schermata in cui il
+problema si nota:
+
+- ogni contenuto sovrapposto ha un'altezza massima legata allo **spazio
+  davvero disponibile** (`--radix-*-content-available-height`) e scorre al suo
+  interno. Senza, con molte voci il menu esce dallo schermo e le ultime voci
+  non si raggiungono;
+- `SelectContent` monta i due comandi di scorrimento di Radix. Non sono
+  decorativi: Radix **nasconde** la barra di scorrimento del viewport con uno
+  `<style>` che inietta lui;
+- quella barra viene rimessa in `globals.css` con
+  `[data-radix-select-viewport][data-radix-select-viewport]`. L'attributo e
+  ripetuto per superare in specificita la regola di Radix, che sta nel `body`
+  e a parita di specificita vincerebbe;
+- **`cmdk` scrive `data-disabled="false"` sulle voci abilitate.** Lo stile di
+  una voce spenta si scrive quindi `data-[disabled=true]:`, mai
+  `data-[disabled]:`: quest'ultimo verifica la presenza dell'attributo e
+  spegne l'elenco intero. Era la causa della combobox atleti «disabilitata»
+  in Abbigliamento.
+
+Verificate da `tests/ui/overlay-menus.test.mjs`.
+
 ### Attese e salvataggi
 
 | Situazione | Componente |

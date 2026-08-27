@@ -13,6 +13,41 @@
   scrollbar-width: none; /* Firefox */
 }
 
+/*
+  La barra di scorrimento delle tendine di scelta torna visibile.
+
+  Radix inietta a runtime, dentro il portale, uno `<style>` che la nasconde:
+
+      [data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none}
+      [data-radix-select-viewport]::-webkit-scrollbar{display:none}
+
+  Sta nel `<body>`, quindi a parita di specificita vince sul foglio in
+  `<head>`: per sovrascriverlo serve una specificita maggiore, ed e la ragione
+  dell'attributo ripetuto. Senza questa regola una tendina con molte voci
+  scorre ma **non lo dice**, e chi la guarda crede che le voci mancanti non
+  esistano (RC Fix 1, punto 5).
+*/
+[data-radix-select-viewport][data-radix-select-viewport] {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.55) transparent;
+}
+
+[data-radix-select-viewport][data-radix-select-viewport]::-webkit-scrollbar {
+  display: block;
+  width: 10px;
+}
+
+[data-radix-select-viewport][data-radix-select-viewport]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-radix-select-viewport][data-radix-select-viewport]::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.55);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
