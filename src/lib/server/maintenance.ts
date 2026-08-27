@@ -32,10 +32,18 @@
 
 import { prisma } from "./prisma";
 import { purgeExpiredAuditEvents } from "./audit";
+import { backfillProviderFees } from "./payment-gateway";
 
 export type MaintenanceStep = {
   name: string;
   removed: number;
+  /**
+   * Le righe **aggiornate**, per i passi che completano invece di cancellare.
+   *
+   * Non si riusa `removed`: un rapporto che dicesse «rimosse 12» dopo aver
+   * riempito dodici commissioni farebbe cercare dodici righe sparite.
+   */
+  updated?: number;
   error?: string;
 };
 
@@ -56,6 +64,19 @@ const runStep = async (
   } catch (error: any) {
     console.error(`[maintenance] ${name}`, error?.message || error);
     return { name, removed: 0, error: String(error?.message || error) };
+  }
+};
+
+/** Come `runStep`, per i passi che completano righe invece di toglierle. */
+const runUpdateStep = async (
+  name: string,
+  run: () => Promise<number>,
+): Promise<MaintenanceStep> => {
+  try {
+    return { name, removed: 0, updated: await run() };
+  } catch (error: any) {
+    console.error(`[maintenance] ${name}`, error?.message || error);
+    return { name, removed: 0, updated: 0, error: String(error?.message || error) };
   }
 };
 
@@ -116,6 +137,18 @@ export const runScheduledMaintenance = async (
       qualcuno scopre dopo aver perso dei dati.
     */
     await runStep("audit_logs", async () => Number(await purgeExpiredAuditEvents(now))),
+
+    /*
+      La commissione del PSP non vive nell'evento: vive sul
+      `balance_transaction`, che matura **dopo** che il webhook e arrivato.
+      Nessuna schermata torna a chiederla, quindi senza questo passo resta
+      `null` per sempre e il netto del club risulta piu alto del vero.
+      Vedi `backfillProviderFees`.
+    */
+    await runUpdateStep("payment_provider_fees", async () => {
+      const esito = await backfillProviderFees({ limit: 100 });
+      return esito.aggiornati;
+    }),
   ];
 
   return {

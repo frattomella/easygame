@@ -268,12 +268,31 @@ una variabile puo restare indietro dopo una rotazione, una chiave no.
 su entrambi i flussi, che condividono la chiave — e quindi l'ambiente — pur non
 condividendo il segreto di firma.
 
-### La commissione di Stripe non si calcola: si chiede a Stripe
+### La commissione di Stripe non si calcola: si chiede a Stripe — e si richiede
 
 `payment_transactions.provider_fee_cents` esisteva dal Blocco D e non lo
 scriveva nessuno. Dal Blocco E lo riempie `PaymentGateway.fetchSettlement`,
 leggendo il `balance_transaction` del charge **sull'account connesso** — che e
 dove l'addebito diretto avviene.
+
+**Ma non e noto quando l'evento arriva.** Il `balance_transaction` matura
+*dopo* il pagamento, e il webhook arriva entro frazioni di secondo: nel
+collaudo del Blocco E la commissione era `null` su **tutti** gli incassi. Il
+campo era progettato per essere riempito piu tardi, ma quel piu tardi non
+esisteva — `fetchSettlement` veniva chiamata in un punto solo, alla
+registrazione, e nessuno tornava a chiedere. Il netto del club risultava quindi
+il lordo meno la sola quota di piattaforma, cioe **piu alto del vero**.
+
+Il recupero e ora un passo della manutenzione a orario
+(`backfillProviderFees`, passo `payment_provider_fees`): prende gli incassi
+che hanno ancora `provider_fee_cents` a `null`, richiede la liquidazione e
+ricalcola il netto come lordo meno **entrambe** le trattenute. Se il saldo non
+e ancora maturo non scrive niente e riprova al giro dopo: `null` significa
+«non ancora noto», e zero direbbe «gratis».
+
+Non e su una lettura perche sarebbe una chiamata di rete per riga a ogni
+apertura di una lista — la cosa che `syncClubPaymentAccount` esiste per non
+fare.
 
 Le voci si leggono per **tipo** (`stripe_fee`, `application_fee`) e non per
 posizione: l'elenco puo contenerne altre — imposte, costi di rete — e sommarle

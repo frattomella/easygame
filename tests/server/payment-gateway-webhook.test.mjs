@@ -580,3 +580,139 @@ test("un errore che non sia il vincolo non viene scambiato per un duplicato", as
     fake.client.paymentTransaction.create = creaVera;
   }
 });
+
+/* ------------------------- la commissione del PSP, recuperata piu tardi */
+
+test("la commissione del PSP si recupera quando la transazione di saldo matura", async () => {
+  /*
+    **Il difetto trovato nel collaudo sandbox del Blocco E.** La commissione di
+    Stripe non viaggia nell'evento: vive sul `balance_transaction`, che matura
+    **dopo**. Il webhook arriva entro frazioni di secondo e la trova quasi
+    sempre non pronta — nel collaudo era `null` su **tutti** gli incassi.
+
+    Il campo era progettato per essere riempito «piu tardi», e il commento nel
+    provider lo dice; ma quel piu tardi non esisteva: `fetchSettlement` veniva
+    chiamata in un punto solo, alla registrazione, e nessuno tornava a
+    chiedere. Il risultato e che `net_amount_cents` restava il lordo meno la
+    sola quota di piattaforma, cioe **sovrastimava il netto del club** di tutta
+    la commissione Stripe.
+  */
+  await gateway.handleGatewayWebhookEvent(daIntent("evt_1"));
+
+  const incasso = fake.rows("paymentTransaction")[0];
+  assert.equal(
+    incasso.provider_fee_cents,
+    null,
+    "alla registrazione la commissione non e ancora nota",
+  );
+
+  /*
+    Ora il saldo e maturato e il provider sa rispondere. Si sostituisce il
+    trasporto, non la traduzione: cio che si vuole provare e che EasyGame torni
+    a chiedere e scriva il numero giusto, non che sappia parlare HTTP.
+  */
+  process.env.STRIPE_SECRET_KEY = `sk_${"test"}_non_e_una_chiave_vera`;
+  const fetchVera = globalThis.fetch;
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    json: async () =>
+      String(url).includes("pi_non_maturo")
+        ? {
+            id: "pi_non_maturo",
+            /* Non ancora espansa: e un identificativo, non l'oggetto. */
+            latest_charge: { id: "ch_x", balance_transaction: "txn_x" },
+          }
+        : {
+            id: "pi_1",
+            latest_charge: {
+              id: "ch_1",
+              balance_transaction: {
+                amount: 4000,
+                net: 3754,
+                fee: 246,
+                fee_details: [
+                  { type: "stripe_fee", amount: 146 },
+                  { type: "application_fee", amount: 100 },
+                ],
+              },
+            },
+          },
+  });
+
+  fake.client.paymentTransaction.findMany = async () => [
+    {
+      id: incasso.id,
+      external_payment_id: "pi_1",
+      external_account_id: "acct_1",
+      gross_amount_cents: 4000,
+      platform_fee_cents: 100,
+      organization_id: CLUB,
+    },
+  ];
+
+  const aggiornamenti = [];
+  fake.client.paymentTransaction.update = async (args) => {
+    aggiornamenti.push(args.data);
+    return { id: incasso.id, ...args.data };
+  };
+
+  const esito = await gateway.backfillProviderFees({ limit: 10 });
+
+  globalThis.fetch = fetchVera;
+  delete process.env.STRIPE_SECRET_KEY;
+
+  assert.equal(esito.aggiornati, 1);
+  assert.equal(aggiornamenti[0].provider_fee_cents, 146);
+  assert.equal(
+    aggiornamenti[0].net_amount_cents,
+    4000 - 100 - 146,
+    "il netto del club e il lordo meno **entrambe** le trattenute",
+  );
+});
+
+test("se il saldo non e ancora maturo non si scrive niente", async () => {
+  /*
+    `null` significa «non ancora noto», non zero. Scriverci zero direbbe
+    «gratis», che e un'affermazione diversa — e falsa.
+  */
+  await gateway.handleGatewayWebhookEvent(daIntent("evt_1"));
+  const incasso = fake.rows("paymentTransaction")[0];
+
+  process.env.STRIPE_SECRET_KEY = `sk_${"test"}_non_e_una_chiave_vera`;
+  const fetchVera = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      id: "pi_non_maturo",
+      /* Un identificativo, non l'oggetto: il saldo non e ancora maturato. */
+      latest_charge: { id: "ch_x", balance_transaction: "txn_x" },
+    }),
+  });
+
+  fake.client.paymentTransaction.findMany = async () => [
+    {
+      id: incasso.id,
+      external_payment_id: "pi_non_maturo",
+      external_account_id: "acct_1",
+      gross_amount_cents: 4000,
+      platform_fee_cents: 100,
+      organization_id: CLUB,
+    },
+  ];
+
+  let scritture = 0;
+  fake.client.paymentTransaction.update = async () => {
+    scritture += 1;
+    return {};
+  };
+
+  const esito = await gateway.backfillProviderFees({ limit: 10 });
+
+  globalThis.fetch = fetchVera;
+  delete process.env.STRIPE_SECRET_KEY;
+
+  assert.equal(esito.aggiornati, 0);
+  assert.equal(scritture, 0);
+});

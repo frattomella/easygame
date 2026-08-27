@@ -273,6 +273,89 @@ export const openGatewayCheckout = async (
   return { checkout, context, settlement };
 };
 
+/**
+ * Recupera la **commissione del PSP** sugli incassi che non ce l'hanno ancora.
+ *
+ * **Perche serve una seconda occasione.** La commissione di Stripe non vive
+ * nell'evento: vive sul `balance_transaction`, che matura **dopo**. Il webhook
+ * arriva entro frazioni di secondo dal pagamento e la trova quasi sempre non
+ * ancora pronta — nel collaudo del Blocco E era `null` su **tutti** gli
+ * incassi. Il campo era progettato per essere riempito «piu tardi», ma quel
+ * piu tardi non esisteva: nessuno tornava a chiedere.
+ *
+ * Senza, `net_amount_cents` resta il lordo meno la sola quota di piattaforma —
+ * cioe **sovrastima il netto del club** di tutta la commissione Stripe, e lo fa
+ * in un rendiconto che ha l'aria di essere un fatto.
+ *
+ * **Perche qui e non su una lettura.** Perche sarebbe una chiamata di rete per
+ * riga a ogni apertura di una lista, che e la cosa che
+ * `syncClubPaymentAccount` esiste per non fare. Questa gira a orario, sui soli
+ * incassi che hanno ancora qualcosa da sapere.
+ *
+ * **Perche non fallisce mai.** Un incasso e gia avvenuto e gia registrato: se
+ * il PSP non risponde, il dato resta `null` e si riprovera al giro dopo. Far
+ * fallire la manutenzione per un costo accessorio sarebbe sproporzionato.
+ */
+export const backfillProviderFees = async (input?: {
+  limit?: number;
+}): Promise<{ esaminati: number; aggiornati: number }> => {
+  const limit = Math.max(1, Math.min(200, Math.round(Number(input?.limit) || 50)));
+
+  const pendenti = await (prisma as any).paymentTransaction.findMany({
+    where: {
+      provider_fee_cents: null,
+      external_payment_id: { not: null },
+      external_account_id: { not: null },
+      amount: { gt: 0 },
+    },
+    orderBy: { created_at: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      external_payment_id: true,
+      external_account_id: true,
+      gross_amount_cents: true,
+      platform_fee_cents: true,
+      organization_id: true,
+    },
+  });
+
+  let aggiornati = 0;
+
+  for (const riga of pendenti) {
+    const account = await getClubPaymentAccount(String(riga.organization_id));
+
+    const liquidazione = await fetchProviderSettlement({
+      provider: account.provider,
+      externalPaymentId: String(riga.external_payment_id),
+      merchantExternalId: String(riga.external_account_id),
+    });
+
+    const providerFeeCents = liquidazione?.providerFeeCents;
+    if (providerFeeCents === null || providerFeeCents === undefined) continue;
+
+    /*
+      Il netto si **ricalcola**, non si copia da quello del provider: il netto
+      di Stripe e riferito al suo account connesso, mentre qui interessa cosa
+      resta al club dopo entrambe le trattenute.
+    */
+    const lordo = Math.round(Number(riga.gross_amount_cents) || 0);
+    const quotaPiattaforma = Math.round(Number(riga.platform_fee_cents) || 0);
+
+    await (prisma as any).paymentTransaction.update({
+      where: { id: riga.id },
+      data: {
+        provider_fee_cents: providerFeeCents,
+        net_amount_cents: Math.max(0, lordo - quotaPiattaforma - providerFeeCents),
+      },
+    });
+
+    aggiornati += 1;
+  }
+
+  return { esaminati: pendenti.length, aggiornati };
+};
+
 /* -------------------------------------------------------- la liquidazione */
 
 /**
