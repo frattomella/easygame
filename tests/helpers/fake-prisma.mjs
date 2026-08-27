@@ -149,6 +149,14 @@ const UNIQUE_CONSTRAINTS = {
         row.external_payment_id !== undefined &&
         Number(row.amount) > 0,
     },
+    /* Il gemello, sul denaro che esce: payment_transactions_storno_unico. */
+    {
+      fields: ["organization_id", "external_reference"],
+      quando: (row) =>
+        row.external_reference !== null &&
+        row.external_reference !== undefined &&
+        Number(row.amount) < 0,
+    },
   ],
 };
 

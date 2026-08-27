@@ -668,16 +668,42 @@ export const handleGatewayWebhookEvent = async (
         refundedAmountCents: event.refund.amountCents,
       });
 
-      const result = await recordRefundTransaction({
-        transactionId: String(original.id),
-        amountCents: event.refund.amountCents,
-        externalRefundId: event.refund.externalRefundId,
-        externalEventId: eventId,
-        paidAt: event.refund.createdAt || new Date().toISOString(),
-        reason: "Rimborso confermato dal provider",
-        settlement,
-        confirmedByProvider: true,
-      });
+      let result;
+
+      try {
+        result = await recordRefundTransaction({
+          transactionId: String(original.id),
+          amountCents: event.refund.amountCents,
+          externalRefundId: event.refund.externalRefundId,
+          externalEventId: eventId,
+          paidAt: event.refund.createdAt || new Date().toISOString(),
+          reason: "Rimborso confermato dal provider",
+          settlement,
+          confirmedByProvider: true,
+        });
+      } catch (error: any) {
+        /*
+          Come per gli incassi (ADR-0062): il controllo applicativo di
+          `recordRefundTransaction` e una lettura seguita da una scrittura, e
+          i due eventi di un rimborso arrivano insieme — sette millisecondi di
+          distanza nel collaudo. La corsa la arbitra l'indice unico parziale
+          `payment_transactions_storno_unico`.
+        */
+        const violaStornoUnico =
+          error?.code === "P2002" ||
+          String(error?.message || "").includes(
+            "payment_transactions_storno_unico",
+          );
+
+        if (!violaStornoUnico) throw error;
+
+        return {
+          duplicate: true,
+          status: "processed",
+          transactionId: null,
+          message: "Rimborso gia registrato da un altro evento",
+        };
+      }
 
       return {
         duplicate: result.duplicate,

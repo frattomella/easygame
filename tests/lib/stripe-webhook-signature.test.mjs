@@ -473,3 +473,112 @@ test("sessione e intent dello stesso pagamento arrivano allo stesso nome", () =>
 
   assert.equal(daSessione.payment.externalId, daIntent.payment.externalId);
 });
+
+/* ------------------------------------- l'identita di un rimborso */
+
+test("un charge rimborsato senza l'elenco dei rimborsi non inventa un nome", () => {
+  /*
+    **Il difetto trovato nel collaudo sandbox del Blocco E.** Qui si ripiegava
+    su `${charge.id}_refund`, un identificativo sintetico che in Stripe non
+    esiste. Sembrava innocuo e non lo era: lo stesso rimborso arriva anche come
+    `charge.refund.updated`, dove l'oggetto e il rimborso vero e porta il
+    proprio `re_…`. I due nomi non combaciavano, la deduplica passava, e la
+    famiglia si vedeva stornare **il doppio** di quanto le era stato
+    restituito — due movimenti da -50 € a sette millisecondi di distanza.
+
+    `refunds` e una sotto-lista paginata che Stripe non sempre include nel
+    corpo dell'evento. Quando manca, questo evento non sa di quale rimborso
+    parli: non produce nulla, e a registrare sara l'evento sull'oggetto
+    rimborso.
+  */
+  const evento = eventoFirmato({
+    id: "evt_r1",
+    type: "charge.refunded",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "charge",
+        id: "ch_1",
+        payment_intent: "pi_1",
+        amount: 5000,
+        amount_refunded: 5000,
+        status: "succeeded",
+        metadata: {},
+      },
+    },
+  });
+
+  assert.equal(evento.refund, null);
+});
+
+test("un charge rimborsato che porta l'elenco usa l'identificativo vero", () => {
+  const evento = eventoFirmato({
+    id: "evt_r2",
+    type: "charge.refunded",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "charge",
+        id: "ch_1",
+        payment_intent: "pi_1",
+        amount: 5000,
+        amount_refunded: 3000,
+        status: "succeeded",
+        refunds: { data: [{ id: "re_1", amount: 3000 }] },
+        metadata: {},
+      },
+    },
+  });
+
+  assert.equal(evento.refund.externalRefundId, "re_1");
+  assert.equal(
+    evento.refund.amountCents,
+    3000,
+    "l'importo e quello del rimborso, non l'incasso originale",
+  );
+});
+
+test("i due eventi di un rimborso arrivano allo stesso identificativo", () => {
+  /*
+    L'invariante che chiude il difetto: comunque arrivi la notizia, il
+    rimborso si chiama nello stesso modo.
+  */
+  const daCharge = eventoFirmato({
+    id: "evt_r3",
+    type: "charge.refunded",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "charge",
+        id: "ch_9",
+        payment_intent: "pi_9",
+        amount: 8000,
+        amount_refunded: 3000,
+        status: "succeeded",
+        refunds: { data: [{ id: "re_9", amount: 3000 }] },
+        metadata: {},
+      },
+    },
+  });
+
+  const daRimborso = eventoFirmato({
+    id: "evt_r4",
+    type: "charge.refund.updated",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "refund",
+        id: "re_9",
+        payment_intent: "pi_9",
+        amount: 3000,
+        status: "succeeded",
+        metadata: {},
+      },
+    },
+  });
+
+  assert.equal(
+    daCharge.refund.externalRefundId,
+    daRimborso.refund.externalRefundId,
+  );
+});

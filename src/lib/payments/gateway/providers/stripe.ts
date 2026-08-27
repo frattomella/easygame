@@ -376,9 +376,28 @@ const refundFromEventObject = (
       ? object.refunds.data
       : [];
     const latest = refunds[0] || null;
+    const externalRefundId = String(latest?.id || "");
+
+    /*
+      **Un identificativo non si inventa.** Qui prima si ripiegava su
+      `${charge.id}_refund`, un nome sintetico che non esiste in Stripe.
+      Sembrava innocuo e non lo era: lo stesso rimborso arriva anche come
+      evento `charge.refund.updated`, dove l'oggetto e il rimborso vero e
+      porta il proprio `re_…`. I due nomi non combaciavano, la deduplica
+      passava, e la famiglia si vedeva stornare **il doppio** di quanto le era
+      stato restituito. Trovato nel collaudo sandbox del Blocco E: due storni
+      da -50 € a sette millisecondi di distanza.
+
+      Il campo `refunds` di un charge e una sotto-lista paginata che Stripe
+      non sempre include nel corpo dell'evento. Quando non c'e, questo evento
+      **non sa** di quale rimborso stia parlando: non produce nulla, e a
+      registrare sara l'evento sull'oggetto rimborso, che l'identificativo ce
+      l'ha per costruzione.
+    */
+    if (!externalRefundId) return null;
 
     return {
-      externalRefundId: String(latest?.id || `${object?.id}_refund`),
+      externalRefundId,
       externalPaymentId: String(object?.payment_intent || object?.id || ""),
       amountCents: Math.round(Number(latest?.amount || amountRefunded)),
       currency: "EUR",
