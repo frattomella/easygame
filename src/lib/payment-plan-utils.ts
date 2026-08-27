@@ -667,6 +667,45 @@ const normalizeProrationSettings = (
 };
 
 /**
+ * Perche il pro-rata e (o non e) stato applicato.
+ *
+ * Serve alla UI. Prima esisteva solo `applied`, un booleano, e la scheda
+ * atleta mostrava «Non applicato» in almeno **quattro** situazioni diverse:
+ * piano senza pro-rata, pro-rata acceso senza metodo, periodo non
+ * configurato, e piano non ancora scelto. Sono quattro cose da fare diverse —
+ * una si risolve nel piano, una nella data di iscrizione, una non e un
+ * problema — e dirle con la stessa frase non aiuta nessuno.
+ */
+export type PaymentPlanProrationReason =
+  /** Il piano non prevede pro-rata: non c'e niente da applicare. */
+  | "not-configured"
+  /** Acceso, ma senza metodo di calcolo. */
+  | "no-method"
+  /** Acceso, ma manca il periodo o la data di iscrizione. */
+  | "missing-period"
+  /** Il piano non ha un importo su cui calcolarlo. */
+  | "no-amount"
+  /** Calcolato. */
+  | "applied"
+  /** Sostituito da un importo scritto a mano. */
+  | "manual";
+
+export type ProratedTotalResult = {
+  total: number;
+  originalTotal: number;
+  applied: boolean;
+  adjusted: boolean;
+  method: NormalizedPaymentPlanProrationSettings["method"] | "manual";
+  reason: PaymentPlanProrationReason;
+  warning: string | null;
+  /** Periodo effettivamente usato, per poterlo mostrare. */
+  periodStart: string | null;
+  periodEnd: string | null;
+  /** Il periodo non era nel piano: viene dalla stagione attiva del club. */
+  periodFromSeason: boolean;
+};
+
+/**
  * Applica il pro-rata al totale del piano.
  *
  * `applied` significa **il pro-rata e stato calcolato**, non «l'importo e
@@ -676,19 +715,29 @@ const normalizeProrationSettings = (
  * comune a inizio stagione — mostrava «Non applicato» (WP-33).
  *
  * `adjusted` distingue il caso in cui l'importo e davvero cambiato.
- * Quando il pro-rata e acceso ma non calcolabile, `warning` dice cosa manca.
+ *
+ * **`fallbackPeriod` e la correzione di RC Fix 1.** Il modulo del piano
+ * chiede «Inizio periodo/stagione» e «Fine periodo/stagione» come due date da
+ * riscrivere ogni anno: chi accendeva il pro-rata e le lasciava vuote
+ * otteneva un pro-rata che non si applicava mai, con un avviso in fondo alla
+ * scheda che nessuno collegava alla causa. La stagione attiva del club **e**
+ * quel periodo: usarla quando il piano non ne dichiara uno proprio non
+ * inventa niente, e il risultato dice che lo ha fatto (`periodFromSeason`).
  */
 export const calculateProratedTotal = ({
   total,
   proration,
   startDate,
   manualOverride,
+  fallbackPeriod,
 }: {
   total: number;
   proration?: NormalizedPaymentPlanProrationSettings | null;
   startDate?: unknown;
   manualOverride?: unknown;
-}) => {
+  /** Periodo da usare quando il piano non ne porta uno: la stagione attiva. */
+  fallbackPeriod?: { startDate?: unknown; endDate?: unknown } | null;
+}): ProratedTotalResult => {
   const baseTotal = roundCurrency(Math.max(0, Number(total) || 0));
   const manualAmount = toPaymentPlanAmount(manualOverride);
 
@@ -696,22 +745,42 @@ export const calculateProratedTotal = ({
     total: number;
     applied: boolean;
     method: NormalizedPaymentPlanProrationSettings["method"] | "manual";
+    reason: PaymentPlanProrationReason;
     warning?: string | null;
-  }) => ({
+    periodStart?: Date | null;
+    periodEnd?: Date | null;
+    periodFromSeason?: boolean;
+  }): ProratedTotalResult => ({
     total: value.total,
     originalTotal: baseTotal,
     applied: value.applied,
     adjusted: value.applied && value.total !== baseTotal,
     method: value.method,
+    reason: value.reason,
     warning: value.warning ?? null,
+    periodStart: value.periodStart
+      ? value.periodStart.toISOString().slice(0, 10)
+      : null,
+    periodEnd: value.periodEnd ? value.periodEnd.toISOString().slice(0, 10) : null,
+    periodFromSeason: Boolean(value.periodFromSeason),
   });
 
   if (proration?.allowManualOverride && manualAmount > 0) {
-    return result({ total: manualAmount, applied: true, method: "manual" });
+    return result({
+      total: manualAmount,
+      applied: true,
+      method: "manual",
+      reason: "manual",
+    });
   }
 
   if (!proration?.enabled) {
-    return result({ total: baseTotal, applied: false, method: "none" });
+    return result({
+      total: baseTotal,
+      applied: false,
+      method: "none",
+      reason: "not-configured",
+    });
   }
 
   if (proration.method === "none") {
@@ -719,17 +788,33 @@ export const calculateProratedTotal = ({
       total: baseTotal,
       applied: false,
       method: "none",
+      reason: "no-method",
       warning:
         "Il pro-rata e attivo ma non ha un metodo di calcolo: scegli giorni o mesi.",
     });
   }
 
   if (baseTotal <= 0) {
-    return result({ total: baseTotal, applied: false, method: proration.method });
+    return result({
+      total: baseTotal,
+      applied: false,
+      method: proration.method,
+      reason: "no-amount",
+    });
   }
 
-  const seasonStart = parseDate(proration.seasonStartDate);
-  const seasonEnd = parseDate(proration.seasonEndDate);
+  const planStart = parseDate(proration.seasonStartDate);
+  const planEnd = parseDate(proration.seasonEndDate);
+  /*
+    Il ripiego e tutto o niente. Mescolare l'inizio scritto nel piano con la
+    fine presa dalla stagione produrrebbe un periodo che nessuno ha deciso, e
+    un importo che nessuno saprebbe rifare a mano.
+  */
+  const usesFallback = !planStart || !planEnd;
+  const seasonStart = usesFallback
+    ? parseDate(fallbackPeriod?.startDate)
+    : planStart;
+  const seasonEnd = usesFallback ? parseDate(fallbackPeriod?.endDate) : planEnd;
   const assignmentStart = parseDate(startDate);
 
   if (!seasonStart || !seasonEnd || !assignmentStart || seasonEnd <= seasonStart) {
@@ -737,16 +822,27 @@ export const calculateProratedTotal = ({
       total: baseTotal,
       applied: false,
       method: proration.method,
-      warning:
-        "Configura data inizio, data fine periodo e data inizio iscrizione per applicare il pro-rata.",
+      reason: "missing-period",
+      warning: assignmentStart
+        ? "Il pro-rata e attivo ma il periodo non e definito: scrivilo nel piano o imposta il periodo della stagione attiva."
+        : "Il pro-rata e attivo ma manca la data di inizio iscrizione dell'atleta.",
     });
   }
 
+  const periodFromSeason = usesFallback;
   const effectiveStart =
     assignmentStart < seasonStart ? seasonStart : assignmentStart;
 
   if (effectiveStart >= seasonEnd) {
-    return result({ total: 0, applied: true, method: proration.method });
+    return result({
+      total: 0,
+      applied: true,
+      method: proration.method,
+      reason: "applied",
+      periodStart: seasonStart,
+      periodEnd: seasonEnd,
+      periodFromSeason,
+    });
   }
 
   if (proration.method === "months") {
@@ -759,6 +855,10 @@ export const calculateProratedTotal = ({
         : baseTotal,
       applied: true,
       method: "months",
+      reason: "applied",
+      periodStart: seasonStart,
+      periodEnd: seasonEnd,
+      periodFromSeason,
     });
   }
 
@@ -771,7 +871,75 @@ export const calculateProratedTotal = ({
       : baseTotal,
     applied: true,
     method: "days",
+    reason: "applied",
+    periodStart: seasonStart,
+    periodEnd: seasonEnd,
+    periodFromSeason,
   });
+};
+
+/**
+ * Cosa mostrare accanto alla voce «Pro-rata».
+ *
+ * Una funzione sola perche le due schermate che lo mostrano — riepilogo
+ * iscrizione e conferma del piano — dicevano cose diverse per lo stesso stato.
+ */
+export const describeProrationResult = (
+  result?: ProratedTotalResult | null,
+): { label: string; detail: string | null; tone: "applied" | "neutral" | "warning" } => {
+  if (!result) {
+    return {
+      label: "Da calcolare",
+      detail: "Scegli un piano per vedere se il pro-rata si applica.",
+      tone: "neutral",
+    };
+  }
+
+  if (result.reason === "manual") {
+    return {
+      label: "Importo su misura",
+      detail: "Il totale e stato scritto a mano, al posto del calcolo.",
+      tone: "applied",
+    };
+  }
+
+  if (result.reason === "applied") {
+    const period =
+      result.periodStart && result.periodEnd
+        ? ` sul periodo ${result.periodStart} - ${result.periodEnd}`
+        : "";
+    return {
+      label: "Pro-rata applicato",
+      detail: result.adjusted
+        ? `Da ${result.originalTotal.toFixed(2)} a ${result.total.toFixed(2)} euro${period}${
+            result.periodFromSeason ? ", periodo della stagione attiva" : ""
+          }.`
+        : `L'iscrizione copre tutto il periodo${period}: si paga la quota intera.`,
+      tone: "applied",
+    };
+  }
+
+  if (result.reason === "not-configured") {
+    return {
+      label: "Non previsto dal piano",
+      detail: "Questo piano non calcola la quota in proporzione al periodo.",
+      tone: "neutral",
+    };
+  }
+
+  if (result.reason === "no-amount") {
+    return {
+      label: "Non calcolabile",
+      detail: "Il piano non ha un importo su cui calcolarlo.",
+      tone: "neutral",
+    };
+  }
+
+  return {
+    label: "Attivo, non calcolabile",
+    detail: result.warning,
+    tone: "warning",
+  };
 };
 
 export const roundInstallmentsToFive = (

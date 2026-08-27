@@ -641,6 +641,33 @@ export const loadClubProfile = async (clubId: string) => {
 };
 
 /**
+ * Il periodo della stagione attiva del club.
+ *
+ * Una richiesta sola, con la sola colonna `settings`. Serve al pro-rata: il
+ * modulo del piano chiede un «periodo», e la stagione attiva **e** quel
+ * periodo. Chiederlo due volte allo stesso club in una pagina sarebbe uno
+ * spreco, quindi chi lo usa lo tiene in stato.
+ *
+ * Restituisce `null` quando non si riesce a leggerlo: un pro-rata che non si
+ * applica e meglio di un pro-rata calcolato su un periodo inventato.
+ */
+export const loadActiveSeasonPeriod = async (
+  clubId: string,
+): Promise<{ startDate: string; endDate: string } | null> => {
+  try {
+    const settings = await readClubSettings(clubId);
+    const { normalizeClubSeasons } = await import("@/lib/club-seasons");
+    const { activeSeason } = normalizeClubSeasons(settings);
+
+    return activeSeason?.startDate && activeSeason?.endDate
+      ? { startDate: activeSeason.startDate, endDate: activeSeason.endDate }
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Modifica mirata di `clubs.settings`.
  *
  * La colonna e un JSON unico: si rilegge, si applica la trasformazione e si

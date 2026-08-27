@@ -181,7 +181,26 @@ test("un pro-rata senza date spiega cosa manca", () => {
   });
 
   assert.equal(risultato.applied, false);
-  assert.match(risultato.warning || "", /data inizio/i);
+  assert.equal(risultato.reason, "missing-period");
+  assert.match(risultato.warning || "", /periodo non e definito/i);
+
+  /*
+    Da RC Fix 1 il periodo mancante ha un ripiego: la stagione attiva del
+    club. Senza date nel piano **e** senza stagione il pro-rata resta non
+    applicato, com'era; con la stagione si applica.
+  */
+  const conStagione = calculateProratedTotal({
+    total: 400,
+    proration: normalizePaymentPlan({
+      ...PIANO,
+      proration: { ...PIANO.proration, seasonEndDate: "" },
+    }).proration,
+    startDate: "2027-01-01",
+    fallbackPeriod: { startDate: "2026-09-01", endDate: "2027-06-30" },
+  });
+
+  assert.equal(conStagione.applied, true);
+  assert.equal(conStagione.periodFromSeason, true);
 });
 
 test("il pro-rata spento non produce ne calcolo ne avviso", () => {

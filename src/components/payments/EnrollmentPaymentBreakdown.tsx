@@ -7,6 +7,7 @@ import {
   resolveInstallmentPaymentStatus,
   type InstallmentPaymentState,
 } from "@/lib/payments/payment-status-utils";
+import { describeProrationResult } from "@/lib/payment-plan-utils";
 
 const INSTALLMENT_BADGE_CLASS: Record<InstallmentPaymentState, string> = {
   paid: "border-green-200 bg-green-50 text-green-700 hover:bg-green-50",
@@ -105,6 +106,9 @@ export function EnrollmentPaymentBreakdown({
     ? summary?.installments
     : [];
   const paymentItems = Array.isArray(payments) ? payments : [];
+  const proration = summary?.prorationResult
+    ? describeProrationResult(summary.prorationResult as any)
+    : null;
 
   return (
     <div className="space-y-5">
@@ -256,23 +260,27 @@ export function EnrollmentPaymentBreakdown({
         </div>
       ) : null}
 
-      {summary?.prorationResult?.applied || summary?.prorationResult?.warning ? (
-        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-          <p className="font-semibold">Calcolo quota stagionale</p>
+      {proration && proration.tone !== "neutral" ? (
+        /*
+          Il riquadro compare quando c'e qualcosa da dire: il pro-rata e stato
+          applicato, oppure e acceso e non si riesce a calcolarlo. Un piano che
+          il pro-rata non lo prevede non merita un riquadro che dica
+          «non applicato»: e la sua condizione normale.
+        */
+        <div
+          className={
+            proration.tone === "warning"
+              ? "rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+              : "rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900"
+          }
+        >
+          <p className="font-semibold">{proration.label}</p>
+          {proration.detail ? <p className="mt-1">{proration.detail}</p> : null}
           {summary?.prorationResult?.adjusted ? (
             <p className="mt-1">
-              Totale originario {formatCurrency(summary.prorationResult.originalTotal)}
-              , ricalcolato a {formatCurrency(summary.prorationResult.total)}.
-            </p>
-          ) : summary?.prorationResult?.applied ? (
-            <p className="mt-1">
-              Pro-rata applicato sull&apos;intero periodo:{" "}
-              {formatCurrency(summary.prorationResult.total)}.
-            </p>
-          ) : null}
-          {summary?.prorationResult?.warning ? (
-            <p className="mt-1 text-amber-700">
-              {summary.prorationResult.warning}
+              Totale originario{" "}
+              {formatCurrency(summary.prorationResult.originalTotal)}, ricalcolato
+              a {formatCurrency(summary.prorationResult.total)}.
             </p>
           ) : null}
         </div>

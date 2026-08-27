@@ -180,11 +180,13 @@ import {
 } from "@/lib/athlete-payment-utils";
 import {
   calculatePlanTotal,
+  describeProrationResult,
   generateInstallmentPreview,
   findPaymentPlan,
   getPlanServicesForAthlete,
   normalizePaymentPlans,
 } from "@/lib/payment-plan-utils";
+import { loadActiveSeasonPeriod } from "@/lib/club-profile";
 import {
   SHARED_DOCUMENT_TYPES,
   getSharedDocumentStatusClassName,
@@ -381,6 +383,14 @@ export default function AthleteProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [paymentPlans, setPaymentPlans] = useState<any[]>([]);
+  /*
+    Periodo della stagione attiva: e il ripiego del pro-rata quando il piano
+    lo accende senza dichiarare il proprio periodo (RC Fix 1, punto 4).
+  */
+  const [activeSeasonPeriod, setActiveSeasonPeriod] = useState<{
+    startDate: string;
+    endDate: string;
+  } | null>(null);
   const [discounts, setDiscounts] = useState<any[]>([]);
   const [certificateFiles, setCertificateFiles] = useState<{
     [key: string]: string;
@@ -850,6 +860,14 @@ export default function AthleteProfilePage() {
               getClubData(effectiveClubId, "jersey_assignments"),
               getClubData(effectiveClubId, "club_sites"),
             ]);
+            /*
+              Il periodo della stagione attiva serve al pro-rata: e il
+              «periodo» che il piano chiede e che quasi nessuno riscrive a
+              mano ogni anno. Vedi calculateProratedTotal.
+            */
+            setActiveSeasonPeriod(
+              await loadActiveSeasonPeriod(effectiveClubId),
+            );
             setClubSites(normalizeClubSites(sites));
             setClothingProducts(Array.isArray(products) ? products : []);
             setClothingKits(
@@ -1474,8 +1492,10 @@ export default function AthleteProfilePage() {
         discounts,
         payments: mergedPaymentRecords,
         expectedIncomeEntries,
+        seasonPeriod: activeSeasonPeriod,
       }),
     [
+      activeSeasonPeriod,
       athlete,
       athleteId,
       discounts,
@@ -1580,8 +1600,10 @@ export default function AthleteProfilePage() {
       discounts,
       payments: mergedPaymentRecords,
       expectedIncomeEntries,
+      seasonPeriod: activeSeasonPeriod,
     });
   }, [
+    activeSeasonPeriod,
     athlete,
     athleteId,
     discounts,
@@ -1618,6 +1640,14 @@ export default function AthleteProfilePage() {
         planConfirmationDraft?.selectedOptionalServiceIds || [],
       )
     : [];
+  const enrollmentProration = React.useMemo(
+    () => describeProrationResult(expectedIncomeSummary.prorationResult),
+    [expectedIncomeSummary.prorationResult],
+  );
+  const planConfirmationProration = React.useMemo(
+    () => describeProrationResult(planConfirmationSummary?.prorationResult),
+    [planConfirmationSummary?.prorationResult],
+  );
   const planConfirmationBaseTotal = planConfirmationPlan
     ? calculatePlanTotal(planConfirmationPlan, {
         selectedOptionalServiceIds:
@@ -4722,20 +4752,27 @@ export default function AthleteProfilePage() {
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                               Pro-rata
                             </p>
-                            {expectedIncomeSummary.proration?.enabled ? (
-                              <p className="mt-1 text-sm">
-                                {expectedIncomeSummary.proration.method === "months"
-                                  ? "Per mesi"
-                                  : "Per giorni"}
-                              </p>
-                            ) : (
+                            {/*
+                              Quattro situazioni diverse dicevano tutte «non
+                              applicato»: piano senza pro-rata, acceso senza
+                              metodo, periodo mancante, e piano non ancora
+                              scelto. Si risolvono in tre posti diversi:
+                              `describeProrationResult` le distingue.
+                            */}
+                            <p
+                              className={
+                                enrollmentProration.tone === "applied"
+                                  ? "mt-1 text-sm font-medium text-emerald-700"
+                                  : enrollmentProration.tone === "warning"
+                                    ? "mt-1 text-sm font-medium text-amber-700"
+                                    : "mt-1 text-sm text-muted-foreground"
+                              }
+                            >
+                              {enrollmentProration.label}
+                            </p>
+                            {enrollmentProration.detail ? (
                               <p className="mt-1 text-sm text-muted-foreground">
-                                Non attivo per questo piano.
-                              </p>
-                            )}
-                            {expectedIncomeSummary.prorationResult?.warning ? (
-                              <p className="mt-1 text-sm text-amber-700">
-                                {expectedIncomeSummary.prorationResult.warning}
+                                {enrollmentProration.detail}
                               </p>
                             ) : null}
                           </div>
@@ -6599,8 +6636,13 @@ export default function AthleteProfilePage() {
                   <p className="text-lg font-semibold text-blue-700">
                     {planConfirmationSummary?.prorationResult?.applied
                       ? formatCurrency(planConfirmationSummary.grossAmount)
-                      : "Non applicato"}
+                      : planConfirmationProration.label}
                   </p>
+                  {planConfirmationProration.detail ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {planConfirmationProration.detail}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="rounded-lg bg-amber-50 p-3">
                   <p className="text-xs text-muted-foreground">Sconti</p>

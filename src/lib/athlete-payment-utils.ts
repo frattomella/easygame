@@ -58,6 +58,14 @@ type AthleteIncomeSummaryInput = {
   discounts?: any[];
   payments?: any[];
   expectedIncomeEntries?: any[];
+  /**
+   * Periodo della stagione attiva del club.
+   *
+   * Usato **solo** quando il piano accende il pro-rata senza dichiarare il
+   * proprio periodo: e la causa per cui il pro-rata risultava «non applicato»
+   * anche su piani che lo avevano acceso.
+   */
+  seasonPeriod?: { startDate?: unknown; endDate?: unknown } | null;
 };
 
 const toTrimmedString = (value: unknown) => String(value || "").trim();
@@ -530,6 +538,7 @@ export const calculateAthleteExpectedIncome = ({
   discounts = [],
   payments = [],
   expectedIncomeEntries = [],
+  seasonPeriod = null,
 }: AthleteIncomeSummaryInput) => {
   const record = getRecord(athlete);
   const selectedPlan = resolveSelectedPlan(
@@ -565,6 +574,7 @@ export const calculateAthleteExpectedIncome = ({
         proration: planRecord.proration,
         startDate: enrollmentStartDate,
         manualOverride: manualEnrollmentAmount,
+        fallbackPeriod: seasonPeriod,
       })
     : null;
   const expectedIncomeFallback =

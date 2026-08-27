@@ -98,7 +98,7 @@ Classificazione:
 |-----------|-------|------|
 | Quote e pagamenti atleti | COMPLETE | `/payments`, modello `AthletePayment` |
 | Piani di pagamento e sconti | COMPLETE | `payment_plans`, `discounts`, servizi obbligatori e opzionali, rate a percentuale/fisso/saldo |
-| Pro-rata sulla quota | COMPLETE | `calculateProratedTotal`, metodo a giorni o mesi. Quando non e calcolabile la UI dice quale dato manca |
+| Pro-rata sulla quota | COMPLETE | `calculateProratedTotal`, metodo a giorni o mesi. Il periodo lo dichiara il piano; se il piano non lo dichiara si usa quello della **stagione attiva** (`periodFromSeason`), perche lasciare vuote quelle due date era la causa piu comune del pro-rata «non applicato». Ogni esito porta una `reason` — non previsto, senza metodo, periodo mancante, applicato, importo a mano — e `describeProrationResult` la traduce: prima quattro situazioni diverse dicevano tutte «Non applicato» |
 | **Registrazione di un incasso** | COMPLETE | `payment_transactions` + `POST /api/v1/payment-transactions`. «Registra pagamento» con importo precompilato al residuo, metodo, data, note e riepilogo. Stesso componente in scheda atleta e area Movimenti ([ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)) |
 | **Incassi parziali su una rata** | COMPLETE | N movimenti per rata, anche con metodi diversi. Stato **derivato**: `IN ATTESA`, `PARZIALMENTE PAGATA`, `PAGATA`, piu `SCADUTA`. Non e piu impostabile a mano |
 | **Storno e correzione di un incasso** | COMPLETE | `{"action":"reverse"}`: l'originale resta marcato, il movimento opposto lo compensa. Nessun `DELETE`. Correggere = stornare e registrare di nuovo |

@@ -89,6 +89,7 @@ import {
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
 import {
   PAYMENT_PLAN_SERVICE_TYPES,
   calculateProratedTotal,
@@ -275,6 +276,10 @@ export default function RegistrationManagementPage() {
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [clubPaymentSettings, setClubPaymentSettings] =
     useState<ClubPaymentSettingsType>(() => normalizePaymentSettings(null));
+  const [seasonPeriod, setSeasonPeriod] = useState<{
+    startDate: string;
+    endDate: string;
+  } | null>(null);
 
   // State for new payment method dialog
   const [isNewMethodDialogOpen, setIsNewMethodDialogOpen] = useState(false);
@@ -375,6 +380,17 @@ export default function RegistrationManagementPage() {
           const clubSettings = await getClubSettings(activeClub.id);
           setClubPaymentSettings(
             normalizePaymentSettings(clubSettings?.paymentSettings),
+          );
+          /*
+            Il periodo della stagione attiva e il ripiego del pro-rata quando
+            il piano non ne dichiara uno: mostrarlo qui evita di far scrivere
+            a mano due date che il club ha gia dichiarato altrove.
+          */
+          const { activeSeason } = normalizeClubSeasons(clubSettings || {});
+          setSeasonPeriod(
+            activeSeason?.startDate && activeSeason?.endDate
+              ? { startDate: activeSeason.startDate, endDate: activeSeason.endDate }
+              : null,
           );
           const settingsMethods = Array.isArray(clubSettings?.paymentMethods)
             ? clubSettings.paymentMethods.map(normalizePaymentMethodRecord)
@@ -485,6 +501,7 @@ export default function RegistrationManagementPage() {
     total: currentPlanTotal,
     proration: normalizePaymentPlan(newPlan).proration,
     startDate: new Date().toISOString().slice(0, 10),
+    fallbackPeriod: seasonPeriod,
   });
   const planInstallmentPreview = generateInstallmentPreview(
     newPlan,
@@ -1698,6 +1715,20 @@ export default function RegistrationManagementPage() {
                                       }
                                     />
                                   </div>
+                                  {/*
+                                    Lasciare vuote le due date era la causa
+                                    piu comune del pro-rata «non applicato»:
+                                    ora il periodo lo mette la stagione
+                                    attiva, e qui si dice quale.
+                                  */}
+                                  <p className="text-sm text-muted-foreground md:col-span-2">
+                                    {!newPlan.proration.seasonStartDate ||
+                                    !newPlan.proration.seasonEndDate
+                                      ? seasonPeriod
+                                        ? `Se lasci vuote le date uso il periodo della stagione attiva: ${seasonPeriod.startDate} - ${seasonPeriod.endDate}.`
+                                        : "Senza queste date e senza una stagione attiva con un periodo, il pro-rata non puo essere calcolato."
+                                      : "Il piano ha un periodo proprio: la stagione attiva non viene usata."}
+                                  </p>
                                 </div>
                               ) : null}
                             </div>
