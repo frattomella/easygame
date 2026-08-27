@@ -3,6 +3,7 @@ import {
   isValidPostalCode,
   isWellFormedCodiceFiscale,
 } from "../italian-registry";
+import { capitalizeName } from "../text-capitalization";
 
 /**
  * Validazione anagrafica lato server.
@@ -284,5 +285,109 @@ export const assertAnagraficaIsValid = (
 
   if (PERSON_RESOURCE_TYPES.has(resource)) {
     validatePersonResource(resource, input, existing);
+  }
+};
+
+/* -------------------------------------------------- maiuscola iniziale (RC Fix 2, punto 2) */
+
+/**
+ * La maiuscola iniziale sui nomi, **anche lato server**.
+ *
+ * ## Il difetto
+ *
+ * La regola condivisa (`src/lib/text-capitalization.ts`) viveva solo nei
+ * campi di testo: `CapitalizedInput` la applica all'uscita dal campo, e
+ * finisce li. Tutto cio che scrive un'anagrafica **senza passare da un campo
+ * di testo** la aggirava:
+ *
+ * - l'import atleti da file, che e il modo in cui un club carica i primi
+ *   duecento nomi. Un foglio Excel scritto `mario rossi` restava
+ *   `mario rossi`, e l'elenco ordinato alfabeticamente mescolava i nomi
+ *   importati con quelli digitati;
+ * - qualunque chiamata alle API fatta da fuori dal browser.
+ *
+ * Il risultato e che la stessa persona si scriveva in due modi a seconda di
+ * come era entrata — cioe esattamente il problema che la regola doveva
+ * chiudere.
+ *
+ * ## Cosa questa funzione tocca, e cosa no
+ *
+ * **Solo campi semantici di persona o di luogo**, elencati uno per uno:
+ * nome, cognome, nome per esteso, luogo di nascita, comune, indirizzo — piu
+ * gli stessi campi dentro ogni genitore/tutore. Mai email, password, codice
+ * fiscale, IBAN, numeri di tessera, codici o note: sono identificatori o
+ * testo libero, e la regola e per le parole di una lingua.
+ *
+ * **Non impone niente a chi ha gia deciso.** `capitalizeName` lascia stare un
+ * valore che contiene gia una maiuscola: `MARIO ROSSI` resta com'e (e come
+ * sta scritto sul documento), `McDonald` resta `McDonald`. Interviene solo
+ * sul tutto-minuscolo, che e il modo in cui un dato entra quando nessuno ha
+ * deciso come scriverlo.
+ */
+const PERSON_TEXT_KEYS = [
+  "firstName",
+  "first_name",
+  "lastName",
+  "last_name",
+  "name",
+  "surname",
+  "fullName",
+  "full_name",
+  "birthPlace",
+  "birth_place",
+  "city",
+  "address",
+];
+
+/** Applica la regola alle sole chiavi elencate, dove esistono e sono testo. */
+const capitalizeKeys = (record: Record<string, any>, keys: string[]) => {
+  if (!record || typeof record !== "object") return;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== "string" || !value.trim()) continue;
+    record[key] = capitalizeName(value);
+  }
+};
+
+const normalizeAthleteText = (input: Record<string, any>) => {
+  capitalizeKeys(input, ["first_name", "last_name"]);
+
+  const data = input.data;
+  if (!data || typeof data !== "object") return;
+
+  capitalizeKeys(data, PERSON_TEXT_KEYS);
+
+  /*
+    Il genitore e una persona come l'atleta: senza questo, l'unica anagrafica
+    con la maiuscola sbagliata sarebbe quella di chi paga la quota.
+  */
+  if (Array.isArray(data.guardians)) {
+    for (const guardian of data.guardians) {
+      capitalizeKeys(guardian, PERSON_TEXT_KEYS);
+    }
+  }
+};
+
+/**
+ * Normalizza i nomi di un'anagrafica **in luogo**, prima della scrittura.
+ *
+ * Punto di ingresso unico: chiamato da `resources.ts` accanto alla
+ * validazione, cosi non esiste una scrittura che passi dall'una e non
+ * dall'altra.
+ */
+export const normalizeAnagraficaText = (
+  resource: string,
+  input: Record<string, any>,
+) => {
+  if (!input || typeof input !== "object") return;
+
+  if (resource === "athletes" || resource === "simplified_athletes") {
+    normalizeAthleteText(input);
+    return;
+  }
+
+  if (PERSON_RESOURCE_TYPES.has(resource)) {
+    capitalizeKeys(asRecord(input.payload), PERSON_TEXT_KEYS);
   }
 };

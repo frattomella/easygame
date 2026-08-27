@@ -43,7 +43,12 @@ test("il resto sta in sezioni, non in una pagina infinita", () => {
 
   assert.match(source, /<Accordion type="multiple"/);
   for (const section of [
-    "Anagrafica e codice fiscale",
+    /*
+      Da RC Fix 2 il blocco anagrafico non sta piu in una fisarmonica: i sei
+      campi di identita — codice fiscale compreso — stanno in cima, nell'ordine
+      condiviso. Nella sezione resta cio che identita non e.
+    */
+    "Altri dati anagrafici",
     "Contatti",
     "Residenza",
     "Dati sanitari",
@@ -68,7 +73,11 @@ test("le sezioni usano i componenti condivisi", () => {
   const source = readCode(DIALOG);
 
   for (const component of [
-    "AssistedFiscalCodeField",
+    /*
+      `PersonIdentityFields` ha preso il posto di `AssistedFiscalCodeField`:
+      monta quello, e con esso i sei campi di identita nell'ordine condiviso.
+    */
+    "PersonIdentityFields",
     "AssistedAddressFields",
     "PhoneField",
     "CapitalizedInput",

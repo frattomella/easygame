@@ -36,16 +36,11 @@ import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { deleteClubDataItem } from "@/lib/simplified-db";
 import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
-import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
-import {
-  AssistedFiscalCodeField,
-  PersonResidenceFields,
-} from "@/components/forms/assisted-anagrafica";
-import {
-  genderLabel,
-  normalizeGenderLetter,
-} from "@/lib/italian-registry";
+import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
+import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
+import type { PersonIdentityPatch } from "@/lib/person-identity";
+import { genderLabel } from "@/lib/italian-registry";
 import {
   ClothingSizesFields,
   ClothingSizesSummary,
@@ -105,7 +100,16 @@ export default function MemberDetailsPage() {
    * capitalizzazione al blur i punti di scrittura diventavano quattro: se
    * restassero in linea, la prossima modifica ne allineerebbe tre su quattro.
    */
-  const applyMemberName = (patch: { firstName?: string; lastName?: string }) => {
+  /**
+   * Scrive una modifica dell'anagrafica tenendo allineato `name`.
+   *
+   * Il nome per esteso e un campo derivato che l'elenco soci mostra: se si
+   * scrive solo `firstName` resta quello vecchio, e nell'elenco il socio
+   * continua a chiamarsi come prima. Accetta l'intera modifica del blocco di
+   * identita, non solo nome e cognome, cosi c'e un solo modo di scrivere in
+   * questa scheda.
+   */
+  const applyMemberName = (patch: PersonIdentityPatch) => {
     setEditFormData((current: any) => {
       const next = { ...current, ...patch };
       return {
@@ -642,28 +646,24 @@ export default function MemberDetailsPage() {
             <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
               {editingSection === 'personal' && (
                 <div className="space-y-4">
+                  {/*
+                    I sei campi di identita, nell'ordine condiviso. Qui email e
+                    telefono stavano fra il cognome e la data di nascita, e il
+                    luogo di nascita non c'era proprio: era la ricerca nascosta
+                    dentro il codice fiscale.
+                  */}
+                  <PersonIdentityFields
+                    idPrefix="member-edit"
+                    values={editFormData}
+                    onChange={applyMemberName}
+                  />
+
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <Label>Nome</Label>
-                      <CapitalizedInput
-                        value={editFormData.firstName || ''}
-                        onChange={(e) => applyMemberName({ firstName: e.target.value })}
-                        onValueChange={(value) => applyMemberName({ firstName: value })}
-                      />
-                    </div>
-                    <div>
-                      <Label>Cognome</Label>
-                      <CapitalizedInput
-                        value={editFormData.lastName || ''}
-                        onChange={(e) => applyMemberName({ lastName: e.target.value })}
-                        onValueChange={(value) => applyMemberName({ lastName: value })}
-                      />
-                    </div>
-                    <div>
                       <Label>Email</Label>
-                      <Input 
+                      <Input
                         type="email"
-                        value={editFormData.email || ''} 
+                        value={editFormData.email || ''}
                         onChange={(e) => setEditFormData({...editFormData, email: e.target.value})}
                       />
                     </div>
@@ -674,56 +674,7 @@ export default function MemberDetailsPage() {
                         onChange={(value) => setEditFormData({...editFormData, phone: value})}
                       />
                     </div>
-                    <div>
-                      <Label>Data di Nascita</Label>
-                      <Input
-                        type="date"
-                        value={editFormData.birthDate || ''}
-                        onChange={(e) => setEditFormData({...editFormData, birthDate: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      {/*
-                        Il sesso e una scelta e non testo libero: il codice
-                        fiscale ha bisogno di una delle due lettere, e con tre
-                        grafie non si calcola (Blocco 8, punto B8-05).
-                      */}
-                      <Label>Sesso</Label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={normalizeGenderLetter(editFormData.gender)}
-                        onChange={(e) => setEditFormData({...editFormData, gender: e.target.value})}
-                      >
-                        <option value="">Non indicato</option>
-                        <option value="M">Maschio</option>
-                        <option value="F">Femmina</option>
-                      </select>
-                    </div>
-                    {/*
-                      Lo stesso campo assistito del modulo di creazione: il
-                      comune di nascita si cerca e porta con se il codice
-                      catastale, e il codice fiscale si calcola invece di
-                      digitarsi.
-                    */}
-                    <div className="col-span-2">
-                      <AssistedFiscalCodeField
-                        id="member-edit-fiscal-code"
-                        label="Codice fiscale"
-                        value={editFormData.fiscalCode || ''}
-                        onChange={(value) => setEditFormData({...editFormData, fiscalCode: value})}
-                        person={{
-                          firstName: editFormData.firstName,
-                          lastName: editFormData.lastName,
-                          birthDate: editFormData.birthDate,
-                          gender: editFormData.gender,
-                        }}
-                        belfioreCode={editFormData.birthPlaceCode || ''}
-                        onBelfioreCodeChange={(value) => setEditFormData({...editFormData, birthPlaceCode: value})}
-                        birthPlace={editFormData.birthPlace || ''}
-                        onBirthPlaceChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
-                      />
-                    </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label>Note</Label>
                       <Textarea
                         value={editFormData.notes || ''}

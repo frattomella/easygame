@@ -81,10 +81,13 @@ import {
 import { buildAttachmentFileName } from "@/lib/attachment-names";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
+import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
+import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
 import {
-  AssistedFiscalCodeField,
-  PersonResidenceFields,
-} from "@/components/forms/assisted-anagrafica";
+  LEGACY_PERSON_NAME_KEYS,
+  readPersonIdentity,
+  writePersonIdentity,
+} from "@/lib/person-identity";
 import { paymentDateOf, sortByDateDesc } from "@/lib/sorting";
 import {
   Select,
@@ -121,7 +124,6 @@ import {
   ClothingSizesFields,
   ClothingSizesSummary,
 } from "@/components/forms/clothing-sizes-fields";
-import { normalizeGenderLetter } from "@/lib/italian-registry";
 
 const TOKEN_EXPIRY_HOURS = 72;
 
@@ -2600,37 +2602,33 @@ export default function TrainerDetailsPage() {
             <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
               {editingSection === 'personal' && (
                 <div className="space-y-4">
+                  {/*
+                    I sei campi di identita, nell'ordine condiviso (RC Fix 2,
+                    punto 1). Qui l'eta e la nazionalita stavano fra la data e
+                    il luogo di nascita, e il luogo di nascita esisteva **due
+                    volte**: come campo libero e come ricerca dentro il codice
+                    fiscale. Le due caselle scrivevano lo stesso valore, ma
+                    solo la seconda produceva il codice catastale — quindi chi
+                    compilava la prima si sentiva dire che il comune mancava.
+                  */}
+                  <PersonIdentityFields
+                    idPrefix="trainer-edit"
+                    values={readPersonIdentity(editFormData, LEGACY_PERSON_NAME_KEYS)}
+                    onChange={(patch) =>
+                      setEditFormData((current: any) => ({
+                        ...current,
+                        ...writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
+                      }))
+                    }
+                  />
+
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <Label>Nome</Label>
-                      <CapitalizedInput
-                        value={editFormData.name || ''}
-                        onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, name: value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Cognome</Label>
-                      <CapitalizedInput
-                        value={editFormData.surname || ''}
-                        onChange={(e) => setEditFormData({...editFormData, surname: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, surname: value})}
-                      />
-                    </div>
-                    <div>
                       <Label>Età</Label>
-                      <Input 
+                      <Input
                         type="number"
-                        value={editFormData.age || ''} 
+                        value={editFormData.age || ''}
                         onChange={(e) => setEditFormData({...editFormData, age: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Data di Nascita</Label>
-                      <Input 
-                        type="date"
-                        value={editFormData.birthDate || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, birthDate: e.target.value})}
                       />
                     </div>
                     <div>
@@ -2642,32 +2640,6 @@ export default function TrainerDetailsPage() {
                       />
                     </div>
                     <div>
-                      <Label>Luogo di Nascita</Label>
-                      <CapitalizedInput
-                        value={editFormData.birthPlace || ''}
-                        onChange={(e) => setEditFormData({...editFormData, birthPlace: e.target.value})}
-                        onValueChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
-                      />
-                    </div>
-                    <div>
-                      {/*
-                        Il sesso era un campo di testo libero: ci finiva
-                        «M», «maschio», «Maschile». Il calcolo del codice
-                        fiscale ha bisogno di una delle due lettere, e con
-                        tre grafie non poteva funzionare.
-                      */}
-                      <Label>Sesso</Label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={normalizeGenderLetter(editFormData.gender)}
-                        onChange={(e) => setEditFormData({...editFormData, gender: e.target.value})}
-                      >
-                        <option value="">Non indicato</option>
-                        <option value="M">Maschio</option>
-                        <option value="F">Femmina</option>
-                      </select>
-                    </div>
-                    <div>
                       <Label>Formazione Scolastica</Label>
                       <CapitalizedInput
                         value={editFormData.education || ''}
@@ -2675,34 +2647,10 @@ export default function TrainerDetailsPage() {
                         onValueChange={(value) => setEditFormData({...editFormData, education: value})}
                       />
                     </div>
-                    {/*
-                      Stesso campo assistito del modulo di creazione: il
-                      comune di nascita si cerca e porta con se il codice
-                      catastale. Prima la scheda di dettaglio era l'unico
-                      posto in cui il codice fiscale si digitava a mano.
-                    */}
-                    <div className="col-span-2">
-                      <AssistedFiscalCodeField
-                        id="trainer-edit-fiscal-code"
-                        label="Codice fiscale"
-                        value={editFormData.fiscalCode || ''}
-                        onChange={(value) => setEditFormData({...editFormData, fiscalCode: value})}
-                        person={{
-                          firstName: editFormData.name,
-                          lastName: editFormData.surname,
-                          birthDate: editFormData.birthDate,
-                          gender: editFormData.gender,
-                        }}
-                        belfioreCode={editFormData.birthPlaceCode || ''}
-                        onBelfioreCodeChange={(value) => setEditFormData({...editFormData, birthPlaceCode: value})}
-                        birthPlace={editFormData.birthPlace || ''}
-                        onBirthPlaceChange={(value) => setEditFormData({...editFormData, birthPlace: value})}
-                      />
-                    </div>
                     <div className="col-span-2">
                       <Label>Note</Label>
-                      <Textarea 
-                        value={editFormData.notes || ''} 
+                      <Textarea
+                        value={editFormData.notes || ''}
                         onChange={(e) => setEditFormData({...editFormData, notes: e.target.value})}
                         rows={3}
                       />

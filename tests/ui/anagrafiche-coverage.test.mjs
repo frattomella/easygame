@@ -65,37 +65,16 @@ test("nessuna anagrafica ha piu un input di telefono fatto in casa", () => {
   }
 });
 
-/** Le superfici in cui si scrive un nome, un cognome o un indirizzo. */
-const CAPITALIZATION_SURFACES = [
-  ["app/athletes/[id]/page.tsx", "scheda atleta"],
-  ["app/trainers/[id]/page.tsx", "scheda allenatore"],
-  ["app/staff/[id]/page.tsx", "scheda staff"],
-  ["app/soci/[id]/page.tsx", "scheda socio"],
-  ["app/organization/page.tsx", "scheda club"],
-  ["app/trainers/new/page.tsx", "nuovo allenatore"],
-  ["app/staff/new/page.tsx", "nuovo staff"],
-  ["app/soci/new/page.tsx", "nuovo socio"],
-  ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
-];
-
-test("la capitalizzazione condivisa e su ogni anagrafica", () => {
-  for (const [file, label] of CAPITALIZATION_SURFACES) {
-    assert.match(
-      read(file),
-      /<CapitalizedInput/,
-      `${label} (${file}) deve usare CapitalizedInput sui campi nominali`,
-    );
-  }
-});
-
 /**
- * Il codice fiscale, ovunque lo si chieda a una persona fisica.
+ * Le nove anagrafiche di **persona fisica**.
  *
- * La scheda club e esclusa dal calcolo ma non dal campo: il legale
- * rappresentante ha un codice fiscale che si puo verificare, non calcolare,
- * perche il form non raccoglie data di nascita e sesso.
+ * Da RC Fix 2 (punto 1) non montano piu nome, cognome, data, luogo, sesso e
+ * codice fiscale una per una: montano il blocco condiviso
+ * `PersonIdentityFields`, che li disegna sempre nello stesso ordine. Questo
+ * elenco resta esplicito — piu noioso di una regola generica, e l'unico modo
+ * perche l'aggiunta di una decima anagrafica non passi inosservata.
  */
-const FISCAL_CODE_SURFACES = [
+const PERSON_IDENTITY_SURFACES = [
   ["app/athletes/[id]/page.tsx", "scheda atleta (atleta e genitore)"],
   ["app/trainers/[id]/page.tsx", "scheda allenatore"],
   ["app/staff/[id]/page.tsx", "scheda staff"],
@@ -109,38 +88,105 @@ const FISCAL_CODE_SURFACES = [
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
   ["app/staff/new/page.tsx", "nuovo staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],
-  ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
-  ["app/organization/page.tsx", "scheda club"],
+  ["components/forms/AthleteCreateForm.tsx", "nuovo atleta e genitore/tutore"],
 ];
 
-test("il codice fiscale e sempre assistito, mai un campo nudo", () => {
-  for (const [file, label] of FISCAL_CODE_SURFACES) {
+test("ogni anagrafica di persona monta il blocco di identita condiviso", () => {
+  for (const [file, label] of PERSON_IDENTITY_SURFACES) {
     assert.match(
       read(file),
-      /<AssistedFiscalCodeField/,
-      `${label} (${file}) deve usare AssistedFiscalCodeField`,
+      /<PersonIdentityFields/,
+      `${label} (${file}) deve montare PersonIdentityFields, non sei campi propri`,
     );
   }
 });
 
 /**
- * Il codice catastale non si digita piu.
+ * Nessuna anagrafica di persona rimonta per conto suo i campi del blocco.
  *
- * `onBelfioreCodeChange` e cio che accende la ricerca del comune dentro il
- * campo: senza, resta la casella da quattro caratteri che nessuno ha in
- * testa. La scheda club e l'eccezione dichiarata — il legale rappresentante
- * non ha un comune di nascita in anagrafica.
+ * E la meta che conta: montare il blocco **e anche** tenersi la vecchia
+ * casella «Luogo di Nascita» accanto produce due controlli per lo stesso dato,
+ * ed e esattamente cio che le schede allenatore e staff avevano prima.
  */
-test("dove si calcola un codice fiscale, il comune si cerca", () => {
-  for (const [file, label] of FISCAL_CODE_SURFACES) {
-    if (file === "app/organization/page.tsx") continue;
+test("nessuna anagrafica di persona duplica i campi del blocco", () => {
+  for (const [file, label] of PERSON_IDENTITY_SURFACES) {
+    const source = read(file);
 
-    assert.match(
-      read(file),
-      /onBelfioreCodeChange=/,
-      `${label} (${file}): senza la ricerca del comune il codice catastale torna a mano`,
+    assert.equal(
+      /<AssistedFiscalCodeField/.test(source),
+      false,
+      `${label} (${file}): il codice fiscale arriva dal blocco, non montato a parte`,
+    );
+    assert.equal(
+      /<BirthPlaceField/.test(source),
+      false,
+      `${label} (${file}): il luogo di nascita arriva dal blocco`,
+    );
+    assert.equal(
+      /Luogo di Nascita<\/Label>/.test(source),
+      false,
+      `${label} (${file}): resta una seconda casella per il luogo di nascita`,
     );
   }
+});
+
+/**
+ * Il blocco condiviso contiene davvero cio che le nove schede si aspettano.
+ *
+ * L'elenco sopra verifica che le schede lo montino; questo verifica che
+ * montarlo basti. Senza, un blocco svuotato passerebbe entrambi i controlli.
+ */
+test("il blocco di identita porta capitalizzazione, comune e codice fiscale", () => {
+  const block = read("components/forms/person-identity-fields.tsx");
+
+  assert.match(
+    block,
+    /<CapitalizedInput/,
+    "nome e cognome devono avere la maiuscola automatica condivisa",
+  );
+  assert.match(
+    block,
+    /<BirthPlaceField/,
+    "il luogo di nascita e cio che produce il codice catastale",
+  );
+  assert.match(
+    block,
+    /<AssistedFiscalCodeField/,
+    "il codice fiscale deve restare assistito, non un campo nudo",
+  );
+  assert.match(
+    block,
+    /normalizeGenderLetter\(values\.gender\)/,
+    "il sesso passa dal normalizzatore condiviso",
+  );
+  assert.match(
+    block,
+    /<SelectItem value="M">Maschio<\/SelectItem>/,
+    "il sesso e una scelta fra due lettere, non testo libero",
+  );
+});
+
+/**
+ * Il codice fiscale del club resta un caso a parte, e dichiarato.
+ *
+ * Il legale rappresentante ha un codice che si puo **verificare** ma non
+ * calcolare: la scheda club non raccoglie ne data di nascita ne sesso. Monta
+ * quindi il solo campo assistito, con il calcolo spento.
+ */
+test("la scheda club verifica il codice fiscale del rappresentante senza calcolarlo", () => {
+  const source = read("app/organization/page.tsx");
+
+  assert.match(source, /<AssistedFiscalCodeField/);
+  assert.match(
+    source,
+    /enableCompute=\{false\}/,
+    "senza data e sesso il calcolo sarebbe una promessa che il form non mantiene",
+  );
+  assert.match(
+    source,
+    /<CapitalizedInput/,
+    "nome e cognome del rappresentante vogliono la maiuscola automatica",
+  );
 });
 
 /**
@@ -161,11 +207,6 @@ test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", ()
       /<Input\s+value=\{editFormData\.gender[^}]*\}/.test(source);
 
     assert.equal(freeText, false, `${file}: il sesso e ancora testo libero`);
-    assert.match(
-      source,
-      /<option value="M">Maschio<\/option>/,
-      `${file}: manca la scelta esplicita del sesso`,
-    );
   }
 });
 
@@ -317,24 +358,31 @@ test("il sesso si normalizza in un posto solo", () => {
     "il normalizzatore del sesso deve essere condiviso, non privato",
   );
 
+  /*
+    Da RC Fix 2 la normalizzazione sta nel blocco condiviso e non piu in tre
+    schede: le copie da controllare sono zero, e questo test verifica che
+    restino zero.
+  */
   for (const file of [
     "app/trainers/[id]/page.tsx",
     "app/staff/[id]/page.tsx",
     "app/soci/[id]/page.tsx",
+    "components/forms/person-identity-fields.tsx",
   ]) {
     const source = read(file);
 
-    assert.match(
-      source,
-      /normalizeGenderLetter\(editFormData\.gender\)/,
-      `${file}: il sesso deve passare dal normalizzatore condiviso`,
-    );
     assert.equal(
       /toUpperCase\(\)\.startsWith\('M'\)/.test(source),
       false,
       `${file}: resta una copia inline della normalizzazione del sesso`,
     );
   }
+
+  assert.match(
+    read("components/forms/person-identity-fields.tsx"),
+    /normalizeGenderLetter/,
+    "il blocco condiviso deve usare il normalizzatore, non riscriverlo",
+  );
 });
 
 /* ------------------------------------------------ CAP assistito (Blocco A, 9) */

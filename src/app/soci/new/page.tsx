@@ -17,10 +17,8 @@ import {
 } from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
-import {
-  AssistedFiscalCodeField,
-  PersonResidenceFields,
-} from "@/components/forms/assisted-anagrafica";
+import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
+import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
 import { PhoneField } from "@/components/forms/phone-field";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
@@ -28,7 +26,6 @@ import {
   DEFAULT_CLOTHING_SIZES,
   type ClothingSizes,
 } from "@/lib/clothing-sizes";
-import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   Select,
   SelectContent,
@@ -231,36 +228,19 @@ function NewSocioPageContent() {
                         setFormData((previous) => ({ ...previous, ...fieldsPatch }))
                       }
                     />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="firstName">Nome *</Label>
-                        <CapitalizedInput
-                          id="firstName"
-                          name="firstName"
-                          value={formData.firstName}
-                          onChange={handleChange}
-                          onValueChange={(value) =>
-                            setFormData((previous) => ({ ...previous, firstName: value }))
-                          }
-                          placeholder="Es. Mario"
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="lastName">Cognome *</Label>
-                        <CapitalizedInput
-                          id="lastName"
-                          name="lastName"
-                          value={formData.lastName}
-                          onChange={handleChange}
-                          onValueChange={(value) =>
-                            setFormData((previous) => ({ ...previous, lastName: value }))
-                          }
-                          placeholder="Es. Rossi"
-                          required
-                        />
-                      </div>
-                    </div>
+                    {/*
+                      I sei campi di identita, nell'ordine condiviso. L'email
+                      stava fra il cognome e la data di nascita: un recapito in
+                      mezzo ai dati che si leggono dal documento.
+                    */}
+                    <PersonIdentityFields
+                      idPrefix="member"
+                      values={formData}
+                      required={{ firstName: true, lastName: true }}
+                      onChange={(patch) =>
+                        setFormData((previous) => ({ ...previous, ...patch }))
+                      }
+                    />
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
@@ -282,62 +262,6 @@ function NewSocioPageContent() {
                         }
                       />
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="birthDate">Data di Nascita</Label>
-                        <Input
-                          id="birthDate"
-                          name="birthDate"
-                          type="date"
-                          value={formData.birthDate}
-                          onChange={handleChange}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="gender">Sesso</Label>
-                        <Select
-                          value={formData.gender}
-                          onValueChange={(value) =>
-                            setFormData((previous) => ({ ...previous, gender: value }))
-                          }
-                        >
-                          <SelectTrigger id="gender">
-                            <SelectValue placeholder="Seleziona" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="M">Maschio</SelectItem>
-                            <SelectItem value="F">Femmina</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    <AssistedFiscalCodeField
-                      id="fiscalCode"
-                      label="Codice Fiscale"
-                      value={formData.fiscalCode}
-                      onChange={(value) =>
-                        setFormData((previous) => ({ ...previous, fiscalCode: value }))
-                      }
-                      person={{
-                        firstName: formData.firstName,
-                        lastName: formData.lastName,
-                        birthDate: formData.birthDate,
-                        gender: formData.gender,
-                      }}
-                      belfioreCode={formData.birthPlaceCode}
-                      onBelfioreCodeChange={(value) =>
-                        setFormData((previous) => ({
-                          ...previous,
-                          birthPlaceCode: value,
-                        }))
-                      }
-                      birthPlace={formData.birthPlace}
-                      onBirthPlaceChange={(value) =>
-                        setFormData((previous) => ({ ...previous, birthPlace: value }))
-                      }
-                    />
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">

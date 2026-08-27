@@ -16,10 +16,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { AssistedAddressFields } from "@/components/forms/assisted-anagrafica";
+import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
 import {
-  AssistedAddressFields,
-  AssistedFiscalCodeField,
-} from "@/components/forms/assisted-anagrafica";
+  LEGACY_PERSON_NAME_KEYS,
+  readPersonIdentity,
+  writePersonIdentity,
+} from "@/lib/person-identity";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
@@ -81,6 +84,19 @@ export type AthleteDraftGuardian = {
   name: string;
   surname: string;
   relationship: string;
+  /**
+   * Un genitore e una persona fisica come le altre (RC Fix 2, punti 1 e 3).
+   *
+   * Qui il codice fiscale era un `<Input>` in maiuscolo senza validazione ne
+   * calcolo, mentre la stessa anagrafica aperta dalla scheda dell'atleta lo
+   * aveva assistito: lo stesso dato, due trattamenti, a seconda di dove si
+   * era passati per inserirlo. Data, luogo e sesso arrivano con il campo
+   * assistito perche sono cio da cui il codice si calcola.
+   */
+  birthDate: string;
+  birthPlace: string;
+  birthPlaceCode: string;
+  gender: string;
   fiscalCode: string;
   phone: string;
   email: string;
@@ -90,6 +106,10 @@ const createEmptyGuardian = (): AthleteDraftGuardian => ({
   name: "",
   surname: "",
   relationship: "",
+  birthDate: "",
+  birthPlace: "",
+  birthPlaceCode: "",
+  gender: "",
   fiscalCode: "",
   phone: "",
   email: "",
@@ -319,46 +339,23 @@ export function AthleteCreateForm({
           onApply={(patch) => set(patch as Partial<AthleteDraft>)}
         />
 
-        {/* --- obbligatori: gli stessi tre di prima --- */}
+        {/*
+          I sei campi di identita, nell'ordine condiviso (RC Fix 2, punto 1).
+
+          Prima la categoria stava **fra** la data di nascita e il sesso, e il
+          codice fiscale era chiuso in una fisarmonica dopo di essa: il campo
+          che si calcola dai dati anagrafici viveva tre sezioni sotto i dati da
+          cui si calcola. Adesso il blocco e intero e la categoria — che non e
+          un dato anagrafico ma una scelta sportiva — viene dopo.
+        */}
+        <PersonIdentityFields
+          idPrefix="athlete-create"
+          values={formData}
+          required={{ firstName: true, lastName: true, birthDate: true }}
+          onChange={(patch) => set(patch as Partial<AthleteDraft>)}
+        />
+
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="firstName">Nome *</Label>
-            <CapitalizedInput
-              id="firstName"
-              name="firstName"
-              value={formData.firstName}
-              onChange={handleChange}
-              onValueChange={(value) => set({ firstName: value })}
-              placeholder="Es. Mario"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="lastName">Cognome *</Label>
-            <CapitalizedInput
-              id="lastName"
-              name="lastName"
-              value={formData.lastName}
-              onChange={handleChange}
-              onValueChange={(value) => set({ lastName: value })}
-              placeholder="Es. Rossi"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="birthDate">Data di nascita *</Label>
-            <Input
-              id="birthDate"
-              name="birthDate"
-              type="date"
-              value={formData.birthDate}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
           <div className="space-y-2">
             <Label htmlFor="categoryId">Categoria</Label>
             <select
@@ -427,24 +424,9 @@ export function AthleteCreateForm({
         */}
         <Accordion type="multiple" className="w-full">
           <AccordionItem value="anagrafica">
-            <AccordionTrigger>Anagrafica e codice fiscale</AccordionTrigger>
+            <AccordionTrigger>Altri dati anagrafici</AccordionTrigger>
             <AccordionContent className="space-y-4 pt-2">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="gender">Sesso</Label>
-                  <select
-                    id="gender"
-                    name="gender"
-                    value={formData.gender}
-                    onChange={handleChange}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Non indicato</option>
-                    <option value="M">Maschio</option>
-                    <option value="F">Femmina</option>
-                  </select>
-                </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="nationality">Nazionalita</Label>
                   <CapitalizedInput
@@ -456,22 +438,6 @@ export function AthleteCreateForm({
                   />
                 </div>
               </div>
-
-              <AssistedFiscalCodeField
-                id="athlete-create-fiscal-code"
-                value={formData.fiscalCode}
-                onChange={(value) => set({ fiscalCode: value })}
-                person={{
-                  firstName: formData.firstName,
-                  lastName: formData.lastName,
-                  birthDate: formData.birthDate,
-                  gender: formData.gender,
-                }}
-                belfioreCode={formData.birthPlaceCode}
-                onBelfioreCodeChange={(value) => set({ birthPlaceCode: value })}
-                birthPlace={formData.birthPlace}
-                onBirthPlaceChange={(value) => set({ birthPlace: value })}
-              />
             </AccordionContent>
           </AccordionItem>
 
@@ -661,33 +627,21 @@ export function AthleteCreateForm({
                     ) : null}
                   </div>
 
+                  <PersonIdentityFields
+                    idPrefix={`guardian-${index}`}
+                    values={readPersonIdentity(
+                      guardian,
+                      LEGACY_PERSON_NAME_KEYS,
+                    )}
+                    onChange={(patch) =>
+                      updateGuardian(
+                        index,
+                        writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
+                      )
+                    }
+                  />
+
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor={`guardian-${index}-name`}>Nome</Label>
-                      <CapitalizedInput
-                        id={`guardian-${index}-name`}
-                        name="firstName"
-                        value={guardian.name}
-                        onChange={(event) =>
-                          updateGuardian(index, { name: event.target.value })
-                        }
-                        onValueChange={(value) => updateGuardian(index, { name: value })}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`guardian-${index}-surname`}>Cognome</Label>
-                      <CapitalizedInput
-                        id={`guardian-${index}-surname`}
-                        name="lastName"
-                        value={guardian.surname}
-                        onChange={(event) =>
-                          updateGuardian(index, { surname: event.target.value })
-                        }
-                        onValueChange={(value) => updateGuardian(index, { surname: value })}
-                      />
-                    </div>
-
                     <div className="space-y-2">
                       <Label htmlFor={`guardian-${index}-relationship`}>
                         Parentela
@@ -727,23 +681,6 @@ export function AthleteCreateForm({
                           updateGuardian(index, { email: event.target.value })
                         }
                         placeholder="genitore@esempio.it"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`guardian-${index}-fiscal-code`}>
-                        Codice fiscale
-                      </Label>
-                      <Input
-                        id={`guardian-${index}-fiscal-code`}
-                        value={guardian.fiscalCode}
-                        onChange={(event) =>
-                          updateGuardian(index, {
-                            fiscalCode: event.target.value.toUpperCase(),
-                          })
-                        }
-                        maxLength={16}
-                        className="eg-tabular uppercase"
                       />
                     </div>
                   </div>

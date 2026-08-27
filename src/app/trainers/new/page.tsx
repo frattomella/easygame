@@ -19,10 +19,8 @@ import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { addClubData } from "@/lib/simplified-db";
-import {
-  AssistedFiscalCodeField,
-  PersonResidenceFields,
-} from "@/components/forms/assisted-anagrafica";
+import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
+import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
 import { PhoneField } from "@/components/forms/phone-field";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
@@ -30,14 +28,6 @@ import {
   DEFAULT_CLOTHING_SIZES,
   type ClothingSizes,
 } from "@/lib/clothing-sizes";
-import { CapitalizedInput } from "@/components/forms/capitalized-input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { ArrowLeft, Calendar, Euro, Mail, Phone, Save, User } from "lucide-react";
 
 type TrainerFormState = {
@@ -325,90 +315,25 @@ function NewTrainerPageContent() {
                     Anagrafica
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <CardContent className="space-y-4">
                   <DocumentExtractionField
-                    className="md:col-span-2"
                     currentValues={formData}
                     onApply={(fieldsPatch) =>
                       setFormData((previous) => ({ ...previous, ...fieldsPatch }))
                     }
                   />
-                  <div>
-                    <Label htmlFor="firstName">Nome *</Label>
-                    <CapitalizedInput
-                      id="firstName"
-                      name="firstName"
-                      value={formData.firstName}
-                      onChange={(event) =>
-                        handleInputChange("firstName", event.target.value)
-                      }
-                      onValueChange={(value) => handleInputChange("firstName", value)}
-                      placeholder="Es. Marco"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="lastName">Cognome *</Label>
-                    <CapitalizedInput
-                      id="lastName"
-                      name="lastName"
-                      value={formData.lastName}
-                      onChange={(event) =>
-                        handleInputChange("lastName", event.target.value)
-                      }
-                      onValueChange={(value) => handleInputChange("lastName", value)}
-                      placeholder="Es. Bianchi"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="birthDate">Data di nascita</Label>
-                    <Input
-                      id="birthDate"
-                      type="date"
-                      value={formData.birthDate}
-                      onChange={(event) =>
-                        handleInputChange("birthDate", event.target.value)
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="gender">Sesso</Label>
-                    <Select
-                      value={formData.gender}
-                      onValueChange={(value) => handleInputChange("gender", value)}
-                    >
-                      <SelectTrigger id="gender">
-                        <SelectValue placeholder="Seleziona" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="M">Maschio</SelectItem>
-                        <SelectItem value="F">Femmina</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                   {/*
-                    Il codice fiscale chiude il blocco anagrafico: da quei
-                    campi si calcola, e il comune di nascita che gli serve sta
-                    dentro il campo stesso.
+                    I sei campi di identita, nell'ordine condiviso. Il luogo di
+                    nascita era l'unico che qui non esisteva come campo: viveva
+                    dentro il codice fiscale, dopo il risultato del calcolo che
+                    e proprio lui a rendere possibile.
                   */}
-                  <AssistedFiscalCodeField
-                    id="fiscalCode"
-                    label="Codice fiscale"
-                    className="md:col-span-2"
-                    value={formData.fiscalCode}
-                    onChange={(value) => handleInputChange("fiscalCode", value)}
-                    person={{
-                      firstName: formData.firstName,
-                      lastName: formData.lastName,
-                      birthDate: formData.birthDate,
-                      gender: formData.gender,
-                    }}
-                    belfioreCode={formData.birthPlaceCode}
-                    onBelfioreCodeChange={(value) =>
-                      handleInputChange("birthPlaceCode", value)
-                    }
-                    birthPlace={formData.birthPlace}
-                    onBirthPlaceChange={(value) =>
-                      handleInputChange("birthPlace", value)
+                  <PersonIdentityFields
+                    idPrefix="trainer"
+                    values={formData}
+                    required={{ firstName: true, lastName: true }}
+                    onChange={(patch) =>
+                      setFormData((previous) => ({ ...previous, ...patch }))
                     }
                   />
                 </CardContent>

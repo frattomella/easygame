@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   AnagraficaValidationError,
   assertAnagraficaIsValid,
+  normalizeAnagraficaText,
 } from "../../src/lib/server/anagrafica.ts";
 
 /**
@@ -240,5 +241,121 @@ test("un CAP di quattro cifre in Italia viene rifiutato anche per un socio", () 
     (error) =>
       error instanceof AnagraficaValidationError &&
       error.field === "postalCode",
+  );
+});
+
+/* --------------------------- maiuscola iniziale lato server (RC Fix 2, punto 2) */
+
+/**
+ * La regola dei nomi non e piu solo dei campi di testo.
+ *
+ * `CapitalizedInput` la applica all'uscita dal campo, e finisce li: l'import
+ * atleti da file — cioe il modo in cui un club carica i primi duecento nomi —
+ * la aggirava del tutto. Un foglio scritto in minuscolo restava in minuscolo,
+ * e nell'elenco ordinato alfabeticamente i nomi importati e quelli digitati
+ * sembravano due archivi diversi.
+ */
+
+test("i nomi di un atleta si normalizzano prima della scrittura", () => {
+  const input = {
+    first_name: "mario",
+    last_name: "de luca",
+    data: {
+      birthPlace: "reggio nell'emilia",
+      city: "roma",
+      address: "via dei mestieri, 4",
+      guardians: [{ name: "anna maria", surname: "d'angelo" }],
+    },
+  };
+
+  normalizeAnagraficaText("athletes", input);
+
+  assert.equal(input.first_name, "Mario");
+  assert.equal(input.last_name, "De Luca");
+  assert.equal(input.data.birthPlace, "Reggio nell'Emilia");
+  assert.equal(input.data.city, "Roma");
+  assert.equal(input.data.address, "Via dei Mestieri, 4");
+  assert.equal(input.data.guardians[0].name, "Anna Maria");
+  assert.equal(
+    input.data.guardians[0].surname,
+    "D'Angelo",
+    "il genitore e una persona come l'atleta",
+  );
+});
+
+test("allenatori, staff e soci passano dalla stessa regola", () => {
+  for (const resource of ["trainers", "staff_members", "members"]) {
+    const input = { payload: { name: "o'connor", surname: "rossi" } };
+    normalizeAnagraficaText(resource, input);
+
+    assert.equal(input.payload.name, "O'Connor", resource);
+    assert.equal(input.payload.surname, "Rossi", resource);
+  }
+});
+
+/**
+ * Cio che non e una parola di una lingua non si tocca.
+ *
+ * Un codice fiscale, un IBAN, un'email e un numero di tessera sono
+ * identificatori: capitalizzarli li rompe. E una maiuscola gia scritta e una
+ * decisione di chi l'ha scritta — un cognome in stampatello e come sta sul
+ * documento.
+ */
+test("codici, recapiti e maiuscole volute restano intatti", () => {
+  const input = {
+    payload: {
+      name: "MARIO",
+      surname: "McDonald",
+      email: "mario.rossi@example.org",
+      fiscalCode: "rsSmra10e12h501u",
+      iban: "it60x0542811101000000123456",
+      membershipNumber: "abc123",
+      notes: "iscritto a settembre",
+    },
+  };
+
+  normalizeAnagraficaText("trainers", input);
+
+  assert.equal(input.payload.name, "MARIO", "lo stampatello e una scelta");
+  assert.equal(input.payload.surname, "McDonald");
+  assert.equal(input.payload.email, "mario.rossi@example.org");
+  assert.equal(input.payload.fiscalCode, "rsSmra10e12h501u");
+  assert.equal(input.payload.iban, "it60x0542811101000000123456");
+  assert.equal(input.payload.membershipNumber, "abc123");
+  assert.equal(input.payload.notes, "iscritto a settembre");
+});
+
+test("una risorsa che non e un'anagrafica di persona non viene toccata", () => {
+  const input = { payload: { name: "maglia da gara" } };
+  normalizeAnagraficaText("clothing_items", input);
+
+  assert.equal(input.payload.name, "maglia da gara");
+});
+
+/**
+ * La normalizzazione sta accanto alla validazione, in tutte e cinque le
+ * scritture.
+ *
+ * `resources.ts` e il punto di ingresso unico dei dati (vedi CLAUDE.md, §2), e
+ * ha cinque punti in cui una scrittura viene validata. Se la maiuscola si
+ * applicasse in quattro, il quinto sarebbe la strada per cui un nome entra in
+ * minuscolo — e nessuno saprebbe quale.
+ */
+test("ogni scrittura validata e anche normalizzata", async () => {
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const source = readFileSync(
+    path.join(process.cwd(), "src", "lib", "server", "resources.ts"),
+    "utf8",
+  );
+
+  const validations = source.match(/assertAnagraficaIsValid\(/g) || [];
+  const normalizations = source.match(/normalizeAnagraficaText\(/g) || [];
+
+  assert.ok(validations.length >= 5, "le scritture validate sono almeno cinque");
+  assert.equal(
+    normalizations.length,
+    validations.length,
+    "ogni assertAnagraficaIsValid deve avere accanto la sua normalizeAnagraficaText",
   );
 });

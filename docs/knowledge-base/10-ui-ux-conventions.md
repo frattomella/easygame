@@ -185,14 +185,47 @@ sta in `src/lib/club-profile.ts` ed e verificato da
 una convenzione da ricordare.
 
 
+### Il blocco di identita: sei campi, un ordine solo
+
+Un'anagrafica di **persona fisica** non monta i propri campi di nome, cognome,
+data di nascita, luogo di nascita, sesso e codice fiscale: monta
+`PersonIdentityFields` (`src/components/forms/person-identity-fields.tsx`).
+
+L'ordine e dichiarato in `src/lib/person-identity.ts` ed e **sempre**:
+
+1. Nome
+2. Cognome
+3. Data di nascita
+4. Luogo di nascita
+5. Sesso
+6. Codice fiscale
+
+E l'ordine di **derivazione**: il codice fiscale si calcola dai cinque campi
+che lo precedono, e il luogo di nascita e cio che produce il codice catastale
+che serve al calcolo. Tutto il resto — nazionalita, email, residenza, ruolo,
+categoria — viene dopo, e il suo ordine e affare della singola scheda.
+
+Il campo del codice fiscale **non e condizionato**: il pulsante «Calcola»
+compare quando ci sono i dati e quando non ci sono si dice quali mancano, ma il
+campo sta al sesto posto sempre. Un campo che si sposta a seconda di cosa e
+stato compilato e un campo che la volta dopo non si trova.
+
+Le nove superfici sono elencate una per una in
+`tests/ui/anagrafiche-coverage.test.mjs`, e l'ordine e verificato in
+`tests/ui/person-identity-order.test.mjs`. Le anagrafiche che in archivio
+chiamano i campi `name`/`surname` passano da `readPersonIdentity` /
+`writePersonIdentity`: la traduzione delle chiavi avviene in un posto solo.
+Vedi [ADR-0066](18-decision-log.md#adr-0066--lordine-dei-campi-anagrafici-e-un-componente-non-una-convenzione).
+
 ### Anagrafica assistita
 
-`AssistedAddressFields` e `AssistedFiscalCodeField`
-(`src/components/forms/assisted-anagrafica.tsx`) sono i campi da usare per
-CAP, comune, provincia e codice fiscale. Regola unica: **suggerire, non
-decidere**. L'assistenza compila solo cio che e vuoto e segnala cio che non
-torna; non riscrive mai un valore digitato, e il pulsante «Calcola» del codice
-fiscale non compare nemmeno quando il campo e gia valorizzato.
+`AssistedAddressFields`, `PersonResidenceFields`, `BirthPlaceField` e
+`AssistedFiscalCodeField` (`src/components/forms/assisted-anagrafica.tsx`) sono
+i campi da usare per CAP, comune, provincia, luogo di nascita e codice fiscale.
+Regola unica: **suggerire, non decidere**. L'assistenza compila solo cio che e
+vuoto e segnala cio che non torna; non riscrive mai un valore digitato, e il
+pulsante «Calcola» del codice fiscale non compare nemmeno quando il campo e
+gia valorizzato.
 
 Dal Blocco 7 ([ADR-0032](18-decision-log.md#adr-0032--larchivio-dei-comuni-e-istat-generato-da-uno-script-servito-dal-server)):
 
@@ -200,10 +233,11 @@ Dal Blocco 7 ([ADR-0032](18-decision-log.md#adr-0032--larchivio-dei-comuni-e-ist
   ISTAT via `/api/v1/comuni` e porta con se sigla della provincia e **codice
   catastale**. Resta un campo di testo libero: una localita estera o un comune
   soppresso si scrivono ancora a mano;
-- il **comune di nascita vive dentro** `AssistedFiscalCodeField`, non accanto
-  ad esso: e li che serve, ed e li che si vede a quale comune corrisponde il
-  codice catastale in uso. Dove esisteva un campo «Luogo di nascita» separato
-  e stato assorbito, non duplicato;
+- il **luogo di nascita e un campo suo** (`BirthPlaceField`), al quarto posto
+  del blocco di identita. Fino a RC Fix 1 viveva *dentro*
+  `AssistedFiscalCodeField`, e nelle schede allenatore e staff questo produceva
+  due controlli per lo stesso dato: una casella libera e la ricerca nascosta,
+  di cui solo la seconda produceva il codice catastale;
 - il **codice fiscale sta dopo il blocco anagrafico**, mai prima: si calcola da
   cognome, nome, data di nascita, sesso e comune, e un campo che chiede di
   calcolare qualcosa che il form non sa ancora e solo un campo vuoto piu in
@@ -388,6 +422,14 @@ riceve piu gli avvisi.
 `src/lib/text-capitalization.ts` decide, `CapitalizedInput` applica **al blur**
 — non mentre si digita: chi scrive `deLuca` e a meta di `De Luca`, e
 correggerlo al terzo carattere gli sposta il cursore sotto le dita.
+
+Da RC Fix 2 la stessa regola vale **anche lato server**:
+`normalizeAnagraficaText` (`src/lib/server/anagrafica.ts`) e chiamata accanto a
+`assertAnagraficaIsValid` in tutte e cinque le scritture di `resources.ts`.
+Serviva perche il campo di testo non e l'unica strada per cui un nome entra in
+archivio: l'**import atleti da file** — il modo in cui un club carica i primi
+duecento nomi — aggirava del tutto la regola, e nell'elenco ordinato i nomi
+importati e quelli digitati sembravano due archivi diversi.
 
 Cosa **non** fa:
 

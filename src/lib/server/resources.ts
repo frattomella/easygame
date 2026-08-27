@@ -5,7 +5,10 @@ import {
   getPasswordPolicyMessage,
   validatePassword,
 } from "../auth/password-policy";
-import { assertAnagraficaIsValid } from "./anagrafica";
+import {
+  assertAnagraficaIsValid,
+  normalizeAnagraficaText,
+} from "./anagrafica";
 import {
   buildClubCategoryOptions,
   resolveCategoryId,
@@ -2469,6 +2472,7 @@ export const createResource = async (
       if (existing) {
         assertRecordAccess(resource, existing, scope);
         assertAnagraficaIsValid(resource, data, existing);
+        normalizeAnagraficaText(resource, data);
         const preservedLogicalId =
           (!isUuid(input?.id) &&
             typeof input?.id === "string" &&
@@ -2529,6 +2533,7 @@ export const createResource = async (
     }
 
     assertAnagraficaIsValid(resource, data);
+    normalizeAnagraficaText(resource, data);
 
     data.payload = await applySeasonStamp(
       resource,
@@ -2549,6 +2554,7 @@ export const createResource = async (
 
   const normalized = await normalizeModelInput(resource, input);
   assertAnagraficaIsValid(resource, normalized);
+  normalizeAnagraficaText(resource, normalized);
 
   if (resource === "clubs" || resource === "organizations") {
     if (scope?.userId && !normalized.creator_id) {
@@ -2846,6 +2852,7 @@ export const updateResource = async (
           }
         : existingPayload;
     assertAnagraficaIsValid(resource, { payload: nextPayload }, existing);
+    normalizeAnagraficaText(resource, { payload: nextPayload });
 
     const logicalIdToPreserve = inputLogicalId || existingLogicalId;
 
@@ -2895,6 +2902,7 @@ export const updateResource = async (
   });
   assertRecordAccess(resource, existing, scope);
   assertAnagraficaIsValid(resource, normalized, existing);
+  normalizeAnagraficaText(resource, normalized);
   await guardPlatformOwnedClubSettings(
     resource,
     normalized,

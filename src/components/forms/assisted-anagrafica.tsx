@@ -253,61 +253,59 @@ export type FiscalCodePerson = {
 };
 
 /**
- * Codice fiscale con calcolo assistito.
+ * Luogo di nascita: il comune, e il codice catastale che si porta dietro.
  *
- * Il calcolo richiede il codice catastale del comune di nascita. Dal Blocco 7
- * EasyGame ha l'archivio ISTAT dei comuni (`src/data/comuni-istat.json`) e il
- * codice **si cerca**: l'operatore scrive il comune di nascita, non un codice
- * di quattro caratteri che deve trovare altrove. Resta la casella manuale, per
- * chi e nato all'estero o in un comune soppresso, che l'archivio non copre.
+ * **Perche e un componente a se** (RC Fix 2, punto 1). Fino a RC Fix 1 questo
+ * blocco viveva **dentro** `AssistedFiscalCodeField`, montato solo se chi
+ * chiamava passava `onBelfioreCodeChange`. Aveva due conseguenze, entrambe
+ * visibili in schermata:
  *
- * Cio che non cambia (ADR-0027): il codice catastale non si indovina mai, e un
- * codice fiscale gia scritto non viene riscritto — al massimo si segnala che
- * non torna, e la sostituzione richiede una conferma esplicita.
+ * - il luogo di nascita finiva **dopo** il codice fiscale, mentre l'ordine
+ *   anagrafico condiviso lo vuole prima del sesso (vedi
+ *   `src/lib/person-identity.ts`). Un campo dentro un altro campo non puo
+ *   stare al proprio posto;
+ * - la scheda allenatore e la scheda staff avevano **due** controlli per lo
+ *   stesso dato: un `<Input>` libero «Luogo di Nascita» e questa ricerca
+ *   nascosta sotto il codice fiscale. Due caselle che scrivono lo stesso
+ *   valore, e chi compilava la prima non capiva perche il calcolo continuasse
+ *   a dire che mancava il comune — la prima non produce il codice catastale.
+ *
+ * Cio che non cambia: il comune resta un campo **libero**, con la ricerca a
+ * fianco. Una localita estera o un comune soppresso si scrivono a mano, e la
+ * casella del codice catastale resta la via per chi e nato fuori dall'archivio
+ * ISTAT.
  */
-export function AssistedFiscalCodeField({
+export function BirthPlaceField({
   id,
-  label = "Codice fiscale",
+  label = "Luogo di nascita",
   value,
   onChange,
-  person,
   belfioreCode,
-  onBelfioreCodeChange,
-  birthPlace,
-  onBirthPlaceChange,
-  enableCompute = true,
+  fiscalCode,
+  disabled = false,
   className,
 }: {
   id: string;
   label?: string;
+  /** Comune di nascita, come scritto nell'anagrafica. */
   value: string;
-  onChange: (value: string) => void;
-  person: FiscalCodePerson;
+  /** Riceve il comune e, quando lo si sceglie dall'archivio, il suo codice. */
+  onChange: (patch: { birthPlace?: string; birthPlaceCode?: string }) => void;
   belfioreCode?: string;
-  onBelfioreCodeChange?: (value: string) => void;
   /**
-   * Comune di nascita, quando il form ne ha gia un campo: cosi la ricerca
-   * scrive nell'anagrafica invece di vivere in un campo di servizio.
+   * Il codice fiscale gia in archivio: quando c'e ed e valido, il codice
+   * catastale e li dentro e non serve chiederlo.
    */
-  birthPlace?: string;
-  onBirthPlaceChange?: (value: string) => void;
-  /**
-   * Falso dove l'anagrafica non raccoglie data di nascita e sesso — per
-   * esempio il legale rappresentante del club: li il codice si puo solo
-   * verificare, non calcolare, e proporre il calcolo sarebbe una promessa
-   * che il form non puo mantenere.
-   */
-  enableCompute?: boolean;
+  fiscalCode?: string;
+  disabled?: boolean;
   className?: string;
 }) {
   const [manualBelfioreOpen, setManualBelfioreOpen] = useState(false);
-  const [pendingOverwrite, setPendingOverwrite] = useState(false);
-  const [localBirthPlace, setLocalBirthPlace] = useState("");
   const [resolvedComune, setResolvedComune] = useState<ComuneMatch | null>(null);
 
   const effectiveBelfiore =
     String(belfioreCode || "").trim().toUpperCase() ||
-    extractBelfioreCode(value);
+    extractBelfioreCode(fiscalCode || "");
 
   /**
    * Che comune e il codice catastale in uso.
@@ -331,6 +329,131 @@ export function AssistedFiscalCodeField({
     return () => controller.abort();
   }, [effectiveBelfiore]);
 
+  return (
+    <div className={cn("space-y-2", className)}>
+      <ComuneAutocomplete
+        id={id}
+        label={label}
+        value={value || ""}
+        disabled={disabled}
+        onChange={(next) => onChange({ birthPlace: next })}
+        onSelect={(comune) =>
+          onChange({ birthPlace: comune.name, birthPlaceCode: comune.belfiore })
+        }
+        hint={
+          effectiveBelfiore ? (
+            <span className="flex flex-wrap items-center gap-1">
+              <span>Codice catastale</span>
+              <span className="eg-tabular font-medium text-slate-700">
+                {effectiveBelfiore}
+              </span>
+              {resolvedComune ? (
+                <span>
+                  — {resolvedComune.name} ({resolvedComune.province})
+                </span>
+              ) : (
+                <span>
+                  — non e nell&apos;archivio ISTAT: comune soppresso o stato
+                  estero
+                </span>
+              )}
+            </span>
+          ) : (
+            "Scegli il comune per ricavarne il codice catastale."
+          )
+        }
+      />
+
+      {/*
+        La casella manuale resta, ma chiusa: e la via per chi e nato
+        all'estero o in un comune che non esiste piu, non la via normale.
+      */}
+      {manualBelfioreOpen ? (
+        <div className="space-y-1.5">
+          <Label
+            htmlFor={`${id}-belfiore`}
+            className="text-xs font-normal text-slate-500"
+          >
+            Codice catastale (es. H501, oppure Z___ per uno stato estero)
+          </Label>
+          <Input
+            id={`${id}-belfiore`}
+            value={belfioreCode || ""}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({
+                birthPlaceCode: event.target.value
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9]/g, "")
+                  .slice(0, 4),
+              })
+            }
+            maxLength={4}
+            className="eg-tabular w-32 uppercase"
+            placeholder={extractBelfioreCode(fiscalCode || "") || "H501"}
+          />
+          {belfioreCode && !isValidBelfioreCode(belfioreCode) ? (
+            <FieldError message="Il codice catastale e una lettera seguita da tre cifre" />
+          ) : null}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setManualBelfioreOpen(true)}
+          className="text-xs font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700"
+        >
+          Nato all&apos;estero o in un comune soppresso? Inserisci il codice
+          catastale
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Codice fiscale con calcolo assistito.
+ *
+ * Il calcolo richiede il codice catastale del comune di nascita, che arriva da
+ * `BirthPlaceField` — il campo «Luogo di nascita» che, nell'ordine anagrafico
+ * condiviso, sta due posizioni piu su. Qui si riceve gia risolto.
+ *
+ * Cio che non cambia (ADR-0027): il codice catastale non si indovina mai, e un
+ * codice fiscale gia scritto non viene riscritto — al massimo si segnala che
+ * non torna, e la sostituzione richiede una conferma esplicita.
+ */
+export function AssistedFiscalCodeField({
+  id,
+  label = "Codice fiscale",
+  value,
+  onChange,
+  person,
+  belfioreCode,
+  enableCompute = true,
+  disabled = false,
+  className,
+}: {
+  id: string;
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  person: FiscalCodePerson;
+  belfioreCode?: string;
+  /**
+   * Falso dove l'anagrafica non raccoglie data di nascita e sesso — per
+   * esempio il legale rappresentante del club: li il codice si puo solo
+   * verificare, non calcolare, e proporre il calcolo sarebbe una promessa
+   * che il form non puo mantenere.
+   */
+  enableCompute?: boolean;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [pendingOverwrite, setPendingOverwrite] = useState(false);
+
+  const effectiveBelfiore =
+    String(belfioreCode || "").trim().toUpperCase() ||
+    extractBelfioreCode(value);
+
   const computed = useMemo(
     () => computeCodiceFiscale({ ...person, belfioreCode: effectiveBelfiore }),
     [person, effectiveBelfiore],
@@ -353,6 +476,7 @@ export function AssistedFiscalCodeField({
         <Input
           id={id}
           value={value}
+          disabled={disabled}
           onChange={(event) => onChange(event.target.value.toUpperCase())}
           maxLength={16}
           autoCapitalize="characters"
@@ -364,6 +488,13 @@ export function AssistedFiscalCodeField({
             type="button"
             variant="outline"
             className="shrink-0"
+            disabled={disabled}
+            /*
+              L'etichetta visibile e corta perche accanto c'e gia scritto di
+              cosa si tratta; quella annunciata e per esteso, perche chi
+              naviga a voce sente il pulsante senza vedere l'etichetta.
+            */
+            aria-label="Calcola codice fiscale"
             onClick={() => onChange(computed.value)}
           >
             <Wand2 className="mr-2 h-4 w-4" aria-hidden />
@@ -432,90 +563,6 @@ export function AssistedFiscalCodeField({
         </div>
       ) : null}
 
-      {onBelfioreCodeChange ? (
-        <div className="space-y-2 pt-1">
-          <ComuneAutocomplete
-            id={`${id}-birth-comune`}
-            label="Comune di nascita"
-            value={
-              onBirthPlaceChange ? birthPlace || "" : localBirthPlace
-            }
-            onChange={(next) => {
-              if (onBirthPlaceChange) onBirthPlaceChange(next);
-              else setLocalBirthPlace(next);
-            }}
-            onSelect={(comune) => {
-              if (onBirthPlaceChange) onBirthPlaceChange(comune.name);
-              else setLocalBirthPlace(comune.name);
-              onBelfioreCodeChange(comune.belfiore);
-            }}
-            hint={
-              effectiveBelfiore ? (
-                <span className="flex flex-wrap items-center gap-1">
-                  <span>Codice catastale</span>
-                  <span className="eg-tabular font-medium text-slate-700">
-                    {effectiveBelfiore}
-                  </span>
-                  {resolvedComune ? (
-                    <span>
-                      — {resolvedComune.name} ({resolvedComune.province})
-                    </span>
-                  ) : (
-                    <span>
-                      — non e nell&apos;archivio ISTAT: comune soppresso o stato
-                      estero
-                    </span>
-                  )}
-                </span>
-              ) : (
-                "Scegli il comune per ricavarne il codice catastale."
-              )
-            }
-          />
-
-          {/*
-            La casella manuale resta, ma chiusa: e la via per chi e nato
-            all'estero o in un comune che non esiste piu, non la via normale.
-          */}
-          {manualBelfioreOpen ? (
-            <div className="space-y-1.5">
-              <Label
-                htmlFor={`${id}-belfiore`}
-                className="text-xs font-normal text-slate-500"
-              >
-                Codice catastale (es. H501, oppure Z___ per uno stato estero)
-              </Label>
-              <Input
-                id={`${id}-belfiore`}
-                value={belfioreCode || ""}
-                onChange={(event) =>
-                  onBelfioreCodeChange(
-                    event.target.value
-                      .toUpperCase()
-                      .replace(/[^A-Z0-9]/g, "")
-                      .slice(0, 4),
-                  )
-                }
-                maxLength={4}
-                className="eg-tabular w-32 uppercase"
-                placeholder={extractBelfioreCode(value) || "H501"}
-              />
-              {belfioreCode && !isValidBelfioreCode(belfioreCode) ? (
-                <FieldError message="Il codice catastale e una lettera seguita da tre cifre" />
-              ) : null}
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setManualBelfioreOpen(true)}
-              className="text-xs font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700"
-            >
-              Nato all&apos;estero o in un comune soppresso? Inserisci il codice
-              catastale
-            </button>
-          )}
-        </div>
-      ) : null}
     </div>
   );
 }

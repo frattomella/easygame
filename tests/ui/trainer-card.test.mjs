@@ -107,8 +107,8 @@ test("la creazione chiede data di nascita e sesso, non il solo anno", () => {
   assert.match(source, /gender: string;/);
   assert.match(
     source,
-    /<AssistedFiscalCodeField/,
-    "senza data e sesso il codice fiscale non si puo calcolare",
+    /<PersonIdentityFields/,
+    "senza data e sesso il codice fiscale non si puo calcolare, e li porta il blocco condiviso",
   );
 });
 

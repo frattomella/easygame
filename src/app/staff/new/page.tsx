@@ -34,10 +34,13 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { addStaffMember } from "@/lib/simplified-db";
+import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
+import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
 import {
-  AssistedFiscalCodeField,
-  PersonResidenceFields,
-} from "@/components/forms/assisted-anagrafica";
+  LEGACY_PERSON_NAME_KEYS,
+  readPersonIdentity,
+  writePersonIdentity,
+} from "@/lib/person-identity";
 import { PhoneField } from "@/components/forms/phone-field";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
@@ -45,7 +48,6 @@ import {
   DEFAULT_CLOTHING_SIZES,
   type ClothingSizes,
 } from "@/lib/clothing-sizes";
-import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import {
   CUSTOM_OPTION_VALUE,
   collectStaffRoles,
@@ -318,98 +320,45 @@ function NewStaffMemberPageContent() {
                     Anagrafica
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <CardContent className="space-y-4">
                   <DocumentExtractionField
-                    className="md:col-span-2"
                     currentValues={{ ...formData }}
                     onApply={(fieldsPatch) =>
                       setFormData((previous) => ({ ...previous, ...fieldsPatch }))
                     }
                   />
-                  <div>
-                    <Label htmlFor="name">Nome *</Label>
-                    <CapitalizedInput
-                      id="name"
-                      name="name"
-                      value={formData.name}
-                      onChange={(e) => handleInputChange("name", e.target.value)}
-                      onValueChange={(value) => handleInputChange("name", value)}
-                      placeholder="Inserisci il nome"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="surname">Cognome *</Label>
-                    <CapitalizedInput
-                      id="surname"
-                      name="surname"
-                      value={formData.surname}
-                      onChange={(e) => handleInputChange("surname", e.target.value)}
-                      onValueChange={(value) => handleInputChange("surname", value)}
-                      placeholder="Inserisci il cognome"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="birthDate">Data di Nascita</Label>
-                    <Input
-                      id="birthDate"
-                      type="date"
-                      value={formData.birthDate}
-                      onChange={(e) => handleInputChange("birthDate", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="nationality">Nazionalità</Label>
-                    <Input
-                      id="nationality"
-                      value={formData.nationality}
-                      onChange={(e) => handleInputChange("nationality", e.target.value)}
-                      placeholder="Inserisci la nazionalità"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="gender">Genere</Label>
-                    <Select
-                      value={formData.gender}
-                      onValueChange={(value) => handleInputChange("gender", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleziona genere" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="M">Maschio</SelectItem>
-                        <SelectItem value="F">Femmina</SelectItem>
-                        <SelectItem value="altro">Altro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                   {/*
-                    Il codice fiscale chiude il blocco anagrafico perche da
-                    quel blocco si calcola, e porta con se il comune di
-                    nascita: e da li che arriva il codice catastale.
+                    I sei campi di identita, nell'ordine condiviso. Qui la
+                    nazionalita stava fra la data di nascita e il sesso, e il
+                    luogo di nascita non esisteva come campo: era la ricerca
+                    nascosta dentro il codice fiscale.
+
+                    Il sesso perde la terza voce «Altro»: serve a calcolare il
+                    codice fiscale, che di lettere ne conosce due, e la scheda
+                    di modifica gia riduceva a M/F cio che ci finiva dentro.
                   */}
-                  <AssistedFiscalCodeField
-                    id="fiscalCode"
-                    label="Codice Fiscale"
-                    className="md:col-span-2"
-                    value={formData.fiscalCode}
-                    onChange={(value) => handleInputChange("fiscalCode", value)}
-                    person={{
-                      firstName: formData.name,
-                      lastName: formData.surname,
-                      birthDate: formData.birthDate,
-                      gender: formData.gender,
-                    }}
-                    belfioreCode={formData.birthPlaceCode}
-                    onBelfioreCodeChange={(value) =>
-                      handleInputChange("birthPlaceCode", value)
-                    }
-                    birthPlace={formData.birthPlace}
-                    onBirthPlaceChange={(value) =>
-                      handleInputChange("birthPlace", value)
+                  <PersonIdentityFields
+                    idPrefix="staff"
+                    values={readPersonIdentity(formData, LEGACY_PERSON_NAME_KEYS)}
+                    required={{ firstName: true, lastName: true }}
+                    onChange={(patch) =>
+                      setFormData((previous) => ({
+                        ...previous,
+                        ...writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
+                      }))
                     }
                   />
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <Label htmlFor="nationality">Nazionalità</Label>
+                      <Input
+                        id="nationality"
+                        value={formData.nationality}
+                        onChange={(e) => handleInputChange("nationality", e.target.value)}
+                        placeholder="Inserisci la nazionalità"
+                      />
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 

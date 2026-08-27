@@ -3556,3 +3556,82 @@ che rettifica una ricevuta dopo un rimborso **non esiste** in EasyGame: esiste
 la numerazione (`credit_note` in `DOCUMENT_NUMBER_KINDS`) e non il documento.
 E scope fiscale, non scope pagamenti, e inventarlo qui avrebbe voluto dire
 inventare anche la sua trasmissione. Vedi [16](16-technical-debt.md).
+
+---
+
+## ADR-0066 — L'ordine dei campi anagrafici e un componente, non una convenzione
+
+**Data:** 2026-08-27 (RC Fix 2, punti 1, 2 e 3)
+**Stato:** accettata
+
+**Contesto.** EasyGame ha nove anagrafiche di persona fisica: atleta,
+allenatore, staff, socio e genitore/tutore, in creazione e in modifica. Tutte
+chiedono gli stessi sei dati — nome, cognome, data di nascita, luogo di
+nascita, sesso, codice fiscale — e fino a RC Fix 1 li chiedevano in **sei
+ordini diversi**:
+
+| Anagrafica | Cosa c'era in mezzo |
+|---|---|
+| Nuovo socio | l'**email** fra cognome e data di nascita |
+| Nuovo atleta | la **categoria** fra data di nascita e sesso, e il codice fiscale chiuso in una fisarmonica |
+| Nuovo staff | la **nazionalita** fra data di nascita e sesso |
+| Scheda allenatore | **eta**, **nazionalita** e **formazione scolastica** sparse nel blocco |
+| Scheda staff | idem, piu nome e cognome ancora senza maiuscola automatica |
+| Genitore (creazione atleta) | codice fiscale come `<Input>` nudo, senza calcolo ne validazione |
+
+E il **luogo di nascita** non era un campo: viveva dentro
+`AssistedFiscalCodeField`, montato solo se chi chiamava passava
+`onBelfioreCodeChange`. Nelle schede allenatore e staff questo produceva
+**due controlli per lo stesso dato** — una casella libera «Luogo di Nascita» e
+la ricerca nascosta sotto il codice fiscale — di cui solo la seconda produceva
+il codice catastale. Chi compilava la prima si sentiva rispondere che il
+comune mancava.
+
+**Perche conta.** Chi lavora in segreteria compila la stessa sequenza decine di
+volte al giorno, leggendola da un documento che ha in mano. L'ordine e memoria
+muscolare: cambiarlo fra una scheda e l'altra costa un errore ogni volta che la
+mano arriva prima dell'occhio.
+
+**Decisione.** L'ordine e **uno** — nome, cognome, data di nascita, luogo di
+nascita, sesso, codice fiscale — ed e dichiarato una volta sola in
+`src/lib/person-identity.ts`. Le nove anagrafiche non lo rispettano per
+convenzione: montano `PersonIdentityFields`
+(`src/components/forms/person-identity-fields.tsx`), e **non esiste un modo di
+montarlo che produca una sequenza diversa**.
+
+L'ordine non e arbitrario: e l'**ordine di derivazione**. Il codice fiscale si
+calcola dai cinque campi che lo precedono, quindi sta in fondo; il luogo di
+nascita e cio che produce il codice catastale, quindi sta prima del risultato
+del calcolo e non dopo.
+
+**Conseguenze.**
+
+- `BirthPlaceField` e stato **estratto** da `AssistedFiscalCodeField`: il
+  campo del codice fiscale non disegna piu il comune di nascita, e le due
+  caselle duplicate delle schede allenatore e staff sono una sola;
+- il campo del codice fiscale **non e condizionato**. Il pulsante «Calcola»
+  compare quando ci sono i dati per calcolarlo, e quando non ci sono si dice
+  quali mancano; il campo sta al sesto posto sempre. Un campo che si sposta a
+  seconda di cosa e stato compilato e un campo che la volta dopo non si trova;
+- il sesso perde la voce «Altro» che il solo modulo *nuovo staff* offriva: le
+  lettere che il codice fiscale conosce sono due, e la scheda di modifica gia
+  riduceva a M/F cio che ci finiva dentro;
+- le anagrafiche che chiamano i campi `name`/`surname` invece di
+  `firstName`/`lastName` non vengono riallineate in archivio — sarebbe
+  riscrivere i payload di ogni club per un guadagno che nessuno vedrebbe. La
+  traduzione avviene in un posto solo (`readPersonIdentity` /
+  `writePersonIdentity`);
+- la **maiuscola iniziale passa anche dal server**
+  (`normalizeAnagraficaText` in `src/lib/server/anagrafica.ts`, chiamata
+  accanto a `assertAnagraficaIsValid` in tutte e cinque le scritture di
+  `resources.ts`). `CapitalizedInput` la applicava all'uscita dal campo, e
+  finiva li: l'import atleti da file — il modo in cui un club carica i primi
+  duecento nomi — la aggirava del tutto, e nell'elenco ordinato i nomi
+  importati e quelli digitati sembravano due archivi diversi. La regola resta
+  quella di ADR-0032: non tocca identificatori, e non tocca un valore che ha
+  gia una maiuscola dentro.
+
+**Cosa non e cambiato.** La scheda club resta l'eccezione dichiarata: il legale
+rappresentante ha un codice fiscale che si puo **verificare** ma non calcolare,
+perche il form non raccoglie data di nascita ne sesso. Monta il solo
+`AssistedFiscalCodeField` con `enableCompute={false}`.

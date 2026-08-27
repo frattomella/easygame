@@ -80,10 +80,13 @@ import {
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AddCertificateForm } from "@/components/forms/AddCertificateForm";
+import { AssistedAddressFields } from "@/components/forms/assisted-anagrafica";
+import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
 import {
-  AssistedAddressFields,
-  AssistedFiscalCodeField,
-} from "@/components/forms/assisted-anagrafica";
+  LEGACY_PERSON_NAME_KEYS,
+  readPersonIdentity,
+  writePersonIdentity,
+} from "@/lib/person-identity";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import {
@@ -5972,52 +5975,27 @@ export default function AthleteProfilePage() {
           <div className="space-y-4 py-4">
             {editingSection === "general" && (
               <>
+                {/*
+                  I sei campi di identita, nell'ordine condiviso (RC Fix 2,
+                  punto 1). La nazionalita stava fra la data di nascita e il
+                  sesso, e il luogo di nascita non era un campo: era la
+                  ricerca nascosta dentro il codice fiscale, cioe **dopo** il
+                  risultato del calcolo che e proprio lei a rendere possibile.
+                */}
+                <PersonIdentityFields
+                  idPrefix="athlete-edit"
+                  values={readPersonIdentity(
+                    editFormData,
+                    LEGACY_PERSON_NAME_KEYS,
+                  )}
+                  onChange={(patch) =>
+                    setEditFormData((current: any) => ({
+                      ...current,
+                      ...writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
+                    }))
+                  }
+                />
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Nome</Label>
-                    <CapitalizedInput
-                      value={editFormData.name || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          name: e.target.value,
-                        })
-                      }
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, name: value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>Cognome</Label>
-                    <CapitalizedInput
-                      value={editFormData.surname || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          surname: e.target.value,
-                        })
-                      }
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, surname: value })
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Data di Nascita</Label>
-                    <Input
-                      type="date"
-                      value={editFormData.birthDate || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          birthDate: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
                   <div>
                     <Label>Nazionalità</Label>
                     <CapitalizedInput
@@ -6034,54 +6012,6 @@ export default function AthleteProfilePage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Sesso</Label>
-                    <Select
-                      value={editFormData.gender || ""}
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, gender: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleziona" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="M">Maschio</SelectItem>
-                        <SelectItem value="F">Femmina</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                {/*
-                  Blocco 7: il codice fiscale sta **dopo** i dati anagrafici,
-                  perche da quelli si calcola. Prima stava in cima e chiedeva
-                  di calcolare qualcosa che il form non sapeva ancora.
-                  Il comune di nascita vive dentro questo campo: e da li che
-                  arriva il codice catastale.
-                */}
-                <AssistedFiscalCodeField
-                  id="athlete-fiscal-code"
-                  label="Codice Fiscale"
-                  value={editFormData.fiscalCode || ""}
-                  onChange={(value) =>
-                    setEditFormData({ ...editFormData, fiscalCode: value })
-                  }
-                  person={{
-                    firstName: editFormData.name,
-                    lastName: editFormData.surname,
-                    birthDate: editFormData.birthDate,
-                    gender: editFormData.gender,
-                  }}
-                  belfioreCode={editFormData.birthPlaceCode || ""}
-                  onBelfioreCodeChange={(value) =>
-                    setEditFormData({ ...editFormData, birthPlaceCode: value })
-                  }
-                  birthPlace={editFormData.birthPlace || ""}
-                  onBirthPlaceChange={(value) =>
-                    setEditFormData({ ...editFormData, birthPlace: value })
-                  }
-                />
                 <AthleteCategoriesPanel
                   categories={clubCategoryOptions}
                   memberships={editCategoryMemberships}
@@ -7756,32 +7686,22 @@ export default function AthleteProfilePage() {
               }
             />
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Nome *</Label>
-                <CapitalizedInput
-                  value={newGuardian.name}
-                  onChange={(e) =>
-                    setNewGuardian({ ...newGuardian, name: e.target.value })
-                  }
-                  onValueChange={(value) =>
-                    setNewGuardian({ ...newGuardian, name: value })
-                  }
-                />
-              </div>
-              <div>
-                <Label>Cognome *</Label>
-                <CapitalizedInput
-                  value={newGuardian.surname}
-                  onChange={(e) =>
-                    setNewGuardian({ ...newGuardian, surname: e.target.value })
-                  }
-                  onValueChange={(value) =>
-                    setNewGuardian({ ...newGuardian, surname: value })
-                  }
-                />
-              </div>
-            </div>
+            {/*
+              Un genitore e una persona fisica come le altre: stesso blocco,
+              stesso ordine. Qui parentela e telefono stavano fra il cognome e
+              la data di nascita.
+            */}
+            <PersonIdentityFields
+              idPrefix="guardian"
+              values={readPersonIdentity(newGuardian, LEGACY_PERSON_NAME_KEYS)}
+              required={{ firstName: true, lastName: true }}
+              onChange={(patch) =>
+                setNewGuardian((current: any) => ({
+                  ...current,
+                  ...writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
+                }))
+              }
+            />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Parentela</Label>
@@ -7814,60 +7734,6 @@ export default function AthleteProfilePage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Data di Nascita</Label>
-                <Input
-                  type="date"
-                  value={newGuardian.birthDate}
-                  onChange={(e) =>
-                    setNewGuardian({
-                      ...newGuardian,
-                      birthDate: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <Label>Sesso</Label>
-                <Select
-                  value={newGuardian.gender}
-                  onValueChange={(value) =>
-                    setNewGuardian({ ...newGuardian, gender: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleziona" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="M">Maschio</SelectItem>
-                    <SelectItem value="F">Femmina</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <AssistedFiscalCodeField
-              id="guardian-fiscal-code"
-              label="Codice Fiscale"
-              value={newGuardian.fiscalCode}
-              onChange={(value) =>
-                setNewGuardian({ ...newGuardian, fiscalCode: value })
-              }
-              person={{
-                firstName: newGuardian.name,
-                lastName: newGuardian.surname,
-                birthDate: newGuardian.birthDate,
-                gender: newGuardian.gender,
-              }}
-              belfioreCode={newGuardian.birthPlaceCode}
-              onBelfioreCodeChange={(value) =>
-                setNewGuardian({ ...newGuardian, birthPlaceCode: value })
-              }
-              birthPlace={newGuardian.birthPlace}
-              onBirthPlaceChange={(value) =>
-                setNewGuardian({ ...newGuardian, birthPlace: value })
-              }
-            />
             <div>
               <Label>Email</Label>
               <Input
