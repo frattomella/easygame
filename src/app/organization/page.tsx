@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/components/ui/toast-notification";
 import {
   Building,
   CreditCard,
@@ -60,8 +59,8 @@ import { SaveStatus, type SaveState } from "@/components/ui/save-status";
 import {
   CLUB_PROFILE_SECTIONS,
   clubProfileSectionSnapshot,
-  isAutosaveClubSection,
   saveClubProfileSection,
+  validateClubProfileSection,
   type ClubProfileDraft,
   type ClubProfileSectionId,
 } from "@/lib/club-profile";
@@ -81,7 +80,6 @@ import {
   normalizePaymentSettings,
   normalizeSubscriptionSettings,
   sanitizePaymentSettingsForStorage,
-  validatePaymentSettingsForSave,
 } from "@/lib/payments/payment-config-utils";
 import type {
   ClubPaymentSettings as ClubPaymentSettingsType,
@@ -186,8 +184,12 @@ interface ClubStructure {
  */
 const CLUB_AUTOSAVE_DEBOUNCE_MS = 1000;
 
+/** Le sezioni che si salvano da sole, nell'ordine in cui vanno scritte. */
+const AUTOSAVE_SECTIONS = CLUB_PROFILE_SECTIONS.filter(
+  (section) => section.autosave,
+).map((section) => section.id);
+
 export default function OrganizationPage() {
-  const { showToast } = useToast();
   const searchParams = useSearchParams() ?? new URLSearchParams();
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
@@ -673,7 +675,7 @@ const [federations, setFederations] = useState<any[]>([]);
     }
   };
 
-  // --- autosave delle sezioni descrittive ------------------------------------
+  // --- autosave della scheda club --------------------------------------------
 
   const clubProfileDraft = React.useMemo<ClubProfileDraft>(
     () => ({
@@ -701,55 +703,36 @@ const [federations, setFederations] = useState<any[]>([]);
       instagram: organizationData.instagram,
       twitter: organizationData.twitter,
       youtube: organizationData.youtube,
+      businessName: organizationData.businessName,
+      vatNumber: organizationData.vatNumber,
+      fiscalCode: organizationData.fiscalCode,
+      taxRegime: showCustomTaxRegimeInput ? customTaxRegime : taxRegimePreset,
+      atecoCode: organizationData.atecoCode,
+      sdiCode: organizationData.sdiCode,
+      legalAddress: organizationData.legalAddress,
+      legalCity: organizationData.legalCity,
+      legalPostalCode: organizationData.legalPostalCode,
+      legalRegion: organizationData.legalRegion,
+      legalProvince: organizationData.legalProvince,
+      legalCountry: organizationData.legalCountry,
+      representativeName: organizationData.representativeName,
+      representativeSurname: organizationData.representativeSurname,
+      representativeFiscalCode: organizationData.representativeFiscalCode,
+      bankName: organizationData.bankName,
+      iban: organizationData.iban,
+      federations,
+      paymentSettings: sanitizePaymentSettingsForStorage(paymentSettings),
     }),
     [
       companyEmail,
       companyPec,
-      logoPreview,
-      organizationData,
-      selectedSports,
-      selectedTypes,
-    ],
-  );
-
-  /**
-   * Impronta delle sezioni a conferma esplicita. Serve solo a sapere se ci
-   * sono modifiche non salvate altrove: senza questo, passando a una scheda in
-   * autosave il pulsante Salva sparirebbe portandosi via quelle modifiche.
-   */
-  const manualSectionsSnapshot = React.useMemo(
-    () =>
-      JSON.stringify({
-        businessName: organizationData.businessName,
-        vatNumber: organizationData.vatNumber,
-        fiscalCode: organizationData.fiscalCode,
-        atecoCode: organizationData.atecoCode,
-        sdiCode: organizationData.sdiCode,
-        taxRegime: showCustomTaxRegimeInput ? customTaxRegime : taxRegimePreset,
-        legalAddress: organizationData.legalAddress,
-        legalCity: organizationData.legalCity,
-        legalPostalCode: organizationData.legalPostalCode,
-        legalRegion: organizationData.legalRegion,
-        legalProvince: organizationData.legalProvince,
-        legalCountry: organizationData.legalCountry,
-        representativeName: organizationData.representativeName,
-        representativeSurname: organizationData.representativeSurname,
-        representativeFiscalCode: organizationData.representativeFiscalCode,
-        bankName: organizationData.bankName,
-        iban: organizationData.iban,
-        federations,
-        paymentSettings,
-        /*
-          Piano e servizi non compaiono nell'impronta: sono in sola lettura,
-          non possono cambiare, e includerli farebbe risultare «da salvare»
-          una scheda su cui non si e toccato niente.
-        */
-      }),
-    [
       customTaxRegime,
       federations,
+      logoPreview,
       organizationData,
       paymentSettings,
+      selectedSports,
+      selectedTypes,
       showCustomTaxRegimeInput,
       taxRegimePreset,
     ],
@@ -757,25 +740,21 @@ const [federations, setFederations] = useState<any[]>([]);
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const persistedSectionsRef = React.useRef(new Map<string, string>());
-  const manualBaselineRef = React.useRef<string | null>(null);
   const seededClubIdRef = React.useRef<string | null>(null);
   const autosaveRunnerRef = React.useRef<
     | ((value: {
-        section: ClubProfileSectionId;
         draft: ClubProfileDraft;
-        snapshot: string;
+        entries: { section: ClubProfileSectionId; snapshot: string }[];
       }) => Promise<void>)
     | null
   >(null);
 
-  const autosaveSection = isAutosaveClubSection(activeTab)
-    ? (activeTab as ClubProfileSectionId)
-    : null;
-
   // Cambiando club il runner precedente scriverebbe sul club sbagliato.
   React.useEffect(() => {
     autosaveRunnerRef.current = null;
+    seededClubIdRef.current = null;
   }, [clubId]);
 
   // Stato di partenza: quello appena caricato dal server. Prima di averlo,
@@ -787,17 +766,11 @@ const [federations, setFederations] = useState<any[]>([]);
 
     seededClubIdRef.current = clubId;
     const snapshots = new Map<string, string>();
-    CLUB_PROFILE_SECTIONS.filter((section) => section.autosave).forEach(
-      (section) => {
-        snapshots.set(
-          section.id,
-          clubProfileSectionSnapshot(section.id, clubProfileDraft),
-        );
-      },
-    );
+    AUTOSAVE_SECTIONS.forEach((section) => {
+      snapshots.set(section, clubProfileSectionSnapshot(section, clubProfileDraft));
+    });
     persistedSectionsRef.current = snapshots;
-    manualBaselineRef.current = manualSectionsSnapshot;
-  }, [clubId, clubProfileDraft, clubSnapshot, manualSectionsSnapshot]);
+  }, [clubId, clubProfileDraft, clubSnapshot]);
 
   const syncClubIdentityLocally = React.useCallback(
     (name: string, logoUrl: string) => {
@@ -827,226 +800,125 @@ const [federations, setFederations] = useState<any[]>([]);
     [clubId],
   );
 
-  const persistClubSection = React.useCallback(
+  const persistClubSections = React.useCallback(
     async (
-      section: ClubProfileSectionId,
       draft: ClubProfileDraft,
-      snapshot: string,
+      entries: { section: ClubProfileSectionId; snapshot: string }[],
     ) => {
-      if (!clubId) {
+      if (!clubId || entries.length === 0) {
         return;
       }
 
       if (!autosaveRunnerRef.current) {
-        // Una scrittura per volta, con accorpamento di quelle richieste nel
-        // frattempo: le PATCH non si sovrappongono (WP-36).
+        /*
+          Una scrittura per volta, con accorpamento di quelle richieste nel
+          frattempo (WP-36). L'accorpamento lavora sull'**insieme** delle
+          sezioni sporche, non su una sola: due sezioni diverse scritte in
+          parallelo rileggerebbero `settings` entrambe e la seconda
+          cancellerebbe la prima.
+        */
         autosaveRunnerRef.current = createCoalescingSaver(
-          async ({ section: target, draft: payload, snapshot: fingerprint }) => {
+          async ({ draft: payload, entries: targets }) => {
             setSaveState("saving");
             try {
-              await saveClubProfileSection(clubId, target, payload);
-              persistedSectionsRef.current.set(target, fingerprint);
-              setSavedAt(new Date());
-              setSaveState("saved");
-              if (target === "generale") {
-                syncClubIdentityLocally(payload.name.trim(), payload.logoUrl);
+              for (const target of targets) {
+                if (
+                  persistedSectionsRef.current.get(target.section) ===
+                  target.snapshot
+                ) {
+                  continue;
+                }
+
+                await saveClubProfileSection(clubId, target.section, payload);
+                persistedSectionsRef.current.set(target.section, target.snapshot);
+
+                if (target.section === "generale") {
+                  syncClubIdentityLocally(payload.name.trim(), payload.logoUrl);
+                }
               }
-            } catch (error) {
+
+              setSavedAt(new Date());
+              setSaveError(null);
+              setSaveState("saved");
+            } catch (error: any) {
               console.error("Error autosaving club section:", error);
+              setSaveError(
+                error?.message || "Non salvato: riprova a modificare",
+              );
               setSaveState("error");
             }
           },
           {
-            isEqual: ({ section: target, snapshot: fingerprint }) =>
-              persistedSectionsRef.current.get(target) === fingerprint,
+            isEqual: ({ entries: targets }) =>
+              targets.every(
+                (target) =>
+                  persistedSectionsRef.current.get(target.section) ===
+                  target.snapshot,
+              ),
           },
         );
       }
 
-      await autosaveRunnerRef.current({ section, draft, snapshot });
+      await autosaveRunnerRef.current({ draft, entries });
     },
     [clubId, syncClubIdentityLocally],
   );
 
+  /*
+    L'autosave guarda **tutte** le sezioni, non quella aperta.
+
+    Era il difetto piu costoso della scheda: l'effetto dipendeva da
+    `activeTab`, quindi cambiando scheda entro il secondo di attesa il timer
+    veniva annullato e la modifica appena scritta spariva senza dire niente.
+    Adesso cambiare scheda non interrompe nulla, e anche uscire dalla pagina
+    trova al piu un secondo di lavoro non ancora scritto.
+  */
   React.useEffect(() => {
-    if (!clubId || !autosaveSection || seededClubIdRef.current !== clubId) {
+    if (!clubId || seededClubIdRef.current !== clubId) {
       return;
     }
 
-    // Il nome vuoto e uno stato di passaggio — si sta cancellando per
-    // riscrivere — non una modifica da salvare: un club senza nome comparirebbe
-    // vuoto nella topbar e nella home account.
-    if (autosaveSection === "generale" && !clubProfileDraft.name.trim()) {
-      return;
+    const dirty: { section: ClubProfileSectionId; snapshot: string }[] = [];
+    let blocking: string | null = null;
+
+    for (const section of AUTOSAVE_SECTIONS) {
+      const snapshot = clubProfileSectionSnapshot(section, clubProfileDraft);
+      if (persistedSectionsRef.current.get(section) === snapshot) {
+        continue;
+      }
+
+      /*
+        Un valore incompleto non si scrive e si dice perche. E il sostituto
+        del pulsante «Salva», che non impediva di salvare un IBAN sbagliato:
+        si limitava a chiedere un clic in piu.
+      */
+      const problem = validateClubProfileSection(section, clubProfileDraft);
+      if (problem) {
+        blocking = blocking || problem;
+        continue;
+      }
+
+      dirty.push({ section, snapshot });
     }
 
-    const snapshot = clubProfileSectionSnapshot(
-      autosaveSection,
-      clubProfileDraft,
-    );
-    if (persistedSectionsRef.current.get(autosaveSection) === snapshot) {
+    if (blocking) {
+      setSaveError(blocking);
+      setSaveState("error");
+    } else {
+      setSaveError((current) => (current ? null : current));
+      setSaveState((current) => (current === "error" ? "idle" : current));
+    }
+
+    if (dirty.length === 0) {
       return;
     }
 
     const timer = setTimeout(() => {
-      void persistClubSection(autosaveSection, clubProfileDraft, snapshot);
+      void persistClubSections(clubProfileDraft, dirty);
     }, CLUB_AUTOSAVE_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [autosaveSection, clubId, clubProfileDraft, persistClubSection]);
-
-  const hasPendingManualChanges =
-    manualBaselineRef.current !== null &&
-    manualBaselineRef.current !== manualSectionsSnapshot;
-
-  const activeSectionDefinition = CLUB_PROFILE_SECTIONS.find(
-    (section) => section.id === activeTab,
-  );
-
-  const handleSave = async () => {
-    try {
-      let currentClubId = clubId;
-      if (!currentClubId) {
-        try {
-          const activeClubData = localStorage.getItem("activeClub");
-          if (activeClubData) {
-            const activeClub = JSON.parse(activeClubData);
-            currentClubId = activeClub.id;
-            setClubId(currentClubId);
-          }
-        } catch (error) {
-          console.error("Error getting club ID from localStorage:", error);
-        }
-      }
-
-      if (!currentClubId) {
-        showToast(
-          "error",
-          "Nessun club attivo trovato. Seleziona un club prima di salvare.",
-        );
-        return;
-      }
-
-      if (!organizationData.name.trim()) {
-        showToast("error", "Il nome del club è obbligatorio");
-        return;
-      }
-
-      const paymentValidationError =
-        validatePaymentSettingsForSave(paymentSettings);
-      if (paymentValidationError) {
-        showToast("error", paymentValidationError);
-        return;
-      }
-
-      const { updateClub } = await import("@/lib/simplified-db");
-      const normalizedPaymentSettings =
-        sanitizePaymentSettingsForStorage(paymentSettings);
-
-      const updateData = {
-        name: organizationData.name.trim(),
-        type: selectedTypes[0] || organizationData.type,
-        types: selectedTypes,
-        founding_year: organizationData.foundingYear,
-        sports: selectedSports,
-        sport: selectedSports[0] || "",
-        business_name: organizationData.businessName,
-        pec: companyPec,
-        email: companyEmail,
-        vat_number: organizationData.vatNumber,
-        fiscal_code: organizationData.fiscalCode,
-        tax_regime: showCustomTaxRegimeInput
-          ? customTaxRegime
-          : taxRegimePreset,
-        ateco_code: organizationData.atecoCode,
-        sdi_code: organizationData.sdiCode,
-        legal_address: organizationData.legalAddress,
-        legal_city: organizationData.legalCity,
-        legal_postal_code: organizationData.legalPostalCode,
-        legal_country: organizationData.legalCountry,
-        legal_region: organizationData.legalRegion,
-        legal_province: organizationData.legalProvince,
-        representative_name: organizationData.representativeName,
-        representative_surname: organizationData.representativeSurname,
-        representative_fiscal_code: organizationData.representativeFiscalCode,
-        bank_name: organizationData.bankName,
-        iban: organizationData.iban,
-        address: organizationData.address,
-        city: organizationData.city,
-        postal_code: organizationData.postalCode,
-        region: organizationData.region,
-        province: organizationData.province,
-        country: organizationData.country,
-        contact1_name: organizationData.contact1Name,
-        phone1: organizationData.contact1Phone,
-        email1: organizationData.contact1Email,
-        contact2_name: organizationData.contact2Name,
-        phone2: organizationData.contact2Phone,
-        email2: organizationData.contact2Email,
-        facebook: organizationData.facebook,
-        instagram: organizationData.instagram,
-        twitter: organizationData.twitter,
-        youtube: organizationData.youtube,
-        website: organizationData.website,
-        logo_url: logoPreview || "",
-        federations: federations,
-        // `seasons` e `activeSeasonId` non passano piu da qui: le stagioni
-        // hanno un endpoint proprio (`/api/v1/seasons`). Rimandare qui la
-        // fotografia tenuta in stato React sovrascriveva le stagioni create
-        // nel frattempo, e il salvataggio di un recapito rimetteva attiva
-        // l'annata precedente.
-        paymentSettings: normalizedPaymentSettings,
-        /*
-          `subscription` ed `extraServices` non partono piu da qui: sono di
-          proprieta della piattaforma (D37). Il server li rimetterebbe
-          comunque al loro posto, ma mandarli lascerebbe credere il contrario
-          a chi legge questa pagina.
-        */
-        updated_at: new Date().toISOString(),
-      };
-
-      const updatedClub = await updateClub(currentClubId, updateData);
-      setClubSnapshot(updatedClub);
-      setPaymentSettings(normalizedPaymentSettings);
-
-      if (logoPreview) {
-        localStorage.setItem("organization-logo", logoPreview);
-      }
-      localStorage.setItem("organization-name", organizationData.name);
-
-      const activeClub = localStorage.getItem("activeClub");
-      if (activeClub) {
-        try {
-          const parsedClub = JSON.parse(activeClub);
-          if (parsedClub.id === currentClubId) {
-            parsedClub.name = organizationData.name;
-            parsedClub.logo_url = logoPreview || parsedClub.logo_url;
-            localStorage.setItem("activeClub", JSON.stringify(parsedClub));
-          }
-        } catch (e) {
-          console.error("Error updating active club:", e);
-        }
-      }
-
-      const event = new CustomEvent("club-updated", {
-        detail: {
-          clubId: currentClubId,
-          name: organizationData.name,
-          logo_url: logoPreview,
-        },
-      });
-      window.dispatchEvent(event);
-
-      showToast("success", "Informazioni club aggiornate con successo");
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-    } catch (error) {
-      console.error("Error saving organization data:", error);
-      showToast("error", "Errore durante il salvataggio delle informazioni");
-    }
-  };
+  }, [clubId, clubProfileDraft, persistClubSections]);
 
   const addFederation = () => {
     const newFederation = {
@@ -1080,6 +952,19 @@ const [federations, setFederations] = useState<any[]>([]);
         <SharedPageHeader
           title="Club"
           subtitle="Gestisci struttura, ruoli e informazioni del tuo club."
+          /*
+            Lo stato del salvataggio sta **una volta sola**, in testa alla
+            pagina, e vale per tutte le schede: prima ce n'era uno in fondo
+            che riguardava solo la scheda aperta, accanto a un pulsante che
+            invece salvava tutto.
+          */
+          actions={
+            <SaveStatus
+              state={saveState}
+              savedAt={savedAt}
+              message={saveError}
+            />
+          }
         />
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           {/* Mobile carousel for tabs */}
@@ -1941,33 +1826,6 @@ const [federations, setFederations] = useState<any[]>([]);
             </Card>
           </TabsContent>
         </Tabs>
-
-        <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-          {autosaveSection ? (
-            <>
-              <span className="mr-auto text-sm text-slate-500">
-                {activeSectionDefinition?.reason}
-              </span>
-              <SaveStatus state={saveState} savedAt={savedAt} />
-            </>
-          ) : null}
-
-          {autosaveSection && hasPendingManualChanges ? (
-            <span className="text-sm text-amber-700">
-              Ci sono modifiche non salvate in una sezione che richiede
-              conferma.
-            </span>
-          ) : null}
-
-          {!autosaveSection || hasPendingManualChanges ? (
-            <Button
-              className="bg-blue-600 hover:bg-blue-700"
-              onClick={handleSave}
-            >
-              Salva Modifiche
-            </Button>
-          ) : null}
-        </div>
       </DashboardPageContainer>
     </main>
   );

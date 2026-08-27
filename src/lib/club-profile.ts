@@ -1,22 +1,33 @@
 import { apiRequest } from "@/lib/api/client";
+import {
+  isValidPostalCode,
+  isWellFormedCodiceFiscale,
+} from "@/lib/italian-registry";
+import { validatePaymentSettingsForSave } from "@/lib/payments/payment-config-utils";
 
 /**
  * Salvataggio per sezione della scheda club.
  *
  * La pagina Club aveva **un solo** pulsante "Salva Modifiche" in fondo a nove
  * schede: cambiare un numero di telefono e cambiare l'IBAN costavano lo stesso
- * gesto, e dimenticare quel gesto perdeva tutto. Qui le sezioni vengono
- * separate in due famiglie:
+ * gesto, e dimenticare quel gesto perdeva tutto. Il Blocco 4 mise in autosave
+ * le tre schede descrittive e lascio le altre al pulsante, con una
+ * motivazione ragionevole: un IBAN salvato a meta digitazione dirotta gli
+ * incassi.
  *
- * - **autosave**: dati descrittivi, dove riscrivere lo stesso valore non
- *   produce nessun effetto economico ne distrugge nulla;
- * - **conferma esplicita**: dati fiscali, bancari, listini, stagioni e
- *   federazioni, dove il salvataggio deve essere un atto deliberato e
- *   atomico. Un IBAN sbagliato salvato mentre lo si sta ancora digitando
- *   manda i bonifici altrove.
+ * **Perche in RC Fix 1 anche le altre passano all'autosave.** Il compromesso
+ * a meta lasciava una pagina che si comportava in due modi diversi a seconda
+ * della scheda aperta, e il pulsante rimasto **non salvava la scheda**:
+ * salvava tutto il club, comprese le schede gia salvate da sole, ricaricando
+ * poi la pagina. Il rischio vero — scrivere un valore incompleto — non si
+ * risolve con un pulsante, che salva volentieri un IBAN sbagliato: si risolve
+ * **non scrivendo un valore che non e ancora un valore**. E cio che fa
+ * `validateClubProfileSection`, ed e la ragione per cui l'autosave qui e piu
+ * sicuro del pulsante che sostituisce, non meno.
  *
- * La distinzione non e stilistica: e la ragione per cui l'autosave si puo
- * introdurre senza rischio solo dove e elencato qui sotto.
+ * Restano fuori dall'autosave le due schede che **non sono un modulo**:
+ * Stagioni, che ha operazioni proprie con conferma esplicita (WP-32), e
+ * Account e Fatturazione, che e in sola lettura.
  */
 
 export type ClubProfileSectionId =
@@ -60,39 +71,43 @@ export const CLUB_PROFILE_SECTIONS: ClubProfileSection[] = [
   {
     id: "fiscali",
     label: "Dati Fiscali",
-    autosave: false,
-    reason: "Finiscono in fattura: servono conferma e coerenza atomica.",
+    autosave: true,
+    reason:
+      "Finiscono in fattura: si scrivono solo quando partita IVA, codice fiscale e CAP sono formalmente validi.",
   },
   {
     id: "bancari",
     label: "Dati Bancari",
-    autosave: false,
-    reason: "Un IBAN salvato a meta digitazione dirotta gli incassi.",
+    autosave: true,
+    reason:
+      "Un IBAN a meta digitazione non e un IBAN: la validazione lo trattiene finche non lo diventa.",
   },
   {
     id: "federazione",
     label: "Federazione",
-    autosave: false,
-    reason: "Include la rimozione di affiliazioni: operazione distruttiva.",
+    autosave: true,
+    reason:
+      "Togliere un'affiliazione e gia un gesto esplicito: e il clic sul cestino, non il salvataggio.",
   },
   {
     id: "stagioni",
     label: "Stagioni",
     autosave: false,
     reason:
-      "La stagione attiva e il perimetro dei dati visibili (WP-32): cambiarla e una decisione, non una modifica.",
+      "La stagione attiva e il perimetro dei dati visibili (WP-32): ha operazioni proprie con conferma, non un modulo da salvare.",
   },
   {
     id: "pagamenti",
     label: "Pagamenti",
-    autosave: false,
-    reason: "Quote, rate e sconti: economicamente sensibili.",
+    autosave: true,
+    reason:
+      "Restano due interruttori operativi (ADR-0050, ADR-0051): il conto e la commissione non si governano piu da qui.",
   },
   {
     id: "fatturazione",
     label: "Account e Fatturazione",
     autosave: false,
-    reason: "Abbonamento e servizi a pagamento.",
+    reason: "Sola lettura: non c'e niente da salvare.",
   },
 ];
 
@@ -104,6 +119,14 @@ const AUTOSAVE_SECTION_IDS = new Set(
 
 export const isAutosaveClubSection = (section: string) =>
   AUTOSAVE_SECTION_IDS.has(section as ClubProfileSectionId);
+
+/** Un'affiliazione federale del club. */
+export type ClubFederationEntry = {
+  id?: string;
+  name?: string;
+  registrationNumber?: string;
+  affiliationDate?: string;
+};
 
 /** Sottoinsieme della scheda club che l'autosave puo toccare. */
 export type ClubProfileDraft = {
@@ -131,6 +154,28 @@ export type ClubProfileDraft = {
   instagram: string;
   twitter: string;
   youtube: string;
+  // --- dati fiscali
+  businessName: string;
+  vatNumber: string;
+  fiscalCode: string;
+  taxRegime: string;
+  atecoCode: string;
+  sdiCode: string;
+  legalAddress: string;
+  legalCity: string;
+  legalPostalCode: string;
+  legalRegion: string;
+  legalProvince: string;
+  legalCountry: string;
+  representativeName: string;
+  representativeSurname: string;
+  representativeFiscalCode: string;
+  // --- dati bancari
+  bankName: string;
+  iban: string;
+  // --- federazioni e impostazioni di incasso
+  federations: ClubFederationEntry[];
+  paymentSettings: Record<string, any> | null;
 };
 
 export type ClubProfileSectionUpdate = {
@@ -141,6 +186,26 @@ export type ClubProfileSectionUpdate = {
 };
 
 const trimmed = (value: string) => String(value || "").trim();
+
+/** Solo cifre: gli spazi e il prefisso «IT» che si digitano non sono il numero. */
+const normalizedVatNumber = (value: string) =>
+  trimmed(value).toUpperCase().replace(/^IT/, "").replace(/[\s.]/g, "");
+
+const normalizedFiscalCode = (value: string) =>
+  trimmed(value).toUpperCase().replace(/\s/g, "");
+
+const normalizedIban = (value: string) =>
+  trimmed(value).toUpperCase().replace(/\s/g, "");
+
+/**
+ * Forma di un IBAN, non sua esistenza.
+ *
+ * Due lettere di paese, due cifre di controllo, poi da 11 a 30 caratteri
+ * alfanumerici: e la struttura definita da ISO 13616, e basta a distinguere
+ * «IT60X05» — che si sta ancora scrivendo — da un IBAN.
+ */
+const isWellFormedIban = (value: string) =>
+  /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(value);
 
 /**
  * Cosa scrive ogni sezione. Puro: e la parte che i test verificano, perche e
@@ -178,6 +243,9 @@ export const buildClubProfileSectionUpdate = (
       columns: {
         contact_email: trimmed(draft.companyEmail) || null,
         contact_phone: trimmed(draft.contact1Phone) || null,
+        // La PEC si digita qui, ma ha una colonna sua perche finisce nei
+        // documenti fiscali: prima la scriveva solo il pulsante «Salva».
+        pec: trimmed(draft.companyPec) || null,
       },
       settings: {
         email: trimmed(draft.companyEmail) || null,
@@ -207,9 +275,149 @@ export const buildClubProfileSectionUpdate = (
     };
   }
 
-  // Le sezioni a conferma esplicita non passano di qui: se ci passassero,
-  // scrivere un oggetto vuoto e piu sicuro che indovinare.
+  if (section === "fiscali") {
+    /*
+      `atecoCode` vive solo dentro `settings`: la colonna `clubs.ateco_code`
+      non esiste. Lo stesso vale per `businessName` e `tax_regime`, che pero
+      una colonna ce l'hanno e vengono tenuti allineati perche la lettura
+      preferisce la colonna e ricade sulle impostazioni.
+    */
+    return {
+      columns: {
+        business_name: trimmed(draft.businessName) || null,
+        vat_number: normalizedVatNumber(draft.vatNumber) || null,
+        fiscal_code: normalizedFiscalCode(draft.fiscalCode) || null,
+        tax_regime: trimmed(draft.taxRegime) || null,
+        sdi_code: trimmed(draft.sdiCode).toUpperCase() || null,
+        legal_address: trimmed(draft.legalAddress) || null,
+        legal_city: trimmed(draft.legalCity) || null,
+        legal_postal_code: trimmed(draft.legalPostalCode) || null,
+        legal_region: trimmed(draft.legalRegion) || null,
+        legal_province: trimmed(draft.legalProvince) || null,
+        legal_country: trimmed(draft.legalCountry) || "Italia",
+        representative_name: trimmed(draft.representativeName) || null,
+        representative_surname: trimmed(draft.representativeSurname) || null,
+        representative_fiscal_code:
+          normalizedFiscalCode(draft.representativeFiscalCode) || null,
+      },
+      settings: {
+        businessName: trimmed(draft.businessName) || null,
+        vat_number: normalizedVatNumber(draft.vatNumber) || null,
+        fiscal_code: normalizedFiscalCode(draft.fiscalCode) || null,
+        tax_regime: trimmed(draft.taxRegime) || null,
+        atecoCode: trimmed(draft.atecoCode) || null,
+      },
+    };
+  }
+
+  if (section === "bancari") {
+    return {
+      columns: {
+        bank_name: trimmed(draft.bankName) || null,
+        iban: normalizedIban(draft.iban) || null,
+      },
+      settings: {
+        bank_name: trimmed(draft.bankName) || null,
+        iban: normalizedIban(draft.iban) || null,
+      },
+    };
+  }
+
+  if (section === "federazione") {
+    // Non esiste una colonna `clubs.federations`: le affiliazioni vivono
+    // dentro `settings`, ed e da li che le rilegge anche la scheda atleta.
+    return {
+      columns: {},
+      settings: {
+        federations: Array.isArray(draft.federations) ? draft.federations : [],
+      },
+    };
+  }
+
+  if (section === "pagamenti") {
+    return {
+      columns: {},
+      settings: draft.paymentSettings
+        ? { paymentSettings: draft.paymentSettings }
+        : {},
+    };
+  }
+
+  /*
+    Restano fuori Stagioni — che ha un endpoint proprio e operazioni con
+    conferma — e Account e Fatturazione, che e in sola lettura. Se ci
+    passassero, scrivere un oggetto vuoto e piu sicuro che indovinare.
+  */
   return { columns: {}, settings: {} };
+};
+
+/**
+ * Un valore incompleto non si scrive.
+ *
+ * E il sostituto vero del pulsante «Salva»: il pulsante non impediva di
+ * salvare un IBAN sbagliato, si limitava a chiedere un clic in piu. Qui la
+ * sezione resta non scritta finche il valore non e formalmente un valore, e
+ * la ragione viene mostrata a schermo.
+ *
+ * Solo controlli **di forma**: che una partita IVA esista davvero lo sa
+ * l'Agenzia delle Entrate, non questa funzione.
+ */
+export const validateClubProfileSection = (
+  section: ClubProfileSectionId,
+  draft: ClubProfileDraft,
+): string | null => {
+  if (section === "generale") {
+    if (!trimmed(draft.name)) {
+      return "Il nome del club e obbligatorio.";
+    }
+    if (draft.postalCode && !isValidPostalCode(draft.postalCode)) {
+      return "Il CAP ha cinque cifre.";
+    }
+    return null;
+  }
+
+  if (section === "fiscali") {
+    const vat = normalizedVatNumber(draft.vatNumber);
+    if (vat && !/^\d{11}$/.test(vat)) {
+      return "La partita IVA ha undici cifre.";
+    }
+
+    const fiscalCode = normalizedFiscalCode(draft.fiscalCode);
+    if (
+      fiscalCode &&
+      !/^\d{11}$/.test(fiscalCode) &&
+      !isWellFormedCodiceFiscale(fiscalCode)
+    ) {
+      return "Il codice fiscale della societa ha undici cifre o sedici caratteri.";
+    }
+
+    const representative = normalizedFiscalCode(draft.representativeFiscalCode);
+    if (representative && !isWellFormedCodiceFiscale(representative)) {
+      return "Il codice fiscale del legale rappresentante non e valido.";
+    }
+
+    if (draft.legalPostalCode && !isValidPostalCode(draft.legalPostalCode)) {
+      return "Il CAP della sede legale ha cinque cifre.";
+    }
+
+    return null;
+  }
+
+  if (section === "bancari") {
+    const iban = normalizedIban(draft.iban);
+    if (iban && !isWellFormedIban(iban)) {
+      return "L'IBAN non e ancora completo: due lettere di paese, due cifre di controllo e almeno undici caratteri.";
+    }
+    return null;
+  }
+
+  if (section === "pagamenti") {
+    return draft.paymentSettings
+      ? validatePaymentSettingsForSave(draft.paymentSettings as any)
+      : null;
+  }
+
+  return null;
 };
 
 /** Impronta della sezione: due impronte uguali = niente da salvare. */
@@ -281,6 +489,23 @@ const CLUB_PROFILE_FIELDS = [
   "country",
   "contact_email",
   "contact_phone",
+  "pec",
+  "business_name",
+  "vat_number",
+  "fiscal_code",
+  "tax_regime",
+  "sdi_code",
+  "legal_address",
+  "legal_city",
+  "legal_postal_code",
+  "legal_region",
+  "legal_province",
+  "legal_country",
+  "representative_name",
+  "representative_surname",
+  "representative_fiscal_code",
+  "bank_name",
+  "iban",
   "settings",
 ];
 
@@ -309,6 +534,25 @@ export const emptyClubProfileDraft = (): ClubProfileDraft => ({
   instagram: "",
   twitter: "",
   youtube: "",
+  businessName: "",
+  vatNumber: "",
+  fiscalCode: "",
+  taxRegime: "",
+  atecoCode: "",
+  sdiCode: "",
+  legalAddress: "",
+  legalCity: "",
+  legalPostalCode: "",
+  legalRegion: "",
+  legalProvince: "",
+  legalCountry: "Italia",
+  representativeName: "",
+  representativeSurname: "",
+  representativeFiscalCode: "",
+  bankName: "",
+  iban: "",
+  federations: [],
+  paymentSettings: null,
 });
 
 const asStringArray = (value: unknown) =>
@@ -363,12 +607,34 @@ export const loadClubProfile = async (clubId: string) => {
     contact2Phone: asText(settings.contact2Phone),
     contact2Email: asText(settings.contact2Email),
     companyEmail: asText(settings.companyEmail) || asText(record.contact_email),
-    companyPec: asText(settings.companyPec),
+    companyPec: asText(record.pec) || asText(settings.companyPec),
     website: asText(settings.website),
     facebook: asText(settings.facebook),
     instagram: asText(settings.instagram),
     twitter: asText(settings.twitter),
     youtube: asText(settings.youtube),
+    businessName: asText(record.business_name) || asText(settings.businessName),
+    vatNumber: asText(record.vat_number) || asText(settings.vat_number),
+    fiscalCode: asText(record.fiscal_code) || asText(settings.fiscal_code),
+    taxRegime: asText(record.tax_regime) || asText(settings.tax_regime),
+    atecoCode: asText(settings.atecoCode),
+    sdiCode: asText(record.sdi_code),
+    legalAddress: asText(record.legal_address),
+    legalCity: asText(record.legal_city),
+    legalPostalCode: asText(record.legal_postal_code),
+    legalRegion: asText(record.legal_region),
+    legalProvince: asText(record.legal_province),
+    legalCountry: asText(record.legal_country) || "Italia",
+    representativeName: asText(record.representative_name),
+    representativeSurname: asText(record.representative_surname),
+    representativeFiscalCode: asText(record.representative_fiscal_code),
+    bankName: asText(record.bank_name) || asText(settings.bank_name),
+    iban: asText(record.iban) || asText(settings.iban),
+    federations: Array.isArray(settings.federations) ? settings.federations : [],
+    paymentSettings:
+      typeof settings.paymentSettings === "object" && settings.paymentSettings
+        ? settings.paymentSettings
+        : null,
   };
 
   return { id: String(record.id), draft, settings };

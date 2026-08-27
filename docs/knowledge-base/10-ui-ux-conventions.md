@@ -139,30 +139,51 @@ Verificate da `tests/ui/overlay-menus.test.mjs`.
 
 Tutti dichiarano `role="status"` e `aria-live="polite"`.
 
-### Quando una schermata puo salvarsi da sola (Blocco 4)
+### Quando una schermata puo salvarsi da sola (RC Fix 1)
 
 Il pulsante «Salva» non e gratis: chi lo dimentica perde il lavoro, e in una
-pagina a schede uno solo in fondo a nove schede e una trappola. Ma l'autosave
-non e sempre lecito. La regola:
+pagina a schede uno solo in fondo a nove schede e una trappola.
 
-| Puo essere in autosave | Deve restare a conferma esplicita |
-|------------------------|-----------------------------------|
-| Dati descrittivi: nome, sport, recapiti, link pubblici | Dati economici: quote, listini, IBAN, abbonamento |
-| Contenuti che si riscrivono senza conseguenze (programma settimanale) | Dati fiscali che finiscono in fattura |
-| | Operazioni **distruttive**: rimozione di elementi da un elenco |
-| | Scelte che cambiano il perimetro dei dati: la stagione attiva (WP-32) |
+Il Blocco 4 aveva diviso le schede in due famiglie — descrittive in autosave,
+sensibili a conferma — con una motivazione ragionevole: un IBAN salvato a meta
+digitazione dirotta gli incassi. **RC Fix 1 sposta la linea**, perche il
+compromesso a meta produceva una pagina che si comportava in due modi diversi
+a seconda della scheda aperta, e perche il pulsante rimasto non risolveva il
+problema che lo giustificava: salvava volentieri un IBAN sbagliato, chiedeva
+solo un clic in piu.
 
-Chi implementa un autosave deve fornire tutte e tre le cose insieme:
+La regola oggi:
+
+| Puo essere in autosave | Deve restare fuori |
+|------------------------|--------------------|
+| Qualunque scheda che sia un **modulo**: anagrafica, recapiti, link, dati fiscali, conto, affiliazioni, interruttori di incasso | Superfici che **non sono un modulo**: hanno operazioni proprie con conferma (Stagioni, WP-32) o sono in sola lettura (Account e Fatturazione) |
+| | Operazioni **distruttive** che non siano gia un gesto esplicito |
+
+Cio che rende lecito l'autosave su un dato sensibile non e il dato: e che **un
+valore incompleto non venga scritto**. `validateClubProfileSection` trattiene
+la sezione finche l'IBAN non ha la forma di un IBAN, la partita IVA undici
+cifre, il CAP cinque; e dice a schermo perche.
+
+Chi implementa un autosave deve fornire tutte e quattro le cose insieme:
 
 1. **debounce** (1 s nella scheda Club, 1,5 s nel programma settimanale);
 2. **accorpamento** con `createCoalescingSaver` — due PATCH sovrapposte
-   arrivano in ordine non garantito e l'ultima modifica puo perdersi;
-3. **stato visibile** con `SaveStatus`, mai una scritta fissa "salvato".
+   arrivano in ordine non garantito e l'ultima modifica puo perdersi. Quando
+   piu sezioni scrivono nella stessa colonna JSON, l'accorpamento lavora
+   sull'**insieme** delle sezioni sporche, non su una sola;
+3. **validazione che trattiene**, non che avvisa dopo;
+4. **stato visibile** con `SaveStatus`, uno solo per pagina, discreto e
+   temporaneo: a riposo non disegna niente e «Salvato» sparisce da solo.
+
+L'autosave guarda **tutte** le sezioni, non quella aperta. Legarlo alla scheda
+attiva era il difetto piu costoso della pagina Club: cambiando scheda entro il
+secondo di attesa il timer veniva annullato e la modifica spariva senza dirlo.
 
 L'elenco vero delle sezioni della scheda Club, con la motivazione di ciascuna,
 sta in `src/lib/club-profile.ts` ed e verificato da
 `tests/lib/club-profile-autosave.test.mjs`: la classificazione e codice, non
 una convenzione da ricordare.
+
 
 ### Anagrafica assistita
 

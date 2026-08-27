@@ -1639,6 +1639,37 @@ const CLUB_PROJECTABLE_FIELDS = new Set([
   "contact_phone",
   "city",
   "province",
+  /*
+    L'anagrafica scalare del club.
+
+    Mancava, e la conseguenza non era un campo in meno a schermo: chi legge il
+    profilo con `?fields=` per poi riscriverne una sezione — l'avvio guidato,
+    e da RC Fix 1 l'autosave della scheda Club — si ritrovava indirizzo, CAP,
+    regione, paese, dati fiscali e IBAN **vuoti**, e li riscriveva a `null`.
+    Una proiezione che tace un campo che il chiamante ha chiesto non e una
+    proiezione: e una perdita di dati.
+  */
+  "address",
+  "postal_code",
+  "region",
+  "country",
+  "business_name",
+  "vat_number",
+  "fiscal_code",
+  "pec",
+  "sdi_code",
+  "tax_regime",
+  "bank_name",
+  "iban",
+  "legal_address",
+  "legal_city",
+  "legal_postal_code",
+  "legal_region",
+  "legal_province",
+  "legal_country",
+  "representative_name",
+  "representative_surname",
+  "representative_fiscal_code",
   "created_at",
   "updated_at",
 ]);
