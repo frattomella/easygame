@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 import clubLogoDefault from "@/../public/images/club_logo.png";
@@ -12,7 +12,15 @@ import { PageHeading } from "@/components/dashboard/page-heading";
 import { OnboardingResumeCard } from "@/components/dashboard/onboarding-resume-card";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
-import { getClubAthletes, getClubData } from "@/lib/simplified-db";
+import {
+  buildCertificateAlerts,
+  buildDashboardMetrics,
+  loadClubDashboardOverview,
+  selectActiveNotes,
+  selectUpcomingAppointments,
+  selectUpcomingMatches,
+  type ClubDashboardOverview,
+} from "@/lib/dashboard/club-overview";
 import {
   getInvalidCertificatesForConvocatedAthletes,
   type MatchCertificateWarningResult,
@@ -171,191 +179,116 @@ export default function DashboardPage() {
   const [todayNotes, setTodayNotes] = useState<Note[]>([]);
   const [todayMatches, setTodayMatches] = useState<Match[]>([]);
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
+  const [overview, setOverview] = useState<ClubDashboardOverview | null>(null);
 
+  const metrics = useMemo(
+    () =>
+      buildDashboardMetrics({
+        club: overview?.club || null,
+        athletes: overview?.athletes || [],
+        certificates: overview?.certificates || [],
+      }),
+    [overview],
+  );
+
+  const certificateAlerts = useMemo(
+    () =>
+      buildCertificateAlerts({
+        athletes: overview?.athletes || [],
+        certificates: overview?.certificates || [],
+      }),
+    [overview],
+  );
+
+  /**
+   * Una lettura sola, in parallelo, all'apertura.
+   *
+   * Prima erano sei `await` consecutivi in questa pagina piu dieci letture
+   * dai tre componenti, con l'archivio atleti chiesto quattro volte e per
+   * intero: 29 richieste, 10 attese in fila, 1,9 MB su 200 atleti. La misura
+   * sta in `scripts/measure-dashboard-performance.mjs` e la lettura in
+   * `@/lib/dashboard/club-overview`.
+   */
   useEffect(() => {
-    // Get club ID from URL query parameter or active organization
-    const getClubId = async () => {
+    let cancelled = false;
+
+    const resolveClubId = () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const fromUrl =
+        searchParams.get("clubId") || searchParams.get("organizationId");
+      if (fromUrl) return fromUrl;
+
       try {
-        // First check URL query parameter - check both clubId and organizationId
-        const searchParams = new URLSearchParams(window.location.search);
-        const urlClubId =
-          searchParams?.get("clubId") || searchParams?.get("organizationId");
-
-        if (urlClubId) {
-          setClubId(urlClubId);
-          await fetchClubInfo(urlClubId);
-          setIsLoading(false);
-          return;
-        }
-
-        // Then check localStorage for active club
-        const activeClub = localStorage.getItem("activeClub");
-        if (activeClub) {
-          try {
-            const parsedClub = JSON.parse(activeClub);
-            if (parsedClub.id) {
-              setClubId(parsedClub.id);
-              await fetchClubInfo(parsedClub.id);
-              setIsLoading(false);
-              return;
-            }
-          } catch (e) {
-            console.error("Error parsing active club:", e);
-          }
-        }
-
-        // If no club found, set loading to false
-        setIsLoading(false);
+        const stored = localStorage.getItem("activeClub");
+        if (!stored) return null;
+        const parsed = JSON.parse(stored);
+        return parsed?.id ? String(parsed.id) : null;
       } catch (error) {
-        console.error("Error fetching club ID:", error);
-        setIsLoading(false);
+        console.error("Error parsing active club:", error);
+        return null;
       }
     };
 
-    const fetchClubInfo = async (organizationId: string) => {
+    const syncActiveClubLocally = (club: ClubInfo) => {
       try {
-        // Try organizations table first (new structure)
-        let { data: organization } = await supabase
-          .from("organizations")
-          .select("id, name, logo_url")
-          .eq("id", organizationId)
-          .single();
+        const stored = localStorage.getItem("activeClub");
+        const parsed = stored ? JSON.parse(stored) : {};
+        const merged = { ...parsed, ...club };
+        localStorage.setItem("activeClub", JSON.stringify(merged));
+        localStorage.setItem("organization-name", club.name);
+        window.dispatchEvent(
+          new CustomEvent("club-updated", { detail: { clubData: merged } }),
+        );
+      } catch (error) {
+        console.error("Error syncing active club:", error);
+      }
+    };
 
-        // If not found in organizations, try clubs table (legacy structure)
-        if (!organization) {
-          const { data: club } = await supabase
-            .from("clubs")
-            .select("id, name, logo_url")
-            .eq("id", organizationId)
-            .single();
+    const load = async () => {
+      const activeClubId = resolveClubId();
 
-          if (club) {
-            organization = {
-              id: club.id,
-              name: club.name,
-              logo_url: club.logo_url,
-            };
-          }
-        }
+      if (!activeClubId) {
+        if (!cancelled) setIsLoading(false);
+        return;
+      }
 
-        if (organization) {
-          const existingActiveClub =
-            typeof window !== "undefined"
-              ? window.localStorage.getItem("activeClub")
-              : null;
-          const parsedActiveClub =
-            existingActiveClub && existingActiveClub.trim()
-              ? (() => {
-                  try {
-                    return JSON.parse(existingActiveClub);
-                  } catch {
-                    return {};
-                  }
-                })()
-              : {};
+      if (!cancelled) setClubId(activeClubId);
 
-          const clubData = {
-            ...parsedActiveClub,
-            id: organization.id,
-            name: organization.name,
-            logo_url: organization.logo_url || undefined,
+      try {
+        const result = await loadClubDashboardOverview(activeClubId);
+        if (cancelled) return;
+
+        setOverview(result);
+
+        if (result.club) {
+          const club: ClubInfo = {
+            id: result.club.id,
+            name: result.club.name,
+            logo_url: result.club.logoUrl || undefined,
           };
-
-          setClubInfo(clubData);
-
-          // Update localStorage with club info
-          localStorage.setItem("activeClub", JSON.stringify(clubData));
-          localStorage.setItem("organization-name", organization.name);
-
-          // Dispatch custom event to notify other components
-          if (typeof window !== "undefined") {
-            const event = new CustomEvent("club-updated", {
-              detail: { clubData },
-            });
-            window.dispatchEvent(event);
-          }
-
-          // Load upcoming appointments, active reminders and upcoming matches
-          await loadTodayData(organization.id);
+          setClubInfo(club);
+          syncActiveClubLocally(club);
         }
+
+        setTodayAppointments(
+          selectUpcomingAppointments(result.club?.appointments || []),
+        );
+        setTodayNotes(selectActiveNotes(result.club?.notes || []));
+        setTodayMatches(selectUpcomingMatches(result.club?.matches || []));
+        setClubAthletes(result.athletes);
       } catch (error) {
-        console.error("Error fetching club info:", error);
+        console.warn("Error loading dashboard data:", error);
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    const loadTodayData = async (orgId: string) => {
-      try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+    void load();
 
-        // Load appointments
-        const appointmentsData = await getClubData(orgId, "appointments");
-        if (Array.isArray(appointmentsData)) {
-          const todayApps = appointmentsData
-            .filter((app: any) => {
-              const appDate = new Date(app.date);
-              appDate.setHours(0, 0, 0, 0);
-              return appDate >= today;
-            })
-            .map((app: any) => ({
-              ...app,
-              date: new Date(app.date),
-            }))
-            .sort((left: Appointment, right: Appointment) => {
-              const byDate = left.date.getTime() - right.date.getTime();
-              return byDate || left.time.localeCompare(right.time);
-            });
-          setTodayAppointments(todayApps);
-        }
-
-        // Load notes/reminders
-        const notesData = await getClubData(orgId, "secretariat_notes");
-        if (Array.isArray(notesData)) {
-          const activeNotes = notesData
-            .filter((note: any) => {
-              if (!note.expiryDate) return true;
-              const expiryDate = new Date(note.expiryDate);
-              return expiryDate >= today;
-            })
-            .map((note: any) => ({
-              ...note,
-              date: new Date(note.date),
-              expiryDate: note.expiryDate
-                ? new Date(note.expiryDate)
-                : undefined,
-            }));
-          setTodayNotes(activeNotes);
-        }
-
-        // Load matches
-        const matchesData = await getClubData(orgId, "matches");
-        if (Array.isArray(matchesData)) {
-          const todayMatchesList = matchesData
-            .filter((match: any) => {
-              const matchDate = new Date(match.date);
-              matchDate.setHours(0, 0, 0, 0);
-              return matchDate >= today && match.status !== "cancelled";
-            })
-            .map((match: any) => ({
-              ...match,
-              date: new Date(match.date),
-            }))
-            .sort((left: Match, right: Match) => {
-              const byDate = left.date.getTime() - right.date.getTime();
-              return byDate || left.time.localeCompare(right.time);
-            });
-          setTodayMatches(todayMatchesList);
-        }
-
-        const athletesData = await getClubAthletes(orgId);
-        setClubAthletes(Array.isArray(athletesData) ? athletesData : []);
-      } catch (error) {
-        console.warn("Error loading today's data:", error);
-      }
+    return () => {
+      cancelled = true;
     };
-
-    getClubId();
-  }, [router]);
+  }, []);
 
   const matchItems: DashboardSideCardItem[] = todayMatches
     .slice(0, 3)
@@ -453,9 +386,8 @@ export default function DashboardPage() {
                   <div className="flex h-[320px] min-h-0 overflow-hidden rounded-lg bg-white p-3 shadow-sm">
                     <CertificationAlerts
                       isLoading={isLoading}
-                      alerts={[]}
-                      organizationId={clubId}
-                      showEmptyState={false}
+                      alerts={certificateAlerts}
+                      source="provided"
                       variant="embedded"
                       maxHeight="290px"
                     />
@@ -501,10 +433,18 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {/*
+          Le metriche arrivano dai dati gia letti: prima questo componente
+          rileggeva tutti gli atleti con il `data` intero — due volte, e la
+          seconda non la usava nessuno — solo per contarli.
+        */}
         <MetricsOverview
           isLoading={isLoading}
-          organizationId={clubId}
-          showEmptyState={false}
+          totalAthletes={metrics.totalAthletes}
+          activeCategories={metrics.activeCategories}
+          upcomingTrainings={metrics.upcomingTrainings}
+          expiringCertificates={metrics.expiringCertificates}
+          expiredCertificates={metrics.expiredCertificates}
         />
       </div>
     </div>

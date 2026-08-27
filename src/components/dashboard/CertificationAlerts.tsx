@@ -41,6 +41,17 @@ type AthleteRow = {
 
 interface CertificationAlertsProps {
   alerts?: CertificationAlert[];
+  /**
+   * Chi ha caricato gli avvisi.
+   *
+   * `provided` significa: li ha gia la pagina, non leggere niente. Serve
+   * perche «elenco vuoto» e una risposta legittima — un club in regola non ha
+   * avvisi — e non si distingue da «non ancora caricato» guardando la
+   * lunghezza dell'array. Prima il componente rileggeva anagrafica atleti e
+   * certificati per conto suo, duplicando due letture appena fatte dalla
+   * dashboard (RC Fix 1, punto 11).
+   */
+  source?: "self" | "provided";
   onViewAll?: () => void;
   onViewAthlete?: (id: string) => void;
   onSendReminder?: (id: string) => boolean | void | Promise<boolean | void>;
@@ -55,6 +66,7 @@ const EMPTY_CERTIFICATION_ALERTS: CertificationAlert[] = [];
 
 const CertificationAlerts = ({
   alerts = EMPTY_CERTIFICATION_ALERTS,
+  source = "self",
   onViewAll = () => console.log("View all alerts"),
   onViewAthlete,
   onSendReminder,
@@ -101,7 +113,7 @@ const CertificationAlerts = ({
     const fetchCertificateAlerts = async () => {
       const providedAlerts = alertsRef.current;
 
-      if (providedAlerts.length > 0) {
+      if (source === "provided" || providedAlerts.length > 0) {
         setLoadedAlerts(providedAlerts);
         setLoading(false);
         return;
@@ -276,7 +288,7 @@ const CertificationAlerts = ({
     return () => {
       isMounted = false;
     };
-  }, [alertsSignature, organizationId, showEmptyState]);
+  }, [alertsSignature, organizationId, showEmptyState, source]);
 
   const getStatusIcon = (status: CertificationAlert["status"]) => {
     switch (status) {

@@ -213,7 +213,7 @@ correggi prima di committare.
 
 ## Misure, non solo test
 
-Tre script producono numeri **rifacibili** invece di numeri copiati. Non
+Quattro script producono numeri **rifacibili** invece di numeri copiati. Non
 fanno passare o fallire niente: servono a decidere prima di ottimizzare, e a
 produrre la riga «prima» e la riga «dopo» della stessa tabella.
 
@@ -222,10 +222,25 @@ produrre la riga «prima» e la riga «dopo» della stessa tabella.
 | `npm run measure:athletes` | Quanto pesa la lista Atleti, e quanto pesava con i file dentro i record |
 | `npm run measure:multisite` | Come cresce il costo dell'abbigliamento e della numerazione con piu sedi |
 | `npm run measure:web` | Come cresce **ogni dominio** da 200 a 2.000 atleti: peso, righe, **interrogazioni**, tempo |
+| `npm run measure:dashboard` | Quanto costa **aprire** la Dashboard Club: richieste, **giri di rete**, byte, duplicati |
 
 Il terzo e nato nel Blocco Finale C e ha trovato due cicli annidati veri nei
 report: erano centinaia di milioni di confronti per disegnare una tabella, e
 nessun test funzionale poteva accorgersene.
+
+Il quarto e nato in RC Fix 1 e misura una cosa che gli altri non vedevano: i
+**giri di rete**. Ventinove richieste non sono un problema se partono
+insieme; dieci attese in fila lo sono, ed erano quelle che facevano sembrare
+lenta la dashboard.
+
+| Dashboard Club | richieste | giri | kB (200 atleti) | kB (1.000) |
+|----------------|-----------|------|-----------------|------------|
+| prima | 29 | 10 | 1.960 | 9.500 |
+| dopo, sopra la piega | 4 | 1 | 157 | 683 |
+| dopo, pagina intera | 20 | 1 | 725 | 3.487 |
+
+Il numero difeso a ogni esecuzione della suite sta in
+`tests/lib/dashboard-overview.test.mjs`: quattro richieste, nessun duplicato.
 
 ## Come aggiungere un test
 

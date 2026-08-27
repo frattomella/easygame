@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { supabase, cachedQuery } from "@/lib/supabase";
-import { debounce, memoize } from "@/lib/performance";
+import { memoize } from "@/lib/performance";
 import {
   getClubAthletes,
   getClubCategories,
@@ -194,7 +194,14 @@ const UpcomingTrainings = memo(
                   getClubTrainings(orgId),
                   getClubCategories(orgId),
                   getClubTrainers(orgId),
-                  getClubAthletes(orgId),
+                  /*
+                    Proiezione `summary`: qui gli atleti servono solo a
+                    contare quanti appartengono alla categoria di un
+                    allenamento. Il `data` intero — tutori, rate, documenti —
+                    valeva 1,9 MB su 200 atleti e non veniva letto
+                    (RC Fix 1, punto 11).
+                  */
+                  getClubAthletes(orgId, { view: "summary" }),
                 ]);
 
               return {
@@ -235,10 +242,14 @@ const UpcomingTrainings = memo(
       [],
     );
 
-    // Debounced loading function
-    const debouncedLoadTrainings = useMemo(
+    /*
+      Il debounce serviva ad accorpare aperture ravvicinate. Alla **prima**
+      non c'e niente da accorpare: erano 300 ms di attesa aggiunti al primo
+      disegno della dashboard, prima ancora che partisse una richiesta.
+    */
+    const loadTrainings = useCallback(
       () =>
-        debounce(async () => {
+        (async () => {
           if (trainings.length > 0) {
             setLoadedTrainings(
               dedupeTrainings(Array.isArray(trainings) ? trainings : []).map(
@@ -262,13 +273,13 @@ const UpcomingTrainings = memo(
           } finally {
             setLoading(false);
           }
-        }, 300),
+        })(),
       [trainings, showEmptyState, organizationId, fetchTrainings],
     );
 
     useEffect(() => {
-      debouncedLoadTrainings();
-    }, [debouncedLoadTrainings]);
+      void loadTrainings();
+    }, [loadTrainings]);
 
     // Memoize filtered and sorted trainings
     const todayTrainings = useMemo(() => {

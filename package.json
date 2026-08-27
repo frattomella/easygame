@@ -29,7 +29,8 @@
     "measure:athletes": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-athletes-payload.mjs",
     "measure:multisite": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-multisite-performance.mjs",
     "measure:web": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-web-v1-performance.mjs",
-    "attachments:migrate-legacy": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/migrate-legacy-attachments.mjs"
+    "attachments:migrate-legacy": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/migrate-legacy-attachments.mjs",
+    "measure:dashboard": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-dashboard-performance.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^6.19.2",
