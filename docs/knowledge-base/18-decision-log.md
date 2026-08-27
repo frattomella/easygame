@@ -3215,12 +3215,34 @@ Contava le righe degli **eventi** — due, corretto — e non contava mai quelle
 mentre il difetto era presente. E' il modo piu comune in cui una suite numerosa
 lascia passare un errore contabile.
 
-**La decisione.** L'identita di un incasso e il **denaro**, non l'evento.
+**La decisione.** L'identita di un incasso e il **denaro**, non l'evento — e
+per Stripe il denaro si chiama **PaymentIntent**.
 
-`GatewayPayment` porta `relatedExternalIds`: gli altri nomi che il provider da
-allo stesso pagamento. Prima di registrare, il gestore del webhook cerca nel
-registro **tutti** quei nomi; se ne trova gia uno, l'evento e un duplicato
-economico e non incassa una seconda volta.
+Un incasso si registra quindi con l'identificativo dell'intent, comunque sia
+arrivata la notizia: la sessione di checkout usa il proprio `payment_intent`,
+l'intent usa se stesso, il charge usa il proprio `payment_intent`. In piu,
+`GatewayPayment` porta `relatedExternalIds` — gli altri nomi dello stesso
+pagamento — e prima di registrare il gestore del webhook cerca nel registro
+**tutti** quei nomi.
+
+**Perche l'intent e non la sessione.** Perche e l'unica cosa che i due eventi
+hanno in comune. Un PaymentIntent **non sa** di essere nato da una sessione di
+checkout: non esiste un campo che lo riporti indietro. Ancorare l'identita alla
+sessione rende quindi la deduplica dipendente dall'**ordine di arrivo** — se
+l'intent arriva per primo funziona, nell'ordine opposto no.
+
+Non e un'ipotesi: la prima versione di questa correzione faceva esattamente
+cosi, e il **secondo** pagamento del collaudo e stato accreditato due volte
+perche Stripe ha consegnato la sessione prima dell'intent. Nel giro di un
+minuto si sono presentati entrambi gli ordini.
+
+L'intent e anche l'identificativo che citano gli eventi di rimborso
+(`charge.payment_intent`): conservarlo fa combaciare anche quel lato, che con
+l'identificativo di sessione non avrebbe trovato l'incasso originale.
+
+Quando una sessione non ha ancora un intent — metodi differiti, sessione
+completata prima che il denaro arrivi — resta l'identificativo della sessione,
+che e l'unico che esista.
 
 Non e un principio nuovo nel codice: `recordRefundTransaction` lo applicava gia
 ai rimborsi, dove lo stesso problema si presenta fra `charge.refunded` e
@@ -3234,10 +3256,11 @@ arrivi, e l'incasso vero e annunciato dall'intent. Tenere solo l'intent avrebbe
 perso il caso opposto. I due eventi servono entrambi: quello che mancava era
 sapere che parlano della stessa cosa.
 
-**Perche non si e normalizzato l'identificativo a `pi_…`.** Perche
-`fetchChargeForSettlement` accetta di proposito le tre forme e risale al
-`balance_transaction` da ciascuna. Forzare una forma sola avrebbe scambiato un
-difetto con una rigidita, senza guadagno.
+**Cosa non cambia.** `fetchChargeForSettlement` continua ad accettare tutte e
+tre le forme di identificativo e a risalire al `balance_transaction` da
+ciascuna: normalizzare cio che si **scrive** non obbliga a irrigidire cio che si
+**legge**, e le righe registrate prima di questa correzione portano ancora
+l'identificativo della sessione.
 
 **Conseguenze.**
 
@@ -3247,9 +3270,16 @@ difetto con una rigidita, senza guadagno.
 - i due eventi restano **entrambi** registrati in `payment_webhook_events`: sono
   davvero arrivati, e cancellarne la traccia renderebbe cieca la diagnosi;
 - il test che asseriva il contrario e stato riscritto, e ne sono stati aggiunti
-  tre: identificativi diversi legati fra loro, ordine di consegna invertito, e
-  il caso che la guardia **non** deve bloccare — due acconti veri sulla stessa
-  rata restano due incassi;
+  altri: i **due ordini di arrivo**, il caso che la guardia **non** deve
+  bloccare — due acconti veri sulla stessa rata restano due incassi — e la
+  mappatura dei due eventi allo stesso nome, provata sul provider con eventi
+  firmati;
+- una lezione sui test, pagata due volte. Il primo tentativo di regressione
+  usava lo **stesso `id` di evento** per i due eventi: a scattare era la
+  deduplica dell'evento, non quella del denaro, e il test passava senza provare
+  niente. C'e ora un test che verifica che i due eventi abbiano davvero
+  identificativi diversi — una guardia sulla guardia, perche un test che passa
+  per la ragione sbagliata e peggio di un test assente;
 - resta una finestra di concorrenza teorica: i due eventi arrivano a decine di
   millisecondi di distanza e sono elaborati da due invocazioni distinte. La
   guardia e una lettura seguita da una scrittura. Chiuderla del tutto richiede

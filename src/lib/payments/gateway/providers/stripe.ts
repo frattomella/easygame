@@ -197,13 +197,26 @@ const relatedIdsOf = (...values: any[]): string[] =>
 
 const paymentFromSession = (session: any): GatewayPayment => ({
   provider: "stripe",
-  externalId: String(session?.id || ""),
   /*
-    L'intent della sessione e lo **stesso denaro** con un altro nome: e cio che
-    permette di riconoscere che `checkout.session.completed` e
-    `payment_intent.succeeded` non sono due incassi.
+    **L'incasso si identifica con l'intent, non con la sessione.**
+
+    I due eventi di un pagamento riuscito — `checkout.session.completed` e
+    `payment_intent.succeeded` — hanno in comune l'intent e nient'altro: un
+    PaymentIntent non sa di essere nato da una sessione, e non esiste un campo
+    che lo riporti indietro. Registrare la sessione come identita rendeva la
+    deduplica dipendente dall'**ordine di arrivo**: funzionava se l'intent
+    arrivava per primo, falliva nell'ordine opposto. Nel collaudo sandbox del
+    Blocco E i due ordini si sono presentati entrambi, e il secondo pagamento
+    e stato accreditato due volte.
+
+    L'intent e anche l'identificativo che citano gli eventi di rimborso
+    (`charge.payment_intent`): conservarlo fa combaciare anche quel lato.
+    Quando la sessione non ha ancora un intent — metodi differiti, sessione non
+    pagata — resta l'identificativo della sessione, che e l'unico che esista.
   */
-  relatedExternalIds: relatedIdsOf(session?.payment_intent),
+  externalId: String(session?.payment_intent?.id || session?.payment_intent || session?.id || ""),
+  /* La sessione resta un nome valido dello stesso denaro. */
+  relatedExternalIds: relatedIdsOf(session?.id),
   status: checkoutStatusOf(session),
   money: {
     amountCents: Math.round(Number(session?.amount_total || 0)),
@@ -252,11 +265,13 @@ const paymentFromIntent = (intent: any): GatewayPayment => {
   return {
     provider: "stripe",
     externalId: String(intent?.id || ""),
-    /* Il charge e la sessione sono lo stesso denaro con un altro nome. */
-    relatedExternalIds: relatedIdsOf(
-      intent?.latest_charge,
-      intent?.checkout_session,
-    ),
+    /*
+      Il charge e lo stesso denaro con un altro nome. La sessione **non** e
+      raggiungibile da qui: un PaymentIntent non porta un riferimento alla
+      sessione che lo ha creato, ed e la ragione per cui l'identita di un
+      incasso si ancora all'intent e non alla sessione.
+    */
+    relatedExternalIds: relatedIdsOf(intent?.latest_charge),
     status,
     money: {
       amountCents: Math.round(Number(intent?.amount || 0)),

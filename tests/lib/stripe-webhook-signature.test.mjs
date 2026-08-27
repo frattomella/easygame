@@ -339,3 +339,137 @@ test("un evento di un tipo sconosciuto non fa esplodere il webhook", () => {
   assert.equal(evento.type, "una.cosa.che.non.esisteva");
   assert.equal(evento.payment, null);
 });
+
+/* ------------------------------- l'identita dell'incasso, dai due eventi */
+
+const eventoFirmato = (corpo) => {
+  const rawBody = JSON.stringify(corpo);
+  return stripe.stripeProvider.parseWebhook({
+    rawBody,
+    signature: sign(rawBody).header,
+    secret: SECRET,
+    now: at(1_700_000_000),
+  });
+};
+
+test("una sessione identifica l'incasso con il proprio intent", () => {
+  /*
+    **Il difetto trovato al secondo pagamento del collaudo sandbox.** I due
+    eventi di un pagamento riuscito hanno in comune l'intent e nient'altro: un
+    PaymentIntent non porta un riferimento alla sessione che lo ha creato, e
+    non esiste un campo che lo riporti indietro.
+
+    Finche la sessione si registrava con il proprio identificativo, la
+    deduplica dipendeva dall'**ordine di arrivo** dei due eventi — e nel
+    collaudo si sono presentati entrambi gli ordini, a un minuto di distanza.
+  */
+  const evento = eventoFirmato({
+    id: "evt_s",
+    type: "checkout.session.completed",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "checkout.session",
+        id: "cs_1",
+        payment_intent: "pi_1",
+        status: "complete",
+        payment_status: "paid",
+        amount_total: 5000,
+        metadata: {},
+      },
+    },
+  });
+
+  assert.equal(evento.payment.externalId, "pi_1");
+  assert.ok(
+    evento.payment.relatedExternalIds.includes("cs_1"),
+    "la sessione resta un nome valido dello stesso denaro",
+  );
+});
+
+test("una sessione senza intent conserva il proprio identificativo", () => {
+  /*
+    Con i metodi differiti la sessione si completa prima che l'intent esista.
+    Restare senza identificativo vorrebbe dire un incasso che non si sa come
+    chiamare.
+  */
+  const evento = eventoFirmato({
+    id: "evt_s2",
+    type: "checkout.session.completed",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "checkout.session",
+        id: "cs_2",
+        status: "complete",
+        payment_status: "paid",
+        amount_total: 5000,
+        metadata: {},
+      },
+    },
+  });
+
+  assert.equal(evento.payment.externalId, "cs_2");
+});
+
+test("un intent identifica l'incasso con se stesso, e cita il proprio charge", () => {
+  const evento = eventoFirmato({
+    id: "evt_i",
+    type: "payment_intent.succeeded",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "payment_intent",
+        id: "pi_1",
+        status: "succeeded",
+        amount: 5000,
+        latest_charge: "ch_1",
+        metadata: {},
+      },
+    },
+  });
+
+  assert.equal(evento.payment.externalId, "pi_1");
+  assert.ok(evento.payment.relatedExternalIds.includes("ch_1"));
+});
+
+test("sessione e intent dello stesso pagamento arrivano allo stesso nome", () => {
+  /*
+    L'invariante che chiude il difetto: comunque arrivino, i due eventi
+    identificano l'incasso allo stesso modo.
+  */
+  const daSessione = eventoFirmato({
+    id: "evt_a",
+    type: "checkout.session.completed",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "checkout.session",
+        id: "cs_9",
+        payment_intent: "pi_9",
+        status: "complete",
+        payment_status: "paid",
+        amount_total: 8000,
+        metadata: {},
+      },
+    },
+  });
+
+  const daIntent = eventoFirmato({
+    id: "evt_b",
+    type: "payment_intent.succeeded",
+    created: 1_700_000_000,
+    data: {
+      object: {
+        object: "payment_intent",
+        id: "pi_9",
+        status: "succeeded",
+        amount: 8000,
+        latest_charge: "ch_9",
+        metadata: {},
+      },
+    },
+  });
+
+  assert.equal(daSessione.payment.externalId, daIntent.payment.externalId);
+});

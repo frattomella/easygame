@@ -165,53 +165,70 @@ test("due eventi diversi sullo stesso pagamento incassano una volta sola", async
   assert.equal(fake.rows("paymentWebhookEvent").length, 2);
 });
 
-test("la sessione e il suo intent sono lo stesso incasso, anche con due identificativi", async () => {
-  /*
-    Il caso reale: i due eventi non portano lo stesso identificativo. La
-    sessione si chiama `cs_…`, l'intent `pi_…`, e senza il legame fra i due
-    nomi il secondo evento sembra un incasso nuovo.
-  */
-  await gateway.handleGatewayWebhookEvent(
-    conPagamento({ externalId: "pi_1" }),
-  );
-  const secondo = await gateway.handleGatewayWebhookEvent({
-    ...eventoRiuscito({ id: "evt_2" }),
-    payment: {
-      ...eventoRiuscito().payment,
-      externalId: "cs_1",
-      relatedExternalIds: ["pi_1"],
-    },
-  });
+/*
+  I due eventi come li costruisce davvero il provider: entrambi identificano
+  l'incasso con l'**intent**, e ciascuno tiene il proprio nome come alternativo.
+  Vedi `paymentFromSession` e `paymentFromIntent`.
+*/
+const daIntent = (id) => ({
+  ...eventoRiuscito({ id, type: "payment_intent.succeeded" }),
+  payment: {
+    ...eventoRiuscito().payment,
+    externalId: "pi_1",
+    relatedExternalIds: ["ch_1"],
+  },
+});
 
+const daSessione = (id) => ({
+  ...eventoRiuscito({ id, type: "checkout.session.completed" }),
+  payment: {
+    ...eventoRiuscito().payment,
+    externalId: "pi_1",
+    relatedExternalIds: ["cs_1"],
+  },
+});
+
+test("intent prima, sessione poi: un incasso solo", async () => {
+  const primo = await gateway.handleGatewayWebhookEvent(daIntent("evt_1"));
+  const secondo = await gateway.handleGatewayWebhookEvent(daSessione("evt_2"));
+
+  assert.equal(primo.duplicate, false);
   assert.equal(secondo.duplicate, true);
   assert.equal(fake.rows("paymentTransaction").length, 1);
 });
 
-test("il legame vale anche quando arriva prima la sessione", async () => {
+test("sessione prima, intent poi: un incasso solo", async () => {
   /*
-    L'ordine di consegna non e garantito: Stripe non promette che
-    `payment_intent.succeeded` preceda `checkout.session.completed`. Se la
-    deduplica funzionasse in un ordine solo, il doppio accredito tornerebbe
-    quando la rete inverte i due.
-  */
-  await gateway.handleGatewayWebhookEvent({
-    ...eventoRiuscito({ id: "evt_1" }),
-    payment: {
-      ...eventoRiuscito().payment,
-      externalId: "cs_1",
-      relatedExternalIds: ["pi_1"],
-    },
-  });
-  const secondo = await gateway.handleGatewayWebhookEvent(
-    conPagamento({ externalId: "pi_1" }),
-  );
+    **Il difetto della prima correzione, trovato al secondo pagamento del
+    collaudo.** L'ordine di consegna non e garantito, e Stripe non promette
+    che l'intent preceda la sessione: nel collaudo si sono presentati
+    **entrambi** gli ordini, a un minuto di distanza.
 
-  assert.equal(
-    secondo.duplicate,
-    true,
-    "l'intent citato dalla sessione e gia stato incassato",
-  );
+    La prima correzione identificava l'incasso con la sessione e si affidava a
+    un campo `checkout_session` sull'intent — che **non esiste**: un
+    PaymentIntent non sa di essere nato da una sessione. La deduplica
+    funzionava quindi in un ordine solo, e nell'ordine opposto la rata veniva
+    accreditata due volte.
+
+    Il test che avrebbe dovuto coprirlo era anch'esso difettoso: riusava lo
+    stesso `id` di evento per i due eventi, quindi a scattare era la deduplica
+    **dell'evento**, non quella del denaro. Passava senza provare niente.
+  */
+  const primo = await gateway.handleGatewayWebhookEvent(daSessione("evt_1"));
+  const secondo = await gateway.handleGatewayWebhookEvent(daIntent("evt_2"));
+
+  assert.equal(primo.duplicate, false);
+  assert.equal(secondo.duplicate, true);
   assert.equal(fake.rows("paymentTransaction").length, 1);
+});
+
+test("i due eventi hanno davvero identificativi diversi, altrimenti il test non prova nulla", async () => {
+  /*
+    Guardia sulla guardia: se i due eventi finissero per avere lo stesso
+    `id`, i due test qui sopra passerebbero per la ragione sbagliata — come e
+    successo davvero.
+  */
+  assert.notEqual(daIntent("evt_1").id, daSessione("evt_2").id);
 });
 
 test("due pagamenti davvero distinti restano due incassi", async () => {
