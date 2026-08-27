@@ -357,6 +357,91 @@ test("il provider non arriva dalla richiesta ma dalle impostazioni del club", as
   assert.ok(contesto.readiness.blocker);
 });
 
+/* ------------------------------------- l'idempotenza del checkout */
+
+test("due clic sullo stesso tentativo riusano la stessa sessione", () => {
+  /*
+    E' il motivo per cui la chiave esiste: due sessioni sullo stesso tentativo
+    sono due addebiti a una famiglia.
+  */
+  const chiave = () =>
+    gateway.buildCheckoutIdempotencyKey({
+      organizationId: CLUB,
+      paymentId: RATA,
+      amountCents: 5000,
+      settledCents: 0,
+    });
+
+  assert.equal(chiave(), chiave());
+});
+
+test("un secondo versamento dello stesso importo apre una sessione nuova", () => {
+  /*
+    **Il difetto trovato nel collaudo sandbox del Blocco E.** La chiave
+    conteneva club, rata e importo, e nient'altro. Una famiglia che versa 50 €
+    su una rata da 130 € e poi ne versa altri 50 riceveva la stessa sessione —
+    quella gia pagata — e leggeva «hai completato il pagamento» davanti a un
+    residuo di 80 €. Il secondo versamento era **impossibile**.
+
+    Il collaudo non l'aveva intercettato per caso: la matrice prevedeva 50 e
+    poi 80, due importi diversi. Con due acconti uguali si sarebbe visto
+    subito.
+  */
+  const prima = gateway.buildCheckoutIdempotencyKey({
+    organizationId: CLUB,
+    paymentId: RATA,
+    amountCents: 5000,
+    settledCents: 0,
+  });
+
+  const dopo = gateway.buildCheckoutIdempotencyKey({
+    organizationId: CLUB,
+    paymentId: RATA,
+    amountCents: 5000,
+    settledCents: 5000,
+  });
+
+  assert.notEqual(
+    prima,
+    dopo,
+    "dopo un incasso la rata e in un altro stato: serve una sessione nuova",
+  );
+});
+
+test("rate diverse e club diversi non condividono una sessione", () => {
+  const base = {
+    organizationId: CLUB,
+    paymentId: RATA,
+    amountCents: 5000,
+    settledCents: 0,
+  };
+
+  assert.notEqual(
+    gateway.buildCheckoutIdempotencyKey(base),
+    gateway.buildCheckoutIdempotencyKey({ ...base, organizationId: ALTRO_CLUB }),
+  );
+  assert.notEqual(
+    gateway.buildCheckoutIdempotencyKey(base),
+    gateway.buildCheckoutIdempotencyKey({ ...base, paymentId: "altra-rata" }),
+  );
+  assert.notEqual(
+    gateway.buildCheckoutIdempotencyKey(base),
+    gateway.buildCheckoutIdempotencyKey({ ...base, amountCents: 8000 }),
+  );
+});
+
+test("un acconto senza rata resta distinguibile", () => {
+  assert.match(
+    gateway.buildCheckoutIdempotencyKey({
+      organizationId: CLUB,
+      paymentId: null,
+      amountCents: 5000,
+      settledCents: 0,
+    }),
+    /:acconto:/,
+  );
+});
+
 test("senza club non si risolve niente", async () => {
   await assert.rejects(
     () => gateway.resolveClubGatewayContext(""),

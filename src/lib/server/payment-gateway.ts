@@ -34,6 +34,7 @@ import { prisma } from "./prisma";
 import {
   createPaymentTransaction,
   findTransactionByExternalPaymentId,
+  getSettledAmountForCharge,
   recordRefundTransaction,
 } from "./payment-transactions";
 import {
@@ -151,6 +152,41 @@ export type OpenCheckoutInput = {
  * importo diverso, ne chiede uno diverso, che e cio che serve a chi versa un
  * secondo acconto.
  */
+/**
+ * La **chiave di idempotenza** di un checkout.
+ *
+ * **A cosa serve.** A impedire che un doppio clic, o un tentativo ripetuto
+ * dopo un timeout di rete, apra due sessioni di pagamento sulla stessa rata:
+ * due sessioni sono due addebiti a una famiglia.
+ *
+ * **Perche c'e dentro l'importo gia incassato.** Perche senza, la chiave non
+ * conteneva **nulla che cambiasse fra un pagamento e il successivo**. Una
+ * famiglia che versa 50 € su una rata da 130 € e poi ne versa altri 50
+ * riceveva la stessa sessione — quella gia pagata — e leggeva «hai completato
+ * il pagamento» davanti a un residuo di 80 €. Trovato nel collaudo sandbox del
+ * Blocco E.
+ *
+ * L'importo gia incassato e la cosa giusta da mettere: **non cambia** fra due
+ * clic dello stesso tentativo, e li la sessione va riusata; **cambia** dopo
+ * ogni incasso andato a buon fine, che e esattamente quando ne serve una
+ * nuova. Un orologio avrebbe rotto l'idempotenza anche quando serviva.
+ *
+ * Funzione **pura**: si prova senza rete e senza database.
+ */
+export const buildCheckoutIdempotencyKey = (input: {
+  organizationId: string;
+  paymentId?: string | null;
+  amountCents: number;
+  settledCents: number;
+}): string =>
+  [
+    "checkout",
+    String(input.organizationId || "").trim(),
+    String(input.paymentId || "").trim() || "acconto",
+    Math.round(Number(input.amountCents) || 0),
+    Math.round(Number(input.settledCents) || 0),
+  ].join(":");
+
 export const openGatewayCheckout = async (
   input: OpenCheckoutInput,
 ): Promise<{
@@ -194,6 +230,16 @@ export const openGatewayCheckout = async (
     commission,
   });
 
+  /*
+    Quanto e gia stato incassato su questa rata: entra nella chiave di
+    idempotenza qui sotto. Su un acconto senza rata non c'e nulla da contare.
+  */
+  const giaIncassatoCents = asText(input.paymentId)
+    ? Math.round(
+        (await getSettledAmountForCharge(String(input.paymentId))) * 100,
+      )
+    : 0;
+
   const provider = requirePaymentGateway(context.provider);
 
   const checkout = await provider.createCheckout({
@@ -213,12 +259,12 @@ export const openGatewayCheckout = async (
     payer: input.payer,
     successUrl: input.successUrl,
     cancelUrl: input.cancelUrl,
-    idempotencyKey: [
-      "checkout",
-      context.organizationId,
-      asText(input.paymentId) || "acconto",
+    idempotencyKey: buildCheckoutIdempotencyKey({
+      organizationId: context.organizationId,
+      paymentId: input.paymentId,
       amountCents,
-    ].join(":"),
+      settledCents: giaIncassatoCents,
+    }),
   });
 
   return { checkout, context, settlement };

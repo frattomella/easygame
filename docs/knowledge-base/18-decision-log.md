@@ -3267,3 +3267,59 @@ merita di essere pensata a parte e non dentro la correzione di un difetto.
 *Deduplicare sull'importo e sulla rata.* Due acconti uguali sulla stessa rata
 sono legittimi — 50 € e 50 € su 130 € — e sarebbero stati scartati come
 duplicati. Si sarebbe passati da contare due volte a non contare affatto.
+
+---
+
+## ADR-0063 — La chiave di idempotenza di un checkout si ancora al residuo, non all'orologio
+
+**Data:** 2026-08-27
+**Stato:** ATTIVA
+**Contesto:** Blocco E, collaudo Stripe Sandbox. Secondo difetto di idempotenza
+trovato nella stessa sessione di
+[ADR-0062](#adr-0062--un-incasso-si-riconosce-dal-denaro-non-dallevento-che-lo-racconta).
+
+**Il difetto.** La chiave di idempotenza con cui EasyGame apre una sessione di
+pagamento era `checkout:{club}:{rata}:{importo}`. Bastava a impedire che un
+doppio clic aprisse due checkout — che e il motivo per cui esiste — ma non
+conteneva **nulla che cambiasse fra un pagamento e il successivo**.
+
+Conseguenza concreta: una famiglia versa 50 € su una rata da 130 €, torna piu
+tardi per versarne altri 50, e Stripe restituisce **la stessa sessione**,
+quella gia pagata. La famiglia legge «hai completato il pagamento» davanti a un
+residuo di 80 €. Il secondo versamento era **impossibile**, e senza alcun
+messaggio che lo spiegasse.
+
+**Perche non era emerso.** La matrice di collaudo prevedeva 50 € e poi 80 €:
+due importi diversi, quindi due chiavi diverse. Il difetto si manifesta solo
+con **due acconti dello stesso importo** — che e il caso piu naturale del
+mondo, perche una rata si divide volentieri a meta. E' venuto fuori per
+incidente, ripetendo un pagamento da 50 € dopo aver ripulito i dati di un altro
+difetto.
+
+**La decisione.** La chiave include l'**importo gia incassato** sulla rata:
+`checkout:{club}:{rata}:{importo}:{gia incassato}`.
+
+E' la cosa giusta da metterci perche ha esattamente la stabilita che serve:
+**non cambia** fra due clic dello stesso tentativo — e li la sessione va
+riusata, che e lo scopo dell'idempotenza — e **cambia** dopo ogni incasso
+andato a buon fine, che e esattamente quando serve una sessione nuova.
+
+**Perche non un orologio.** Mettere un timestamp, o una finestra temporale,
+avrebbe rotto l'idempotenza anche quando serviva: due clic a cavallo del
+confine di una finestra avrebbero aperto due sessioni, cioe due addebiti. Un
+tempo non sa niente di cio che sta pagando.
+
+**Perche non un identificativo casuale per tentativo.** Avrebbe tolto
+l'idempotenza del tutto: ogni richiesta una sessione nuova, doppio clic
+compreso.
+
+**Conseguenze.**
+
+- `buildCheckoutIdempotencyKey` e una funzione **pura ed esportata**: la
+  composizione della chiave si prova senza rete e senza database, che e la
+  ragione per cui prima non era provata affatto — viveva inline dentro una
+  funzione che parla con Prisma e con Stripe;
+- quattro test la coprono, incluso quello che descrive il difetto: stesso
+  importo, residuo diverso, chiavi diverse;
+- l'acconto senza rata continua a usare il segnaposto `acconto` e resta
+  distinguibile.
