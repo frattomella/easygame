@@ -178,3 +178,53 @@ export const writePersonIdentity = (
 
   return written;
 };
+
+/**
+ * La data di nascita nella forma che un `<input type="date">` accetta.
+ *
+ * ## Il difetto che questa funzione chiude (RC Fix 2, punto 3)
+ *
+ * `athletes.birth_date` e una colonna `DateTime`: dall'API arriva come
+ * `"2010-05-12T00:00:00.000Z"`. Un `<input type="date">` accetta **solo**
+ * `YYYY-MM-DD` e con qualunque altra forma si disegna **vuoto**, senza dire
+ * niente.
+ *
+ * L'effetto non era una casella vuota da riempire: era che dalla finestra di
+ * modifica il codice fiscale **non si poteva calcolare**. Il calcolo legge la
+ * stessa data, non la riconosce, e risponde «per calcolarlo servono ancora:
+ * data di nascita» — mentre la scheda, due centimetri piu su, quella data la
+ * mostrava. Chi guardava aveva torto a fidarsi dei propri occhi.
+ *
+ * ## Perche si taglia la stringa invece di costruire una `Date`
+ *
+ * `new Date("2010-05-12T00:00:00.000Z")` in un fuso a ovest di Greenwich e
+ * l'**11** maggio alle 20:00, e `getFullYear/getMonth/getDate` locali
+ * restituirebbero il giorno prima. Una data di nascita spostata di un giorno
+ * cambia il codice fiscale, e nessuno se ne accorgerebbe guardando: sarebbe
+ * un codice plausibile e sbagliato.
+ *
+ * Quando la stringa e gia una data ISO si prendono i primi dieci caratteri e
+ * basta. La `Date` resta la via per gli altri formati, e li si usano i getter
+ * **UTC** per la stessa ragione.
+ */
+export const toDateInputValue = (value?: unknown): string => {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    // `2010-05-12` oppure `2010-05-12T00:00:00.000Z`: in entrambi i casi i
+    // primi dieci caratteri sono gia la risposta.
+    const iso = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed);
+    if (iso) return iso[1];
+  }
+
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  return [
+    String(parsed.getUTCFullYear()).padStart(4, "0"),
+    String(parsed.getUTCMonth() + 1).padStart(2, "0"),
+    String(parsed.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+};

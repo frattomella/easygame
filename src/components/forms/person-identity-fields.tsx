@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { normalizeGenderLetter } from "@/lib/italian-registry";
 import {
   PERSON_IDENTITY_LABELS,
+  toDateInputValue,
   type PersonIdentityPatch,
   type PersonIdentityValue,
 } from "@/lib/person-identity";
@@ -131,11 +132,18 @@ export function PersonIdentityFields({
             {PERSON_IDENTITY_LABELS.birthDate}
             {mark("birthDate")}
           </Label>
+          {/*
+            La data si normalizza a `YYYY-MM-DD` in ingresso: dall'archivio
+            arriva come istante ISO, e un `<input type="date">` con qualunque
+            altra forma si disegna vuoto senza dire niente — con l'effetto che
+            il codice fiscale non si poteva calcolare da nessuna finestra di
+            modifica (RC Fix 2, punto 3).
+          */}
           <Input
             id={`${idPrefix}-birth-date`}
             name="birthDate"
             type="date"
-            value={text("birthDate")}
+            value={toDateInputValue(values.birthDate)}
             disabled={disabled}
             required={Boolean(required?.birthDate)}
             onChange={(event) => onChange({ birthDate: event.target.value })}
@@ -188,7 +196,10 @@ export function PersonIdentityFields({
         person={{
           firstName: values.firstName,
           lastName: values.lastName,
-          birthDate: values.birthDate,
+          // Il calcolo vuole `YYYY-MM-DD`: la stessa normalizzazione del campo
+          // sopra, o il codice non si calcolerebbe pur avendo la data sotto gli
+          // occhi.
+          birthDate: toDateInputValue(values.birthDate),
           gender: values.gender,
         }}
       />

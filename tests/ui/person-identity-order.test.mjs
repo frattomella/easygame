@@ -9,6 +9,7 @@ import {
   LEGACY_PERSON_NAME_KEYS,
   personIdentityFieldIndex,
   readPersonIdentity,
+  toDateInputValue,
   writePersonIdentity,
 } from "../../src/lib/person-identity.ts";
 
@@ -134,4 +135,57 @@ test("le chiavi storiche name/surname si traducono in un posto solo", () => {
     false,
     "una modifica parziale non deve azzerare i campi che non ha toccato",
   );
+});
+
+/* ------------------------------ la data che non arrivava (RC Fix 2, punto 3) */
+
+/**
+ * **Il difetto.** `athletes.birth_date` e una colonna `DateTime`: dall'API
+ * arriva come `2010-05-12T00:00:00.000Z`. Un `<input type="date">` accetta
+ * solo `YYYY-MM-DD` e con qualunque altra forma si disegna **vuoto**.
+ *
+ * L'effetto non era una casella da riempire: era che dalla finestra di
+ * modifica il codice fiscale non si poteva calcolare. Il calcolo leggeva la
+ * stessa data, non la riconosceva, e rispondeva «servono ancora: data di
+ * nascita» — mentre la scheda, due centimetri piu su, quella data la mostrava.
+ */
+test("la data di nascita si normalizza per il campo e per il calcolo", () => {
+  assert.equal(toDateInputValue("2010-05-12T00:00:00.000Z"), "2010-05-12");
+  assert.equal(toDateInputValue("2010-05-12"), "2010-05-12");
+  assert.equal(toDateInputValue(new Date("2010-05-12T00:00:00.000Z")), "2010-05-12");
+
+  assert.equal(toDateInputValue(""), "");
+  assert.equal(toDateInputValue(null), "");
+  assert.equal(toDateInputValue(undefined), "");
+  assert.equal(toDateInputValue("non una data"), "");
+});
+
+/**
+ * **Il giorno non si sposta.**
+ *
+ * `new Date("2010-05-12T00:00:00.000Z")` letta con i getter locali, in un fuso
+ * a ovest di Greenwich, e l'11 maggio alle 20:00. Una data di nascita spostata
+ * di un giorno cambia il codice fiscale, e il risultato sarebbe un codice
+ * **plausibile e sbagliato**: nessuno se ne accorgerebbe guardandolo.
+ */
+test("la mezzanotte UTC non diventa il giorno prima", () => {
+  for (const iso of [
+    "2010-01-01T00:00:00.000Z",
+    "2010-05-12T00:00:00.000Z",
+    "1999-12-31T00:00:00.000Z",
+  ]) {
+    assert.equal(
+      toDateInputValue(iso),
+      iso.slice(0, 10),
+      `${iso}: il giorno deve restare quello`,
+    );
+  }
+});
+
+/** Il campo e il calcolo leggono la **stessa** normalizzazione. */
+test("il campo data e il calcolo del codice fiscale usano la stessa data", () => {
+  const block = read("components/forms/person-identity-fields.tsx");
+
+  assert.match(block, /value=\{toDateInputValue\(values\.birthDate\)\}/);
+  assert.match(block, /birthDate: toDateInputValue\(values\.birthDate\)/);
 });
