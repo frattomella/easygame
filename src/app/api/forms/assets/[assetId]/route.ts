@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 
 type Context = {
   params: {
@@ -39,14 +40,17 @@ export async function GET(request: Request, context: Context) {
     const base64 = raw.includes(",") ? raw.split(",").pop() || "" : raw;
     const buffer = Buffer.from(base64, "base64");
 
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": asset.mime_type || "application/octet-stream",
-        "Content-Disposition": `inline; filename="${encodeURIComponent(
-          asset.file_name || "file",
-        )}"`,
-        "Cache-Control": "private, max-age=300",
-      },
+    /*
+      Prima: `inline` per **qualunque** tipo e senza `nosniff`, con il nome
+      percent-encoded a schermo. Un file registrato con un tipo sbagliato
+      poteva essere interpretato come pagina dentro l'origine di EasyGame
+      (RC Fix 1, punto 8).
+    */
+    return buildStoredFileResponse({
+      content: buffer,
+      mimeType: asset.mime_type,
+      fileName: asset.file_name || "file",
+      download: new URL(request.url).searchParams.has("download"),
     });
   } catch (error: any) {
     return jsonError(error?.message || "Errore recupero file", 500);

@@ -265,10 +265,29 @@ che applica:
   sostituire, cancellare. 8 test lo verificano dal club sbagliato;
 - **elenco chiuso di tipi MIME**: niente eseguibili, niente archivi;
 - **limite di 10 MB** per file, controllato prima di leggere i byte;
-- `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox` e
-  `Cache-Control: private` sulla risposta che serve il file;
+- `X-Content-Type-Options: nosniff`, una `Content-Security-Policy`
+  restrittiva e `Cache-Control: private` sulla risposta che serve il file;
 - nome del download ripulito prima di finire in `Content-Disposition`: un
   nome con un ritorno a capo non puo aggiungere header.
+
+**Correzione di RC Fix 1.** La politica era
+`sandbox; default-src 'none'`, e spegneva il visualizzatore PDF del browser:
+misurato leggendo la console, il browser scrive «Loading plugin data … has
+been blocked» e, tolto solo `object-src`, «Framing … has been blocked»,
+perche il visualizzatore disegna in un riquadro figlio. Le immagini si
+vedevano lo stesso, i PDF no.
+
+La politica ora vieta le stesse cose ma permette quelle due:
+`default-src 'none'` (quindi niente script e nessuna richiesta di rete),
+`object-src 'self'`, `frame-src 'self'`, `frame-ancestors 'none'`,
+`base-uri 'none'`, `form-action 'none'`. Cio che rende innocuo servire
+`inline` resta `nosniff` piu l'elenco chiuso dei tipi: **solo** PDF,
+immagini e testo si aprono in scheda, tutto il resto arriva come allegato.
+
+Le quattro rotte che servono un file — allegati, documenti dell'atleta,
+allegati dei moduli, documenti del genitore — passano ora da
+`src/lib/server/stored-file-response.ts`. Due di esse rispondevano sempre
+`attachment` (quindi «Visualizza» scaricava) e due non mandavano `nosniff`.
 
 **Resta aperto:** i data URL legacy gia in archivio, che continuano a
 funzionare e migrano quando qualcuno li tocca; e la tabella `assets`, ancora

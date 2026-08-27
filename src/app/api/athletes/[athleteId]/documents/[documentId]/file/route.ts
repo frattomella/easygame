@@ -8,6 +8,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 
 type Context = {
   params: {
@@ -67,15 +68,16 @@ export async function GET(request: Request, context: Context) {
       ? asset.data_base64.split(",").pop() || ""
       : asset.data_base64;
 
-    return new Response(Buffer.from(base64, "base64"), {
-      headers: {
-        "content-type": asset.mime_type || "application/octet-stream",
-        "content-disposition": `attachment; filename="${firstText(
-          asset.file_name,
-          document.fileName,
-          "documento",
-        )}"`,
-      },
+    /*
+      `?download` distingue le due cose. Prima la risposta era **sempre**
+      `attachment`: «Visualizza» su un documento dell'atleta scaricava il file
+      invece di mostrarlo, e mancava `nosniff` (RC Fix 1, punto 8).
+    */
+    return buildStoredFileResponse({
+      content: Buffer.from(base64, "base64"),
+      mimeType: asset.mime_type,
+      fileName: firstText(asset.file_name, document.fileName, "documento"),
+      download: new URL(request.url).searchParams.has("download"),
     });
   } catch (error: any) {
     return jsonError(error?.message || "Errore download documento", 500);

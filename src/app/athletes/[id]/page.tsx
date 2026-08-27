@@ -5604,7 +5604,15 @@ export default function AthleteProfilePage() {
                                     </Button>
                                     <Button variant="outline" size="sm" asChild>
                                       <a
-                                        href={`/api/athletes/${athleteId}/documents/${document.id}/file`}
+                                        /*
+                                          `?download` distingue le due azioni
+                                          lato server: prima i due pulsanti
+                                          puntavano allo stesso indirizzo e la
+                                          rotta rispondeva sempre «scarica»,
+                                          quindi «Visualizza» non mostrava
+                                          niente (RC Fix 1, punto 8).
+                                        */
+                                        href={`/api/athletes/${athleteId}/documents/${document.id}/file?download=1`}
                                         download={document.fileName || document.title}
                                       >
                                         <Download className="mr-2 h-4 w-4" />

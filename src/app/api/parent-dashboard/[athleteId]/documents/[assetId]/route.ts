@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
+import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getParentDashboardData } from "@/lib/server/parent-dashboard";
 import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
@@ -79,11 +80,16 @@ export async function GET(request: Request, context: Context) {
       : asset.data_base64;
     const body = Buffer.from(base64, "base64");
 
-    return new Response(body, {
-      headers: {
-        "content-type": asset.mime_type || "application/octet-stream",
-        "content-disposition": `attachment; filename="${asset.file_name || "documento"}"`,
-      },
+    /*
+      Anche il genitore deve poter **guardare** un documento, non solo
+      scaricarlo: la risposta era sempre `attachment` e senza `nosniff`
+      (RC Fix 1, punto 8).
+    */
+    return buildStoredFileResponse({
+      content: body,
+      mimeType: asset.mime_type,
+      fileName: asset.file_name || "documento",
+      download: new URL(request.url).searchParams.has("download"),
     });
   } catch (error: any) {
     return NextResponse.json(

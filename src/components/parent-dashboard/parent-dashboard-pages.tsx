@@ -1324,7 +1324,7 @@ export function ParentDocumentsPage() {
                     {document.assetId ? (
                       <Button variant="outline" size="sm" asChild>
                         <a
-                          href={`/api/parent-dashboard/${data.athlete.id}/documents/${document.assetId}`}
+                          href={`/api/parent-dashboard/${data.athlete.id}/documents/${document.assetId}?download=1`}
                         >
                           <Download className="mr-2 h-4 w-4" />
                           Scarica

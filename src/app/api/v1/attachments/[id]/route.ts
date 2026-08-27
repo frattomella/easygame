@@ -15,6 +15,7 @@ import {
   extensionFromFileName,
   sanitizeFileNamePart,
 } from "@/lib/attachment-names";
+import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 
 /**
  * Un allegato: guardalo, scaricalo, sostituiscilo, eliminalo.
@@ -115,23 +116,17 @@ export async function GET(request: Request, context: Context) {
     );
 
     /*
-      `inline` per la visualizzazione, `attachment` per il download. E la
-      differenza fra «il PDF si apre nel visualizzatore» e «il PDF finisce in
-      Download»: entrambe servono, e finora nessuna delle due funzionava
-      perche il file era un data URL che il browser rifiutava di navigare.
+      `inline` per la visualizzazione, `attachment` per il download. Gli
+      header li costruisce `buildStoredFileResponse`, uno per tutte e tre le
+      rotte che servono un file: qui la CSP conteneva `sandbox` e
+      `default-src 'none'`, che insieme impedivano al browser di **disegnare
+      un PDF** (RC Fix 1, punto 8).
     */
-    return new NextResponse(new Uint8Array(attachment.content), {
-      status: 200,
-      headers: {
-        "Content-Type": attachment.metadata.mimeType,
-        "Content-Length": String(attachment.content.length),
-        "Content-Disposition": `${wantsDownload ? "attachment" : "inline"}; filename="${fileName}"`,
-        // Un allegato e un dato di club: non deve finire in nessuna cache
-        // condivisa. `private` permette comunque la cache del browser.
-        "Cache-Control": "private, max-age=0, must-revalidate",
-        "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "sandbox; default-src 'none'",
-      },
+    return buildStoredFileResponse({
+      content: attachment.content,
+      mimeType: attachment.metadata.mimeType,
+      fileName,
+      download: wantsDownload,
     });
   } catch (error: any) {
     return failure(error, "Errore nella lettura dell'allegato");

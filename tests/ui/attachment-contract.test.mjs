@@ -113,7 +113,12 @@ test("l'URL di un allegato non viene costruito a mano", () => {
     const name = rel(file);
     // Il modulo che lo costruisce e il client che lo consuma possono; il
     // registro API deve nominarlo, perche il suo lavoro e elencare i path.
-    if (CONTRACT_MODULES.has(name) || name === "lib/api/registry.ts") {
+    if (
+      CONTRACT_MODULES.has(name) ||
+      name === "lib/api/registry.ts" ||
+      // Nomina i percorsi solo nel commento che spiega il difetto corretto.
+      name === "lib/server/stored-file-response.ts"
+    ) {
       return false;
     }
     return /["'`]\/api\/v1\/attachments/.test(read(file));
@@ -192,6 +197,10 @@ test("l'avatar autorizza su tutti i club dell'utente, non solo su quello attivo"
 /**
  * Un allegato e un dato di club: non deve finire in una cache condivisa, e non
  * deve essere interpretato dal browser come qualcosa di diverso da cio che e.
+ *
+ * Da RC Fix 1 le intestazioni le costruisce `buildStoredFileResponse`, una per
+ * tutte le rotte che servono un file: la rotta non le scrive piu a mano, e le
+ * regole vivono in `tests/server/stored-file-response.test.mjs`.
  */
 test("la risposta che serve un file porta le intestazioni di sicurezza", () => {
   const source = readFileSync(
@@ -199,11 +208,18 @@ test("la risposta che serve un file porta le intestazioni di sicurezza", () => {
     "utf8",
   );
 
-  assert.match(source, /"X-Content-Type-Options": "nosniff"/);
-  assert.match(source, /"Cache-Control": "private/);
+  assert.match(source, /buildStoredFileResponse\(/);
+
+  const shared = readFileSync(
+    path.join(SRC, "lib", "server", "stored-file-response.ts"),
+    "utf8",
+  );
+
+  assert.match(shared, /"X-Content-Type-Options": "nosniff"/);
+  assert.match(shared, /"Cache-Control": "private/);
   assert.match(
-    source,
-    /"Content-Security-Policy": "sandbox/,
+    shared,
+    /default-src 'none'/,
     "un HTML caricato come allegato non deve poter eseguire niente",
   );
 });
