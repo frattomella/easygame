@@ -307,6 +307,34 @@ viene scritto e sbagliato il giorno dopo, e comparirebbe in un rendiconto con
 l'aria di essere un fatto. `null` significa **non ancora noto** — la transazione
 di saldo matura dopo l'incasso — e non zero, che direbbe «gratis».
 
+### Dove il nome «Stripe» si vede, e dove no (RC Fix 2)
+
+Fino a RC Fix 1 la scheda del conto di incasso diceva «il provider» sette
+volte e non nominava mai Stripe. Era una scelta deliberata — il registro dei
+provider (`src/lib/payments/provider-registry.ts`) prevede che un domani ce ne
+sia un altro — ma il risultato per chi guardava era una societa che stava per
+dare i propri dati bancari, e a cui venivano chiesti documenti d'identita, a
+un'azienda senza nome. **Un intermediario di pagamento si dichiara**: non e
+branding, e la risposta alla domanda «chi sta trattenendo il mio denaro».
+
+| Dove | Cosa si mostra |
+|---|---|
+| Scheda «Conto di incasso online» | logotipo Stripe + stato del collegamento, `Pagamenti online` e `Payout` su due righe distinte |
+| Requisiti mancanti, CTA, avvertenza | il **nome** dell'intermediario, preso dal registro |
+| Storico incassi, rate, movimenti, ricevute | **niente marchio**: basta «Metodo: Stripe / Carta online» |
+
+Il nome arriva da `account.provider` nella risposta di
+`GET /api/v1/payments/account`, non da una stringa scritta nella pagina: il
+giorno in cui un club incassa con un altro intermediario la scheda lo dice da
+sola. Il logotipo si monta solo quando `provider === "stripe"`.
+
+Il logotipo sta in `src/components/brand/stripe-brand.tsx`, non si modifica e
+non si ricolora: si scala. Il viola ufficiale (`#635BFF`) vive in una sola
+costante — `STRIPE_BRAND_COLOR` — cosi nessuno lo riscrive «quasi uguale» da
+un'altra parte. Ha `role="img"` e un `aria-label`: e un'immagine con dentro
+una parola, e senza testo alternativo il nome dell'intermediario non verrebbe
+detto a chi non guarda lo schermo.
+
 ### Cosa non e collaudato
 
 La verifica della firma, la traduzione degli eventi e la lettura del

@@ -59,8 +59,8 @@ Fonte ufficiale da mantenere aggiornata:
   ultimi eventi. Scritture distinte da `operation`. Solo `platform_admin`;
   non restituisce mai una chiave segreta
 - `GET|POST /api/v1/payments/account` — il conto di incasso visto dalla
-  societa: stato, requisiti mancanti, commissione applicata (sola lettura) e
-  richiesta del link di collegamento
+  societa: **quale intermediario** (`provider`), stato, requisiti mancanti,
+  commissione applicata (sola lettura) e richiesta del link di collegamento
 - `POST /api/payments/create-checkout-session` — apre un checkout online per
   una rata, anche per un importo parziale. Club, provider, conto e commissione
   non arrivano dal corpo: il club e quello attivo della sessione

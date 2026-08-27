@@ -510,6 +510,13 @@ link** di collegamento. Non puo scrivere l'identificativo dell'account,
 dichiararsi attiva, cambiare la commissione ne accendersi il servizio: fino al
 Blocco D poteva fare tutte e quattro le cose da un campo di testo.
 
+Da RC Fix 2 la risposta porta anche `account.provider`. La scheda diceva «il
+provider» e non lo nominava mai: una societa che sta per dare i propri dati
+bancari, e a cui vengono chiesti documenti d'identita, ha diritto di sapere a
+chi. Il nome arriva dal record e non e scritto nella pagina, cosi il giorno in
+cui un club incassa con un altro intermediario la scheda lo dice da sola.
+L'identificativo dell'account resta fuori: alla segreteria non serve.
+
 ### Checkout
 
 `POST /api/payments/create-checkout-session` accetta ora un importo

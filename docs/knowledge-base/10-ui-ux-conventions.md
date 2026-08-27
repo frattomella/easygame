@@ -383,6 +383,45 @@ Le colonne **rispettano quelle visibili in elenco**, dove la pagina le
 configura. Le colonne senza interruttore (codice fiscale, taglie) restano
 sempre: in tabella non ci stanno, in un PDF servono.
 
+### Selezione multipla e azioni di massa (RC Fix 2)
+
+Le regole stanno in `src/lib/list-selection.ts` (modulo puro), il pezzo di
+interfaccia in `src/components/ui/list-selection.tsx`. Quattro elenchi di
+persone li usano: atleti, allenatori, staff, soci.
+
+**«Selezionati» significa esattamente i selezionati.** Non i selezionati
+ancora visibili dopo l'ultimo filtro, non quelli della pagina corrente:
+`resolveScopeRows` con ambito `selected` non interseca mai con il filtro. Un
+export con dentro una persona che nessuno ha scelto e un documento che poi
+esce dal club.
+
+**Gli ambiti di export si offrono solo quando dicono qualcosa di diverso**
+(`availableExportScopes`): «selezionati» solo se c'e una selezione,
+«risultato filtrato» solo se i filtri stanno togliendo qualcosa — sull'elenco
+Soci, che di filtri non ne ha, sarebbe una seconda voce «tutti» con un altro
+nome. Con una selezione attiva il primo ambito e sempre «selezionati»: e cio
+che evita il PDF di quaranta pagine a chi ne aveva scelte quattro.
+
+**Le azioni le decide il dominio, non la barra.** Un allenatore ha piu
+categorie, quindi l'assegnazione **aggiunge**; un membro dello staff ha un
+reparto solo e un socio un tipo solo, quindi quelle **sostituiscono**.
+Nessuna eliminazione di massa su allenatori, staff e soci: non e stata
+chiesta, e cancellare dieci anagrafiche in un clic e l'operazione con il
+rapporto peggiore fra gesto e conseguenza.
+
+**La barra non si vede quando non c'e selezione**, per la stessa ragione per
+cui `SaveStatus` non disegna niente a riposo. Compare da **una** riga: chi ne
+ha scelta una sola vuole comunque farci qualcosa.
+
+### Il marchio di un intermediario di pagamento (RC Fix 2)
+
+`src/components/brand/stripe-brand.tsx`. Il marchio sta **dove si decide di
+collegare un conto** e da nessun'altra parte: non su ogni rata, non su ogni
+movimento: nello storico basta «Metodo: Stripe / Carta online». Il nome
+dell'intermediario arriva da `account.provider` e passa dal registro dei
+provider: nessuna pagina scrive «Stripe» a mano, o lo mostrerebbe anche a chi
+incassa con un altro.
+
 ## Telefoni e maiuscole: due regole condivise (Blocco 7, estese nel Blocco 8)
 
 **Dove valgono.** Su **tutte** le anagrafiche e in **entrambi** i momenti:
@@ -904,11 +943,24 @@ Due componenti distinti di proposito:
 
 | Componente | Quando si mostra | A cosa serve |
 |---|---|---|
-| `SiteFilter` | solo se il club e multi-sede | restringere un elenco |
+| `SiteFilter` | solo se il club e multi-sede | restringere un elenco a una citta |
+| `CategoryGroupFilter` | solo con almeno **due** squadre configurate | arrivare a **una** squadra |
 | `SiteSelect` | se esiste almeno una sede | assegnare la sede a un record |
 
 `SiteSelect` compare gia dalla prima sede perche assegnare una sede a una
 struttura ha senso anche mentre il club sta configurando la seconda.
+
+**Sede → Gruppo, oppure direttamente Gruppo** (RC Fix 2). Le due strade
+convivono: con una sede scelta il filtro gruppo mostra solo le sue squadre,
+senza le mostra tutte con la sede nell'etichetta. Non e un secondo modo di
+filtrare per sede — e il modo di arrivare a una squadra, che su sei categorie
+in tre sedi erano diciotto schede da attraversare.
+
+Un gruppo e la coppia (categoria, sede), quindi il filtro si traduce nei due
+parametri che l'archivio conosce gia — `category_id` e `site_id` — invece di
+introdurne un terzo: cosi restringe **anche** la pagina che arriva dal server.
+I gruppi **impliciti** non compaiono nel menu: un gruppo implicito e una
+categoria con un altro nome ([ADR-0055](18-decision-log.md)).
 
 **«Tutte le sedi» non e un valore speciale.** Sede vuota sul filtro significa
 «non restringere»; sede vuota sul record significa «non dichiarata», e un
