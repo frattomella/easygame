@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import {
   DashboardPageContainer,
   dashboardMainClassName,
@@ -1847,18 +1846,19 @@ const [federations, setFederations] = useState<any[]>([]);
 
   return (
     <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-      {/* Desktop layout */}
-      <div className="hidden lg:flex w-full">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Club" />
-          {renderOrganizationMainContent()}
-        </div>
-      </div>
+      {/*
+        Una sola chrome, e il contenuto montato **una volta**.
 
-      {/* Mobile layout */}
-      <div className="flex min-w-0 flex-1 flex-col lg:hidden">
-        <MobileTopBar />
+        Qui c'erano due rami — uno `hidden lg:flex`, uno `lg:hidden` — che
+        montavano entrambi la pagina: nascosta con il CSS, ma viva nel DOM.
+        React eseguiva due volte ogni effetto, quindi ogni lettura partiva due
+        volte e ogni autosave rischiava due PATCH sovrapposte sulla stessa
+        colonna. `Header` monta gia da se la barra mobile e quella desktop
+        (RC Fix 1, punto 11).
+      */}
+      <Sidebar />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Header title="Club" />
         {renderOrganizationMainContent()}
       </div>
     </div>

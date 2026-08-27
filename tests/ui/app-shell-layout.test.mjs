@@ -103,6 +103,50 @@ test("lo scorrimento appartiene alla colonna del contenuto", () => {
   );
 });
 
+/**
+ * RC Fix 1, punto 11 — la chrome non monta il contenuto due volte.
+ *
+ * Quattro schermate montavano due rami, uno `hidden lg:flex` e uno
+ * `lg:hidden`, **entrambi con dentro il contenuto**: nascosto con il CSS ma
+ * vivo nel DOM, quindi React eseguiva due volte ogni effetto e ogni lettura
+ * partiva due volte. Misurato sulla Dashboard di staging: 44 richieste invece
+ * di 22, con `clubs` chiesto quattordici volte e `athlete_category_memberships`
+ * otto. Su una pagina con autosave il rischio non era solo il costo: due
+ * istanze significano due PATCH sovrapposte sulla stessa colonna JSON.
+ *
+ * `Header` monta gia da se la barra mobile e quella desktop: i due rami non
+ * servivano, e le altre ~40 schermate non li hanno mai avuti.
+ */
+test("nessuna schermata monta il proprio contenuto due volte", () => {
+  const offenders = SHELL_FILES.filter(({ source }) =>
+    /className="hidden lg:flex w-full"/.test(source),
+  ).map(({ file }) => relative(file));
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "il ramo desktop duplicava il contenuto gia montato dal ramo mobile",
+  );
+});
+
+test("la chrome della Dashboard monta i figli una volta sola", () => {
+  const layout = readFileSync(
+    path.join(process.cwd(), "src/app/dashboard/layout.tsx"),
+    "utf8",
+  );
+
+  assert.equal(
+    (layout.match(/\{children\}/g) || []).length,
+    1,
+    "due `{children}` sono due alberi React, quindi due volte ogni effetto",
+  );
+  assert.equal(
+    (layout.match(/<main/g) || []).length,
+    1,
+    "un solo main: due producono due aree di scorrimento sovrapposte",
+  );
+});
+
 test("il main condiviso resta l'unico elemento che scorre", () => {
   const container = readFileSync(
     path.join(

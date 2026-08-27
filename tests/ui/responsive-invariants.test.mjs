@@ -160,20 +160,20 @@ test("i dialoghi non superano l'altezza dello schermo", () => {
  *
  * **Il difetto, e perche era invisibile ai test statici.** Il contenitore
  * principale del club e un elemento flex dentro una riga. Un elemento flex ha
- * `min-width: auto`, cioe **si rifiuta di restringersi sotto la larghezza del
- * suo contenuto** — a meno che non abbia `overflow` diverso da `visible`,
- * oppure `min-width: 0`.
+ * Il guscio che porta il contenuto deve avere **sia** un taglio dello
+ * scorrimento **sia** `min-width: 0`.
  *
- * Quarantanove pagine usano la variante `overflow-hidden` e ottengono il
- * comportamento giusto per caso. Quattro usano la variante `lg:hidden`, senza
- * ne l'uno ne l'altro: li il guscio cresce con il contenuto.
+ * A 768 px su `/organization` l'effetto della sola mancanza di `min-w-0` era
+ * che la barra delle nove schede — che ha gia `overflow-x-auto` e dovrebbe
+ * scorrere da sola — allargava il guscio a 1022 px invece di scorrere, e con
+ * lui **tutta la pagina**. Nessuna invariante statica poteva vederlo, perche
+ * ogni singola classe era corretta; sbagliato era cio che mancava, e si e
+ * visto solo misurando la pagina a 768 px.
  *
- * A 768 px su `/organization` l'effetto era che la barra delle nove schede —
- * che ha gia `overflow-x-auto` e dovrebbe scorrere da sola — allargava il
- * guscio a 1022 px invece di scorrere, e con lui **tutta la pagina**:
- * «Salva Modifiche» finiva fuori dallo schermo. Nessuna invariante statica
- * poteva vederlo, perche ogni singola classe era corretta; sbagliato era cio
- * che mancava, e si e visto solo misurando la pagina a 768 px.
+ * In RC Fix 1 queste quattro schermate hanno perso il doppio ramo
+ * desktop/mobile — montava il contenuto due volte — e sono passate al guscio
+ * unico che usano le altre ~40. L'invariante non cambia: il guscio resta
+ * quello che non deve crescere.
  */
 test("il guscio del club non cresce con il proprio contenuto", () => {
   const shells = [
@@ -186,15 +186,15 @@ test("il guscio del club non cresce con il proprio contenuto", () => {
   for (const file of shells) {
     const source = read(file);
 
+    assert.match(
+      source,
+      /className="flex min-w-0 flex-1 flex-col overflow-hidden"/,
+      `${file}: il guscio deve avere min-w-0 e overflow-hidden`,
+    );
     assert.equal(
       /className="flex flex-1 flex-col lg:hidden"/.test(source),
       false,
-      `${file}: il guscio senza min-w-0 si allarga con il contenuto invece di lasciarlo scorrere`,
-    );
-    assert.match(
-      source,
-      /className="flex min-w-0 flex-1 flex-col lg:hidden"/,
-      `${file}: manca min-w-0 sul guscio del club`,
+      `${file}: il guscio senza min-w-0 si allarga con il contenuto`,
     );
   }
 });
