@@ -116,6 +116,23 @@ export function RefundDialog({
     riaprire la finestra su un movimento diverso mostrerebbe l'importo di
     quello precedente — e sarebbe l'importo su cui si preme «Conferma».
   */
+  const targetTransactionId = transaction?.id || "";
+  const refundableCents = availability?.refundableCents ?? 0;
+
+  /*
+    **Le dipendenze sono valori, non oggetti, e non e un dettaglio di stile.**
+    `availability` lo ricalcola chi monta questa finestra a **ogni** proprio
+    render, e ne esce un oggetto nuovo ogni volta: elencarlo qui voleva dire
+    rieseguire questo effetto a ogni render del genitore, cioe **riscrivere
+    l'importo che qualcuno aveva appena digitato**. Una segreteria scriveva 30,
+    il genitore si aggiornava per una ragione qualsiasi — il registro riletto,
+    un avviso comparso — e il campo tornava a 130: l'intero incasso, sul
+    pulsante che poi si preme. Osservato a runtime nel collaudo E-13.
+
+    `refundableCents` cambia solo quando cambia davvero quanto si puo
+    restituire, e allora ricomporre e giusto: il massimo consentito si e
+    spostato sotto le mani di chi sta scrivendo.
+  */
   React.useEffect(() => {
     if (!open) return;
 
@@ -123,11 +140,9 @@ export function RefundDialog({
     setReason(REFUND_REASONS[0]?.value || "");
     setNotes("");
     setAmount(
-      availability && availability.refundableCents > 0
-        ? fromCents(availability.refundableCents).toFixed(2)
-        : "",
+      refundableCents > 0 ? fromCents(refundableCents).toFixed(2) : "",
     );
-  }, [open, availability]);
+  }, [open, targetTransactionId, refundableCents]);
 
   const parsedAmount = toPaymentAmount(amount);
   const amountCents = Math.round(parsedAmount * 100);

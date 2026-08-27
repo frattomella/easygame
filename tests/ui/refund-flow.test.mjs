@@ -358,3 +358,66 @@ test("il riepilogo dice cosa succedera alla rata, non solo al movimento", () => 
   assert.match(finestra, /Stato della rata/);
   assert.match(finestra, /Commissione EasyGame restituita/);
 });
+
+/* ------------- 8. l'importo digitato non si riscrive da solo */
+
+/**
+ * **Il difetto trovato a runtime nel collaudo E-13.**
+ *
+ * L'effetto che ricompone i campi all'apertura dipendeva da `availability`,
+ * cioe da un **oggetto** che chi monta la finestra ricalcola a ogni proprio
+ * render: `refundAvailabilityFor(refundTarget)` restituisce una struttura
+ * nuova ogni volta. Ne seguiva che qualunque render del genitore rieseguiva
+ * l'effetto e riportava il campo al massimo rimborsabile — cancellando
+ * l'importo appena digitato. Una segreteria scriveva 30 su un incasso da 130 e
+ * poteva ritrovarsi 130 sul pulsante che restituisce il denaro.
+ *
+ * La proprieta da presidiare non e «l'effetto e scritto cosi»: e che le sue
+ * dipendenze siano **valori stabili fra un render e l'altro**.
+ */
+
+test("i campi si ricompongono all'apertura, non a ogni render del genitore", () => {
+  const finestra = read(REFUND_DIALOG);
+
+  const dipendenze = finestra.match(
+    /setAmount\([\s\S]*?\n  \}, \[([^\]]*)\]\);/,
+  );
+
+  assert.ok(dipendenze, "non trovo l'effetto che ricompone i campi");
+
+  const elencate = dipendenze[1]
+    .split(",")
+    .map((voce) => voce.trim())
+    .filter(Boolean);
+
+  assert.ok(
+    elencate.includes("open"),
+    "la finestra deve ricomporsi quando si apre",
+  );
+
+  assert.ok(
+    !elencate.includes("availability"),
+    "«availability» e un oggetto nuovo a ogni render del genitore: elencarlo qui riscrive l'importo digitato",
+  );
+
+  assert.ok(
+    !elencate.includes("transaction") && !elencate.includes("ledger"),
+    "vale per ogni oggetto ricalcolato dal genitore, non solo per «availability»",
+  );
+});
+
+test("il massimo rimborsabile entra nell'effetto come numero", () => {
+  const finestra = read(REFUND_DIALOG);
+
+  assert.match(
+    finestra,
+    /const refundableCents = availability\?\.refundableCents \?\? 0;/,
+    "il valore si estrae prima, cosi la dipendenza e un numero e non cambia identita",
+  );
+
+  assert.match(
+    finestra,
+    /const targetTransactionId = transaction\?\.id \|\| "";/,
+    "cambiare incasso deve ancora ricomporre i campi: l'identificativo e una stringa",
+  );
+});
