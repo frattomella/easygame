@@ -219,18 +219,29 @@ test("le righe di comandi degli elenchi vanno a capo su schermo stretto", () => 
 });
 
 /**
- * Sulla scheda allenatore i comandi dei contratti stanno in colonna.
+ * Sulla scheda allenatore l'intestazione dei documenti sta in colonna.
  *
- * A 375 px «Visualizza Tutti» e «Aggiungi Contratto» in riga arrivavano a
- * x=402: il secondo era fuori dallo schermo e non si poteva premere.
+ * A 375 px i comandi in riga arrivavano a x=402: il secondo era fuori dallo
+ * schermo e non si poteva premere. Dopo RC Fix 1 il riquadro e uno solo — la
+ * griglia dei documenti — ma la regola resta la stessa.
  */
-test("i comandi dei contratti dell'allenatore stanno nello schermo", () => {
-  const source = read("app/trainers/[id]/page.tsx");
+test("i comandi dei documenti dell'allenatore stanno nello schermo", () => {
+  const source = read("components/trainer/trainer-documents-panel.tsx");
 
   assert.match(
     source,
-    /className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row"/,
-    "i due comandi dei contratti tornano in riga a 375 px",
+    /flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center/,
+    "l'intestazione va a colonna sotto i 640 px",
+  );
+  assert.match(
+    source,
+    /w-full justify-center gap-2[^"]*sm:w-auto/,
+    "il comando occupa la riga finche c'e poco spazio",
+  );
+  assert.match(
+    source,
+    /overflow-x-auto/,
+    "la griglia scorre da sola invece di allargare la pagina",
   );
 });
 

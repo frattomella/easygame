@@ -223,17 +223,27 @@ test("nessuno fabbrica un finto documento da scaricare", () => {
   assert.deepEqual(offenders, [], "si scarica il file vero, o si dice che manca");
 });
 
-/** Chi carica un allegato deve conservarlo, non solo i suoi metadati. */
-test("l'upload di un contratto conserva il file", () => {
-  for (const file of [
-    "app/trainers/[id]/contracts/page.tsx",
-    "app/trainers/[id]/contracts/upload/page.tsx",
-  ]) {
-    const source = readFileSync(path.join(SRC, file), "utf8");
-    assert.match(
-      source,
-      /fileUrl: newContract\.fileUrl/,
-      `${file}: il file caricato deve finire nel record`,
-    );
-  }
+/**
+ * Chi carica un allegato deve conservarlo, non solo i suoi metadati.
+ *
+ * Le due pagine dedicate ai contratti dell'allenatore non esistono piu: il
+ * caricamento vive nel pannello documenti della scheda e il riferimento
+ * restituito da Attachment Core finisce nel record (RC Fix 1, punti 6 e 9).
+ */
+test("l'upload di un documento dell'allenatore conserva il file", () => {
+  const source = readFileSync(
+    path.join(SRC, "components/trainer/trainer-documents-panel.tsx"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /const fileUrl = await uploadAttachmentReference\(/,
+    "il file caricato deve produrre un riferimento",
+  );
+  assert.match(
+    source,
+    /^\s+fileUrl,$/m,
+    "e quel riferimento deve finire nel record del documento",
+  );
 });

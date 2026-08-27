@@ -43,7 +43,7 @@ Classificazione:
 | Multi-categoria atleta | COMPLETE | `athlete_category_memberships`, migrazione dedicata |
 | Import atleti | COMPLETE | CSV e XML con parser propri, XLS/XLSX con `xlsx`. Mappatura colonne, anteprima con esito per riga, barra di avanzamento reale, riepilogo importati/scartati/errori. 9 test in `tests/lib/athlete-import.test.mjs` |
 | Anagrafica assistita | COMPLETE | 107 province con regione, 7.896 comuni ISTAT con codice catastale ([ADR-0032](18-decision-log.md)), CAP dal comune dove ne ha uno solo — 7.836 su 7.896, da IPA di AgID ([ADR-0042](18-decision-log.md#adr-0042--il-cap-arriva-da-ipa-e-si-propone-solo-dove-il-comune-ne-ha-uno-solo)) — piu calcolo e verifica del codice fiscale, client **e** server. Le superfici sono elencate una per una in `tests/ui/anagrafiche-coverage.test.mjs`; la residenza di una persona passa da `PersonResidenceFields` |
-| Allenatori | COMPLETE | Lista, dettaglio, contratti, upload |
+| Allenatori | COMPLETE | Lista, dettaglio, documenti. I documenti sono una griglia sola nella scheda (tipo, file, caricamento, scadenza, stato, azioni) e i byte passano da Attachment Core: vedi `src/lib/trainer-documents.ts`. Fino a RC Fix 1 caricare non salvava niente (scriveva su `clubs.trainer_contracts`, colonna inesistente) e «Visualizza» rimandava all'elenco con «Allenatore non trovato» |
 | Staff | COMPLETE | Lista, dettaglio, modifica |
 | Soci | COMPLETE | Lista, dettaglio, creazione, export PDF. Dal Blocco A la scheda mostra e modifica **tutto** cio che la creazione scrive: prima ne caricava dodici campi su ventuno, e gli altri nove restavano in archivio invisibili |
 | Sponsor | COMPLETE | Lista, dettaglio, pagamenti sponsor |

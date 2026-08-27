@@ -73,6 +73,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
+import { TrainerDocumentsPanel } from "@/components/trainer/trainer-documents-panel";
+import {
+  getTrainerDocumentsFromRecord,
+  type TrainerDocument,
+} from "@/lib/trainer-documents";
 import { buildAttachmentFileName } from "@/lib/attachment-names";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { PhoneField } from "@/components/forms/phone-field";
@@ -229,8 +234,14 @@ export default function TrainerDetailsPage() {
   // Expand trainer data structure to include all fields
   const [trainer, setTrainer] = React.useState<any>(null);
 
-  // Add state for contracts and documents
-  const [contracts, setContracts] = useState<any[]>([]);
+  /*
+    I documenti dell'allenatore stanno **dentro** il suo record e i byte in
+    Attachment Core: vedi src/lib/trainer-documents.ts per il perche di questa
+    scelta e per i tre posti diversi in cui finivano prima.
+  */
+  const [trainerDocuments, setTrainerDocuments] = useState<TrainerDocument[]>(
+    [],
+  );
   /**
    * Visita medica: tipologia, scadenza e certificato.
    *
@@ -479,12 +490,7 @@ export default function TrainerDetailsPage() {
           );
           setPayments(trainerPayments);
           
-          // Load contracts from trainerData if available
-          const trainerContracts = sortByDateDesc(
-            trainerData.contracts || [],
-            paymentDateOf,
-          );
-          setContracts(trainerContracts);
+          setTrainerDocuments(getTrainerDocumentsFromRecord(trainerData));
 
           // Load certificate files from trainerData if available
           const trainerCertificateFiles = trainerData.certificateFiles || {};
@@ -1193,26 +1199,22 @@ export default function TrainerDetailsPage() {
     setShowPaymentsTab(true);
   };
 
-  /*
-    Il club viaggia nel link.
-
-    Era la meta della causa di «ID del club non trovato»: questa pagina apriva
-    il caricamento contratti senza `?clubId=`, e quella pagina il club lo
-    cercava **solo** li. Ora lo passa, e la pagina di destinazione ha comunque
-    i ripieghi che usa il resto dell'applicazione.
-  */
-  const contractsHref = (suffix: string) =>
-    `/trainers/${trainerId}/contracts${suffix}${
-      clubId ? `?clubId=${encodeURIComponent(clubId)}` : ""
-    }`;
-
-  const handleAddContract = () => {
-    router.push(contractsHref("/upload"));
-  };
-
-  const handleViewContracts = () => {
-    router.push(contractsHref(""));
-  };
+  /**
+   * Scrive l'elenco dei documenti nel record dell'allenatore.
+   *
+   * Prima esistevano due pagine dedicate ai «contratti» che scrivevano su una
+   * colonna inesistente (`clubs.trainer_contracts`) e ne leggevano un'altra:
+   * il documento non arrivava da nessuna parte. Qui la scrittura passa dallo
+   * stesso percorso di ogni altro campo dell'allenatore.
+   */
+  const persistTrainerDocuments = React.useCallback(
+    async (documents: TrainerDocument[]) => {
+      await updateTrainerRecord({ documents });
+      setTrainerDocuments(documents);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubId, trainerId],
+  );
 
   /**
    * Salva tipologia, scadenza o certificato della visita medica.
@@ -2124,89 +2126,23 @@ export default function TrainerDetailsPage() {
                   </CardContent>
                 </Card>
 
-                {/* NEW: Contracts and Documents Section */}
-                <Card>
-                  {/*
-                    A 375 px i due comandi in riga finivano a x=402: «Aggiungi
-                    Contratto» stava **fuori dallo schermo** e non si poteva
-                    premere (Blocco A, punto 22). La pagina non scorreva in
-                    orizzontale — qualcosa piu in alto ritagliava — quindi
-                    nessuna invariante statica se ne era accorta: si vede solo
-                    misurando la posizione dei comandi a schermo stretto.
+                {/*
+                  I documenti: una griglia sola, dentro la scheda.
 
-                    Colonna sotto i 640 px, riga sopra: gli stessi due
-                    pulsanti, uno sotto l'altro finche c'e poco spazio.
-                  */}
-                  <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Contratti e Documenti
-                    </CardTitle>
-                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                      <Button 
-                        variant="outline" 
-                        onClick={handleViewContracts}
-                        className="flex items-center justify-center gap-2"
-                      >
-                        <Eye className="h-4 w-4" />
-                        Visualizza Tutti
-                      </Button>
-                      <Button 
-                        onClick={handleAddContract}
-                        className="bg-blue-600 hover:bg-blue-700 flex items-center justify-center gap-2"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Aggiungi Contratto
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {contracts.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                        <p>Nessun contratto o documento registrato</p>
-                        <Button 
-                          variant="outline" 
-                          className="mt-4"
-                          onClick={handleAddContract}
-                        >
-                          Aggiungi il primo contratto
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {contracts.slice(0, 3).map((contract) => (
-                          <div 
-                            key={contract.id} 
-                            className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-                          >
-                            <div className="flex items-center gap-3">
-                              <FileText className="h-5 w-5 text-blue-500" />
-                              <div>
-                                <p className="font-medium">{contract.name}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  {formatDate(contract.date)}
-                                </p>
-                              </div>
-                            </div>
-                            <Button variant="ghost" size="sm">
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                        {contracts.length > 3 && (
-                          <Button 
-                            variant="link" 
-                            className="w-full"
-                            onClick={handleViewContracts}
-                          >
-                            Visualizza tutti i {contracts.length} contratti
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                  Prima erano un riquadro che ne mostrava tre con nome e data
+                  vuoti — leggeva `contract.name` e `contract.date`, mentre chi
+                  li salvava scriveva `title` e `uploadDate` — un pulsante di
+                  scaricamento senza `onClick`, e due pagine dedicate che non
+                  trovavano nemmeno l'allenatore. Vedi
+                  src/lib/trainer-documents.ts.
+                */}
+                <TrainerDocumentsPanel
+                  documents={trainerDocuments}
+                  trainerId={trainerId}
+                  trainerName={trainer?.name || ""}
+                  organizationId={clubId}
+                  onPersist={persistTrainerDocuments}
+                />
 
                 {/*
                   Le taglie si raccoglievano alla creazione e poi sparivano:

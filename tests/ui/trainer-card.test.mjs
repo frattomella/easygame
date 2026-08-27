@@ -24,7 +24,7 @@ const TRAINER_CARD = "app/trainers/[id]/page.tsx";
 const TRAINER_NEW = "app/trainers/new/page.tsx";
 const TRAINER_EDIT = "app/trainers/[id]/edit/page.tsx";
 const EDIT_TRAINING = "components/forms/EditTrainingForm.tsx";
-const CONTRACTS_UPLOAD = "app/trainers/[id]/contracts/upload/page.tsx";
+const DOCUMENTS_PANEL = "components/trainer/trainer-documents-panel.tsx";
 
 // --- dati societari ----------------------------------------------------------
 
@@ -115,21 +115,35 @@ test("la creazione chiede data di nascita e sesso, non il solo anno", () => {
 // --- contratti ---------------------------------------------------------------
 
 /**
- * «ID del club non trovato» all'aggiunta di un contratto: la pagina cercava il
- * club **solo** in `?clubId=`, e la scheda allenatore la apriva senza quel
- * parametro.
+ * «Allenatore non trovato» premendo Visualizza.
+ *
+ * La pagina dedicata ai contratti cercava l'allenatore in
+ * `clubs.members[].staff_data`, mentre gli allenatori stanno in
+ * `clubs.trainers`: non trovandolo rimandava all'elenco. Ora non esiste piu
+ * nessuna navigazione: i documenti stanno nella scheda e «Visualizza» apre il
+ * file (RC Fix 1, punti 6, 7 e 9).
  */
-test("il link ai contratti porta il club, e la pagina ha comunque i ripieghi", () => {
+test("i documenti dell'allenatore non portano fuori dalla scheda", () => {
+  const card = readCode(TRAINER_CARD);
+
+  assert.match(card, /<TrainerDocumentsPanel/);
+  assert.equal(
+    /router\.push\([^)]*contracts/.test(card),
+    false,
+    "nessun comando dei documenti deve cambiare pagina",
+  );
   assert.match(
-    readCode(TRAINER_CARD),
-    /clubId \? `\?clubId=\$\{encodeURIComponent\(clubId\)\}` : ""/,
-    "la scheda deve passare il club nel link",
+    card,
+    /await updateTrainerRecord\(\{ documents \}\)/,
+    "l'elenco si salva nel record dell'allenatore, non su una colonna inventata",
   );
 
+  const panel = readCode(DOCUMENTS_PANEL);
+  assert.match(panel, /openClientFileUrl\(document\.fileUrl\)/);
   assert.match(
-    readCode(CONTRACTS_UPLOAD),
-    /resolveActiveClubId\(/,
-    "e la pagina non deve dipendere solo dalla query",
+    panel,
+    /Il file di questo documento non e disponibile/,
+    "se il file manca lo si dice, invece di aprire una scheda vuota",
   );
 });
 
