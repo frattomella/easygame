@@ -34,6 +34,7 @@ comportamenti desiderati o pianificati.
 | 21 | [Backlog master](21-backlog.md) | Per sapere a che punto e una richiesta gia fatta |
 | 22 | [Matrice Release Candidate](22-release-candidate.md) | Il percorso fino al Blocco D2. **Superata dalla 23** |
 | 23 | [Matrice definitiva Web V1](23-v1-release-matrix.md) | Per sapere se si puo rilasciare: ogni requisito V1 con il suo stato e la sua prova |
+| 24 | [RC Fix 1](24-rc-fix-1.md) | Gli undici difetti operativi chiusi prima della produzione: causa vera, correzione, e la misura che lo prova |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)
