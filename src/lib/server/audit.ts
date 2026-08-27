@@ -49,6 +49,20 @@ export const AUDIT_ACTIONS = {
   */
   paymentTransactionRecorded: "payment.transaction.recorded",
   paymentTransactionReversed: "payment.transaction.reversed",
+  /*
+    Rimborsi. Sono **tre** azioni e non una perche il rimborso e l'unica
+    operazione di EasyGame che parte, resta in volo, e puo finire in due modi:
+    la richiesta al provider e un fatto, la conferma e un fatto diverso, e il
+    rifiuto e il fatto che si va a cercare quando una famiglia chiama dicendo
+    che i soldi non sono tornati. Registrarne una sola vorrebbe dire non poter
+    distinguere «non e mai partito» da «e partito e non e arrivato».
+
+    La richiesta la registra la rotta, con l'attore che ha premuto; la conferma
+    e il fallimento li registra il webhook, che un attore non ce l'ha.
+  */
+  paymentRefundRequested: "payment.refund.requested",
+  paymentRefundCompleted: "payment.refund.completed",
+  paymentRefundFailed: "payment.refund.failed",
   documentIssued: "document.issued",
   /*
     Contributi da enti: la maturazione e un calcolo e non si traccia, ma

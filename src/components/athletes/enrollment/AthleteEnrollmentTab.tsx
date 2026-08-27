@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { InstallmentLedgerList } from "@/components/payments/InstallmentLedgerList";
 import { RegisterPaymentDialog } from "@/components/payments/RegisterPaymentDialog";
 import { PayOnlineDialog } from "@/components/payments/PayOnlineDialog";
+import { RefundDialog } from "@/components/payments/RefundDialog";
 import { useAthletePaymentLedger } from "@/components/payments/use-athlete-payment-ledger";
 import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
@@ -564,6 +565,16 @@ export function AthleteEnrollmentTab({
               onPayOnline={
                 ledger.canPayOnline ? ledger.selectOnlineLedger : undefined
               }
+              /*
+                Il rimborso segue la stessa condizione del pagamento online: un
+                club che non incassa online non ha incassi online da restituire.
+              */
+              onRefundTransaction={
+                ledger.canPayOnline
+                  ? (transaction) => ledger.selectRefundTransaction(transaction)
+                  : undefined
+              }
+              refundAvailabilityFor={ledger.refundAvailabilityFor}
               pendingOnlineInstallmentId={ledger.pendingOnlineInstallmentId}
               onEditInstallment={onEditInstallment}
               onDeleteInstallment={onDeleteInstallment}
@@ -775,6 +786,35 @@ export function AthleteEnrollmentTab({
         onConfirm={(amount) =>
           ledger.onlineLedger
             ? ledger.payOnline(ledger.onlineLedger, amount)
+            : undefined
+        }
+      />
+
+      <RefundDialog
+        open={Boolean(ledger.refundTarget)}
+        onOpenChange={(open) => {
+          if (!open) ledger.selectRefundTransaction(null);
+        }}
+        transaction={ledger.refundTarget}
+        ledger={
+          ledger.refundTarget
+            ? ledger.ledgers.find(
+                (entry) =>
+                  String(entry.installmentId || "") ===
+                  String(ledger.refundTarget?.installmentId || ""),
+              ) || null
+            : null
+        }
+        availability={
+          ledger.refundTarget
+            ? ledger.refundAvailabilityFor(ledger.refundTarget)
+            : null
+        }
+        athleteName={athleteName}
+        isSubmitting={ledger.isRefunding}
+        onConfirm={(submission) =>
+          ledger.refundTarget
+            ? ledger.refundTransaction(ledger.refundTarget, submission)
             : undefined
         }
       />

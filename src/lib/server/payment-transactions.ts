@@ -167,6 +167,30 @@ export const getPaymentTransactionById = async (
   return row;
 };
 
+/**
+ * La rata, letta e basta.
+ *
+ * **Perche una lettura e non `recomputeChargeFromLedger`.** Perche quella
+ * scrive, e chi chiama questa vuole solo restituire alla schermata la riga
+ * com'e adesso — dopo un'operazione che la rata non l'ha toccata, come una
+ * richiesta di rimborso in attesa della conferma del provider. Una lettura che
+ * scrive su un percorso di sola lettura e la cosa che `getClubPaymentAccount`
+ * evita per la stessa ragione.
+ */
+export const getChargeById = async (
+  paymentId: string,
+  scope?: PaymentTransactionScope,
+) => {
+  const id = asText(paymentId);
+  if (!id) return null;
+
+  const row = await chargeClient().findUnique({ where: { id } });
+  if (!row) return null;
+
+  ensureOrganizationAccess(scope, row.organization_id);
+  return row;
+};
+
 /* ------------------------------------------------- stato derivato di una rata */
 
 /**
@@ -711,6 +735,96 @@ export const recordRefundTransaction = async (
   };
 };
 
+export type MarkRefundRequestedInput = {
+  transactionId: string;
+  /** L'identificativo che il provider ha assegnato al rimborso. */
+  externalRefundId: string;
+  amountCents: number;
+  reason?: unknown;
+  /** Le note della segreteria: restano in EasyGame, non viaggiano al provider. */
+  notes?: unknown;
+  requestedBy?: string | null;
+  requestedAt?: unknown;
+};
+
+/**
+ * Annota che un rimborso e stato **chiesto** al provider e non e ancora
+ * confermato.
+ *
+ * **Perche un'annotazione e non un movimento.** Perche un movimento nel
+ * registro dice che il denaro si e mosso, e qui non lo sappiamo ancora: la
+ * risposta HTTP di Stripe puo essere `pending`, e su alcuni metodi di pagamento
+ * ci resta per giorni. Scrivere subito il movimento vorrebbe dire raccontare
+ * alla famiglia che i soldi sono tornati mentre sono ancora in viaggio, e
+ * doverlo disdire se il rimborso fallisce. Il registro definitivo lo scrive il
+ * webhook, esattamente come per gli incassi.
+ *
+ * **Perche l'annotazione non va poi cancellata.** Perche sparisce da sola:
+ * `pendingRefundRequests` la considera in volo finche il movimento con lo
+ * stesso identificativo non compare nel registro. Nessuno stato da tenere
+ * allineato a mano, e nessun secondo sistema di storico dei rimborsi — la
+ * fonte resta Payments V2.
+ *
+ * L'annotazione vive su `data.refundRequests` dell'**incasso originale**: e li
+ * che l'interfaccia la cerca quando deve dire «rimborso in elaborazione» e
+ * impedire una seconda richiesta.
+ */
+export const markRefundRequested = async (
+  input: MarkRefundRequestedInput,
+  scope?: PaymentTransactionScope,
+): Promise<NormalizedPaymentTransaction> => {
+  const original = await getPaymentTransactionById(input.transactionId, scope);
+
+  const externalRefundId = asText(input.externalRefundId);
+  if (!externalRefundId) {
+    throw new Error("Rimborso senza identificativo del provider");
+  }
+
+  const currentData = asRecord(original.data);
+  const requests = Array.isArray(currentData.refundRequests)
+    ? currentData.refundRequests
+    : [];
+
+  /*
+    Lo stesso identificativo non si annota due volte: e cio che succede quando
+    l'idempotenza di Stripe restituisce il rimborso gia creato a una seconda
+    richiesta identica. Un'annotazione doppia farebbe contare due volte
+    l'importo in volo, e il rimborsabile scenderebbe del doppio.
+  */
+  const gia = requests.some(
+    (entry: any) => asText(entry?.externalRefundId) === externalRefundId,
+  );
+
+  const row = gia
+    ? original
+    : await transactionClient().update({
+        where: { id: original.id },
+        data: {
+          data: {
+            ...currentData,
+            refundRequests: [
+              ...requests,
+              {
+                externalRefundId,
+                amountCents: Math.max(
+                  0,
+                  Math.round(Number(input.amountCents) || 0),
+                ),
+                reason: asText(input.reason) || null,
+                notes: asText(input.notes) || null,
+                requestedBy: asText(input.requestedBy) || null,
+                requestedAt: (
+                  toDateOrNull(input.requestedAt) || new Date()
+                ).toISOString(),
+              },
+            ],
+          },
+        },
+      });
+
+  return normalizePaymentTransaction(row) as NormalizedPaymentTransaction;
+};
+
 /**
  * L'incasso a cui un rimborso si riferisce, cercato per identificativo del
  * pagamento presso il provider.
@@ -737,6 +851,40 @@ export const findTransactionByExternalPaymentId = async (input: {
     },
     orderBy: { created_at: "asc" },
   });
+};
+
+/**
+ * Tutti i movimenti che riguardano **lo stesso pagamento presso il provider**:
+ * l'incasso, i suoi rimborsi, il suo eventuale storno.
+ *
+ * **Perche si cerca per pagamento del provider e non per rata.** Perche e
+ * l'insieme su cui si decide un rimborso, e una rata puo averne piu di uno: 130
+ * € pagati con due incassi da 50 e 80 sono due pagamenti Stripe distinti, e il
+ * rimborsabile dell'uno non e il rimborsabile dell'altra. Vedi
+ * `src/lib/payments/refunds.ts`.
+ *
+ * Funziona anche su un acconto senza rata, che per `payment_id` non si
+ * troverebbe.
+ */
+export const listTransactionsByExternalPaymentId = async (input: {
+  organizationId: string;
+  externalPaymentId: string;
+}): Promise<NormalizedPaymentTransaction[]> => {
+  const organizationId = asText(input.organizationId);
+  const externalPaymentId = asText(input.externalPaymentId);
+  if (!organizationId || !externalPaymentId) return [];
+
+  return sortTransactionsChronologically(
+    normalizePaymentTransactions(
+      await transactionClient().findMany({
+        where: {
+          organization_id: organizationId,
+          external_payment_id: externalPaymentId,
+        },
+        orderBy: [{ paid_at: "asc" }, { created_at: "asc" }],
+      }),
+    ),
+  );
 };
 
 /** Il totale incassato su una rata, letto dal registro. */

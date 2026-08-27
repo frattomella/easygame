@@ -128,7 +128,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "POST",
     path: "/api/v1/payment-transactions/:id",
     description:
-      "Azioni su un incasso: `reverse` lo storna senza cancellarlo, `issue-receipt` ne emette la ricevuta, `issue-invoice` la fattura",
+      "Azioni su un incasso: `reverse` lo storna senza cancellarlo, `refund` ne chiede al provider la restituzione (totale o parziale), `issue-receipt` ne emette la ricevuta, `issue-invoice` la fattura",
     mobile_ready: true,
   },
   {

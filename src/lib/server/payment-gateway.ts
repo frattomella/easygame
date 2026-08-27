@@ -34,8 +34,14 @@ import { prisma } from "./prisma";
 import {
   createPaymentTransaction,
   findTransactionByExternalPaymentId,
+  getChargeById,
+  getPaymentTransactionById,
   getSettledAmountForCharge,
+  listPaymentTransactions,
+  listTransactionsByExternalPaymentId,
+  markRefundRequested,
   recordRefundTransaction,
+  type PaymentTransactionScope,
 } from "./payment-transactions";
 import {
   applyProviderAccountSnapshot,
@@ -45,6 +51,7 @@ import {
 } from "./connect-accounts";
 import { resolveCommissionForClub } from "./platform-settings";
 import { checkWebhookEnvironment } from "./payment-environment";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   PaymentGatewayError,
   requirePaymentGateway,
@@ -57,6 +64,16 @@ import {
   reverseSettlement,
   type FrozenSettlement,
 } from "@/lib/payments/commission";
+import {
+  buildRefundIdempotencyKey,
+  describeRefundAvailability,
+  isRefundReason,
+  type RefundAvailability,
+} from "@/lib/payments/refunds";
+import {
+  normalizePaymentTransaction,
+  type NormalizedPaymentTransaction,
+} from "@/lib/payments/installment-ledger";
 import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
 import type { CheckoutReadiness } from "@/lib/payments/connect-account";
 import type { ClubPaymentSettings } from "@/lib/payments/payment-types";
@@ -356,6 +373,245 @@ export const backfillProviderFees = async (input?: {
   return { esaminati: pendenti.length, aggiornati };
 };
 
+/* ------------------------------------------------------------- i rimborsi */
+
+export type RequestRefundInput = {
+  /** L'incasso da rimborsare. **Uno**, non una rata. */
+  transactionId: string;
+  /** Assente o `null` = tutto il rimborsabile. In centesimi. */
+  amountCents?: number | null;
+  /** Uno dei motivi che il provider riconosce. Facoltativo. */
+  reason?: unknown;
+  /** Le note della segreteria. Restano in EasyGame: al provider non vanno. */
+  notes?: unknown;
+  /** Chi ha premuto. Finisce nell'annotazione, non nella richiesta al PSP. */
+  actorUserId?: string | null;
+};
+
+export type RefundOutcome = {
+  /** Lo stato **dichiarato dal provider**, non quello del registro. */
+  status: "pending" | "succeeded" | "failed";
+  externalRefundId: string;
+  amountCents: number;
+  /** Vero finche il movimento non e comparso nel registro. */
+  awaitingWebhook: boolean;
+  /** L'incasso originale, riletto: porta l'annotazione della richiesta. */
+  transaction: NormalizedPaymentTransaction;
+  /** La rata, com'e adesso. Immutata finche il webhook non registra il movimento. */
+  charge: Record<string, any> | null;
+  /** Il registro della rata, per aggiornare la schermata senza rileggerla tutta. */
+  transactions: NormalizedPaymentTransaction[];
+  /** Il rimborsabile **prima** di questa richiesta. */
+  availability: RefundAvailability;
+  message: string;
+};
+
+/**
+ * Avvia un rimborso **da EasyGame**, sull'account connesso del club giusto.
+ *
+ * **Il buco che questa funzione chiude.** Il contratto del gateway aveva
+ * `refund` dal Blocco D e il registro sapeva registrare un rimborso arrivato
+ * per webhook; ma nessuna superficie di EasyGame lo avviava. Il club doveva
+ * entrare nel cruscotto Stripe — che con dashboard *full* ha — trovare il
+ * pagamento e rimborsarlo li. Funzionava, e chiedeva a una segreteria sportiva
+ * di saper usare un cruscotto di pagamenti per fare una cosa che EasyGame le
+ * mostra gia in scheda.
+ *
+ * **La risposta del provider non e il registro, e questo e il punto.** Un
+ * rimborso puo nascere `pending` e restarci; puo anche fallire. Quel che questa
+ * funzione scrive e un'**annotazione** sull'incasso — «ne ho chiesto uno, si
+ * chiama `re_…`, vale tanto» — che serve a dire «in elaborazione» e a impedire
+ * che ne parta un secondo. Il movimento nel registro lo scrive
+ * `handleGatewayWebhookEvent`, dall'evento firmato, come per gli incassi. Se i
+ * due arrivano nell'ordine inverso — webhook prima della nostra risposta — non
+ * cambia niente: l'annotazione si spegne da sola confrontandosi con il
+ * registro.
+ *
+ * **Cosa NON fa, di proposito.** Non distribuisce un rimborso su piu incassi.
+ * Una rata da 130 € pagata con 50 e 80 sono due addebiti Stripe distinti; il
+ * rimborso ne cita **uno**, ed e l'unico modo perche il registro di EasyGame e
+ * il cruscotto del provider raccontino la stessa cosa.
+ */
+export const requestGatewayRefund = async (
+  input: RequestRefundInput,
+  scope?: PaymentTransactionScope,
+): Promise<RefundOutcome> => {
+  /* Il confine di sicurezza e qui: uno scope che non copre il club solleva. */
+  const row = await getPaymentTransactionById(input.transactionId, scope);
+  const original = normalizePaymentTransaction(
+    row,
+  ) as NormalizedPaymentTransaction;
+
+  const organizationId = asText(original.organizationId);
+  if (!organizationId) {
+    throw new Error("Accesso negato: incasso senza club");
+  }
+
+  const externalPaymentId = asText(original.externalPaymentId);
+
+  /*
+    I movimenti dello stesso pagamento presso il provider: l'incasso, i suoi
+    rimborsi, il suo eventuale storno. E l'insieme su cui si decide, e si
+    prende per pagamento del PSP e non per rata — una rata puo avere piu
+    incassi, e il rimborsabile dell'uno non e quello dell'altro.
+  */
+  const transactions = externalPaymentId
+    ? await listTransactionsByExternalPaymentId({
+        organizationId,
+        externalPaymentId,
+      })
+    : [original];
+
+  const availability = describeRefundAvailability({
+    transaction: original,
+    transactions,
+  });
+
+  if (!availability.refundable) {
+    throw new Error(availability.message);
+  }
+
+  const amountCents =
+    input.amountCents === undefined || input.amountCents === null
+      ? availability.refundableCents
+      : Math.round(Number(input.amountCents) || 0);
+
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    throw new Error("L'importo del rimborso deve essere maggiore di zero");
+  }
+
+  if (amountCents > availability.refundableCents) {
+    throw new Error(
+      "Il rimborso supera quanto resta rimborsabile su questo incasso",
+    );
+  }
+
+  /*
+    L'account su cui rimborsare e quello del club, letto dalla tabella degli
+    account connessi — **non** quello scritto sulla riga dell'incasso, che
+    arriva da un evento e per questo non e un lasciapassare. Quando i due non
+    coincidono ci si ferma: rimborsare sull'account sbagliato vorrebbe dire
+    prendere denaro dal conto di una societa per restituirlo a una famiglia che
+    ha pagato a un'altra.
+  */
+  const account = await getClubPaymentAccount(organizationId);
+  const merchantExternalId = asText(account.externalAccountId);
+
+  if (!merchantExternalId) {
+    throw new PaymentGatewayError(
+      "merchant_not_ready",
+      "La societa non ha un conto di incasso collegato: il rimborso non si puo avviare",
+      account.provider,
+    );
+  }
+
+  const suRigaIncasso = asText((row as any)?.external_account_id);
+
+  if (suRigaIncasso && suRigaIncasso !== merchantExternalId) {
+    throw new Error(
+      "Accesso negato: l'incasso appartiene a un conto diverso da quello collegato alla societa",
+    );
+  }
+
+  const provider = requirePaymentGateway(account.provider);
+
+  const reason = isRefundReason(input.reason)
+    ? String(input.reason).trim()
+    : undefined;
+
+  let refund;
+  try {
+    refund = await provider.refund({
+      externalPaymentId,
+      merchant: { externalId: merchantExternalId },
+      amountCents,
+      reason,
+      /*
+        Deterministica: due clic dello stesso tentativo chiedono **lo stesso**
+        rimborso, e Stripe restituisce quello gia creato invece di crearne un
+        secondo. Il gia rimborsato la fa cambiare dopo ogni rimborso riuscito,
+        che e quando un rimborso nuovo serve davvero. Vedi ADR-0063.
+      */
+      idempotencyKey: buildRefundIdempotencyKey({
+        organizationId,
+        externalPaymentId,
+        amountCents,
+        refundedCents: availability.refundedCents,
+      }),
+    });
+  } catch (error: any) {
+    /* Il messaggio del provider si riporta; la richiesta no. */
+    console.warn("[payments/refund] il provider ha rifiutato il rimborso", {
+      provider: account.provider,
+      message: String(error?.message || error),
+    });
+    throw error;
+  }
+
+  const externalRefundId = asText(refund.externalId);
+  if (!externalRefundId) {
+    /*
+      **Un identificativo non si inventa** — stessa regola del webhook. Senza,
+      l'annotazione non si potrebbe mai spegnere e il rimborso resterebbe «in
+      elaborazione» per sempre.
+    */
+    throw new PaymentGatewayError(
+      "provider_error",
+      "Il provider non ha restituito un identificativo per il rimborso",
+      account.provider,
+    );
+  }
+
+  const annotato = await markRefundRequested(
+    {
+      transactionId: original.id,
+      externalRefundId,
+      amountCents: refund.amountCents || amountCents,
+      reason,
+      notes: input.notes,
+      requestedBy: input.actorUserId || scope?.userId || null,
+    },
+    scope,
+  );
+
+  /*
+    Il registro si rilegge **adesso**: se il webhook e gia arrivato — con carta
+    succede, i due viaggi si incrociano — il movimento c'e gia e non c'e niente
+    da attendere.
+  */
+  const dopo = await listTransactionsByExternalPaymentId({
+    organizationId,
+    externalPaymentId,
+  });
+
+  const registrato = dopo.some(
+    (entry) => asText(entry.externalReference) === externalRefundId,
+  );
+
+  const paymentId = asText(original.installmentId);
+
+  return {
+    status: refund.status,
+    externalRefundId,
+    amountCents: refund.amountCents || amountCents,
+    awaitingWebhook: !registrato,
+    transaction: annotato,
+    charge: paymentId ? await getChargeById(paymentId, scope) : null,
+    /*
+      Il registro **della rata**, non quello del solo pagamento: la schermata
+      mostra tutti gli incassi della rata, e restituirne un sottoinsieme le
+      farebbe perdere gli altri.
+    */
+    transactions: paymentId
+      ? await listPaymentTransactions({ organizationId, paymentId }, scope)
+      : dopo,
+    availability,
+    message: registrato
+      ? "Rimborso registrato"
+      : "Rimborso in elaborazione: il movimento comparira quando il provider lo conferma",
+  };
+};
+
 /* -------------------------------------------------------- la liquidazione */
 
 /**
@@ -630,6 +886,27 @@ export const handleGatewayWebhookEvent = async (
       }
 
       if (event.refund.status !== "succeeded") {
+        /*
+          Un rimborso **fallito** e il fatto che si va a cercare quando una
+          famiglia chiama dicendo che i soldi non sono tornati. Non muove
+          denaro e non deve, ma sparire in silenzio nel registro degli eventi
+          lascerebbe la segreteria senza niente da leggere. L'attore non c'e:
+          questo lo racconta il provider, non una persona.
+        */
+        if (event.refund.status === "failed") {
+          await recordAuditEvent({
+            action: AUDIT_ACTIONS.paymentRefundFailed,
+            organizationId,
+            resource: "payment_transactions",
+            resourceId: event.refund.externalPaymentId,
+            metadata: {
+              externalRefundId: event.refund.externalRefundId,
+              amountCents: event.refund.amountCents,
+              eventId,
+            },
+          });
+        }
+
         return markIgnored(
           `Rimborso in stato «${event.refund.status}»: nessun movimento registrato`,
         );
@@ -703,6 +980,29 @@ export const handleGatewayWebhookEvent = async (
           transactionId: null,
           message: "Rimborso gia registrato da un altro evento",
         };
+      }
+
+      /*
+        La **conferma** e un fatto diverso dalla richiesta, e va tracciata a
+        parte: fra le due passa il viaggio, e quando qualcosa si perde per
+        strada e la coppia mancante a dirlo. Un duplicato non si traccia — il
+        fatto e gia stato registrato una volta e due righe direbbero due
+        rimborsi.
+      */
+      if (!result.duplicate) {
+        await recordAuditEvent({
+          action: AUDIT_ACTIONS.paymentRefundCompleted,
+          organizationId,
+          resource: "payment_transactions",
+          resourceId: String(original.id),
+          metadata: {
+            refundTransactionId: result.transaction.id,
+            externalRefundId: event.refund.externalRefundId,
+            amountCents: event.refund.amountCents,
+            paymentId: result.transaction.installmentId,
+            eventId,
+          },
+        });
       }
 
       return {

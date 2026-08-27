@@ -3447,3 +3447,112 @@ acceso.
   `resolvePlatformEnablement`;
 - il test «la sospensione decisa dalla piattaforma vince su cio che dice il PSP»
   ora stampiglia la data: senza, descriveva la confusione invece della regola.
+
+---
+
+## ADR-0065 — Il rimborso si avvia da EasyGame; a scriverlo nel registro resta l'evento firmato
+
+**Stato:** accettato — 2026-08-27 (Blocco E, Payment System V1)
+
+**Contesto.** Dopo il collaudo sandbox del 2026-08-27 il giro dei rimborsi era
+per meta: `PaymentGateway.refund` esisteva dal Blocco D, e
+`recordRefundTransaction` sapeva registrare un rimborso arrivato da un evento
+firmato — con il rimborso parziale, la commissione proporzionale e la rata
+ricalcolata. Nel mezzo non c'era niente: **nessuna rotta di EasyGame avviava un
+rimborso.**
+
+Il club poteva farlo dal proprio cruscotto Stripe, che con `dashboard: "full"`
+ha (ADR-0061), ed EasyGame lo registrava correttamente. Funzionava, e chiedeva
+a una segreteria sportiva di riconoscere un `pi_…` in un elenco di pagamenti
+per fare una cosa che EasyGame le mostra gia in scheda — con il rischio, ogni
+volta, di rimborsare il pagamento sbagliato.
+
+**Le tre decisioni.**
+
+**1. Il rimborso si chiede su un incasso, non su una rata.** Una rata da 130 €
+pagata con due incassi — 50 e 80 — non ha «130 € rimborsabili»: ha due
+movimenti, ciascuno con il proprio pagamento presso il PSP e il proprio residuo
+rimborsabile. Rimborsare «30 € della rata» costringerebbe a scegliere da quale
+dei due prenderli, e qualunque scelta sarebbe arbitraria — e sbagliata sul
+cruscotto di Stripe, dove i due addebiti restano distinti.
+
+    Rata 130 = incasso A (50) + incasso B (80)
+    rimborso di 30 su B → A resta 50, B vale 50, la rata ha incassato 100
+
+**2. La risposta HTTP del provider non e il registro.** E la stessa regola che
+vale per gli incassi (ADR-0045), e vale per lo stesso motivo: un rimborso puo
+nascere `pending` e restarci per giorni sui metodi differiti, e puo fallire.
+Scrivere il movimento sulla risposta vorrebbe dire raccontare a una famiglia che
+i soldi sono tornati mentre sono ancora in viaggio, e doverlo disdire.
+
+Quel che serve nel frattempo e sapere che **una richiesta e in volo**. Si annota
+sull'incasso originale, in `data.refundRequests`, e **si spegne da sola** quando
+il movimento con quell'identificativo compare nel registro: nessuno stato da
+tenere allineato a mano, nessuna seconda tabella. E la stessa meccanica del
+«pagamento in verifica».
+
+**3. Il rimborsabile si calcola dal registro, non si chiede al provider.**
+Perche serve a disegnare l'interfaccia — un pulsante per riga — e
+un'interfaccia che per accendersi fa una chiamata di rete per riga e
+un'interfaccia che non si apre quando il PSP e lento. La regola vive in
+`src/lib/payments/refunds.ts`, modulo **puro**, e la applicano sia la schermata
+sia il servizio: una sola idea di «quanto si puo restituire». Il provider resta
+l'autorita su cio che accetta, e la sua parola arriva dal webhook.
+
+**Sei ostacoli, sei messaggi.** Come per il checkout (`describeCheckoutReadiness`):
+`not_a_payment`, `reversed`, `manual_payment`, `provider_missing`,
+`nothing_left`, `in_progress`. I due che si confondono di piu sono il terzo e il
+secondo — un incasso **manuale** non si rimborsa dal PSP perche quel denaro dal
+PSP non e mai passato, e un incasso **stornato** non si rimborsa perche per il
+registro non e mai avvenuto.
+
+**L'idempotenza.** La chiave e
+`refund:{club}:{pagamento}:{importo}:{gia rimborsato}`, con lo stesso
+ragionamento di ADR-0063: **non cambia** fra due clic dello stesso tentativo — e
+li il rimborso va riusato — e **cambia** dopo ogni rimborso riuscito, che e
+quando ne serve uno nuovo. Senza il gia rimborsato, un secondo rimborso da 30 €
+sullo stesso incasso avrebbe ricevuto indietro il primo, e il club avrebbe
+creduto di averne fatti due.
+
+Davanti all'idempotenza del provider c'e una difesa applicativa: **finche una
+richiesta e in volo, non ne parte un'altra**. L'idempotenza di Stripe e la rete
+di sicurezza, non la prima linea.
+
+**Chi puo rimborsare.** Proprietario e gestore del club —
+`canManageClubConfiguration`, la stessa porta dello storno. Non allenatori, non
+collaboratori. Il rimborso passa dalla rotta che gia governa le azioni su un
+incasso (`POST /api/v1/payment-transactions/:id`) e non da una rotta propria:
+stessa risorsa, stesso controllo di ruolo, stesso confine di club — una rotta a
+parte avrebbe dovuto ricopiare le tre cose, ed e cosi che due percorsi
+cominciano a divergere.
+
+**Tre azioni nel registro degli eventi, non una.** `payment.refund.requested`,
+`payment.refund.completed`, `payment.refund.failed`. Il rimborso e l'unica
+operazione di EasyGame che parte, resta in volo e puo finire in due modi:
+registrarne una sola vorrebbe dire non poter distinguere «non e mai partito» da
+«e partito e non e arrivato», che e esattamente la domanda che si pone quando
+una famiglia chiama.
+
+**Conseguenze.**
+
+- `requestGatewayRefund` in `src/lib/server/payment-gateway.ts`: legge
+  l'incasso **con lo scope**, verifica che l'account connesso della riga
+  coincida con quello del club, chiama il gateway e annota. Nessun componente
+  parla con Stripe;
+- l'account su cui rimborsare arriva da `club_payment_accounts` e non dalla
+  riga dell'incasso: quella arriva da un evento, e un evento non e un
+  lasciapassare. Quando i due divergono ci si ferma;
+- **nessuna tabella nuova.** Il rimborso resta una riga di
+  `payment_transactions`, e Payments V2 resta la fonte canonica: scheda atleta,
+  tab Iscrizione, rata, area Movimenti e storico incassi si aggiornano da sola
+  perche leggono tutti lo stesso registro;
+- 30 test sul servizio, 27 sul modulo puro, 22 sulle invarianti di interfaccia.
+
+**Cosa non e stato fatto, e perche.** La **nota di credito**. Un rimborso non
+lascia documenti fiscali in uno stato impossibile — `assertIssuable` rifiuta gia
+di emettere una ricevuta da un movimento negativo, e la ricevuta dell'incasso
+originale resta valida perche quel denaro era davvero arrivato. Ma il documento
+che rettifica una ricevuta dopo un rimborso **non esiste** in EasyGame: esiste
+la numerazione (`credit_note` in `DOCUMENT_NUMBER_KINDS`) e non il documento.
+E scope fiscale, non scope pagamenti, e inventarlo qui avrebbe voluto dire
+inventare anche la sua trasmissione. Vedi [16](16-technical-debt.md).

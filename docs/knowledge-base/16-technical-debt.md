@@ -910,3 +910,43 @@ commento in `src/app/api/v1/payments/account/route.ts` — allora il ramo
 *create* non dovrebbe accenderlo, e la console dovrebbe mostrarlo come «da
 abilitare» invece che come `disabled`. Se e un default tecnico, va allineato
 anche nel ramo *update*. Oggi le due strade dicono cose diverse.
+
+### E10 — Un rimborso non produce la nota di credito che gli corrisponde
+
+**Impatto: nullo sul software, aperto sulla fiscalita.** Dal 2026-08-27 il
+rimborso si avvia da EasyGame
+([ADR-0065](18-decision-log.md#adr-0065--il-rimborso-si-avvia-da-easygame-a-scriverlo-nel-registro-resta-levento-firmato)),
+e il registro incassi lo rappresenta correttamente: movimento append-only,
+rata ricalcolata, commissione restituita in proporzione.
+
+**Cosa e gia coerente, e va detto perche non sembri un buco piu grande di
+quello che e.** Un rimborso **non** lascia documenti fiscali in uno stato
+impossibile:
+
+- `assertIssuable` rifiuta di emettere una ricevuta da un movimento negativo,
+  con il messaggio che dice cosa fare invece — «si rettifica il documento
+  originale»;
+- la ricevuta dell'incasso originale **resta valida**, ed e giusto: attesta che
+  del denaro e arrivato, e quel denaro era arrivato davvero. Il fatto successivo
+  e un secondo fatto;
+- `cancelDocument` esiste, con motivo obbligatorio, per il caso in cui il
+  documento vada annullato del tutto.
+
+**Cosa manca.** Il documento che **rettifica** una ricevuta dopo un rimborso
+parziale. In EasyGame esiste la **numerazione** — `credit_note` e uno dei tre
+`DOCUMENT_NUMBER_KINDS`, con prefisso `NC` — e non esiste il documento: nessun
+modello Prisma, nessun emettitore, nessuna stampa.
+
+**Perche non e stato fatto insieme al rimborso.** Perche e scope fiscale e non
+scope pagamenti, e le due cose hanno cardinalita diverse: un rimborso puo non
+richiedere nessun documento (la maggior parte delle ASD non emette fatture),
+e un documento di rettifica ha un intestatario, una serie e una numerazione
+proprie. Farlo qui avrebbe voluto dire deciderne anche la trasmissione, che e
+il confine che [ADR-0053](18-decision-log.md#adr-0053--easygame-prepara-il-tracciato-fatturapa-non-lo-trasmette-e-non-lo-dichiara-trasmesso)
+tiene chiuso di proposito.
+
+**Cosa farebbe la differenza:** un work package fiscale che aggiunga il modello
+`CreditNote` accanto a `Receipt` e `Invoice`, con lo stesso snapshot e lo stesso
+registro di numerazione — che gia lo prevede — e l'emissione a partire dal
+documento originale, non dal movimento di rimborso. **Non** la trasmissione
+allo SdI, che resta bloccata altrove.

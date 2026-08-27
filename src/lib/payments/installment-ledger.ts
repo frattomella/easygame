@@ -38,6 +38,24 @@ export const PAYMENT_TRANSACTION_SOURCES = [
 export type PaymentTransactionSource =
   (typeof PAYMENT_TRANSACTION_SOURCES)[number];
 
+/**
+ * I numeri congelati di un movimento online, nella forma in cui le schermate
+ * li leggono.
+ *
+ * E un sottoinsieme di `FrozenSettlement` (`src/lib/payments/commission.ts`):
+ * quello che serve a **mostrare** un incasso, non a calcolarlo. La regola che
+ * lo ha prodotto resta sulla riga e non si ricalcola mai.
+ */
+export type TransactionSettlement = {
+  grossAmountCents: number | null;
+  platformFeeCents: number | null;
+  providerFeeCents: number | null;
+  netAmountCents: number | null;
+  appliedFeePercent: number;
+  appliedFeeFixedCents: number;
+  commissionRuleId: string | null;
+};
+
 export type NormalizedPaymentTransaction = {
   id: string;
   organizationId: string | null;
@@ -50,6 +68,26 @@ export type NormalizedPaymentTransaction = {
   notes: string | null;
   source: PaymentTransactionSource;
   externalReference: string | null;
+  /**
+   * Il pagamento presso il provider — PaymentIntent o Charge — che questo
+   * movimento riguarda.
+   *
+   * **Perche compare qui e non solo sul server.** Un rimborso EasyGame si
+   * riferisce a **una** transazione specifica (non si distribuisce su piu
+   * incassi), e l'interfaccia deve poter dire prima del clic se quel movimento
+   * e rimborsabile. Senza, l'unico modo era premere e leggere il rifiuto.
+   *
+   * Non e un dato nuovo esposto al client: `externalReference` porta gia lo
+   * stesso identificativo sugli incassi online.
+   */
+  externalPaymentId: string | null;
+  /**
+   * I numeri **congelati** dell'incasso: lordo, quota di piattaforma,
+   * commissione del PSP, netto. `null` su un incasso manuale, che commissioni
+   * non ne ha; `providerFeeCents` puo restare `null` anche su uno online, e li
+   * significa «non ancora noto» e non «zero» (ADR-0050).
+   */
+  settlement: TransactionSettlement | null;
   createdBy: string | null;
   createdAt: string | null;
   /** Valorizzato quando l'incasso e stato stornato: non conta piu nei totali. */
@@ -143,6 +181,59 @@ export const normalizePaymentTransactionSource = (
 };
 
 /**
+ * Un intero, oppure `null`.
+ *
+ * **`null` non e zero, e la distinzione conta.** Sulla commissione del PSP
+ * `null` significa «non ancora noto» — Stripe la espone sul
+ * `balance_transaction`, che matura dopo — mentre zero direbbe «gratis». Vedi
+ * ADR-0050.
+ */
+const toCentsOrNull = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+};
+
+/** I numeri congelati di una riga, se ne porta. */
+const readSettlement = (
+  record: Record<string, any>,
+): TransactionSettlement | null => {
+  const gross = toCentsOrNull(
+    record.gross_amount_cents ?? record.grossAmountCents,
+  );
+  const platformFee = toCentsOrNull(
+    record.platform_fee_cents ?? record.platformFeeCents,
+  );
+
+  /*
+    Un incasso manuale non ha numeri congelati: nessuna delle due colonne e
+    valorizzata, e restituire un oggetto di zeri farebbe sembrare che una
+    commissione ci sia stata e sia stata nulla.
+  */
+  if (gross === null && platformFee === null) return null;
+
+  return {
+    grossAmountCents: gross,
+    platformFeeCents: platformFee,
+    providerFeeCents: toCentsOrNull(
+      record.provider_fee_cents ?? record.providerFeeCents,
+    ),
+    netAmountCents: toCentsOrNull(
+      record.net_amount_cents ?? record.netAmountCents,
+    ),
+    appliedFeePercent:
+      Number(record.applied_fee_percent ?? record.appliedFeePercent) || 0,
+    appliedFeeFixedCents:
+      Math.round(
+        Number(record.applied_fee_fixed_cents ?? record.appliedFeeFixedCents) ||
+          0,
+      ),
+    commissionRuleId:
+      firstText(record.commission_rule_id, record.commissionRuleId) || null,
+  };
+};
+
+/**
  * Porta una riga di `payment_transactions` — o il suo equivalente in camelCase
  * dal client — a una forma sola.
  *
@@ -180,6 +271,9 @@ export const normalizePaymentTransaction = (
     source: normalizePaymentTransactionSource(record.source),
     externalReference:
       firstText(record.external_reference, record.externalReference) || null,
+    externalPaymentId:
+      firstText(record.external_payment_id, record.externalPaymentId) || null,
+    settlement: readSettlement(record),
     createdBy: firstText(record.created_by, record.createdBy) || null,
     createdAt: toIsoOrNull(record.created_at ?? record.createdAt),
     reversedAt: toIsoOrNull(record.reversed_at ?? record.reversedAt),
@@ -272,7 +366,15 @@ export const resolveLedgerState = ({
   return "partial";
 };
 
-const buildStatusLabels = (state: InstallmentLedgerState, overdue: boolean) => {
+/**
+ * Le etichette che una rata mostra insieme: una rata scaduta puo essere anche
+ * parziale.
+ *
+ * **Esportata** perche la finestra di rimborso deve dire in che stato la rata
+ * si trovera *dopo* — e ricalcolarle a mano li dentro sarebbe la seconda
+ * implementazione di una regola che qui e gia scritta.
+ */
+export const buildStatusLabels = (state: InstallmentLedgerState, overdue: boolean) => {
   if (state === "paid") return [PAID_LABEL];
   const base = state === "partial" ? PARTIAL_LABEL : PENDING_LABEL;
   return overdue ? [base, OVERDUE_LABEL] : [base];

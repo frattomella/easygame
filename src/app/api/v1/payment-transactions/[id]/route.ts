@@ -3,9 +3,8 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import {
-  reversePaymentTransaction,
-} from "@/lib/server/payment-transactions";
+import { reversePaymentTransaction } from "@/lib/server/payment-transactions";
+import { requestGatewayRefund } from "@/lib/server/payment-gateway";
 import {
   issueInvoiceForTransaction,
   issueReceiptForTransaction,
@@ -17,6 +16,7 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  * Le azioni su un incasso gia registrato.
  *
  *   POST /api/v1/payment-transactions/:id  {"action":"reverse"}
+ *   POST /api/v1/payment-transactions/:id  {"action":"refund"}
  *   POST /api/v1/payment-transactions/:id  {"action":"issue-receipt"}
  *   POST /api/v1/payment-transactions/:id  {"action":"issue-invoice"}
  *
@@ -75,7 +75,7 @@ export async function POST(request: Request, context: Context) {
           data: null,
           error: {
             message:
-              "Accesso negato: solo il proprietario o un gestore del club puo stornare un incasso",
+              "Accesso negato: solo il proprietario o un gestore del club puo stornare o rimborsare un incasso",
           },
         },
         { status: 403 },
@@ -135,13 +135,80 @@ export async function POST(request: Request, context: Context) {
       return NextResponse.json({ data: invoice, error: null }, { status: 201 });
     }
 
+    if (action === "refund") {
+      /*
+        **Perche il rimborso passa da qui e non da una rotta propria.** Perche
+        e un'azione su un incasso gia registrato, come lo storno e come
+        l'emissione di un documento: stessa risorsa, stesso controllo di
+        ruolo, stesso confine di club. Una rotta a parte avrebbe dovuto
+        ricopiare le tre cose, ed e cosi che due percorsi cominciano a
+        divergere.
+
+        L'importo e **facoltativo**: assente significa «tutto il rimborsabile»,
+        che e il caso piu comune e non deve costringere chi chiama a
+        calcolarlo.
+      */
+      const outcome = await requestGatewayRefund(
+        {
+          transactionId: context.params.id,
+          amountCents:
+            body?.amountCents === undefined || body?.amountCents === null
+              ? null
+              : Number(body.amountCents),
+          reason: body?.reason,
+          notes: body?.notes,
+          actorUserId: session.db.user_id,
+        },
+        scope,
+      );
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.paymentRefundRequested,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: outcome.transaction.organizationId,
+        resource: "payment_transactions",
+        resourceId: context.params.id,
+        request,
+        metadata: {
+          externalRefundId: outcome.externalRefundId,
+          amountCents: outcome.amountCents,
+          providerStatus: outcome.status,
+          awaitingWebhook: outcome.awaitingWebhook,
+          paymentId: outcome.transaction.installmentId,
+        },
+      });
+
+      /*
+        La risposta ha la **stessa forma** di quella di uno storno — rata e
+        registro riscritti — perche la schermata la consuma con lo stesso
+        codice. Se il webhook e gia arrivato il movimento e qui; se no,
+        l'annotazione sull'incasso dice «in elaborazione».
+      */
+      return NextResponse.json({
+        data: {
+          refund: {
+            status: outcome.status,
+            externalRefundId: outcome.externalRefundId,
+            amountCents: outcome.amountCents,
+            awaitingWebhook: outcome.awaitingWebhook,
+            message: outcome.message,
+          },
+          charge: outcome.charge,
+          transactions: outcome.transactions,
+        },
+        error: null,
+      });
+    }
+
     if (action !== "reverse") {
       return NextResponse.json(
         {
           data: null,
           error: {
             message:
-              "Azione non supportata: un incasso si storna o produce un documento, non si modifica",
+              "Azione non supportata: un incasso si storna, si rimborsa o produce un documento, non si modifica",
           },
         },
         { status: 400 },

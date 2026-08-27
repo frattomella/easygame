@@ -27,9 +27,17 @@ Fonte ufficiale da mantenere aggiornata:
   movimenti (`?athlete_id=`, `?payment_id=`) e registrazione di un incasso su
   una rata. La rata viene ricalcolata nella stessa transazione
 - `POST /api/v1/payment-transactions/:id` — `{"action":"reverse"}` storna un
-  incasso, `{"action":"issue-receipt"}` ne emette la ricevuta e
-  `{"action":"issue-invoice"}` la fattura. Entrambe idempotenti, con due
-  numerazioni distinte. Non esiste `DELETE`: un incasso non si cancella
+  incasso, `{"action":"refund"}` ne chiede al provider la restituzione,
+  `{"action":"issue-receipt"}` ne emette la ricevuta e
+  `{"action":"issue-invoice"}` la fattura. Le due emissioni sono idempotenti,
+  con due numerazioni distinte. Non esiste `DELETE`: un incasso non si
+  cancella
+- `{"action":"refund"}` accetta `amountCents` (assente = tutto il
+  rimborsabile), `reason` fra i tre che il provider riconosce, e `notes`
+  interne che al provider **non** vengono inviate. Risponde con rata e
+  registro riscritti piu `refund.awaitingWebhook`: finche e vero il rimborso
+  e **in elaborazione** e il movimento non c'e ancora — lo scrive l'evento
+  firmato, non questa risposta. Solo proprietario e gestore del club
 - `GET /api/v1/funding/programs/:id/reconciliation` — la riconciliazione di un
   bando: una riga per atleta e per periodo, con la misura grezza accanto al
   requisito e il non maturato accanto al maturato. `?format=csv` la scarica in

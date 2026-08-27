@@ -212,7 +212,7 @@ Classificazione:
 |----------|-------------|
 | Registrare un incasso manuale | **Funziona.** E il canale in uso presso club veri |
 | Pagare una rata online | **Da collaudare.** Tutto il percorso c'e — onboarding, checkout anche parziale, webhook, rimborsi — ma nessun euro e mai passato da Stripe. Il pulsante compare solo quando il server dice che si puo incassare |
-| Rimborsare online | **Da collaudare.** Il movimento e il ricalcolo della rata sono coperti da undici test su mock |
+| Rimborsare online | **Funziona, e si fa da EasyGame.** Pulsante «Rimborsa» nel dettaglio di un incasso online, importo parziale o totale, commissione di piattaforma restituita in proporzione. Il movimento lo scrive l'evento firmato del provider: finche non arriva, la riga dice «in elaborazione» e una seconda richiesta non parte. Solo proprietario e gestore del club ([ADR-0065](18-decision-log.md#adr-0065--il-rimborso-si-avvia-da-easygame-a-scriverlo-nel-registro-resta-levento-firmato)) |
 | Abbonamento EasyGame pagato dalla societa | **Da collaudare.** Modello, adapter e webhook ci sono; manca una sottoscrizione reale e i prezzi configurati su Stripe |
 | Commissione con decorrenza e storico | **Funziona.** Ed e congelata sull'incasso: cambiare il listino non riscrive il passato |
 | Profilo fiscale non-ASD | **Funziona.** Dieci forme giuridiche, regimi dichiarati, dati REA |

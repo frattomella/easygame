@@ -5,6 +5,7 @@ import { Wallet } from "lucide-react";
 import { InstallmentLedgerList } from "./InstallmentLedgerList";
 import { RegisterPaymentDialog } from "./RegisterPaymentDialog";
 import { PayOnlineDialog } from "./PayOnlineDialog";
+import { RefundDialog } from "./RefundDialog";
 import { useAthletePaymentLedger } from "./use-athlete-payment-ledger";
 import type { LedgerTotals } from "@/lib/payments/installment-ledger";
 
@@ -156,9 +157,49 @@ export function AthletePaymentLedger({
           onPayOnline={
             ledger.canPayOnline ? ledger.selectOnlineLedger : undefined
           }
+          /*
+            Il rimborso segue la stessa condizione del pagamento online: se il
+            club non puo incassare online non ha incassi online da restituire,
+            e il pulsante non ha niente da fare li.
+          */
+          onRefundTransaction={
+            ledger.canPayOnline
+              ? (transaction) => ledger.selectRefundTransaction(transaction)
+              : undefined
+          }
+          refundAvailabilityFor={ledger.refundAvailabilityFor}
           pendingOnlineInstallmentId={ledger.pendingOnlineInstallmentId}
         />
       )}
+
+      <RefundDialog
+        open={Boolean(ledger.refundTarget)}
+        onOpenChange={(open) => {
+          if (!open) ledger.selectRefundTransaction(null);
+        }}
+        transaction={ledger.refundTarget}
+        ledger={
+          ledger.refundTarget
+            ? ledger.ledgers.find(
+                (entry) =>
+                  String(entry.installmentId || "") ===
+                  String(ledger.refundTarget?.installmentId || ""),
+              ) || null
+            : null
+        }
+        availability={
+          ledger.refundTarget
+            ? ledger.refundAvailabilityFor(ledger.refundTarget)
+            : null
+        }
+        athleteName={athleteName}
+        isSubmitting={ledger.isRefunding}
+        onConfirm={(submission) =>
+          ledger.refundTarget
+            ? ledger.refundTransaction(ledger.refundTarget, submission)
+            : undefined
+        }
+      />
 
       <PayOnlineDialog
         open={Boolean(ledger.onlineLedger)}

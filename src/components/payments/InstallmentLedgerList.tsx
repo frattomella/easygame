@@ -8,6 +8,7 @@ import {
   FileText,
   Pencil,
   Receipt,
+  RotateCcw,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -19,6 +20,10 @@ import {
   type InstallmentLedger,
   type NormalizedPaymentTransaction,
 } from "@/lib/payments/installment-ledger";
+import {
+  isRefundTransaction,
+  type RefundAvailability,
+} from "@/lib/payments/refunds";
 
 /**
  * Le rate di un atleta, con quanto ne resta scoperto.
@@ -61,6 +66,8 @@ const formatDate = (value?: unknown) => {
 const TransactionRows = ({
   transactions,
   onReverse,
+  onRefund,
+  refundAvailabilityFor,
   onGenerateReceipt,
   onGenerateInvoice,
   canManage,
@@ -68,6 +75,10 @@ const TransactionRows = ({
 }: {
   transactions: NormalizedPaymentTransaction[];
   onReverse?: (transaction: NormalizedPaymentTransaction) => void;
+  onRefund?: (transaction: NormalizedPaymentTransaction) => void;
+  refundAvailabilityFor?: (
+    transaction: NormalizedPaymentTransaction,
+  ) => RefundAvailability;
   onGenerateReceipt?: (transaction: NormalizedPaymentTransaction) => void;
   onGenerateInvoice?: (transaction: NormalizedPaymentTransaction) => void;
   canManage: boolean;
@@ -97,6 +108,18 @@ const TransactionRows = ({
           {transactions.map((transaction) => {
             const settled = isSettledTransaction(transaction);
             const isReversal = Boolean(transaction.reversesTransactionId);
+            const isRefund = isRefundTransaction(transaction);
+
+            /*
+              Il rimborsabile si chiede una volta per riga a chi lo sa
+              calcolare. Quando nessuno lo sa — la lista e montata senza il
+              rimborso — il pulsante non compare, che e meglio di un pulsante
+              che si accende e poi spiega di non funzionare.
+            */
+            const refund =
+              onRefund && refundAvailabilityFor
+                ? refundAvailabilityFor(transaction)
+                : null;
 
             return (
               <tr
@@ -115,6 +138,16 @@ const TransactionRows = ({
                     <span className="text-xs">
                       Storno — {transaction.notes || "senza motivo indicato"}
                     </span>
+                  ) : isRefund ? (
+                    /*
+                      Un rimborso si distingue da uno storno anche a occhio:
+                      sono entrambi movimenti negativi, ma raccontano due fatti
+                      opposti — «non e mai successo» contro «e successo, e poi
+                      il denaro e tornato indietro».
+                    */
+                    <span className="text-xs">
+                      Rimborso — {transaction.notes || "confermato dal provider"}
+                    </span>
                   ) : transaction.reversedAt ? (
                     <span className="text-xs">
                       Stornato il {formatDate(transaction.reversedAt)}
@@ -123,7 +156,30 @@ const TransactionRows = ({
                         : ""}
                     </span>
                   ) : (
-                    transaction.notes || "-"
+                    <>
+                      {transaction.notes || "-"}
+                      {refund && refund.refundedCents > 0 ? (
+                        <span className="ml-2 text-xs text-slate-500">
+                          Rimborsato{" "}
+                          {formatCurrency(refund.refundedCents / 100)}
+                        </span>
+                      ) : null}
+                      {/*
+                        «In elaborazione» e uno stato vero, non l'assenza di uno
+                        stato: e quello fra la richiesta al provider e la sua
+                        conferma firmata. Dire «rimborsato» nel frattempo
+                        sarebbe una bugia che si scopre in contabilita — lo
+                        stesso ragionamento di «pagamento in verifica».
+                      */}
+                      {refund?.pending.length ? (
+                        <Badge
+                          variant="outline"
+                          className="ml-2 border-sky-200 bg-sky-50 text-sky-700"
+                        >
+                          Rimborso in elaborazione
+                        </Badge>
+                      ) : null}
+                    </>
                   )}
                 </td>
                 {canManage ? (
@@ -156,6 +212,24 @@ const TransactionRows = ({
                           >
                             <FileText className="mr-1 h-3.5 w-3.5" />
                             Fattura
+                          </Button>
+                        ) : null}
+                        {/*
+                          «Rimborsa» compare **solo** quando c'e davvero
+                          qualcosa da restituire: incasso online, non stornato,
+                          con un residuo rimborsabile e nessuna richiesta gia in
+                          volo. Un incasso manuale non lo mostra affatto — quel
+                          denaro dal provider non e mai passato, e si storna.
+                        */}
+                        {onRefund && refund?.refundable ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busyTransactionId === transaction.id}
+                            onClick={() => onRefund(transaction)}
+                          >
+                            <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                            Rimborsa
                           </Button>
                         ) : null}
                         {onReverse ? (
@@ -191,6 +265,21 @@ export type InstallmentLedgerListProps = {
     transaction: NormalizedPaymentTransaction,
     ledger: InstallmentLedger,
   ) => void;
+  /**
+   * Il rimborso di un incasso online.
+   *
+   * **Assente quando i rimborsi non sono disponibili**, come «Paga online»: le
+   * due cose vanno insieme, e un pulsante che compare per poi rifiutarsi e
+   * peggio di un pulsante che non c'e.
+   */
+  onRefundTransaction?: (
+    transaction: NormalizedPaymentTransaction,
+    ledger: InstallmentLedger,
+  ) => void;
+  /** Quanto di questo incasso e ancora rimborsabile, e se lo e. */
+  refundAvailabilityFor?: (
+    transaction: NormalizedPaymentTransaction,
+  ) => RefundAvailability;
   onGenerateReceipt?: (
     transaction: NormalizedPaymentTransaction,
     ledger: InstallmentLedger,
@@ -233,6 +322,8 @@ export function InstallmentLedgerList({
   canManage = false,
   onRegisterPayment,
   onReverseTransaction,
+  onRefundTransaction,
+  refundAvailabilityFor,
   onGenerateReceipt,
   onGenerateInvoice,
   busyTransactionId = null,
@@ -385,6 +476,12 @@ export function InstallmentLedgerList({
                       ? (transaction) => onReverseTransaction(transaction, ledger)
                       : undefined
                   }
+                  onRefund={
+                    onRefundTransaction
+                      ? (transaction) => onRefundTransaction(transaction, ledger)
+                      : undefined
+                  }
+                  refundAvailabilityFor={refundAvailabilityFor}
                   onGenerateReceipt={
                     onGenerateReceipt
                       ? (transaction) => onGenerateReceipt(transaction, ledger)

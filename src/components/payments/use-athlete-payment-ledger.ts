@@ -17,7 +17,12 @@ import {
   type LedgerTotals,
   type NormalizedPaymentTransaction,
 } from "@/lib/payments/installment-ledger";
+import {
+  describeRefundAvailability,
+  type RefundAvailability,
+} from "@/lib/payments/refunds";
 import type { RegisterPaymentSubmission } from "./RegisterPaymentDialog";
+import type { RefundSubmission } from "./RefundDialog";
 
 /**
  * Rate e incassi di un atleta: **lo stato, non la sua rappresentazione**.
@@ -62,6 +67,27 @@ export type AthletePaymentLedgerState = {
   ) => Promise<void>;
   generateInvoice: (
     transaction: NormalizedPaymentTransaction,
+  ) => Promise<void>;
+  /**
+   * Se un incasso si puo rimborsare adesso, e quanto.
+   *
+   * **Si calcola dal registro gia caricato, non chiedendolo al server.** Serve
+   * ad accendere un pulsante per riga: una chiamata di rete per riga sarebbe
+   * una lista che non si apre quando il PSP e lento. Il server ricontrolla
+   * tutto quando il rimborso parte davvero.
+   */
+  refundAvailabilityFor: (
+    transaction: NormalizedPaymentTransaction,
+  ) => RefundAvailability;
+  /** L'incasso su cui e aperta la finestra «Rimborsa», se ce n'e uno. */
+  refundTarget: NormalizedPaymentTransaction | null;
+  selectRefundTransaction: (
+    transaction: NormalizedPaymentTransaction | null,
+  ) => void;
+  isRefunding: boolean;
+  refundTransaction: (
+    transaction: NormalizedPaymentTransaction,
+    submission: RefundSubmission,
   ) => Promise<void>;
   /** La rata su cui e aperta la finestra «Paga online», se ce n'e una. */
   onlineLedger: InstallmentLedger | null;
@@ -426,6 +452,74 @@ export function useAthletePaymentLedger({
     [showToast],
   );
 
+  /* ------------------------------------------------------------ i rimborsi */
+
+  const [refundTarget, setRefundTarget] =
+    React.useState<NormalizedPaymentTransaction | null>(null);
+  const [isRefunding, setIsRefunding] = React.useState(false);
+
+  /*
+    Il rimborsabile si ricava dal registro **gia in memoria**: e la stessa
+    regola che il server riapplica quando il rimborso parte, e vive in un modulo
+    puro proprio per non essere scritta due volte.
+  */
+  const refundAvailabilityFor = React.useCallback(
+    (transaction: NormalizedPaymentTransaction) =>
+      describeRefundAvailability({ transaction, transactions }),
+    [transactions],
+  );
+
+  /**
+   * Chiede il rimborso di **un** incasso.
+   *
+   * **Perche dopo non si dice «rimborsato».** Perche il movimento nel registro
+   * lo scrive l'evento firmato del provider, non questa risposta: un rimborso
+   * puo nascere `pending` e restarci. Il server lo dice — `awaitingWebhook` — e
+   * qui si riporta cio che ha detto, senza migliorarlo.
+   */
+  const refundTransaction = React.useCallback(
+    async (
+      transaction: NormalizedPaymentTransaction,
+      submission: RefundSubmission,
+    ) => {
+      setIsRefunding(true);
+      setBusyTransactionId(transaction.id);
+
+      const { data, error } = await apiRequest<any>(
+        `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
+        {
+          method: "POST",
+          body: {
+            action: "refund",
+            amountCents: submission.amountCents,
+            reason: submission.reason,
+            notes: submission.notes,
+          },
+        },
+      );
+
+      setIsRefunding(false);
+      setBusyTransactionId(null);
+
+      if (error) {
+        showToast("error", error.message || "Rimborso non riuscito");
+        return;
+      }
+
+      applyResult(data);
+      setRefundTarget(null);
+
+      showToast(
+        data?.refund?.awaitingWebhook ? "info" : "success",
+        data?.refund?.message ||
+          (data?.refund?.awaitingWebhook
+            ? "Rimborso in elaborazione"
+            : "Rimborso registrato"),
+      );
+    },
+    [applyResult, showToast],
+  );
+
   /**
    * Apre il checkout per un importo **scelto**, in euro.
    *
@@ -530,6 +624,11 @@ export function useAthletePaymentLedger({
     reverseTransaction,
     generateReceipt,
     generateInvoice,
+    refundAvailabilityFor,
+    refundTarget,
+    selectRefundTransaction: setRefundTarget,
+    isRefunding,
+    refundTransaction,
     payOnline,
   };
 }

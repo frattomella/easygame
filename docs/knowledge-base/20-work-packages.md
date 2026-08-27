@@ -1477,11 +1477,19 @@ dalla V1, perche un marchio in mezzo a un incasso deve poter dire chi incassa e
 chi risponde di un rimborso, e nella V1 la risposta e «il club, tramite
 Stripe».
 
-**Cosa resta.** Nessun endpoint EasyGame **avvia** un rimborso: il contratto
-del gateway ha `refund`, ma nessuna rotta lo espone. Oggi il rimborso lo fa il
-club dal proprio cruscotto Stripe — che con `dashboard: "full"` ha — ed
-EasyGame lo registra correttamente dal webhook. Va deciso se sia sufficiente
-per la V1.
+**Il residuo che restava, chiuso il 2026-08-27.** Nessun endpoint EasyGame
+**avviava** un rimborso: il contratto del gateway aveva `refund`, nessuna rotta
+lo esponeva, e il club doveva passare dal proprio cruscotto Stripe. Deciso che
+per la V1 non basta — chiedere a una segreteria di riconoscere un `pi_…` in un
+elenco di pagamenti e il modo per rimborsare quello sbagliato — e implementato:
+`{"action":"refund"}` su `POST /api/v1/payment-transactions/:id`, finestra
+«Rimborsa» nel dettaglio dell'incasso, rimborso parziale o totale. Vedi [ADR-0065](18-decision-log.md#adr-0065--il-rimborso-si-avvia-da-easygame-a-scriverlo-nel-registro-resta-levento-firmato).
+
+**Cosa resta, ed e scope fiscale.** La **nota di credito**. Un rimborso non
+lascia documenti in uno stato impossibile — una ricevuta non si emette da un
+movimento negativo, e quella dell'incasso originale resta valida — ma il
+documento che la rettifica non esiste: esiste la numerazione, non il documento.
+Vedi [16](16-technical-debt.md).
 
 **Acceptance criteria.**
 - [x] Nessun endpoint di pagamento accetta eventi senza firma valida
