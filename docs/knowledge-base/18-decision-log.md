@@ -3367,3 +3367,83 @@ compreso.
   importo, residuo diverso, chiavi diverse;
 - l'acconto senza rata continua a usare il segnaposto `acconto` e resta
   distinguibile.
+
+---
+
+## ADR-0064 — Un interruttore spento di proposito si distingue da uno mai acceso, e la differenza e una data
+
+**Stato:** accettato — 2026-08-27 (Blocco E, chiusura E9)
+
+**Contesto.** `club_payment_accounts.online_payments_enabled` e l'interruttore
+**commerciale** della piattaforma: dice se Cedi Soft ha venduto gli incassi
+online a quella societa. Nasce `false` per default di colonna.
+
+`startConnectOnboarding` e `applyProviderAccountSnapshot` fanno entrambi
+`upsert`, e scrivevano `online_payments_enabled: true` **solo** nel ramo
+`create`. Bastava che una riga esistesse gia — legacy, o lasciata da un
+tentativo precedente — perche il valore restasse al default e ci restasse per
+sempre: il club completava l'onboarding, Stripe dichiarava `charges_enabled` e
+`payouts_enabled` veri con zero requisiti, ed EasyGame rispondeva «i pagamenti
+online non sono attivi per questa societa».
+
+Il difetto aveva anche una seconda faccia, peggiore della prima:
+`applyProviderAccountSnapshot` leggeva quel `false` come una **sospensione
+decisa dalla piattaforma** e forzava lo stato a `disabled` a ogni
+sincronizzazione riuscita. Dalla console si leggeva «Disabilitato» senza che
+nessuno avesse disabilitato niente. Trovato nel collaudo sandbox del Blocco E
+(E9).
+
+**La decisione da prendere.** Il debito tecnico poneva la domanda giusta:
+`online_payments_enabled` e un default tecnico o un atto commerciale? La
+risposta e **entrambi**, in momenti diversi — ed e precisamente la ragione per
+cui un booleano solo non basta:
+
+- quando la piattaforma predispone l'incasso per un club, l'interruttore deve
+  **inizializzarsi**: e un default tecnico che segue un fatto;
+- quando la piattaforma sospende un club — abbonamento non pagato,
+  contestazione — l'interruttore e un **atto commerciale**, e nessun evento del
+  PSP lo puo ribaltare.
+
+Un booleano non distingue i due `false`. Una data si.
+
+**La decisione.** Si aggiunge `online_payments_decided_at`:
+
+- `NULL` — nessuno ha mai mosso l'interruttore. Il `false` accanto e il default
+  della colonna, non una scelta, e si puo inizializzare;
+- valorizzata — qualcuno ha deciso, e la sua decisione vale, che sia «acceso» o
+  «spento».
+
+La stampiglia **solo** `setClubOnlinePaymentsEnabled`, cioe la sola porta da cui
+la piattaforma esprime una volonta. Un'inizializzazione automatica non
+stampiglia niente: non e una decisione, e dichiararla tale renderebbe
+indistinguibile la prossima.
+
+La regola vive in `resolvePlatformEnablement`, funzione **pura** in
+`src/lib/payments/connect-account.ts`, e viene applicata da entrambi gli upsert.
+
+**Perche non un `true` indiscriminato nel ramo `update`.** Perche e il difetto
+opposto e costa di piu: riaccenderebbe gli incassi di una societa sospesa di
+proposito al primo `account.updated` che passa — e quegli eventi passano da
+soli, senza che nessuno prema niente.
+
+**Perche l'inizializzazione all'avvio dell'onboarding e sicura.** Perche
+l'interruttore commerciale non e l'unica condizione: `describeCheckoutReadiness`
+chiede anche che l'account sia `active` e che incassi davvero. Predisporre non
+e abilitare, e un account in verifica resta non incassabile con l'interruttore
+acceso.
+
+**Conseguenze.**
+
+- migrazione `20260827040000_interruttore_pagamenti_deciso`, che **stampiglia
+  le decisioni gia prese** prima di cambiare le regole: le righe con
+  l'interruttore acceso e quelle in stato `disabled` — che scrive solo la
+  sospensione esplicita — ricevono `updated_at` come data di decisione. Tutto
+  il resto resta `NULL`, ed e il caso legacy che va inizializzato;
+- `ClubPaymentAccountRecord` espone `onlinePaymentsDecidedAt`: la console puo
+  distinguere «da abilitare» da «sospeso»;
+- dodici test di regressione in `tests/server/connect-enablement.test.mjs`
+  coprono i cinque scenari (nessuna riga, riga legacy, sospensione esplicita
+  preservata, multi-tenant, account non pronto), quattro test puri coprono
+  `resolvePlatformEnablement`;
+- il test «la sospensione decisa dalla piattaforma vince su cio che dice il PSP»
+  ora stampiglia la data: senza, descriveva la confusione invece della regola.

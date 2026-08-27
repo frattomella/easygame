@@ -401,3 +401,39 @@ sequenza si azzera.
 **`payment_webhook_events`** guadagna `flow` (`connect` | `platform`) e
 `external_account_id`. Il default `connect` e cio che erano tutti gli eventi
 ricevuti finora: prima del Blocco D esisteva un solo webhook.
+
+## Blocco E — cio che il collaudo sandbox ha reso necessario (2026-08-27)
+
+Tre migrazioni, tutte **additive**, e tutte scritte perche un giro reale contro
+Stripe ha mostrato qualcosa che i test su mock non potevano mostrare.
+
+| Migrazione | Contenuto |
+|------------|-----------|
+| `20260827020000_incasso_unico_per_pagamento` | Indice unico **parziale** `payment_transactions_incasso_unico` su `(organization_id, external_payment_id)` per le sole righe con importo positivo. E dove si arbitra la corsa fra i due eventi che un solo pagamento genera. Vedi [ADR-0062](18-decision-log.md#adr-0062--un-incasso-si-riconosce-dal-denaro-non-dallevento-che-lo-racconta) |
+| `20260827030000_storno_unico_per_rimborso` | Il gemello sul denaro che esce: `payment_transactions_storno_unico` su `(organization_id, external_reference)` per le sole righe con importo negativo. Un rimborso raccontato da due eventi resta un movimento solo |
+| `20260827040000_interruttore_pagamenti_deciso` | `club_payment_accounts.online_payments_decided_at`. Vedi sotto |
+
+### `online_payments_decided_at`: perche un booleano non bastava
+
+`online_payments_enabled` nasce `false` per default di colonna, e `false`
+significava due cose che non si potevano distinguere: «nessuno ha mai acceso»
+e «la piattaforma ha sospeso questa societa».
+
+La confusione costava in entrambe le direzioni. Un club con l'account Stripe
+pienamente operativo restava spento per sempre, perche il ramo `update`
+dell'upsert di onboarding non toccava l'interruttore e la sincronizzazione
+leggeva quel `false` come una sospensione — forzando lo stato a `disabled`
+senza che nessuno avesse deciso niente (E9). Risolverlo scrivendo `true` sempre
+avrebbe fatto il danno opposto, e peggiore: riaccendere gli incassi di una
+societa sospesa di proposito, al primo `account.updated` che passa.
+
+`NULL` significa **mai deciso**; una data significa **deciso**, e vale che sia
+«acceso» o «spento». La stampiglia solo `setClubOnlinePaymentsEnabled`: una
+inizializzazione automatica non e una decisione, e dichiararla tale renderebbe
+indistinguibile la prossima.
+
+La migrazione **stampiglia le decisioni gia prese** prima di cambiare le
+regole: le righe con l'interruttore acceso e quelle in stato `disabled` — che
+scrive solo la sospensione esplicita — ricevono `updated_at` come data di
+decisione. Tutto il resto resta `NULL`, ed e il caso legacy che va
+inizializzato. Vedi [ADR-0064](18-decision-log.md#adr-0064--un-interruttore-spento-di-proposito-si-distingue-da-uno-mai-acceso-e-la-differenza-e-una-data).

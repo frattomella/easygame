@@ -190,3 +190,59 @@ test("i cinque ostacoli hanno cinque messaggi diversi", () => {
     "«non disponibile» manda tutti al telefono: li risolvono persone diverse",
   );
 });
+
+/* --------------------------- l'interruttore commerciale: deciso o mai mosso */
+
+test("un `false` mai deciso non e una sospensione: si inizializza", () => {
+  const esito = connect.resolvePlatformEnablement({
+    storedEnabled: false,
+    decidedAt: null,
+    provisioning: true,
+  });
+
+  assert.equal(esito.enabled, true);
+  assert.equal(esito.explicitlyDisabled, false);
+  assert.equal(esito.initializes, true);
+});
+
+test("un `false` deciso e una sospensione, e resta", () => {
+  const esito = connect.resolvePlatformEnablement({
+    storedEnabled: false,
+    decidedAt: "2026-08-01T10:00:00.000Z",
+    provisioning: true,
+  });
+
+  assert.equal(esito.enabled, false);
+  assert.equal(esito.explicitlyDisabled, true);
+  assert.equal(esito.initializes, false);
+});
+
+test("senza un account pronto non si inizializza niente", () => {
+  const esito = connect.resolvePlatformEnablement({
+    storedEnabled: false,
+    decidedAt: null,
+    provisioning: false,
+  });
+
+  assert.equal(esito.enabled, false);
+  assert.equal(
+    esito.explicitlyDisabled,
+    false,
+    "non deciso non e spento: lo stato resta quello del PSP",
+  );
+  assert.equal(esito.initializes, false);
+});
+
+test("un interruttore gia acceso non si ridecide", () => {
+  for (const decidedAt of [null, "2026-08-01T10:00:00.000Z"]) {
+    const esito = connect.resolvePlatformEnablement({
+      storedEnabled: true,
+      decidedAt,
+      provisioning: false,
+    });
+
+    assert.equal(esito.enabled, true);
+    assert.equal(esito.explicitlyDisabled, false);
+    assert.equal(esito.initializes, false);
+  }
+});

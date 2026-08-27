@@ -342,6 +342,17 @@ test("un evento sull'account aggiorna lo stato del club", async () => {
 
 test("la sospensione decisa dalla piattaforma vince su cio che dice il PSP", async () => {
   fake.rows("clubPaymentAccount")[0].online_payments_enabled = false;
+  /*
+    **La data non e un dettaglio del doppio: e cio che rende «spento» una
+    decisione.** Fino al Blocco E bastava il booleano, e non bastava — quel
+    `false` e anche il default della colonna, quindi una riga mai
+    inizializzata veniva scambiata per una societa sospesa e finiva
+    `disabled` a ogni sincronizzazione riuscita (E9). Vedi
+    `tests/server/connect-enablement.test.mjs`.
+  */
+  fake.rows("clubPaymentAccount")[0].online_payments_decided_at = new Date(
+    "2026-08-20T09:00:00.000Z",
+  );
 
   await gateway.handleGatewayWebhookEvent({
     provider: "stripe",

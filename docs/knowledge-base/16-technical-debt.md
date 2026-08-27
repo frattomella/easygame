@@ -878,7 +878,20 @@ c'e concorrenza. Dove due invocazioni possono toccare lo stesso denaro, la
 regola va scritta dove la concorrenza si arbitra.
 
 
-### E9 — Un conto di incasso che nasce per altra via non riceve il proprio default
+### E9 — Un conto di incasso che nasce per altra via non riceve il proprio default — RISOLTO (2026-08-27)
+
+> **Risolto.** La domanda che questa voce poneva — «default tecnico o atto
+> commerciale?» — aveva come risposta **entrambi, in momenti diversi**, ed e la
+> ragione per cui un booleano solo non poteva bastare. Ora la distinzione la
+> porta una data, `online_payments_decided_at`: `NULL` significa mai deciso e si
+> puo inizializzare, valorizzata significa deciso e nessun evento del PSP la
+> ribalta. La regola sta in `resolvePlatformEnablement`, funzione pura, e la
+> applicano entrambi gli upsert. Migrazione
+> `20260827040000_interruttore_pagamenti_deciso`, dodici test di regressione in
+> `tests/server/connect-enablement.test.mjs`. Vedi
+> [ADR-0064](18-decision-log.md#adr-0064--un-interruttore-spento-di-proposito-si-distingue-da-uno-mai-acceso-e-la-differenza-e-una-data).
+>
+> Il testo che segue resta come descrizione del difetto.
 
 **Impatto: basso, ma silenzioso.** `startConnectOnboarding` fa `upsert` su
 `club_payment_accounts`: il ramo *create* imposta

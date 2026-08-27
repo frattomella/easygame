@@ -1221,6 +1221,14 @@ model ClubPaymentAccount {
   disabled_reason         String?
   /// L'interruttore della piattaforma. Il club non lo tocca.
   online_payments_enabled Boolean   @default(false)
+  /// **Quando l'interruttore e stato deciso davvero.** `null` significa che
+  /// nessuno lo ha mai mosso: il `false` accanto e il default della colonna,
+  /// non una scelta. Senza questa distinzione un club con l'account Stripe
+  /// attivo restava «pagamenti non attivi» per sempre, perche il ramo di
+  /// aggiornamento non toccava l'interruttore; e risolverla con un `true`
+  /// indiscriminato avrebbe riacceso gli incassi di una societa sospesa di
+  /// proposito. Vedi `resolvePlatformEnablement` e ADR-0064.
+  online_payments_decided_at DateTime?
   last_synced_at          DateTime?
   last_error              String?
   created_at              DateTime  @default(now())

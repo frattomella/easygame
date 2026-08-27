@@ -278,3 +278,87 @@ export const describeCheckoutReadiness = (input: {
     state,
   };
 };
+
+/* ------------------------------- l'interruttore commerciale, e chi lo ha mosso */
+
+/**
+ * Cosa fare dell'**interruttore commerciale** di un club dopo che la
+ * piattaforma ha predisposto l'incasso.
+ *
+ * **Il difetto che questa funzione chiude (E9).** `online_payments_enabled`
+ * nasce `false` per default di colonna. Finche l'unica riga possibile era
+ * quella creata dall'onboarding — che lo scriveva `true` — la cosa non si
+ * vedeva; ma il ramo `update` dell'upsert non lo toccava affatto, e una riga
+ * gia esistente restava `false` per sempre. Il risultato era un club con
+ * l'account Stripe pienamente attivo e EasyGame che mostrava «pagamenti non
+ * attivi per questa societa», senza che nessuno avesse deciso niente.
+ *
+ * **Perche non si risolve con un `true`.** Perche `false` significa due cose
+ * diverse, e confonderle e il difetto opposto e peggiore: riaccendere gli
+ * incassi di una societa che la piattaforma ha **sospeso di proposito** — per
+ * un abbonamento non pagato, per una contestazione — al primo evento
+ * `account.updated` che passa. Le due cose si distinguono con una data:
+ *
+ *   `decidedAt === null`  → nessuno ha mai deciso: il `false` e il default
+ *                           della colonna, e si puo inizializzare;
+ *   `decidedAt` presente  → qualcuno ha deciso, e la sua decisione vale —
+ *                           che sia «acceso» o «spento».
+ *
+ * Modulo **puro**: si prova senza database e senza rete.
+ */
+export type PlatformEnablementDecision = {
+  /** L'interruttore come deve restare dopo questa operazione. */
+  enabled: boolean;
+  /**
+   * Vero solo quando qualcuno ha deciso **no**. E la sola condizione che
+   * autorizza a mostrare lo stato `disabled` al posto di quello del PSP.
+   */
+  explicitlyDisabled: boolean;
+  /**
+   * Vero quando questa operazione sta portando a `true` un interruttore che
+   * non era mai stato deciso. Chi chiama lo scrive; nessuno stampiglia una
+   * data, perche un'inizializzazione non e una decisione.
+   */
+  initializes: boolean;
+};
+
+export const resolvePlatformEnablement = (input: {
+  /** Il valore in colonna. `false` puo essere una scelta o un default. */
+  storedEnabled?: boolean | null;
+  /** Quando l'interruttore e stato deciso davvero. `null` = mai. */
+  decidedAt?: Date | string | null;
+  /**
+   * Vero quando la piattaforma sta **predisponendo** l'incasso per questo
+   * club: ha creato o ricollegato l'account presso il PSP (onboarding),
+   * oppure il PSP ha dichiarato l'account operativo (sincronizzazione o
+   * evento `account.updated`).
+   *
+   * Falso quando l'account **non e pronto**: un account in verifica, limitato
+   * o con requisiti scaduti non abilita niente, e non deve.
+   */
+  provisioning: boolean;
+}): PlatformEnablementDecision => {
+  const stored = input.storedEnabled === true;
+  const decided =
+    input.decidedAt !== null &&
+    input.decidedAt !== undefined &&
+    String(input.decidedAt) !== "";
+
+  if (decided) {
+    return {
+      enabled: stored,
+      explicitlyDisabled: !stored,
+      initializes: false,
+    };
+  }
+
+  if (stored) {
+    return { enabled: true, explicitlyDisabled: false, initializes: false };
+  }
+
+  return {
+    enabled: Boolean(input.provisioning),
+    explicitlyDisabled: false,
+    initializes: Boolean(input.provisioning),
+  };
+};

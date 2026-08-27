@@ -30,6 +30,7 @@ import { readPlatformSetting, PLATFORM_SETTING_KEYS, type StripeConnectSettings 
 import {
   deriveConnectAccountState,
   describeCheckoutReadiness,
+  resolvePlatformEnablement,
   type CheckoutReadiness,
   type ConnectAccountState,
   type ProviderAccountSnapshot,
@@ -57,6 +58,12 @@ export type ClubPaymentAccountRecord = {
   disabledReason: string | null;
   /** L'interruttore commerciale della piattaforma. */
   onlinePaymentsEnabled: boolean;
+  /**
+   * Quando l'interruttore e stato deciso davvero. `null` = mai: il valore
+   * accanto e il default della colonna, non una scelta. Vedi
+   * `resolvePlatformEnablement`.
+   */
+  onlinePaymentsDecidedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
 };
@@ -74,6 +81,9 @@ const toRecord = (row: any, organizationId: string): ClubPaymentAccountRecord =>
     : [],
   disabledReason: asText(row?.disabled_reason) || null,
   onlinePaymentsEnabled: Boolean(row?.online_payments_enabled),
+  onlinePaymentsDecidedAt: row?.online_payments_decided_at
+    ? new Date(row.online_payments_decided_at).toISOString()
+    : null,
   lastSyncedAt: row?.last_synced_at
     ? new Date(row.last_synced_at).toISOString()
     : null,
@@ -159,15 +169,26 @@ export const setClubOnlinePaymentsEnabled = async (input: {
       }).state
     : "disabled";
 
+  /*
+    **Qui, e solo qui, si stampiglia la data della decisione.** E cio che
+    distingue «spento di proposito» da «mai acceso»: senza, il primo evento
+    `account.updated` di un account operativo riaccenderebbe gli incassi di
+    una societa che la piattaforma ha sospeso. Vedi
+    `resolvePlatformEnablement` e ADR-0064.
+  */
+  const decidedAt = new Date();
+
   const row = await accountClient().upsert({
     where: { organization_id: id },
     create: {
       organization_id: id,
       online_payments_enabled: input.enabled,
+      online_payments_decided_at: decidedAt,
       status: nextStatus,
     },
     update: {
       online_payments_enabled: input.enabled,
+      online_payments_decided_at: decidedAt,
       status: nextStatus,
     },
   });
@@ -243,6 +264,26 @@ export const startConnectOnboarding = async (input: {
     refreshUrl: input.refreshUrl,
   });
 
+  /*
+    **L'interruttore si inizializza anche su una riga che c'era gia (E9).**
+
+    Il ramo `create` lo scriveva `true` e il ramo `update` non lo toccava: una
+    riga preesistente — legacy, o creata da un percorso che non era questo —
+    restava a `false`, cioe al default della colonna, e ci restava per sempre.
+    Il club completava l'onboarding, Stripe dichiarava l'account operativo, e
+    EasyGame continuava a rispondere «i pagamenti online non sono attivi per
+    questa societa».
+
+    Non e un `true` indiscriminato: se la piattaforma ha **deciso** di spegnere
+    gli incassi di questa societa, la sua decisione resta. Predisporre
+    l'account non e revocare una sospensione.
+  */
+  const enablement = resolvePlatformEnablement({
+    storedEnabled: existing?.online_payments_enabled,
+    decidedAt: existing?.online_payments_decided_at,
+    provisioning: true,
+  });
+
   const row = await accountClient().upsert({
     where: { organization_id: id },
     create: {
@@ -256,7 +297,12 @@ export const startConnectOnboarding = async (input: {
     update: {
       external_account_id: externalAccountId,
       account_type: accountType,
-      status: existing?.status === "active" ? "active" : "onboarding_required",
+      status: enablement.explicitlyDisabled
+        ? "disabled"
+        : existing?.status === "active"
+          ? "active"
+          : "onboarding_required",
+      online_payments_enabled: enablement.enabled,
       last_error: null,
     },
   });
@@ -343,15 +389,29 @@ export const applyProviderAccountSnapshot = async (input: {
   });
 
   /*
-    L'interruttore della piattaforma vince su cio che dice il PSP. Un account
-    perfettamente operativo presso Stripe, ma sospeso da Cedi Soft, deve
-    restare `disabled`: e una decisione commerciale, e un evento del PSP non la
-    puo ribaltare.
+    **L'interruttore della piattaforma vince su cio che dice il PSP — se
+    qualcuno lo ha davvero mosso.** Un account perfettamente operativo presso
+    Stripe, ma sospeso da Cedi Soft, deve restare `disabled`: e una decisione
+    commerciale, e un evento del PSP non la puo ribaltare.
+
+    Fino al Blocco E qui bastava `online_payments_enabled === false`, e non
+    bastava: quel `false` e anche il default della colonna. Una riga mai
+    inizializzata veniva scambiata per una sospensione, e lo stato del club
+    veniva forzato a `disabled` **a ogni sincronizzazione riuscita** — con
+    l'account Stripe attivo e nessuno che avesse deciso niente (E9).
+
+    Adesso la sospensione la prova una data. Quando non c'e, e l'account e
+    diventato operativo, l'interruttore si inizializza: e il momento in cui
+    l'incasso e stato davvero predisposto per questo club. Se l'account **non**
+    e pronto non si abilita niente, che e la meta opposta dello stesso difetto.
   */
-  const status =
-    existing && existing.online_payments_enabled === false
-      ? "disabled"
-      : derived.state;
+  const enablement = resolvePlatformEnablement({
+    storedEnabled: existing?.online_payments_enabled,
+    decidedAt: existing?.online_payments_decided_at,
+    provisioning: derived.state === "active" && derived.chargesEnabled,
+  });
+
+  const status = enablement.explicitlyDisabled ? "disabled" : derived.state;
 
   const row = await accountClient().upsert({
     where: { organization_id: id },
@@ -376,6 +436,7 @@ export const applyProviderAccountSnapshot = async (input: {
       payouts_enabled: derived.payoutsEnabled,
       requirements: derived.requirements,
       disabled_reason: derived.disabledReason,
+      online_payments_enabled: enablement.enabled,
       last_synced_at: new Date(),
       last_error: null,
     },
