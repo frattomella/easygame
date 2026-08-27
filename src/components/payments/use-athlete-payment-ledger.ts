@@ -21,6 +21,7 @@ import {
   describeRefundAvailability,
   type RefundAvailability,
 } from "@/lib/payments/refunds";
+import { buildCheckoutReturnUrl } from "@/lib/payments/checkout-return";
 import type { RegisterPaymentSubmission } from "./RegisterPaymentDialog";
 import type { RefundSubmission } from "./RefundDialog";
 
@@ -549,7 +550,26 @@ export function useAthletePaymentLedger({
 
       setIsOpeningCheckout(true);
 
-      const origin = window.location.origin;
+      /*
+        Si torna **dove si era**, non su un indirizzo ricostruito: la scheda di
+        un atleta non si apre senza `?clubId=…`, e un ritorno che lo perdeva
+        accoglieva chi aveva appena pagato con «ID del club mancante».
+      */
+      const successUrl = buildCheckoutReturnUrl(
+        window.location.href,
+        "verifica",
+      );
+      const cancelUrl = buildCheckoutReturnUrl(
+        window.location.href,
+        "annullato",
+      );
+
+      if (!successUrl || !cancelUrl) {
+        setIsOpeningCheckout(false);
+        showToast("error", "Pagamento online non disponibile da questa pagina");
+        return;
+      }
+
       const { data, error } = await apiRequest<{ checkoutUrl: string }>(
         "/api/payments/create-checkout-session",
         {
@@ -559,8 +579,8 @@ export function useAthletePaymentLedger({
             athleteId,
             amountCents: Math.round(toPaymentAmount(amount) * 100),
             description: ledger.label,
-            successUrl: `${origin}/athletes/${athleteId}?pagamento=verifica`,
-            cancelUrl: `${origin}/athletes/${athleteId}?pagamento=annullato`,
+            successUrl,
+            cancelUrl,
           },
         },
       );
