@@ -270,12 +270,10 @@ function NewTrainerPageContent() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <div className="hidden md:block">
-        <Sidebar />
-      </div>
+    <div className="flex h-[100dvh] bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <Sidebar />
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Nuovo Allenatore" />
 
         <main className={dashboardMainClassName}>

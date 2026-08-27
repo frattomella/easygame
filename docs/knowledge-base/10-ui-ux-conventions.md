@@ -98,6 +98,11 @@ Breakpoint di riferimento: **375, 768, 1280 px**.
   altezza sotto il breakpoint `sm`. Nelle tabelle di gestione la densita
   resta voluta.
 
+L'invariante e verificata da `tests/ui/app-shell-layout.test.mjs`, che legge
+ogni schermata con barra laterale: radice `h-[100dvh]`, nessuna `min-h-screen`
+fuori dai segnaposto centrati, e il taglio dello scorrimento fra radice e
+`main`.
+
 ### Attese e salvataggi
 
 | Situazione | Componente |
@@ -596,7 +601,7 @@ Identificatori di codice restano in inglese (`athlete`, `club`, `payment`).
 
 ```tsx
 // desktop: Sidebar + Header;  mobile: MobileTopBar
-<div className="flex h-screen bg-gray-50">
+<div className="flex h-[100dvh] bg-gray-50">
   <Sidebar />
   <div className="flex flex-1 flex-col overflow-hidden">
     <Header title="..." />
