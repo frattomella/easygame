@@ -142,6 +142,15 @@ export async function GET(request: Request) {
             cose che invece deve leggere.
           */
           state: account.state,
+          /*
+            **Chi** e l'intermediario, per nome (RC Fix 2, punto 16). La scheda
+            diceva «il provider» e non lo nominava mai: una societa che sta per
+            dare i propri dati bancari e a cui vengono chiesti documenti
+            d'identita ha diritto di sapere a chi. Arriva dal record e non e
+            scritto nella pagina, perche il registro dei provider prevede che
+            un domani non sia Stripe.
+          */
+          provider: account.provider,
           chargesEnabled: account.chargesEnabled,
           payoutsEnabled: account.payoutsEnabled,
           requirements: account.requirements,

@@ -86,18 +86,21 @@ import {
 import type { ListPageMeta } from "@/lib/api/client";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import {
+  buildCategoryGroups,
   buildCategoryGroupLabel,
   buildSiteIndex,
   compareCategoryGroups,
+  getActiveCategoryGroups,
   getActiveClubSites,
   getMembershipGroupId,
   isMultiSiteClub,
   normalizeClubSites,
   recordMatchesSite,
   UNASSIGNED_SITE_LABEL,
+  type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
-import { SiteFilter } from "@/components/sites/site-filter";
+import { CategoryGroupFilter, SiteFilter } from "@/components/sites/site-filter";
 import { supabase } from "@/lib/supabase";
 import {
   Collapsible,
@@ -350,6 +353,52 @@ export default function AthletesPage() {
 
   const [sites, setSites] = useState<ClubSite[]>([]);
   const [siteFilter, setSiteFilter] = useState("");
+  /**
+   * Il gruppo operativo scelto: `Pulcini · Roma` (RC Fix 2, punto 13).
+   *
+   * Un gruppo e la coppia (categoria, sede), quindi il filtro si traduce nei
+   * due parametri che l'archivio conosce gia — `category_id` e `site_id` —
+   * invece di introdurne un terzo. Cosi restringe **anche** la pagina che
+   * arriva dal server, non solo le righe che sono gia a schermo: un filtro che
+   * agisse solo su cio che e caricato direbbe «quattro atleti» guardandone
+   * duecento su duemila.
+   */
+  const [groupFilter, setGroupFilter] = useState("");
+  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
+
+  /**
+   * Le squadre fra cui si puo scegliere, adesso.
+   *
+   * Solo quelle configurate — un gruppo implicito e una categoria con un altro
+   * nome (ADR-0055) — e solo quelle della sede scelta, se una sede e scelta:
+   * e la strada **Sede → Gruppo**. Senza sede si vedono tutte, con la sede
+   * scritta nell'etichetta: e la strada **direttamente Gruppo**.
+   */
+  const groupOptions = useMemo(
+    () =>
+      getActiveCategoryGroups(categoryGroups)
+        .filter((group) => !group.implicit)
+        .filter((group) => !siteFilter || group.siteId === siteFilter)
+        .slice()
+        .sort(compareCategoryGroups)
+        .map((group) => ({ id: group.id, name: group.name })),
+    [categoryGroups, siteFilter],
+  );
+
+  const selectedGroup = useMemo(
+    () => categoryGroups.find((group) => group.id === groupFilter) || null,
+    [categoryGroups, groupFilter],
+  );
+
+  /*
+    Cambiare sede non deve lasciare selezionata una squadra di un'altra citta:
+    l'elenco tornerebbe vuoto senza dire perche.
+  */
+  useEffect(() => {
+    if (!groupFilter) return;
+    if (groupOptions.some((group) => group.id === groupFilter)) return;
+    setGroupFilter("");
+  }, [groupFilter, groupOptions]);
 
   /*
     `meta` arriva solo quando la pagina e stata chiesta: `total` e il conteggio
@@ -459,7 +508,7 @@ export default function AthletesPage() {
           .order("created_at", { ascending: true }),
         supabase
           .from("clubs")
-          .select("club_sites")
+          .select("club_sites, category_groups")
           .eq("id", clubId)
           .single(),
         // La lista mostra anagrafica, categoria e stato: non serve trasportare
@@ -486,6 +535,13 @@ export default function AthletesPage() {
       const normalizedSites = normalizeClubSites(clubData?.club_sites);
       const siteIndex = buildSiteIndex(normalizedSites);
       setSites(normalizedSites);
+      setCategoryGroups(
+        buildCategoryGroups({
+          categories: normalizedCategories,
+          sites: normalizedSites,
+          groups: clubData?.category_groups,
+        }),
+      );
 
       const transformedAthletes = buildAthleteRows(
         athletesData,
@@ -553,7 +609,10 @@ export default function AthletesPage() {
           page: targetPage,
           search: searchQuery,
           status: statusFilter,
-          siteId: siteFilter,
+          // Un gruppo e la coppia (categoria, sede): si traduce nei due
+          // parametri che l'archivio conosce gia.
+          siteId: selectedGroup?.siteId || siteFilter,
+          categoryId: selectedGroup?.categoryId || "",
         });
 
         setListMeta(result.meta);
@@ -570,7 +629,7 @@ export default function AthletesPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [categories, searchQuery, siteFilter, sites, statusFilter],
+    [categories, searchQuery, selectedGroup, siteFilter, sites, statusFilter],
   );
 
   // Load athletes and categories from database
@@ -586,7 +645,7 @@ export default function AthletesPage() {
   */
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, statusFilter, siteFilter]);
+  }, [searchQuery, statusFilter, siteFilter, groupFilter]);
 
   useEffect(() => {
     if (!paginated) return;
@@ -968,6 +1027,7 @@ export default function AthletesPage() {
     setSelectedAthleteIds(new Set());
   };
 
+
   // Toggle category collapse
   const toggleCategoryCollapse = (categoryId: string) => {
     setCollapsedCategories((prev) => {
@@ -1009,7 +1069,14 @@ export default function AthletesPage() {
       siteFilter,
     );
 
-        return matchesSearch && matchesStatus && matchesSite;
+    /*
+      Il gruppo non ha indulgenze: un atleta di `Pulcini · Roma` non compare
+      fra i `Pulcini · Aprilia`, nemmeno se la categoria coincide. E
+      esattamente la contaminazione che un elenco operativo non deve avere.
+    */
+    const matchesGroup = !groupFilter || athlete.groupId === groupFilter;
+
+        return matchesSearch && matchesStatus && matchesSite && matchesGroup;
       });
 
   const selectedAthletesCount = selectedAthleteIds.size;
@@ -1110,7 +1177,8 @@ export default function AthletesPage() {
         page: index,
         search: searchQuery,
         status: statusFilter,
-        siteId: siteFilter,
+        siteId: selectedGroup?.siteId || siteFilter,
+        categoryId: selectedGroup?.categoryId || "",
       });
 
       collected.push(
@@ -1736,6 +1804,19 @@ export default function AthletesPage() {
                 onChange={setSiteFilter}
                 label="Sede"
                 id="athletes-site-filter"
+              />
+
+              {/*
+                Sede → Gruppo, oppure direttamente Gruppo. Con una sede scelta
+                questo elenco mostra solo le sue squadre; senza, le mostra
+                tutte con la sede nell'etichetta (RC Fix 2, punto 13).
+              */}
+              <CategoryGroupFilter
+                groups={groupOptions}
+                value={groupFilter}
+                onChange={setGroupFilter}
+                label="Gruppo"
+                id="athletes-group-filter"
               />
 
               <div className="flex items-center gap-2 lg:ml-auto">

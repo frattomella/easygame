@@ -302,3 +302,79 @@ test("cambiare categoria non scollega l'atleta dalla sua sede", () => {
     "le secondarie tengono la loro",
   );
 });
+
+/* ------------------------ arrivare a una squadra (RC Fix 2, punto 13) */
+
+/**
+ * Le liste erano gia separate per gruppo — una scheda per squadra, con il
+ * proprio conteggio — ma per arrivare a una squadra si poteva solo scegliere
+ * la sede e poi scorrere. Su un club con sei categorie in tre sedi sono
+ * diciotto schede da attraversare per arrivare a quella che si cercava.
+ */
+test("si puo scegliere una squadra, non solo una sede", () => {
+  const filter = read("components/sites/site-filter.tsx");
+  const page = read("app/athletes/page.tsx");
+
+  assert.match(
+    filter,
+    /export function CategoryGroupFilter/,
+    "il filtro gruppo deve stare accanto al filtro sede, non in una pagina",
+  );
+  assert.match(
+    filter,
+    /if \(groups\.length < 2\) \{\s*\n?\s*return null;/,
+    "con una squadra sola il menu e rumore, come per il filtro sede",
+  );
+  assert.match(page, /<CategoryGroupFilter/);
+});
+
+/**
+ * **Sede → Gruppo, oppure direttamente Gruppo.**
+ *
+ * Con una sede scelta l'elenco delle squadre si restringe a quella sede: le
+ * due strade sono la stessa, percorsa in due modi.
+ */
+test("scegliere la sede restringe le squadre offerte", () => {
+  const page = read("app/athletes/page.tsx");
+
+  assert.match(
+    page,
+    /\.filter\(\(group\) => !siteFilter \|\| group\.siteId === siteFilter\)/,
+    "senza questo il menu gruppi offrirebbe squadre di altre citta",
+  );
+  assert.match(
+    page,
+    /if \(groupOptions\.some\(\(group\) => group\.id === groupFilter\)\) return;/,
+    "cambiare sede non deve lasciare selezionata una squadra di un'altra citta",
+  );
+});
+
+/**
+ * Un gruppo e la coppia (categoria, sede): il filtro si traduce nei due
+ * parametri che l'archivio conosce gia, invece di introdurne un terzo. Cosi
+ * restringe **anche** la pagina che arriva dal server: un filtro che agisse
+ * solo sulle righe gia caricate direbbe «quattro atleti» guardandone duecento
+ * su duemila.
+ */
+test("il filtro gruppo restringe anche la query, non solo cio che e a schermo", () => {
+  const page = read("app/athletes/page.tsx");
+
+  assert.match(page, /siteId: selectedGroup\?\.siteId \|\| siteFilter/);
+  assert.match(page, /categoryId: selectedGroup\?\.categoryId \|\| ""/);
+  assert.match(
+    page,
+    /const matchesGroup = !groupFilter \|\| athlete\.groupId === groupFilter;/,
+    "e nessuna indulgenza sul gruppo: Pulcini · Roma non e Pulcini · Aprilia",
+  );
+});
+
+/**
+ * Un gruppo implicito e una categoria con un altro nome: offrirlo nel menu
+ * delle squadre sarebbe una seconda voce che dice la stessa cosa (ADR-0055).
+ */
+test("i gruppi impliciti non compaiono fra le squadre selezionabili", () => {
+  assert.match(
+    read("app/athletes/page.tsx"),
+    /\.filter\(\(group\) => !group\.implicit\)/,
+  );
+});
