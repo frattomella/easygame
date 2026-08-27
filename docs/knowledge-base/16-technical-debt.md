@@ -859,25 +859,23 @@ esterni in `remotePatterns`.
 un lavoro suo e va fatto con i suoi tempi.
 
 
-### E8 — L'idempotenza dell'incasso e una lettura seguita da una scrittura
+### E8 — L'idempotenza dell'incasso era una lettura seguita da una scrittura — `CHIUSO`
 
-**Impatto: medio.** [ADR-0062](18-decision-log.md#adr-0062--un-incasso-si-riconosce-dal-denaro-non-dallevento-che-lo-racconta)
-ha chiuso il doppio accredito: prima di registrare, il gestore del webhook
-cerca nel registro tutti i nomi che il provider da a quel pagamento. Nel
-collaudo i due eventi dello stesso incasso sono arrivati a **55 millisecondi**
-di distanza, elaborati da due invocazioni distinte.
+**Chiuso nello stesso collaudo che lo aveva aperto.** La finestra non era
+teorica: Stripe consegna i due eventi di un pagamento praticamente insieme —
+**109 millisecondi** nel collaudo — e il doppio accredito si e ripresentato a
+ogni pagamento anche dopo che l'identita dell'incasso era corretta.
 
-La guardia e una lettura seguita da una scrittura: fra le due c'e una finestra.
-Non si e manifestata, ma esiste, ed e la stessa classe di problema che la
-deduplica degli eventi risolve con un vincolo di unicita in base dati invece
-che con un controllo applicativo.
+La chiude l'indice unico **parziale** `payment_transactions_incasso_unico`
+(migrazione `20260827020000`): al piu un incasso positivo per (club, pagamento
+del provider). Parziale perche storni e rimborsi copiano per costruzione
+l'identificativo dell'incasso che compensano, e un indice pieno avrebbe
+impedito di rimborsare.
 
-**Cosa farebbe la differenza:** un indice unico parziale su
-`payment_transactions (organization_id, external_payment_id)`. Va progettato
-con attenzione: le righe di **storno** e di **rimborso** copiano per
-costruzione l'identificativo dell'incasso originale, quindi un indice pieno le
-rifiuterebbe. Serve escludere le righe che hanno `reverses_transaction_id`
-valorizzato. E' una migrazione, e merita di essere pensata a parte.
+**La lezione che vale oltre questo difetto.** Un controllo applicativo di
+unicita non e un vincolo di unicita: e un suggerimento che regge finche non
+c'e concorrenza. Dove due invocazioni possono toccare lo stesso denaro, la
+regola va scritta dove la concorrenza si arbitra.
 
 
 ### E9 — Un conto di incasso che nasce per altra via non riceve il proprio default

@@ -518,3 +518,65 @@ test("un evento che non dichiara l'ambiente non incassa", async () => {
   assert.equal(esito.status, "ignored");
   assert.equal(fake.rows("paymentTransaction").length, 0);
 });
+
+test("se la lettura non vede l'incasso, il database lo ferma comunque", async () => {
+  /*
+    **La corsa fra i due eventi.** Il controllo applicativo e una lettura
+    seguita da una scrittura: due invocazioni concorrenti leggono entrambe
+    «non c'e» prima che una delle due scriva. Nel collaudo del Blocco E i due
+    eventi dello stesso pagamento sono arrivati a 109 millisecondi di distanza
+    e il doppio accredito si e verificato a **ogni** pagamento — non e un caso
+    di laboratorio.
+
+    Qui la corsa si riproduce accecando la lettura, che e esattamente cio che
+    la concorrenza produce. A fermare il secondo incasso resta solo l'indice
+    unico parziale `payment_transactions_incasso_unico`.
+  */
+  const primo = await gateway.handleGatewayWebhookEvent(daIntent("evt_1"));
+  assert.equal(primo.duplicate, false);
+
+  const letturaVera = fake.client.paymentTransaction.findFirst;
+  let accecata = true;
+  fake.client.paymentTransaction.findFirst = async (args) =>
+    accecata ? null : letturaVera(args);
+
+  try {
+    const secondo = await gateway.handleGatewayWebhookEvent(daSessione("evt_2"));
+
+    assert.equal(
+      secondo.duplicate,
+      true,
+      "il vincolo del database deve tradursi in «gia incassato», non in un errore",
+    );
+  } finally {
+    accecata = false;
+    fake.client.paymentTransaction.findFirst = letturaVera;
+  }
+
+  assert.equal(
+    fake.rows("paymentTransaction").length,
+    1,
+    "due eventi concorrenti, un incasso solo",
+  );
+});
+
+test("un errore che non sia il vincolo non viene scambiato per un duplicato", async () => {
+  /*
+    La cattura non deve diventare un tappo che nasconde guasti veri: un
+    incasso perso in silenzio e peggio di un incasso contato due volte,
+    perche nessuno lo cerca.
+  */
+  const creaVera = fake.client.paymentTransaction.create;
+  fake.client.paymentTransaction.create = async () => {
+    throw new Error("il database non risponde");
+  };
+
+  try {
+    await assert.rejects(
+      () => gateway.handleGatewayWebhookEvent(daIntent("evt_9")),
+      /il database non risponde/,
+    );
+  } finally {
+    fake.client.paymentTransaction.create = creaVera;
+  }
+});

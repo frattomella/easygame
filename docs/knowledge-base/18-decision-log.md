@@ -3280,12 +3280,26 @@ l'identificativo della sessione.
   niente. C'e ora un test che verifica che i due eventi abbiano davvero
   identificativi diversi — una guardia sulla guardia, perche un test che passa
   per la ragione sbagliata e peggio di un test assente;
-- resta una finestra di concorrenza teorica: i due eventi arrivano a decine di
-  millisecondi di distanza e sono elaborati da due invocazioni distinte. La
-  guardia e una lettura seguita da una scrittura. Chiuderla del tutto richiede
-  un vincolo di unicita in base dati, che va progettato tenendo conto delle
-  righe di storno — che condividono per costruzione l'identificativo
-  dell'incasso originale. Annotato nel debito tecnico.
+- **la corsa fra i due eventi non era teorica.** Il controllo applicativo e
+  una lettura seguita da una scrittura, e Stripe consegna i due eventi
+  praticamente insieme: nel collaudo sono arrivati a **109 millisecondi** di
+  distanza, elaborati da due invocazioni distinte, ed entrambe leggevano «non
+  c'e» prima che una delle due scrivesse. Il doppio accredito si e ripresentato
+  a **ogni** pagamento, anche dopo che l'identita era corretta.
+
+  La finestra si chiude solo dove la concorrenza si arbitra davvero, cioe nel
+  database: l'indice unico **parziale**
+  `payment_transactions_incasso_unico` ammette al piu un incasso positivo per
+  (club, pagamento del provider). E' parziale perche il vincolo non vale per
+  tutte le righe: storni e rimborsi copiano per costruzione l'identificativo
+  dell'incasso che compensano — e devono farlo, perche e cosi che si
+  ricollegano — e un indice pieno avrebbe impedito di rimborsare.
+
+  Il controllo applicativo **resta**: risponde nel caso normale — la
+  riconsegna a distanza di secondi — e da un messaggio comprensibile invece di
+  far risalire un'eccezione di vincolo. Il rifiuto del database, quando
+  arriva, si traduce in «gia incassato» e non in un 500, perche per Stripe un
+  500 significa «riprova» e riproverebbe per tre giorni;
 
 **Alternative scartate.**
 

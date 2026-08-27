@@ -352,7 +352,8 @@ const resolveEventOrganization = async (
     asText(event.account?.organizationId) ||
     null;
 
-  const accountId = asText(event.accountId) || asText(event.account?.externalId);
+  const accountId =
+    asText(event.accountId) || asText(event.account?.externalId);
   const fromAccount = accountId
     ? await findOrganizationByExternalAccount(accountId)
     : null;
@@ -479,7 +480,12 @@ export const handleGatewayWebhookEvent = async (
       where: { provider: event.provider, event_id: eventId },
       data: { status: "ignored" },
     });
-    return { duplicate: false, status: "ignored", transactionId: null, message };
+    return {
+      duplicate: false,
+      status: "ignored",
+      transactionId: null,
+      message,
+    };
   };
 
   const markFailed = async (error: any) => {
@@ -569,7 +575,9 @@ export const handleGatewayWebhookEvent = async (
             Math.round(Number(original.amount) * 100),
           platformFeeCents: Number(original.platform_fee_cents) || 0,
           providerFeeCents:
-            original.provider_fee_cents === null ? null : Number(original.provider_fee_cents),
+            original.provider_fee_cents === null
+              ? null
+              : Number(original.provider_fee_cents),
           appliedFeePercent: Number(original.applied_fee_percent) || 0,
           appliedFeeFixedCents: Number(original.applied_fee_fixed_cents) || 0,
           commissionRuleId: original.commission_rule_id || null,
@@ -653,7 +661,8 @@ export const handleGatewayWebhookEvent = async (
           duplicate: true,
           status: "processed",
           transactionId: String(gia.id),
-          message: "Incasso gia registrato da un altro evento dello stesso pagamento",
+          message:
+            "Incasso gia registrato da un altro evento dello stesso pagamento",
         };
       }
     }
@@ -688,41 +697,84 @@ export const handleGatewayWebhookEvent = async (
       )?.providerFeeCents,
     });
 
-    const result = await createPaymentTransaction(
-      {
-        organizationId,
-        athleteId: payment.reference.athleteId,
-        paymentId: payment.reference.paymentId,
-        amount: payment.money.amountCents / 100,
-        paidAt: payment.paidAt || new Date().toISOString(),
-        paymentMethod: "online",
-        source: "STRIPE",
-        externalReference: payment.externalId,
-        externalAccountId: account.externalAccountId,
-        externalPaymentId: payment.externalId,
-        externalEventId: eventId,
-        settlement,
-        /*
+    let result;
+
+    try {
+      result = await createPaymentTransaction(
+        {
+          organizationId,
+          athleteId: payment.reference.athleteId,
+          paymentId: payment.reference.paymentId,
+          amount: payment.money.amountCents / 100,
+          paidAt: payment.paidAt || new Date().toISOString(),
+          paymentMethod: "online",
+          source: "STRIPE",
+          externalReference: payment.externalId,
+          externalAccountId: account.externalAccountId,
+          externalPaymentId: payment.externalId,
+          externalEventId: eventId,
+          settlement,
+          /*
           L'unico punto in cui EasyGame accetta un incasso non manuale. Lo
           accetta perche arriva da un evento la cui firma e stata verificata,
           non perche qualcuno lo ha dichiarato: la rotta HTTP non puo impostare
           questo flag, e infatti costruisce il suo input campo per campo.
         */
-        confirmedByProvider: true,
-        /*
+          confirmedByProvider: true,
+          /*
           Il provider non conosce il residuo della rata, e potrebbe incassare
           piu di quanto restava — per esempio se qualcuno ha registrato un
           acconto in contanti mentre la famiglia pagava online. Rifiutare
           l'incasso vorrebbe dire perdere denaro che e gia arrivato.
         */
-        allowOverpayment: true,
-      },
-      {
-        userId: "",
-        activeOrganizationId: organizationId,
-        allowedOrganizationIds: [organizationId],
-      },
-    );
+          allowOverpayment: true,
+        },
+        {
+          userId: "",
+          activeOrganizationId: organizationId,
+          allowedOrganizationIds: [organizationId],
+        },
+      );
+    } catch (error: any) {
+      /*
+        **La corsa fra i due eventi, arbitrata dal database.**
+
+        Il controllo poco sopra e una lettura seguita da una scrittura: due
+        invocazioni concorrenti leggono entrambe «non c'e» prima che una delle
+        due scriva. Non e un caso di laboratorio — nel collaudo del Blocco E i
+        due eventi dello stesso pagamento sono arrivati a **109 millisecondi**
+        di distanza, e il doppio accredito si e verificato a ogni pagamento.
+
+        L'indice unico parziale `payment_transactions_incasso_unico` chiude la
+        finestra dove la concorrenza si arbitra davvero. Qui il suo rifiuto si
+        traduce in cio che significa: quel denaro e gia stato incassato, e
+        l'evento e un duplicato economico — non un errore.
+
+        Il controllo applicativo resta perche risponde nel caso normale, la
+        riconsegna a distanza di secondi, senza far arrivare fin qui una
+        eccezione di vincolo.
+      */
+      const violaIncassoUnico =
+        error?.code === "P2002" ||
+        String(error?.message || "").includes(
+          "payment_transactions_incasso_unico",
+        );
+
+      if (!violaIncassoUnico) throw error;
+
+      const gia = await findTransactionByExternalPaymentId({
+        organizationId,
+        externalPaymentId: payment.externalId,
+      });
+
+      return {
+        duplicate: true,
+        status: "processed",
+        transactionId: gia ? String(gia.id) : null,
+        message:
+          "Incasso gia registrato da un altro evento dello stesso pagamento",
+      };
+    }
 
     return {
       duplicate: false,

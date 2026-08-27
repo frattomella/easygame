@@ -134,6 +134,22 @@ const UNIQUE_CONSTRAINTS = {
     ["organization_id", "athlete_id", "category_id"],
   ],
   formTemplate: [["public_slug"]],
+  /*
+    Un **indice parziale**, come quello vero in base dati
+    (`payment_transactions_incasso_unico`, ADR-0062): al piu un incasso
+    positivo per (club, pagamento del provider). Storni e rimborsi copiano per
+    costruzione l'identificativo dell'incasso che compensano — e devono farlo —
+    quindi il vincolo non li riguarda.
+  */
+  paymentTransaction: [
+    {
+      fields: ["organization_id", "external_payment_id"],
+      quando: (row) =>
+        row.external_payment_id !== null &&
+        row.external_payment_id !== undefined &&
+        Number(row.amount) > 0,
+    },
+  ],
 };
 
 /** L'errore che Prisma lancia su una chiave duplicata. */
@@ -171,11 +187,23 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     di partenza, non una scrittura.
   */
   const assertUnique = (name, data) => {
-    for (const fields of UNIQUE_CONSTRAINTS[name] || []) {
-      if (fields.some((field) => data[field] === undefined)) continue;
+    for (const vincolo of UNIQUE_CONSTRAINTS[name] || []) {
+      /*
+        Due forme: un elenco di campi, oppure un oggetto con un predicato —
+        che e come Postgres esprime un indice parziale. Senza il predicato, il
+        vincolo sugli incassi rifiuterebbe i rimborsi, che condividono per
+        costruzione l'identificativo dell'incasso originale.
+      */
+      const fields = Array.isArray(vincolo) ? vincolo : vincolo.fields;
+      const quando = Array.isArray(vincolo) ? null : vincolo.quando;
 
-      const clash = rowsOf(name).some((row) =>
-        fields.every((field) => row[field] === data[field]),
+      if (fields.some((field) => data[field] === undefined)) continue;
+      if (quando && !quando(data)) continue;
+
+      const clash = rowsOf(name).some(
+        (row) =>
+          fields.every((field) => row[field] === data[field]) &&
+          (!quando || quando(row)),
       );
 
       if (clash) throw duplicateKeyError(name, fields);
