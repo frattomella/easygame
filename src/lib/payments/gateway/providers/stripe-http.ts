@@ -127,3 +127,128 @@ export const callStripe = async (
 
   return payload;
 };
+
+/* ------------------------------------------------------------ la API v2 */
+
+/**
+ * L'**API v2** di Stripe, che non e la v1 con un numero diverso.
+ *
+ * **Perche serve un secondo trasporto invece di un parametro.** Le due API non
+ * differiscono per il percorso ma per tre cose che il chiamante non deve
+ * ricordarsi ogni volta: il corpo e **JSON** e non `form-urlencoded`, la
+ * versione di API e **obbligatoria** in intestazione, e i rami dell'oggetto
+ * si chiedono per nome con `include` — quelli non chiesti tornano `null`,
+ * indistinguibili da «vuoto». Infilare tre `if` dentro `callStripe`
+ * significherebbe che ogni chiamata v1 porta il peso di condizioni che non la
+ * riguardano, e che una dimenticanza su una chiamata v2 fallisce a runtime.
+ *
+ * **Perche la v1 resta dov'e.** Solo il *provisioning* degli account connessi
+ * e migrato (ADR-0061). Checkout, addebiti, rimborsi, movimenti di saldo e
+ * firma dei webhook continuano sulla v1, che li serve correttamente: Stripe
+ * dichiara l'interoperabilita fra le due, e un identificativo di account
+ * creato in v2 e accettato dagli endpoint v1. Riscrivere anche quelli sarebbe
+ * un rischio preso senza contropartita.
+ */
+export const STRIPE_API_V2_BASE = "https://api.stripe.com/v2";
+
+/**
+ * La versione di API dichiarata sulle chiamate v2.
+ *
+ * **Perche e fissata qui e non lasciata al default dell'account.** Sulla v2
+ * non esiste un default: senza intestazione Stripe risponde `400`. E fissarla
+ * nel codice invece che seguire quella dell'account significa che
+ * l'aggiornamento della versione sul cruscotto non cambia da solo la forma
+ * degli oggetti che questo modulo interpreta.
+ */
+export const STRIPE_API_VERSION = "2026-07-29.dahlia";
+
+export type StripeV2RequestOptions = {
+  method?: "GET" | "POST";
+  body?: Record<string, unknown>;
+  /**
+   * I rami da popolare nella risposta.
+   *
+   * Non e un'ottimizzazione: cio che non si chiede torna `null` anche quando
+   * un valore c'e. Leggere `configuration.merchant` senza averlo incluso vuol
+   * dire leggere «nessuna capacita» su un account che incassa.
+   */
+  include?: string[];
+  idempotencyKey?: string;
+};
+
+export const callStripeV2 = async (
+  path: string,
+  options: StripeV2RequestOptions = {},
+): Promise<Record<string, any>> => {
+  const secretKey = readStripeSecretKey();
+  if (!secretKey) {
+    throw new PaymentGatewayError(
+      "not_configured",
+      "Stripe non e configurato: manca la chiave segreta",
+      "stripe",
+    );
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${secretKey}`,
+    "Content-Type": "application/json",
+    "Stripe-Version": STRIPE_API_VERSION,
+  };
+
+  if (options.idempotencyKey) {
+    headers["Idempotency-Key"] = options.idempotencyKey;
+  }
+
+  const method = options.method || (options.body ? "POST" : "GET");
+  const include = (options.include || []).filter(Boolean);
+
+  /*
+    `include` viaggia nel corpo quando c'e un corpo, e in query quando non c'e:
+    una GET con un corpo JSON non e una richiesta che Stripe accetta.
+  */
+  const query =
+    method === "GET" && include.length
+      ? `?${include.map((entry) => `include=${encodeURIComponent(entry)}`).join("&")}`
+      : "";
+
+  const body =
+    method === "GET"
+      ? undefined
+      : JSON.stringify({
+          ...(options.body || {}),
+          ...(include.length ? { include } : {}),
+        });
+
+  let response: Response;
+  try {
+    response = await fetch(`${STRIPE_API_V2_BASE}${path}${query}`, {
+      method,
+      headers,
+      body,
+    });
+  } catch (error: any) {
+    throw new PaymentGatewayError(
+      "provider_error",
+      `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
+      "stripe",
+    );
+  }
+
+  const payload = (await response.json().catch(() => ({}))) as Record<
+    string,
+    any
+  >;
+
+  if (!response.ok) {
+    /*
+      Come sulla v1: il messaggio del provider si riporta, la richiesta no.
+    */
+    throw new PaymentGatewayError(
+      "provider_error",
+      String(payload?.error?.message || `Stripe ha risposto ${response.status}`),
+      "stripe",
+    );
+  }
+
+  return payload;
+};

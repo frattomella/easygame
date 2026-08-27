@@ -182,6 +182,67 @@ senza passare da un conto di Cedi. Un marketplace avrebbe scelto l'addebito
 indiretto; un gestionale no — EasyGame non vende lo sport, lo amministra.
 Vedi [ADR-0051](18-decision-log.md#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame).
 
+### Il provisioning parla Accounts v2; il resto parla v1
+
+Stripe non crea piu account connessi con `POST /v1/accounts` per le
+integrazioni nuove: risponde `400` e rimanda a `POST /v2/core/accounts`. Dal
+Blocco E il **solo provisioning** e migrato — creazione dell'account, link di
+onboarding, rilettura dello stato — mentre checkout, addebiti diretti,
+application fee, rimborsi, `balance_transaction` e verifica della firma
+restano sulla v1, che li serve correttamente. Stripe dichiara
+l'interoperabilita: un identificativo creato in v2 e accettato dagli endpoint
+v1. Vedi
+[ADR-0061](18-decision-log.md#adr-0061--un-account-connesso-nasce-sulla-accounts-v2-il-resto-dellintegrazione-resta-sulla-v1).
+
+| | v1 | v2 |
+|---|---|---|
+| Corpo | `form-urlencoded` | **JSON** |
+| Versione API | default dell'account | **obbligatoria** in intestazione (`Stripe-Version`) |
+| Risposta | completa | solo i rami chiesti con `include`; gli altri tornano `null` |
+
+Il trasporto v2 e `callStripeV2` in
+`src/lib/payments/gateway/providers/stripe-http.ts`, accanto a `callStripe` e
+non al suo posto.
+
+> **`include` non e un'ottimizzazione.** Cio che non si chiede torna `null`,
+> non «vuoto». Una rilettura senza `configuration.merchant` direbbe che un club
+> operativo non ha capacita, e la sincronizzazione gli spegnerebbe i pagamenti.
+
+**Il tipo di account non esiste piu.** Al suo posto ci sono `dashboard` e
+`defaults.responsibilities`. L'equivalente dell'account Standard e:
+
+| Proprieta | Valore | Cosa significa |
+|---|---|---|
+| `dashboard` | `full` | il club vede il cruscotto Stripe completo e legge i propri incassi senza passare da EasyGame |
+| `defaults.responsibilities.fees_collector` | `stripe` | Stripe trattiene le proprie commissioni **dal club**, non da EasyGame |
+| `defaults.responsibilities.losses_collector` | `stripe` | di un saldo negativo risponde Stripe, non EasyGame |
+| `configuration.merchant.capabilities.card_payments.requested` | `true` | il club puo accettare carte |
+
+Le due responsabilita **si congelano alla creazione**: non e una preferenza
+modificabile, e dice chi e l'esercente.
+
+**Uno stato v2 non si traduce alla lettera.** La v1 aveva due booleani e un
+`disabled_reason`; la v2 ha uno stato e un elenco di motivi **per ogni
+capacita**. Un account appena creato e `card_payments.status = "restricted"`
+con motivo `requirements_past_due`: non e limitato, non ha ancora fatto
+l'onboarding. La distinzione la fa il **motivo**:
+
+| Motivo | Stato EasyGame |
+|---|---|
+| `restricted_other` | `restricted` — blocco vero |
+| `unsupported_country`, o capacita `unsupported` | `disabled` |
+| tutto il resto | `pending` — onboarding da completare |
+
+Le richieste aperte arrivano da `requirements.entries`, filtrate su
+`minimum_deadline.status`: si mostrano `past_due` e `currently_due`, non le
+`eventually_due`, che non impediscono di incassare oggi.
+
+**Un guardrail impedisce il ritorno alla v1.**
+`tests/lib/stripe-connect-v2.test.mjs` fallisce se qualcuno ripristina
+`callStripe("/accounts")`. Serve perche il rifiuto di Stripe arriva a runtime,
+e in sandbox l'interruttore «Accounts v1 support» puo mascherarlo fino al
+giorno del passaggio al live.
+
 ### Gli eventi sottoscritti, e perche solo questi
 
 **Connect:** `checkout.session.completed`, `payment_intent.succeeded`,

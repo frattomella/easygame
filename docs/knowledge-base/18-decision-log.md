@@ -3082,3 +3082,100 @@ incasso gia avvenuto, per un motivo che non lo riguarda.
   EasyGame a inventarla;
 - restano da collaudare contro Stripe, per la ragione di ADR-0045, tutte le
   chiamate che parlano con `api.stripe.com`: la traduzione ha test, la rete no.
+
+---
+
+## ADR-0061 — Un account connesso nasce sulla Accounts v2; il resto dell'integrazione resta sulla v1
+
+**Data:** 2026-08-27
+**Stato:** ATTIVA
+**Contesto:** Blocco E, collaudo Stripe Sandbox. Rivede la sola **creazione**
+degli account connessi di
+[ADR-0049](#adr-0049--il-club-incassa-easygame-trattiene-una-quota-e-il-marchio-in-mezzo-sparisce)
+e [ADR-0051](#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame).
+
+**Il problema.** Al primo tentativo di creare un account connesso vero sulla
+sandbox, Stripe ha rifiutato la chiamata: *«Stripe no longer recommends
+Accounts v1 for new Connect integrations. Create connected accounts with
+`POST /v2/core/accounts` instead.»* Non e un avviso di deprecazione con un
+periodo di grazia: e un `400`, e le sandbox nuove nascono con
+`POST /v1/accounts` **disattivata**.
+
+Stripe offre due uscite. La prima e un interruttore sul cruscotto — «Accounts
+v1 support» — pensato per gli scenari di compatibilita di chi ha gia un parco
+di account v1. La seconda e usare la v2.
+
+**La decisione.** Migrare alla Accounts v2 **il solo provisioning**: creazione
+dell'account, link di onboarding, rilettura dello stato. Non accendere
+l'interruttore di compatibilita.
+
+*Perche non l'interruttore.* EasyGame non ha ancora incassato un euro online:
+non ha un parco di account v1 da proteggere, e quindi non ha lo scenario per
+cui quell'interruttore esiste. Accenderlo avrebbe voluto dire **nascere
+deprecati** — un debito tecnico creato di proposito, in cambio di zero righe
+di codice risparmiate oggi e di una migrazione obbligata domani, quando ci
+sarebbero stati account veri di club veri da portare dietro.
+
+*Perche non tutto il resto.* Stripe dichiara l'interoperabilita fra le due
+versioni: un identificativo di account creato in v2 e accettato dagli endpoint
+v1. Checkout, addebiti diretti, application fee, rimborsi, movimenti di saldo
+e verifica della firma continuano quindi a funzionare **senza modifiche**.
+Riscriverli sarebbe stato un rischio preso senza contropartita, su codice che
+ADR-0050 e ADR-0060 hanno appena collaudato.
+
+*La traduzione che conta, e che non e meccanica.* La v1 esponeva due booleani
+(`charges_enabled`, `payouts_enabled`) e un `disabled_reason`. La v2 espone
+per **ogni capacita** uno stato e un elenco di motivi. Il punto in cui una
+traduzione letterale avrebbe fatto danno: un account appena creato ha
+`card_payments.status = "restricted"` con motivo `requirements_past_due`.
+Tradotto alla lettera, la console avrebbe detto che Stripe ha **limitato** il
+club un istante dopo averlo creato — e avrebbe mandato una segreteria a
+cercare un guasto inesistente invece che a completare l'onboarding. La
+distinzione la fa il **motivo**, non lo stato: `restricted_other` e
+`unsupported_country` sono blocchi veri, tutto il resto e onboarding da fare.
+
+*Chi paga cosa, deciso una volta sola.* Nella v2 il tipo di account non esiste
+piu: al suo posto ci sono `dashboard` e `defaults.responsibilities`.
+L'equivalente dell'account **Standard** e `dashboard: "full"` con
+`fees_collector: "stripe"` e `losses_collector: "stripe"`. Non e un dettaglio
+di configurazione: dice **chi e l'esercente**. Con `fees_collector:
+"application"` sarebbe EasyGame a pagare le commissioni Stripe e a doverle
+riaddebitare; con `losses_collector: "application"` sarebbe EasyGame a
+rispondere del saldo negativo di un club. Nessuna delle due e vera nel modello
+di ADR-0049 — e nessuna delle due si corregge dopo: **Stripe congela le
+responsabilita alla creazione**.
+
+**Conseguenze.**
+
+- `callStripeV2` in `src/lib/payments/gateway/providers/stripe-http.ts` e il
+  secondo trasporto: corpo JSON, `Stripe-Version` **obbligatoria** in
+  intestazione, e `include` per chiedere i rami della risposta. Cio che non si
+  include torna `null` e non «vuoto»: una rilettura senza
+  `configuration.merchant` direbbe che un club operativo non ha capacita, e la
+  sincronizzazione gli spegnerebbe i pagamenti;
+- il contratto `PaymentGateway` **non cambia**: la migrazione resta dentro il
+  provider Stripe, e `src/lib/server/connect-accounts.ts` non sa che e
+  avvenuta. E la prova che l'astrazione provider-agnostica di ADR-0049
+  serviva a qualcosa;
+- `tests/lib/stripe-connect-v2.test.mjs` include un **guardrail**: se qualcuno
+  ripristinasse `callStripe("/accounts")` il test fallisce. Il rifiuto di
+  Stripe arriva a runtime e in sandbox l'interruttore di compatibilita puo
+  mascherarlo — senza guardrail, il difetto si vedrebbe il giorno del
+  passaggio al live;
+- resta **da verificare sul campo** se un account creato in v2 emetta ancora
+  l'evento v1 `account.updated`. La documentazione indica per i nuovi account
+  gli eventi `v2.core.account[requirements].updated`. Se il v1 non arrivasse,
+  la sincronizzazione esplicita (`connect_sync`) copre comunque lo stato, ma
+  l'aggiornamento automatico andrebbe rifatto sugli eventi v2;
+- vale ancora la riserva di ADR-0045: la traduzione ha test, la rete no.
+
+**Alternative scartate.**
+
+*Accendere «Accounts v1 support».* Un minuto di lavoro contro una migrazione
+obbligata piu avanti, con account di club veri da portare dietro invece di
+zero. Il costo si sposta, non si evita, e si sposta nel momento peggiore.
+
+*Migrare tutta l'integrazione alla v2.* Checkout, rimborsi e saldi non hanno
+un problema da risolvere: funzionano, e sono stati collaudati. Toccarli
+avrebbe messo a rischio la parte che regge il denaro per allineare un numero
+di versione.

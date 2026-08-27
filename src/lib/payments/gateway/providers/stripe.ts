@@ -46,7 +46,7 @@ import {
   type GatewayWebhookEvent,
 } from "../contract";
 import { verifyStripeSignature } from "./stripe-signature";
-import { callStripe, readStripeSecretKey } from "./stripe-http";
+import { callStripe, callStripeV2, readStripeSecretKey } from "./stripe-http";
 
 /* ------------------------------------------------------------ traduzioni */
 
@@ -56,19 +56,99 @@ const readReference = (metadata: any): GatewayPaymentReference => ({
   athleteId: String(metadata?.easygame_athlete_id || "") || null,
 });
 
-const merchantFromAccount = (account: any): GatewayMerchant => {
-  const chargesEnabled = Boolean(account?.charges_enabled);
-  const payoutsEnabled = Boolean(account?.payouts_enabled);
-  const pendingRequirements: string[] = [
-    ...(account?.requirements?.currently_due || []),
-    ...(account?.requirements?.past_due || []),
-  ].map((entry: any) => String(entry));
+/**
+ * I rami dell'account v2 che servono a EasyGame.
+ *
+ * Cio che non si chiede torna `null`, non «vuoto»: omettere
+ * `configuration.merchant` vorrebbe dire leggere «nessuna capacita» su un
+ * account che incassa, e spegnere i pagamenti di un club che funziona.
+ */
+const V2_ACCOUNT_INCLUDE = [
+  "configuration.merchant",
+  "identity",
+  "requirements",
+  "defaults",
+];
 
-  const status: GatewayMerchant["status"] = account?.requirements?.disabled_reason
-    ? "restricted"
-    : chargesEnabled && payoutsEnabled
-      ? "active"
-      : "pending";
+/**
+ * Il cruscotto che vede il club, a partire dal tipo di account configurato.
+ *
+ * Nella v2 non esiste piu un `type`: l'equivalente dell'account **Standard**
+ * e `dashboard: "full"`, cioe il club vede il cruscotto Stripe completo e
+ * legge i propri incassi senza passare da EasyGame. La configurazione di
+ * piattaforma continua a parlare di «standard» ed «express», e la traduzione
+ * vive qui invece che nella configurazione: cambiare vocabolario a
+ * un'impostazione gia scritta avrebbe voluto dire una migrazione di dati per
+ * una rinomina.
+ */
+const V2_DASHBOARD_BY_ACCOUNT_TYPE: Record<string, "full" | "express"> = {
+  standard: "full",
+  express: "express",
+};
+
+/**
+ * Un **account v2** tradotto nello stato che EasyGame conosce.
+ *
+ * **Perche non e la traduzione campo per campo della v1.** La v1 esponeva due
+ * booleani — `charges_enabled`, `payouts_enabled` — e un `disabled_reason`.
+ * La v2 espone per **ogni capacita** uno stato e un elenco di motivi, e i due
+ * vocabolari non si sovrappongono.
+ *
+ * Il caso che rende la differenza concreta: un account appena creato ha
+ * `card_payments.status = "restricted"` con motivo `requirements_past_due`.
+ * Non e un account *limitato*, e un account che **non ha ancora fatto
+ * l'onboarding**. Tradurre `restricted` in «limitato» direbbe alla console
+ * che Stripe ha bloccato il club il minuto dopo averlo creato, e manderebbe
+ * una segreteria a cercare un problema che non esiste.
+ *
+ * La distinzione la fa il **motivo**, non lo stato: `restricted_other` e
+ * `unsupported_country` sono condizioni su cui il club non puo agire da solo;
+ * tutto il resto e onboarding da completare.
+ */
+const merchantFromV2Account = (account: any): GatewayMerchant => {
+  const capabilities = account?.configuration?.merchant?.capabilities || {};
+  const cardPayments = String(capabilities?.card_payments?.status || "");
+  const payouts = String(capabilities?.stripe_balance?.payouts?.status || "");
+
+  const chargesEnabled = cardPayments === "active";
+  const payoutsEnabled = payouts === "active";
+
+  /*
+    I motivi delle due capacita si leggono insieme: un club che incassa ma non
+    puo essere pagato ha comunque qualcosa da sistemare.
+  */
+  const reasons: string[] = [
+    ...(capabilities?.card_payments?.status_details || []),
+    ...(capabilities?.stripe_balance?.payouts?.status_details || []),
+  ].map((entry: any) => String(entry?.code || ""));
+
+  /*
+    `requirements.entries` sostituisce le tre liste della v1
+    (`currently_due`, `past_due`, `pending_verification`). Si tengono le voci
+    con una scadenza scattata o in scadenza: le «eventually due» non
+    impediscono di incassare oggi, e metterle davanti al club come cose da
+    fare subito sarebbe falso.
+  */
+  const entries: any[] = Array.isArray(account?.requirements?.entries)
+    ? account.requirements.entries
+    : [];
+
+  const pendingRequirements = entries
+    .filter((entry: any) => {
+      const deadline = String(entry?.minimum_deadline?.status || "");
+      return deadline === "past_due" || deadline === "currently_due";
+    })
+    .map((entry: any) => String(entry?.description || ""))
+    .filter(Boolean);
+
+  const status: GatewayMerchant["status"] =
+    account?.closed || cardPayments === "unsupported"
+      ? "disabled"
+      : reasons.includes("restricted_other")
+        ? "restricted"
+        : chargesEnabled && payoutsEnabled
+          ? "active"
+          : "pending";
 
   return {
     provider: "stripe",
@@ -393,46 +473,89 @@ export const stripeProvider: PaymentGateway = {
   isConfigured: () => Boolean(readStripeSecretKey()),
 
   createMerchant: async (input) => {
-    const account = await callStripe("/accounts", {
+    const account = await callStripeV2("/core/accounts", {
       body: {
-        type: input.accountType,
-        country: input.country || "IT",
-        email: input.email,
-        "business_profile[name]": input.clubName,
+        display_name: input.clubName,
+        ...(input.email ? { contact_email: input.email } : {}),
+        identity: { country: input.country || "IT" },
+        dashboard:
+          V2_DASHBOARD_BY_ACCOUNT_TYPE[String(input.accountType)] || "full",
+        defaults: {
+          currency: "eur",
+          /*
+            Le due responsabilita **non si cambiano dopo la creazione**: qui si
+            decide una volta sola chi paga le commissioni Stripe e chi risponde
+            di un saldo negativo.
+
+            In EasyGame incassa il **club**, con addebito diretto sul suo
+            account. Quindi Stripe trattiene le proprie commissioni dal club
+            (`fees_collector: "stripe"`) e resta responsabile dei saldi
+            negativi (`losses_collector: "stripe"`): e la coppia equivalente
+            all'account Standard della v1, ed e cio che rende vero il modello
+            per cui il club — non EasyGame — e l'esercente che risponde di un
+            rimborso. La quota di piattaforma resta cosa distinta e viaggia
+            come application fee sul singolo incasso.
+          */
+          responsibilities: {
+            fees_collector: "stripe",
+            losses_collector: "stripe",
+          },
+        },
+        configuration: {
+          merchant: {
+            capabilities: { card_payments: { requested: true } },
+          },
+        },
         /*
           Il club torna indietro nei metadati dell'account: e cosi che un
-          evento `account.updated` si ricollega a una societa senza dover
-          interrogare il database su un identificativo che il PSP potrebbe
-          aver cambiato.
+          evento si ricollega a una societa senza dover interrogare il
+          database su un identificativo che il PSP potrebbe aver cambiato.
         */
-        "metadata[easygame_organization_id]": input.organizationId,
+        metadata: { easygame_organization_id: input.organizationId },
       },
+      include: V2_ACCOUNT_INCLUDE,
     });
 
-    return merchantFromAccount(account);
+    return merchantFromV2Account(account);
   },
 
   createOnboardingLink: async (input) => {
-    const link = await callStripe("/account_links", {
+    const link = await callStripeV2("/core/account_links", {
       body: {
         account: input.merchantExternalId,
-        refresh_url: input.refreshUrl,
-        return_url: input.returnUrl,
-        type: "account_onboarding",
+        use_case: {
+          type: "account_onboarding",
+          account_onboarding: {
+            configurations: ["merchant"],
+            return_url: input.returnUrl,
+            refresh_url: input.refreshUrl,
+            /*
+              `eventually_due`: si raccoglie tutto in una volta sola. Un club
+              rimandato indietro una seconda volta perche mancava un campo e
+              un club che non incassa, e una telefonata in segreteria.
+            */
+            collection_options: { fields: "eventually_due" },
+          },
+        },
       },
     });
 
     return {
+      /*
+        Sulla v2 le date sono gia stringhe ISO: nessuna conversione da epoch,
+        che sulla v1 serviva e qui produrrebbe una data del 1970.
+      */
       url: String(link?.url || ""),
-      expiresAt: link?.expires_at
-        ? new Date(Number(link.expires_at) * 1000).toISOString()
-        : "",
+      expiresAt: String(link?.expires_at || ""),
     };
   },
 
   getMerchant: async (merchantExternalId) =>
-    merchantFromAccount(
-      await callStripe(`/accounts/${encodeURIComponent(merchantExternalId)}`),
+    merchantFromV2Account(
+      await callStripeV2(
+        `/core/accounts/${encodeURIComponent(merchantExternalId)}`,
+        { include: V2_ACCOUNT_INCLUDE },
+      ),
     ),
 
   createCheckout: async (request: GatewayCheckoutRequest) => {
