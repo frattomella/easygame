@@ -182,6 +182,26 @@ test("la descrizione distingue i quattro casi che dicevano tutti «non applicato
     /periodo della stagione attiva/,
   );
 
+  /*
+    Importi e date in italiano, come nel resto della schermata. In UAT il
+    dettaglio scriveva «Da 600.00 a 506.04 euro» accanto a «600,00 €»
+    stampato due righe sopra dalla stessa scheda.
+  */
+  const dettaglio = describe({ enabled: true, method: "days" }).detail;
+  assert.match(dettaglio, /600,00\s?€/);
+  assert.match(dettaglio, /329,80\s?€/);
+  assert.equal(
+    /\d\.\d{2}\b/.test(dettaglio),
+    false,
+    "nessun separatore decimale all'inglese",
+  );
+  assert.match(dettaglio, /2026|2027/, "il periodo si legge come una data");
+  assert.equal(
+    /\d{4}-\d{2}-\d{2}/.test(dettaglio),
+    false,
+    "una data ISO non e una data da leggere",
+  );
+
   // Nessun piano scelto: non e un «non applicato», e un «non ancora valutato».
   assert.equal(describeProrationResult(null).label, "Da calcolare");
   assert.equal(describeProrationResult(undefined).tone, "neutral");

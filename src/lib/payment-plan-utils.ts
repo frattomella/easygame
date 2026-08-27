@@ -884,6 +884,33 @@ export const calculateProratedTotal = ({
  * Una funzione sola perche le due schermate che lo mostrano — riepilogo
  * iscrizione e conferma del piano — dicevano cose diverse per lo stesso stato.
  */
+/**
+ * Importi e date come li scrive il resto dell'applicazione.
+ *
+ * `toFixed(2)` metteva il punto decimale — «Da 600.00 a 506.04» — accanto a
+ * «600,00 €» stampato due righe sopra dalla stessa schermata. Visto in UAT su
+ * staging. La formattazione e esplicitamente `it-IT` e non dipende dalla
+ * localizzazione della macchina che disegna la pagina.
+ */
+const italianAmount = (value: number) =>
+  new Intl.NumberFormat("it-IT", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+  }).format(Number.isFinite(value) ? value : 0);
+
+const italianDay = (iso: string) => {
+  const parsed = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return iso;
+
+  return parsed.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+};
+
 export const describeProrationResult = (
   result?: ProratedTotalResult | null,
 ): { label: string; detail: string | null; tone: "applied" | "neutral" | "warning" } => {
@@ -906,12 +933,12 @@ export const describeProrationResult = (
   if (result.reason === "applied") {
     const period =
       result.periodStart && result.periodEnd
-        ? ` sul periodo ${result.periodStart} - ${result.periodEnd}`
+        ? ` sul periodo ${italianDay(result.periodStart)} - ${italianDay(result.periodEnd)}`
         : "";
     return {
       label: "Pro-rata applicato",
       detail: result.adjusted
-        ? `Da ${result.originalTotal.toFixed(2)} a ${result.total.toFixed(2)} euro${period}${
+        ? `Da ${italianAmount(result.originalTotal)} a ${italianAmount(result.total)}${period}${
             result.periodFromSeason ? ", periodo della stagione attiva" : ""
           }.`
         : `L'iscrizione copre tutto il periodo${period}: si paga la quota intera.`,

@@ -11,7 +11,9 @@ import {
   type AthleteImportMapping,
   type AthleteImportOutcome,
   type AthleteImportPayload,
+  type AthleteImportSummary,
   type ExistingAthleteIdentity,
+  type NormalizedImportedAthleteRow,
 } from "@/lib/athlete-import";
 import { Button } from "@/components/ui/button";
 import {
@@ -94,6 +96,20 @@ export function AthleteImportDialog({
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [outcome, setOutcome] = useState<AthleteImportOutcome | null>(null);
+  /**
+   * Il piano com'era **al momento di premere Importa**.
+   *
+   * L'anteprima si ricalcola quando cambiano le anagrafiche gia nel club, e al
+   * termine dell'import quelle anagrafiche comprendono le righe appena
+   * scritte: il riepilogo finale le rileggeva come «Atleta gia presente nel
+   * club» e annunciava 220 importati accanto a 202 scartati su 223 righe.
+   * Numeri che non tornano fanno dubitare di un import riuscito. Visto in UAT
+   * su staging con un file da 223 righe.
+   */
+  const [committedPlan, setCommittedPlan] = useState<{
+    rows: NormalizedImportedAthleteRow[];
+    summary: AthleteImportSummary;
+  } | null>(null);
   const [showOnlyProblems, setShowOnlyProblems] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -108,6 +124,7 @@ export function AthleteImportDialog({
     setIsParsing(false);
     setProgress({ done: 0, total: 0 });
     setOutcome(null);
+    setCommittedPlan(null);
     setShowOnlyProblems(false);
   }, []);
 
@@ -177,6 +194,7 @@ export function AthleteImportDialog({
       return;
     }
 
+    setCommittedPlan({ rows: previewRows, summary });
     setStep("running");
     setProgress({ done: 0, total: payload.length });
 
@@ -203,6 +221,13 @@ export function AthleteImportDialog({
       setStep("done");
     }
   };
+
+  /*
+    Dopo l'import il riepilogo racconta **l'import che e avvenuto**, non una
+    rivalutazione del file contro il club di adesso.
+  */
+  const committedSummary = committedPlan?.summary ?? summary;
+  const committedRows = committedPlan?.rows ?? previewRows;
 
   const percent = progress.total
     ? Math.round((progress.done / progress.total) * 100)
@@ -452,8 +477,8 @@ export function AthleteImportDialog({
               />
               <SummaryTile
                 label="Scartati in anteprima"
-                value={summary.discarded}
-                tone={summary.discarded ? "negative" : "neutral"}
+                value={committedSummary.discarded}
+                tone={committedSummary.discarded ? "negative" : "neutral"}
               />
               <SummaryTile
                 label="Errori in scrittura"
@@ -483,13 +508,13 @@ export function AthleteImportDialog({
               </p>
             )}
 
-            {summary.discarded ? (
+            {committedSummary.discarded ? (
               <div className="rounded-xl border border-slate-200 p-4">
                 <p className="font-medium text-slate-900">
                   Scartate prima dell&apos;import
                 </p>
                 <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-sm text-slate-600">
-                  {previewRows
+                  {committedRows
                     .filter((row) => row.errors.length)
                     .slice(0, 100)
                     .map((row) => (

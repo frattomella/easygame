@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 
 import {
@@ -417,6 +419,36 @@ test("uno scaglione rifiutato non porta via le righe buone", async () => {
       !Array.isArray(request.body?.data),
   );
   assert.equal(singole.length, 3);
+});
+
+test("il riepilogo finale racconta l'import avvenuto, non il club di adesso", () => {
+  /*
+    Difetto trovato in UAT su staging, importando 223 righe: la finestra
+    annunciava «IMPORTATI 220» accanto a «SCARTATI IN ANTEPRIMA 202», ed
+    elencava come «Atleta gia presente nel club» proprio le righe appena
+    scritte. L'anteprima si ricalcola quando cambiano le anagrafiche del club,
+    e a import concluso quelle anagrafiche comprendono i nuovi atleti.
+
+    Numeri che non tornano fanno dubitare di un import riuscito: il riepilogo
+    deve mostrare il piano **congelato** al momento di premere Importa.
+  */
+  const source = readFileSync(
+    path.join(process.cwd(), "src/components/forms/AthleteImportDialog.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /setCommittedPlan\(\{ rows: previewRows, summary \}\)/);
+  assert.match(source, /const committedSummary = committedPlan\?\.summary \?\? summary/);
+  assert.match(source, /const committedRows = committedPlan\?\.rows \?\? previewRows/);
+
+  const done = source.slice(source.indexOf('step === "done"'));
+  assert.equal(
+    /value=\{summary\.discarded\}/.test(done),
+    false,
+    "il riepilogo finale non deve leggere l'anteprima ricalcolata",
+  );
+  assert.match(done, /committedSummary\.discarded/);
+  assert.match(done, /\{committedRows/);
 });
 
 test("nessuna riga scritta senza il club", async () => {
