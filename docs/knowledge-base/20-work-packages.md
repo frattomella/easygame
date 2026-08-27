@@ -1439,7 +1439,7 @@ scrittura e stato lanciato su nessun database.
 
 ---
 
-### WP-13 · Pagamenti online via Stripe Connect — `CHIUSO DAL BLOCCO D`
+### WP-13 · Pagamenti online via Stripe Connect — `CHIUSO E COLLAUDATO`
 
 **Obiettivo.** Decidere e chiudere: implementare davvero o rimuovere la
 promessa.
@@ -1457,16 +1457,36 @@ reale: onboarding Connect, checkout anche parziale, webhook con firma e
 deduplica, rimborsi, `account.updated`, commissioni con decorrenza e
 congelamento. Vedi ADR-0049, ADR-0050 e ADR-0051.
 
-**Cosa resta.** Le credenziali Stripe e il primo collaudo (BD-21 nella
-backlog). ADR-0013 prevedeva un livello CediPay fra EasyGame e il PSP:
-ADR-0049 lo toglie dalla V1, perche un marchio in mezzo a un incasso deve
-poter dire chi incassa e chi risponde di un rimborso, e nella V1 la risposta
-e «il club, tramite Stripe».
+**Chiuso davvero il 2026-08-27.** Il primo collaudo end-to-end nella Sandbox
+Cedi Soft e stato eseguito: connected account dal percorso EasyGame, onboarding,
+50 € + 80 € su una rata da 130 €, commissione all'1% e override a 0,75% non
+retroattivo, webhook e idempotenza, rimborso parziale con commissione
+proporzionale e rimborso totale, pagamento rifiutato, separazione del flusso
+Billing e isolamento multi-tenant.
+
+Il collaudo ha trovato **quattro difetti di contabilita** che i test su mock non
+vedevano, tutti corretti e ora coperti: doppio accredito da due eventi dello
+stesso pagamento (ADR-0062), sessione di checkout riusata al secondo acconto
+dello stesso importo (ADR-0063), commissione del PSP mai recuperata dopo la
+maturazione del saldo, doppio storno da un identificativo di rimborso
+inventato. La creazione degli account e stata migrata alla Accounts v2
+(ADR-0061), perche Stripe non ammette piu la v1 per le integrazioni nuove.
+
+ADR-0013 prevedeva un livello CediPay fra EasyGame e il PSP: ADR-0049 lo toglie
+dalla V1, perche un marchio in mezzo a un incasso deve poter dire chi incassa e
+chi risponde di un rimborso, e nella V1 la risposta e «il club, tramite
+Stripe».
+
+**Cosa resta.** Nessun endpoint EasyGame **avvia** un rimborso: il contratto
+del gateway ha `refund`, ma nessuna rotta lo espone. Oggi il rimborso lo fa il
+club dal proprio cruscotto Stripe — che con `dashboard: "full"` ha — ed
+EasyGame lo registra correttamente dal webhook. Va deciso se sia sufficiente
+per la V1.
 
 **Acceptance criteria.**
-- [ ] Nessun endpoint di pagamento accetta eventi senza firma valida
-- [ ] Il flusso completo e testato in sandbox
-- [ ] Nessun secret nel repository
+- [x] Nessun endpoint di pagamento accetta eventi senza firma valida
+- [x] Il flusso completo e testato in sandbox
+- [x] Nessun secret nel repository
 
 **File.** `src/app/api/payments/**`, `src/lib/payments/**`,
 [11](11-capabilities.md), [12](12-integrations.md), [14](14-security.md).
