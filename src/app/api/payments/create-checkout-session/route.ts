@@ -86,10 +86,6 @@ export async function POST(request: Request) {
     const cancelUrl = String(body.cancelUrl || body.cancel_url || "").trim();
     const paymentId = String(body.paymentId || body.payment_id || "").trim();
 
-    if (!clubId) {
-      return jsonError("Club non disponibile");
-    }
-
     if (!successUrl || !cancelUrl) {
       return jsonError("URL di ritorno obbligatori");
     }
@@ -99,7 +95,28 @@ export async function POST(request: Request) {
       request.headers.get("x-active-club-id") || clubId,
     );
 
-    if (!scope.allowedOrganizationIds.includes(clubId)) {
+    /*
+      **Il club lo dice la sessione, non il corpo della richiesta.** Era gia
+      scritto qui sopra — «dal client arrivano la rata, l'importo e dove
+      tornare» — e lo dichiarava anche lo schema, dove `clubId` e
+      facoltativo: solo che il controllo pretendeva comunque di trovarlo nel
+      corpo, e
+      l'unica schermata che apre un checkout non lo manda. Il risultato era un
+      pulsante «Paga online» che rispondeva sempre «Club non disponibile», e
+      nessun test se n'era accorto perche nessuno chiamava la rotta come la
+      chiama l'interfaccia.
+
+      Quando il corpo lo porta comunque — un chiamante piu vecchio — vince
+      quello: e un vincolo in piu, non uno in meno, e resta soggetto ai due
+      controlli qui sotto.
+    */
+    const organizationId = clubId || String(scope.activeOrganizationId || "");
+
+    if (!organizationId) {
+      return jsonError("Club non disponibile");
+    }
+
+    if (!scope.allowedOrganizationIds.includes(organizationId)) {
       return jsonError("Accesso negato al club", 403);
     }
 
@@ -110,7 +127,7 @@ export async function POST(request: Request) {
       «Accesso negato» generico le farebbe finire entrambe al telefono.
     */
     await requireClubEntitlement({
-      organizationId: clubId,
+      organizationId,
       key: "online_payments",
       isPlatformAdmin: isPlatformAdminUser(session.db.user),
     });
@@ -131,11 +148,11 @@ export async function POST(request: Request) {
       }
 
       /*
-        La rata comanda sul club: fidarsi del `clubId` mandato dal client
-        permetterebbe di aprire un checkout su una rata di un'altra societa
+        La rata comanda sul club: aprire un checkout su una rata che non e
+        del club attivo permetterebbe di incassare per un'altra societa
         purche si abbia accesso alla propria.
       */
-      if (String(charge.organization_id) !== clubId) {
+      if (String(charge.organization_id) !== organizationId) {
         return jsonError("Accesso negato: la rata appartiene a un altro club", 403);
       }
 
@@ -170,7 +187,7 @@ export async function POST(request: Request) {
     }
 
     const { checkout, context, settlement } = await openGatewayCheckout({
-      organizationId: clubId,
+      organizationId,
       paymentId: paymentId || null,
       athleteId,
       amountCents,

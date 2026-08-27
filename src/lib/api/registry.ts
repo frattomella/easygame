@@ -272,7 +272,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "POST",
     path: "/api/payments/create-checkout-session",
     description:
-      "Apre un checkout online per una rata, anche per un importo parziale. Provider, conto e commissione non arrivano dal client",
+      "Apre un checkout online per una rata, anche per un importo parziale. Club, provider, conto e commissione non arrivano dal corpo: il club e quello attivo della sessione",
     mobile_ready: false,
   },
   {

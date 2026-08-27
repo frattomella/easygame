@@ -51,7 +51,25 @@ export async function resolve(specifier, context, nextResolve) {
   try {
     return await nextResolve(specifier, context);
   } catch (error) {
-    if (!specifier.startsWith(".") && !specifier.startsWith("/")) throw error;
+    if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+      /*
+        Stessa mancanza, dall'altra parte del confine: `next/server` esiste
+        come `next/server.js`, e Next 14 non dichiara una mappa `exports` che
+        lo dica a Node. Il bundler lo risolve, Node in ESM no — e senza questo
+        ripiego un route handler non e importabile da un test, cioe proprio
+        cio che serve per provare la rotta come la chiama l'interfaccia.
+      */
+      for (const suffix of [".js", ".mjs", ".cjs"]) {
+        try {
+          return await nextResolve(specifier + suffix, context);
+        } catch {
+          /* Si prova il prossimo; se nessuno regge vale l'errore originale. */
+        }
+      }
+
+      throw error;
+    }
+
     if (!context.parentURL) throw error;
 
     const resolved = firstExisting(new URL(specifier, context.parentURL).href);

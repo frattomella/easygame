@@ -62,8 +62,9 @@ Fonte ufficiale da mantenere aggiornata:
   societa: stato, requisiti mancanti, commissione applicata (sola lettura) e
   richiesta del link di collegamento
 - `POST /api/payments/create-checkout-session` — apre un checkout online per
-  una rata, anche per un importo parziale. Provider, conto e commissione non
-  arrivano dal client
+  una rata, anche per un importo parziale. Club, provider, conto e commissione
+  non arrivano dal corpo: il club e quello attivo della sessione
+  (`x-active-club-id`), e un `clubId` nel corpo puo solo restringere
 - `GET /api/payments/checkout-status` — lo stato di un pagamento online
   secondo il registro incassi: «in verifica» finche il webhook non conferma
 - `POST /api/payments/webhook` — callback del PSP per gli incassi (Connect)
