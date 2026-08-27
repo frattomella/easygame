@@ -346,7 +346,14 @@ export const isRefundReason = (value: unknown): value is RefundReason =>
 
 export type RefundPreview = {
   amountCents: number;
-  /** Quanto resta incassato su questo movimento dopo il rimborso. */
+  /**
+   * Quanto resta incassato su questo movimento dopo il rimborso.
+   *
+   * **Conta anche cio che era gia tornato indietro.** Un incasso da 130 gia
+   * rimborsato di 30, su cui si stanno restituendo i 100 restanti, non lascia
+   * incassati 30: lascia zero. La sottrazione dal solo lordo diceva 30, e lo
+   * diceva nella finestra che si legge **prima** di premere.
+   */
   netCollectedCents: number;
   /** La quota di piattaforma che torna al club. `0` se non ce n'era. */
   platformFeeRefundedCents: number;
@@ -365,16 +372,31 @@ export type RefundPreview = {
  * non riguarda un incasso gia avvenuto (ADR-0050). Il calcolo e lo stesso che
  * il webhook applica quando registra il movimento — `reverseSettlement` — cosi
  * il numero mostrato prima del clic e quello che finira nel registro.
+ *
+ * **`refundedCents` non e facoltativo per comodita.** E facoltativo perche sul
+ * primo rimborso di un incasso vale zero, ed e il caso piu comune. Ometterlo
+ * quando invece qualcosa era gia tornato indietro fa dire alla finestra che
+ * sul movimento restano incassati piu soldi di quanti ne restino davvero.
  */
 export const previewRefund = (input: {
   transaction: NormalizedPaymentTransaction;
   amountCents: number;
+  /** Quanto era gia stato rimborsato su questo incasso, in centesimi. */
+  refundedCents?: number;
 }): RefundPreview => {
   const amountCents = Math.max(0, Math.round(Number(input.amountCents) || 0));
   const originalCents = Math.max(0, toCents(input.transaction?.amount));
   const congelati = input.transaction?.settlement || null;
 
-  const netCollectedCents = Math.max(0, originalCents - amountCents);
+  const refundedCents = Math.max(
+    0,
+    Math.round(Number(input.refundedCents) || 0),
+  );
+
+  const netCollectedCents = Math.max(
+    0,
+    originalCents - refundedCents - amountCents,
+  );
 
   if (!congelati) {
     return {

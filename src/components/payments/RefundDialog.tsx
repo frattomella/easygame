@@ -149,7 +149,12 @@ export function RefundDialog({
   const validationError = validateRefundAmount({ amount, availability });
 
   const preview = transaction
-    ? previewRefund({ transaction, amountCents })
+    ? previewRefund({
+        transaction,
+        amountCents,
+        /* Cio che era gia tornato indietro non e piu incassato: vedi sopra. */
+        refundedCents: availability?.refundedCents ?? 0,
+      })
     : null;
 
   const installmentAfter = previewInstallmentAfterRefund({

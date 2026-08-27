@@ -538,3 +538,61 @@ test("il catalogo dei motivi e quello che il provider riconosce", () => {
   assert.equal(refunds.isRefundReason("duplicate"), true);
   assert.equal(refunds.isRefundReason("perche si"), false);
 });
+
+/* ------------- il netto di un secondo rimborso sullo stesso incasso */
+
+/**
+ * **Il difetto trovato a runtime nel collaudo E-13.**
+ *
+ * `netCollectedCents` sottraeva l'importo che si sta restituendo dal **lordo**
+ * dell'incasso, ignorando cio che ne era gia tornato indietro. Su un incasso da
+ * 130 gia rimborsato di 30, restituire i 100 restanti mostrava «Netto incassato
+ * su questo movimento 30,00 €» invece di zero — e lo mostrava nella finestra
+ * che si legge prima di premere il pulsante che restituisce il denaro.
+ */
+
+test("il netto di un movimento tiene conto dei rimborsi gia registrati", () => {
+  const tx = incasso();
+
+  const secondo = refunds.previewRefund({
+    transaction: tx,
+    amountCents: 10000,
+    refundedCents: 3000,
+  });
+
+  assert.equal(
+    secondo.netCollectedCents,
+    0,
+    "130 incassati, 30 gia restituiti, 100 in restituzione: non resta niente",
+  );
+
+  /*
+    La commissione restituita resta proporzionale a **questo** rimborso, e non
+    cambia: 100 su 130 di 1,30 € fanno 1,00 €. Sommata ai 30 centesimi del
+    primo rimborso rende l'intera commissione trattenuta.
+  */
+  assert.equal(secondo.platformFeeRefundedCents, 100);
+});
+
+test("un rimborso parziale dopo un altro lascia incassato quel che resta", () => {
+  const tx = incasso();
+
+  const terzo = refunds.previewRefund({
+    transaction: tx,
+    amountCents: 4000,
+    refundedCents: 3000,
+  });
+
+  assert.equal(terzo.netCollectedCents, 6000, "130 - 30 - 40 = 60");
+});
+
+test("senza rimborsi precedenti il netto e quello di sempre", () => {
+  const tx = incasso();
+
+  assert.equal(
+    refunds.previewRefund({ transaction: tx, amountCents: 3000 })
+      .netCollectedCents,
+    10000,
+    "omettere il gia rimborsato quando non ce n'e non cambia niente",
+  );
+});
