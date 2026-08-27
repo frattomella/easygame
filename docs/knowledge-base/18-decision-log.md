@@ -3091,7 +3091,7 @@ incasso gia avvenuto, per un motivo che non lo riguarda.
 **Stato:** ATTIVA
 **Contesto:** Blocco E, collaudo Stripe Sandbox. Rivede la sola **creazione**
 degli account connessi di
-[ADR-0049](#adr-0049--il-club-incassa-easygame-trattiene-una-quota-e-il-marchio-in-mezzo-sparisce)
+[ADR-0049](#adr-0049--cedipay-non-e-un-prodotto-della-v1-sotto-ce-stripe-e-si-chiama-stripe)
 e [ADR-0051](#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame).
 
 **Il problema.** Al primo tentativo di creare un account connesso vero sulla
@@ -3162,11 +3162,10 @@ responsabilita alla creazione**.
   Stripe arriva a runtime e in sandbox l'interruttore di compatibilita puo
   mascherarlo — senza guardrail, il difetto si vedrebbe il giorno del
   passaggio al live;
-- resta **da verificare sul campo** se un account creato in v2 emetta ancora
-  l'evento v1 `account.updated`. La documentazione indica per i nuovi account
-  gli eventi `v2.core.account[requirements].updated`. Se il v1 non arrivasse,
-  la sincronizzazione esplicita (`connect_sync`) copre comunque lo stato, ma
-  l'aggiornamento automatico andrebbe rifatto sugli eventi v2;
+- **verificato sul campo:** un account creato in v2 emette ancora l'evento v1
+  `account.updated`. Durante l'onboarding del collaudo ne sono arrivati dieci,
+  tutti elaborati e correttamente attribuiti al club. La sincronizzazione
+  automatica non va quindi rifatta sugli eventi v2, e resta valida com'e;
 - vale ancora la riserva di ADR-0045: la traduzione ha test, la rete no.
 
 **Alternative scartate.**
@@ -3179,3 +3178,92 @@ zero. Il costo si sposta, non si evita, e si sposta nel momento peggiore.
 un problema da risolvere: funzionano, e sono stati collaudati. Toccarli
 avrebbe messo a rischio la parte che regge il denaro per allineare un numero
 di versione.
+
+---
+
+## ADR-0062 — Un incasso si riconosce dal denaro, non dall'evento che lo racconta
+
+**Data:** 2026-08-27
+**Stato:** ATTIVA
+**Contesto:** Blocco E, collaudo Stripe Sandbox. Completa
+[ADR-0051](#adr-0051--due-flussi-stripe-due-account-due-segreti-il-denaro-delle-famiglie-non-e-il-fatturato-di-easygame)
+sul lato dell'idempotenza.
+
+**Il difetto, trovato al primo pagamento vero.** Un incasso di 50 € su una rata
+da 130 € ha prodotto **due movimenti da 50 €**. La rata risultava pagata per
+100 €. Nessun errore, nessun log rosso: il webhook ha risposto `200` due volte,
+e correttamente.
+
+La causa non e un doppio invio. Un pagamento riuscito genera **due eventi
+diversi**, entrambi legittimi, entrambi sottoscritti da EasyGame:
+`payment_intent.succeeded` e `checkout.session.completed`. Il provider traduceva
+in un incasso **l'oggetto di qualunque evento** — sessione, intent o charge — e
+la deduplica esistente e sull'identificativo dell'**evento**. Due eventi diversi
+hanno due identificativi diversi: la deduplica li lasciava passare entrambi.
+
+Il denaro invece era uno. La sessione lo chiama `cs_…`, l'intent `pi_…`, il
+charge `ch_…`: tre nomi di un fatto solo.
+
+**Perche i test non l'hanno visto.** C'era un test dedicato, e asseriva il
+comportamento sbagliato:
+
+> `test("due eventi diversi sullo stesso pagamento restano due eventi")`
+> «la chiave e l'evento, non il pagamento: uno dice autorizzato, l'altro incassato»
+
+Contava le righe degli **eventi** — due, corretto — e non contava mai quelle dei
+**movimenti**. La cosa sbagliata non era osservata, quindi il test era verde
+mentre il difetto era presente. E' il modo piu comune in cui una suite numerosa
+lascia passare un errore contabile.
+
+**La decisione.** L'identita di un incasso e il **denaro**, non l'evento.
+
+`GatewayPayment` porta `relatedExternalIds`: gli altri nomi che il provider da
+allo stesso pagamento. Prima di registrare, il gestore del webhook cerca nel
+registro **tutti** quei nomi; se ne trova gia uno, l'evento e un duplicato
+economico e non incassa una seconda volta.
+
+Non e un principio nuovo nel codice: `recordRefundTransaction` lo applicava gia
+ai rimborsi, dove lo stesso problema si presenta fra `charge.refunded` e
+`charge.refund.updated`. Mancava sugli incassi, cioe sul lato che porta il
+denaro dentro.
+
+**Perche non si e scelto di ridurre gli eventi sottoscritti.** Tenere solo
+`checkout.session.completed` avrebbe risolto il sintomo e aperto un buco: con i
+metodi di pagamento differiti la sessione si completa **prima** che il denaro
+arrivi, e l'incasso vero e annunciato dall'intent. Tenere solo l'intent avrebbe
+perso il caso opposto. I due eventi servono entrambi: quello che mancava era
+sapere che parlano della stessa cosa.
+
+**Perche non si e normalizzato l'identificativo a `pi_…`.** Perche
+`fetchChargeForSettlement` accetta di proposito le tre forme e risale al
+`balance_transaction` da ciascuna. Forzare una forma sola avrebbe scambiato un
+difetto con una rigidita, senza guadagno.
+
+**Conseguenze.**
+
+- `GatewayPayment.relatedExternalIds` e opzionale: un provider che non conosce
+  i nomi alternativi del proprio denaro non e obbligato a inventarli, e resta
+  protetto dalla deduplica sull'evento;
+- i due eventi restano **entrambi** registrati in `payment_webhook_events`: sono
+  davvero arrivati, e cancellarne la traccia renderebbe cieca la diagnosi;
+- il test che asseriva il contrario e stato riscritto, e ne sono stati aggiunti
+  tre: identificativi diversi legati fra loro, ordine di consegna invertito, e
+  il caso che la guardia **non** deve bloccare — due acconti veri sulla stessa
+  rata restano due incassi;
+- resta una finestra di concorrenza teorica: i due eventi arrivano a decine di
+  millisecondi di distanza e sono elaborati da due invocazioni distinte. La
+  guardia e una lettura seguita da una scrittura. Chiuderla del tutto richiede
+  un vincolo di unicita in base dati, che va progettato tenendo conto delle
+  righe di storno — che condividono per costruzione l'identificativo
+  dell'incasso originale. Annotato nel debito tecnico.
+
+**Alternative scartate.**
+
+*Un vincolo di unicita su `(organization_id, external_payment_id)`.* Lo storno e
+il rimborso copiano l'identificativo dell'incasso originale: il vincolo li
+avrebbe rifiutati. Servirebbe un indice parziale, ed e una migrazione che
+merita di essere pensata a parte e non dentro la correzione di un difetto.
+
+*Deduplicare sull'importo e sulla rata.* Due acconti uguali sulla stessa rata
+sono legittimi — 50 € e 50 € su 130 € — e sarebbero stati scartati come
+duplicati. Si sarebbe passati da contare due volte a non contare affatto.

@@ -132,7 +132,21 @@ test("lo stesso evento consegnato due volte incassa una volta sola", async () =>
   );
 });
 
-test("due eventi diversi sullo stesso pagamento restano due eventi", async () => {
+test("due eventi diversi sullo stesso pagamento incassano una volta sola", async () => {
+  /*
+    **Il difetto trovato nel collaudo sandbox del Blocco E.** Un pagamento
+    riuscito genera *sempre* due eventi — `payment_intent.succeeded` e
+    `checkout.session.completed` — e la deduplica sull'identificativo
+    dell'evento non li intercetta, perche gli eventi sono davvero due.
+    Registrandoli entrambi, una famiglia che paga 50 € se ne vedeva
+    accreditare 100, in silenzio: entrambi gli eventi sono legittimi, firmati
+    e attesi.
+
+    La versione precedente di questo test asseriva il contrario — «la chiave e
+    l'evento, non il pagamento» — e contava solo le righe degli **eventi**,
+    mai quelle dei **movimenti**. E' cosi che il difetto e sopravvissuto ai
+    test: la cosa sbagliata non era osservata.
+  */
   await gateway.handleGatewayWebhookEvent(
     eventoRiuscito({ id: "evt_1", type: "payment_intent.succeeded" }),
   );
@@ -140,12 +154,79 @@ test("due eventi diversi sullo stesso pagamento restano due eventi", async () =>
     eventoRiuscito({ id: "evt_2", type: "checkout.session.completed" }),
   );
 
+  assert.equal(secondo.duplicate, true, "e lo stesso denaro, non un secondo incasso");
+  assert.equal(
+    fake.rows("paymentTransaction").length,
+    1,
+    "due eventi, un incasso solo",
+  );
+
+  /* I due eventi restano entrambi in memoria: sono davvero arrivati. */
+  assert.equal(fake.rows("paymentWebhookEvent").length, 2);
+});
+
+test("la sessione e il suo intent sono lo stesso incasso, anche con due identificativi", async () => {
+  /*
+    Il caso reale: i due eventi non portano lo stesso identificativo. La
+    sessione si chiama `cs_…`, l'intent `pi_…`, e senza il legame fra i due
+    nomi il secondo evento sembra un incasso nuovo.
+  */
+  await gateway.handleGatewayWebhookEvent(
+    conPagamento({ externalId: "pi_1" }),
+  );
+  const secondo = await gateway.handleGatewayWebhookEvent({
+    ...eventoRiuscito({ id: "evt_2" }),
+    payment: {
+      ...eventoRiuscito().payment,
+      externalId: "cs_1",
+      relatedExternalIds: ["pi_1"],
+    },
+  });
+
+  assert.equal(secondo.duplicate, true);
+  assert.equal(fake.rows("paymentTransaction").length, 1);
+});
+
+test("il legame vale anche quando arriva prima la sessione", async () => {
+  /*
+    L'ordine di consegna non e garantito: Stripe non promette che
+    `payment_intent.succeeded` preceda `checkout.session.completed`. Se la
+    deduplica funzionasse in un ordine solo, il doppio accredito tornerebbe
+    quando la rete inverte i due.
+  */
+  await gateway.handleGatewayWebhookEvent({
+    ...eventoRiuscito({ id: "evt_1" }),
+    payment: {
+      ...eventoRiuscito().payment,
+      externalId: "cs_1",
+      relatedExternalIds: ["pi_1"],
+    },
+  });
+  const secondo = await gateway.handleGatewayWebhookEvent(
+    conPagamento({ externalId: "pi_1" }),
+  );
+
   assert.equal(
     secondo.duplicate,
-    false,
-    "la chiave e l'evento, non il pagamento: uno dice autorizzato, l'altro incassato",
+    true,
+    "l'intent citato dalla sessione e gia stato incassato",
   );
-  assert.equal(fake.rows("paymentWebhookEvent").length, 2);
+  assert.equal(fake.rows("paymentTransaction").length, 1);
+});
+
+test("due pagamenti davvero distinti restano due incassi", async () => {
+  /*
+    La guardia non deve diventare un tappo: due acconti sulla stessa rata sono
+    due incassi, e devono restare tali.
+  */
+  await gateway.handleGatewayWebhookEvent(conPagamento({ externalId: "pi_1" }));
+  const secondo = await gateway.handleGatewayWebhookEvent({
+    ...eventoRiuscito({ id: "evt_2" }),
+    payment: { ...eventoRiuscito().payment, externalId: "pi_2" },
+  });
+
+  assert.equal(secondo.duplicate, false);
+  assert.equal(fake.rows("paymentTransaction").length, 2);
 });
 
 test("l'evento resta registrato anche quando non produce niente", async () => {

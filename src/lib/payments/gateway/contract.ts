@@ -166,6 +166,20 @@ export type GatewayPayment = {
   /** I riferimenti EasyGame rimandati indietro dal provider. */
   reference: GatewayPaymentReference;
   paidAt: string | null;
+  /**
+   * Gli **altri nomi dello stesso incasso** presso il provider.
+   *
+   * Un solo pagamento produce piu eventi, e ciascuno descrive il denaro con
+   * l'oggetto che gli e proprio: la sessione di checkout lo chiama `cs_…`,
+   * l'intent `pi_…`, il charge `ch_…`. Sono tre nomi di un fatto solo.
+   *
+   * Senza questo elenco, due eventi diversi sullo stesso incasso risultano due
+   * incassi diversi — e una famiglia che paga una volta si vede accreditare il
+   * doppio. La deduplica sull'identificativo dell'**evento** non li intercetta,
+   * perche gli eventi sono davvero due. E lo stesso problema che
+   * `recordRefundTransaction` risolve gia per i rimborsi.
+   */
+  relatedExternalIds?: string[];
 };
 
 /* ------------------------------------------------------- la liquidazione */

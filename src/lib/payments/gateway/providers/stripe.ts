@@ -180,9 +180,30 @@ const checkoutStatusOf = (session: any): GatewayPaymentStatus => {
   return "created";
 };
 
+/**
+ * Gli identificativi collegati, ridotti a stringhe non vuote.
+ *
+ * Un riferimento Stripe puo arrivare come stringa o come oggetto espanso: le
+ * due forme vanno trattate uguali, altrimenti la deduplica funziona o no a
+ * seconda di come e stata costruita la richiesta.
+ */
+const relatedIdsOf = (...values: any[]): string[] =>
+  values
+    .map((value) =>
+      typeof value === "string" ? value : String(value?.id || ""),
+    )
+    .map((value) => value.trim())
+    .filter(Boolean);
+
 const paymentFromSession = (session: any): GatewayPayment => ({
   provider: "stripe",
   externalId: String(session?.id || ""),
+  /*
+    L'intent della sessione e lo **stesso denaro** con un altro nome: e cio che
+    permette di riconoscere che `checkout.session.completed` e
+    `payment_intent.succeeded` non sono due incassi.
+  */
+  relatedExternalIds: relatedIdsOf(session?.payment_intent),
   status: checkoutStatusOf(session),
   money: {
     amountCents: Math.round(Number(session?.amount_total || 0)),
@@ -231,6 +252,11 @@ const paymentFromIntent = (intent: any): GatewayPayment => {
   return {
     provider: "stripe",
     externalId: String(intent?.id || ""),
+    /* Il charge e la sessione sono lo stesso denaro con un altro nome. */
+    relatedExternalIds: relatedIdsOf(
+      intent?.latest_charge,
+      intent?.checkout_session,
+    ),
     status,
     money: {
       amountCents: Math.round(Number(intent?.amount || 0)),
@@ -256,6 +282,8 @@ const paymentFromIntent = (intent: any): GatewayPayment => {
 const paymentFromCharge = (charge: any): GatewayPayment => ({
   provider: "stripe",
   externalId: String(charge?.payment_intent || charge?.id || ""),
+  /* Il charge porta gia l'intent nell'identificativo: qui resta il proprio. */
+  relatedExternalIds: relatedIdsOf(charge?.id),
   status: charge?.refunded
     ? "refunded"
     : Number(charge?.amount_refunded || 0) > 0

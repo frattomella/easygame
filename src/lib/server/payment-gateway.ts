@@ -568,6 +568,47 @@ export const handleGatewayWebhookEvent = async (
       );
     }
 
+    /*
+      **Lo stesso incasso, chiamato in due modi.**
+
+      La deduplica degli eventi, poco sopra, copre la riconsegna dello *stesso*
+      evento. Non copre il caso che si verifica a ogni pagamento riuscito: un
+      solo incasso genera **due eventi diversi** — `checkout.session.completed`
+      e `payment_intent.succeeded` — che descrivono lo stesso denaro con due
+      identificativi diversi. Registrarli entrambi accredita il doppio a una
+      famiglia che ha pagato una volta, e lo fa in silenzio: entrambi gli
+      eventi sono legittimi, firmati e attesi.
+
+      L'incasso si riconosce quindi dal **denaro**, non dall'evento: si
+      cercano nel registro tutti i nomi che il provider da a questo pagamento.
+      E lo stesso principio che `recordRefundTransaction` applica gia ai
+      rimborsi, dove il problema si era presentato fra `charge.refunded` e
+      `charge.refund.updated`.
+    */
+    const nomiDelDenaro = Array.from(
+      new Set(
+        [payment.externalId, ...(payment.relatedExternalIds || [])]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    for (const externalPaymentId of nomiDelDenaro) {
+      const gia = await findTransactionByExternalPaymentId({
+        organizationId,
+        externalPaymentId,
+      });
+
+      if (gia) {
+        return {
+          duplicate: true,
+          status: "processed",
+          transactionId: String(gia.id),
+          message: "Incasso gia registrato da un altro evento dello stesso pagamento",
+        };
+      }
+    }
+
     const account = await getClubPaymentAccount(organizationId);
 
     /*

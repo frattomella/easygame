@@ -857,3 +857,45 @@ esterni in `remotePatterns`.
 **Cosa farebbe la differenza, nell'ordine:** togliere i due host esterni da
 `remotePatterns` se non servono piu (mezz'ora); poi pianificare la 15, che e
 un lavoro suo e va fatto con i suoi tempi.
+
+
+### E8 — L'idempotenza dell'incasso e una lettura seguita da una scrittura
+
+**Impatto: medio.** [ADR-0062](18-decision-log.md#adr-0062--un-incasso-si-riconosce-dal-denaro-non-dallevento-che-lo-racconta)
+ha chiuso il doppio accredito: prima di registrare, il gestore del webhook
+cerca nel registro tutti i nomi che il provider da a quel pagamento. Nel
+collaudo i due eventi dello stesso incasso sono arrivati a **55 millisecondi**
+di distanza, elaborati da due invocazioni distinte.
+
+La guardia e una lettura seguita da una scrittura: fra le due c'e una finestra.
+Non si e manifestata, ma esiste, ed e la stessa classe di problema che la
+deduplica degli eventi risolve con un vincolo di unicita in base dati invece
+che con un controllo applicativo.
+
+**Cosa farebbe la differenza:** un indice unico parziale su
+`payment_transactions (organization_id, external_payment_id)`. Va progettato
+con attenzione: le righe di **storno** e di **rimborso** copiano per
+costruzione l'identificativo dell'incasso originale, quindi un indice pieno le
+rifiuterebbe. Serve escludere le righe che hanno `reverses_transaction_id`
+valorizzato. E' una migrazione, e merita di essere pensata a parte.
+
+
+### E9 — Un conto di incasso che nasce per altra via non riceve il proprio default
+
+**Impatto: basso, ma silenzioso.** `startConnectOnboarding` fa `upsert` su
+`club_payment_accounts`: il ramo *create* imposta
+`online_payments_enabled: true`, il ramo *update* no. Se la riga esiste gia —
+creata da un'altra strada, o rimasta da un tentativo precedente — l'onboarding
+la aggiorna senza mai accendere l'interruttore.
+
+Nel collaudo e successo esattamente questo: l'account era attivo su Stripe,
+`charges_enabled` e `payouts_enabled` entrambi veri, zero requirements, e i
+pagamenti online restavano spenti. Dalla console si vede lo stato `disabled`
+senza un motivo apparente, e non c'e nulla che spieghi perche.
+
+**Cosa farebbe la differenza:** decidere se `online_payments_enabled` sia un
+default tecnico o un atto commerciale. Se e un atto commerciale — come dice il
+commento in `src/app/api/v1/payments/account/route.ts` — allora il ramo
+*create* non dovrebbe accenderlo, e la console dovrebbe mostrarlo come «da
+abilitare» invece che come `disabled`. Se e un default tecnico, va allineato
+anche nel ramo *update*. Oggi le due strade dicono cose diverse.
