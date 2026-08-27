@@ -124,7 +124,11 @@ export async function GET(request: Request) {
     const clubEnabled = await readClubEnabled(organizationId);
 
     const [{ account, readiness }, commission] = await Promise.all([
-      resolveCheckoutReadiness({ organizationId, clubEnabled }),
+      resolveCheckoutReadiness({
+        organizationId,
+        clubEnabled,
+        isPlatformAdmin: isPlatformAdminUser(session.db.user),
+      }),
       resolveCommissionForClub({ organizationId }),
     ]);
 

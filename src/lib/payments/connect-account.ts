@@ -199,6 +199,7 @@ export type CheckoutReadiness = {
   blocker:
     | "provider_not_configured"
     | "platform_disabled"
+    | "subscription_inactive"
     | "no_account"
     | "account_not_ready"
     | "club_disabled"
@@ -210,17 +211,35 @@ export type CheckoutReadiness = {
 /**
  * Se un club puo aprire un checkout adesso, e se no cosa lo impedisce.
  *
- * **Cinque ostacoli, cinque messaggi diversi, ed e voluto.** «Non disponibile»
+ * **Sei ostacoli, sei messaggi diversi, ed e voluto.** «Non disponibile»
  * manda tutti al telefono. Ognuno di questi lo risolve una persona diversa: il
- * primo chi installa l'ambiente, il secondo Cedi Soft, il terzo e il quarto il
- * rappresentante della societa, il quinto la segreteria. L'ordine e quello
- * della catena: non ha senso dire a una segreteria di riaccendere un
- * interruttore se il servizio non e stato venduto.
+ * primo chi installa l'ambiente, il secondo Cedi Soft, il terzo chi rinnova
+ * l'abbonamento, il quarto e il quinto il rappresentante della societa, il
+ * sesto la segreteria. L'ordine e quello della catena: non ha senso dire a una
+ * segreteria di riaccendere un interruttore se il servizio non e stato
+ * venduto, ne mandare un rappresentante legale a completare un onboarding
+ * presso Stripe per una funzione che l'abbonamento del club non comprende.
  */
 export const describeCheckoutReadiness = (input: {
   providerConfigured: boolean;
   /** L'interruttore commerciale della piattaforma. */
   platformEnabled: boolean;
+  /**
+   * Il verdetto dell'abbonamento su `online_payments`.
+   *
+   * **Perche sta qui e non solo sulla rotta che incassa.** Perche era gia sulla
+   * rotta che incassa, e **solo** li: questa funzione decide se accendere il
+   * pulsante «Paga online», e non sapendo dell'abbonamento lo accendeva su un
+   * club con il piano `free`. Il clic rispondeva «Accesso negato:
+   * l'abbonamento non e in corso» — cioe esattamente il pulsante che si
+   * accende e poi spiega di non funzionare, che il resto di questo modulo
+   * esiste per evitare. Trovato a runtime nel collaudo E-13.
+   *
+   * Il messaggio arriva dal verdetto e non si riscrive qui: «disponibile con
+   * il piano Plus» e «l'abbonamento non e in corso» si risolvono in due modi
+   * diversi. Assente significa «non lo si e chiesto», e non blocca.
+   */
+  entitlement?: { allowed: boolean; message?: string | null } | null;
   externalAccountId?: string | null;
   state: unknown;
   chargesEnabled?: boolean;
@@ -247,6 +266,14 @@ export const describeCheckoutReadiness = (input: {
     return blocked(
       "platform_disabled",
       "I pagamenti online non sono attivi per questa societa.",
+    );
+  }
+
+  if (input.entitlement && !input.entitlement.allowed) {
+    return blocked(
+      "subscription_inactive",
+      String(input.entitlement.message || "").trim() ||
+        "L'abbonamento della societa non comprende i pagamenti online.",
     );
   }
 

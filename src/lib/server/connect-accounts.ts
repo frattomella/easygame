@@ -26,6 +26,7 @@
  */
 
 import { prisma } from "./prisma";
+import { loadClubEntitlements } from "./entitlements";
 import { readPlatformSetting, PLATFORM_SETTING_KEYS, type StripeConnectSettings } from "./platform-settings";
 import {
   deriveConnectAccountState,
@@ -479,12 +480,32 @@ export const findOrganizationByExternalAccount = async (
  * dominio, che il club deve poter cambiare da solo. Spegnere gli incassi
  * online durante una settimana di chiusura e una scelta operativa, non una
  * condizione commerciale.
+ *
+ * **L'abbonamento si consulta qui**, e non solo sulla rotta che incassa: e
+ * questa risposta ad accendere il pulsante «Paga online», e un pulsante che si
+ * accende su un club con il piano `free` produce un «Accesso negato» al clic.
+ * Le due superfici devono leggere la stessa regola, non due meta.
  */
 export const resolveCheckoutReadiness = async (input: {
   organizationId: string;
   clubEnabled?: boolean;
+  /** Si ricava dalla sessione, e non deve mai arrivare da una richiesta. */
+  isPlatformAdmin?: boolean;
 }): Promise<{ account: ClubPaymentAccountRecord; readiness: CheckoutReadiness }> => {
-  const account = await getClubPaymentAccount(input.organizationId);
+  const [account, entitlement] = await Promise.all([
+    getClubPaymentAccount(input.organizationId),
+    /*
+      Un club senza riga di impostazioni non deve far fallire la lettura dello
+      stato del conto: si dice «non lo so» e decidono gli altri ostacoli.
+    */
+    loadClubEntitlements({
+      organizationId: input.organizationId,
+      isPlatformAdmin: input.isPlatformAdmin,
+    })
+      .then((loaded) => loaded.entitlements.explain("online_payments"))
+      .catch(() => null),
+  ]);
+
   const gateway = getPaymentGateway(account.provider);
 
   return {
@@ -492,6 +513,7 @@ export const resolveCheckoutReadiness = async (input: {
     readiness: describeCheckoutReadiness({
       providerConfigured: Boolean(gateway?.isConfigured()),
       platformEnabled: account.onlinePaymentsEnabled,
+      entitlement,
       externalAccountId: account.externalAccountId,
       state: account.state,
       chargesEnabled: account.chargesEnabled,

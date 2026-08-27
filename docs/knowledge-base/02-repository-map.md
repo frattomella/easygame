@@ -118,7 +118,7 @@ cleanup 2026-08-22).
 | `src/lib/payments/gateway/` | Il contratto provider-agnostico e l'adapter Stripe per gli **incassi** (Connect). Era `payments/cedipay/` ([ADR-0049](18-decision-log.md#adr-0049--cedipay-non-e-un-prodotto-della-v1-sotto-ce-stripe-e-si-chiama-stripe)) |
 | `src/lib/payments/billing/` | Il flusso **abbonamenti** verso l'account centrale di Cedi Soft. Separato di proposito: la differenza tecnica e una sola intestazione, e in un modulo condiviso sarebbe un parametro dimenticabile |
 | `src/lib/payments/commission.ts` | Quale condizione commerciale vale, e il congelamento sull'incasso. Puro |
-| `src/lib/payments/connect-account.ts` | I sette stati dell'account di incasso e i cinque ostacoli al checkout. Puro |
+| `src/lib/payments/connect-account.ts` | I sette stati dell'account di incasso e i sei ostacoli al checkout. Puro |
 | `src/lib/payments/live-mode.ts` | La separazione **sandbox / produzione** su un evento di webhook. Puro: si prova con stringhe e booleani ([ADR-0060](18-decision-log.md#adr-0060--la-firma-dice-chi-ha-parlato-non-da-quale-mondo-sandbox-e-produzione-si-separano-sullevento)) |
 | `src/lib/fiscal/` | Forme giuridiche, profilo fiscale, classificazione delle operazioni, motore fiscale. Tutto puro |
 | `src/lib/fiscal/fatturapa/` | Stati, generatore del tracciato, interfaccia adapter. **Registro degli adapter vuoto** |

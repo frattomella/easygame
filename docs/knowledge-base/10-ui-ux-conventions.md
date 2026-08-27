@@ -874,11 +874,17 @@ credito invece di registrarlo.
 ### Quando il pulsante non c'e
 
 «Paga online» compare solo se `readiness.canCheckout` e vero, e lo calcola il
-server: distingue provider non configurato, club senza account, account in
-verifica e servizio spento dalla piattaforma. **Un pulsante che si accende e
+server: distingue provider non configurato, servizio spento dalla piattaforma,
+abbonamento che non comprende la funzione, club senza account, account in
+verifica e interruttore spento dalla segreteria. **Un pulsante che si accende e
 poi spiega di non funzionare e peggio di un pulsante che non c'e.** Il
 componente di lista non conosce Stripe: mostra la CTA solo se chi lo monta
 gliela passa.
+
+L'abbonamento e il sesto ostacolo, ed e arrivato tardi: fino al collaudo E-13
+`readiness` non lo consultava e la rotta che incassa si, cosi su un club con il
+piano `free` la CTA compariva e il clic rispondeva «Accesso negato:
+l'abbonamento non e in corso». Le due superfici leggono ora la stessa regola.
 
 Su una rata **saldata** non compare nessuna delle due CTA: entrambe passano
 dallo stesso guardiano, `residualAmount > 0`.

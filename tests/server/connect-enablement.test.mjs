@@ -43,10 +43,20 @@ before(async () => {
   ));
 });
 
+/*
+  L'abbonamento e in corso: qui si prova la catena fra l'interruttore
+  commerciale della piattaforma e lo stato dell'account connesso, e un club
+  senza abbonamento si fermerebbe prima — a un ostacolo che questi test non
+  riguardano.
+*/
+const ABBONAMENTO_IN_CORSO = {
+  subscription: { plan: "plus", status: "active" },
+};
+
 const seed = (clubPaymentAccount = []) => ({
   club: [
-    { id: CLUB, name: "ASD Alfa", settings: {} },
-    { id: ALTRO_CLUB, name: "ASD Beta", settings: {} },
+    { id: CLUB, name: "ASD Alfa", settings: ABBONAMENTO_IN_CORSO },
+    { id: ALTRO_CLUB, name: "ASD Beta", settings: ABBONAMENTO_IN_CORSO },
   ],
   clubPaymentAccount,
 });
@@ -434,4 +444,71 @@ test("E — l'onboarding predispone l'incasso ma non lo rende possibile", async 
 
   assert.equal(readiness.canCheckout, false);
   assert.equal(readiness.blocker, "account_not_ready");
+});
+
+/* ------------------------------- l'abbonamento accende, o non accende, la CTA */
+
+/**
+ * **Il difetto trovato a runtime nel collaudo E-13.**
+ *
+ * `/api/v1/payments/account` e cio che accende «Paga online» nella scheda di
+ * un atleta, e la sua risposta veniva calcolata senza sapere nulla
+ * dell'abbonamento: su un club con il piano `free` il pulsante compariva, e il
+ * clic rispondeva «Accesso negato: l'abbonamento non e in corso» — perche la
+ * rotta che incassa l'abbonamento lo chiedeva eccome. Due meta della stessa
+ * regola, lette in due posti diversi.
+ *
+ * Sono le due proprieta che, insieme, dicono che le meta sono tornate una.
+ */
+
+test("un club senza abbonamento in corso non vede accendersi «Paga online»", async () => {
+  stripeRisponde();
+  await avviaOnboarding();
+
+  await connect.applyProviderAccountSnapshot({
+    organizationId: CLUB,
+    provider: "stripe",
+    snapshot: operativo(),
+  });
+
+  /* Il piano torna quello di un club che non ha comprato i pagamenti online. */
+  fake.rows("club").find((row) => row.id === CLUB).settings = {
+    subscription: { plan: "free", status: "not_active" },
+  };
+
+  const { readiness } = await connect.resolveCheckoutReadiness({
+    organizationId: CLUB,
+    clubEnabled: true,
+  });
+
+  assert.equal(readiness.canCheckout, false);
+  assert.equal(readiness.blocker, "subscription_inactive");
+  assert.match(
+    readiness.message,
+    /abbonamento|piano/i,
+    "il messaggio deve dire come si risolve, non «non disponibile»",
+  );
+});
+
+test("con l'abbonamento in corso il conto operativo torna a poter incassare", async () => {
+  stripeRisponde();
+  await avviaOnboarding();
+
+  await connect.applyProviderAccountSnapshot({
+    organizationId: CLUB,
+    provider: "stripe",
+    snapshot: operativo(),
+  });
+
+  const { readiness } = await connect.resolveCheckoutReadiness({
+    organizationId: CLUB,
+    clubEnabled: true,
+  });
+
+  assert.equal(
+    readiness.canCheckout,
+    true,
+    `atteso incassabile, bloccato da ${readiness.blocker}: ${readiness.message}`,
+  );
+  assert.equal(readiness.blocker, null);
 });
