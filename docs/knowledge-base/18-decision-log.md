@@ -3635,3 +3635,66 @@ del calcolo e non dopo.
 rappresentante ha un codice fiscale che si puo **verificare** ma non calcolare,
 perche il form non raccoglie data di nascita ne sesso. Monta il solo
 `AssistedFiscalCodeField` con `enableCompute={false}`.
+
+## ADR-0067 — Il denaro si arbitra bloccando la riga, non solo con un indice
+
+**Data:** 2026-08-28 (Full Club UAT)
+**Stato:** accettata
+
+**Contesto.** [ADR-0062](#adr-0062--un-incasso-si-riconosce-dal-denaro-non-dallevento-che-lo-racconta)
+aveva gia riconosciuto che una lettura seguita da una scrittura non basta ad
+arbitrare due richieste concorrenti, e aveva chiuso la finestra dove la
+concorrenza si arbitra davvero: nel database, con due indici unici parziali —
+un incasso positivo per `(club, pagamento del provider)`, un movimento
+negativo per `(club, riferimento del provider)`.
+
+Quegli indici sono **parziali di proposito**, e il pezzo che lasciano fuori e
+esattamente quello in cui il difetto si e ripresentato: gli incassi
+**manuali**, che un identificativo del provider non ce l'hanno.
+
+Il Full Club UAT lo ha misurato: sei richieste concorrenti da 50 € su una rata
+con 99,80 € di residuo, quattro accettate; 450,00 € registrati su 329,80 €
+dovuti. Il controllo di capienza leggeva il registro prima di aprire la
+transazione, e le quattro richieste hanno visto tutte lo stesso residuo. Anche
+il ricalcolo dello stato della rata girava su quella lettura, e infatti lo
+stato salvato contraddiceva i suoi importi.
+
+**Perche un indice non poteva chiudere questo caso.** Due incassi da 50 € in
+contanti sulla stessa rata sono **legittimi** — un acconto e un saldo, o due
+genitori allo sportello in due momenti — e devono poter esistere entrambi.
+Non c'e una colonna la cui unicita esprima la regola: la regola non e «questa
+riga non si ripete», e «la somma delle righe non supera il dovuto». Un
+invariante su un aggregato, non su una riga.
+
+**Decisione.** Le tre operazioni che muovono denaro —
+`createPaymentTransaction`, `reversePaymentTransaction`,
+`recordRefundTransaction` — bloccano con `SELECT ... FOR UPDATE` la riga su
+cui decidono, **dentro** la transazione, e rifanno li la verifica che prima
+stava fuori.
+
+Tre conseguenze che fanno parte della decisione:
+
+1. **Si blocca l'aggregato, non la riga comoda.** Tutte e tre ricalcolano lo
+   stato della **rata** dal registro: se lo storno bloccasse solo l'incasso e
+   l'incasso solo la rata, due operazioni sulla stessa rata non si vedrebbero
+   e i due ricalcoli si sovrascriverebbero. La rata si blocca sempre.
+2. **L'ordine e fisso: prima la rata, poi l'incasso.** Due ordini diversi
+   sulle stesse due righe sono un abbraccio mortale che non si vede in
+   sviluppo e si presenta il giorno delle iscrizioni. Il blocco lo prende una
+   funzione sola perche l'ordine non sia una convenzione da ricordare.
+3. **I controlli di forma restano fuori.** Importo positivo e metodo indicato
+   non dipendono dall'archivio: aprire una transazione e un blocco di riga per
+   accorgersi che l'importo e zero e costo senza guadagno.
+
+**Conseguenze.** Due richieste sulla stessa rata si mettono in fila; rate
+diverse no, perche il blocco e sulla riga. Gli indici di ADR-0062 restano e
+continuano a coprire il canale online, dove sono la difesa piu economica: il
+blocco vi aggiunge un errore di dominio leggibile al posto di un errore di
+vincolo.
+
+**Alternative scartate.** Isolamento `SERIALIZABLE` sulla transazione:
+avrebbe funzionato, ma sposta il costo su **tutte** le transazioni del
+processo e introduce fallimenti da ritentare in un punto dove il chiamante e
+una segreteria che ha appena premuto un pulsante. Un vincolo `CHECK` sulla
+somma: Postgres non lo esprime su piu righe senza un trigger, e un trigger e
+logica di dominio spostata dove nessuno la cerca (ADR-0007).

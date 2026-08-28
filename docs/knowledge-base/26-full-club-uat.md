@@ -109,6 +109,16 @@ sullo stesso incasso, un telefono e un computer, una richiesta ritentata dalla
 rete. Il pulsante si disabilita durante l'invio, ma quella e una difesa del
 singolo browser e non vale fra due client.
 
+**Perche un indice unico non bastava, e perche non e una svista.**
+[ADR-0062](18-decision-log.md) aveva gia chiuso lo stesso difetto sul canale
+**online**, con due indici unici parziali. Quegli indici sono parziali di
+proposito, e il pezzo che lasciano fuori e esattamente questo: gli incassi
+manuali, che un identificativo del provider non ce l'hanno. Ne poteva essere
+altrimenti — due incassi da 50 € in contanti sulla stessa rata sono
+legittimi. La regola qui non e «questa riga non si ripete», e «la somma delle
+righe non supera il dovuto»: un invariante su un aggregato, che un indice non
+esprime. Vedi [ADR-0067](18-decision-log.md).
+
 **Correzione.** Le tre operazioni che muovono denaro — incasso, storno,
 rimborso — bloccano con `SELECT ... FOR UPDATE` la riga su cui decidono,
 **dentro** la transazione, e rifanno li la verifica. Il blocco lo prende una
