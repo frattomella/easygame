@@ -87,6 +87,19 @@ export const ATTACHMENT_OWNER_TYPES = [
   "club",
   "guardian",
   "form",
+  /*
+    Lavoro sportivo. Due proprietari e non uno perche i documenti si dividono
+    in due gruppi che scadono in momenti diversi: quelli del **rapporto** —
+    contratto, comunicazioni, mandato — finiscono con il rapporto; quelli
+    della **persona** — documento d'identita, autocertificazione, coordinate
+    bancarie — le restano addosso anche quando cambia societa.
+
+    Stanno in questa lista e non in un archivio proprio: CLAUDE.md vieta un
+    secondo sistema di allegati, e avrebbe ragione anche se non lo vietasse.
+    `owner_type` e polimorfico dal primo giorno proprio per questo.
+  */
+  "sport_work_relationship",
+  "sport_work_person",
   "other",
 ] as const;
 

@@ -29,6 +29,7 @@ import { summarizePlanProgress } from "@/lib/sport-work/plan";
 import { CompensationPlanEditor } from "./CompensationPlanEditor";
 import { PayoutDialog } from "./PayoutDialog";
 import { PersonPositionCard } from "./PersonPositionCard";
+import { SportWorkDocumentsPanel } from "./SportWorkDocumentsPanel";
 import { SportWorkStat } from "./SportWorkShell";
 import {
   dueLabel,
@@ -284,6 +285,7 @@ export function RelationshipDetail({
           <TabsTrigger value="compensi">Compensi</TabsTrigger>
           <TabsTrigger value="posizione">Posizione</TabsTrigger>
           <TabsTrigger value="registro">Registro</TabsTrigger>
+          <TabsTrigger value="documenti">Documenti</TabsTrigger>
           <TabsTrigger value="anagrafica">Anagrafica</TabsTrigger>
         </TabsList>
 
@@ -446,6 +448,15 @@ export function RelationshipDetail({
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="documenti">
+          <SportWorkDocumentsPanel
+            relationshipId={relationshipId}
+            personId={person.id}
+            canManage={canManage}
+            onContractAttached={() => void load()}
+          />
         </TabsContent>
 
         <TabsContent value="anagrafica">
