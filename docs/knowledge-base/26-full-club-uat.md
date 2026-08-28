@@ -142,14 +142,30 @@ per il database. Verificato: `octet_length` 9 su 8 caratteri,
 stringa decomposta non trova niente; con le sole lettere di base si.
 
 La forma decomposta non arriva da chi digita: arriva dai **file**. Gli export
-fatti su macOS la usano, ed e da un import che era entrata. La stessa
-differenza rompe il riconoscimento dei duplicati — la stessa persona caricata
-due volte diventa due chiavi — e fa contare a `length()` un carattere in piu
-di quelli che si vedono.
+fatti su macOS la usano, ed e da un import che era entrata. E fa contare a
+`length()` un carattere in piu di quelli che si vedono.
+
+> **Correzione a questo documento (revisione indipendente).** La prima
+> stesura diceva che la stessa differenza «rompe il riconoscimento dei
+> duplicati». **Non e vero**, e il codice lo dice: `identityKey` in
+> `src/lib/athlete-import.ts` decompone e toglie i segni diacritici prima di
+> confrontare, quindi era gia insensibile sia agli accenti sia alla forma di
+> normalizzazione. La riga era una deduzione plausibile che nessuno aveva
+> verificato. Vince il codice (CLAUDE.md §1).
 
 **Correzione.** `normalizeAnagraficaText` normalizza a NFC prima di salvare:
 nome, cognome, luogo di nascita e genitori, in tutte e cinque le scritture di
 anagrafica.
+
+**Restava aperta l'altra meta, chiusa dalla revisione indipendente.** Una
+`ILIKE` confronta byte, e normalizzare solo cio che si **scrive** sposta il
+difetto invece di chiuderlo: una chiave di ricerca in forma decomposta non
+trova un nome in forma composta. E la forma decomposta arriva anche nella
+casella di ricerca — incollando da un Finder, da un foglio esportato su macOS
+o da certi metodi di inserimento. Ora la chiave si normalizza a NFC nei due
+percorsi di ricerca: `buildSearchFilter` per i club sopra la soglia di
+paginazione, e il filtro nel browser per tutti gli altri — che sono la
+maggioranza, e che dal primo non passano mai.
 
 ### 5. L'import accettava una data di nascita nel 2030 — P2
 
@@ -425,3 +441,186 @@ nomi fuori da NFC; zero date di nascita impossibili.
 7. **Nessuna verifica visiva.** Il pannello del browser era nascosto per tutta
    la sessione: niente screenshot, niente animazioni. Tutto cio che in questo
    documento riguarda il layout e verifica **strutturale**.
+
+---
+
+# FINAL INDEPENDENT REVIEW
+
+**Data:** 2026-08-28 · **Base:** `10d06ca` · **HEAD alla prima revisione:**
+`bd83be1`
+
+CodeRabbit non e eseguibile in questo ambiente (il binario non c'e), e il gate
+di revisione indipendente e stato sostituito da **due letture complete del
+changeset fatte da revisore**, separate dal lavoro di sviluppo: la prima
+cercando errori senza fidarsi delle correzioni precedenti, dei test, della CI
+o di questo documento; la seconda sul codice risultante, comprese le
+correzioni della prima.
+
+Il metodo che ha prodotto i finding: partire dagli **invarianti dichiarati** e
+chiedersi chi altro puo violarli. Non «questo codice e sbagliato?», ma «questa
+regola vale per tutti quelli che potrebbero infrangerla?». Tre dei quattro
+finding piu gravi vengono da li.
+
+## Prima revisione
+
+| Gravita | Trovati | Validi | Corretti |
+|---|---|---|---|
+| Critical | 0 | 0 | — |
+| High | 1 | 1 | 1 |
+| Medium | 6 | 6 | 4 |
+| Low | 5 | 5 | 1 |
+| Falso positivo / non applicabile | 4 | — | — |
+
+### High — la quarta operazione che decide sul denaro
+
+[ADR-0067](18-decision-log.md#adr-0067--il-denaro-si-arbitra-bloccando-la-riga-non-solo-con-un-indice)
+aveva messo in fila «le tre operazioni che muovono denaro». La lista era
+sbagliata: la regola non e *chi scrive un movimento*, e **chi decide sullo
+stato economico di una rata**. La quarta e `PATCH /api/athlete-payments/:id`,
+che ne cambia l'importo — e cambiare l'importo cambia il residuo, quindi
+cambia lo stato. Quella rotta leggeva la rata fuori da qualunque transazione e
+chiamava `recomputeChargeFromLedger` fuori dal blocco.
+
+Cosa lasciava passare, **riprodotto** da test che falliscono sul codice
+precedente:
+
+| Cosa | Conseguenza |
+|---|---|
+| Il guardiano «le rate gia pagate non si modificano» girava sulla lettura vecchia | Un incasso arrivato nel frattempo lasciava cambiare l'importo di una rata **appena saldata**: una rata da 130 incassata per intero diventava una rata da 500, scoperta di 370 che nessuno doveva |
+| I tre rami riscrivono `data` per intero a partire dalla copia letta fuori | Il `data.ledger` scritto dal ricalcolo di un incasso appena committato spariva sotto |
+| `createPaymentTransaction` calcolava la capienza sulla rata letta **prima** della transazione | Il residuo e una sottrazione fra due numeri, e ADR-0067 ne rileggeva dentro il blocco solo uno: con la rata portata da 130 a 40 mentre l'incasso e in volo, il controllo diceva ancora di si a 130 |
+
+Correzione: `lockInstallmentAndTransaction` e esportata e la rotta la usa,
+con l'ordine di sempre — prima la rata, poi l'incasso; i tre rami leggono e
+scrivono dentro la transazione; `createPaymentTransaction` rilegge anche la
+rata. ADR-0067 porta ora la regola scritta per esteso.
+
+### Medium
+
+1. **Il messaggio del driver usciva da quattro rotte.** Incassi, azioni sugli
+   incassi, rate e stagioni inoltravano `error.message` cosi com'era. Lo
+   schema del corpo non impone la forma di un UUID a `payment_id` — non e
+   compito suo — quindi un identificativo arbitrario arrivava fino a
+   `findUnique`, e l'envelope tornava con l'invocazione Prisma per intero.
+   `publicErrorMessage` esiste dal Blocco E esattamente per questo ed era gia
+   usato dalle rotte generiche: ora ci passano anche queste. Vedi
+   [I-03](14-security.md). **Corretto.**
+2. **La correzione dei record orfani era applicata a un percorso solo.** Il
+   difetto 2 era stato chiuso su `listResourcePage`; `getClubData` — il
+   percorso di lettura del **browser**, che meta applicazione usa —
+   continuava a scartare gli orfani e a filtrare sulla stagione sintetizzata.
+   Lo stesso club mostrava due elenchi diversi a seconda di quale strada
+   avesse preso la pagina. **Corretto**, con le stesse due regole del server.
+3. **La ricerca era normalizzata da una parte sola.** Il difetto 4 aveva
+   normalizzato a NFC cio che si scrive; una chiave in forma decomposta
+   continuava a non trovare un nome in forma composta. **Corretto** nei due
+   percorsi: database e browser.
+4. **La capienza del rimborso poteva guardare tutto il club.**
+   `external_payment_id: original.external_payment_id || undefined` diventa
+   «nessun filtro» quando il valore e nullo: la somma passava da «quanto e
+   stato rimborsato su questo incasso» a «quanto e stato rimborsato in tutto
+   il club». Non raggiungibile oggi — il webhook trova l'incasso originale
+   **per** quell'identificativo — ma la nuova copia dentro la transazione
+   ripeteva la trappola. **Corretto**, e il doppio di Prisma ora tratta
+   `undefined` come Prisma: nessun filtro. Era la semantica su cui il difetto
+   si era nascosto.
+5. **`clubs.settings` si riscrive per intero senza blocco**, e due scritture
+   concorrenti se ne perdono una: creare una stagione mentre l'autosave della
+   scheda Club e in volo sono due comandi della stessa pagina.
+   **Non corretto**: la correzione giusta richiede che `resources.ts` accetti
+   un client di transazione, ed e un lavoro di un blocco, non di una riga.
+   [Registrato](16-technical-debt.md).
+6. **Qualita dei test.** La deduplica del rimborso dentro la transazione e
+   l'ordine dei blocchi erano coperti da assert **sul testo del sorgente**:
+   passano con un'implementazione semanticamente rotta. E mancavano gli
+   scenari che il collaudo dichiara di presidiare — incasso + storno
+   concorrenti, incasso + rimborso. **Corretto**: sostituiti da test che
+   esercitano le funzioni vere.
+
+### Low
+
+Registrati, non corretti: l'intestazione dell'elenco Atleti che per 250 ms
+etichetta con lo stato scelto un totale non filtrato; l'import che ignora la
+colonna «Anno di nascita» quando la colonna data e mappata ma vuota; la
+stagione dell'avvio guidato creata sul club che dice `localStorage` invece
+che su quello caricato dalla pagina (nessun rischio multi-tenant: il server
+valida comunque l'header contro i club dell'utente). Tutti e tre in
+[16](16-technical-debt.md).
+
+Il quarto e una **riga sbagliata di questo documento**, corretta sopra: la
+forma decomposta non rompeva il riconoscimento dei duplicati nell'import,
+perche `identityKey` toglie gia i segni diacritici prima di confrontare. Era
+una deduzione plausibile che nessuno aveva verificato.
+
+### Falsi positivi, e perche
+
+| Sospetto | Perche non lo era |
+|---|---|
+| `rememberActiveSeason` cancella la chiave `localStorage` illeggibile | E l'idioma gia in uso nello stesso file, in `readStoredActiveClub` e `readCachedUserId` |
+| La risorsa generica puo scrivere `payments.status` | Gia chiuso da `guardLedgerOwnedPaymentState` |
+| Un `athlete_id` di un altro club su un incasso proprio | Nessun percorso di lettura lo espone: ogni elenco filtra per `organization_id` |
+| Ordine dei blocchi, abbraccio mortale | Verificato coerente — prima `payments`, poi `payment_transactions` — in tutte le operazioni, compresa la quarta aggiunta |
+
+## Seconda revisione
+
+Fatta sul codice risultante, considerandolo scritto da altri, e senza
+limitarsi ai file toccati dalle correzioni.
+
+| Gravita | Residui |
+|---|---|
+| Critical | **0** |
+| High | **0** (uno trovato, corretto) |
+
+### High — il difetto 1 rientrava dalla porta di servizio
+
+Sul percorso piu probabile: quello di chi **non tocca i campi**.
+
+`normalizeClubSeasons` restituisce sempre una stagione, anche su un club che
+non ne ha salvata nessuna — e la stagione sintetizzata, che esiste per non
+lasciare l'interfaccia senza perimetro. Il passo Stagione dell'avvio guidato
+la prendeva per buona e scriveva:
+
+> Stagione attiva: 2026/2027. Puoi passare avanti.
+
+su un club che di stagioni non ne aveva **nessuna**. Chi accettava l'invito
+usciva dall'avvio guidato senza stagione: `saveSeasonStep` senza date esce
+subito, l'intestazione continua a dire «Nessuna stagione attiva», e le
+categorie del passo successivo nascono senza annata — cioe esattamente i tre
+sintomi del difetto 1, prodotti dalla correzione del difetto 1.
+
+La causa e la stessa confusione di partenza: **una stagione sintetizzata non
+e una stagione del club**. `isFallback` era stato aggiunto proprio per
+distinguerle, e questa pagina non lo usava. Ora lo usa; e le date della
+stagione sintetizzata — che sono l'annata sportiva corrente — riempiono i due
+campi, cosi «Avanti» crea la stagione invece di saltarla.
+
+Nessun altro consumatore di `normalizeClubSeasons` ha lo stesso difetto:
+`account-shared`, `AuthProvider`, la pagina Categorie e i riepiloghi la usano
+come perimetro di **lettura**, che e cio per cui esiste. L'avvio guidato era
+l'unico a farne un'affermazione su cui l'utente decide.
+
+## I gate, dopo la revisione
+
+| Gate | Esito |
+|---|---|
+| `npm test` | **1.978 verdi**, 0 falliti (da 1.955: **23 nuovi**, di cui 12 falliscono sul codice precedente) |
+| `npm run typecheck` | nessun output |
+| `npm run lint` | 0 errori, 40 warning — **invariati** |
+| `npm run build` | completa |
+| Migrazioni | **nessuna nuova**: restano 20 |
+| Revisione indipendente | doppia, chiusa: 0 Critical, 0 High residui |
+
+### Test nuovi della revisione
+
+| File | Cosa prova |
+|---|---|
+| `tests/server/payment-installment-serialization.test.mjs` | La rotta che cambia l'importo prende il blocco prima di scrivere; una rata saldata nel frattempo non si lascia modificare; il ledger di un incasso concorrente non sparisce; la capienza si calcola sulla rata riletta; incasso + storno concorrenti; la deduplica del rimborso riconosce invece di esplodere; nessun messaggio del driver esce. **7 su 10 falliscono sul codice precedente** |
+| `tests/server/search-unicode-normalization.test.mjs` | La chiave decomposta arriva al database composta, nei due percorsi di ricerca, senza allentare il confine del club |
+| `tests/lib/club-orphan-season-records.test.mjs` | Il percorso di lettura del browser applica le stesse due regole del server. **3 su 5 falliscono sul codice precedente** |
+| `tests/lib/club-onboarding-season.test.mjs` (esteso) | L'avvio guidato non annuncia come attiva una stagione sintetizzata, e propone le date dell'annata corrente |
+
+> **Perche i test che falliscono sul codice precedente si contano.** Un test
+> che passa sia con la correzione sia senza non protegge niente: e la domanda
+> che questa revisione ha posto a ogni test nuovo del changeset, e che ha
+> prodotto il finding Medium 6. Averla posta anche ai propri e l'unico modo
+> di non ripetere l'errore che si e appena trovato.

@@ -1101,3 +1101,79 @@ del secondo.
 
 **Cosa farebbe la differenza, comunque si decida:** che la scheda «Entrate» non
 possa dire `0,00 €` mentre il club ha incassato 250,00 €.
+
+## Registrati dalla revisione indipendente finale (2026-08-28)
+
+Quattro cose viste rileggendo il changeset del Full Club UAT da revisore, e
+**non** corrette li: nessuna e un difetto di sicurezza o di contabilita, e
+ognuna aprirebbe uno scopo che una campagna di collaudo non e il momento di
+aprire.
+
+### `clubs.settings` si riscrive per intero, e due scritture concorrenti se ne perdono una
+
+**Dove:** `src/lib/server/seasons.ts` — `createClubSeason` legge lo stato con
+`readClubSeasonState` e lo riscrive con `saveClubSeasons`, che rilegge
+`clubs.settings` e ne salva una copia nuova. Lo stesso schema, dal lato
+client, in `patchClubSettings` (`src/lib/club-profile.ts`).
+
+**Cosa succede.** Fra la lettura e la scrittura non c'e ne transazione ne
+blocco di riga. Due scritture concorrenti su `settings` — creare una stagione
+mentre l'autosave della scheda Club e in volo, che sono due comandi della
+**stessa pagina** `/organization` — si sovrascrivono: l'ultima vince e porta
+con se la copia che aveva letto, quindi le modifiche dell'altra spariscono.
+
+**Perche non e stato corretto.** La correzione giusta e la stessa di
+[ADR-0067](18-decision-log.md): transazione piu `SELECT ... FOR UPDATE` sulla
+riga del club. Ma `createClubSeason` puo trascinarsi dietro un **riporto** che
+scrive collezioni di club passando da `resources.ts`, che usa il client
+globale e non quello della transazione: metterci intorno una transazione senza
+far scendere il client fin la significa scrivere meta dentro e meta fuori, che
+e peggio del difetto. E un lavoro di un blocco, non di una riga.
+
+**Cosa farebbe la differenza:** far accettare a `resources.ts` un client di
+transazione, e allora il blocco sulla riga del club diventa una riga sola.
+
+### L'intestazione dell'elenco Atleti dice il totale sbagliato per un quarto di secondo
+
+**Dove:** `src/app/athletes/page.tsx` — `refreshAthletesData` e l'effetto
+debounced.
+
+**Cosa succede.** La prima lettura non manda il filtro di stato, quindi
+`listMeta.total` e il totale **di tutti** gli atleti; l'intestazione lo
+etichetta pero con lo stato scelto («Atleti Attivi: 212» su un club che ne ha
+200 attivi e 12 sospesi). Dopo 250 ms l'effetto debounced rilegge con il
+filtro e il numero si corregge da solo.
+
+E lo stesso nodo della [doppia lettura](#lelenco-atleti-legge-larchivio-due-volte-a-ogni-apertura):
+si chiude insieme a quella, facendo applicare alla prima lettura i filtri
+correnti.
+
+### L'import ignora la colonna «Anno di nascita» quando la colonna data e mappata ma vuota
+
+**Dove:** `src/lib/athlete-import.ts` — `rawBirth` in
+`normalizeImportedAthletes`.
+
+**Cosa succede.** `rawBirth` guarda `mapping.birthDate`, e se quella
+mappatura c'e non guarda mai `mapping.birthYear`. Un file con una colonna
+«Data nascita» parzialmente compilata e una colonna «Anno» piena scarta le
+righe senza data con «Data di nascita mancante», anche quando l'anno basterebbe
+a importarle come fa gia oggi un anno secco nella colonna data.
+
+**Cosa farebbe la differenza:** ripiegare sull'anno quando la cella della data
+e vuota, con lo stesso avviso «solo l'anno» che l'anteprima gia sa dire.
+
+### La stagione dell'avvio guidato si crea sul club che dice `localStorage`, non su quello caricato dalla pagina
+
+**Dove:** `src/app/onboarding/page.tsx` chiama `createSeason` da
+`src/lib/api/seasons.ts`, che non porta un club: `apiRequest` costruisce
+`x-active-club-id` leggendo lo scaffale locale al momento della chiamata,
+mentre la pagina ha catturato `clubId` al montaggio.
+
+**Cosa succede.** Se il club attivo cambia in un'altra scheda durante l'avvio
+guidato, i due divergono e la stagione nasce sull'altro club. Non e una falla
+multi-tenant — il server valida comunque l'header contro i club dell'utente, e
+un club non posseduto resta un 403 — e la finestra e stretta.
+
+**Cosa farebbe la differenza:** un parametro `clubId` facoltativo su
+`createSeason` che imposti l'header, come fanno gia le altre chiamate che
+sanno su quale club stanno lavorando.

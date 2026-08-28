@@ -350,14 +350,20 @@ const PERSON_TEXT_KEYS = [
  * Il difetto che questa riga chiude e stato visto cercando: un'atleta salvata
  * come `Niccolò` in forma decomposta **non si trovava** digitando «Niccolò»,
  * mentre si trovava digitando «Niccolo» — cioe il contrario di quello che
- * chiunque si aspetta. La stessa differenza rompe il riconoscimento dei
- * duplicati (la stessa persona caricata due volte diventa due chiavi) e fa
- * contare a `length()` un carattere in piu.
+ * chiunque si aspetta. La stessa differenza fa contare a `length()` un
+ * carattere in piu di quelli che si vedono.
  *
  * La forma decomposta non arriva da chi digita: arriva dai file. Gli export
  * fatti su macOS la usano, ed e cosi che e entrata anche qui, da un import.
  * Si normalizza in scrittura, nell'unico punto da cui passano tutte e cinque
  * le scritture di anagrafica.
+ *
+ * **E l'altra meta sta nella lettura.** Normalizzare solo cio che si scrive
+ * sposta il difetto invece di chiuderlo: una chiave di ricerca in forma
+ * decomposta non trova un nome in forma composta. La chiave si normalizza
+ * allo stesso modo in `buildSearchFilter` (`src/lib/server/resources.ts`) e
+ * nel filtro dell'elenco Atleti, che e quello che usano i club sotto la
+ * soglia di paginazione.
  */
 const toCanonicalUnicode = (value: string) => value.normalize("NFC");
 
