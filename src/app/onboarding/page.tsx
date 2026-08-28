@@ -310,7 +310,16 @@ export default function OnboardingPage() {
         id: slugifyCategoryId(draft.name),
         club_id: clubId,
         name: draft.name.trim(),
-        description: "Categoria creata durante la configurazione iniziale",
+        /*
+          Nessuna descrizione. Il campo e un **badge** da 25 caratteri —
+          «Under 12», «Misto» — e l'onboarding ci scriveva dentro una frase da
+          51: aprendo la scheda della categoria il contatore diceva «51/25» su
+          un testo che l'applicazione aveva scritto da sola, e il badge sulla
+          card portava una riga intera. Che la categoria sia nata durante la
+          configurazione iniziale non e un'informazione che serva a chi la
+          guarda: il nome basta.
+        */
+        description: "",
         sport: clubDraft.sports[0] || "",
         ageRange: from ? (to && to !== from ? `${from}-${to}` : String(from)) : "",
         birthYearFrom: from,

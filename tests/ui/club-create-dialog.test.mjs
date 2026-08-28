@@ -136,3 +136,37 @@ test("l'inserimento rapido dell'onboarding chiede Nome prima di Cognome", () => 
     /<CapitalizedInput\s*\n\s*id=\{`onboarding-athlete-last-\$\{index\}`\}/,
   );
 });
+
+/**
+ * La categoria creata dall'onboarding.
+ *
+ * Il campo «Descrizione» di una categoria e un **badge** da 25 caratteri —
+ * «Under 12», «Calcio a 5» — e l'onboarding ci scriveva dentro una frase da
+ * 51. Aprendo la scheda della categoria il contatore diceva «51/25» su un
+ * testo che l'applicazione aveva scritto da sola, e la card portava un badge
+ * lungo una riga intera.
+ */
+test("l'onboarding non scrive descrizioni piu lunghe del badge", () => {
+  const source = read("src/app/onboarding/page.tsx");
+
+  assert.equal(
+    /Categoria creata durante la configurazione iniziale/.test(source),
+    false,
+    "la frase da 51 caratteri non deve piu finire in un campo da 25",
+  );
+
+  const editor = read("src/components/forms/CategoryEditorDialog.tsx");
+  const limite = /CATEGORY_DESCRIPTION_MAX_LENGTH/.test(editor);
+  assert.ok(limite, "il limite deve restare dichiarato dove si modifica");
+
+  /*
+    E la descrizione scritta dall'onboarding, qualunque sia, deve starci
+    dentro: il test la estrae e la misura invece di fidarsi.
+  */
+  const scritta = source.match(/description: "([^"]*)",/);
+  assert.ok(scritta, "il passo categorie deve dichiarare una descrizione");
+  assert.ok(
+    scritta[1].length <= 25,
+    `la descrizione dell'onboarding e lunga ${scritta[1].length} caratteri`,
+  );
+});
