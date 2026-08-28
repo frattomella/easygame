@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { SeasonManager } from "@/components/organization/season-manager";
+import { ClubSignaturePanel } from "@/components/organization/club-signature-panel";
 import { cn } from "@/lib/utils";
 import { createCoalescingSaver } from "@/lib/performance";
 import { SaveStatus, type SaveState } from "@/components/ui/save-status";
@@ -1389,6 +1390,13 @@ const [federations, setFederations] = useState<any[]>([]);
                 />
               </CardContent>
             </Card>
+
+            {/*
+              Firma e timbro stanno qui, sotto il legale rappresentante, e non
+              in un tab loro: una firma senza il nome di chi firma accanto non
+              si sa di chi sia, e le due cose si controllano insieme.
+            */}
+            <ClubSignaturePanel clubId={clubId} />
           </TabsContent>
 
           {/* DATI BANCARI */}

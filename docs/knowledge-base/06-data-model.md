@@ -49,6 +49,7 @@ colonna dedicata. Le chiavi con un significato per il codice:
 | `federations` | scheda Club → Federazione | Affiliazioni |
 | `onboarding` | `/onboarding` (Blocco 4) | Stato della configurazione iniziale: `status`, `completedSteps`, date. Vedi `src/lib/onboarding.ts` |
 | `staffDepartments` | `src/lib/api/staff-departments.ts` (Blocco 7) | Reparti dello staff. **Fonte unica**: il modello sta in `src/lib/staff-directory.ts`, e ogni schermata che salva un membro con un reparto lo persiste qui |
+| `presidentSignature`, `presidentStamp` | `src/lib/server/club-signature.ts` (W1-E) | **Riferimento** `attachment:<id>` all'immagine di firma e timbro, mai un data URL: i byte stanno in `attachments` con `owner_type: "club"`. Stringa vuota = non caricata. Le scrive solo quel modulo, per chiavi, e le legge il generatore documentale con `readClubSignatureImage` |
 
 Poiche la colonna e unica, una scrittura parziale deve dire **soltanto le
 chiavi che cambia**. Dal RC Fix 3 il modo canonico e il campo `settings_patch`

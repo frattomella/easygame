@@ -378,6 +378,32 @@ allegati dei moduli, documenti del genitore — passano ora da
 funzionare e migrano quando qualcuno li tocca; e la tabella `assets`, ancora
 usata dal logo di club e dalle immagini dei form.
 
+### 8-bis. Firma e timbro del presidente — PRESIDIATO (2026-08-28, W1-E)
+
+Sono **un dato del club**, non un file pubblico e non un allegato come gli
+altri. Due proprieta diverse, tenute separate:
+
+- **la lettura e di chi appartiene al club.** `GET
+  /api/v1/clubs/:id/signature` verifica la sessione e che il club sia fra
+  quelli accessibili, poi serve i byte con `Cache-Control: private`,
+  `nosniff` e la CSP di `stored-file-response.ts`. Non c'e nessun percorso
+  pubblico, nessuna cache condivisa e nessun `data:` dentro un record letto
+  da altri. E aperta a tutto il club di proposito: serve all'anteprima e al
+  documento stampabile, che emette anche la segreteria;
+- **la scrittura e solo del proprietario e del gestore.** `PUT` e `DELETE`
+  passano da `canManageClubConfiguration`, e il diniego lascia una riga di
+  audit `resource.access.denied` su `club_signature`. Non e stato introdotto
+  un permesso dedicato: un secondo sistema di permessi per due immagini
+  sarebbe una superficie in piu da tenere allineata ad `access-roles.ts`.
+
+I byte passano per intero da Attachment Core (`owner_type: "club"`), con tipi
+piu stretti (solo PNG, JPEG, WebP) e un limite di 2 MB invece di 10, perche
+una firma finisce **dentro** un documento HTML come base64 e ne triplica il
+peso. Il proprietario del dominio e `src/lib/server/club-signature.ts`: e
+l'unico posto che scrive `clubs.settings.presidentSignature` e
+`.presidentStamp`, e lo fa per chiavi (`settings_patch`), mai riscrivendo le
+impostazioni intere.
+
 ### 9. Path «segreto» del platform admin — BASSO
 
 `/private/easygame-platform-admin-0c7a` e solo poco indovinabile. La sicurezza
