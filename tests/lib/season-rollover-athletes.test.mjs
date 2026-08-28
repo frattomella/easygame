@@ -306,3 +306,97 @@ test("una sola categoria omonima gia in destinazione serve una sola origine", ()
   );
   assert.notEqual(plan.idMap["cat-sud"], "cat-fatta-a-mano");
 });
+
+test("al secondo riporto un'omonima non ruba la destinazione di chi l'ha gia", () => {
+  /*
+    Il caso che la prima correzione non copriva, trovato dalla seconda
+    revisione — ed e il caso **reale**, perche il primo riporto quasi mai e
+    l'ultimo.
+
+    In destinazione c'e gia il clone di `cat-nord`. Se `cat-sud`, che si chiama
+    uguale, viene iterata per prima, con un passo solo si prendeva quel clone
+    **per nome** prima che `cat-nord` lo reclamasse con il suo
+    `rolloverSourceId`: entrambe finivano sullo stesso id, e i tesserati di Sud
+    nella squadra di Nord.
+
+    Le corrispondenze certe si risolvono prima; quelle per nome scelgono fra
+    cio che resta.
+  */
+  const plan = planSeasonRollover({
+    sourceSeasonId: A,
+    targetSeasonId: B,
+    types: ["categories"],
+    collections: {
+      categories: [
+        // L'ordine e quello che rompeva: l'omonima senza clone viene prima.
+        categoria("cat-sud", "Under 14", A),
+        categoria("cat-nord", "Under 14", A),
+        categoria("cat-nord-copia", "Under 14", B, {
+          rolloverSourceId: "cat-nord",
+        }),
+      ],
+    },
+    generateId: idFisso(),
+  });
+
+  assert.equal(
+    plan.idMap["cat-nord"],
+    "cat-nord-copia",
+    "chi ha gia il suo clone se lo tiene",
+  );
+  assert.notEqual(
+    plan.idMap["cat-sud"],
+    "cat-nord-copia",
+    "l'omonima non puo rubarglielo",
+  );
+  assert.equal(plan.createdTotal, 1, "a Sud ne serve una sua");
+});
+
+test("due omonime gia in destinazione servono due origini diverse", () => {
+  const plan = planSeasonRollover({
+    sourceSeasonId: A,
+    targetSeasonId: B,
+    types: ["categories"],
+    collections: {
+      categories: [
+        categoria("cat-nord", "Under 14", A),
+        categoria("cat-sud", "Under 14", A),
+        categoria("t1", "Under 14", B),
+        categoria("t2", "Under 14", B),
+      ],
+    },
+    generateId: idFisso(),
+  });
+
+  assert.equal(plan.createdTotal, 0, "ce ne sono gia due: bastano");
+  assert.notEqual(
+    plan.idMap["cat-nord"],
+    plan.idMap["cat-sud"],
+    "una per ciascuna, non due volte la stessa",
+  );
+  assert.deepEqual(
+    [plan.idMap["cat-nord"], plan.idMap["cat-sud"]].sort(),
+    ["t1", "t2"],
+  );
+});
+
+test("tre omonime nell'origine producono tre destinazioni distinte", () => {
+  const plan = planSeasonRollover({
+    sourceSeasonId: A,
+    targetSeasonId: B,
+    types: ["categories"],
+    collections: {
+      categories: [
+        categoria("cat-1", "Under 14", A),
+        categoria("cat-2", "Under 14", A),
+        categoria("cat-3", "Under 14", A),
+      ],
+    },
+    generateId: idFisso(),
+  });
+
+  const destinazioni = ["cat-1", "cat-2", "cat-3"].map((id) => plan.idMap[id]);
+
+  assert.equal(plan.createdTotal, 3);
+  assert.equal(new Set(destinazioni).size, 3, "tre squadre, tre id");
+});

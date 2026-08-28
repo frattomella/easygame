@@ -248,6 +248,7 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
   const [selectedTypes, setSelectedTypes] = React.useState<string[]>([]);
   const [roster, setRoster] = React.useState<SeasonRoster | null>(null);
   const [rosterLoading, setRosterLoading] = React.useState(false);
+  const [rosterFallito, setRosterFallito] = React.useState(false);
   const [confirmedIds, setConfirmedIds] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -327,6 +328,7 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
         return null;
       }
       setRosterLoading(true);
+      setRosterFallito(false);
       try {
         const data = await fetchSeasonRoster(seasonId);
         setRoster(data);
@@ -339,6 +341,7 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
           "error",
           error?.message || "Errore nel caricamento dei tesserati",
         );
+        setRosterFallito(true);
         return null;
       } finally {
         setRosterLoading(false);
@@ -375,16 +378,20 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
     : null;
 
   /**
-   * Vero quando l'elenco di riconferma non e stato caricato.
+   * Vero quando l'elenco di riconferma **ha provato a caricarsi e non ci e
+   * riuscito**.
    *
    * Senza questo controllo un errore di rete produceva un `roster` nullo e
    * `confirmedIds` vuoto, che il server legge come «nessuno riconfermato»: dopo
    * un avviso che l'utente puo non vedere, il riporto andava a buon fine
    * portando **zero** tesserati. Un elenco che non si e caricato deve fermare
    * il passo, non degradare in silenzio.
+   *
+   * Serve uno stato esplicito e non la deduzione «non sta caricando e non c'e»:
+   * quella e vera anche nell'istante fra l'apertura del passo e la partenza
+   * della richiesta, e faceva lampeggiare un errore che non c'era.
    */
-  const rosterNonCaricato =
-    carriesAthletes && !rosterLoading && roster?.seasonId !== sourceSeasonId;
+  const rosterNonCaricato = carriesAthletes && rosterFallito;
 
   const goToRiporto = () => {
     if (!form.startDate || !form.endDate) {
@@ -696,7 +703,13 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
               Da <strong>{lastSummary.sourceSeasonLabel}</strong> a{" "}
               <strong>{lastSummary.targetSeasonLabel}</strong>:{" "}
               {lastSummary.createdTotal} elementi creati,{" "}
-              {lastSummary.skippedTotal} gia presenti e quindi non duplicati.
+              {/*
+                «non creati» e non «gia presenti»: da quando la voce dei
+                tesserati entra nel conteggio, fra i saltati c'e anche chi
+                l'operatore ha **deliberatamente escluso**, e dirgli che sono
+                «gia presenti» sarebbe falso. Il dettaglio sta nella riga sotto.
+              */}
+              {lastSummary.skippedTotal} non creati.
             </p>
             {/*
               La riga sui tesserati c'e sempre, anche a zero. Prima il riepilogo

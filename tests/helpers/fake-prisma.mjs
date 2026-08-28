@@ -414,14 +414,41 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       store.set(name, kept);
       return { count };
     },
+    /*
+      `updateMany` fa rispettare i vincoli di unicita come `create`.
+
+      Non e pedanteria: il riporto dei tesserati riassegna la bandiera
+      «primaria» proprio con un `updateMany`, ed era l'unica scrittura di
+      primarie che il doppio non poteva rifiutare — cioe l'unico punto in cui
+      un test poteva passare descrivendo un database che avrebbe detto di no.
+      La verifica esclude la riga che si sta aggiornando, altrimenti ogni
+      aggiornamento sarebbe in conflitto con se stesso.
+    */
     updateMany: async (args = {}) => {
       calls.push({ delegate: name, method: "updateMany", args });
       let count = 0;
       for (const row of rowsOf(name)) {
-        if (matchesWhere(row, args.where)) {
-          applyData(row, args.data);
-          count += 1;
+        if (!matchesWhere(row, args.where)) continue;
+
+        const proposta = applyData({ ...row }, args.data);
+        for (const vincolo of UNIQUE_CONSTRAINTS[name] || []) {
+          const fields = Array.isArray(vincolo) ? vincolo : vincolo.fields;
+          const quando = Array.isArray(vincolo) ? null : vincolo.quando;
+
+          if (fields.some((field) => proposta[field] === undefined)) continue;
+          if (quando && !quando(proposta)) continue;
+
+          const clash = rowsOf(name).some(
+            (other) =>
+              other !== row &&
+              fields.every((field) => other[field] === proposta[field]) &&
+              (!quando || quando(other)),
+          );
+          if (clash) throw duplicateKeyError(name, fields);
         }
+
+        applyData(row, args.data);
+        count += 1;
       }
       return { count };
     },

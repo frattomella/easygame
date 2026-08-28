@@ -821,8 +821,33 @@ export const planSeasonRollover = (options: {
     // serve a saltare cio che e gia stato riportato **e** a sapere dove e
     // finito, perche un secondo riporto non crea nulla ma deve comunque poter
     // rimappare i riferimenti.
+    /*
+      **Un elemento di destinazione fa da destinazione a uno solo di origine.**
+
+      Il difetto: due categorie omonime nella stagione di origine — «Under 14» a
+      Nord e «Under 14» a Sud, che su un club multi-sede sono normali —
+      collassavano in una sola. La prima veniva clonata, la seconda trovava il
+      clone **per nome**, non veniva creata, e l'`idMap` faceva puntare
+      entrambe allo stesso id. Finche il riporto portava configurazione era
+      silenzioso; da quando porta i tesserati, e mezza squadra nel posto
+      sbagliato.
+
+      La corrispondenza si risolve in **due passi**, e l'ordine conta:
+
+      1. prima tutte quelle per `rolloverSourceId`, che sono uno a uno per
+         costruzione e non ammettono discussione;
+      2. poi quelle per nome, che possono scegliere solo fra cio che il primo
+         passo **non** ha gia impegnato.
+
+      Con un passo solo, un elemento gia riportato poteva essere rivendicato per
+      nome da un omonimo diverso prima che il suo originale lo reclamasse: e la
+      collisione che sopravviveva al **secondo** riporto, cioe al caso reale.
+
+      Le omonime di destinazione si indicizzano **tutte**: se ce ne sono due
+      con lo stesso nome, servono due origini diverse, non due volte la stessa.
+    */
     const copiedTargetIdBySourceId = new Map<string, string>();
-    const targetIdByIdentity = new Map<string, string>();
+    const targetIdsByIdentity = new Map<string, string[]>();
     for (const item of targetItems) {
       const targetId = String((item as any)?.id || "").trim();
       if (!targetId) {
@@ -833,27 +858,53 @@ export const planSeasonRollover = (options: {
         copiedTargetIdBySourceId.set(copiedFrom, targetId);
       }
       const identity = rolloverIdentityKey(item);
-      if (identity && !targetIdByIdentity.has(identity)) {
-        targetIdByIdentity.set(identity, targetId);
+      if (identity) {
+        const bucket = targetIdsByIdentity.get(identity) || [];
+        bucket.push(targetId);
+        targetIdsByIdentity.set(identity, bucket);
       }
     }
-    const existingIdentities = new Set(targetIdByIdentity.keys());
-    /*
-      Un elemento di destinazione puo fare da destinazione a **un solo**
-      elemento di origine.
+    const existingIdentities = new Set(targetIdsByIdentity.keys());
 
-      Senza questo, due categorie omonime nella stagione di origine — «Under
-      14» a Nord e «Under 14» a Sud, che su un club multi-sede sono normali —
-      collassavano in una sola: la prima veniva clonata, la seconda trovava il
-      clone per nome, non veniva creata, e l'`idMap` faceva puntare **entrambe**
-      allo stesso id. Finche il riporto portava solo configurazione era un
-      difetto silenzioso; da quando porta i tesserati, e mezza squadra nel
-      posto sbagliato.
+    /** Gli elementi di destinazione gia impegnati da un'origine. */
+    const takenTargetIds = new Set<string>();
+    /** Da id di origine all'elemento di destinazione che gli e stato assegnato. */
+    const matchedTargetIdBySourceId = new Map<string, string>();
 
-      La corrispondenza per `rolloverSourceId` non ha questo problema: e gia
-      uno a uno per costruzione.
-    */
-    const identityTaken = new Set<string>();
+    // Passo 1: le corrispondenze certe.
+    for (const item of sourceItems) {
+      const sourceId = String((item as any)?.id || "").trim();
+      if (!sourceId) continue;
+
+      const targetId = copiedTargetIdBySourceId.get(sourceId);
+      if (targetId && !takenTargetIds.has(targetId)) {
+        matchedTargetIdBySourceId.set(sourceId, targetId);
+        takenTargetIds.add(targetId);
+      }
+    }
+
+    // Passo 2: le corrispondenze per nome, fra cio che resta libero.
+    for (const item of sourceItems) {
+      const sourceId = String((item as any)?.id || "").trim();
+      if (sourceId && matchedTargetIdBySourceId.has(sourceId)) continue;
+
+      const identity = rolloverIdentityKey(item);
+      if (!identity) continue;
+
+      const candidate = (targetIdsByIdentity.get(identity) || []).find(
+        (targetId) => !takenTargetIds.has(targetId),
+      );
+      if (candidate) {
+        takenTargetIds.add(candidate);
+        if (sourceId) {
+          matchedTargetIdBySourceId.set(sourceId, candidate);
+        } else {
+          // Un elemento senza id non ha una chiave nell'`idMap`, ma ha comunque
+          // consumato la sua destinazione: non deve essere clonato.
+          (item as any).__rolloverMatched = candidate;
+        }
+      }
+    }
 
     const cloned: any[] = [];
 
@@ -862,19 +913,15 @@ export const planSeasonRollover = (options: {
       const identity = rolloverIdentityKey(item);
 
       const alreadyThere =
-        (sourceId && copiedTargetIdBySourceId.get(sourceId)) ||
-        (identity && !identityTaken.has(identity)
-          ? targetIdByIdentity.get(identity)
-          : null) ||
+        (sourceId && matchedTargetIdBySourceId.get(sourceId)) ||
+        item?.__rolloverMatched ||
         null;
 
       if (alreadyThere) {
         if (sourceId) {
           idMap[sourceId] = alreadyThere;
         }
-        if (identity) {
-          identityTaken.add(identity);
-        }
+        delete item.__rolloverMatched;
         return;
       }
 
@@ -901,8 +948,12 @@ export const planSeasonRollover = (options: {
       }
       if (identity) {
         existingIdentities.add(identity);
-        targetIdByIdentity.set(identity, newId);
-        identityTaken.add(identity);
+        // Il clone appena creato e a sua volta una destinazione occupata: un
+        // omonimo successivo non puo rivendicarlo, deve avere il suo.
+        const bucket = targetIdsByIdentity.get(identity) || [];
+        bucket.push(newId);
+        targetIdsByIdentity.set(identity, bucket);
+        takenTargetIds.add(newId);
       }
     });
 

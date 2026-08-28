@@ -244,9 +244,6 @@ const normalizeTemplates = (value: any): DocumentTemplate[] =>
     }))
     .filter((template) => template.id && template.title);
 
-const escapeRegExp = (value: string) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 const escapeHtmlText = (value: string) =>
   value
     .replace(/&/g, "&amp;")
@@ -254,17 +251,6 @@ const escapeHtmlText = (value: string) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-
-const firstNonEmptyString = (...values: unknown[]) => {
-  for (const value of values) {
-    const candidate = String(value || "").trim();
-    if (candidate) {
-      return candidate;
-    }
-  }
-
-  return "";
-};
 
 const signatureBlockHtml = (label: string) =>
   `<div style="margin: 28px 0 18px; padding: 18px; border: 1px dashed #94a3b8; border-radius: 8px; color: #475569; background-color: #f8fafc;"><strong>${label}</strong></div>`;
@@ -824,7 +810,11 @@ function ModulisticaPage() {
         return;
       }
 
+      // Le due porte che arrivano qui sono «Esporta PDF → Genera compilato» e
+      // «Compila»: si chiudono entrambe, o l'anteprima si apre sopra un dialogo
+      // che e ancora li.
       setShowPdfDialog(false);
+      setShowCompileDialog(false);
       setFilledPreview({
         title: data.title,
         html: data.html,

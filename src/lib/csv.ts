@@ -38,22 +38,42 @@ export const CSV_BOM = "\uFEFF";
 const NEEDS_QUOTES = /[";\r\n]/;
 
 /**
- * Una cella che comincia per `=`, `+`, `-` o `@` e una **formula** per Excel e
- * LibreOffice, non un testo.
+ * Una cella che comincia per `=`, `+`, `-` o `@` la maggior parte dei fogli di
+ * calcolo prova a valutarla come **formula**.
  *
- * Il contenuto di questo file arriva dall'anagrafica, che la compilano gli
+ * Il contenuto di questi file arriva dall'anagrafica, che la compilano gli
  * utenti e che si popola anche per import: un cognome o una nota scritti
  * `=HYPERLINK("http://…";"clicca")` diventerebbero un collegamento eseguito
- * all'apertura, sul computer di chi riceve il file. Si antepone un apice, che
- * i fogli di calcolo interpretano come «questo e testo» e non mostrano.
+ * all'apertura, sul computer di chi riceve il file.
  *
- * Un numero negativo scritto come numero non passa di qui — `csvValue` lo
- * formatta prima — quindi `-12,50` in una colonna di importi resta un importo.
+ * La difesa e anteporre un apice. **Va detto che in un CSV importato l'apice si
+ * vede**: non e invisibile come in una cella digitata a mano. E quindi una
+ * difesa che sporca la cella, e va applicata dove serve davvero e non a
+ * tappeto:
+ *
+ * - `=` e `@` aprono una formula da soli, e nessun dato di anagrafica comincia
+ *   cosi per caso: si neutralizzano sempre;
+ * - `+` e `-` cominciano molto piu spesso un **numero di telefono**
+ *   (`+39 333 …`) o un importo negativo che una formula. Si neutralizzano solo
+ *   quando il valore somiglia davvero a una formula: contiene una parentesi,
+ *   un `=` o un `!` (`+HYPERLINK(...)`), oppure il segno e seguito da una
+ *   **lettera** (`-A1+B2`), che dopo un prefisso internazionale non capita mai;
+ * - la tabulazione e il ritorno a capo in testa si tolgono di mezzo comunque.
+ *
+ * Un numero non passa di qui: `csvValue` lo formatta prima, quindi `-12,50` in
+ * una colonna di importi resta un importo.
  */
-const FORMULA_LEAD = /^[=+\-@\t\r]/;
+const FORMULA_LEAD_SEMPRE = /^[=@\t\r]/;
+const FORMULA_LEAD_SEGNO = /^[+-]/;
+const SEMBRA_UNA_FORMULA = /[()=!]|^[+-]\s*[A-Za-z]/;
 
-const neutralizeFormula = (text: string) =>
-  FORMULA_LEAD.test(text) ? `'${text}` : text;
+const neutralizeFormula = (text: string) => {
+  if (FORMULA_LEAD_SEMPRE.test(text)) return `'${text}`;
+  if (FORMULA_LEAD_SEGNO.test(text) && SEMBRA_UNA_FORMULA.test(text)) {
+    return `'${text}`;
+  }
+  return text;
+};
 
 /**
  * Un valore dentro una cella, con le virgolette quando servono.

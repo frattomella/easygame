@@ -496,11 +496,43 @@ export const runAthleteMembershipRollover = async (options: {
     const alignByCategory = new Map<string, string[]>(
       [...athletesByTargetCategory].map(([key, ids]) => [key, [...ids]]),
     );
-    for (const [athleteId, categoryId] of fallbackCategoryByAthlete.entries()) {
-      if (primaryByAthlete.has(athleteId)) continue;
-      const bucket = alignByCategory.get(categoryId) || [];
-      bucket.push(athleteId);
-      alignByCategory.set(categoryId, bucket);
+
+    /*
+      Il riallineamento di ripiego vale solo per chi **non ha una squadra
+      corrente da nessuna parte**.
+
+      Un atleta senza primaria in origine ma con una primaria gia assegnata a
+      mano nella stagione nuova ha gia una risposta alla domanda «dove gioca
+      adesso»: sovrascrivere `athletes.category_id` con la prima appartenenza
+      portata farebbe dire alla scheda una cosa diversa dalle appartenenze — e
+      passare da «la scheda resta indietro» a «la scheda mente» non e un
+      miglioramento.
+    */
+    const candidatiRipiego = [...fallbackCategoryByAthlete.keys()].filter(
+      (athleteId) => !primaryByAthlete.has(athleteId),
+    );
+
+    if (candidatiRipiego.length) {
+      const conPrimaria = new Set(
+        (
+          await tx.athleteCategoryMembership.findMany({
+            where: {
+              organization_id: organizationId,
+              athlete_id: { in: candidatiRipiego },
+              is_primary: true,
+            },
+            select: { athlete_id: true },
+          })
+        ).map((row: { athlete_id: string }) => row.athlete_id),
+      );
+
+      for (const athleteId of candidatiRipiego) {
+        if (conPrimaria.has(athleteId)) continue;
+        const categoryId = fallbackCategoryByAthlete.get(athleteId) as string;
+        const bucket = alignByCategory.get(categoryId) || [];
+        bucket.push(athleteId);
+        alignByCategory.set(categoryId, bucket);
+      }
     }
 
     for (const [categoryId, athleteIds] of alignByCategory.entries()) {

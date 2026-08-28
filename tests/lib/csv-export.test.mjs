@@ -307,8 +307,8 @@ test("una cella che sembra una formula non viene eseguita dal foglio di calcolo"
   */
   for (const pericoloso of [
     '=HYPERLINK("http://esempio.test","clicca")',
-    "+1+1",
-    "-2+3",
+    '+HYPERLINK("http://esempio.test","clicca")',
+    "-A1+B2",
     "@SUM(A1:A9)",
   ]) {
     const cella = csvEscape(pericoloso);
@@ -333,4 +333,26 @@ test("un importo negativo resta un numero, non diventa testo", () => {
     "la neutralizzazione delle formule non deve rovinare una colonna di importi",
   );
   assert.equal(csvValue(12.5), "12,5");
+});
+
+test("un numero di telefono internazionale non viene sporcato", () => {
+  /*
+    La prima versione della difesa neutralizzava **ogni** valore che cominciasse
+    per `+` o `-`. La colonna «Telefono» delle quattro anagrafiche contiene
+    numeri come `+39 333 1234567`: uscivano tutti con un apice davanti, che in
+    un CSV importato **si vede**. La difesa serviva contro le formule, e un
+    prefisso internazionale non lo e.
+  */
+  assert.equal(csvEscape("+39 333 1234567"), "+39 333 1234567");
+  assert.equal(csvEscape("-"), "-");
+  assert.equal(csvEscape("+39-02-1234567"), "+39-02-1234567");
+
+  // Ma cio che somiglia a una formula resta neutralizzato anche col segno.
+  // Il quoting puo avvolgere il valore: cio che conta e che l'apice ci sia
+  // **prima** del segno.
+  assert.ok(
+    csvEscape('+HYPERLINK("http://x")').includes("'+HYPERLINK"),
+    "una formula col segno resta neutralizzata",
+  );
+  assert.ok(csvEscape("-1+SUM(A1:A2)").includes("'-1+SUM"));
 });
