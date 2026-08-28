@@ -137,6 +137,7 @@ Tre script, che restano nel repository ed sono rieseguibili:
 | `scripts/season-rollover-uat.mjs` | §10.1 (1-8), §10.4 (14-17), §10.5 (18-21), §10.6 (22, 24), §10.8 (28), §10.9 (33-35) | **48/48** |
 | `scripts/wave-1-cash-cron-uat.mjs` | §10.2 (9-11), §10.3, §10.4, §10.9 (36) | **28/28** |
 | `scripts/wave-1-reminders-docs-uat.mjs` | Solleciti e Documenti del §10, §10.6 (23) | **30/30** |
+| `scripts/staging-smoke.mjs` | Le tre superfici del §9 di `CLAUDE.md` e le quattro porte cron, sull'ambiente distribuito | **12/12** |
 
 **106 controlli a runtime, tutti superati** — rieseguiti dopo le correzioni
 dell'audit, non prima.
@@ -379,8 +380,8 @@ audit e la seconda revisione.
 |---|---|
 | Gap Wave 1 chiusi, o motivatamente PARTIAL / NO ACTION | **si** — 6 CLOSED con prova a runtime, 2 PARTIAL, 1 OPEN fuori dal codice (§4.5 del [30](30-golee-easygame-gap-audit.md)) |
 | Quattro gate locali | **verdi** — 2.456 test, typecheck pulito, lint 0 errori e nessun warning nuovo, build completata |
-| CI | vedi §9.1 |
-| Staging | vedi §9.1 |
+| CI | **verde** su `d59b2f6` — Web, Mobile e Guardrail di sicurezza |
+| Staging | **READY**, smoke test **12/12** (§9.1) |
 | UAT a runtime | **106/106** su tre script rieseguibili |
 | Audit | **eseguito**, non di conferma: 1 CRITICAL e 5 HIGH trovati e corretti |
 | Seconda revisione | **eseguita**, ha smontato una correzione. Nessun CRITICAL o HIGH residuo |
@@ -394,6 +395,41 @@ hanno trovati leggendo lo stesso codice che duemila test dichiaravano sano.
 Dice che i gap approvati sono chiusi con una prova eseguita, che cio che resta
 aperto e scritto, e che nessuno dei difetti residui e grave.
 
+### 9.1 CI e staging
+
+**CI verde** sul commit finale: i tre job — Web App, Mobile App e Guardrail di
+sicurezza — sono passati. Il mobile non e stato toccato (zero file modificati
+sotto `easygame-mobile/`), come prescrive ADR-0025.
+
+**Deploy su `easygame-staging`**, stato `READY`. **Nessuna migrazione**: la
+Wave non tocca lo schema, quindi il `prisma migrate deploy` che ogni deploy
+esegue e stato un'operazione a vuoto — il tipo di deploy piu sicuro possibile.
+Nello scope Vercel esiste **un solo** progetto applicativo, `easygame-staging`:
+nessun progetto di produzione e stato creato, e `easygame-production` non
+esiste.
+
+Smoke test su `https://easygame-staging-pi.vercel.app`
+(`scripts/staging-smoke.mjs`): **12 controlli su 12**.
+
+- Le tre superfici che `CLAUDE.md` §9 richiede dopo ogni deploy — `/`, `/login`,
+  `/api/v1/registry` — rispondono `200`.
+- **Le quattro porte periodiche rispondono `401`** sia senza `Bearer` sia con
+  un `Bearer` sbagliato. E la verifica che conta di piu su un ambiente vero: in
+  locale, senza `CRON_SECRET`, rispondono `503` e non si distingue una porta
+  chiusa da una porta non configurata; qui il segreto **c'e**, quindi il `401`
+  dimostra che il gate funziona e non che manca la chiave. Una di queste porte
+  cancella righe e un'altra manda email a tutte le famiglie.
+- La risposta `401` di `/api/v1/maintenance` e anche la prova che l'alias serve
+  il codice nuovo: prima della Wave quella rotta non aveva una `GET`.
+- Nessuna risposta pubblica fa uscire il messaggio dell'ORM.
+
+Il **limite di cron del piano Vercel**, dichiarato come rischio al §10, si e
+risolto da solo: il deploy con quattro voci `crons` e stato accettato.
+
+`EASYGAME_MAINTENANCE_TOKEN` resta non configurato (X-6): non blocca la
+manutenzione, che ora ha la sua porta cron, ma il canale alternativo che
+ADR-0007 vuole tenere aperto resta inattivo.
+
 ---
 
 ## 10 — Residui dichiarati
@@ -405,10 +441,10 @@ aperto e scritto, e che nessuno dei difetti residui e grave.
    comunicazione massiva; il risolutore e il primo pezzo del documento
    arricchito. Segmentazione, bacheca, contenuto configurabile e catalogo dei
    modelli sono Wave 2 e Wave 3.
-3. **Il limite di cron del piano Vercel non e verificato.** `vercel.json` ora
-   dichiara **quattro** voci `crons`; il piano dell'account non e leggibile
-   dagli strumenti disponibili e il repository non lo documenta. Il primo
-   deploy su staging lo dira.
+3. **Il limite di cron del piano Vercel** era un rischio dichiarato, e si e
+   risolto: il deploy su staging con quattro voci `crons` e stato accettato.
+   Resta da osservare la **prima esecuzione reale** dei tre giri nuovi, che
+   avverra alle 04:00, 04:30 e 07:00 UTC.
 4. **`EASYGAME_MAINTENANCE_TOKEN` non e configurato su nessun ambiente** (X-6).
    Non blocca la manutenzione, che ora ha la sua porta cron, ma il canale
    alternativo che ADR-0007 vuole tenere aperto resta inattivo.
