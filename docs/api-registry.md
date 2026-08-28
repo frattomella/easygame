@@ -23,6 +23,15 @@ Fonte ufficiale da mantenere aggiornata:
   caricamento (multipart). Il file non passa mai dentro un record JSON
 - `GET|PUT|DELETE /api/v1/attachments/:id` — contenuto di un allegato.
   `?download=<nome>` lo consegna come download con quel nome
+- `GET|PUT|DELETE /api/v1/clubs/:id/signature` — firma del presidente e
+  timbro della societa. Senza `?kind=` il `GET` restituisce i metadati di
+  entrambi in JSON; con `?kind=signature|stamp` restituisce i **byte**
+  dell'immagine (cache privata, `nosniff`, ETag sull'impronta del contenuto).
+  Il `PUT` e multipart (`file`, `kind`) e **sostituisce** quella che c'era; il
+  `DELETE` vuole `?kind=`. **Legge chi appartiene al club** — serve
+  all'anteprima e al documento stampabile — ma **scrivono solo proprietario e
+  gestore** (`canManageClubConfiguration`): non e un allegato qualsiasi, e la
+  firma con cui un documento diventa della societa
 - `GET|POST /api/v1/payment-transactions` — registro incassi: elenco dei
   movimenti (`?athlete_id=`, `?payment_id=`) e registrazione di un incasso su
   una rata. La rata viene ricalcolata nella stessa transazione
@@ -38,6 +47,16 @@ Fonte ufficiale da mantenere aggiornata:
   registro riscritti piu `refund.awaitingWebhook`: finche e vero il rimborso
   e **in elaborazione** e il movimento non c'e ancora — lo scrive l'evento
   firmato, non questa risposta. Solo proprietario e gestore del club
+- `POST /api/v1/payment-reminders` — sollecito degli insoluti verso le
+  famiglie. Il corpo porta `charge_ids`: con `preview: true` risponde con i
+  destinatari **raggiungibili** e quelli **non raggiungibili con il motivo**
+  (`no_guardian`, `no_email`, `no_account`, `already_reminded`) e non manda
+  niente; senza `preview` esegue e riferisce l'esito **per destinatario**
+  (`sent`, `skipped`, `failed`). Rifiuta di partire se non c'e nessun
+  raggiungibile, e non dichiara mai «inviato» quando SMTP non e configurato.
+  Due richieste ravvicinate producono un solo invio per destinatario: la
+  finestra di riguardo e di **sei ore**, la stessa del sollecito sui
+  documenti. Solo proprietario e gestore del club
 - `GET /api/v1/funding/programs/:id/reconciliation` — la riconciliazione di un
   bando: una riga per atleta e per periodo, con la misura grezza accanto al
   requisito e il non maturato accanto al maturato. `?format=csv` la scarica in
@@ -82,6 +101,13 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/documents/:kind/:id` — il documento stampabile di una ricevuta
   (`receipt`) o di una fattura (`invoice`), con il branding della societa.
   Restituisce **HTML**, non JSON: chi apre questo indirizzo vuole stampare
+- `GET /api/v1/documents/filled` — un modello di modulistica **compilato** per
+  un atleta e una stagione (`templateId`, `athleteId`, `seasonId`). Restituisce
+  la pagina stampabile **insieme** ai segnaposto non risolti e a quelli senza
+  dato, perche l'anteprima li mostri prima di stampare; `?format=html`
+  restituisce la sola pagina. Gli importi vengono dal registro incassi
+  ([ADR-0068](knowledge-base/18-decision-log.md)), la frequenza dal dominio
+  contributi. **Un documento, un atleta**: nessuna stampa massiva
 - `GET /api/v1/entitlements` — cosa un club puo usare, funzione per funzione,
   con il **motivo** di ogni esito. Non e un campo salvato: e un calcolo su
   piano, servizi attivi ed eccezioni
@@ -98,6 +124,12 @@ Fonte ufficiale da mantenere aggiornata:
   variabile e vuota il token non vale) oppure un `platform_admin` a mano. Il
   *trigger* sta fuori dall'applicazione: Vercel Cron, un'azione GitHub o il
   cron di una macchina, per non legarsi a un servizio dell'hosting (ADR-0007)
+- `GET /api/v1/maintenance` — la stessa pulizia, invocata da Vercel Cron alle
+  04:30. Si autentica con `Bearer CRON_SECRET`, confrontato a **tempo
+  costante**. `CRON_SECRET` e **obbligatorio in ogni ambiente**: se manca la
+  rotta risponde **503** e non cancella niente. E la regola piu severa fra le
+  porte di cron del progetto, e la ragione per cui un `GET` che cancella righe
+  e accettabile: un prefetch, un antivirus o un crawler non portano il segreto
 - `GET|POST /api/v1/funding/programs` — programmi di contributo (voucher,
   bandi). Le regole del bando sono colonne, non codice
 - `GET|PATCH /api/v1/funding/programs/:id` — nessun `DELETE`: un programma con
@@ -313,3 +345,42 @@ in pratica non leggono niente di questo dominio. Ogni diniego viene tracciato.
 - `GET /api/v1/sport-work/scheduler` — lo stesso giro su tutti i club,
   invocato da Vercel Cron alle 03:30. Si autentica con `CRON_SECRET`; in
   produzione senza quella variabile non si apre
+
+## Le funzioni periodiche
+
+Quattro giri, quattro rotte, **un solo meccanismo di autenticazione**: un
+`GET` con `Authorization: Bearer <CRON_SECRET>`. Il *trigger* sta fuori
+dall'applicazione — oggi Vercel Cron, domani un'azione GitHub o il cron di una
+macchina — perche ADR-0007 vieta di legare il dominio a un servizio
+dell'hosting.
+
+| Ora (UTC) | Rotta | Cosa fa |
+|-----------|-------|---------|
+| 03:30 | `GET /api/v1/sport-work/scheduler` | contratti scaduti, maturato, agenda, notifiche del lavoro sportivo |
+| 04:00 | `GET /api/v1/training-automation` | genera gli allenamenti dalla programmazione settimanale |
+| 04:30 | `GET /api/v1/maintenance` | toglie sessioni, sfide OTP, rate limit e audit scaduti |
+| 07:00 | `GET /api/medical-certificate-reminders` | promemoria ai tutori sui certificati medici |
+
+Gli orari sono distanziati di proposito: quattro giri sulla stessa finestra si
+contenderebbero le stesse connessioni al database. Il promemoria alle 07:00 e
+l'unico che parla a delle persone, e a quell'ora la notifica si legge.
+
+**Tre di questi quattro** applicano la regola comune: `CRON_SECRET` assente
+blocca la rotta **solo in produzione**, cosi in sviluppo il giro si puo
+provare. `GET /api/v1/maintenance` e l'eccezione — segreto obbligatorio
+ovunque — perche e l'unico che **cancella righe**.
+
+- `POST /api/v1/training-automation` — la stessa generazione sul solo club
+  attivo, a mano. Richiede una sessione e un ruolo che possa configurare il
+  club
+- `POST /api/medical-certificate-reminders` — il promemoria su **un** atleta,
+  a mano dalla segreteria. Richiede una sessione e l'atleta deve appartenere a
+  un club nello scope
+- `GET /api/medical-certificate-reminders` — lo stesso promemoria su tutti gli
+  atleti di tutti i club. **Idempotente**: la difesa contro il doppione e una
+  chiave deterministica dentro la notifica
+  (`medical_certificate_reminder:<atleta>:<certificato|missing>`), e la
+  finestra di sette giorni vale **anche se il promemoria e gia stato letto**.
+  Le regole stanno in `src/lib/server/medical-certificate-reminders.ts`, non
+  nel route handler: un club che fallisce non ferma gli altri, e i destinatari
+  devono essere iscritti al club dell'atleta

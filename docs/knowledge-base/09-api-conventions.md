@@ -154,6 +154,32 @@ perche l'estensione la sa lui, non il client.
 
 Vedi [ADR-0034](18-decision-log.md#adr-0034--gli-allegati-escono-dai-record-e-passano-da-un-servizio-con-driver).
 
+### Firma e timbro del presidente: stesso archivio, permesso diverso
+
+| Metodo | Path | Cosa fa |
+|--------|------|---------|
+| `GET` | `/api/v1/clubs/:id/signature` | Metadati di **entrambi** in envelope JSON, piu `canManage` |
+| `GET` | `/api/v1/clubs/:id/signature?kind=signature\|stamp` | I byte dell'immagine (`Cache-Control: private`, `nosniff`, `ETag` sull'impronta) |
+| `PUT` | `/api/v1/clubs/:id/signature` | `multipart/form-data` con `file` e `kind`: carica o **sostituisce** |
+| `DELETE` | `/api/v1/clubs/:id/signature?kind=` | Toglie riferimento e allegato |
+
+**Perche una rotta dedicata se il file sta gia negli allegati.** Le rotte
+`/api/v1/attachments` autorizzano su sessione e appartenenza al club, e
+nient'altro: chiunque faccia parte della societa puo caricarci quello che
+vuole. La firma del presidente e cio con cui una ricevuta diventa un documento
+della societa — caricarla o toglierla e un **atto di configurazione**, e il
+gate e `canManageClubConfiguration` (proprietario e gestore). Non e un
+permesso nuovo: e quello del club, riusato.
+
+**La lettura invece resta di tutto il club.** Serve all'anteprima nella scheda
+e al documento stampabile, che emette anche la segreteria: restringerla ai
+gestori farebbe uscire ricevute senza firma. Non e comunque un file pubblico.
+
+I byte passano per intero da Attachment Core (`owner_type: "club"`), i tipi
+ammessi sono **piu stretti** (solo PNG, JPEG, WebP, max 2 MB: finiscono dentro
+un documento), e il proprietario del dominio e
+`src/lib/server/club-signature.ts`.
+
 ## Incassi: perche non passano dal CRUD generico
 
 | Metodo | Path | Cosa fa |
@@ -181,6 +207,41 @@ Tre conseguenze da conoscere:
   `MANUAL | STRIPE | CEDIPAY | IMPORT | OTHER` perche il modello sia pronto,
   ma accettare un incasso dichiarato `STRIPE` senza un webhook verificato
   vorrebbe dire registrare denaro che nessuno ha incassato.
+
+## Sollecito degli insoluti: una rotta sola, e `POST` anche per l'anteprima
+
+| Metodo | Path | Cosa fa |
+|--------|------|---------|
+| `POST` | `/api/v1/payment-reminders` con `{"charge_ids": […], "preview": true}` | Chi riceverebbe il sollecito, chi no e **perche**. Non manda niente |
+| `POST` | `/api/v1/payment-reminders` con `{"charge_ids": […]}` | Esegue, e riferisce l'esito **per destinatario** |
+
+**Perche una rotta sola e non due.** Anteprima e invio partono dallo stesso
+input e devono vedere **la stessa cosa**. Due rotte sarebbero due porte sullo
+stesso calcolo, e la prima volta che una delle due cambia la schermata
+mostrerebbe un elenco di destinatari diverso da quello che riceve il messaggio.
+Il modulo di dominio ha gia due funzioni distinte
+(`buildPaymentReminderPreview`, `sendPaymentReminders`): il flag sceglie
+quale, e nient'altro.
+
+**Perche `POST` anche per l'anteprima.** L'input e un elenco di
+identificativi lungo quanto la selezione: una `GET` lo porterebbe nella query
+string, cioe negli access log e nella cronologia del browser. Non e una lettura
+idempotente da mettere in cache, e una simulazione.
+
+Quattro cose da conoscere:
+
+- **l'autorizzazione e quella degli incassi** (`canManageClubConfiguration`):
+  proprietario e gestore. Il sollecito parla di denaro dovuto e raggiunge
+  persone reali fuori dal prodotto;
+- **un `charge_id` di un altro club viene rifiutato con «Accesso negato»**,
+  senza dire se esista altrove. Le rate si cercano gia filtrate per club;
+- **l'anteprima e obbligatoria di fatto**: l'invio si rifiuta di partire se non
+  c'e nessun destinatario raggiungibile, e la risposta dice perche;
+- **la risposta non dice mai «inviato» a vuoto.** Ogni destinatario porta
+  `sent`, `skipped` con il motivo (`no_guardian`, `no_email`,
+  `no_account`, `already_reminded`) o `failed`
+  (`email_not_configured`, `delivery_failed`). Con SMTP non configurato
+  nessuno risulta `sent` e nessuna traccia viene scritta.
 
 ## Contributi: due contabilita, due superfici
 
@@ -585,6 +646,30 @@ permette di assistere — ma la scrittura resta di chi risponde del contenuto.
 non un `PATCH`, perche un documento emesso non si modifica affatto: l'unica
 cosa che gli puo succedere dopo l'emissione e essere annullato.
 
+### Il documento compilato
+
+`GET /api/v1/documents/filled?templateId=…&athleteId=…&seasonId=…` sta accanto
+a `GET /api/v1/documents/:kind/:id` ma non e la stessa cosa, e la differenza
+spiega perche e un segmento **statico** e non un terzo `kind`: quella rotta
+stampa una **riga gia emessa**, identificata dal suo id; qui non c'e nessuna
+riga, c'e un modello piu un atleta piu una stagione, e il documento nasce dalla
+loro combinazione.
+
+Risponde **JSON** e non HTML, al contrario della sorella. Non e un
+ripensamento: la risposta porta la pagina **insieme** ai segnaposto che il
+risolutore non ha saputo riempire, perche l'anteprima li elenchi prima di
+mandare in stampa. Un'attestazione con tre righe bianche che nessuno ha notato
+e peggio di un modulo vuoto, perche sembra completa. `?format=html` restituisce
+la sola pagina, per chi la vuole aprire diretta.
+
+Autorizzazione: il perimetro documentale gia in vigore, **nessun permesso
+nuovo**. Il club non arriva dall'indirizzo ma dallo scope della sessione, e
+l'atleta si cerca **dentro** quel club — non si cerca e poi si confronta. Un
+identificativo di un'altra societa risponde «Accesso negato»; il messaggio
+dell'ORM non esce mai.
+
+**Un documento, un atleta.** Nessuna stampa massiva: e G-43, ed e Wave 3.
+
 ### Fattura elettronica
 
 `GET|POST /api/v1/einvoice/:invoiceId`. `action: "prepare"` genera e valida il
@@ -633,3 +718,41 @@ Tre convenzioni proprie, e ognuna dice qualcosa sul dominio:
 
 L'elenco completo e in [`docs/api-registry.md`](../api-registry.md).
 
+
+---
+
+## Le porte di cron: `GET` senza attore
+
+Quattro rotte non hanno una sessione e non possono averla, perche chi chiama e
+uno scheduler. Si autenticano con `Authorization: Bearer <CRON_SECRET>` e
+**rispondono a `GET`**, che e l'unica cosa che Vercel Cron sa invocare:
+
+| Ora (UTC) | Rotta |
+|-----------|-------|
+| 03:30 | `GET /api/v1/sport-work/scheduler` |
+| 04:00 | `GET /api/v1/training-automation` |
+| 04:30 | `GET /api/v1/maintenance` |
+| 07:00 | `GET /api/medical-certificate-reminders` |
+
+Le convenzioni comuni:
+
+- il segreto sbagliato risponde **401**, e il messaggio contiene `Accesso
+  negato` come ogni altro errore di autorizzazione;
+- il segreto **mancante** risponde **503** in produzione: una porta di servizio
+  senza autenticazione e il modo in cui si mandano notifiche ai club di
+  qualcun altro. Fuori da produzione passa, cosi il giro si puo provare;
+- ogni giro e **idempotente** e itera i club con un `try/catch` per club: uno
+  che fallisce non ferma gli altri, e il risultato dice quale;
+- il *trigger* sta fuori dall'applicazione (ADR-0007): oggi Vercel Cron, domani
+  un'azione GitHub o il cron di una macchina.
+
+**Una sola eccezione, e voluta.** `GET /api/v1/maintenance` cancella righe, e
+per questo pretende `CRON_SECRET` in **ogni** ambiente — senza, risponde 503
+anche in sviluppo — e confronta il Bearer a **tempo costante**. E cio che
+rende accettabile un `GET` distruttivo: un prefetch del browser, un antivirus
+o un crawler non portano il segreto. Il suo `POST` con
+`x-maintenance-token` resta, per un cron che non sia quello dell'hosting.
+
+La logica di ognuno dei quattro giri sta in un modulo sotto
+`src/lib/server/`, non nel route handler: il route handler autentica e
+riporta.

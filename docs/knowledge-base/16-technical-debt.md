@@ -1299,3 +1299,125 @@ e `totalPending` / `totalOverdue` che ne ripartiscono il residuo, come fa
 | SW-12 | **`/api/v1/attachments/:id` fa uscire il messaggio dell'ORM** | Un identificativo non-UUID produce il testo di Prisma, con il nome del modello e il codice d'errore di Postgres. Sul lavoro sportivo il difetto e stato chiuso in `sportWorkFailure`; su Allegati resta, ed e fuori dal perimetro di questo commit. Trovato dal collaudo a runtime del 2026-08-28 |
 | ~~SW-13~~ | ~~**`CRON_SECRET` non e configurato su staging**~~ | **Chiuso il 2026-08-28.** La variabile e stata generata e impostata su `easygame-staging` (ambiente Production): `GET /api/v1/sport-work/scheduler` non risponde piu 503 ma 401 senza credenziali e 200 con quelle giuste, e il giro e stato eseguito due volte con risposta identica. **Resta da fare su produzione** quando un progetto di produzione esistera: oggi nello scope Vercel non ce n'e uno |
 
+---
+
+## Debito aperto dall'export CSV delle anagrafiche (W1-D, 2026-08-28)
+
+> Numerazione provvisoria: il workstream e stato sviluppato in parallelo, chi
+> integra rinumera ([ADR-0041](18-decision-log.md#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)).
+
+| # | Voce | Perche resta aperta |
+|---|------|---------------------|
+| CSV-01 | **Due serializzatori CSV residui fuori da `src/lib/csv.ts`** | `src/lib/funding/reconciliation.ts` (`toReconciliationCsv`) e `src/components/sport-work/ObligationsPanel.tsx` scrivono ancora il proprio tracciato. Erano gia divergenti fra loro — uno mette il BOM, l'altro no — e **nessuno dei due virgoletta il ritorno a capo (CR)**: una nota incollata da Windows spezza la riga in due. W1-D non li ha toccati perche uno serve una risposta HTTP e l'altro un dominio diverso: farli convergere e un lavoro a se, con i suoi test. Un test strutturale in `tests/lib/csv-export.test.mjs` li tiene in allowlist e impedisce che ne nasca un terzo |
+| CSV-02 | **L'elenco Allenatori non filtra le colonne dell'export** | `src/app/trainers/page.tsx` passa `visibleColumns: null` sia al PDF sia al CSV, mentre Staff e Soci passano le colonne visibili in tabella. Chi nasconde una colonna fra gli allenatori se la ritrova comunque nel file. W1-D ha replicato il comportamento esistente per non cambiarlo di nascosto in una lane che parla d'altro |
+
+## Debito aperto da firma e timbro del presidente (W1-E, 2026-08-28)
+
+> Numerazione provvisoria: il workstream e stato sviluppato in parallelo, chi
+> integra rinumera ([ADR-0041](18-decision-log.md#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)).
+
+| # | Voce | Perche resta aperta |
+|---|------|---------------------|
+| FIRMA-01 | **CHIUSA il 2026-08-28** — le rotte generiche degli allegati aggiravano il gate della firma | I byte vivono nella tabella `attachments`, e `/api/v1/attachments/**` autorizzava **solo** su sessione e appartenenza al club: un collaboratore poteva elencare `GET /api/v1/attachments?owner_type=club&owner_id=<club>`, ottenere l'id della firma e sostituirla o cancellarla da li. **Chiusa dall'audit di fine Wave** (commit `0bb120e` e `ad09690`, [ADR-0082](18-decision-log.md#adr-0082--un-allegato-del-club-e-configurazione-del-club)): un allegato con `owner_type: "club"` e configurazione del club, e la sua **scrittura** passa da `canManageClubConfiguration` sul club **attivo**. La lettura resta a chi appartiene al club. Nessun permesso nuovo dedicato alla firma
+| FIRMA-02 | **Il logo del club resta un data URL** | `clubs.logo_url` e ancora prodotto da `LogoUpload` come `data:` dentro la colonna, mentre firma e timbro passano da Attachment Core. Sono due schede della stessa pagina che si comportano in modo opposto, e la piu vecchia e quella che si copia per sbaglio. Portare anche il logo su Attachment Core e un lavoro a se: tocca la dashboard, i documenti stampabili e l'area account, che lo leggono direttamente dal record |
+
+## Debito aperto dal sollecito degli insoluti (W1-F, 2026-08-28)
+
+> Numerazione provvisoria: il workstream e stato sviluppato in parallelo, chi
+> integra rinumera ([ADR-0041](18-decision-log.md#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)).
+
+| # | Voce | Perche resta aperta |
+|---|------|---------------------|
+| SOLL-01 | **Il sollecito sui documenti ha ancora il difetto che questo modulo chiude** | `createParentNotifications` in `src/app/api/athletes/[athleteId]/documents/route.ts` parte da `getParentUserIds` e **esce in silenzio** quando nessun tutore ha un account collegato: l'azione «Sollecita» di un documento si dichiara riuscita anche quando non ha raggiunto nessuno (W1-15). W1-F ne ha copiato il **pattern** e corretto il difetto per il denaro; la rotta dei documenti non e stata toccata perche appartiene a una lane parallela. La correzione e ora meccanica: `readAthleteGuardianContacts` risolve i recapiti anche senza account |
+| SOLL-02 | **Cinque letture diverse di `athletes.data.guardians`** | `src/lib/athlete-guardians.ts` (il proprietario, con `readAthleteGuardianContacts`), `src/lib/server/medical-certificate-reminders.ts` (`getGuardianRows`), `src/lib/server/document-placeholders.ts` (`guardianAt`), `src/lib/server/parent-dashboard.ts` e `src/app/modulistica/page.tsx` leggono lo stesso campo con normalizzazioni diverse. L'audit di fine Wave ne ha allineate due — l'ordine delle chiavi email divergeva, e lo stesso tutore riceveva il sollecito a un indirizzo e il promemoria certificati a un altro — ma restano tre letture e `guardianAt` non conosce la coppia storica `parent1`/`parent2`: su un club non migrato l'attestazione esce con il genitore in bianco. Farle convergere tocca certificati, area genitori e modulistica con i loro test: e un lavoro a se |
+| SOLL-03 | **`/payments` e solo una redirezione** | La pianificazione di Wave 1 (§5.4) indica `/payments` come schermata dell'elenco pagamenti; nel codice `src/app/payments/page.tsx` e un `redirect("/movements")` e l'elenco degli insoluti e la scheda **Previsti** di `/movements`. L'azione «Sollecita» e stata messa li, dove le rate ci sono davvero. Se un giorno `/payments` diventera una schermata propria, l'azione va spostata, non duplicata |
+| SOLL-04 | **La traccia dell'ultimo sollecito vive in `payments.data`** | `data.lastReminderAt` e `data.lastReminderBy` non sono colonne: nessuna query puo ordinare o filtrare per «rate sollecitate piu di N giorni fa» senza leggere il JSON. E la stessa forma che il sollecito sui documenti usa gia, e diventa un limite quando servira una vista «da risollecitare» ([ADR-0078](18-decision-log.md)) |
+| SOLL-05 | **Il registro degli invii non e uno storico** | Su ogni rata resta **l'ultima** data, e sull'atleta l'ultima rivendicazione per indirizzo: «quante volte questa famiglia e stata sollecitata quest'anno» non e rispondibile senza leggere l'audit log. Per Wave 1 basta; un motore di automazioni (Wave 2) avra bisogno di una tabella |
+| SOLL-06 | **Un atleta maggiorenne senza tutori risulta `no_guardian`** | Il sollecito parla alle famiglie e parte dai tutori. Un atleta adulto con un proprio account non viene raggiunto e compare fra i non raggiungibili con un motivo che, per lui, e impreciso. Aggiungere l'atleta stesso fra i destinatari e una decisione di prodotto, non una svista da correggere di nascosto |
+
+## Debito aperto dall'attestazione compilata (W1-G, 2026-08-28)
+
+> Numerazione provvisoria: il workstream e stato sviluppato in parallelo, chi
+> integra rinumera ([ADR-0041](18-decision-log.md#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)).
+
+| # | Voce | Perche resta aperta |
+|---|------|---------------------|
+| DOC-01 | **`payments` non porta una stagione** | Non e fra i `SEASON_SCOPED_DATA_TYPES` (`src/lib/club-seasons.ts`), quindi il perimetro dell'attestazione si ricava dalla **data di scadenza** della rata, e una rata senza data resta dentro. Funziona, ed e la stessa compatibilita che `filterCollectionBySeason` applica ai record senza stagione — ma e una deduzione, non un'appartenenza dichiarata: una rata la cui scadenza cade il 31 agosto finisce nella stagione sbagliata a seconda di come il club ha impostato le date. Marcare le rate con `seasonId` tocca la generazione dei piani e ogni schermata economica: e un lavoro a se |
+| DOC-02 | **`generateDocumentTemplates` in `/modulistica` e codice morto** | Circa 200 righe in `src/app/modulistica/page.tsx` che costruiscono quattro modelli predefiniti (iscrizione, privacy, trasferte, …) e **non vengono chiamate da nessuno**. I modelli che genera usano per giunta i segnaposto **storici** (`{{first_name}}`, `{{fiscalCode}}`, `{{category}}`), che non sono nel catalogo condiviso: se qualcuno li riattivasse, produrrebbe documenti che il risolutore non sa compilare. W1-G non li ha toccati per non mescolare una rimozione a una funzionalita |
+| DOC-03 | **«Compila» sostituisce i segnaposto per conto proprio, nel browser** | `compileDocument` (stessa pagina) ha una propria mappa `replacements` con le chiavi storiche e legge l'anno sportivo da `localStorage`. E la terza interpretazione della sostituzione, dopo `renderBlankTemplateForPdf` e il risolutore, e l'unica che non passa dal catalogo. Va **assorbita** da «Genera compilato», che fa la stessa cosa con i dati veri: e una rimozione con un cambio di comportamento visibile, quindi una decisione di prodotto e non un riordino |
+| DOC-04 | **Il catalogo propone dati che nessun documento sa riempire** | Staff, allenatori, soci, sponsor, fornitori e certificati sono nell'elenco che l'editor mostra, ma il risolutore non li produce: in un documento intestato a un atleta non hanno un soggetto. Chi li usa ottiene un campo bianco **dichiarato** — quindi il documento non mente — ma l'editor continua a proporre una promessa che oggi non c'e. O il risolutore impara a risolverli (serve un secondo soggetto oltre all'atleta), o il catalogo va marcato per contesto |
+
+---
+
+## Debito aperto dal passaggio di stagione e dai giri automatici (W1-A e W1-C, 2026-08-28)
+
+### STAG-01 — Il gemello del validatore troncato vive ancora nella dashboard genitori
+
+`src/lib/server/parent-dashboard.ts:17` porta la stessa forma di UUID a
+**quattro** gruppi che rendeva inutilizzabile il `POST` dei promemoria
+certificati (`...-[89ab][0-9a-f]{12}$`, senza il penultimo gruppo). Li l'effetto
+e rovesciato: `!UUID_PATTERN.test(requestedId)` e **sempre vero**, quindi la
+riga 690 ricade su `linkedAthletes[0]` anche quando l'identificativo richiesto e
+un UUID valido che non appartiene a nessun atleta collegato. Non e una fuga di
+dati — l'atleta restituito e comunque uno di quelli del genitore — ma e un
+controllo che non controlla.
+
+**Perche non e stato corretto nella Wave 1.** E un altro dominio, e correggerlo
+cambia cio che la dashboard genitori risponde in un caso che nessuno ha
+collaudato in questa Wave. Va fatto con il suo collaudo.
+
+### STAG-02 — Gli allenamenti generati scrivono `clubs.trainings` senza passare da `resources.ts`
+
+`runTrainingAutomationForClub` (`src/lib/server/training-automation.ts:724-731`)
+fa `prisma.club.update({ data: { trainings, settings } })` direttamente. E
+l'errore tipico n. 3 di `CLAUDE.md`: scrivere `clubs.<campo>` a mano disallinea
+`club_resource_items`, che e la proiezione da cui leggono le altre superfici.
+
+Trovato **collaudando** il giro automatico: il conteggio degli allenamenti
+generati non si vedeva in `club_resource_items` perche non ci arriva.
+
+**Perche non e stato corretto nella Wave 1.** E preesistente e fuori dal
+perimetro: la Wave 1 accende il giro, non riscrive dove salva. Va affrontato
+insieme a WP-07.
+
+### STAG-03 — Il nome del tutore ricade sull'indirizzo email
+
+`getGuardianDisplayName` (`src/lib/athlete-guardians.ts:111`) compone il nome da
+`name` e `surname` e, se mancano, mostra l'email. E la forma canonica — la
+scrivono cosi `AthleteCreateForm` e la scheda atleta — ma
+`src/lib/server/medical-certificate-reminders.ts` accetta anche
+`firstName`/`lastName`, e il dato importato da terzi potrebbe arrivare in quella
+forma. In quel caso l'anteprima del sollecito mostra un indirizzo email dove
+dovrebbe esserci un nome.
+
+E la stessa famiglia di SOLL-02 (tre letture diverse di `athletes.data.guardians`)
+e va chiusa con quella.
+
+### STAG-04 — L'elenco di riconferma non pagina
+
+`GET /api/v1/seasons/:id/roster` restituisce tutti i tesserati della stagione di
+origine. Misurato: **78 kB e 53-641 ms su 200 tesserati**, che e il caso reale di
+un club medio. E una scelta dichiarata — chi deve decidere chi rinnova deve poter
+scorrere l'elenco intero, e paginare una scelta la rende piu lenta, non piu
+leggera — ma sopra il migliaio di tesserati va rivista.
+
+E la stessa classe di P-5 e SW-11: dichiarata, non nascosta.
+
+---
+
+## Debito rilevato dall'audit di fine Wave 1 e non chiuso (2026-08-29)
+
+L'audit ha prodotto piu di quaranta rilievi. I CRITICAL e gli HIGH sono stati
+corretti nel commit `ad09690`; i MEDIUM di cui la correzione avrebbe allargato
+il dominio, e i LOW, restano qui.
+
+| # | Voce | Perche resta aperta |
+|---|------|---------------------|
+| AUD-01 | **`pickRelevantCertificate` sceglie il certificato sbagliato per il messaggio** | Lo stato dell'atleta si decide sulla scadenza **piu lontana** (giusto: chi ha un certificato vecchio scaduto e uno nuovo valido e in regola), ma il testo del promemoria cita il **primo** in ordine crescente fra quelli scaduti o in scadenza. Un atleta con un certificato scaduto nel 2024 e uno che scade fra venti giorni riceve un messaggio che cita il 2024. La chiave di idempotenza si aggancia allo stesso certificato, quindi almeno e coerente con se stessa. Logica preesistente, che pero da questa Wave gira ogni mattina invece che a richiesta |
+| AUD-02 | **`toISOString().slice(0, 10)` sposta una data di un giorno** | In `medical-certificate-reminders.ts` (data comunicata alla famiglia) e in `document-placeholders.ts` (perimetro della stagione nell'attestazione). Un `DateTime` reso come mezzanotte locale in un fuso positivo retrocede al giorno prima: su Vercel, che gira in UTC, non si vede; in locale e su qualunque runtime non-UTC si. Va corretto con una formattazione consapevole del fuso, in tutti i punti insieme |
+| AUD-03 | **`releaseClaim` e ora sotto blocco, ma il modello resta «riscrivi tutto il JSON»** | La correzione ha messo `SELECT ... FOR UPDATE` attorno alla lettura-scrittura di `athletes.data`, il che chiude la perdita di scritture concorrenti. Resta che la traccia dei solleciti vive dentro un blob condiviso con l'anagrafica: una colonna o una tabella dedicata renderebbe impossibile la classe di difetto invece che difenderla |
+| AUD-04 | **Il catalogo dei segnaposto propone dati che nessun documento sa riempire** | Staff, allenatori, soci, sponsor, fornitori e certificati sono nell'elenco che l'editor mostra, ma il risolutore non li produce: in un documento intestato a un atleta non hanno un soggetto. Chi li usa ottiene un campo bianco **dichiarato** — quindi il documento non mente — ma l'editor continua a proporre una promessa. O il risolutore impara un secondo soggetto, o il catalogo va marcato per contesto |
+| AUD-05 | **`csvValue` non arrotonda il denaro** | `0.1 + 0.2` esce `0,30000000000000004` e un importo molto grande esce in notazione esponenziale. Oggi nessuna colonna delle quattro anagrafiche e un importo, quindi non si vede; il giorno in cui lo sara, va arrotondato a due decimali prima di scriverlo |
+| AUD-06 | **La firma del presidente e scaricabile da qualunque membro del club** | La `GET` di `/api/v1/clubs/:id/signature?kind=` non passa dal permesso di configurazione, ed e voluto: serve all'anteprima e ai documenti che stampa anche la segreteria, e restringerla farebbe uscire le ricevute senza firma. Resta che un genitore con una sessione puo scaricare il PNG e riusarlo. La difesa vera e legare la lettura al documento che la consuma, non alla persona che la chiede: e un lavoro di progetto |
+| AUD-07 | **`RESOLVED_PLACEHOLDER_KEYS` fa lavoro all'import del modulo** | `src/lib/server/document-placeholders.ts` esegue `buildPlaceholderValues` su oggetti vuoti al caricamento, per ricavare un elenco di chiavi statiche che serve a un test di contratto. Va sostituito con un elenco dichiarato |
+| AUD-08 | **Il parser dei segnaposto e ancora doppio** | Il **catalogo** e uno solo (`src/lib/documents/placeholders.ts`), ma `DocumentEditor` conserva una propria `PLACEHOLDER_PATTERN` con una classe di caratteri diversa (`[^}]+?` invece di `[^{}]+?`). Due grammatiche per la stessa sintassi: divergono su un modello con parentesi graffe annidate |

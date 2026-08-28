@@ -4089,3 +4089,333 @@ sarebbe una fuga a meta. Va detto in schermata, e resta fra le voci aperte di
 [16](16-technical-debt.md).
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0078 — Il sollecito rivendica il destinatario prima di scrivergli, e la traccia vive sulla rata
+
+> Numerazione provvisoria: il workstream W1-F e stato sviluppato in parallelo,
+> chi integra rinumera
+> ([ADR-0041](#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)).
+
+**Contesto.** Il sollecito degli insoluti e un'azione **di massa** che raggiunge
+persone reali fuori dal prodotto. Tre domande andavano decise prima di scrivere
+il codice, e nessuna ha una risposta ovvia.
+
+1. **Dove sta la difesa contro il doppione.** Il sollecito sui documenti legge
+   `lastReminderAt` sul documento e rifiuta un secondo invio entro sei ore. E una
+   lettura seguita da una scrittura: due richieste ravvicinate — il doppio clic,
+   il reinvio di una richiesta lenta — la superano entrambe. Su un documento
+   significa un promemoria doppio; su un invio massivo significa scrivere due
+   volte a tutte le famiglie di un club.
+2. **Che cosa identifica un destinatario.** Un tutore con un account ha un id.
+   Un tutore senza account no, ed e proprio quello che questo modulo esiste per
+   raggiungere.
+3. **Dove resta la traccia**, dato che l'unica cosa che il committente chiede e
+   «su ogni rata resta la data dell'ultimo sollecito».
+
+**Decisione.**
+
+**La difesa e una rivendicazione scritta, non un controllo.** Prima di mandare
+qualunque messaggio, `sendPaymentReminders` apre una transazione, blocca la riga
+dell'atleta (`SELECT … FOR UPDATE`, in ordine di identificativo crescente come
+gia fa il registro incassi), rilegge le rivendicazioni, scrive quelle nuove e
+**chiude subito**. Le email partono dopo, fuori dalla transazione: tenere delle
+righe bloccate per la durata di un dialogo SMTP e il modo piu semplice di
+fermare un club intero. Una seconda richiesta trova la rivendicazione e risponde
+`skipped: already_reminded`.
+
+**Il destinatario e l'indirizzo email**, non l'account: `athletes.data
+.paymentReminders` e una mappa `indirizzo → istante`. Un tutore senza account ha
+comunque una chiave stabile, ed e la stessa cosa che il messaggio raggiunge.
+
+**La traccia sta in due posti, e sono due cose diverse.** Sulla **rata**
+(`payments.data.lastReminderAt`) resta la data dell'ultimo sollecito, che e cio
+che la segreteria guarda: e la stessa forma del sollecito sui documenti, quindi
+non introduce un secondo modo di dire la stessa cosa. Sull'**atleta** resta la
+rivendicazione per destinatario, che serve al meccanismo e non alla lettura.
+Nessuna colonna nuova, nessuna migrazione, nessuna tabella di storico degli
+invii: per un'azione manuale di Wave 1 sarebbe stata infrastruttura in anticipo
+sul bisogno.
+
+**Un fallimento toglie la rivendicazione.** Se SMTP rifiuta la consegna, quel
+destinatario torna sollecitabile subito: la finestra di riguardo esiste per non
+ripetersi, non per punire un guasto. E se SMTP non e configurato affatto, non si
+rivendica e non si scrive **niente** — ogni destinatario risulta `failed` con il
+motivo. «Inviato» deve significare inviato.
+
+**Il rifiuto a partire riguarda solo chi non si potrebbe raggiungere mai.**
+Nessun tutore, nessun indirizzo, nessun account: li l'azione non parte e la
+schermata dice perche. Chi e soltanto dentro la finestra di riguardo **non** fa
+fallire l'operazione: quello e il doppio clic, e rispondergli con un errore
+trasformerebbe una ripetizione innocua in un guasto.
+
+**Conseguenze.**
+
+- Due richieste HTTP ravvicinate producono **un** messaggio per destinatario, e
+  la seconda lo dice invece di tacere.
+- «Quante volte questa famiglia e stata sollecitata quest'anno» non e
+  rispondibile senza leggere l'audit log: resta l'**ultima** data. Registrato
+  come SOLL-05 in [16](16-technical-debt.md).
+- Una vista «da risollecitare» non e ordinabile in SQL finche la data vive in
+  `payments.data` (SOLL-04).
+- Il residuo, le rate scadute e la prossima scadenza si leggono da
+  `buildInstallmentLedgers`: il sollecito **non** e una terza interpretazione
+  del denaro ([ADR-0068](#adr-0068--le-entrate-sono-cassa-il-denaro-incassato-non-si-deduce-dallo-stato-della-rata)).
+- Nessun link di pagamento nel messaggio: richiede un link firmato a scadenza,
+  che e un pezzo di sicurezza a se ed e Wave 2.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0079 — Il risolutore dei segnaposto e l'unica capability nuova della Wave 1, e accetta quattro vincoli per restarlo
+
+> Numerazione provvisoria: il workstream W1-G e stato sviluppato in parallelo,
+> chi integra rinumera
+> ([ADR-0041](#adr-0041--numerazione-e-fine-riga-quando-piu-workstream-lavorano-in-parallelo)).
+
+**Contesto.** Ogni anno ogni famiglia chiede al club un foglio che attesti
+quanto ha pagato e che il figlio ha frequentato: serve per i bandi, per il
+datore di lavoro, per il 730. Oggi la segreteria lo scrive a mano, uno per uno,
+copiando gli importi da una schermata.
+
+Il pezzo che manca non era ne il catalogo ne la stampa: c'erano **entrambi**.
+Il catalogo dei segnaposto era gia scritto e gia raggruppato dentro
+`DocumentEditor`, `{{payment.total_paid}}` compreso. La generazione passava —
+e passa ancora — da `renderBlankTemplateForPdf`, che sostituisce **ogni**
+segnaposto con `<span class="blank-field"></span>`, e lo fa anche quando un
+atleta e stato selezionato.
+
+> In una frase: EasyGame stampava il modulo vuoto. Il dato ce l'aveva, e non lo
+> metteva dentro.
+
+Mancava chi risolve. Nulla in EasyGame risolveva un segnaposto contro i dati di
+una persona: l'unico consumatore esistente li **cancellava**, di proposito.
+Delle dodici cose che la Wave 1 accende, questa e l'unica che non estende un
+dominio esistente — ed e per questo che va scritta con dei paletti addosso, o
+diventa il secondo sistema documentale di EasyGame.
+
+**Decisione.** Si scrive il risolutore
+(`src/lib/server/document-placeholders.ts`), e accetta quattro vincoli.
+
+**1. Il catalogo e uno solo, chiuso, e sta fuori da entrambi i consumatori.**
+`src/lib/documents/placeholders.ts` — modulo client-safe — porta l'elenco, e lo
+importano sia `DocumentEditor` (che lo propone a chi scrive un modello) sia il
+risolutore (che lo risolve). **Due elenchi che divergono sarebbero peggio di
+nessun elenco**: l'editor prometterebbe un dato e il documento stamperebbe un
+campo vuoto, e nessuno saprebbe dire quale dei due ha ragione. Un test di
+contratto (`tests/lib/document-placeholder-catalog.test.mjs`) verifica che in
+tutto `src/` non ne esista un secondo, ne un secondo risolutore.
+
+**2. Legge, non calcola.** Gli importi vengono da `buildInstallmentLedgers` +
+`summarizeLedgers`, cioe dal registro incassi:
+`{{payment.total_paid}}` e il **denaro entrato**, non il dovuto di una rata
+marcata pagata ([ADR-0068](#adr-0068--le-entrate-sono-cassa-il-denaro-incassato-non-si-deduce-dallo-stato-della-rata)).
+La frequenza viene da `measureAttendanceByPeriod`, la stessa che misura i bandi
+([ADR-0037](18-decision-log.md)), su un periodo solo — la stagione: attestare
+un numero di ore e rendicontarne un altro allo stesso ente sarebbe un club che
+si contraddice da solo. L'intestatario viene da `resolveFiscalRecipient`, che
+sa gia che la detrazione la chiede il genitore e non il bambino. Nessuna
+formula nuova nasce qui.
+
+**3. Il documento non mente e non inventa.** Un segnaposto fuori catalogo resta
+un campo bianco **ed e elencato** (`unresolved`); un dato che manca resta bianco
+**ed e elencato** (`missing`); firma e timbro che il club non ha caricato
+producono un avviso **prima** di generare, non un documento che sembra firmato.
+L'anteprima li mostra tutti e tre prima della stampa. Non esiste un percorso in
+cui il foglio esca con «undefined» o con un numero verosimile e falso. Ogni
+valore che viene da un'anagrafica passa da `escapeHtml`: un cognome scritto
+`<script>…` e un cognome, non codice.
+
+**4. Non sostituisce `renderBlankTemplateForPdf`: le si affianca.** Il modulo da
+compilare a mano resta la cosa giusta per una liberatoria che qualcuno deve
+firmare in segreteria, e resta il comportamento predefinito di «Genera vuoto».
+La seconda azione, «Genera compilato», si abilita solo quando un atleta e
+selezionato. Un test verifica che la strada vecchia esista ancora e continui a
+svuotare i segnaposto: «sostituire cio che sembrava rotto» e l'errore piu
+naturale del mondo.
+
+**Perche una rotta e non una funzione nel browser.** Il risolutore legge il
+registro incassi, le presenze e un allegato del club. Farlo nel client vorrebbe
+dire spedire al browser l'intero storico economico di un atleta per stampare
+una riga, e riscrivere li la formula della cassa — che e esattamente il debito
+D1 che EasyGame sta riducendo. `GET /api/v1/documents/filled` risponde JSON
+perche la risposta porta la pagina **insieme** a cio che non e stato riempito;
+`?format=html` restituisce la sola pagina.
+
+**Il modello e uno.** «Attestazione di pagamento e frequenza»
+(`src/lib/documents/attestation-template.ts`), seminato per il club dal
+pulsante che compare finche il club non ce l'ha, e che passa dalla creazione di
+sempre: appena creato e una bozza come le altre, modificabile e cancellabile.
+Non si apre la libreria dei 77 modelli di Golee — e presidio **redazionale**
+permanente, non sviluppo, e va deciso con una persona che lo mantenga (Wave 3).
+
+**Perche il seme non e una migrazione.** Scrivere il modello dentro
+`clubs.document_templates` di **tutti** i club sarebbe un `UPDATE` massivo su
+una colonna JSON — cioe l'operazione che `CLAUDE.md` §8 mette sotto
+autorizzazione esplicita — per dare a ogni societa un documento che non ha
+chiesto. Il pulsante lo mette dove serve, quando serve, e chi non lo vuole non
+se lo trova.
+
+**Conseguenze.**
+
+- Esiste un identificativo riservato fra i `document_templates`:
+  `attestazione-pagamento-frequenza`. Non e un tipo speciale — il risolutore
+  non lo conosce e non lo tratta diversamente — e solo la chiave con cui la
+  pagina sa se il club ce l'ha gia.
+- `payments` **non porta una stagione** (non e fra i `SEASON_SCOPED_DATA_TYPES`):
+  il perimetro dell'attestazione si ricava dalla data di scadenza della rata, e
+  una rata **senza** data resta dentro — e un dato anteriore alle stagioni, ed
+  escluderlo farebbe sparire versamenti realmente avvenuti dal foglio che serve
+  a dimostrarli. Registrato come DOC-01 in [16](16-technical-debt.md).
+- Le chiavi del catalogo che riguardano staff, allenatori, soci, sponsor e
+  certificati **non** vengono risolte: in un documento intestato a un atleta non
+  hanno un soggetto a cui riferirsi. Se un modello le usa finiscono in
+  `unresolved`, che e la risposta onesta.
+- Niente stampa massiva (G-43), niente dichiarazione 730 (G-13, richiede la
+  causale con la detraibilita che in Wave 1 non esiste), niente firma digitale
+  ne `.p7m`. Tutti e tre Wave 3.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0080 — La bandiera «primaria» dell'appartenenza si sposta con il riporto, e la riga vecchia resta
+
+**Contesto.** Il riporto di stagione della Wave 1 clona le appartenenze
+`athlete_category_memberships` dalla stagione di origine a quella nuova,
+rimappando `category_id` con l'`idMap` gia costruito dal piano.
+
+Il piano della Wave (§10.1 punto 4 di [31](31-wave-1-planning.md)) chiedeva che
+**nessuna appartenenza della stagione di origine venisse alterata**. La base
+dati dice che alla lettera non si puo: l'indice unico parziale
+`athlete_category_memberships_single_primary_per_athlete`
+(`prisma/migrations/20260409113000_athlete_category_memberships/migration.sql:32`)
+ammette **una sola appartenenza primaria per atleta per club** — non una per
+stagione. Clonare una primaria lasciando primaria anche l'originale e una
+scrittura che Postgres rifiuta.
+
+Non e un limite accidentale. `is_primary` e la colonna da cui si ricava
+`athletes.category_id`, cioe cio che la scheda dell'atleta mostra: e la
+risposta alla domanda «in che squadra e questo ragazzo **adesso**», e adesso ce
+n'e una sola.
+
+**Decisione.** Riportare un tesserato **sposta** la bandiera primaria sulla riga
+nuova e la toglie da quella vecchia, nella stessa transazione e in quest'ordine
+(prima si azzera, poi si inserisce: al contrario l'indice rifiuterebbe la riga).
+Contestualmente si riallinea `athletes.category_id` sulla categoria nuova, per
+categoria e non per atleta — duecento tesserati non devono diventare duecento
+aggiornamenti.
+
+La riga della stagione precedente **resta**, con la sua categoria, la sua sede e
+la sua data: cambia solo che non e piu la squadra corrente. Chi **non** viene
+riconfermato non viene toccato affatto, e la sua appartenenza resta primaria.
+
+**Conseguenze.**
+- Lo scenario 4 della UAT si legge cosi: *nessuna appartenenza di origine
+  cancellata, nessuna rimappata*, e la sola bandiera si sposta. E cosi che il
+  collaudo lo verifica (`scripts/season-rollover-uat.mjs`), insieme al controllo
+  che nessun atleta finisca con due primarie.
+- Lo storico sportivo resta leggibile: le appartenenze passate si ritrovano
+  tutte, e riattivando la stagione di origine l'elenco per categoria risponde
+  come prima.
+- Chi legge `is_primary` per sapere «dove gioca oggi» continua a funzionare
+  senza sapere niente delle stagioni.
+- `tests/helpers/fake-prisma.mjs` dichiara l'indice parziale, altrimenti il test
+  del riporto passerebbe descrivendo un database che rifiuterebbe la scrittura.
+
+**Alternative scartate.**
+- *Clonare con `is_primary: false`.* Rispetta la lettera del piano e tradisce
+  il suo scopo: la scheda dell'atleta continuerebbe a mostrare la categoria
+  archiviata, che e meta del difetto G-01.
+- *Rendere l'indice unico per stagione.* Le appartenenze non hanno una colonna
+  `season_id` — la stagionalita passa per la categoria — e aggiungerla vorrebbe
+  dire una migrazione e un secondo posto in cui la stagione di una riga si puo
+  contraddire.
+- *Promuovere `athletes.category_id` a fonte.* E la doppia sorgente che il
+  prodotto sta riducendo, non una da consolidare.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0081 — Cambiare stagione ha un permesso proprio, con il perimetro di prima
+
+**Contesto.** Cambiare la stagione attiva riscrive il perimetro di **tutto** cio
+che il club vede: quali categorie esistono, quali squadre, quali quote, quali
+allenamenti. Fino alla Wave 1 l'operazione era indistinguibile da «modificare la
+configurazione del club» — la governava `canManageClubConfiguration`, la stessa
+funzione che decide chi puo cambiare il numero di telefono in anagrafica.
+
+Il confronto con Golee (gap AU-7) ha reso evidente che li e una chiave a se,
+`organization:change-season`. La domanda non era «copiamo?» ma «l'operazione
+merita una decisione propria?». Merita.
+
+**Decisione.** Un permesso di dominio `seasons.change` in
+`src/lib/seasons/permissions.ts`, sul modello gia collaudato dei cinque permessi
+del lavoro sportivo: default negato, **nessun ruolo nuovo**, diniego tracciato.
+Il perimetro **non cambia**: proprietario e gestore, esattamente chi poteva
+prima. Le rotte `/api/v1/seasons/**` passano da `hasSeasonPermission` invece che
+da `canManageClubConfiguration`, e il diniego finisce in `audit_logs` con
+`permission: "seasons.change"` accanto al metodo e al percorso.
+
+**Conseguenze.**
+- La decisione diventa **esplicita e spostabile**: il giorno in cui un club
+  chiedera che il gestore non apra la stagione da solo, si cambia una riga qui
+  invece di cercare tutte le rotte che chiamano una funzione generica.
+- Chi legge `audit_logs` sa **cosa** e stato negato, non solo che qualcosa lo e
+  stato.
+- Nessuno perde accesso oggi, e il collaudo lo verifica su tutti i ruoli.
+
+**Alternative scartate.**
+- *Le ~90 chiavi di Golee.* EasyGame ha sette ruoli usabili, non una matrice di
+  novanta caselle. Il modello dei permessi si apre quando serve davvero — e
+  servira sul dato clinico (G-33, Wave 5).
+- *Un permesso `seasons.read` gemello.* Leggere l'elenco e cambiarlo hanno oggi
+  lo stesso perimetro: sarebbe una chiave in piu senza una decisione in piu.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0082 — Un allegato del club e configurazione del club
+
+**Contesto.** La Wave 1 ha messo la firma del presidente e il timbro della
+societa dentro Attachment Core, con `owner_type: "club"` — un valore che il
+contratto dichiarava gia e che nessuno usava.
+
+L'audit di fine Wave ha trovato che non bastava (FIRMA-01). Le rotte
+`/api/v1/attachments/**` autorizzano su **sessione e appartenenza al club**, e
+non hanno alcun controllo di ruolo: qualunque membro — un collaboratore, un
+membro dello staff — poteva chiamare
+`GET /api/v1/attachments?owner_type=club&owner_id=<club>`, leggere l'id della
+firma e **sostituirla o cancellarla** dalla rotta generica, scavalcando il gate
+che la sua schermata applica. Su un'immagine che finisce dentro i documenti che
+la societa emette non e un dettaglio.
+
+**Decisione.** Le rotte allegati riconoscono una sola regola nuova: un allegato
+con `owner_type: "club"` **e** configurazione del club, e la sua scrittura —
+creazione, sostituzione, cancellazione — passa da `canManageClubConfiguration`.
+La **lettura** resta a chi appartiene al club: serve all'anteprima e ai documenti
+che stampa anche la segreteria.
+
+**Conseguenze.**
+- Nessun permission system dedicato alla firma, che e esattamente cio che il §7
+  del planning aveva deciso di non copiare da Golee: si riusa il permesso che
+  gia governa la configurazione.
+- Gli allegati delle persone — atleti, allenatori, staff, tutori, rapporti di
+  lavoro — **non cambiano perimetro**: la regola guarda solo `owner_type`.
+- La guardia sta nelle rotte e non nel servizio: `src/lib/server/attachments.ts`
+  non conosce i ruoli, e continua a non conoscerli.
+- Un test di contratto verifica che la guardia ci sia su creazione, sostituzione
+  e cancellazione, e che **non** ci sia sulla lettura.
+
+**Alternative scartate.**
+- *Un permesso per `owner_type`.* Sarebbe la matrice di permessi che EasyGame
+  non ha e non vuole ancora. Quando servira, questa regola sara il primo caso di
+  cui tenere conto.
+- *Proteggere solo le categorie `president_*`.* Difende la firma di oggi e non
+  il prossimo allegato di club che qualcuno aggiungera.
+
+**Stato:** ATTIVA.

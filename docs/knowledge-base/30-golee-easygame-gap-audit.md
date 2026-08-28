@@ -570,6 +570,35 @@ Effort: `S` · `M` · `L` · `XL`.
 
 ---
 
+### 4.5 Stato dopo la Wave 1
+
+> Aggiornato il 2026-08-28, dopo l'esecuzione della
+> [Wave 1](32-wave-1-implementation-uat.md). **Uno stato `CLOSED` qui significa
+> che esiste una prova a runtime che lo chiude**, non che esiste il codice: il
+> §1.4 del planning [31](31-wave-1-planning.md) spiega perche la distinzione
+> conta, e il §4 del [32](32-wave-1-implementation-uat.md) porta le prove.
+
+| Gap | Prima | Dopo | Prova |
+|---|---|---|---|
+| **G-01** — riconferma dei tesserati | OPEN | **CLOSED** | `scripts/season-rollover-uat.mjs`, 43/43: 180 riconfermati nella categoria giusta con la sede invariata, 20 fuori e intatti, `GET /athletes?category_id=<nuova>` risponde 180 dove prima rispondeva 0, secondo riporto a zero creazioni |
+| **G-19** — il report Pagamenti conta le rate | OPEN | **CLOSED** | `scripts/wave-1-cash-cron-uat.mjs`, 28/28, piu la verifica a schermo: `/reports` «Pagato 720,00 €» e `/movements` «Entrate 720,00 €» sullo stesso club |
+| **G-21** — le funzioni periodiche non girano | OPEN | **CLOSED** | Quattro voci `crons`; il giro dei certificati genera due promemoria e la seconda esecuzione zero; il giro degli allenamenti ne genera tre e la seconda esecuzione zero; la manutenzione gira e riporta cinque passi |
+| **G-26** — export solo in PDF | OPEN | **CLOSED** | CSV su atleti, allenatori, staff e soci con le stesse colonne e gli stessi ambiti del PDF; 15 test sul tracciato, accenti e apostrofi compresi |
+| **G-51** — firma e timbro del presidente | OPEN | **CLOSED** | Caricabili, sostituibili, rimovibili, non pubblici, e leggibili dal generatore documentale (`readClubSignatureImage`) |
+| **AU-7** — il cambio stagione non ha un permesso | OPEN | **CLOSED** | `seasons.change` in `src/lib/seasons/permissions.ts`, perimetro invariato, diniego dell'allenatore verificato a runtime con la traccia in `audit_logs` |
+| **G-07** — comunicazione massiva | OPEN | **PARTIAL** | Il sollecito insoluti ne e il primo pezzo. Restano segmentazione, bacheca e contenuto configurabile |
+| **G-15** — documento arricchito | OPEN | **PARTIAL** | Il risolutore esiste e un modello lo usa. Resta il catalogo (G-14, Wave 3) |
+| **G-02** — ambiente di produzione | OPEN | **OPEN** | Fuori dal codice: resta il blocker esterno X-1 |
+| **G-06**, **G-03/04/05**, **G-13**, **G-14**, **G-43** | OPEN | **OPEN** | Wave 2, 3 e 4 come previsto |
+| **AU-1** — «da verificare a runtime» | OPEN | **CHIUSO COME G-01** | Verificato al §1 del [31](31-wave-1-planning.md) e risolto dalla Wave |
+| **C-017**, **C-020**, **C-074/075/077**, **C-097**, **C-158**, **C-159** | NO ACTION | **NO ACTION** | Gia superiori. La Wave le estende senza cambiarne il verdetto: il riporto **conferma** le sedi invece di duplicarle, e la responsivita non e peggiorata (§6 del [32](32-wave-1-implementation-uat.md)) |
+
+**Effetto sui totali:** `EG-` da 48 a **44**, `EG~` da 41 a **40**. Le voci
+totali restano **189**: una Wave non aggiunge capability al confronto, ne
+chiude.
+
+---
+
 ## 5 — Le 6 differenze respinte (non sono gap)
 
 Golee e avanti, ma la differenza **non supera il test del §1.4** e **non genera

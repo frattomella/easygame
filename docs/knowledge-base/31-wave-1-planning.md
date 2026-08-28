@@ -3,8 +3,11 @@
 **Data:** 2026-08-28
 **Baseline:** `integration/web-v1` @ `8274544`
 **Origine:** i gap di Wave 1 di [30 — Gap audit](30-golee-easygame-gap-audit.md)
-**Stato:** **PLANNING**. Nessuna riga di codice, nessuna migrazione, nessuno
-schema, nessun workstream avviato.
+**Stato:** **ESEGUITO**. Questo documento resta il **contratto** della Wave e
+non e stato riscritto a posteriori: cio che e stato costruito davvero, i tre
+scostamenti dal piano e le prove che li reggono stanno in
+[32 — Wave 1: implementazione e collaudo](32-wave-1-implementation-uat.md).
+Quando questo documento e stato scritto non esisteva ancora una riga di codice.
 
 > **Cosa e stato fatto per scrivere questo documento:** una verifica a runtime
 > su un club QA creato e distrutto sul **database di sviluppo**, piu la lettura

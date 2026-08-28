@@ -42,6 +42,7 @@ comportamenti desiderati o pianificati.
 | 29 | [Lavoro sportivo: implementazione e UAT](29-lavoro-sportivo-implementazione-uat.md) | Il dominio costruito sull'analisi 28, e il collaudo a runtime che ha trovato due difetti che duemila test verdi non vedevano |
 | 30 | [Golee vs EasyGame: gap audit](30-golee-easygame-gap-audit.md) | Il confronto competitivo e funzionale con Golee: 189 capability, dove EasyGame e gia avanti, i 72 gap che valgono davvero, e cosa **non** va copiato |
 | 31 | [Wave 1: planning esecutivo](31-wave-1-planning.md) | Il piano della prima wave: i nove gap riesaminati, la verifica a runtime che ha confermato il difetto del cambio stagione, i due soli blocker veri, sette workstream e l'ordine in cui unirli |
+| 32 | [Wave 1: implementazione e collaudo](32-wave-1-implementation-uat.md) | Cosa e stato costruito davvero sui sette workstream, i 101 controlli a runtime che lo provano, i tre scostamenti dal piano e i cinque bug trovati strada facendo |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)
