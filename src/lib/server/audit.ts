@@ -63,6 +63,13 @@ export const AUDIT_ACTIONS = {
   paymentRefundRequested: "payment.refund.requested",
   paymentRefundCompleted: "payment.refund.completed",
   paymentRefundFailed: "payment.refund.failed",
+  /*
+    Il sollecito degli insoluti (W1-F). Raggiunge persone reali fuori dal
+    prodotto: «a chi e stato scritto, quando, e da chi» e una domanda che
+    arriva dalla famiglia che dice di non aver ricevuto niente, e la rata da
+    sola non la risponde perche porta solo l'ultima data.
+  */
+  paymentRemindersSent: "payment.reminder.sent",
   documentIssued: "document.issued",
   /*
     Contributi da enti: la maturazione e un calcolo e non si traccia, ma

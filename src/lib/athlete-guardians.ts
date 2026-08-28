@@ -137,6 +137,76 @@ export const normalizeGuardianRows = (
         .replace(/^-+|-+$/g, "")}`,
   }));
 
+/**
+ * Un tutore visto come **recapito**: chi e, dove lo si raggiunge, e se ha un
+ * account.
+ *
+ * **Perche esiste** (W1-F). Chi deve mandare qualcosa a una famiglia partiva
+ * finora da `getParentUserIds`, che elenca i soli tutori **con un account
+ * collegato**: le famiglie senza account uscivano dall'elenco senza comparire
+ * da nessuna parte, e l'operazione si dichiarava riuscita lo stesso. Un
+ * indirizzo email in anagrafica c'e anche senza account, ed e il recapito che
+ * quelle famiglie hanno davvero.
+ *
+ * `email` vuota e `linkedUserId` vuoto sono due assenze diverse e vanno
+ * distinte da chi legge: la prima dice «non so dove scrivergli», la seconda
+ * dice «non ha un posto dove leggere in applicazione».
+ */
+export type AthleteGuardianContact = {
+  /** Stabile: nasce dal dato, non da un contatore. */
+  id: string;
+  name: string;
+  /** Normalizzata in minuscolo. Vuota quando l'anagrafica non ne porta una. */
+  email: string;
+  /** L'account collegato dichiarato in anagrafica. Vuoto quando non c'e. */
+  linkedUserId: string;
+};
+
+const GUARDIAN_EMAIL_KEYS = ["email", "linkedUserEmail", "linked_user_email"];
+
+const GUARDIAN_ACCOUNT_KEYS = [
+  "linkedUserId",
+  "linked_user_id",
+  "userId",
+  "user_id",
+];
+
+/**
+ * I tutori di un atleta, nelle **due forme che convivono in archivio**:
+ * l'elenco `guardians` e la coppia storica `parent1` / `parent2`.
+ *
+ * L'elenco vince quando c'e: le due forme non si sommano, perche
+ * un'anagrafica migrata porta gli stessi due tutori in entrambe e sommarle
+ * scriverebbe due volte alla stessa persona.
+ */
+export const readAthleteGuardianContacts = (
+  athlete: GuardianLike | null | undefined,
+): AthleteGuardianContact[] => {
+  const data =
+    athlete && typeof athlete === "object" && athlete.data ? athlete.data : {};
+  const record = data && typeof data === "object" ? (data as GuardianLike) : {};
+
+  const listed = Array.isArray(record.guardians) ? record.guardians : [];
+  const legacy = [record.parent1, record.parent2].filter(
+    (value) => value && typeof value === "object",
+  ) as GuardianLike[];
+
+  const rows = listed.length > 0 ? listed : legacy;
+
+  return normalizeGuardianRows(rows, String(athlete?.id || "senza-atleta")).map(
+    (guardian) => ({
+      id: String(guardian.id),
+      name: getGuardianDisplayName(guardian),
+      email: String(firstValue(guardian, GUARDIAN_EMAIL_KEYS) || "")
+        .trim()
+        .toLowerCase(),
+      linkedUserId: String(
+        firstValue(guardian, GUARDIAN_ACCOUNT_KEYS) || "",
+      ).trim(),
+    }),
+  );
+};
+
 export type GuardianAccessState =
   | "linked"
   | "token-active"

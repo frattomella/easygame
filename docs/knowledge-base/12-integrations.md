@@ -39,6 +39,25 @@ Campi: `host`, `port`, `security_mode` (`starttls` | `tls` | `none`),
 - La configurazione e **per database**: staging e produzione ne hanno una
   ciascuno.
 
+**Le email che EasyGame manda, e da dove.** Tutte da `src/lib/server/email/`,
+che e l'unico punto di invio (CLAUDE.md §2). Oltre a verifica indirizzo,
+recupero password e «hai una nuova notifica» (`sendNotificationEmails`),
+esiste dal 2026-08-28 il **sollecito di pagamento**
+(`sendPaymentReminderEmail`, W1-F): ha un contenuto proprio — importo ancora
+da versare, rate scadute, prossima scadenza — perche un messaggio che dice solo
+«accedi per vedere» chiede alla famiglia di fare un giro per una cosa che si
+scrive in una riga, e chi non ha un account non potrebbe nemmeno farlo.
+
+**Non contiene link di pagamento**, di proposito: servirebbe un link firmato a
+scadenza, che e un pezzo di sicurezza a se ed e Wave 2. Non esiste nessun
+canale SMS o push per i solleciti.
+
+**Quando SMTP non e configurato il sollecito non mente.**
+`sendTransactionalEmail` restituisce `{status: "skipped", reason:
+"not_configured"}` invece di sollevare, e il dominio dei solleciti lo traduce
+in `failed: email_not_configured` **per destinatario** — non in un conteggio
+di invii riusciti.
+
 ## IMAP — casella in entrata, opzionale (Blocco 4)
 
 Codice: `src/lib/email/imap-config.ts`, `src/lib/server/email/imap-service.ts`,

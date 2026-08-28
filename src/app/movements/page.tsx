@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -22,6 +22,13 @@ import {
 } from "@/components/accounting/BankAccountList";
 import { MovementDetailPanel } from "@/components/accounting/MovementDetailPanel";
 import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
+import { PaymentReminderDialog } from "@/components/payments/PaymentReminderDialog";
+import {
+  BulkSelectionToolbar,
+  SelectAllCheckbox,
+  SelectRowCheckbox,
+  useListSelection,
+} from "@/components/ui/list-selection";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { apiRequest } from "@/lib/api/client";
@@ -49,6 +56,7 @@ import {
   Edit,
   Eye,
   FileText,
+  Mail,
   Plus,
   Receipt,
   Search,
@@ -257,6 +265,20 @@ const isPendingStatus = (status?: string) =>
  */
 const isPartiallyCollected = (movement: NormalizedClubMovement) =>
   movement.collectedAmount > 0 && movement.collectedAmount < movement.amount;
+
+/**
+ * Vero quando la riga e una **rata di un atleta**, cioe l'unica cosa che si
+ * puo sollecitare (W1-F).
+ *
+ * `sourceTable` conta quanto `source`: una riga di `simplified_payments`
+ * appartiene anche lei a un atleta ma non e una riga di `payments`, e il suo
+ * identificativo il servizio dei solleciti lo rifiuterebbe. Una previsione
+ * scritta a mano non ha nemmeno un debitore.
+ */
+const isRemindableMovement = (movement: NormalizedClubMovement) =>
+  movement.source === "athlete" &&
+  movement.sourceTable === "payments" &&
+  Boolean(movement.paymentId);
 
 const statusLabel = (status?: string) => {
   const normalized = String(status || "").toLowerCase();
@@ -572,6 +594,50 @@ export default function MovementsPage() {
   );
 
   const totals = useMemo(() => summarizeClubMovements(movementRows), [movementRows]);
+
+  /*
+    Sollecito degli insoluti (W1-F). Si puo sollecitare **solo** una rata vera
+    di un atleta: una riga di `simplified_payments`, una previsione scritta a
+    mano o un movimento di cassa non hanno un debitore a cui scrivere, e
+    offrire la casella su quelle righe prometterebbe qualcosa che il server
+    rifiuterebbe con «Accesso negato».
+  */
+  const remindableMovements = useMemo(
+    () =>
+      filteredExpectedMovements.filter(isRemindableMovement),
+    [filteredExpectedMovements],
+  );
+
+  const remindableIds = useMemo(
+    () => remindableMovements.map((movement) => String(movement.paymentId)),
+    [remindableMovements],
+  );
+
+  const reminderSelection = useListSelection();
+  const [showReminderDialog, setShowReminderDialog] = useState(false);
+
+  /*
+    Una selezione che tiene l'id di una rata sparita dopo una rilettura
+    mostrerebbe un conteggio che non corrisponde a niente, e l'invio
+    fallirebbe senza spiegazioni.
+
+    La potatura passa da un riferimento e non dalle dipendenze dell'effetto:
+    `useListSelection` restituisce un oggetto nuovo a ogni cambio di
+    selezione, e metterlo fra le dipendenze farebbe rientrare l'effetto nel
+    proprio risultato — un ciclo infinito, non una potatura.
+  */
+  const reminderSelectionRef = useRef(reminderSelection);
+  useEffect(() => {
+    reminderSelectionRef.current = reminderSelection;
+  }, [reminderSelection]);
+  useEffect(() => {
+    reminderSelectionRef.current.prune(remindableIds);
+  }, [remindableIds]);
+
+  const selectedReminderIds = useMemo(
+    () => remindableIds.filter((id) => reminderSelection.isSelected(id)),
+    [remindableIds, reminderSelection],
+  );
 
   const resetNewTransaction = () => {
     setNewTransaction({
@@ -1704,10 +1770,33 @@ export default function MovementsPage() {
                       </Button>
                     </div>
 
+                    <BulkSelectionToolbar
+                      className="mb-3"
+                      selection={reminderSelection}
+                      nouns={{ one: "rata", many: "rate" }}
+                    >
+                      <Button
+                        size="sm"
+                        className="h-8"
+                        disabled={selectedReminderIds.length === 0}
+                        onClick={() => setShowReminderDialog(true)}
+                      >
+                        <Mail className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                        Sollecita
+                      </Button>
+                    </BulkSelectionToolbar>
+
                     <div className="overflow-x-auto rounded-md border">
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead className="w-10">
+                              <SelectAllCheckbox
+                                selection={reminderSelection}
+                                ids={remindableIds}
+                                label="le rate degli atleti in elenco"
+                              />
+                            </TableHead>
                             <TableHead>Data</TableHead>
                             <TableHead>Importo</TableHead>
                             <TableHead>Descrizione</TableHead>
@@ -1721,7 +1810,7 @@ export default function MovementsPage() {
                         <TableBody>
                           {filteredExpectedMovements.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={8} className="py-6 text-center">
+                              <TableCell colSpan={9} className="py-6 text-center">
                                 Nessun previsto trovato
                               </TableCell>
                             </TableRow>
@@ -1760,6 +1849,18 @@ export default function MovementsPage() {
                                   className="cursor-pointer"
                                   onClick={() => openMovementDetail(movement)}
                                 >
+                                  <TableCell
+                                    className="w-10"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    {isRemindableMovement(movement) ? (
+                                      <SelectRowCheckbox
+                                        selection={reminderSelection}
+                                        id={String(movement.paymentId)}
+                                        label={`la rata di ${movement.subjectName || movement.description || "un atleta"}`}
+                                      />
+                                    ) : null}
+                                  </TableCell>
                                   <TableCell className="whitespace-nowrap">
                                     {formatDate(getMovementDate(movement))}
                                   </TableCell>
@@ -2225,6 +2326,16 @@ export default function MovementsPage() {
               />
             ) : null
           }
+        />
+
+        <PaymentReminderDialog
+          open={showReminderDialog}
+          onOpenChange={setShowReminderDialog}
+          chargeIds={selectedReminderIds}
+          onSent={() => {
+            reminderSelection.clear();
+            void loadData();
+          }}
         />
       </div>
     </TooltipProvider>

@@ -200,6 +200,122 @@ export const testSmtpDelivery = async (to: string) => {
   }
 };
 
+/**
+ * Il contenuto del sollecito di pagamento (W1-F).
+ *
+ * **Perche una email propria e non `sendNotificationEmails`.** Quella dice
+ * «hai una nuova notifica» e chiede di accedere: e corretta quando il
+ * contenuto e riservato e vive dentro l'applicazione. Un sollecito che non
+ * dice **quanto** e **entro quando** costringe la famiglia ad accedere per
+ * scoprire una cosa che si scrive in una riga, e chi non ha un account non
+ * puo nemmeno farlo.
+ *
+ * **Cosa non contiene, di proposito.** Nessun link di pagamento: richiede un
+ * link firmato a scadenza, che e un pezzo di sicurezza a se ed e Wave 2
+ * (PP-4). Nessun dato oltre al minimo che serve a riconoscere la posizione:
+ * nome dell'atleta, residuo, rate scadute, prossima scadenza.
+ */
+export type PaymentReminderEmailContent = {
+  to: string;
+  clubName: string;
+  athleteName: string;
+  guardianName: string;
+  /** Quanto resta da incassare, in euro. */
+  residualAmount: number;
+  overdueCount: number;
+  /** ISO, oppure `null` quando tutte le rate sollecitate sono gia scadute. */
+  nextDueDate: string | null;
+};
+
+const euroFormatter = new Intl.NumberFormat("it-IT", {
+  style: "currency",
+  currency: "EUR",
+});
+
+const formatItalianDate = (value: string | null) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toLocaleDateString("it-IT");
+};
+
+/** Le righe del sollecito, in un posto solo: le usano testo e HTML. */
+export const buildPaymentReminderLines = (
+  content: PaymentReminderEmailContent,
+) => {
+  const lines = [
+    `Atleta: ${content.athleteName}`,
+    `Importo ancora da versare: ${euroFormatter.format(content.residualAmount)}`,
+  ];
+
+  /*
+    Zero rate scadute non si scrive: «0 rate scadute» in un sollecito e una
+    riga che contraddice il motivo per cui il messaggio e partito.
+  */
+  if (content.overdueCount > 0) {
+    lines.push(
+      content.overdueCount === 1
+        ? "Rate scadute: 1"
+        : `Rate scadute: ${content.overdueCount}`,
+    );
+  }
+
+  const nextDueDate = formatItalianDate(content.nextDueDate);
+  if (nextDueDate) {
+    lines.push(`Prossima scadenza: ${nextDueDate}`);
+  }
+
+  return lines;
+};
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+/**
+ * Manda il sollecito a **un** indirizzo.
+ *
+ * Non guarda se il destinatario ha un account: l'indirizzo lo decide chi
+ * chiama, che lo ha risolto dall'anagrafica. Restituisce l'esito senza
+ * addolcirlo — `skipped` quando SMTP non e configurato — perche chi sollecita
+ * deve poter dire, per destinatario, se il messaggio e partito davvero.
+ */
+export const sendPaymentReminderEmail = async (
+  content: PaymentReminderEmailContent,
+): Promise<EmailDeliveryResult> => {
+  const lines = buildPaymentReminderLines(content);
+  const greeting = content.guardianName
+    ? `Gentile ${content.guardianName},`
+    : "Gentile famiglia,";
+
+  return sendTransactionalEmail({
+    to: content.to,
+    subject: `${content.clubName}: quote da regolarizzare per ${content.athleteName}`,
+    text: [
+      greeting,
+      "",
+      `${content.clubName} ricorda che risultano quote ancora da versare.`,
+      "",
+      ...lines,
+      "",
+      "Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.",
+      "",
+      content.clubName,
+    ].join("\n"),
+    html: [
+      `<p>${escapeHtml(greeting)}</p>`,
+      `<p>${escapeHtml(content.clubName)} ricorda che risultano quote ancora da versare.</p>`,
+      `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`,
+      "<p>Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.</p>",
+      `<p>${escapeHtml(content.clubName)}</p>`,
+    ].join(""),
+  });
+};
+
 export const sendNotificationEmails = async (recipientUserIds: string[]) => {
   const userIds = Array.from(new Set(recipientUserIds.filter(Boolean)));
   if (userIds.length === 0 || !(await isEmailDeliveryConfigured())) return;
