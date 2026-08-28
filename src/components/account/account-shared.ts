@@ -12,6 +12,29 @@ export const CREATE_CLUB_TABS = [
   { value: "social", label: "Social" },
 ] as const;
 
+/**
+ * I campi senza i quali un club non si crea, e la scheda in cui stanno.
+ *
+ * La scheda fa parte del requisito. Le schede del pannello **smontano** il
+ * contenuto: `required` su un campo di una scheda chiusa non viene valutato
+ * dal browser, e il messaggio «compila anche email e telefono» arriva a chi
+ * sta guardando una scheda dove quei due campi non esistono. Sapere dove sono
+ * e cio che permette di portarcelo.
+ */
+export const CREATE_CLUB_REQUIRED_FIELDS = [
+  { field: "name", label: "nome", tab: "general" },
+  { field: "type", label: "tipologia", tab: "general" },
+  { field: "address", label: "indirizzo", tab: "general" },
+  { field: "city", label: "citta", tab: "general" },
+  { field: "province", label: "provincia", tab: "general" },
+  { field: "contactEmail", label: "email di contatto", tab: "contacts" },
+  { field: "contactPhone", label: "telefono di contatto", tab: "contacts" },
+] as const satisfies ReadonlyArray<{
+  field: keyof ClubCreateFormState;
+  label: string;
+  tab: (typeof CREATE_CLUB_TABS)[number]["value"];
+}>;
+
 export const CLUB_TYPE_PRESETS = [
   "Dilettante",
   "Professionistico",

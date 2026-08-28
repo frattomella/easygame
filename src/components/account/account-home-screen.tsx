@@ -44,6 +44,7 @@ import {
   AccountClub,
   buildClubPayload,
   ClubCreateFormState,
+  CREATE_CLUB_REQUIRED_FIELDS,
   createClubDefaults,
   createProfileDefaults,
   getInitials,
@@ -734,18 +735,27 @@ export default function AccountHomeScreen() {
       return;
     }
 
-    if (
-      !createClubForm.name.trim() ||
-      !createClubForm.type.trim() ||
-      !createClubForm.address.trim() ||
-      !createClubForm.city.trim() ||
-      !createClubForm.province.trim() ||
-      !createClubForm.contactEmail.trim() ||
-      !createClubForm.contactPhone.trim()
-    ) {
+    /*
+      Il messaggio nominava sette campi e lasciava l'utente sulla scheda dove
+      stava: due di quei sette — email e telefono di contatto — vivono nella
+      scheda «Contatti», che era chiusa. Chi premeva «Crea club» dalla scheda
+      «Generali» leggeva di dover compilare campi che non erano sulla pagina.
+      Adesso la mancanza porta alla scheda che la contiene, e il messaggio dice
+      **solo** cio che manca davvero.
+    */
+    const missing = CREATE_CLUB_REQUIRED_FIELDS.filter(
+      (entry) => !String(createClubForm[entry.field] || "").trim(),
+    );
+
+    if (missing.length > 0) {
+      setCreateClubTab(missing[0].tab);
       showToast(
         "error",
-        "Compila almeno nome, tipologia, indirizzo, citta, provincia, email e telefono.",
+        missing.length === 1
+          ? `Manca ancora un dato obbligatorio: ${missing[0].label}.`
+          : `Mancano ancora ${missing.length} dati obbligatori: ${missing
+              .map((entry) => entry.label)
+              .join(", ")}.`,
       );
       return;
     }

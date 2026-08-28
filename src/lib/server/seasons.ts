@@ -34,6 +34,8 @@ export type ClubSeasonState = {
   activeSeasonId: string;
   activeSeason: ClubSeason;
   legacySeasonId: string | null;
+  /** `true` se `seasons` non viene dal club ma dalla stagione sintetizzata. */
+  isFallback: boolean;
 };
 
 const isRecord = (value: unknown): value is Record<string, any> =>
@@ -194,15 +196,27 @@ export const createClubSeason = async (options: {
   const { organizationId, input, activate = false } = options;
   const state = await readClubSeasonState(organizationId);
 
+  /*
+    Su un club che non ha ancora stagioni, `state.seasons` contiene la stagione
+    **sintetizzata** in lettura, non un dato salvato. Portarla nella scrittura
+    creava un doppione con la stessa etichetta di quella appena scelta, e —
+    non passando da `applySeasonStatuses` sul valore giusto — lasciava due
+    stagioni `active` nel database. La prima stagione di un club e la sua sola
+    stagione: nasce attiva, perche non c'e niente da cui ereditare il
+    perimetro.
+  */
+  const previousSeasons = state.isFallback ? [] : state.seasons;
+  const shouldActivate = activate || previousSeasons.length === 0;
+
   const season = buildSeasonFromInput(
-    { ...input, status: activate ? "active" : "upcoming" },
-    state.seasons,
+    { ...input, status: shouldActivate ? "active" : "upcoming" },
+    previousSeasons,
   );
 
-  const nextActiveSeasonId = activate ? season.id : state.activeSeasonId;
+  const nextActiveSeasonId = shouldActivate ? season.id : state.activeSeasonId;
   const savedState = await saveClubSeasons(
     organizationId,
-    [season, ...state.seasons],
+    [season, ...previousSeasons],
     nextActiveSeasonId,
   );
 

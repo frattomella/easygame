@@ -227,6 +227,14 @@ export const normalizeClubSeasons = (settings: any) => {
     activeSeasonId: activeSeason.id,
     activeSeason,
     legacySeasonId: resolveLegacySeasonId(seasons),
+    /*
+      Un club senza stagioni salvate ne riceve **una in lettura**, sintetizzata
+      qui, perche l'interfaccia non puo restare senza perimetro dei dati.
+      Quella stagione non e un dato del club: chi scrive deve saperlo, o la
+      prima stagione vera nasce accanto a un doppione che nessuno ha creato —
+      con la stessa etichetta, e per giunta anch'esso `active`.
+    */
+    isFallback: rawSeasons.length === 0,
   };
 };
 

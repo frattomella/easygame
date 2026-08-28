@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent } from "react";
+import { FormEvent, useId } from "react";
 import { LogoUpload } from "@/components/ui/avatar-upload";
 import { Button } from "@/components/ui/button";
 import {
@@ -485,12 +485,16 @@ function InputWithLabel({
   placeholder?: string;
   required?: boolean;
 }) {
-  const inputId =
-    id ||
-    label
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+  /*
+    L'id derivato dal testo dell'etichetta produceva **doppioni**: due riquadri
+    «Nome contatto», due «Telefono», due «Email», e una riga di federazione per
+    ogni federazione aggiunta. Con due elementi dello stesso id, `htmlFor`
+    porta sempre al primo: cliccare l'etichetta del secondo contatto metteva il
+    cursore nel campo del primo. `useId` da un identificativo diverso a ogni
+    istanza; chi ha bisogno di un id stabile continua a passarlo.
+  */
+  const generatedId = useId();
+  const inputId = id || `campo-${generatedId}`;
 
   return (
     <div className="space-y-2">

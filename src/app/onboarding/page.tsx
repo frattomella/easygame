@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast-notification";
 import { EasyGameLogo } from "@/components/brand/easygame-logo";
 import { AssistedAddressFields } from "@/components/forms/assisted-anagrafica";
 import { supabase } from "@/lib/supabase";
-import { readStoredActiveClub } from "@/lib/api/client";
+import { readStoredActiveClub, rememberActiveSeason } from "@/lib/api/client";
 import { addClubAthlete } from "@/lib/simplified-db";
 import {
   emptyClubProfileDraft,
@@ -20,9 +21,9 @@ import {
 } from "@/lib/club-profile";
 import {
   buildSeasonLabelFromDates,
-  createSeasonDraft,
   normalizeClubSeasons,
 } from "@/lib/club-seasons";
+import { createSeason } from "@/lib/api/seasons";
 import {
   ONBOARDING_STEPS,
   normalizeOnboardingState,
@@ -271,22 +272,29 @@ export default function OnboardingPage() {
       throw new Error("La data di fine deve essere successiva a quella di inizio");
     }
 
-    const season = createSeasonDraft(
-      buildSeasonLabelFromDates(seasonForm.startDate, seasonForm.endDate),
-      seasonForm.startDate,
-      seasonForm.endDate,
-    );
-
-    await patchClubSettings(clubId, (settings) => {
-      const current = normalizeClubSeasons(settings);
-      return {
-        ...settings,
-        seasons: [season, ...current.seasons],
-        activeSeasonId: season.id,
-      };
+    /*
+      La stagione la crea il suo dominio, non questa pagina.
+      `POST /api/v1/seasons` passa da `createClubSeason`, che riapplica
+      l'invariante «una sola stagione attiva» prima di salvare e non porta con
+      se la stagione sintetizzata in lettura. Scrivere `settings.seasons` da
+      qui — come si faceva — lasciava sul club appena creato **due** stagioni
+      con la stessa etichetta, entrambe `active` (CLAUDE.md §2).
+    */
+    const { season } = await createSeason({
+      label: buildSeasonLabelFromDates(seasonForm.startDate, seasonForm.endDate),
+      startDate: seasonForm.startDate,
+      endDate: seasonForm.endDate,
+      activate: true,
     });
 
     setExistingSeasonLabel(season.label);
+    /*
+      Lo scaffale locale del club attivo era stato scritto alla creazione, con
+      la stagione a `null`: senza questa riga la barra in cima all'app continua
+      a dire «Nessuna stagione attiva» su un club che la stagione ce l'ha, e lo
+      dice finche non si rientra dal pannello account.
+    */
+    rememberActiveSeason(season.id, season.label);
   };
 
   const saveCategoriesStep = async () => {
@@ -711,29 +719,21 @@ export default function OnboardingPage() {
                     key={`athlete-draft-${index}`}
                     className="grid gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr,1fr,150px,auto]"
                   >
-                    <div className="space-y-1.5">
-                      <Label htmlFor={`onboarding-athlete-last-${index}`}>
-                        Cognome
-                      </Label>
-                      <Input
-                        id={`onboarding-athlete-last-${index}`}
-                        value={draft.lastName}
-                        onChange={(event) =>
-                          setAthleteDrafts((current) =>
-                            current.map((item, position) =>
-                              position === index
-                                ? { ...item, lastName: event.target.value }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-                    </div>
+                    {/*
+                      Nome, poi Cognome, poi Data di nascita: e l'ordine che
+                      ADR-0066 ha reso un componente per le nove anagrafiche di
+                      persona. Questa griglia non puo montare
+                      `PersonIdentityFields` — chiede tre dati su sei, in riga —
+                      ma non ha ragione di chiederli in un ordine diverso da
+                      tutto il resto del prodotto. E la maiuscola la mette lo
+                      stesso campo che la mette altrove, invece di comparire
+                      solo dopo il salvataggio.
+                    */}
                     <div className="space-y-1.5">
                       <Label htmlFor={`onboarding-athlete-first-${index}`}>
                         Nome
                       </Label>
-                      <Input
+                      <CapitalizedInput
                         id={`onboarding-athlete-first-${index}`}
                         value={draft.firstName}
                         onChange={(event) =>
@@ -741,6 +741,24 @@ export default function OnboardingPage() {
                             current.map((item, position) =>
                               position === index
                                 ? { ...item, firstName: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`onboarding-athlete-last-${index}`}>
+                        Cognome
+                      </Label>
+                      <CapitalizedInput
+                        id={`onboarding-athlete-last-${index}`}
+                        value={draft.lastName}
+                        onChange={(event) =>
+                          setAthleteDrafts((current) =>
+                            current.map((item, position) =>
+                              position === index
+                                ? { ...item, lastName: event.target.value }
                                 : item,
                             ),
                           )

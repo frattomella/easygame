@@ -111,6 +111,59 @@ export const readStoredActiveClub = () => {
   return null;
 };
 
+/**
+ * Aggiorna la stagione attiva nello scaffale locale del club.
+ *
+ * Sta accanto a `readStoredActiveClub` per la stessa ragione: le chiavi
+ * `activeClub` e `activeClub_<utente>` hanno **un** punto di scrittura. Chi
+ * crea o attiva una stagione la chiama; senza, la barra in cima all'app
+ * continua a mostrare la stagione che c'era al momento in cui il club e stato
+ * aperto — e su un club appena creato quella stagione e `null`, cioe
+ * «Nessuna stagione attiva» su un club che ce l'ha.
+ */
+export const rememberActiveSeason = (
+  seasonId: string | null,
+  seasonLabel: string | null,
+) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const keys: string[] = ["activeClub"];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key && key.startsWith("activeClub_")) {
+      keys.push(key);
+    }
+  }
+
+  let updated: Record<string, any> | null = null;
+
+  for (const key of keys) {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed?.id) continue;
+      updated = {
+        ...parsed,
+        activeSeasonId: seasonId,
+        activeSeasonLabel: seasonLabel,
+      };
+      window.localStorage.setItem(key, JSON.stringify(updated));
+    } catch {
+      window.localStorage.removeItem(key);
+    }
+  }
+
+  if (updated) {
+    window.dispatchEvent(
+      new CustomEvent("club-updated", { detail: { clubData: updated } }),
+    );
+  }
+};
+
 export async function apiRequest<T = any>(
   path: string,
   options: ApiRequestOptions = {},

@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { LogoUpload } from "@/components/ui/avatar-upload";
+import { rememberActiveSeason } from "@/lib/api/client";
 import {
   Select,
   SelectContent,
@@ -627,49 +628,6 @@ const [federations, setFederations] = useState<any[]>([]);
       localStorage.setItem("organization-logo", logoData);
     } else {
       localStorage.removeItem("organization-logo");
-    }
-  };
-
-  const syncActiveSeasonLocally = (seasonId: string, seasonLabel: string) => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const activeClubRaw = localStorage.getItem("activeClub");
-    if (!activeClubRaw) {
-      return;
-    }
-
-    try {
-      const parsedClub = JSON.parse(activeClubRaw);
-      const nextClub = {
-        ...parsedClub,
-        activeSeasonId: seasonId,
-        activeSeasonLabel: seasonLabel,
-      };
-
-      localStorage.setItem("activeClub", JSON.stringify(nextClub));
-      if (parsedClub?.id) {
-        const matchingKeys = [];
-        for (let index = 0; index < localStorage.length; index += 1) {
-          const key = localStorage.key(index);
-          if (key && key.startsWith("activeClub_")) {
-            matchingKeys.push(key);
-          }
-        }
-
-        matchingKeys.forEach((key) => {
-          localStorage.setItem(key, JSON.stringify(nextClub));
-        });
-      }
-
-      window.dispatchEvent(
-        new CustomEvent("club-updated", {
-          detail: { clubData: nextClub },
-        }),
-      );
-    } catch (error) {
-      console.error("Error syncing active season locally:", error);
     }
   };
 
@@ -1731,7 +1689,7 @@ const [federations, setFederations] = useState<any[]>([]);
           <TabsContent value="stagioni" className="space-y-4 mt-4">
             <SeasonManager
               onActiveSeasonChange={(season) =>
-                syncActiveSeasonLocally(season.id, season.label)
+                rememberActiveSeason(season.id, season.label)
               }
             />
           </TabsContent>
