@@ -2508,11 +2508,30 @@ export async function getClubData(clubId: string, dataType: string) {
         : {},
     );
 
+    /*
+      Le stesse due regole che applica il server (`resolveRequestSeason` in
+      `src/lib/server/resources.ts`), perche due percorsi di lettura che
+      filtrano diversamente mostrano due elenchi diversi dello stesso club.
+
+      Finche il club non ha salvato nessuna stagione non si filtra: quella che
+      `normalizeClubSeasons` restituisce e **sintetizzata** in lettura, non un
+      dato, e usarla come perimetro nasconde i record che portano un altro id.
+      E un `seasonId` che nomina una stagione che il club non ha e un record
+      **orfano**, non un record di un'altra annata: sparirebbe da ogni
+      schermata senza che nulla lo dica.
+    */
+    if (seasonState.isFallback) {
+      return Array.isArray(rawData) ? rawData : [];
+    }
+
     return filterCollectionBySeason(
       dataType,
       rawData,
       seasonState.activeSeasonId,
-      { legacySeasonId: seasonState.legacySeasonId },
+      {
+        legacySeasonId: seasonState.legacySeasonId,
+        knownSeasonIds: seasonState.seasons.map((season) => season.id),
+      },
     );
   } catch (error: any) {
     // Handle network errors gracefully
@@ -2751,13 +2770,23 @@ const getClubDirectCollectionWithLegacySeasonFallback = async (
 
   const settings =
     typeof data?.settings === "object" && data.settings ? data.settings : {};
-  const { activeSeasonId, legacySeasonId } = normalizeClubSeasons(settings);
+  const { activeSeasonId, legacySeasonId, seasons, isFallback } =
+    normalizeClubSeasons(settings);
+
+  // Su un club senza stagioni salvate la stagione e sintetizzata in lettura e
+  // non e un perimetro: non si filtra, come fa il server.
+  if (isFallback) {
+    return rawCollection;
+  }
 
   // I record senza `seasonId` appartengono alla stagione baseline: la regola
   // vive in `filterCollectionBySeason`, qui non serve piu una deroga locale
-  // che li rendeva visibili in ogni stagione (WP-32).
+  // che li rendeva visibili in ogni stagione (WP-32). Un `seasonId` che nomina
+  // una stagione che il club non ha e un record orfano, e vale la stessa
+  // regola: si mostra, invece di sparire in silenzio.
   return filterCollectionBySeason(dataType, rawCollection, activeSeasonId, {
     legacySeasonId,
+    knownSeasonIds: seasons.map((season) => season.id),
   });
 };
 

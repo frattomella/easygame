@@ -162,7 +162,36 @@ export default function OnboardingPage() {
         setClubDraft(profile.draft);
         setState(onboarding);
         setActiveStep(resumeOnboardingStep(onboarding));
-        setExistingSeasonLabel(seasons.activeSeason?.label || null);
+        /*
+          **Una stagione sintetizzata non e una stagione del club.**
+
+          `normalizeClubSeasons` ne restituisce sempre una, anche quando il
+          club non ne ha salvata nessuna, perche l'interfaccia non puo restare
+          senza perimetro dei dati. Presa per buona qui, il passo Stagione
+          annunciava «Stagione attiva: 2026/2027. Puoi passare avanti.» su un
+          club appena creato che non ne aveva **nessuna** — e chi accettava
+          l'invito usciva dall'avvio guidato senza stagione: `saveSeasonStep`
+          non ha date da scrivere e non scrive niente, l'intestazione continua
+          a dire «Nessuna stagione attiva», e le categorie create subito dopo
+          nascono senza annata. E il difetto 1 del Full Club UAT che rientra
+          dalla porta di servizio, sul percorso piu probabile: quello di chi
+          non tocca i campi.
+
+          `isFallback` e la distinzione che quella correzione ha introdotto
+          proprio per questo. Le date della stagione sintetizzata restano
+          utili: sono l'annata sportiva corrente, cioe la proposta giusta da
+          mettere nei due campi. Cosi «Avanti» crea la stagione invece di
+          saltarla.
+        */
+        setExistingSeasonLabel(
+          seasons.isFallback ? null : seasons.activeSeason?.label || null,
+        );
+        if (seasons.isFallback && seasons.activeSeason) {
+          setSeasonForm({
+            startDate: seasons.activeSeason.startDate,
+            endDate: seasons.activeSeason.endDate,
+          });
+        }
       } catch (error: any) {
         setLoadError(error?.message || "Caricamento del club non riuscito");
       } finally {

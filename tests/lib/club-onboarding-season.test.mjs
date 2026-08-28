@@ -268,3 +268,57 @@ test("la stagione si scrive solo sulle voci del club a cui appartiene", () => {
     );
   }
 });
+
+/**
+ * **La stagione sintetizzata non si annuncia come stagione del club.**
+ *
+ * Trovato nella seconda revisione indipendente, sul percorso piu probabile:
+ * quello di chi non tocca i campi. `normalizeClubSeasons` restituisce sempre
+ * una stagione, anche su un club che non ne ha salvata nessuna; il passo
+ * Stagione dell'avvio guidato la prendeva per buona e scriveva «Stagione
+ * attiva: 2026/2027. Puoi passare avanti.» — su un club che non ne aveva
+ * **nessuna**.
+ *
+ * Chi accettava l'invito usciva dall'avvio guidato senza stagione:
+ * `saveSeasonStep` senza date esce subito, l'intestazione continua a dire
+ * «Nessuna stagione attiva», e le categorie create al passo dopo nascono senza
+ * annata. E il difetto 1 di questo documento che rientra dalla porta di
+ * servizio: la correzione aveva chiuso la scrittura sbagliata, non l'invito a
+ * non scrivere affatto.
+ */
+test("l'avvio guidato distingue la stagione sintetizzata da una salvata", () => {
+  const source = read("src/app/onboarding/page.tsx");
+
+  assert.match(
+    source,
+    /setExistingSeasonLabel\(\s*\n?\s*seasons\.isFallback \? null : seasons\.activeSeason\?\.label \|\| null,?\s*\n?\s*\);/,
+    "senza stagioni salvate non si annuncia nessuna stagione attiva",
+  );
+  assert.doesNotMatch(
+    source,
+    /setExistingSeasonLabel\(seasons\.activeSeason\?\.label \|\| null\);/,
+  );
+});
+
+/**
+ * E le date della stagione sintetizzata non si buttano: sono l'annata sportiva
+ * corrente, cioe la proposta giusta. Cosi «Avanti» **crea** la stagione invece
+ * di saltarla, che e il comportamento che il difetto 1 dava per scontato.
+ */
+test("le date proposte sono quelle dell'annata sportiva corrente", () => {
+  const source = read("src/app/onboarding/page.tsx");
+
+  assert.match(
+    source,
+    /if \(seasons\.isFallback && seasons\.activeSeason\) \{\s*\n\s*setSeasonForm\(\{/,
+  );
+
+  const proposta = buildDefaultSeason();
+  assert.match(proposta.startDate, /^\d{4}-07-01$/);
+  assert.match(proposta.endDate, /^\d{4}-06-30$/);
+  assert.equal(
+    Number(proposta.endDate.slice(0, 4)) - Number(proposta.startDate.slice(0, 4)),
+    1,
+    "una stagione sportiva sta a cavallo di due anni solari",
+  );
+});
