@@ -114,6 +114,27 @@ export const seasonErrorResponse = (error: any, fallbackStatus = 400) => {
   }
 
   /*
+    Due riporti che partono insieme sulla stessa stagione: il secondo scrive la
+    stessa collezione e sbatte contro l'unicita di `club_resource_items`. Il
+    dato resta corretto — nessun duplicato, e il collaudo lo verifica — ma chi
+    ha premuto due volte si vedeva rispondere «Errore sulla stagione» e non
+    aveva modo di sapere che poteva semplicemente riprovare. Il 409 e la
+    risposta giusta a una corsa persa, non un 400.
+  */
+  if (String(error?.code || "") === "P2002") {
+    return NextResponse.json(
+      {
+        data: null,
+        error: {
+          message:
+            "Un altro riporto e in corso su questa stagione: riprova fra qualche istante",
+        },
+      },
+      { status: 409 },
+    );
+  }
+
+  /*
     Il messaggio del driver non esce da qui: `createClubSeason` legge e scrive
     `clubs.settings`, e un errore del database tornava indietro con il nome
     del modello Prisma e il codice Postgres dentro l'envelope. «Accesso
