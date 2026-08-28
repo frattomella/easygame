@@ -63,6 +63,43 @@ audit log** — vedi rischio aperto n. 7 e [ADR-0019](18-decision-log.md).
 **Lezione registrata.** Nessuna credenziale reale, host di database, endpoint
 Neon o URL di deployment nella documentazione di un repository pubblico.
 
+### I-02 — Un incasso concorrente si registrava due volte (2026-08-28) — RISOLTO
+
+**Cosa succedeva.** Il controllo di capienza di una rata leggeva il registro
+degli incassi **prima** di aprire la transazione che scrive. Due richieste
+simultanee sulla stessa rata vedevano entrambe il residuo com'era prima che
+l'altra scrivesse, e passavano entrambe.
+
+**Misurato sullo staging**, non dedotto. Sei richieste concorrenti da 50 € su
+una rata con 99,80 € di residuo: **quattro accettate**. Stato finale del club
+di collaudo:
+
+| Rata | Dovuto | Incassato | Incassi | Stato salvato |
+|---|---|---|---|---|
+| Prima | 130,00 € | **150,00 €** | 3 | `partially_paid` |
+| Seconda | 199,80 € | **300,00 €** | 5 | `paid` |
+
+329,80 € dovuti, 450,00 € registrati come incassati: **120,20 € di entrate che
+non esistono**. E la prima rata risultava `partially_paid` pur avendo incassato
+piu del dovuto, perche anche il ricalcolo dello stato girava su una lettura
+vecchia.
+
+**Non serviva un trucco.** Due segretarie sullo stesso incasso, un telefono e
+un computer, una richiesta ritentata dalla rete. Il pulsante si disabilita
+durante l'invio, ma quella e una difesa del singolo browser: non vale fra due
+client.
+
+**Correzione.** Le tre operazioni che muovono denaro —
+`createPaymentTransaction`, `reversePaymentTransaction`,
+`recordRefundTransaction` — bloccano con `SELECT ... FOR UPDATE` la riga su cui
+decidono (la rata, o l'incasso originale) **dentro** la transazione, e rifanno
+li la verifica: capienza per l'incasso, «gia stornato?» per lo storno,
+deduplica e capienza per il rimborso. Il blocco e sulla riga: rate diverse non
+si ostacolano.
+
+**Cosa resta da fare.** I dati di collaudo dello staging portano ancora
+l'eccedenza registrata durante la prova: vanno stornati, non cancellati.
+
 ## Rischi aperti
 
 ### 1. ~~Nessuna protezione di route~~ — RISOLTO (2026-08-22)

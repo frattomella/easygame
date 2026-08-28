@@ -370,25 +370,23 @@ export const createPaymentTransaction = async (
   const paymentMethod = asText(input.paymentMethod);
   const paidAt = toDateOrNull(input.paidAt) || new Date();
 
-  const existing = paymentId
-    ? normalizePaymentTransactions(
-        await transactionClient().findMany({ where: { payment_id: paymentId } }),
-      )
-    : [];
-
-  const ledger = charge
-    ? resolveInstallmentLedger({ charge, transactions: existing })
-    : null;
-
-  const validationError = validatePaymentTransactionInput({
+  /*
+    Controllo di forma, qui: importo positivo e metodo indicato non dipendono
+    da cosa c'e in archivio, e sbagliarli non merita di aprire una
+    transazione. La **capienza** della rata invece si verifica piu sotto,
+    dentro la transazione e dopo il blocco della riga: leggere gli incassi
+    qui e scrivere dopo lascia una finestra in cui due richieste vedono
+    entrambe la rata vuota.
+  */
+  const shapeError = validatePaymentTransactionInput({
     amount,
     paymentMethod,
-    ledger,
-    allowOverpayment: Boolean(input.allowOverpayment) || !charge,
+    ledger: null,
+    allowOverpayment: true,
   });
 
-  if (validationError) {
-    throw new Error(validationError);
+  if (shapeError) {
+    throw new Error(shapeError);
   }
 
   const athleteId =
@@ -411,6 +409,42 @@ export const createPaymentTransaction = async (
   }
 
   const created = await (prisma as any).$transaction(async (client: any) => {
+    if (paymentId) {
+      /*
+        La capienza della rata si verifica **qui**, e non prima di aprire la
+        transazione.
+
+        Il difetto che questa riga chiude si e visto premendo tre volte
+        «Registra pagamento» in sei millesimi di secondo: tre richieste hanno
+        letto la stessa rata ancora vuota, hanno concluso tutte e tre che
+        c'era capienza, e hanno scritto **tre** incassi da 50 su una rata da
+        130 — 150 euro incassati su 130 dovuti, da un solo gesto.
+
+        Il blocco di riga sulla rata mette in fila chi scrive sulla stessa
+        rata: la seconda richiesta legge il registro dopo che la prima ha
+        scritto, e vede il residuo vero. Rate diverse non si ostacolano —
+        il blocco e sulla riga, non sulla tabella.
+      */
+      await client.$queryRaw`SELECT id FROM payments WHERE id = ${paymentId}::uuid FOR UPDATE`;
+
+      const current = normalizePaymentTransactions(
+        await client.paymentTransaction.findMany({
+          where: { payment_id: paymentId },
+        }),
+      );
+
+      const capacityError = validatePaymentTransactionInput({
+        amount,
+        paymentMethod,
+        ledger: resolveInstallmentLedger({ charge, transactions: current }),
+        allowOverpayment: Boolean(input.allowOverpayment),
+      });
+
+      if (capacityError) {
+        throw new Error(capacityError);
+      }
+    }
+
     const row = await client.paymentTransaction.create({
       data: {
         organization_id: organizationId,
@@ -492,6 +526,23 @@ export const reversePaymentTransaction = async (
   const paymentId = original.payment_id || null;
 
   const result = await (prisma as any).$transaction(async (client: any) => {
+    /*
+      «E gia stato stornato?» va richiesto **dopo** aver bloccato la riga.
+      Letto prima di aprire la transazione, due storni simultanei dello stesso
+      incasso vedono entrambi `reversed_at` vuoto e scrivono entrambi il
+      movimento di compensazione: la rata torna indietro due volte e il
+      registro va sotto zero.
+    */
+    await client.$queryRaw`SELECT id FROM payment_transactions WHERE id = ${original.id}::uuid FOR UPDATE`;
+
+    const fresh = await client.paymentTransaction.findUnique({
+      where: { id: original.id },
+    });
+
+    if (fresh?.reversed_at) {
+      throw new Error("Questo incasso e gia stato stornato");
+    }
+
     await client.paymentTransaction.update({
       where: { id: original.id },
       data: {
@@ -678,6 +729,47 @@ export const recordRefundTransaction = async (
   const reason = asText(input.reason) || "Rimborso registrato dal provider";
 
   const result = await (prisma as any).$transaction(async (client: any) => {
+    /*
+      La deduplica e la capienza del rimborso sono state calcolate su una
+      lettura fatta prima di aprire la transazione. Stripe consegna lo stesso
+      rimborso piu volte, e due consegne simultanee vedrebbero entrambe «non
+      l'ho ancora registrato»: due movimenti negativi per un solo rimborso.
+      Il blocco sulla riga dell'incasso originale mette in fila chi rimborsa
+      lo stesso incasso, e la verifica si rifa qui dentro.
+    */
+    await client.$queryRaw`SELECT id FROM payment_transactions WHERE id = ${original.id}::uuid FOR UPDATE`;
+
+    const alreadyWritten = await client.paymentTransaction.findFirst({
+      where: {
+        organization_id: original.organization_id,
+        external_reference: externalRefundId,
+      },
+    });
+
+    if (alreadyWritten) {
+      return { duplicate: alreadyWritten, row: null, updatedCharge: null, transactions: [] };
+    }
+
+    const refundedSoFar = await client.paymentTransaction.findMany({
+      where: {
+        organization_id: original.organization_id,
+        external_payment_id: original.external_payment_id || undefined,
+        amount: { lt: 0 },
+      },
+    });
+
+    const refundedSoFarCents = refundedSoFar.reduce(
+      (total: number, row: any) =>
+        total + Math.abs(Math.round(toPaymentAmount(row.amount) * 100)),
+      0,
+    );
+
+    if (refundedCents + refundedSoFarCents > originalCents) {
+      throw new Error(
+        "Il rimborso supera quanto era stato incassato su questo movimento",
+      );
+    }
+
     const row = await client.paymentTransaction.create({
       data: {
         organization_id: original.organization_id,
@@ -722,8 +814,32 @@ export const recordRefundTransaction = async (
         )
       : [];
 
-    return { row, updatedCharge, transactions };
+    return { duplicate: null, row, updatedCharge, transactions };
   });
+
+  /*
+    Il rimborso era gia stato scritto da una consegna gemella arrivata nel
+    frattempo: si risponde come per la deduplica vista prima della
+    transazione, con la stessa forma.
+  */
+  if (result.duplicate) {
+    return {
+      duplicate: true,
+      transaction: normalizePaymentTransaction(
+        result.duplicate,
+      ) as NormalizedPaymentTransaction,
+      charge: null,
+      transactions: paymentId
+        ? await listPaymentTransactions(
+            {
+              organizationId: String(original.organization_id),
+              paymentId,
+            },
+            scope,
+          )
+        : [],
+    };
+  }
 
   return {
     duplicate: false,
