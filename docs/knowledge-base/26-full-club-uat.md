@@ -608,6 +608,7 @@ l'unico a farne un'affermazione su cui l'utente decide.
 | `npm run lint` | 0 errori, 40 warning — **invariati** |
 | `npm run build` | completa |
 | Migrazioni | **nessuna nuova**: restano 20 |
+| CI remota | **verde su `f99e6b8`**, cioe su HEAD e non su un commit precedente: Web App, Mobile App e Guardrail di sicurezza, tutti `success`. La spunta «Vercel» resta rossa per una ragione che non viene da qui: l'ambiente **Preview** del progetto non ha `DIRECT_URL`, quindi `prisma migrate deploy` non parte e il build muore in 27 secondi. Vale da prima di questo lavoro, non si corregge dal repository, e non tocca il deployment di staging, che e `production` |
 | Revisione indipendente | doppia, chiusa: 0 Critical, 0 High residui |
 
 ### Test nuovi della revisione
