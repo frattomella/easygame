@@ -294,6 +294,7 @@ const run = async () => {
   );
 
   let groups = 0;
+  const gruppiFalliti = [];
   for (const categoryId of categories) {
     for (const siteId of sites) {
       const created = await A("/api/v1/category_groups", {
@@ -305,10 +306,14 @@ const run = async () => {
           seasonId: seasonAId,
         },
       });
-      if (created.status === 200 || created.status === 201) groups += 1;
+      if (created.status === 200 || created.status === 201) {
+        groups += 1;
+      } else {
+        gruppiFalliti.push(`HTTP ${created.status}: ${created.error?.message || ""}`);
+      }
     }
   }
-  check("sei gruppi operativi creati", groups === 6, `${groups}`);
+  check("sei gruppi operativi creati", groups === 6, gruppiFalliti.join(" · ") || `${groups}`);
 
   const seeded = await seedAthletes(clubA.id, categories, sites, ATHLETES);
   check(
@@ -640,6 +645,48 @@ const run = async () => {
       `HTTP ${esito.status}: ${esito.error?.message || "(nessun messaggio)"}`,
     );
   }
+
+  /* ============================================ 5-bis. la regressione */
+
+  group("5-bis — Il riporto della sola configurazione, come prima");
+
+  const appartenenzePrima = await prisma.athleteCategoryMembership.count({
+    where: { organization_id: clubA.id },
+  });
+
+  const soloConfigurazione = await A("/api/v1/seasons", {
+    method: "POST",
+    body: {
+      label: "UAT-SR 2029/2030",
+      startDate: "2029-07-01",
+      endDate: "2030-06-30",
+      rollover: {
+        sourceSeasonId: seasonAId,
+        types: ["categories", "category_groups"],
+      },
+    },
+  });
+
+  check(
+    "riportare la sola configurazione continua a funzionare",
+    soloConfigurazione.status === 200 &&
+      soloConfigurazione.data?.rollover?.createdTotal >= 3,
+    `HTTP ${soloConfigurazione.status}, ${soloConfigurazione.data?.rollover?.createdTotal} elementi`,
+  );
+  check(
+    "e dichiara comunque i tesserati, invece di tacere",
+    soloConfigurazione.data?.rollover?.athletes?.requested === false &&
+      soloConfigurazione.data?.rollover?.athletes?.proposed === ATHLETES &&
+      soloConfigurazione.data?.rollover?.athletes?.carried === 0,
+    JSON.stringify(soloConfigurazione.data?.rollover?.athletes || {}),
+  );
+  check(
+    "senza il tipo «tesserati» non si scrive nemmeno un'appartenenza",
+    (await prisma.athleteCategoryMembership.count({
+      where: { organization_id: clubA.id },
+    })) === appartenenzePrima,
+    `${appartenenzePrima} prima`,
+  );
 
   /* ============================================ 6. tornare indietro */
 
