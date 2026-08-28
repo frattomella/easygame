@@ -64,9 +64,9 @@ import {
   formatPersonNameLastFirst,
 } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
-import { exportPeoplePdf } from "@/lib/person-export";
+import { exportPeopleCsv, exportPeoplePdf } from "@/lib/person-export";
 import { useToast } from "@/components/ui/toast-notification";
-import { FileDown } from "lucide-react";
+import { FileDown, FileSpreadsheet } from "lucide-react";
 
 interface Socio {
   id: string;
@@ -185,6 +185,28 @@ export default function SociPage() {
     }
 
     showToast("success", "PDF pronto: si apre la finestra di stampa");
+  };
+
+  /**
+   * Lo stesso elenco in CSV: stesse colonne visibili, stessi valori.
+   *
+   * Il tracciato appartiene a `src/lib/csv.ts`, non a questa pagina.
+   */
+  const handleExportCsv = (scope: SelectionScope) => {
+    const result = exportPeopleCsv({
+      entity: "members",
+      people: rowsForScope(scope) as unknown as Record<string, any>[],
+      clubName: activeClub?.name || "EasyGame",
+      visibleColumns,
+      scope,
+    });
+
+    if (!result.ok) {
+      showToast("error", "Nessun socio da esportare");
+      return;
+    }
+
+    showToast("success", "CSV scaricato");
   };
 
   const [visibleColumns, setVisibleColumns] = useState({
@@ -450,6 +472,24 @@ export default function SociPage() {
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" disabled={!exportScopes.length}>
+                      <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      Esporta CSV
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {exportScopes.map((scope) => (
+                      <DropdownMenuItem
+                        key={scope}
+                        onClick={() => handleExportCsv(scope)}
+                      >
+                        {exportScopeLabel(scope, rowsForScope(scope).length)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   variant={viewMode === "table" ? "default" : "outline"}
                   size="icon"
@@ -629,6 +669,17 @@ export default function SociPage() {
               >
                 <FileDown className="mr-1.5 h-3.5 w-3.5" aria-hidden />
                 Esporta PDF
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={bulkBusy}
+                onClick={() => handleExportCsv("selected")}
+              >
+                <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Esporta CSV
               </Button>
             </BulkSelectionToolbar>
 

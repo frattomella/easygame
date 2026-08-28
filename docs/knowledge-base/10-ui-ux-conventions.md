@@ -383,6 +383,29 @@ Le colonne **rispettano quelle visibili in elenco**, dove la pagina le
 configura. Le colonne senza interruttore (codice fiscale, taglie) restano
 sempre: in tabella non ci stanno, in un PDF servono.
 
+### Il CSV sta accanto al PDF, non al suo posto (W1-D)
+
+Le quattro anagrafiche hanno **due menu gemelli**, «Esporta PDF» ed «Esporta
+CSV», con gli stessi ambiti; nella barra della selezione multipla ci sono due
+pulsanti, entrambi forzati su «selezionati». Se qualcuno ne ha spuntate sette,
+il file ne contiene sette.
+
+I due formati **non sono due export**: `exportPeopleCsv` usa le stesse
+`personExportColumns` e gli stessi `personExportValue` di `exportPeoplePdf`, e
+gli atleti riusano le colonne che la loro pagina gia calcola. A parita di
+colonne visibili i due file dicono la stessa cosa.
+
+Il **tracciato** — separatore `;`, fine riga CRLF, quoting, BOM, nome del file
+— appartiene a `src/lib/csv.ts` e a nessun altro. Il punto e virgola e cio che
+Excel in italiano apre senza chiedere niente; il BOM e cio che gli fa leggere
+«Nicolò» invece di «NicolÃ²»; il quoting copre anche il ritorno a capo `\r`,
+che le due implementazioni precedenti dimenticavano — una nota incollata da
+Windows spezzava la riga in due e produceva una persona che nessuno aveva
+censito.
+
+Il PDF apre una finestra di stampa, il CSV **scarica un file**: i due messaggi
+di esito lo dicono, perche sono due gesti diversi.
+
 ### Selezione multipla e azioni di massa (RC Fix 2)
 
 Le regole stanno in `src/lib/list-selection.ts` (modulo puro), il pezzo di

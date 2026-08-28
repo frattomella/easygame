@@ -1,4 +1,5 @@
 import { formatClothingSizes } from "./clothing-sizes";
+import { csvFileName, downloadCsv, toCsv } from "./csv";
 import { describeSelection, type SelectionScope } from "./list-selection";
 import { normalizeMemberType } from "./member-types";
 import { printPeoplePdf, type PeoplePdfColumn } from "./people-pdf-export";
@@ -316,4 +317,46 @@ export const exportPeoplePdf = ({
   });
 
   return success ? { ok: true, count: people.length } : { ok: false, reason: "popup" };
+};
+
+/**
+ * Lo **stesso** elenco, in un file che si apre con un foglio di calcolo.
+ *
+ * Non e un secondo export: colonne (`personExportColumns`) e valori
+ * (`personExportValue`) sono quelli del PDF, e a parita di colonne visibili i
+ * due file dicono esattamente la stessa cosa. Cambia solo il tracciato, che
+ * appartiene a `src/lib/csv.ts`.
+ *
+ * `clubName` e `scope` sono accettati per simmetria con il PDF ma non entrano
+ * nel file: una riga di intestazione «12 allenatori selezionati» sopra i nomi
+ * delle colonne renderebbe il CSV illeggibile a un foglio di calcolo, che si
+ * aspetta le intestazioni alla prima riga. L'ambito lo ha gia scelto chi
+ * esporta, e il contenuto del file lo dimostra.
+ */
+export const exportPeopleCsv = ({
+  entity,
+  people,
+  visibleColumns,
+}: {
+  entity: PersonEntity;
+  people: Record<string, any>[];
+  clubName?: string;
+  visibleColumns?: Record<string, boolean> | null;
+  scope?: SelectionScope;
+}): PersonExportResult => {
+  if (!people.length) {
+    return { ok: false, reason: "empty" };
+  }
+
+  const columns = personExportColumns(entity, visibleColumns);
+
+  const rows = people.map((person) =>
+    Object.fromEntries(
+      columns.map((column) => [column.key, personExportValue(person, column.key)]),
+    ),
+  );
+
+  downloadCsv(csvFileName(ENTITY_TITLES[entity]), toCsv(columns, rows));
+
+  return { ok: true, count: people.length };
 };

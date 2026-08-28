@@ -74,8 +74,8 @@ import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 import { deleteClubTrainer, getClubTrainers } from "@/lib/simplified-db";
 import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
-import { exportPeoplePdf } from "@/lib/person-export";
-import { FileDown } from "lucide-react";
+import { exportPeopleCsv, exportPeoplePdf } from "@/lib/person-export";
+import { FileDown, FileSpreadsheet } from "lucide-react";
 
 interface Trainer {
   id: string;
@@ -321,19 +321,26 @@ export default function TrainersPage() {
    * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
    * righe e non sa di che entita si tratti (Blocco 7, punto 13).
    */
-  const handleExportPdf = (scope: SelectionScope) => {
-    // La colonna del PDF deve dire cio che dice la tabella: i gruppi, quando
-    // ci sono, altrimenti le categorie.
-    const people = rowsForScope(scope).map((trainer) => ({
+  /**
+   * Le righe come le vuole l'export, per PDF e CSV.
+   *
+   * La colonna deve dire cio che dice la tabella: i gruppi, quando ci sono,
+   * altrimenti le categorie. Sta in una funzione sola perche i due formati
+   * non possano divergere sul contenuto di quella colonna.
+   */
+  const peopleForExport = (scope: SelectionScope) =>
+    rowsForScope(scope).map((trainer) => ({
       ...trainer,
       categories: trainerAssignmentLabels(trainer).map((name) => ({
         id: name,
         name,
       })),
-    }));
+    })) as unknown as Record<string, any>[];
+
+  const handleExportPdf = (scope: SelectionScope) => {
     const result = exportPeoplePdf({
       entity: "trainers",
-      people: people as unknown as Record<string, any>[],
+      people: peopleForExport(scope),
       clubName: activeClub?.name || "EasyGame",
       visibleColumns: null,
       scope,
@@ -350,6 +357,31 @@ export default function TrainersPage() {
     }
 
     showToast("success", "PDF pronto: si apre la finestra di stampa");
+  };
+
+  /**
+   * Lo stesso elenco in CSV, con le stesse colonne del PDF.
+   *
+   * `visibleColumns: null` e cio che questa pagina passa gia al PDF: qui il
+   * CSV lo ripete per non far divergere i due file. Che l'elenco Allenatori
+   * non filtri le colonne come fanno Staff e Soci e un'incoerenza vera, ma e
+   * fuori dallo scope di questa lane.
+   */
+  const handleExportCsv = (scope: SelectionScope) => {
+    const result = exportPeopleCsv({
+      entity: "trainers",
+      people: peopleForExport(scope),
+      clubName: activeClub?.name || "EasyGame",
+      visibleColumns: null,
+      scope,
+    });
+
+    if (!result.ok) {
+      showToast("error", "Nessun elemento da esportare");
+      return;
+    }
+
+    showToast("success", "CSV scaricato");
   };
 
   /**
@@ -519,6 +551,28 @@ export default function TrainersPage() {
                       <DropdownMenuItem
                         key={scope}
                         onClick={() => handleExportPdf(scope)}
+                      >
+                        {exportScopeLabel(scope, rowsForScope(scope).length)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!exportScopes.length}
+                    >
+                      <FileSpreadsheet className="h-4 w-4 mr-1" />
+                      Esporta CSV
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {exportScopes.map((scope) => (
+                      <DropdownMenuItem
+                        key={scope}
+                        onClick={() => handleExportCsv(scope)}
                       >
                         {exportScopeLabel(scope, rowsForScope(scope).length)}
                       </DropdownMenuItem>
@@ -719,6 +773,17 @@ export default function TrainersPage() {
               >
                 <FileDown className="mr-1.5 h-3.5 w-3.5" aria-hidden />
                 Esporta PDF
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={bulkBusy}
+                onClick={() => handleExportCsv("selected")}
+              >
+                <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Esporta CSV
               </Button>
             </BulkSelectionToolbar>
 

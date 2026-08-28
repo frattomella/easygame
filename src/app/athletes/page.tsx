@@ -34,6 +34,7 @@ import {
   Download,
   Upload,
   BarChart3,
+  FileSpreadsheet,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
 import {
@@ -86,6 +87,7 @@ import {
 import type { ListPageMeta } from "@/lib/api/client";
 import { describeSelection } from "@/lib/list-selection";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
+import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
 import {
   buildCategoryGroups,
   buildCategoryGroupLabel,
@@ -1258,6 +1260,36 @@ export default function AthletesPage() {
     showToast("success", "PDF pronto: si apre la finestra di stampa");
   };
 
+  /**
+   * Lo stesso elenco in CSV, con le stesse colonne e gli stessi valori.
+   *
+   * Passa da `collectAthletesForExport`, quindi vale anche qui la regola del
+   * PDF: **una selezione attiva vince**, e con l'archivio paginato le pagine
+   * restanti si chiedono al server. Il tracciato — separatore, CRLF, BOM —
+   * appartiene a `src/lib/csv.ts`: qui non si serializza niente a mano.
+   */
+  const exportAthletesCsv = async () => {
+    const exportAthletes = await collectAthletesForExport();
+    const columns = getVisibleAthleteExportColumns();
+
+    if (!exportAthletes.length) {
+      showToast("error", "Nessun atleta da esportare");
+      return;
+    }
+
+    const rows = exportAthletes.map((athlete) =>
+      Object.fromEntries(
+        columns.map((column) => [
+          column.key,
+          getAthleteExportValue(athlete, column.key),
+        ]),
+      ),
+    );
+
+    downloadCsv(csvFileName("Elenco Atleti"), toCsv(columns, rows));
+    showToast("success", "CSV scaricato");
+  };
+
   const getBulkActionLabel = (action: BulkActionType) => {
     if (action === "activate") {
       return "rendere attivi";
@@ -1884,6 +1916,13 @@ export default function AthletesPage() {
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Esporta PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void exportAthletesCsv()}
+                      disabled={!filteredAthletes.length && !selectedAthleteIds.size}
+                    >
+                      <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      Esporta CSV
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setShowImportAthletesModal(true)}
