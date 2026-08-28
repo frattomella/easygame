@@ -29,6 +29,7 @@
     "measure:athletes": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-athletes-payload.mjs",
     "measure:multisite": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-multisite-performance.mjs",
     "measure:web": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-web-v1-performance.mjs",
+    "sport-work:legacy-report": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/sport-work-legacy-report.mjs",
     "attachments:migrate-legacy": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/migrate-legacy-attachments.mjs",
     "measure:dashboard": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-dashboard-performance.mjs"
   },
