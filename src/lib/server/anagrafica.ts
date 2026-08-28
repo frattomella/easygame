@@ -4,6 +4,7 @@ import {
   isWellFormedCodiceFiscale,
 } from "../italian-registry";
 import { capitalizeName } from "../text-capitalization";
+import { checkBirthDate, toBirthDateIso } from "../birth-date";
 
 /**
  * Validazione anagrafica lato server.
@@ -155,10 +156,45 @@ const validateClubAnagrafica = (
   checks.forEach(runCheck);
 };
 
+/**
+ * La data di nascita, sul confine dell'API.
+ *
+ * L'anteprima dell'import rifiutava gia il 31 febbraio e una nascita nel
+ * futuro; la stessa scheda salvata dalla pagina Atleti, o da un modulo di
+ * iscrizione, non passava di li. La regola vive ora in `lib/birth-date.ts` ed
+ * e la stessa per tutti e due i percorsi (RC FIX 3).
+ *
+ * Vale anche qui l'indulgenza del modulo: se la scheda porta **gia** quella
+ * data, non e questa scrittura a introdurla e rifiutarla impedirebbe di
+ * correggere il resto. Una data inesistente in archivio non puo esserci — il
+ * tipo `date` di Postgres non la accetta — quindi l'indulgenza copre solo le
+ * date implausibili o nel futuro entrate prima di questo controllo.
+ */
+const validateAthleteBirthDate = (
+  input: Record<string, any>,
+  existing: Record<string, any> | null,
+) => {
+  const written = input.birth_date !== undefined ? input.birth_date : input.birthDate;
+  if (written === undefined || written === null || asText(written) === "") return;
+
+  const stored = toBirthDateIso(existing?.birth_date ?? existing?.birthDate);
+  if (stored && stored === toBirthDateIso(written)) return;
+
+  const check = checkBirthDate(written);
+  if (!check.valid) {
+    throw new AnagraficaValidationError(
+      "birth_date",
+      `Atleta: ${check.message.charAt(0).toLowerCase()}${check.message.slice(1)}`,
+    );
+  }
+};
+
 const validateAthleteAnagrafica = (
   input: Record<string, any>,
   existing: Record<string, any> | null,
 ) => {
+  validateAthleteBirthDate(input, existing);
+
   const data = asRecord(input.data);
   if (!Object.keys(data).length) return;
 

@@ -1,5 +1,9 @@
 import { findCategoryForBirthDate, resolveCategoryId } from "@/lib/category-utils";
 import { isWellFormedCodiceFiscale } from "@/lib/italian-registry";
+import {
+  MIN_PLAUSIBLE_BIRTH_YEAR,
+  isRealCalendarDate,
+} from "@/lib/birth-date";
 
 /**
  * Import anagrafiche atleti da file.
@@ -522,18 +526,6 @@ const excelSerialToDate = (value: number) => {
   return new Date(epoch + value * 86400000).toISOString().slice(0, 10);
 };
 
-const isRealDate = (iso: string) => {
-  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return false;
-  const [, year, month, day] = match.map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
-};
-
 export const toIsoDate = (value: unknown) => {
   if (value === null || value === undefined || value === "") return "";
 
@@ -546,13 +538,13 @@ export const toIsoDate = (value: unknown) => {
   if (!text) return "";
 
   if (/^\d{4}$/.test(text)) return `${text}-01-01`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return isRealDate(text) ? text : "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return isRealCalendarDate(text) ? text : "";
 
   const slashMatch = text.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
   if (slashMatch) {
     const [, day, month, year] = slashMatch;
     const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-    return isRealDate(iso) ? iso : "";
+    return isRealCalendarDate(iso) ? iso : "";
   }
 
   // Solo formati espliciti: `new Date("12/03/2010")` interpreterebbe la data
@@ -602,16 +594,6 @@ export type ExistingAthleteIdentity = {
   lastName?: string | null;
   birthDate?: string | null;
 };
-
-/**
- * Anno di nascita piu antico che si accetta senza discutere.
- *
- * E la stessa soglia che `toIsoDate` applica gia da sempre a un anno arrivato
- * come **numero**: `value >= 1900`. Fino a ora la stessa cifra scritta come
- * testo — `05/05/1890` — passava, e l'anteprima dichiarava la riga «Pronta».
- * Due strade per lo stesso dato non possono dare due risposte diverse.
- */
-const MIN_PLAUSIBLE_BIRTH_YEAR = 1900;
 
 /** Vero se il testo e un anno secco: `2016`, non `12/05/2016`. */
 const isBareYear = (value: unknown) => /^\d{4}$/.test(String(value ?? "").trim());

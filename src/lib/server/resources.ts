@@ -19,6 +19,7 @@ import {
   isSeasonScopedDataType,
   normalizeClubSeasons,
 } from "../club-seasons";
+import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 
@@ -657,11 +658,35 @@ const serializeRecord = (resource: string, record: Record<string, any>) => {
   return withCompatibilityAliases(resource, record);
 };
 
+/**
+ * Le date che devono ricomporre lo stesso giorno che qualcuno ha scritto.
+ *
+ * `new Date` non e un giudice: `new Date("2026-02-31")` non fallisce, restituisce
+ * il **3 marzo**. Su una data di nascita quel riporto silenzioso e un dato
+ * falso che nessuno vede passare, e da li discendono eta, categoria per anno
+ * di nascita e codice fiscale. Qui si legge la data come testo; se il giorno
+ * non esiste il valore resta **come e stato scritto**, perche a rifiutarlo con
+ * un messaggio di dominio sia `assertAnagraficaIsValid`, che e il proprietario
+ * della validazione anagrafica e sa quando una scheda gia in archivio va
+ * lasciata correggere (RC FIX 3).
+ */
+const CALENDAR_DATE_FIELDS = new Set(["birth_date"]);
+
 const normalizeDates = (resource: string, input: Record<string, any>) => {
   const dateFields = MODEL_DATE_FIELDS[resource] || [];
   const next = { ...input };
 
   for (const field of dateFields) {
+    if (CALENDAR_DATE_FIELDS.has(field)) {
+      const iso = toBirthDateIso(next[field]);
+      if (iso) {
+        next[field] = new Date(`${iso}T00:00:00.000Z`);
+      } else if (next[field] === "") {
+        next[field] = null;
+      }
+      continue;
+    }
+
     const parsed = toDateOrUndefined(next[field]);
     if (parsed) {
       next[field] = parsed;
