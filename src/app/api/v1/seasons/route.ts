@@ -71,7 +71,15 @@ export async function POST(request: Request) {
         startDate: result.season.startDate,
         endDate: result.season.endDate,
         status: result.season.status,
-        activated: Boolean(body.activate),
+        /*
+          Cosa e successo, non cosa era stato chiesto: la prima stagione di un
+          club nasce attiva anche senza che nessuno l'abbia chiesto — e la sua
+          sola stagione, non c'e niente da cui ereditare il perimetro. Un
+          registro che scrive `activated: false` accanto a una stagione attiva
+          racconta il contrario di quel che e accaduto.
+        */
+        activated: result.season.status === "active",
+        activationRequested: Boolean(body.activate),
       },
     });
 

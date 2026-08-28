@@ -1689,7 +1689,7 @@ const [federations, setFederations] = useState<any[]>([]);
           <TabsContent value="stagioni" className="space-y-4 mt-4">
             <SeasonManager
               onActiveSeasonChange={(season) =>
-                rememberActiveSeason(season.id, season.label)
+                rememberActiveSeason(season.id, season.label, clubId)
               }
             />
           </TabsContent>

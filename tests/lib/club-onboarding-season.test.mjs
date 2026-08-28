@@ -144,7 +144,7 @@ test("la stagione creata aggiorna il club attivo memorizzato", () => {
   const onboarding = read("src/app/onboarding/page.tsx");
   const client = read("src/lib/api/client.ts");
 
-  assert.match(onboarding, /rememberActiveSeason\(season\.id, season\.label\)/);
+  assert.match(onboarding, /rememberActiveSeason\(season\.id, season\.label, clubId\)/);
   assert.match(client, /export const rememberActiveSeason = \(/);
   assert.match(
     client,
@@ -157,7 +157,7 @@ test("la stagione creata aggiorna il club attivo memorizzato", () => {
     copia della stessa scrittura su `localStorage`.
   */
   const organization = read("src/app/organization/page.tsx");
-  assert.match(organization, /rememberActiveSeason\(season\.id, season\.label\)/);
+  assert.match(organization, /rememberActiveSeason\(season\.id, season\.label, clubId\)/);
   assert.equal(
     /const syncActiveSeasonLocally =/.test(organization),
     false,
@@ -235,4 +235,36 @@ test("su un club senza stagioni salvate non si marca e non si filtra", () => {
     /knownSeasonIds: seasonState\.seasons\.map\(\(season\) => season\.id\),/,
   );
   assert.match(source, /knownSeasonIds: season\.knownSeasonIds,/);
+});
+
+/**
+ * Sullo stesso browser possono convivere piu account: `activeClub` piu una
+ * voce `activeClub_<utente>` per ognuno, e ognuno puo avere aperto un club
+ * **diverso**. Scrivere la stagione su tutte le voci significherebbe
+ * attribuire l'annata di una societa a un'altra.
+ */
+test("la stagione si scrive solo sulle voci del club a cui appartiene", () => {
+  const client = read("src/lib/api/client.ts");
+
+  assert.match(
+    client,
+    /clubId\?: string \| null,/,
+    "chi aggiorna la stagione deve poter dire di quale club si tratta",
+  );
+  assert.match(
+    client,
+    /if \(target && String\(parsed\.id\) !== target\) continue;/,
+    "una voce che punta a un altro club non va toccata",
+  );
+
+  for (const file of [
+    "src/app/onboarding/page.tsx",
+    "src/app/organization/page.tsx",
+  ]) {
+    assert.match(
+      read(file),
+      /rememberActiveSeason\(season\.id, season\.label, clubId\)/,
+      `${file}: il club va passato`,
+    );
+  }
 });

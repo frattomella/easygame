@@ -248,16 +248,33 @@ test("la deduplica del rimborso si rifa dentro la transazione", () => {
     "utf8",
   );
 
-  // Le tre operazioni che muovono denaro bloccano la riga su cui decidono.
+  /*
+    Il blocco lo prende una funzione sola, e sempre nello stesso ordine: prima
+    la rata, poi l'incasso. Due ordini diversi sulle stesse due righe sono un
+    abbraccio mortale che si presenta solo sotto carico.
+  */
+  const helper = source.slice(
+    source.indexOf("const lockInstallmentAndTransaction"),
+  );
+  const corpo = helper.slice(0, helper.indexOf("\n};"));
+  assert.ok(
+    corpo.indexOf("FROM payments") < corpo.indexOf("FROM payment_transactions"),
+    "la rata si blocca prima dell'incasso",
+  );
   assert.equal(
     (source.match(/FOR UPDATE`/g) || []).length,
+    2,
+    "i blocchi si prendono in un punto solo",
+  );
+  assert.equal(
+    (source.match(/await lockInstallmentAndTransaction\(/g) || []).length,
     3,
-    "incasso, storno e rimborso devono bloccare la riga prima di decidere",
+    "incasso, storno e rimborso devono passare tutti di li",
   );
 
   const refund = source.slice(source.indexOf("export const recordRefundTransaction"));
   const body = refund.slice(0, refund.indexOf("export type MarkRefundRequestedInput"));
-  const lock = body.indexOf("FOR UPDATE`");
+  const lock = body.indexOf("await lockInstallmentAndTransaction(");
   const dedup = body.indexOf("const alreadyWritten =");
   const capienza = body.indexOf("const refundedSoFar =");
   const create = body.indexOf("client.paymentTransaction.create");

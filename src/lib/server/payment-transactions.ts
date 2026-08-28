@@ -111,6 +111,35 @@ const toDateOrNull = (value: unknown) => {
 const transactionClient = () => (prisma as any).paymentTransaction;
 const chargeClient = () => (prisma as any).athletePayment;
 
+/**
+ * Blocca cio su cui l'operazione sta per decidere, **sempre nello stesso
+ * ordine**: prima la rata, poi l'incasso.
+ *
+ * Tutte e tre le operazioni che muovono denaro ricalcolano lo stato della
+ * **rata** dal registro. Se ognuna bloccasse solo la riga che le interessa —
+ * l'incasso per lo storno, la rata per un nuovo incasso — due operazioni
+ * diverse sulla stessa rata non si vedrebbero, e i due ricalcoli finali
+ * scriverebbero uno sopra l'altro: lo stato salvato tornerebbe a
+ * contraddire i suoi importi, che e il difetto che tutto questo esiste per
+ * chiudere.
+ *
+ * L'ordine e fisso perche due ordini diversi sulle stesse due righe sono un
+ * abbraccio mortale che si presenta solo sotto carico, cioe il giorno delle
+ * iscrizioni.
+ */
+const lockInstallmentAndTransaction = async (
+  client: any,
+  paymentId: string | null,
+  transactionId?: string | null,
+) => {
+  if (paymentId) {
+    await client.$queryRaw`SELECT id FROM payments WHERE id = ${paymentId}::uuid FOR UPDATE`;
+  }
+  if (transactionId) {
+    await client.$queryRaw`SELECT id FROM payment_transactions WHERE id = ${transactionId}::uuid FOR UPDATE`;
+  }
+};
+
 /* --------------------------------------------------------------- lettura */
 
 export type ListPaymentTransactionsFilter = {
@@ -425,7 +454,7 @@ export const createPaymentTransaction = async (
         scritto, e vede il residuo vero. Rate diverse non si ostacolano —
         il blocco e sulla riga, non sulla tabella.
       */
-      await client.$queryRaw`SELECT id FROM payments WHERE id = ${paymentId}::uuid FOR UPDATE`;
+      await lockInstallmentAndTransaction(client, paymentId);
 
       const current = normalizePaymentTransactions(
         await client.paymentTransaction.findMany({
@@ -533,7 +562,7 @@ export const reversePaymentTransaction = async (
       movimento di compensazione: la rata torna indietro due volte e il
       registro va sotto zero.
     */
-    await client.$queryRaw`SELECT id FROM payment_transactions WHERE id = ${original.id}::uuid FOR UPDATE`;
+    await lockInstallmentAndTransaction(client, paymentId, original.id);
 
     const fresh = await client.paymentTransaction.findUnique({
       where: { id: original.id },
@@ -737,7 +766,7 @@ export const recordRefundTransaction = async (
       Il blocco sulla riga dell'incasso originale mette in fila chi rimborsa
       lo stesso incasso, e la verifica si rifa qui dentro.
     */
-    await client.$queryRaw`SELECT id FROM payment_transactions WHERE id = ${original.id}::uuid FOR UPDATE`;
+    await lockInstallmentAndTransaction(client, paymentId, original.id);
 
     const alreadyWritten = await client.paymentTransaction.findFirst({
       where: {

@@ -124,6 +124,14 @@ export const readStoredActiveClub = () => {
 export const rememberActiveSeason = (
   seasonId: string | null,
   seasonLabel: string | null,
+  /**
+   * Il club a cui la stagione appartiene. Sullo stesso browser possono
+   * convivere piu account (`activeClub_<utente>`), e ognuno puo avere aperto
+   * un club **diverso**: scrivere la stagione su tutti significherebbe
+   * attribuire l'annata di una societa a un'altra. Omesso, aggiorna la voce
+   * generica e quelle che gia puntano allo stesso club di quella.
+   */
+  clubId?: string | null,
 ) => {
   if (typeof window === "undefined") {
     return;
@@ -137,6 +145,19 @@ export const rememberActiveSeason = (
     }
   }
 
+  const target =
+    String(clubId || "").trim() ||
+    (() => {
+      try {
+        return String(
+          JSON.parse(window.localStorage.getItem("activeClub") || "{}")?.id ||
+            "",
+        );
+      } catch {
+        return "";
+      }
+    })();
+
   let updated: Record<string, any> | null = null;
 
   for (const key of keys) {
@@ -146,6 +167,7 @@ export const rememberActiveSeason = (
     try {
       const parsed = JSON.parse(raw);
       if (!parsed?.id) continue;
+      if (target && String(parsed.id) !== target) continue;
       updated = {
         ...parsed,
         activeSeasonId: seasonId,

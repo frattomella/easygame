@@ -294,7 +294,7 @@ export default function OnboardingPage() {
       a dire «Nessuna stagione attiva» su un club che la stagione ce l'ha, e lo
       dice finche non si rientra dal pannello account.
     */
-    rememberActiveSeason(season.id, season.label);
+    rememberActiveSeason(season.id, season.label, clubId);
   };
 
   const saveCategoriesStep = async () => {
