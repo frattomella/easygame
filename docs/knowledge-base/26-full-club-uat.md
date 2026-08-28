@@ -340,8 +340,8 @@ toccato, in lettura o in scrittura.
 
 | Cosa | Quanti | Nota |
 |---|---|---|
-| Atleti | 212 | 200 dall'import di volume, 11 dal file ostile, 1 dall'onboarding. I cognomi finiscono per `Qa` |
-| Appartenenze di categoria | 211 | |
+| Atleti | 210 | 200 dall'import di volume, 9 dal file ostile, 1 dall'onboarding. I cognomi finiscono per `Qa` |
+| Appartenenze di categoria | 209 | |
 | Categorie | 5 | `Pulcini` ed `Esordienti` in doppia copia (riporto fra stagioni), piu `Categoria Inesistente` creata dall'import |
 | Stagioni | 2 | una e la **fantasma** del difetto 1: resta come prova, ed e archiviata |
 | Piani di pagamento | 1 | `Quota annuale QA`, 600 € su due rate, pro-rata per giorni |
@@ -350,7 +350,11 @@ toccato, in lettura o in scrittura.
 | Allegati | 1 | il PDF di prova; i tre file ostili sono stati cancellati |
 
 Su `EasyGame FC` non e stato creato niente. Le due anagrafiche con il nome in
-forma decomposta sono state riscritte in NFC **dall'applicazione**.
+forma decomposta sono state riscritte in NFC **dall'applicazione**, e le due
+con una data di nascita impossibile — quella del 1890 e quella del 2030, che
+l'import corretto oggi rifiuterebbe — sono state eliminate. Verifica finale
+sul database: **zero** atleti, appartenenze, rate, incassi o blob orfani; zero
+nomi fuori da NFC; zero date di nascita impossibili.
 
 ## Cosa resta aperto
 
