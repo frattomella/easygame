@@ -14,7 +14,7 @@ Questo giro ha fatto l'unica cosa che nessuno dei due aveva fatto: **ha creato
 un club da zero e ci ha lavorato dentro**, dalla registrazione fino
 all'incasso di una rata.
 
-Sei degli otto difetti di questo documento **non erano raggiungibili su un
+Sette dei nove difetti di questo documento **non erano raggiungibili su un
 club gia configurato**. Il piu grave — un club che esce dall'onboarding con
 due stagioni e le categorie invisibili — richiede letteralmente di premere
 «Crea club».
@@ -32,7 +32,7 @@ guardando lo schermo: i record marcati con una stagione che non esiste e i
 nomi salvati in forma Unicode decomposta. A schermo erano identici a quelli
 giusti.
 
-## Gli otto difetti
+## I nove difetti
 
 ### 1. Un club nuovo nasceva con due stagioni, e senza le sue categorie — P1
 
@@ -209,6 +209,24 @@ E l'inserimento rapido degli atleti nell'onboarding chiedeva Cognome prima di
 Nome, con un `Input` semplice: l'unica delle nove anagrafiche rimasta fuori da
 [ADR-0066](18-decision-log.md).
 
+### 9. L'onboarding scriveva un badge da 51 caratteri in un campo da 25 — P3
+
+Il campo «Descrizione» di una categoria e un **badge**: «Under 12»,
+«Calcio a 5», massimo 25 caratteri, e la scheda di modifica lo dichiara.
+L'onboarding ci scriveva dentro «Categoria creata durante la configurazione
+iniziale», che ne conta 51.
+
+Aprendo la scheda di una categoria appena creata il contatore diceva **51/25**
+su un testo che l'applicazione aveva scritto **da sola**, e la card portava un
+badge lungo una riga intera. Nessuna regola era stata violata da un utente: era
+il prodotto a non rispettare la propria.
+
+**Correzione.** Nessuna descrizione. Che una categoria sia nata durante la
+configurazione iniziale non serve a chi la guarda: il nome basta, e chi vuole
+scriverci «Calcio a 5» lo fa. Il test misura la stringa che l'onboarding
+scrive, invece di controllarne il testo: qualunque descrizione futura dovra
+stare nel badge.
+
 ## Cosa il collaudo ha invece confermato
 
 ### Isolamento multi-tenant — nessuna falla
@@ -307,7 +325,7 @@ durante una campagna di collaudo non e il momento giusto.
 
 | Gate | Esito |
 |---|---|
-| `npm test` | **1.954 verdi**, 0 falliti (da 1.913: **41 nuovi**) |
+| `npm test` | **1.955 verdi**, 0 falliti (da 1.913: **42 nuovi**) |
 | `npm run typecheck` | nessun output |
 | `npm run lint` | 0 errori, 40 warning — **invariati** |
 | `npm run build` | completa |
