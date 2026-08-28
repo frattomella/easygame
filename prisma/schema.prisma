@@ -248,6 +248,17 @@ model Club {
   document_series              DocumentSeries[]
   fiscal_operation_types       FiscalOperationType[]
   einvoice_transmissions       EInvoiceTransmission[]
+  sport_work_people            SportWorkPerson[]
+  sport_work_relationships     SportWorkRelationship[]
+  sport_work_plans             SportWorkCompensationPlan[]
+  sport_work_installments      SportWorkInstallment[]
+  sport_work_transactions      SportWorkOutboundTransaction[]
+  sport_work_declarations      SportWorkExternalDeclaration[]
+  sport_work_year_positions    SportWorkYearPosition[]
+  sport_work_bonuses           SportWorkBonus[]
+  sport_work_reimbursements    SportWorkExpenseReimbursement[]
+  sport_work_vat_invoices      SportWorkVatInvoice[]
+  sport_work_obligations       SportWorkObligation[]
 
   @@map("clubs")
 }
@@ -1434,4 +1445,474 @@ model EInvoiceTransmission {
 
   @@index([organization_id, status])
   @@map("einvoice_transmissions")
+}
+
+/// ---------------------------------------------------------------------------
+/// Lavoro sportivo e compensi (WP Sport Work V1).
+///
+/// Undici tabelle, ognuna per una domanda diversa. Il dominio e **isolato**:
+/// non tocca `payments`, `payment_transactions` ne `trainer_payments`. Un
+/// compenso a un allenatore non e un incasso da una famiglia, e forzarlo
+/// dentro il registro delle entrate produrrebbe la stessa confusione che
+/// ADR-0037 ha gia evitato fra contributi e pagamenti.
+/// ---------------------------------------------------------------------------
+
+/// La **persona** del modulo: l'identita canonica di chi lavora per il club.
+///
+/// Esiste perche allenatori e staff, in EasyGame, non sono righe di tabella:
+/// stanno in `clubs.trainers` e `clubs.staff_members`, colonne JSON. Un
+/// rapporto di lavoro che deve puntare a una persona con integrita
+/// referenziale, li, non ce l'ha. `origin_type` + `origin_id` dichiarano da
+/// dove viene la persona; il legame e **debole** di proposito, perche un
+/// contratto firmato non si cancella insieme a una scheda.
+///
+/// Nome, cognome, codice fiscale, nascita, contatti e IBAN stanno **qui e una
+/// volta sola**: e il punto del Person Core.
+model SportWorkPerson {
+  id              String                          @id @default(uuid()) @db.Uuid
+  organization_id String                          @db.Uuid
+  /// athlete | trainer | staff_member | member | user | external
+  origin_type     String                          @default("external")
+  /// Identificativo nell'anagrafica di origine. Testo: gli allenatori JSON non hanno UUID.
+  origin_id       String?
+  first_name      String
+  last_name       String
+  fiscal_code     String?
+  birth_date      DateTime?
+  birth_place     String?
+  gender          String?
+  email           String?
+  phone           String?
+  address         String?
+  /// NONE | VAT_ORDINARY | VAT_FLAT_RATE
+  fiscal_profile  String                          @default("NONE")
+  vat_number      String?
+  pension_fund    String?
+  /// NONE | OTHER_COVERAGE | PENSIONER — decide l'aliquota. **Dichiarata, non dedotta.**
+  social_coverage String                          @default("NONE")
+  /// Dato riservato: non compare mai nelle proiezioni di elenco.
+  iban            String?
+  notes           String?
+  data            Json?
+  created_by      String?                         @db.Uuid
+  created_at      DateTime                        @default(now())
+  updated_at      DateTime                        @updatedAt
+  organization    Club                            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  relationships   SportWorkRelationship[]
+  declarations    SportWorkExternalDeclaration[]
+  year_positions  SportWorkYearPosition[]
+  transactions    SportWorkOutboundTransaction[]
+  bonuses         SportWorkBonus[]
+  reimbursements  SportWorkExpenseReimbursement[]
+  vat_invoices    SportWorkVatInvoice[]
+  obligations     SportWorkObligation[]
+
+  @@index([organization_id])
+  @@index([organization_id, origin_type, origin_id])
+  @@map("sport_work_people")
+}
+
+/// Il **rapporto di lavoro sportivo**: una persona, un club, un periodo, un
+/// tipo e uno stato.
+///
+/// `season_id` esiste per l'operativita — quali contratti ho per la stagione
+/// in corso — ma **non e la chiave del motore**: il calcolo e la posizione
+/// appartengono all'anno solare, e metterli nello stesso perimetro
+/// azzererebbe i progressivi cambiando stagione, cioe a giugno.
+model SportWorkRelationship {
+  id                     String                          @id @default(uuid()) @db.Uuid
+  organization_id        String                          @db.Uuid
+  person_id              String                          @db.Uuid
+  season_id              String?
+  /// ATHLETE | COACH | INSTRUCTOR | ... (vedi src/lib/sport-work/model.ts)
+  role                   String                          @default("OTHER")
+  /// SPORT_COCOCO | SELF_EMPLOYED_VAT | EXTERNAL_PAYROLL_REFERENCE
+  relationship_type      String                          @default("SPORT_COCOCO")
+  start_date             DateTime
+  end_date               DateTime?
+  /// DRAFT | ACTIVE | SUSPENDED | EXPIRED | TERMINATED
+  status                 String                          @default("DRAFT")
+  contract_amount        Float?
+  currency               String                          @default("EUR")
+  /// SEASONAL | ANNUAL | MONTHLY | PER_PERFORMANCE
+  compensation_frequency String                          @default("SEASONAL")
+  /// Ore settimanali dichiarate: serve alla presunzione delle 24 ore (art. 28).
+  weekly_hours           Float?
+  contract_attachment_id String?                         @db.Uuid
+  /// NOT_REQUIRED | PENDING | SIGNED
+  signature_state        String                          @default("NOT_REQUIRED")
+  /// NOT_REQUIRED | TO_PREPARE | READY | SUBMITTED | CONFIRMED | ERROR
+  rasd_status            String                          @default("TO_PREPARE")
+  rasd_reference         String?
+  rasd_communicated_at   DateTime?
+  rasd_notes             String?
+  terminated_at          DateTime?
+  termination_reason     String?
+  notes                  String?
+  data                   Json?
+  created_by             String?                         @db.Uuid
+  created_at             DateTime                        @default(now())
+  updated_at             DateTime                        @updatedAt
+  organization           Club                            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person                 SportWorkPerson                 @relation(fields: [person_id], references: [id], onDelete: Cascade)
+  plan                   SportWorkCompensationPlan?
+  installments           SportWorkInstallment[]
+  transactions           SportWorkOutboundTransaction[]
+  bonuses                SportWorkBonus[]
+  reimbursements         SportWorkExpenseReimbursement[]
+  vat_invoices           SportWorkVatInvoice[]
+  obligations            SportWorkObligation[]
+
+  @@index([organization_id])
+  @@index([organization_id, status])
+  @@index([person_id])
+  @@map("sport_work_relationships")
+}
+
+/// Il **piano compensi** di un rapporto. Uno per rapporto: rivederlo significa
+/// rigenerarne le scadenze, e una rata gia erogata non si rigenera.
+model SportWorkCompensationPlan {
+  id              String                 @id @default(uuid()) @db.Uuid
+  organization_id String                 @db.Uuid
+  relationship_id String                 @unique @db.Uuid
+  /// EQUAL_INSTALMENTS | MONTHLY | CUSTOM
+  kind            String                 @default("EQUAL_INSTALMENTS")
+  total_amount    Float                  @default(0)
+  currency        String                 @default("EUR")
+  /// La configurazione che ha generato le rate: numero, mese iniziale, importi.
+  config          Json?
+  notes           String?
+  created_by      String?                @db.Uuid
+  created_at      DateTime               @default(now())
+  updated_at      DateTime               @updatedAt
+  organization    Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  relationship    SportWorkRelationship  @relation(fields: [relationship_id], references: [id], onDelete: Cascade)
+  installments    SportWorkInstallment[]
+
+  @@index([organization_id])
+  @@map("sport_work_compensation_plans")
+}
+
+/// Una **scadenza** del piano.
+///
+/// `gross_amount`, `accrued_amount` e `paid_amount` sono tre grandezze diverse
+/// — programmato, maturato, erogato — e `status` si **deriva** da loro.
+/// Nessuna schermata lo imposta.
+///
+/// `fiscal_year` qui e l'anno **della scadenza programmata**: una previsione.
+/// L'anno fiscale che conta e quello della data di pagamento, e sta sulla riga
+/// del registro in uscita.
+model SportWorkInstallment {
+  id                   String                        @id @default(uuid()) @db.Uuid
+  organization_id      String                        @db.Uuid
+  plan_id              String                        @db.Uuid
+  relationship_id      String                        @db.Uuid
+  sequence             Int
+  label                String
+  accrual_period_start DateTime
+  accrual_period_end   DateTime
+  due_date             DateTime
+  gross_amount         Float
+  accrued_amount       Float                         @default(0)
+  paid_amount          Float                         @default(0)
+  remaining_amount     Float                         @default(0)
+  /// SCHEDULED | ACCRUED | PARTIALLY_PAID | PAID | OVERDUE | CANCELLED
+  status               String                        @default("SCHEDULED")
+  /// Anno solare della scadenza programmata. Non l'anno fiscale dell'erogazione.
+  fiscal_year          Int
+  cancelled            Boolean                       @default(false)
+  notes                String?
+  created_at           DateTime                      @default(now())
+  updated_at           DateTime                      @updatedAt
+  organization         Club                          @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  plan                 SportWorkCompensationPlan     @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+  relationship         SportWorkRelationship         @relation(fields: [relationship_id], references: [id], onDelete: Cascade)
+  transactions         SportWorkOutboundTransaction[]
+
+  @@unique([plan_id, sequence])
+  @@index([organization_id])
+  @@index([organization_id, due_date])
+  @@index([relationship_id])
+  @@map("sport_work_compensation_installments")
+}
+
+/// Il **registro in uscita**: l'unica scrittura di denaro del dominio.
+///
+/// Append-only. Non esiste `DELETE`: correggere significa aggiungere una riga
+/// di segno opposto (`COMPENSATION_REVERSAL`) che compensa l'originale, e
+/// l'originale resta marcato `reversed_at`. E la stessa disciplina del
+/// registro degli incassi (ADR-0036), applicata al denaro che esce.
+///
+/// I valori del calcolo sono **congelati** sulla riga: `rules_version`,
+/// aliquota, riduzione, imponibili e quote. Una modifica normativa futura non
+/// riscrive la storia, perche la storia se la porta dietro.
+model SportWorkOutboundTransaction {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  organization_id       String                 @db.Uuid
+  /// COMPENSATION_PAYMENT | COMPENSATION_REVERSAL | BONUS_PAYMENT | ...
+  transaction_type      String                 @default("COMPENSATION_PAYMENT")
+  person_id             String                 @db.Uuid
+  relationship_id       String?                @db.Uuid
+  installment_id        String?                @db.Uuid
+  bonus_id              String?                @db.Uuid
+  reimbursement_id      String?                @db.Uuid
+  vat_invoice_id        String?                @db.Uuid
+  paid_at               DateTime
+  /// Anno solare della data di pagamento: le franchigie si consumano per cassa.
+  fiscal_year           Int
+  gross_amount          Float
+  currency              String                 @default("EUR")
+  payment_method        String?
+  reference             String?
+  bank_account_id       String?
+  /// L'anno del rule set che ha prodotto i numeri di questa riga.
+  rules_version         String?
+  social_rate           Float                  @default(0)
+  reduction_factor      Float                  @default(0)
+  taxable_social        Float                  @default(0)
+  social_franchise_used Float                  @default(0)
+  employee_contribution Float                  @default(0)
+  employer_contribution Float                  @default(0)
+  taxable_fiscal        Float                  @default(0)
+  fiscal_franchise_used Float                  @default(0)
+  /// Sempre NULL in V1: EasyGame non determina la ritenuta IRPEF.
+  withholding_amount    Float?
+  net_amount            Float                  @default(0)
+  club_cost             Float                  @default(0)
+  f24_causale           String?
+  /// NOT_APPLICABLE | TO_VERIFY | OUT_OF_SCOPE
+  fiscal_treatment      String                 @default("NOT_APPLICABLE")
+  /// Falso se una regola usata dal calcolo non e validata.
+  definitive            Boolean                @default(true)
+  /// Lo snapshot completo: soglie, aliquote, fonti, voci pendenti.
+  fiscal_snapshot       Json?
+  reversal_of_id        String?                @db.Uuid
+  reversed_at           DateTime?
+  reversal_reason       String?
+  /// Chiave dell'operazione, per rifiutare il doppio invio dello stesso gesto.
+  idempotency_key       String?
+  notes                 String?
+  created_by            String?                @db.Uuid
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+  organization          Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person                SportWorkPerson        @relation(fields: [person_id], references: [id], onDelete: Cascade)
+  relationship          SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
+  installment           SportWorkInstallment?  @relation(fields: [installment_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([organization_id, paid_at])
+  @@index([organization_id, person_id, fiscal_year])
+  @@index([installment_id])
+  @@index([reversal_of_id])
+  @@map("sport_work_outbound_transactions")
+}
+
+/// L'**autocertificazione dei compensi esterni**: un record, non un allegato.
+///
+/// Le soglie sono del lavoratore e non del committente: senza questa
+/// dichiarazione il progressivo e strutturalmente parziale. Il suo valore
+/// principale non e la precisione del netto — e **provare cosa il club sapeva
+/// quando**, con una data e una firma.
+model SportWorkExternalDeclaration {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organization_id    String          @db.Uuid
+  person_id          String          @db.Uuid
+  fiscal_year        Int
+  external_amount    Float           @default(0)
+  declaration_date   DateTime
+  effective_from     DateTime?
+  attachment_id      String?         @db.Uuid
+  /// ACTIVE | SUPERSEDED | REVOKED
+  status             String          @default("ACTIVE")
+  /// Vero se il lavoratore dichiara di avere altra copertura previdenziale.
+  has_other_coverage Boolean         @default(false)
+  supersedes_id      String?         @db.Uuid
+  notes              String?
+  data               Json?
+  created_by         String?         @db.Uuid
+  created_at         DateTime        @default(now())
+  updated_at         DateTime        @updatedAt
+  organization       Club            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person             SportWorkPerson @relation(fields: [person_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([organization_id, person_id, fiscal_year])
+  @@map("sport_work_external_declarations")
+}
+
+/// La **posizione annua**: derivata dal registro e dalla dichiarazione, e
+/// materializzata perche mezza applicazione la legge.
+///
+/// Nessuna schermata la scrive. La riscrive il servizio, ricalcolandola dal
+/// registro dopo ogni erogazione, ogni storno e ogni dichiarazione nuova.
+model SportWorkYearPosition {
+  id                      String          @id @default(uuid()) @db.Uuid
+  organization_id         String          @db.Uuid
+  person_id               String          @db.Uuid
+  year                    Int
+  club_gross              Float           @default(0)
+  external_declared       Float           @default(0)
+  progressive             Float           @default(0)
+  social_franchise_used   Float           @default(0)
+  social_taxable          Float           @default(0)
+  employee_contribution   Float           @default(0)
+  employer_contribution   Float           @default(0)
+  fiscal_franchise_used   Float           @default(0)
+  fiscal_taxable          Float           @default(0)
+  withheld                Float           @default(0)
+  payment_count           Int             @default(0)
+  last_payment_at         DateTime?
+  last_declaration_at     DateTime?
+  has_current_declaration Boolean         @default(false)
+  computed_at             DateTime
+  created_at              DateTime        @default(now())
+  updated_at              DateTime        @updatedAt
+  organization            Club            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person                  SportWorkPerson @relation(fields: [person_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, person_id, year])
+  @@index([organization_id, year])
+  @@map("sport_work_year_positions")
+}
+
+/// Un **premio**: somma per un risultato, non per la prestazione.
+///
+/// Tabella a se e non un tipo di rata, perche il suo trattamento fiscale e
+/// diverso e **non e validato**: sommarlo al compenso renderebbe falso — in
+/// eccesso — il progressivo verso le soglie.
+model SportWorkBonus {
+  id               String                 @id @default(uuid()) @db.Uuid
+  organization_id  String                 @db.Uuid
+  person_id        String                 @db.Uuid
+  relationship_id  String?                @db.Uuid
+  reason           String
+  competition      String?
+  amount           Float
+  currency         String                 @default("EUR")
+  award_date       DateTime
+  payment_date     DateTime?
+  /// TO_VERIFY | PRIZE_ART_36 | VARIABLE_REMUNERATION — **dichiarato, non dedotto**.
+  fiscal_treatment String                 @default("TO_VERIFY")
+  /// SCHEDULED | PAID | CANCELLED
+  status           String                 @default("SCHEDULED")
+  paid_amount      Float                  @default(0)
+  notes            String?
+  created_by       String?                @db.Uuid
+  created_at       DateTime               @default(now())
+  updated_at       DateTime               @updatedAt
+  organization     Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person           SportWorkPerson        @relation(fields: [person_id], references: [id], onDelete: Cascade)
+  relationship     SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([person_id])
+  @@map("sport_work_bonuses")
+}
+
+/// Un **rimborso spese**. Non e un compenso: non concorre a nessuna soglia e
+/// non entra nel progressivo.
+model SportWorkExpenseReimbursement {
+  id              String                 @id @default(uuid()) @db.Uuid
+  organization_id String                 @db.Uuid
+  person_id       String                 @db.Uuid
+  relationship_id String?                @db.Uuid
+  /// TRAVEL | MEALS | ACCOMMODATION | MILEAGE | OTHER_DOCUMENTED
+  category        String                 @default("OTHER_DOCUMENTED")
+  description     String
+  expense_date    DateTime
+  amount          Float
+  currency        String                 @default("EUR")
+  /// DRAFT | SUBMITTED | APPROVED | REJECTED | PAID
+  status          String                 @default("DRAFT")
+  approved_by     String?                @db.Uuid
+  approved_at     DateTime?
+  rejected_reason String?
+  paid_amount     Float                  @default(0)
+  notes           String?
+  created_by      String?                @db.Uuid
+  created_at      DateTime               @default(now())
+  updated_at      DateTime               @updatedAt
+  organization    Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person          SportWorkPerson        @relation(fields: [person_id], references: [id], onDelete: Cascade)
+  relationship    SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([person_id])
+  @@map("sport_work_expense_reimbursements")
+}
+
+/// Una **fattura ricevuta** da un professionista con partita IVA.
+///
+/// Documento **in entrata** per il club: il calcolo lo ha fatto chi l'ha
+/// emessa, e il club registra numero, data, importi, scadenza e pagamento.
+/// Nessuna regola co.co.co. la tocca.
+model SportWorkVatInvoice {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  organization_id    String                 @db.Uuid
+  person_id          String                 @db.Uuid
+  relationship_id    String?                @db.Uuid
+  document_number    String
+  document_date      DateTime
+  taxable_amount     Float                  @default(0)
+  vat_amount         Float                  @default(0)
+  /// Ritenuta indicata **in fattura** dal professionista. EasyGame non la calcola.
+  withholding_amount Float                  @default(0)
+  total_amount       Float
+  currency           String                 @default("EUR")
+  due_date           DateTime?
+  /// PENDING | PARTIALLY_PAID | PAID | CANCELLED
+  status             String                 @default("PENDING")
+  paid_amount        Float                  @default(0)
+  attachment_id      String?                @db.Uuid
+  notes              String?
+  created_by         String?                @db.Uuid
+  created_at         DateTime               @default(now())
+  updated_at         DateTime               @updatedAt
+  organization       Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person             SportWorkPerson        @relation(fields: [person_id], references: [id], onDelete: Cascade)
+  relationship       SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([person_id])
+  @@map("sport_work_vat_invoices")
+}
+
+/// L'**agenda degli adempimenti**.
+///
+/// `reference_key` e la chiave di idempotenza: `f24:2026-09`, `rasd:<id>`,
+/// `cu:<persona>:2026`. Rieseguire la derivazione non crea una seconda riga
+/// per la stessa scadenza, e quindi non produce una seconda notifica.
+model SportWorkObligation {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  organization_id        String                 @db.Uuid
+  /// CONTRIBUTION | F24 | SELF_DECLARATION | CONTRACT_EXPIRY | RASD_COMMUNICATION | CU_PREPARATION | DOCUMENT_EXPIRY
+  kind                   String
+  reference_key          String
+  person_id              String?                @db.Uuid
+  relationship_id        String?                @db.Uuid
+  title                  String
+  description            String?
+  due_date               DateTime
+  /// DUE | IN_PROGRESS | COMPLETED | NOT_DUE
+  status                 String                 @default("DUE")
+  amount                 Float?
+  period                 String?
+  /// derived | manual
+  source                 String                 @default("derived")
+  completed_by           String?                @db.Uuid
+  completed_at           DateTime?
+  evidence_attachment_id String?                @db.Uuid
+  /// Quando e partita la notifica: la seconda esecuzione dello scheduler non la ripete.
+  notified_at            DateTime?
+  notes                  String?
+  created_at             DateTime               @default(now())
+  updated_at             DateTime               @updatedAt
+  organization           Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person                 SportWorkPerson?       @relation(fields: [person_id], references: [id], onDelete: SetNull)
+  relationship           SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
+
+  @@unique([organization_id, reference_key])
+  @@index([organization_id, status, due_date])
+  @@map("sport_work_obligations")
 }
