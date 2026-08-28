@@ -227,16 +227,28 @@ Misure sul database di sviluppo, dalle rotte vere.
 Verifica **visiva**, non solo strutturale, nel browser, a **375 / 768 / 1280 /
 1440 px**, con `document.scrollWidth` misurato a ogni misura.
 
-| Schermata | 375 | 768 | 1280 | 1440 |
-|---|---|---|---|---|
-| Procedura di riporto — passo tipi | OK | OK | OK | OK |
-| **Elenco di riconferma con 200 righe** | OK | OK | OK | OK |
-| Riepilogo del riporto | OK | OK | OK | OK |
-| `/reports` | OK | OK | OK | OK |
-| `/movements` | OK | OK | OK | OK |
-| Sezione «Firma e timbro» | OK | OK | OK | OK |
+| Schermata | Verifica | 375 | 768 | 1280 | 1440 |
+|---|---|---|---|---|---|
+| Procedura di riporto — passo tipi | **VISUAL** | OK | OK | OK | OK |
+| **Elenco di riconferma con 200 righe** | **VISUAL** | OK | OK | OK | OK |
+| Riepilogo del riporto | **VISUAL** | OK | OK | OK | OK |
+| `/reports` | **VISUAL** | OK | OK | OK | OK |
+| `/movements` | **VISUAL** | OK | OK | OK | OK |
+| Sezione «Firma e timbro» | **VISUAL** | OK | OK | OK | OK |
+| Anteprima del documento compilato | **VISUAL** | OK | — | — | — |
+| Anteprima dei destinatari del sollecito | **STRUCTURAL** | — | — | — | — |
 
-**Nessuna misura ha prodotto scorrimento orizzontale del documento.**
+**Nessuna misura VISUAL ha prodotto scorrimento orizzontale del documento**,
+verificato con `document.scrollWidth` a ogni misura.
+
+L'anteprima dei destinatari del sollecito e dichiarata **STRUCTURAL** e non
+VISUAL: aprirla richiede un club QA con rate insolute e tutori, e il database di
+sviluppo era gia stato riportato alla baseline. Vale per lei la verifica
+statica di `tests/ui/responsive-invariants.test.mjs` — nessuna griglia a due
+colonne senza punto di rottura, nessuna tabella fuori dal proprio contenitore —
+e la scelta di progetto dichiarata dalla lane: liste impilate, nessuna tabella,
+`max-h-[90vh]` con contenuto scorrevole. **Non e la stessa cosa di averla
+aperta a 375 px**, ed e per questo che qui c'e scritto STRUCTURAL.
 
 L'elenco di riconferma a 375 px e una **lista verticale di schede** con ricerca,
 «Tutti»/«Nessuno» e contatore, non una tabella a scorrimento orizzontale: era il
