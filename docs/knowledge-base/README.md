@@ -36,6 +36,7 @@ comportamenti desiderati o pianificati.
 | 23 | [Matrice definitiva Web V1](23-v1-release-matrix.md) | Per sapere se si puo rilasciare: ogni requisito V1 con il suo stato e la sua prova |
 | 24 | [RC Fix 1](24-rc-fix-1.md) | Gli undici difetti operativi chiusi prima della produzione: causa vera, correzione, e la misura che lo prova |
 | 25 | [RC Fix 2](25-rc-fix-2.md) | Anagrafiche coerenti, azioni di massa, marchio dell'intermediario — e i due difetti che si sono visti solo provando l'applicazione |
+| 26 | [Full Club UAT](26-full-club-uat.md) | Il collaudo fatto creando un club da zero: due stagioni su un club nuovo, incassi concorrenti che si sommavano, e i nomi con l'accento che non si trovavano |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)
