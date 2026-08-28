@@ -20,6 +20,7 @@ import {
   isPaymentExcludedFromTotals,
   normalizePaymentAccountingStatus,
 } from "@/lib/payments/payment-status-utils";
+import { readChargeCollectedAmount } from "@/lib/payments/installment-ledger";
 
 export type ClubMovementSource =
   | "athlete"
@@ -44,6 +45,19 @@ export type NormalizedClubMovement = {
   direction: ClubMovementDirection;
   description: string;
   amount: number;
+  /**
+   * Il denaro realmente entrato o uscito per questo movimento.
+   *
+   * Su una rata e la somma degli incassi registrati (il registro, ADR-0036):
+   * zero su una rata ancora scoperta, una parte su una rata incassata a meta,
+   * l'intero dovuto su una rata saldata. Su tutto il resto — un movimento
+   * manuale, una previsione, un documento — coincide con `amount` quando la
+   * riga risulta pagata e vale zero altrimenti.
+   *
+   * `amount` resta il **dovuto**: quello che la riga dichiara, non quello che
+   * e stato incassato. I totali di cassa leggono questo campo.
+   */
+  collectedAmount: number;
   status: "paid" | "pending" | "overdue" | "cancelled" | string;
   date?: string;
   dueDate?: string;
@@ -187,6 +201,34 @@ const parseDataObject = (item: any) => {
   } catch {
     return {};
   }
+};
+
+/**
+ * Il denaro realmente incassato su una riga di pagamento.
+ *
+ * Quando la riga porta la fotografia del registro (`data.ledger`, scritta da
+ * `recomputeChargeFromLedger`) risponde il registro, che e la fonte
+ * autorevole: una rata incassata a meta vale quanto ne e stato incassato.
+ *
+ * Senza quella fotografia la riga e anteriore al registro — o non e affatto
+ * una rata: un compenso a un allenatore, un fitto, una sponsorizzazione — e
+ * vale la sola cosa che dichiara, cioe se risulta pagata. E la stessa
+ * compatibilita di `resolveInstallmentLedger`, applicata pero all'importo e
+ * allo stato **gia normalizzati qui**: queste tabelle scrivono l'importo anche
+ * come `value`, `total` o `price`, e rileggerlo dal solo campo `amount`
+ * azzererebbe movimenti realmente pagati.
+ */
+const collectedAmountFor = (item: any, amount: number, status: string) => {
+  if (status === "cancelled") {
+    return 0;
+  }
+
+  const stored = parseDataObject(item)?.ledger?.paidAmount;
+  if (stored !== undefined && stored !== null && stored !== "") {
+    return readChargeCollectedAmount(item);
+  }
+
+  return status === "paid" ? amount : 0;
 };
 
 const entityEmail = (item: any) => {
@@ -640,6 +682,7 @@ const normalizePayment = (
         source === "structure" ? "Fitto struttura" : "Pagamento",
       ),
       amount,
+      collectedAmount: collectedAmountFor(item, amount, status),
       status,
       date:
         firstString(item?.date, item?.created_at, item?.createdAt) ||
@@ -717,6 +760,7 @@ const normalizeManualTransaction = (
   const isAthleteMovement =
     rawSource === "manual_athlete_payment" || rawOriginType === "athlete";
   const source: ClubMovementSource = isAthleteMovement ? "athlete" : "manual";
+  const status = normalizeStatus(item?.status || "paid");
 
   const movement = attachDocumentsAndAccount(
     {
@@ -730,7 +774,8 @@ const normalizeManualTransaction = (
         "Movimento",
       ),
       amount,
-      status: normalizeStatus(item?.status || "paid"),
+      collectedAmount: collectedAmountFor(item, amount, status),
+      status,
       date: firstString(item?.date, item?.created_at) || undefined,
       subjectName:
         firstString(item?.subjectName, item?.originEntityName, item?.reference) ||
@@ -783,6 +828,7 @@ const normalizeExpected = (
     data?.originEntityType,
   ) as NormalizedClubMovement["originEntityType"];
   const isAthleteMovement = originEntityType === "athlete";
+  const status = normalizeStatus(item?.status || "pending");
 
   const movement = attachDocumentsAndAccount(
     {
@@ -791,7 +837,8 @@ const normalizeExpected = (
       direction,
       description: firstString(item?.description, item?.title, "Previsto"),
       amount,
-      status: normalizeStatus(item?.status || "pending"),
+      collectedAmount: collectedAmountFor(item, amount, status),
+      status,
       date: firstString(item?.date, item?.created_at) || undefined,
       dueDate: firstString(item?.dueDate, item?.due_date, item?.date) || undefined,
       subjectName:
@@ -859,6 +906,8 @@ const normalizeTransfer = (
     direction: "transfer",
     description: firstString(item?.description, "Giroconto"),
     amount,
+    /* Un giroconto non e denaro entrato: sposta soltanto un saldo fra conti. */
+    collectedAmount: 0,
     status: normalizeStatus(item?.status || "completed"),
     date: firstString(item?.date, item?.created_at) || undefined,
     subjectName: firstString(transferReference, "Giroconto"),
@@ -898,6 +947,7 @@ const normalizeDocumentMovement = (
   const isReceipt = source === "receipt";
   const number = isReceipt ? receiptNumberFor(item) : invoiceNumberFor(item);
   const date = firstString(item?.issue_date, item?.date, item?.created_at);
+  const status = normalizeStatus(item?.status || (isReceipt ? "paid" : "pending"));
 
   return attachDocumentsAndAccount(
     {
@@ -909,7 +959,8 @@ const normalizeDocumentMovement = (
         isReceipt ? "Ricevuta non collegata" : "Fattura non collegata",
       ),
       amount,
-      status: normalizeStatus(item?.status || (isReceipt ? "paid" : "pending")),
+      collectedAmount: collectedAmountFor(item, amount, status),
+      status,
       date: date || undefined,
       subjectName: paymentSubject(item) || undefined,
       category: isReceipt ? "Ricevuta" : "Fattura",
@@ -1143,10 +1194,30 @@ export const aggregateClubPayments = (
   });
 };
 
+/**
+ * Entrate, Uscite e saldo del club.
+ *
+ * **Entrate e Uscite sono cassa, non stato.** Prima di RC FIX 3 il totale si
+ * ricavava dallo `status`: l'intero dovuto quando la riga risultava saldata,
+ * zero in ogni altro caso. Sulle stesse rate, 329,80 EUR dovuti e 250,00 EUR
+ * realmente incassati, la pagina dichiarava 329,80 EUR oppure 0,00 — mai la
+ * cifra giusta, perche una rata incassata a meta non e ne pagata ne scoperta.
+ * Qui si somma `collectedAmount`, cioe il registro degli incassi (ADR-0036).
+ *
+ * «Previste» resta il **residuo**: quanto di quella riga non e ancora
+ * entrato. Cosi incassato e residuo tornano sempre al dovuto, e una rata
+ * parziale compare in tutte e due le colonne per la parte che le compete.
+ *
+ * Gli arrotondamenti si fanno in centesimi: sommare 179,80 e 70,20 in
+ * virgola mobile darebbe 250.00000000000003, e un totale di cassa non puo
+ * mostrare una cifra del genere.
+ */
 export const summarizeClubMovements = (
   movements: NormalizedClubMovement[],
 ): ClubFinancialSummary => {
-  return movements.reduce(
+  const cents = (value: number) => Math.round((Number(value) || 0) * 100);
+
+  const totals = movements.reduce(
     (summary, movement) => {
       const isPaid = normalizeStatus(movement.status) === "paid";
       const isCancelled = normalizeStatus(movement.status) === "cancelled";
@@ -1155,23 +1226,23 @@ export const summarizeClubMovements = (
         return summary;
       }
 
+      const collected = cents(movement.collectedAmount);
+      const residual = Math.max(0, cents(movement.amount) - collected);
+
+      if (movement.direction === "income") {
+        summary.totalIncome += collected;
+        summary.totalPendingIncome += residual;
+      } else {
+        summary.totalExpense += collected;
+        summary.totalPendingExpense += residual;
+      }
+
       if (isPaid) {
-        if (movement.direction === "income") {
-          summary.totalIncome += movement.amount;
-        } else {
-          summary.totalExpense += movement.amount;
-        }
         summary.paidCount += 1;
       } else {
-        if (movement.direction === "income") {
-          summary.totalPendingIncome += movement.amount;
-        } else {
-          summary.totalPendingExpense += movement.amount;
-        }
         summary.pendingCount += 1;
       }
 
-      summary.balance = summary.totalIncome - summary.totalExpense;
       return summary;
     },
     {
@@ -1184,6 +1255,17 @@ export const summarizeClubMovements = (
       pendingCount: 0,
     },
   );
+
+  const euro = (value: number) => Number((value / 100).toFixed(2));
+
+  return {
+    ...totals,
+    totalIncome: euro(totals.totalIncome),
+    totalExpense: euro(totals.totalExpense),
+    totalPendingIncome: euro(totals.totalPendingIncome),
+    totalPendingExpense: euro(totals.totalPendingExpense),
+    balance: euro(totals.totalIncome - totals.totalExpense),
+  };
 };
 
 const safeTableRows = async (table: string, clubId: string) => {

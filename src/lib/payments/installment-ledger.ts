@@ -483,6 +483,35 @@ export const resolveInstallmentLedger = ({
   };
 };
 
+/**
+ * Quanto e stato realmente incassato su una rata, **senza caricarne i
+ * movimenti**.
+ *
+ * `recomputeChargeFromLedger` lascia sulla riga, in `data.ledger`, la
+ * fotografia del registro: dovuto, incassato, residuo, stato. Chi legge un
+ * elenco di rate — l'area Movimenti, i report — non puo caricare gli incassi
+ * di ognuna, e senza questa lettura finirebbe per dedurre il denaro dallo
+ * `status`: cioe contare l'intero dovuto su una rata saldata e **zero** su una
+ * rata incassata a meta. E l'errore che RC FIX 3 chiude.
+ *
+ * Non e una seconda contabilita: la fotografia la produce
+ * `resolveInstallmentLedger`, e in sua assenza e proprio quella funzione a
+ * rispondere — con la stessa compatibilita per le rate anteriori al registro,
+ * saldate senza nessun movimento a dimostrarlo.
+ */
+export const readChargeCollectedAmount = (charge: unknown): number => {
+  const record = asRecord(charge);
+  const snapshot = asRecord(asRecord(record.data).ledger);
+  const stored = snapshot.paidAmount;
+
+  if (stored !== null && stored !== undefined && stored !== "") {
+    return isPaymentExcludedFromTotals(record) ? 0 : toPaymentAmount(stored);
+  }
+
+  return resolveInstallmentLedger({ charge: record, transactions: [] })
+    .paidAmount;
+};
+
 /** Raggruppa gli incassi per rata, cosi ogni riga li trova in tempo costante. */
 export const groupTransactionsByInstallment = (
   transactions: NormalizedPaymentTransaction[] = [],

@@ -248,6 +248,16 @@ const isPendingStatus = (status?: string) =>
     "non_pagato",
   ].includes(normalizeStatusToken(status));
 
+/**
+ * Vero quando la riga porta gia del denaro ma non tutto quello che dichiara.
+ *
+ * Serve a far tornare i conti a chi legge: Entrate somma l'incassato, la riga
+ * mostra il dovuto, e senza questa indicazione una rata da 100 EUR incassata
+ * per 40 sembrerebbe non aver contribuito affatto al totale.
+ */
+const isPartiallyCollected = (movement: NormalizedClubMovement) =>
+  movement.collectedAmount > 0 && movement.collectedAmount < movement.amount;
+
 const statusLabel = (status?: string) => {
   const normalized = String(status || "").toLowerCase();
   if (["paid", "completed", "complete", "saldato", "pagato"].includes(normalized)) {
@@ -1608,6 +1618,12 @@ export default function MovementsPage() {
                                         {formatCurrency(movement.amount)}
                                         </span>
                                       </div>
+                                      {isPartiallyCollected(movement) ? (
+                                        <span className="text-xs font-normal text-slate-500">
+                                          Incassato{" "}
+                                          {formatCurrency(movement.collectedAmount)}
+                                        </span>
+                                      ) : null}
                                       <Badge
                                         variant="outline"
                                         className={cn(
@@ -1763,6 +1779,12 @@ export default function MovementsPage() {
                                           {formatCurrency(movement.amount)}
                                         </span>
                                       </div>
+                                      {isPartiallyCollected(movement) ? (
+                                        <span className="text-xs font-normal text-slate-500">
+                                          Incassato{" "}
+                                          {formatCurrency(movement.collectedAmount)}
+                                        </span>
+                                      ) : null}
                                       <Badge
                                         variant="outline"
                                         className={cn(
