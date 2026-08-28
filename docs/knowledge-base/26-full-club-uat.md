@@ -902,3 +902,44 @@ senza stagione, ora propone l'annata giusta e «Salva e continua» la crea.
 `EasyGame FC` ha ancora 0 stagioni salvate e nessuno stato di onboarding
 (verificato dopo la visita). Lo scaffale del club attivo e stato rimesso su
 `QA UAT Club` dal pannello account, come si e trovato.
+
+---
+
+# VERDETTO
+
+**FULL CLUB UAT = PASS**, sulla base delle prove finali e non di quelle
+intermedie.
+
+| Condizione | Esito |
+|---|---|
+| Prima revisione indipendente | completata: 0 Critical, 1 High, 6 Medium, 5 Low |
+| Seconda revisione indipendente | completata: 0 Critical, 0 High residui |
+| Critical validi residui | **0** |
+| High validi residui | **0** |
+| `npm test` | 1.978 verdi |
+| `npm run typecheck` | pulito |
+| `npm run lint` | 0 errori, 40 warning invariati |
+| `npm run build` | completa |
+| CI remota | verde su `aa80d0d`, cioe su HEAD |
+| Staging | READY, `dpl_2NhX262F6x5FHgfnnmZYbgpu5Xa9`, alias `easygame-staging-pi` |
+| Il codice in linea e quello di HEAD | si: dopo il deploy solo commit di documentazione, verificato con `git diff --name-only` |
+| P0 pagamenti | ritestato a runtime: 6 richieste simultanee, **1 accettata** |
+| Multi-tenant | ritestato, con il limite dichiarato sopra |
+| Auth, onboarding, stagioni | ritestati a runtime |
+
+**Perche PASS con una proposta RC classificata come blocker.** Il verdetto
+riguarda **questo changeset e questo collaudo**: quello che il giro doveva
+chiudere e chiuso, e ogni correzione e stata riaperta sul deployment finale,
+non solo sui test. Il blocker di `/movements` non e di questo changeset: e una
+decisione di prodotto che precede il giro, gia registrata, e che §29 chiedeva
+di **classificare**, non di risolvere. La revisione non ha dimostrato che sia
+un difetto o un problema di sicurezza — il registro degli incassi e integro —
+quindi resta una proposta, con una data di scadenza: prima che un club vero ci
+metta i suoi soldi.
+
+Restano aperti, tutti registrati e nessuno bloccante per il collaudo: le date
+impossibili che passano dall'API (Medium), la doppia lettura di Atleti e
+Dashboard, la riscrittura integrale di `clubs.settings` senza blocco, la
+verifica responsive strutturale e non visiva, l'isolamento verso un terzo
+proprietario non riesercitabile con l'utente QA, Stripe Connect non
+esercitato, e CodeRabbit non eseguibile.
