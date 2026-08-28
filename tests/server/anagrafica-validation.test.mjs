@@ -359,3 +359,63 @@ test("ogni scrittura validata e anche normalizzata", async () => {
     "ogni assertAnagraficaIsValid deve avere accanto la sua normalizeAnagraficaText",
   );
 });
+
+/**
+ * La stessa lettera scritta in due modi.
+ *
+ * Visto cercando sullo staging: l'atleta salvata come `Niccolò` **non si
+ * trovava** digitando «Niccolò», e si trovava digitando «Niccolo». La causa
+ * non era la ricerca: il nome era in archivio in forma **decomposta** — `o`
+ * piu accento combinante — perche cosi era arrivato dal file di import.
+ * `ILIKE '%Niccolò%'` su quella stringa non trova niente; `'%Niccolo%'` si,
+ * perche le lettere di base ci sono tutte.
+ *
+ * Verificato sul database: `octet_length` 9 su 8 caratteri, e
+ * `first_name = normalize(first_name, NFC)` falso.
+ */
+test("un nome in forma decomposta viene salvato in forma composta", () => {
+  // Costruita a mano invece che scritta come lettera: un editor che salva in
+  // NFC renderebbe il test vuoto senza farlo fallire.
+  const decomposto = "Niccolo" + String.fromCharCode(0x0300);
+  const composto = "Niccol" + String.fromCharCode(0x00f2);
+  assert.equal(decomposto.length, 8);
+  assert.equal(composto.length, 7);
+  assert.notEqual(decomposto, composto);
+
+  const input = {
+    first_name: decomposto,
+    last_name: "D'Angelo" + String.fromCharCode(0x0300),
+  };
+  normalizeAnagraficaText("simplified_athletes", input);
+
+  assert.equal(input.first_name, composto);
+  assert.equal(input.first_name.length, 7);
+  assert.equal(input.last_name, input.last_name.normalize("NFC"));
+});
+test("la normalizzazione non tocca chi era gia in forma composta", () => {
+  const input = { first_name: "Niccolò", last_name: "De Luca" };
+  normalizeAnagraficaText("simplified_athletes", input);
+
+  assert.equal(input.first_name, "Niccolò");
+  assert.equal(input.last_name, "De Luca");
+});
+
+test("vale anche per i dati dentro `data` e per i genitori", () => {
+  const input = {
+    first_name: "marta",
+    last_name: "rossi",
+    data: {
+      birthPlace: "Forlì",
+      guardians: [{ firstName: "Martì", lastName: "Brùno" }],
+    },
+  };
+
+  normalizeAnagraficaText("simplified_athletes", input);
+
+  assert.equal(input.data.birthPlace, "Forlì".normalize("NFC"));
+  assert.equal(
+    input.data.guardians[0].firstName,
+    input.data.guardians[0].firstName.normalize("NFC"),
+  );
+  assert.equal(input.data.guardians[0].firstName, "Martì");
+});

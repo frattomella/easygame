@@ -340,13 +340,34 @@ const PERSON_TEXT_KEYS = [
 ];
 
 /** Applica la regola alle sole chiavi elencate, dove esistono e sono testo. */
+/**
+ * La stessa lettera scritta in un modo solo.
+ *
+ * `ò` si puo rappresentare in due modi: un carattere solo (NFC) oppure `o`
+ * seguito dall'accento combinante (NFD). A schermo sono identici, per il
+ * database sono due stringhe diverse — e per `ILIKE` pure.
+ *
+ * Il difetto che questa riga chiude e stato visto cercando: un'atleta salvata
+ * come `Niccolò` in forma decomposta **non si trovava** digitando «Niccolò»,
+ * mentre si trovava digitando «Niccolo» — cioe il contrario di quello che
+ * chiunque si aspetta. La stessa differenza rompe il riconoscimento dei
+ * duplicati (la stessa persona caricata due volte diventa due chiavi) e fa
+ * contare a `length()` un carattere in piu.
+ *
+ * La forma decomposta non arriva da chi digita: arriva dai file. Gli export
+ * fatti su macOS la usano, ed e cosi che e entrata anche qui, da un import.
+ * Si normalizza in scrittura, nell'unico punto da cui passano tutte e cinque
+ * le scritture di anagrafica.
+ */
+const toCanonicalUnicode = (value: string) => value.normalize("NFC");
+
 const capitalizeKeys = (record: Record<string, any>, keys: string[]) => {
   if (!record || typeof record !== "object") return;
 
   for (const key of keys) {
     const value = record[key];
     if (typeof value !== "string" || !value.trim()) continue;
-    record[key] = capitalizeName(value);
+    record[key] = capitalizeName(toCanonicalUnicode(value));
   }
 };
 

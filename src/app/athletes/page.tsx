@@ -234,6 +234,23 @@ const coerceBoolean = (value: unknown) => {
 const ATHLETE_PAGE_SIZE = 200;
 
 /**
+ * Come si intitola il conteggio quando a contare e il server.
+ *
+ * Con la paginazione attiva l'elenco chiede una sola categoria di stato per
+ * volta, e il totale che torna e gia quello: la riga ne annuncia uno, non
+ * tre — di cui due sarebbero comunque zero.
+ */
+const STATUS_FILTER_HEADINGS: Record<
+  "active" | "inactive" | "suspended" | "all",
+  string
+> = {
+  active: "Atleti Attivi",
+  suspended: "Atleti Sospesi",
+  inactive: "Atleti in Prestito",
+  all: "Atleti",
+};
+
+/**
  * L'indirizzo dell'iscrizione di un nuovo atleta.
  *
  * Il club viaggia nell'indirizzo, come per allenatori e soci: chi apre la
@@ -1880,13 +1897,30 @@ export default function AthletesPage() {
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+              {/*
+                Sopra la soglia di paginazione i tre conteggi si ricavavano da
+                `athletes`, che e **la pagina caricata**: su un club da 212
+                atleti tutti attivi la riga diceva «Atleti Attivi: 200», due
+                centimetri sopra la riga che diceva «212 atleti nell'archivio».
+                Quando il server sta paginando, il numero vero e quello che il
+                server ha contato — ed e gia filtrato per lo stato scelto,
+                quindi ne basta uno.
+              */}
               <h2 className="text-xl font-semibold">
-                Atleti Attivi:{" "}
-                {athletes.filter((a) => a.status === "active").length} | Atleti
-                Sospesi:{" "}
-                {athletes.filter((a) => a.status === "suspended").length} |
-                Atleti in Prestito:{" "}
-                {athletes.filter((a) => a.status === "inactive").length}
+                {paginated && listMeta ? (
+                  <>
+                    {STATUS_FILTER_HEADINGS[statusFilter]}: {listMeta.total}
+                  </>
+                ) : (
+                  <>
+                    Atleti Attivi:{" "}
+                    {athletes.filter((a) => a.status === "active").length} |
+                    Atleti Sospesi:{" "}
+                    {athletes.filter((a) => a.status === "suspended").length} |
+                    Atleti in Prestito:{" "}
+                    {athletes.filter((a) => a.status === "inactive").length}
+                  </>
+                )}
               </h2>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
