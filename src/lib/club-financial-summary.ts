@@ -35,6 +35,16 @@ export type ClubMovementSource =
   | "invoice"
   | "receipt"
   | "manual"
+  /**
+   * Il registro in uscita del lavoro sportivo: compensi, premi, rimborsi,
+   * fatture dei professionisti.
+   *
+   * **La fonte canonica resta il registro**, non questa riga. Movimenti
+   * aggrega e non duplica: un'erogazione produce **una** riga qui, e lo stato
+   * non viene ricopiato — se un giorno diverge, quello giusto e quello del
+   * registro.
+   */
+  | "sport_work"
   | "other";
 
 export type ClubMovementDirection = "income" | "expense" | "transfer";
@@ -118,6 +128,16 @@ export type ClubFinancialSources = {
   payments?: any[];
   simplifiedPayments?: any[];
   trainerPayments?: any[];
+  /**
+   * Le righe del registro in uscita del lavoro sportivo.
+   *
+   * Arrivano dall'endpoint dedicato e non dalla CRUD generica: quel registro
+   * ha un modello di permessi proprio, e passare per `/api/v1/<risorsa>` lo
+   * aggirerebbe. Chi non ha `sport_work.read` riceve un elenco vuoto — e non
+   * un errore — perche Movimenti deve restare leggibile anche a chi i compensi
+   * non li puo vedere.
+   */
+  sportWorkPayouts?: any[];
   sponsorPayments?: any[];
   supplierPayments?: any[];
   athletes?: any[];
@@ -418,6 +438,7 @@ const sourceLabel = (source: ClubMovementSource) => {
     invoice: "Fattura",
     receipt: "Ricevuta",
     manual: "Manuale",
+    sport_work: "Lavoro sportivo",
     other: "Altro",
   };
 
@@ -431,7 +452,13 @@ const sourceDefaultDirection = (
     return "transfer";
   }
 
-  return ["trainer", "staff", "supplier", "structure"].includes(source)
+  return [
+    "trainer",
+    "staff",
+    "supplier",
+    "structure",
+    "sport_work",
+  ].includes(source)
     ? "expense"
     : "income";
 };
@@ -1064,6 +1091,80 @@ const collectStructurePayments = (structures: any[]) =>
     }));
   });
 
+/**
+ * Le etichette delle uscite del lavoro sportivo, per tipo di movimento.
+ *
+ * Sono qui e non nel dominio perche descrivono come una **riga di Movimenti**
+ * si presenta, non cosa il movimento e: il dominio dice `BONUS_PAYMENT`, la
+ * riga di cassa dice «Premio».
+ */
+const SPORT_WORK_MOVEMENT_LABELS: Record<string, string> = {
+  COMPENSATION_PAYMENT: "Compenso",
+  BONUS_PAYMENT: "Premio",
+  EXPENSE_REIMBURSEMENT: "Rimborso spese",
+  CONTRIBUTION_PAYMENT: "Versamento contributi",
+  VAT_INVOICE_PAYMENT: "Fattura professionista",
+  EXTERNAL_PAYROLL_COST: "Costo paghe esterne",
+  OTHER: "Uscita lavoro sportivo",
+};
+
+/**
+ * Un'erogazione del registro in uscita, letta come movimento di cassa.
+ *
+ * **Una riga per erogazione, e nessuno stato duplicato.** Il denaro e uscito:
+ * `amount` e `collectedAmount` coincidono, e lo stato e sempre «pagato». Una
+ * scadenza *programmata* non compare qui — non e un movimento, e un impegno —
+ * altrimenti lo stesso euro comparirebbe due volte: una come compenso previsto
+ * e una come compenso erogato.
+ *
+ * **Le coppie stornate non compaiono affatto.** Lo storno dice «questa
+ * erogazione non e mai avvenuta»: mostrarla insieme alla sua riga negativa
+ * riempirebbe l'estratto conto di coppie che si annullano. Chi vuole vedere
+ * cosa e stato stornato guarda il registro, che e la fonte canonica.
+ */
+const normalizeSportWorkPayout = (
+  item: any,
+  index: number,
+): NormalizedClubMovement | null => {
+  if (!item || typeof item !== "object") return null;
+  if (item.reversed_at || item.reversal_of_id) return null;
+
+  const amount = toNumber(item.gross_amount);
+  if (!Number.isFinite(amount) || amount === 0) return null;
+
+  const transactionType = String(item.transaction_type || "OTHER");
+  const kindLabel =
+    SPORT_WORK_MOVEMENT_LABELS[transactionType] || SPORT_WORK_MOVEMENT_LABELS.OTHER;
+  const subjectName = firstString(item._personName, item.person_name) || "Persona";
+  const paidAt = firstString(item.paid_at, item.created_at) || undefined;
+
+  return {
+    id: firstString(item.id) || `sport-work-${index}`,
+    source: "sport_work",
+    direction: "expense",
+    description: `${kindLabel} - ${subjectName}`,
+    amount,
+    collectedAmount: amount,
+    status: "paid",
+    date: paidAt,
+    paidAt,
+    subjectName,
+    category: kindLabel,
+    method: firstString(item.payment_method) || undefined,
+    reference: firstString(item.reference) || undefined,
+    bankAccountId: firstString(item.bank_account_id) || undefined,
+    originEntityType: "external",
+    originEntityId: firstString(item.person_id) || undefined,
+    originEntityName: subjectName,
+    sourceTable: "sport_work_outbound_transactions",
+    canEdit: false,
+    canDelete: false,
+    canInvoice: false,
+    canReceipt: false,
+    raw: item,
+  };
+};
+
 export const aggregateClubPayments = (
   sources: ClubFinancialSources,
 ): NormalizedClubMovement[] => {
@@ -1166,6 +1267,9 @@ export const aggregateClubPayments = (
       .filter(Boolean),
     ...collectStructurePayments(asArray(sources.structures))
       .map((item, index) => normalizePayment(item, "structure", index, context))
+      .filter(Boolean),
+    ...asArray(sources.sportWorkPayouts)
+      .map((item, index) => normalizeSportWorkPayout(item, index))
       .filter(Boolean),
     ...asArray(sources.invoices)
       .map((item, index) =>
@@ -1315,6 +1419,54 @@ const mergeRowsByStableId = (...lists: any[][]) => {
   return Array.from(rows.values());
 };
 
+/**
+ * Le uscite del lavoro sportivo, lette dal loro endpoint.
+ *
+ * **Perche non da `safeTableRows`.** Perche quella passa dalla CRUD generica
+ * `/api/v1/<risorsa>`, e mettere il registro dei compensi fra le risorse
+ * generiche significherebbe renderlo leggibile con i permessi generici —
+ * cioe aggirare l'unica ragione per cui questo dominio ha un modello di
+ * permessi proprio.
+ *
+ * **Perche un elenco vuoto e non un errore.** Un collaboratore o un membro di
+ * segreteria non ha `sport_work.read`: la sua richiesta riceve un 403, e
+ * Movimenti deve restare una pagina che funziona. La conseguenza — le sue
+ * Uscite non comprendono i compensi — e voluta e va detta in schermata, non
+ * nascosta con un totale che cambia senza spiegazione.
+ */
+const loadSportWorkMovements = async (clubId: string) => {
+  try {
+    const { apiRequest } = await import("@/lib/api/client");
+
+    const [payouts, people] = await Promise.all([
+      apiRequest<any[]>(
+        `/api/v1/sport-work/payouts?organization_id=${encodeURIComponent(clubId)}`,
+      ),
+      apiRequest<any[]>(
+        `/api/v1/sport-work/people?organization_id=${encodeURIComponent(clubId)}`,
+      ),
+    ]);
+
+    if (payouts.error || !Array.isArray(payouts.data)) {
+      return [];
+    }
+
+    const nameById = new Map<string, string>(
+      (Array.isArray(people.data) ? people.data : []).map((person: any) => [
+        String(person?.id),
+        String(person?.full_name || "").trim(),
+      ]),
+    );
+
+    return payouts.data.map((row: any) => ({
+      ...row,
+      _personName: nameById.get(String(row?.person_id)) || "",
+    }));
+  } catch {
+    return [];
+  }
+};
+
 const loadFinancialRows = async (clubId: string, resource: string) => {
   const [clubRows, tableRows] = await Promise.all([
     getClubData(clubId, resource).catch(() => []),
@@ -1345,6 +1497,7 @@ export const loadClubFinancialSources = async (
     payments,
     simplifiedPayments,
     trainerPayments,
+    sportWorkPayouts,
     invoices,
     receipts,
     paymentMethods,
@@ -1367,6 +1520,7 @@ export const loadClubFinancialSources = async (
     loadFinancialRows(clubId, "payments"),
     loadFinancialRows(clubId, "simplified_payments"),
     loadFinancialRows(clubId, "trainer_payments"),
+    loadSportWorkMovements(clubId),
     safeTableRows("invoices", clubId),
     safeTableRows("receipts", clubId),
     safeTableRows("payment_methods", clubId),
@@ -1391,6 +1545,7 @@ export const loadClubFinancialSources = async (
     payments,
     simplifiedPayments,
     trainerPayments,
+    sportWorkPayouts,
     invoices,
     receipts,
     paymentMethods,

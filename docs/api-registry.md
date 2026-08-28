@@ -233,3 +233,83 @@ Per ogni risorsa sopra:
 - `GET /api/v1/<resource>/:id`
 - `PATCH /api/v1/<resource>/:id`
 - `DELETE /api/v1/<resource>/:id`
+
+## Lavoro sportivo e compensi
+
+Tutte sotto `/api/v1/sport-work`. Nessuna e `mobile_ready`: lo sviluppo mobile
+e differito (ADR-0025), e un dato economico riservato non e il posto da cui
+riaprirlo.
+
+**I permessi non sono quelli generici del club.** Il dominio ha cinque permessi
+propri (`src/lib/sport-work/permissions.ts`), e il perimetro economico coincide
+con quello che gia protegge conti correnti e configurazione societaria:
+**proprietario e club manager**. Allenatore, staff, collaboratore e atleta
+hanno solo `sport_work.read_own`, che in V1 nessuna superficie consuma — quindi
+in pratica non leggono niente di questo dominio. Ogni diniego viene tracciato.
+
+- `GET|POST /api/v1/sport-work/people` — le persone che lavorano per il club.
+  **L'elenco non porta mai l'IBAN**: le coordinate bancarie si leggono aprendo
+  la scheda, una alla volta
+- `GET|PATCH /api/v1/sport-work/people/:id` — la scheda completa. Non esiste
+  `DELETE`: una persona ha un contratto firmato, si chiude il rapporto
+- `GET /api/v1/sport-work/people/:id/position?year=2026` — la posizione annua
+  verso le soglie dei 5.000 e dei 15.000, con lo **scostamento** che una
+  dichiarazione arrivata in ritardo produrrebbe. Lo scostamento si mostra e non
+  si scrive
+- `GET|POST /api/v1/sport-work/relationships` — i rapporti di lavoro sportivo.
+  La lettura porta prima a scaduti i contratti la cui data di fine e passata;
+  un rapporto nuovo nasce sempre in **bozza**
+- `GET|PATCH /api/v1/sport-work/relationships/:id` — dettaglio e modifica.
+  `?view=detail` restituisce la scheda intera: persona, piano, scadenze,
+  movimenti e cosa manca per attivarlo
+- `POST /api/v1/sport-work/relationships/:id/status` — cambio di stato. Non e
+  un `PATCH` sul campo perche non e la modifica di un campo: attivare richiede
+  contratto e anagrafica, cessare richiede un motivo
+- `GET|PUT /api/v1/sport-work/relationships/:id/plan` — il piano compensi nelle
+  tre forme (rate uguali, mensilita, rate personalizzate). `PUT` e non `POST`
+  perche un rapporto ha **un** piano; rifarlo viene rifiutato se una scadenza
+  ha gia ricevuto denaro
+- `GET /api/v1/sport-work/installments` — le scadenze, con programmato,
+  maturato e pagato tenuti separati
+- `POST /api/v1/sport-work/installments/:id/cancel` — annulla una scadenza
+  programmata. La riga resta marcata; una scadenza gia erogata non si annulla
+  affatto, si storna l'erogazione
+- `GET|POST /api/v1/sport-work/payouts` — il registro in uscita. Il `POST`
+  accetta `idempotencyKey`: due invii dello stesso clic restituiscono lo stesso
+  movimento invece di farne uscire due
+- `POST /api/v1/sport-work/payouts/prepare` — **la proposta**: imponibili,
+  contributi, netto, costo del club e la motivazione riga per riga. Non scrive
+  niente. Se il calcolo porta avvisi duri — autocertificazione mancante, soglia
+  fiscale superata — la registrazione va confermata con `acknowledgeWarnings`
+- `POST /api/v1/sport-work/payouts/:id/reverse` — storna con una riga di segno
+  opposto e un motivo obbligatorio. **Non esiste `DELETE` su questo registro**
+- `GET|POST /api/v1/sport-work/declarations` — le autocertificazioni dei
+  compensi percepiti da altri committenti. Non sono un allegato: sono un dato
+  di input del motore. Registrarne una nuova sostituisce quella dell'anno, che
+  resta marcata
+- `GET|POST /api/v1/sport-work/bonuses` e
+  `POST /api/v1/sport-work/bonuses/:id/pay` — i premi. Il trattamento fiscale
+  si **dichiara** e non si deduce: la distinzione fra premio e retribuzione
+  variabile la fa il contratto, non l'etichetta
+- `GET|POST /api/v1/sport-work/reimbursements`,
+  `PATCH /api/v1/sport-work/reimbursements/:id` e
+  `POST /api/v1/sport-work/reimbursements/:id/pay` — i rimborsi spese. A
+  «liquidato» non ci si arriva con un `PATCH`: si registra il pagamento
+- `GET|POST /api/v1/sport-work/vat-invoices` e
+  `POST /api/v1/sport-work/vat-invoices/:id/pay` — le fatture ricevute dai
+  professionisti. Gli importi si trascrivono dal documento: il calcolo lo ha
+  fatto chi l'ha emessa, e nessuna regola co.co.co. la tocca
+- `GET|POST /api/v1/sport-work/obligations`,
+  `POST /api/v1/sport-work/obligations/sync` e
+  `POST /api/v1/sport-work/obligations/:id/complete` — l'agenda. La
+  sincronizzazione e **idempotente** per chiave deterministica; «assolto»
+  significa che una persona lo ha fatto, non che EasyGame lo abbia trasmesso
+- `GET /api/v1/sport-work/dashboard` — i numeri del cruscotto, con
+  programmato, maturato e pagato in tre colonne diverse
+- `GET /api/v1/sport-work/datasets?kind=f24|cu&year=2026` — i dati strutturati
+  per F24 e CU. **Non sono un F24 e non sono una CU**: sono le tabelle che il
+  consulente si porta via. Richiedono `sport_work.fiscal`
+- `POST /api/v1/sport-work/scheduler` — il giro sul club attivo, a mano
+- `GET /api/v1/sport-work/scheduler` — lo stesso giro su tutti i club,
+  invocato da Vercel Cron alle 03:30. Si autentica con `CRON_SECRET`; in
+  produzione senza quella variabile non si apre

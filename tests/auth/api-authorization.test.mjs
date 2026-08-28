@@ -131,16 +131,32 @@ const NON_CLUB_SCOPED = new Map([
   ["public/forms/[publicSlug]", "modulo pubblico per slug"],
 ]);
 
+/**
+ * `sportWorkRoute` e l'involucro delle rotte del lavoro sportivo
+ * (`src/lib/server/sport-work-route.ts`): fa **entrambe** le cose che questa
+ * guardia cerca — legge la sessione con `requireAuthenticatedUser` e risolve
+ * il club con `resolveOrganizationScopeForUser` — piu una terza che nessun'altra
+ * rotta fa, cioe verificare il permesso economico e tracciare il diniego.
+ *
+ * Vale come marcatore per lo stesso motivo per cui esiste: venti rotte che
+ * copiano lo stesso preambolo sono venti occasioni di dimenticarne un pezzo.
+ * La guardia resta severa — una rotta di quel dominio scritta **senza**
+ * l'involucro non ha nessuno dei due marcatori e fallisce qui.
+ */
+const SPORT_WORK_WRAPPER = "sportWorkRoute";
+
 const requiresAuth = (source) =>
   source.includes("requireAuthenticatedUser") ||
   source.includes("requirePlatformAdmin") ||
-  source.includes("getSessionFromRequest");
+  source.includes("getSessionFromRequest") ||
+  source.includes(SPORT_WORK_WRAPPER);
 
 const usesPrisma = (source) => /\bprisma\./.test(source);
 
 const enforcesClubScope = (source) =>
   source.includes("resolveOrganizationScopeForUser") ||
-  source.includes("requirePlatformAdmin");
+  source.includes("requirePlatformAdmin") ||
+  source.includes(SPORT_WORK_WRAPPER);
 
 test("gli endpoint non pubblici richiedono una sessione", () => {
   const senzaAuth = ROUTES.filter(

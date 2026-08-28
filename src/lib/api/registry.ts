@@ -187,6 +187,306 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
       "Toglie l iscrizione, oppure la **revoca** quando ha gia prodotto importi rendicontati o liquidati. La risposta dice quale delle due",
     mobile_ready: false,
   },
+  /*
+    Lavoro sportivo e compensi. Nessuna di queste rotte e `mobile_ready`: lo
+    sviluppo mobile e differito (ADR-0025), e un dato economico riservato non
+    e il posto da cui riaprirlo.
+  */
+  {
+    name: "sport_work.people",
+    method: "GET",
+    path: "/api/v1/sport-work/people",
+    description:
+      "Le persone che lavorano per il club. L elenco non porta mai l IBAN: le coordinate bancarie si leggono aprendo la scheda",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.people.create",
+    method: "POST",
+    path: "/api/v1/sport-work/people",
+    description:
+      "Censisce una persona nel modulo compensi, con il riferimento debole all anagrafica di origine (atleta, allenatore, staff, socio o esterno)",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.people.detail",
+    method: "GET",
+    path: "/api/v1/sport-work/people/:id",
+    description: "La scheda completa di una persona, IBAN compreso",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.people.update",
+    method: "PATCH",
+    path: "/api/v1/sport-work/people/:id",
+    description: "Modifica dell anagrafica del modulo compensi",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.people.position",
+    method: "GET",
+    path: "/api/v1/sport-work/people/:id/position?year=2026",
+    description:
+      "La posizione annua verso le soglie dei 5.000 e dei 15.000, con lo scostamento che una dichiarazione arrivata in ritardo produrrebbe",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.relationships",
+    method: "GET",
+    path: "/api/v1/sport-work/relationships",
+    description:
+      "I rapporti di lavoro sportivo. La lettura porta prima a scaduti i contratti la cui data di fine e passata",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.relationships.create",
+    method: "POST",
+    path: "/api/v1/sport-work/relationships",
+    description:
+      "Crea un rapporto. Nasce sempre in bozza: attivarlo e un atto separato che verifica cosa manca",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.relationships.detail",
+    method: "GET",
+    path: "/api/v1/sport-work/relationships/:id?view=detail",
+    description:
+      "La scheda del rapporto: persona, piano, scadenze, movimenti e cosa manca per attivarlo",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.relationships.update",
+    method: "PATCH",
+    path: "/api/v1/sport-work/relationships/:id",
+    description: "Modifica di un rapporto non cessato",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.relationships.status",
+    method: "POST",
+    path: "/api/v1/sport-work/relationships/:id/status",
+    description:
+      "Cambio di stato. Non e un PATCH sul campo perche non e la modifica di un campo: attivare richiede contratto e anagrafica, cessare richiede un motivo",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.plan",
+    method: "GET",
+    path: "/api/v1/sport-work/relationships/:id/plan",
+    description: "Il piano compensi di un rapporto e le sue scadenze",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.plan.save",
+    method: "PUT",
+    path: "/api/v1/sport-work/relationships/:id/plan",
+    description:
+      "Crea o rifa il piano nelle tre forme (rate uguali, mensilita, rate personalizzate). Rifiutato se una scadenza ha gia ricevuto denaro",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.installments",
+    method: "GET",
+    path: "/api/v1/sport-work/installments",
+    description:
+      "Le scadenze compenso del club, con programmato, maturato e pagato tenuti separati",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.installments.cancel",
+    method: "POST",
+    path: "/api/v1/sport-work/installments/:id/cancel",
+    description:
+      "Annulla una scadenza programmata. Non e un DELETE: la riga resta marcata, e una scadenza gia erogata non si annulla affatto",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.payouts",
+    method: "GET",
+    path: "/api/v1/sport-work/payouts",
+    description: "Il registro in uscita: compensi, premi, rimborsi, fatture",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.payouts.prepare",
+    method: "POST",
+    path: "/api/v1/sport-work/payouts/prepare",
+    description:
+      "La proposta di erogazione: imponibili, contributi, netto, costo del club e la motivazione riga per riga. Non scrive niente",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.payouts.record",
+    method: "POST",
+    path: "/api/v1/sport-work/payouts",
+    description:
+      "Registra un erogazione. Accetta `idempotencyKey`: due invii dello stesso clic restituiscono lo stesso movimento invece di farne uscire due",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.payouts.reverse",
+    method: "POST",
+    path: "/api/v1/sport-work/payouts/:id/reverse",
+    description:
+      "Storna un erogazione con una riga di segno opposto. Non esiste DELETE su questo registro",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.declarations",
+    method: "GET",
+    path: "/api/v1/sport-work/declarations",
+    description:
+      "Le autocertificazioni dei compensi percepiti da altri committenti",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.declarations.create",
+    method: "POST",
+    path: "/api/v1/sport-work/declarations",
+    description:
+      "Registra un autocertificazione. Sostituisce quella dell anno, che resta marcata: quello che il club sapeva a marzo resta quello che sapeva a marzo",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.bonuses",
+    method: "GET",
+    path: "/api/v1/sport-work/bonuses",
+    description: "I premi, tenuti separati dai compensi",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.bonuses.create",
+    method: "POST",
+    path: "/api/v1/sport-work/bonuses",
+    description:
+      "Registra un premio. Il trattamento fiscale si dichiara e non si deduce: la distinzione fra premio e retribuzione variabile la fa il contratto",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.bonuses.pay",
+    method: "POST",
+    path: "/api/v1/sport-work/bonuses/:id/pay",
+    description:
+      "Eroga un premio. Esce dal registro ma non consuma le franchigie del lavoratore",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.reimbursements",
+    method: "GET",
+    path: "/api/v1/sport-work/reimbursements",
+    description: "I rimborsi spese, che non sono compensi",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.reimbursements.create",
+    method: "POST",
+    path: "/api/v1/sport-work/reimbursements",
+    description:
+      "Registra una nota spese: viaggio, vitto, alloggio, chilometrico o altra spesa documentata",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.reimbursements.transition",
+    method: "PATCH",
+    path: "/api/v1/sport-work/reimbursements/:id",
+    description:
+      "Presenta, approva o respinge un rimborso. A liquidato non ci si arriva da qui",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.reimbursements.pay",
+    method: "POST",
+    path: "/api/v1/sport-work/reimbursements/:id/pay",
+    description:
+      "Liquida un rimborso approvato. L approvazione e il momento in cui qualcuno se ne assume la responsabilita",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.vat_invoices",
+    method: "GET",
+    path: "/api/v1/sport-work/vat-invoices",
+    description: "Le fatture ricevute dai professionisti con partita IVA",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.vat_invoices.create",
+    method: "POST",
+    path: "/api/v1/sport-work/vat-invoices",
+    description:
+      "Registra una fattura ricevuta. Gli importi si trascrivono dal documento: il calcolo lo ha fatto chi l ha emessa",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.vat_invoices.pay",
+    method: "POST",
+    path: "/api/v1/sport-work/vat-invoices/:id/pay",
+    description:
+      "Paga una fattura ricevuta, anche a rate. Nessuna regola co.co.co. la tocca",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.obligations",
+    method: "GET",
+    path: "/api/v1/sport-work/obligations",
+    description:
+      "L agenda degli adempimenti: RASD, F24, autocertificazioni, contratti in scadenza, CU",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.obligations.create",
+    method: "POST",
+    path: "/api/v1/sport-work/obligations",
+    description: "Aggiunge un adempimento a mano, fuori da quelli derivati",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.obligations.sync",
+    method: "POST",
+    path: "/api/v1/sport-work/obligations/sync",
+    description:
+      "Riallinea l agenda con cio che rapporti ed erogazioni richiedono. Idempotente: rieseguirla non duplica ne le scadenze ne le notifiche",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.obligations.complete",
+    method: "POST",
+    path: "/api/v1/sport-work/obligations/:id/complete",
+    description:
+      "Marca un adempimento come assolto. Assolto significa che una persona lo ha fatto, non che EasyGame lo abbia trasmesso",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.dashboard",
+    method: "GET",
+    path: "/api/v1/sport-work/dashboard",
+    description:
+      "I numeri del cruscotto: programmato, maturato e pagato del mese, costo club, da pagare, scaduti, contratti in scadenza, autocertificazioni mancanti",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.datasets",
+    method: "GET",
+    path: "/api/v1/sport-work/datasets?kind=f24&year=2026",
+    description:
+      "I dati strutturati per F24 e CU. Non sono un F24 e non sono una CU: sono le tabelle che il consulente si porta via",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.scheduler",
+    method: "POST",
+    path: "/api/v1/sport-work/scheduler",
+    description:
+      "Il giro sul club attivo, a mano: porta a scaduti i contratti finiti, ricalcola il maturato, riallinea l agenda e notifica le scadenze vicine. Idempotente",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.scheduler.cron",
+    method: "GET",
+    path: "/api/v1/sport-work/scheduler",
+    description:
+      "Lo stesso giro su tutti i club, invocato da Vercel Cron alle 03:30. Si autentica con CRON_SECRET; in produzione senza quella variabile non si apre",
+    mobile_ready: false,
+  },
   {
     name: "platform.payments.read",
     method: "GET",
