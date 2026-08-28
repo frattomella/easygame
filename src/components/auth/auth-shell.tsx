@@ -414,14 +414,24 @@ export function AuthShell({
     );
   };
 
-  const providerButtons = (
+  /*
+    Quando nessun provider OAuth e configurato la pagina non dice niente. Un
+    riquadro che spiega come popolare le variabili d'ambiente e un'istruzione
+    per chi installa il prodotto, non per la segreteria che sta accedendo. Se
+    non c'e niente da scegliere sparisce anche il separatore «oppure», che
+    senza alternative separerebbe una cosa sola.
+  */
+  const hasProviderChoice =
+    loadingProviders || capabilities.providers.length > 0;
+
+  const providerButtons = hasProviderChoice ? (
     <div className="grid gap-2">
       {loadingProviders ? (
         <div className="flex items-center justify-center py-3 text-sm text-slate-500">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           Caricamento provider...
         </div>
-      ) : capabilities.providers.length > 0 ? (
+      ) : (
         capabilities.providers.map((provider) => (
           <Button
             key={provider.id}
@@ -440,14 +450,9 @@ export function AuthShell({
             Continua con {provider.label}
           </Button>
         ))
-      ) : (
-        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-          Google e Microsoft si abilitano inserendo le credenziali OAuth nelle
-          env.
-        </div>
       )}
     </div>
-  );
+  ) : null;
 
   return (
     <div className="eg-auth min-h-screen bg-[var(--eg-paper)] px-4 py-6 sm:py-10">
@@ -508,18 +513,30 @@ export function AuthShell({
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="space-y-3 pb-3">
               <EasyGameWordmark className="lg:hidden" />
-              <CardTitle className="text-2xl text-slate-900">Accedi</CardTitle>
+              {/*
+                Il titolo segue la scheda aperta: `/register` monta questo
+                stesso guscio con la scheda «Registrazione» gia scelta, e
+                intitolarlo «Accedi» diceva a chi arriva da un invito che ha
+                sbagliato pagina.
+              */}
+              <CardTitle className="text-2xl text-slate-900">
+                {mode === "register" ? "Crea il tuo account" : "Accedi"}
+              </CardTitle>
               <p className="text-sm text-slate-500">
-                Entra nella gestione della tua societa sportiva.
+                {mode === "register"
+                  ? "Bastano nome, email e password: il club lo configuri dopo."
+                  : "Entra nella gestione della tua societa sportiva."}
               </p>
             </CardHeader>
             <CardContent className="space-y-6">
               {providerButtons}
 
-              <div className="relative text-center text-xs uppercase tracking-[0.24em] text-slate-400">
-                <span className="bg-white px-3">oppure</span>
-                <div className="absolute left-0 top-1/2 -z-10 h-px w-full -translate-y-1/2 bg-slate-200" />
-              </div>
+              {hasProviderChoice ? (
+                <div className="relative text-center text-xs uppercase tracking-[0.24em] text-slate-400">
+                  <span className="bg-white px-3">oppure</span>
+                  <div className="absolute left-0 top-1/2 -z-10 h-px w-full -translate-y-1/2 bg-slate-200" />
+                </div>
+              ) : null}
 
               {pendingVerification ? (
                 <div className="space-y-5 rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
@@ -895,8 +912,16 @@ export function AuthShell({
                 </Tabs>
               )}
 
+              {/*
+                `role="alert"` perche l'errore compare dopo l'invio, lontano
+                dal fuoco che e rimasto sul pulsante: senza, chi usa un lettore
+                di schermo preme «Entra» e non sente niente.
+              */}
               {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div
+                  role="alert"
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
                   {error}
                 </div>
               )}

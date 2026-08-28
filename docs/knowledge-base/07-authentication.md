@@ -31,7 +31,7 @@ Codice di riferimento:
 Sul login con email inesistente viene comunque eseguito un `bcrypt.compare`
 contro un hash fittizio (`DUMMY_PASSWORD_HASH`) per **non rivelare** l'esistenza
 dell'account tramite timing. Il messaggio d'errore e sempre
-`Invalid login credentials`.
+`Email o password non corretti` (`INVALID_CREDENTIALS_MESSAGE`).
 
 ## Endpoint auth
 
@@ -59,8 +59,8 @@ dell'account tramite timing. Il messaggio d'errore e sempre
 ```
 POST /api/v1/auth/login { email, password }
   1. rate limit  IP (30 / 15 min)  +  identita (10 / 15 min)
-  2. utente inesistente        → 401 "Invalid login credentials" (con bcrypt fittizio)
-  3. password errata           → 401 "Invalid login credentials"
+  2. utente inesistente        → 401 "Email o password non corretti" (con bcrypt fittizio)
+  3. password errata           → 401 "Email o password non corretti"
   4. email non verificata      → 403 EMAIL_NOT_VERIFIED  (+ invio OTP se SMTP configurato)
   5. telefono da verificare    → 403 PHONE_NOT_VERIFIED  (+ invio OTP)
   6. finalizeVerifiedSession   → crea sessione, imposta cookie, 200

@@ -31,6 +31,13 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { parseInput, validationErrorPayload } from "@/lib/validation";
 import { loginInputSchema } from "@/lib/validation/schemas";
 
+/**
+ * Un solo messaggio per «utente sconosciuto» e «password sbagliata»: distinguerli
+ * direbbe a chi prova indirizzi a caso quali esistono. In italiano come il resto
+ * del prodotto — questa frase e la prima che un utente legge quando sbaglia.
+ */
+const INVALID_CREDENTIALS_MESSAGE = "Email o password non corretti";
+
 const DUMMY_PASSWORD_HASH =
   "$2a$10$3gQkUQ3VL89S/gY5KFIC0OG/lquhesFrvFvKtZk4ebmerY.cPiUuO";
 
@@ -102,7 +109,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           data: { user: null, session: null },
-          error: { message: "Invalid login credentials" },
+          error: { message: INVALID_CREDENTIALS_MESSAGE },
         },
         { status: 401 },
       );
@@ -121,7 +128,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           data: { user: null, session: null },
-          error: { message: "Invalid login credentials" },
+          error: { message: INVALID_CREDENTIALS_MESSAGE },
         },
         { status: 401 },
       );
