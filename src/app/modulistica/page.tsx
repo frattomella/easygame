@@ -64,6 +64,12 @@ import {
   deleteDocumentTemplate,
 } from "@/lib/simplified-db";
 import { getDocumentTemplatesFromClub } from "@/lib/document-templates";
+import {
+  ATTESTATION_TEMPLATE_ID,
+  ATTESTATION_TEMPLATE_TITLE,
+  buildAttestationTemplate,
+} from "@/lib/documents/attestation-template";
+import { apiRequest } from "@/lib/api/client";
 import { useToast } from "@/components/ui/use-toast";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 
@@ -303,6 +309,21 @@ function ModulisticaPage() {
   const [newDocumentDescription, setNewDocumentDescription] =
     useState<string>("");
   const [aiDescription, setAiDescription] = useState<string>("");
+  /*
+    L'anteprima del documento compilato. Non e un dettaglio di comodo: §5.5.24
+    chiede che i segnaposto che il risolutore non ha saputo riempire siano
+    **elencati prima di stampare**. Un'attestazione con tre righe bianche che
+    nessuno ha notato e peggio di un modulo vuoto, perche sembra completa.
+  */
+  const [filledPreview, setFilledPreview] = useState<{
+    title: string;
+    html: string;
+    unresolved: string[];
+    missing: string[];
+    warnings: string[];
+  } | null>(null);
+  const [generatingFilled, setGeneratingFilled] = useState<boolean>(false);
+  const [addingAttestation, setAddingAttestation] = useState<boolean>(false);
   const [, setAiGeneratorDialog] = useState<boolean>(false);
   const [, setAiGenerating] = useState<boolean>(false);
   const [clubId, setClubId] = useState<string>("");
@@ -874,6 +895,115 @@ function ModulisticaPage() {
     setShowPdfDialog(false);
   };
 
+  /**
+   * Il documento compilato: lo costruisce il server, qui si stampa e basta.
+   *
+   * Il risolutore vive in `src/lib/server/document-placeholders.ts` perche
+   * legge il registro incassi e le presenze: farlo qui vorrebbe dire spedire
+   * al browser l'intero storico economico di un atleta per stampare una riga,
+   * e riscrivere nel client la formula della cassa (ADR-0068). Torna una
+   * pagina gia impaginata **piu** l'elenco di cio che non e stato riempito.
+   */
+  const generateFilledPdf = async () => {
+    if (!activeTemplate) return;
+    if (!selectedAthlete || selectedAthlete === "no-athletes") {
+      showToast("error", "Seleziona prima un atleta");
+      return;
+    }
+
+    setGeneratingFilled(true);
+
+    try {
+      const params = new URLSearchParams({
+        templateId: activeTemplate.id,
+        athleteId: selectedAthlete,
+      });
+
+      const storedActiveClub = readStoredActiveClub();
+      if (storedActiveClub?.activeSeasonId) {
+        params.set("seasonId", String(storedActiveClub.activeSeasonId));
+      }
+      if (clubId) {
+        params.set("clubId", clubId);
+      }
+
+      const { data, error } = await apiRequest<{
+        title: string;
+        html: string;
+        unresolved: string[];
+        missing: string[];
+        warnings: string[];
+      }>(`/api/v1/documents/filled?${params.toString()}`);
+
+      if (error || !data) {
+        showToast(
+          "error",
+          error?.message || "Errore nella generazione del documento",
+        );
+        return;
+      }
+
+      setShowPdfDialog(false);
+      setFilledPreview({
+        title: data.title,
+        html: data.html,
+        unresolved: Array.isArray(data.unresolved) ? data.unresolved : [],
+        missing: Array.isArray(data.missing) ? data.missing : [],
+        warnings: Array.isArray(data.warnings) ? data.warnings : [],
+      });
+    } catch (error) {
+      console.error("Error generating filled document:", error);
+      showToast("error", "Errore nella generazione del documento");
+    } finally {
+      setGeneratingFilled(false);
+    }
+  };
+
+  const printFilledDocument = () => {
+    if (!filledPreview) return;
+
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      // La pagina arriva gia autonoma dal server — stile dentro, nessuna
+      // richiesta verso l'esterno — quindi qui non si reimpagina niente.
+      printWindow.document.write(filledPreview.html);
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.print();
+      }, 500);
+    }
+
+    setFilledPreview(null);
+  };
+
+  /**
+   * Semina il modello «Attestazione di pagamento e frequenza».
+   *
+   * Passa dalla creazione di sempre (`saveDocumentTemplate`): appena creato e
+   * una bozza come le altre, modificabile e cancellabile. **Non** apre la
+   * libreria dei modelli, che e lavoro editoriale e sta in Wave 3: qui ce n'e
+   * uno, quello che ogni famiglia chiede.
+   */
+  const handleAddAttestationTemplate = async () => {
+    if (!clubId) {
+      showToast("error", "ID club non disponibile");
+      return;
+    }
+
+    setAddingAttestation(true);
+
+    try {
+      await saveDocumentTemplate(clubId, buildAttestationTemplate());
+      await loadData();
+      showToast("success", `Modello «${ATTESTATION_TEMPLATE_TITLE}» aggiunto`);
+    } catch (error) {
+      console.error("Error seeding attestation template:", error);
+      showToast("error", "Errore nella creazione del modello");
+    } finally {
+      setAddingAttestation(false);
+    }
+  };
+
   const handleDeleteTemplate = async (templateId: string) => {
     try {
       await deleteDocumentTemplate(clubId, templateId);
@@ -1058,6 +1188,12 @@ function ModulisticaPage() {
 
   const activeTemplates = templates.filter((template) => !template.archived);
   const archivedTemplates = templates.filter((template) => template.archived);
+  // Il modello dell'attestazione si propone finche il club non ce l'ha, in
+  // archivio compreso: riproporlo a chi lo ha archiviato di proposito
+  // significherebbe non aver capito la risposta.
+  const hasAttestationTemplate = templates.some(
+    (template) => template.id === ATTESTATION_TEMPLATE_ID,
+  );
 
   return (
     <DashboardPageContainer>
@@ -1066,7 +1202,23 @@ function ModulisticaPage() {
         subtitle="Gestisci documenti, moduli e file condivisi del club."
         actions={
           activeView === "list" && activeTab === "documents" ? (
-            <div className="flex gap-2">
+            /*
+              In colonna sotto i 640 px: due azioni affiancate a 375 px
+              tagliavano la seconda.
+            */
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {hasAttestationTemplate ? null : (
+                <Button
+                  variant="outline"
+                  onClick={handleAddAttestationTemplate}
+                  disabled={addingAttestation}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  {addingAttestation
+                    ? "Aggiunta..."
+                    : "Aggiungi attestazione di pagamento"}
+                </Button>
+              )}
               <Button onClick={handleCreateNew}>
                 <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
               </Button>
@@ -1334,21 +1486,148 @@ function ModulisticaPage() {
         )
       )}
 
-      {/* PDF Export Dialog */}
+      {/* PDF Export Dialog — le due strade: modulo vuoto o documento compilato */}
       <Dialog open={showPdfDialog} onOpenChange={setShowPdfDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Esporta come PDF</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <p>Sei sicuro di voler esportare questo documento come PDF?</p>
-            <p className="font-medium mt-2">{activeTemplate?.title}</p>
+          <div className="space-y-4 py-4">
+            <p className="font-medium">{activeTemplate?.title}</p>
+            <p className="text-sm text-muted-foreground">
+              <strong>Genera vuoto</strong> stampa il modulo da compilare a
+              mano. <strong>Genera compilato</strong> scrive dentro i dati
+              dell&apos;atleta, del club e della cassa: serve un atleta.
+            </p>
+
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
+              <Input
+                placeholder="Cerca per nome o cognome..."
+                value={athleteSearchTerm}
+                onChange={(e) => setAthleteSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            <Select value={selectedAthlete} onValueChange={setSelectedAthlete}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleziona un atleta (solo per il compilato)" />
+              </SelectTrigger>
+              <SelectContent>
+                {filteredAthletes.length === 0 ? (
+                  <SelectItem value="no-athletes" disabled>
+                    {athleteSearchTerm
+                      ? "Nessun atleta trovato"
+                      : "Nessun atleta disponibile"}
+                  </SelectItem>
+                ) : (
+                  filteredAthletes.map((athlete) => (
+                    <SelectItem key={athlete.id} value={athlete.id}>
+                      {athlete.first_name} {athlete.last_name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPdfDialog(false)}>
+          {/*
+            In colonna sotto i 640 px: tre azioni affiancate a 375 px si
+            tagliano a vicenda.
+          */}
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setShowPdfDialog(false)}
+            >
               Annulla
             </Button>
-            <Button onClick={generatePdf}>Esporta PDF</Button>
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={generatePdf}
+            >
+              Genera vuoto
+            </Button>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={generateFilledPdf}
+              disabled={
+                generatingFilled ||
+                !selectedAthlete ||
+                selectedAthlete === "no-athletes"
+              }
+            >
+              {generatingFilled ? "Generazione..." : "Genera compilato"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Anteprima del documento compilato: cosa c'e dentro, e cosa manca */}
+      <Dialog
+        open={Boolean(filledPreview)}
+        onOpenChange={(open) => {
+          if (!open) setFilledPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{filledPreview?.title || "Documento"}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto py-2 text-sm">
+            {filledPreview?.warnings.length ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                <ul className="list-disc space-y-1 pl-4">
+                  {filledPreview.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {filledPreview?.missing.length ? (
+              <div>
+                <p className="font-medium text-slate-900">
+                  Dati mancanti: restano campi da riempire a mano
+                </p>
+                <p className="mt-1 break-words text-muted-foreground">
+                  {filledPreview.missing.join(", ")}
+                </p>
+              </div>
+            ) : null}
+
+            {filledPreview?.unresolved.length ? (
+              <div>
+                <p className="font-medium text-slate-900">
+                  Segnaposto non riconosciuti: restano vuoti
+                </p>
+                <p className="mt-1 break-words text-muted-foreground">
+                  {filledPreview.unresolved.join(", ")}
+                </p>
+              </div>
+            ) : null}
+
+            {!filledPreview?.warnings.length &&
+            !filledPreview?.missing.length &&
+            !filledPreview?.unresolved.length ? (
+              <p className="text-muted-foreground">
+                Tutti i segnaposto del modello sono stati compilati.
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setFilledPreview(null)}
+            >
+              Annulla
+            </Button>
+            <Button className="w-full sm:w-auto" onClick={printFilledDocument}>
+              Stampa
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

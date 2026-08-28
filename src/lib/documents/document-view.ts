@@ -55,7 +55,7 @@ export const escapeHtml = (value: unknown) =>
  * italiani, e una ricevuta datata `08/26/2026` non e un dettaglio estetico —
  * per undici giorni al mese e una data diversa, e nessuno se ne accorge.
  */
-const formatDate = (value: unknown) => {
+export const formatDate = (value: unknown) => {
   const date = value instanceof Date ? value : new Date(String(value || ""));
   if (Number.isNaN(date.getTime())) return "";
 
@@ -73,7 +73,7 @@ const formatDate = (value: unknown) => {
  * ricevuta non e un dettaglio estetico — e lo stesso documento che risulta
  * diverso a seconda di dove e stato generato.
  */
-const formatAmount = (value: unknown) => {
+export const formatAmountValue = (value: unknown) => {
   const amount = Number(value || 0);
   const negative = amount < 0;
   const cents = Math.round(Math.abs(amount) * 100);
@@ -81,8 +81,16 @@ const formatAmount = (value: unknown) => {
   const decimals = String(cents % 100).padStart(2, "0");
   const grouped = units.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
-  return `${negative ? "-" : ""}${grouped},${decimals} €`;
+  return `${negative ? "-" : ""}${grouped},${decimals}`;
 };
+
+/*
+  Il simbolo si aggiunge, non si riscrive: l'attestazione compilata usa lo
+  stesso numero senza «€» dentro una frase che la valuta la dice gia
+  («la somma di 130,00 euro»), e due funzioni di formattazione tornerebbero a
+  produrre due importi diversi per lo stesso incasso.
+*/
+const formatAmount = (value: unknown) => `${formatAmountValue(value)} €`;
 
 export type DocumentIssuer = {
   name: string;
@@ -268,6 +276,99 @@ export const renderDocumentHtml = (input: {
           : "Documento emesso da EasyGame a fronte dell'incasso indicato."
       }
     </footer>
+  </div>
+</body>
+</html>`;
+};
+
+/**
+ * Un modello di modulistica gia compilato, come pagina stampabile.
+ *
+ * **Perche sta qui e non in `/modulistica`.** Perche e la stessa pagina
+ * autonoma di una ricevuta — stile dentro, nessuna richiesta verso l'esterno,
+ * `Stampa → Salva come PDF` — e perche l'intestazione con il logo del club era
+ * gia scritta. Rifarla nel browser vorrebbe dire due impaginazioni per lo
+ * stesso club, che e il difetto che questo file esiste per non avere.
+ *
+ * `bodyHtml` arriva **gia sostituito e gia neutralizzato** dal risolutore dei
+ * segnaposto (`src/lib/server/document-placeholders.ts`): qui non si sfugge
+ * nulla, perche il corpo e HTML voluto — il modello lo ha scritto la
+ * segreteria.
+ */
+export const renderFilledDocumentHtml = (input: {
+  title: string;
+  bodyHtml: string;
+  issuer: DocumentIssuer;
+}) => {
+  const { title, bodyHtml, issuer } = input;
+
+  return `<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(title)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #0f172a;
+    background: #f8fafc;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .sheet {
+    max-width: 794px;
+    margin: 0 auto;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 24px;
+  }
+  header { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;
+           border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 20px; }
+  header img { max-height: 64px; max-width: 180px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .muted { color: #64748b; font-size: 13px; margin: 2px 0; }
+  img { max-width: 100%; height: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { padding: 6px 8px; border: 1px solid #e2e8f0; }
+  /* Il campo lasciato in bianco: identico a quello del modulo da compilare a
+     mano, perche e la stessa cosa — un dato che il documento non ha. */
+  .blank-field { display: inline-block; min-width: 160px; height: 1.2em;
+                 border-bottom: 1px solid #94a3b8; vertical-align: baseline; }
+  .easygame-page-break { break-before: page; page-break-before: always;
+                         height: 0; overflow: hidden; }
+  @page { size: A4; margin: 18mm; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .sheet { border: 0; border-radius: 0; max-width: none; padding: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <header>
+      ${
+        asText(issuer.logoUrl)
+          ? `<img src="${escapeHtml(issuer.logoUrl)}" alt="" />`
+          : ""
+      }
+      <div>
+        <h1>${escapeHtml(issuer.name)}</h1>
+        <p class="muted">${escapeHtml(addressLine(issuer))}</p>
+        <p class="muted">${[
+          asText(issuer.fiscalCode) ? `C.F. ${escapeHtml(issuer.fiscalCode)}` : "",
+          asText(issuer.vatNumber) ? `P.IVA ${escapeHtml(issuer.vatNumber)}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")}</p>
+      </div>
+    </header>
+    ${bodyHtml}
   </div>
 </body>
 </html>`;

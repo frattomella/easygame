@@ -339,8 +339,15 @@ export const createFundingEnrollment = async (
  * un appello sbagliato lo aveva segnato presente. Un allenamento che non
  * dichiara nessun gruppo resta dentro: e un dato precedente ai gruppi, ed
  * escluderlo cancellerebbe frequenza vera da stagioni gia rendicontate.
+ *
+ * **Esportata perche la frequenza si misura in un posto solo.** Dal W1-G la
+ * consuma anche il risolutore dei segnaposto: l'attestazione di frequenza
+ * risponde alla stessa domanda del rendiconto di un bando — «quante ore ha
+ * fatto questo atleta in questo periodo» — e una seconda lettura delle
+ * presenze significherebbe un club che attesta un numero e ne rendiconta un
+ * altro.
  */
-const loadAttendanceInputs = async (
+export const loadAttendanceInputs = async (
   organizationId: string,
   athleteId: string,
 ) => {

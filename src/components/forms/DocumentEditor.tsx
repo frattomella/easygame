@@ -5,6 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
+  DOCUMENT_SIGNATURE_TOKENS as SIGNATURE_TOKENS,
+  DOCUMENT_TEMPLATE_TOKENS,
+  type DocumentSignatureToken as SignatureToken,
+  type DocumentTemplateToken,
+} from "@/lib/documents/placeholders";
+import {
   AlignCenter,
   AlignLeft,
   AlignRight,
@@ -26,17 +32,15 @@ import {
   X,
 } from "lucide-react";
 
-export type DocumentTemplateToken = {
-  label: string;
-  value: string;
-  group: string;
-  description?: string;
-};
-
-type SignatureToken = {
-  label: string;
-  value: string;
-};
+/*
+  Il catalogo dei segnaposto **non vive piu qui**: sta in
+  `src/lib/documents/placeholders.ts`, perche da W1-G lo consuma anche il
+  risolutore lato server. Due elenchi che divergono sarebbero peggio di nessun
+  elenco — l'editor proporrebbe un dato che il documento non sa scrivere.
+  L'esportazione resta per i chiamanti storici (`/modulistica`).
+*/
+export type { DocumentTemplateToken, SignatureToken };
+export { DOCUMENT_TEMPLATE_TOKENS };
 
 interface DocumentEditorProps {
   initialContent?: string;
@@ -53,77 +57,6 @@ type ToolbarButtonProps = {
   active?: boolean;
   children: React.ReactNode;
 };
-
-export const DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] = [
-  { label: "Nome club", value: "{{club.name}}", group: "Club" },
-  { label: "Indirizzo club", value: "{{club.address}}", group: "Club" },
-  { label: "Citta club", value: "{{club.city}}", group: "Club" },
-  { label: "Email club", value: "{{club.email}}", group: "Club" },
-  { label: "Telefono club", value: "{{club.phone}}", group: "Club" },
-  { label: "Codice fiscale club", value: "{{club.fiscal_code}}", group: "Club" },
-  { label: "Partita IVA club", value: "{{club.vat_number}}", group: "Club" },
-  { label: "Sito web club", value: "{{club.website}}", group: "Club" },
-  { label: "Nome atleta", value: "{{athlete.first_name}}", group: "Atleta" },
-  { label: "Cognome atleta", value: "{{athlete.last_name}}", group: "Atleta" },
-  { label: "Data nascita atleta", value: "{{athlete.birth_date}}", group: "Atleta" },
-  { label: "Categoria atleta", value: "{{athlete.category_name}}", group: "Atleta" },
-  { label: "Codice fiscale atleta", value: "{{athlete.fiscal_code}}", group: "Atleta" },
-  { label: "Indirizzo atleta", value: "{{athlete.address}}", group: "Atleta" },
-  { label: "Email atleta", value: "{{athlete.email}}", group: "Atleta" },
-  { label: "Telefono atleta", value: "{{athlete.phone}}", group: "Atleta" },
-  { label: "Numero maglia", value: "{{athlete.jersey_number}}", group: "Atleta" },
-  { label: "Nome genitore 1", value: "{{parent.1.first_name}}", group: "Genitori/Tutori" },
-  { label: "Cognome genitore 1", value: "{{parent.1.last_name}}", group: "Genitori/Tutori" },
-  { label: "Email genitore 1", value: "{{parent.1.email}}", group: "Genitori/Tutori" },
-  { label: "Telefono genitore 1", value: "{{parent.1.phone}}", group: "Genitori/Tutori" },
-  { label: "Nome genitore 2", value: "{{parent.2.first_name}}", group: "Genitori/Tutori" },
-  { label: "Cognome genitore 2", value: "{{parent.2.last_name}}", group: "Genitori/Tutori" },
-  { label: "Email genitore 2", value: "{{parent.2.email}}", group: "Genitori/Tutori" },
-  { label: "Telefono genitore 2", value: "{{parent.2.phone}}", group: "Genitori/Tutori" },
-  { label: "Tutore principale", value: "{{guardian.name}}", group: "Genitori/Tutori" },
-  { label: "Nome staff", value: "{{staff.first_name}}", group: "Staff" },
-  { label: "Cognome staff", value: "{{staff.last_name}}", group: "Staff" },
-  { label: "Ruolo staff", value: "{{staff.role}}", group: "Staff" },
-  { label: "Email staff", value: "{{staff.email}}", group: "Staff" },
-  { label: "Telefono staff", value: "{{staff.phone}}", group: "Staff" },
-  { label: "Nome allenatore", value: "{{trainer.first_name}}", group: "Allenatori" },
-  { label: "Cognome allenatore", value: "{{trainer.last_name}}", group: "Allenatori" },
-  { label: "Ruolo allenatore", value: "{{trainer.role}}", group: "Allenatori" },
-  { label: "Email allenatore", value: "{{trainer.email}}", group: "Allenatori" },
-  { label: "Telefono allenatore", value: "{{trainer.phone}}", group: "Allenatori" },
-  { label: "Nome socio", value: "{{member.first_name}}", group: "Soci" },
-  { label: "Cognome socio", value: "{{member.last_name}}", group: "Soci" },
-  { label: "Email socio", value: "{{member.email}}", group: "Soci" },
-  { label: "Telefono socio", value: "{{member.phone}}", group: "Soci" },
-  { label: "Nome sponsor", value: "{{sponsor.name}}", group: "Sponsor/Fornitori" },
-  { label: "Referente sponsor", value: "{{sponsor.contact_name}}", group: "Sponsor/Fornitori" },
-  { label: "Email sponsor", value: "{{sponsor.email}}", group: "Sponsor/Fornitori" },
-  { label: "Telefono sponsor", value: "{{sponsor.phone}}", group: "Sponsor/Fornitori" },
-  { label: "Nome fornitore", value: "{{supplier.name}}", group: "Sponsor/Fornitori" },
-  { label: "Categoria", value: "{{category.name}}", group: "Categorie e gruppi" },
-  { label: "Squadra/gruppo", value: "{{team.name}}", group: "Categorie e gruppi" },
-  { label: "Stato certificato", value: "{{medical_certificate.status}}", group: "Certificati" },
-  { label: "Scadenza certificato", value: "{{medical_certificate.expiry_date}}", group: "Certificati" },
-  { label: "Stato iscrizione", value: "{{registration.status}}", group: "Iscrizione/Pagamenti" },
-  { label: "Piano pagamento", value: "{{payment.plan}}", group: "Iscrizione/Pagamenti" },
-  { label: "Totale dovuto", value: "{{payment.total_due}}", group: "Iscrizione/Pagamenti" },
-  { label: "Totale pagato", value: "{{payment.total_paid}}", group: "Iscrizione/Pagamenti" },
-  { label: "Totale rimanente", value: "{{payment.remaining}}", group: "Iscrizione/Pagamenti" },
-  { label: "Titolo documento", value: "{{document.title}}", group: "Documenti" },
-  { label: "Data documento", value: "{{document.date}}", group: "Documenti" },
-  { label: "Data corrente", value: "{{current_date}}", group: "Date e sistema" },
-  { label: "Anno sportivo", value: "{{season.year}}", group: "Date e sistema" },
-];
-
-const SIGNATURE_TOKENS: SignatureToken[] = [
-  { label: "Firma atleta", value: "{{signature.athlete}}" },
-  { label: "Firma genitore", value: "{{signature.parent}}" },
-  {
-    label: "Firma presidente/club",
-    value: "{{signature.club_representative}}",
-  },
-  { label: "Firma allenatore", value: "{{signature.trainer}}" },
-];
 
 const TEMPLATE_DRAG_MIME = "application/x-easygame-template-insert";
 const EMPTY_DOCUMENT = "<h1>Documento</h1><p>Scrivi qui il contenuto.</p>";
@@ -364,8 +297,12 @@ const buildTokenLookup = (
   return lookup;
 };
 
-const isSignaturePlaceholder = (value: string) =>
-  normalizePlaceholderValue(value).startsWith("{{signature.");
+// Il timbro sta accanto alla firma anche nel foglio, non in mezzo a una riga
+// di testo: gli spetta lo stesso blocco.
+const isSignaturePlaceholder = (value: string) => {
+  const normalized = normalizePlaceholderValue(value);
+  return normalized.startsWith("{{signature.") || normalized.startsWith("{{stamp.");
+};
 
 const createPlaceholderNode = (
   document: Document,

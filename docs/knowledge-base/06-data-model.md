@@ -217,6 +217,7 @@ da moduli applicativi e vanno trattati come parte del contratto:
 | `jersey_groups` | `includeCompatibleCategories: boolean` | se il gruppo numerazione accoglie anche gli atleti eleggibili per compatibilita. Default `false`. |
 | `club_sites` | `id`, `name`, `city`, `active` | sedi operative del club. Con meno di due sedi attive il club **non** e multi-sede e l'interfaccia non mostra il concetto ([ADR-0038](18-decision-log.md)). Letto da `src/lib/club-sites.ts`. |
 | `category_groups` | `categoryId`, `siteId`, `structureId?` | gruppo operativo: la coppia (categoria, sede). Non duplica la categoria, la colloca. Una categoria senza gruppi ne riceve uno **implicito** in lettura. |
+| `document_templates` | `id: "attestazione-pagamento-frequenza"` | **identificativo riservato**, non un tipo speciale: e il modello «Attestazione di pagamento e frequenza» (`src/lib/documents/attestation-template.ts`). Il risolutore dei segnaposto non lo conosce e non lo tratta diversamente da un altro modello — l'id serve solo a `/modulistica` per sapere se il club ce l'ha gia e smettere di proporlo. Nessuna migrazione lo scrive: lo semina il pulsante, club per club ([ADR-0079](18-decision-log.md#adr-0079--il-risolutore-dei-segnaposto-e-lunica-capability-nuova-della-wave-1-e-accetta-quattro-vincoli-per-restarlo)). |
 
 L'eleggibilita per compatibilita **non e persistita**: si calcola a ogni
 lettura. Le appartenenze reali restano in `athlete_category_memberships`, che
