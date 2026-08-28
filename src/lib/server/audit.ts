@@ -81,6 +81,13 @@ export const AUDIT_ACTIONS = {
   paymentProviderConfigured: "admin.payment_provider.updated",
   /** Anagrafiche di persona: chi ha cambiato i dati di chi (ADR-0019). */
   anagraficaUpdated: "anagrafica.updated",
+  /*
+    Il giro automatico dei promemoria sui certificati medici. Non ha un attore:
+    la registra il cron. Serve a rispondere a «il promemoria e partito?» quando
+    una famiglia dice di non averlo ricevuto — la notifica da sola dice cosa e
+    stato creato, non che il giro di quella notte sia girato su quel club.
+  */
+  medicalReminderRun: "medical_certificate_reminder.run",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

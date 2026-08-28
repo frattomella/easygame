@@ -114,7 +114,7 @@ invocato a mano.
 | Variabile | Effetto dell'assenza |
 |-----------|----------------------|
 | `SMTP_CREDENTIALS_SECRET` | Fallback su `AUTH_RATE_LIMIT_SECRET` — funziona, ma le password SMTP **e IMAP** restano legate a quel segreto: cambiarlo le rende indecifrabili e vanno riconfigurate dal pannello |
-| `EASYGAME_MAINTENANCE_TOKEN` | `POST /api/v1/maintenance` non accetta il token e resta azionabile solo da una sessione `platform_admin`. **E il comportamento voluto**: un confronto con una stringa vuota aprirebbe a chiunque una rotta che cancella righe. Finche non e impostata, sessioni, sfide OTP e contatori di rate limit scaduti **restano nel database** e crescono |
+| `EASYGAME_MAINTENANCE_TOKEN` | `POST /api/v1/maintenance` non accetta il token e resta azionabile solo da una sessione `platform_admin`. **E il comportamento voluto**: un confronto con una stringa vuota aprirebbe a chiunque una rotta che cancella righe. Dal 2026-08-28 la pulizia periodica **non dipende piu da questa variabile**: la aziona Vercel Cron sul `GET`, che usa `CRON_SECRET`. Questa resta per un cron che non sia quello dell'hosting (ADR-0007) |
 | `AUDIT_LOG_RETENTION_DAYS` | L'audit non viene mai cancellato. Voluto: il periodo di conservazione e una decisione di compliance, non un valore predefinito che si scopre dopo aver perso dei dati |
 | `TWILIO_*` | Verifica telefono disattivata |
 | `GOOGLE_*`, `MICROSOFT_*` | OAuth disattivato |
@@ -774,7 +774,12 @@ variabile — `vercel env add <nome> preview` — ed e una **modifica di
 configurazione**, che richiede l'autorizzazione di chi possiede il progetto.
 
 Finche `EASYGAME_MAINTENANCE_TOKEN` non esiste, `POST /api/v1/maintenance`
-risponde 403 e le pulizie periodiche non girano su nessun ambiente.
+risponde 403.
+
+**Aggiornamento del 2026-08-28**: la pulizia periodica non passa piu da quella
+variabile. La aziona Vercel Cron su `GET /api/v1/maintenance`, che si autentica
+con `CRON_SECRET` — obbligatoria in **ogni** ambiente per questa sola rotta.
+Vedi «Le quattro funzioni periodiche» piu sotto.
 
 ---
 
@@ -860,3 +865,81 @@ regge anche se il job viene rieseguito a mano dalla schermata mentre il cron
 sta girando. `POST` sulla stessa rotta esegue il giro sul **solo club attivo**,
 e passa dai permessi come ogni altra rotta del dominio.
 
+
+---
+
+## Le quattro funzioni periodiche (2026-08-28, W1-C)
+
+Fino a oggi `vercel.json` dichiarava **un solo** cron. Tre funzioni periodiche
+esistevano nel codice e non giravano: nessuno le invocava, quindi gli
+allenamenti si generavano a mano, le righe scadute crescevano e i promemoria
+sui certificati medici partivano solo se qualcuno apriva la schermata giusta.
+
+```json
+"crons": [
+  { "path": "/api/v1/sport-work/scheduler",       "schedule": "30 3 * * *" },
+  { "path": "/api/v1/training-automation",        "schedule": "0 4 * * *"  },
+  { "path": "/api/v1/maintenance",                "schedule": "30 4 * * *" },
+  { "path": "/api/medical-certificate-reminders", "schedule": "0 7 * * *"  }
+]
+```
+
+Gli orari sono **distanziati di mezz'ora** di proposito: quattro giri nella
+stessa finestra si contenderebbero le stesse connessioni al database di Neon,
+e il primo che le esaurisce fa fallire gli altri tre. Il promemoria sui
+certificati e alle 07:00 e non alle 04:00 perche e l'unico che parla a delle
+persone: a quell'ora la notifica si legge.
+
+### Autenticazione
+
+| Variabile | Dove serve | Se manca |
+|-----------|-----------|----------|
+| `CRON_SECRET` | Vercel, ambiente in cui il cron gira | Lavoro sportivo, allenamenti e promemoria: **503 in produzione**, in sviluppo passano cosi il giro si puo provare. **Manutenzione: 503 sempre**, in qualunque ambiente |
+
+Tutte e quattro le porte sono `GET` con
+`Authorization: Bearer <CRON_SECRET>`, perche e l'unica cosa che Vercel Cron sa
+invocare. Il segreto sbagliato risponde **401** con un messaggio che contiene
+`Accesso negato`.
+
+**Perche la manutenzione e piu severa.** E l'unica che **cancella righe**. Il
+motivo per cui fino a ieri non aveva un `GET` era buono — un `GET` lo esegue un
+prefetch del browser, un antivirus o un crawler — e la risposta non e una
+promessa ma il controllo: senza `CRON_SECRET` non esegue niente, in nessun
+ambiente, e il Bearer si confronta a **tempo costante**. Nessuno dei tre
+scenari temuti porta il segreto.
+
+Il `POST` con `x-maintenance-token` resta e non cambia: ADR-0007 vieta di legare
+il dominio a un servizio dell'hosting, quindi deve restare azionabile da
+un'azione GitHub o dal cron di una macchina.
+
+### Cosa e garantito per tutti e quattro
+
+- **Idempotenza.** Rieseguire un giro non produce niente di nuovo. Per i
+  promemoria certificati la difesa e una chiave deterministica dentro la
+  notifica (`medical_certificate_reminder:<atleta>:<certificato|missing>`) con
+  una finestra di sette giorni che vale **anche se il promemoria e stato
+  letto**: il filtro «solo non lette» della rotta a mano, applicato a un cron,
+  rimanderebbe ogni notte lo stesso avviso a chi lo ha gia aperto.
+- **Isolamento fra club.** Ogni lettura filtra per `organization_id`, e i
+  destinatari di un promemoria devono essere iscritti al club dell'atleta: la
+  stessa email puo esistere in due societa.
+- **Un club che fallisce non ferma gli altri.** I giri iterano i club con un
+  `try/catch` per club e restituiscono `{ processedClubs, failed, results }`:
+  il log dice **quale** club e rimasto indietro, non solo che qualcosa non ha
+  funzionato.
+- **Audit.** Il giro dei promemoria lascia una riga
+  `medical_certificate_reminder.run` per club, con creati, saltati e atleti
+  coinvolti. Serve a rispondere a «il promemoria e partito?» quando una
+  famiglia dice di non averlo ricevuto.
+
+### Da verificare prima di considerarlo fatto
+
+- **Il limite di cron del piano Vercel.** Il repository non lo documenta da
+  nessuna parte. Un piano Hobby ne consente pochi e con granularita
+  giornaliera: se il progetto non e su un piano che regge quattro voci, il
+  deploy le rifiuta. Va confermato sul progetto `easygame-staging` prima del
+  primo deploy.
+- **`CRON_SECRET` sugli ambienti.** Risulta impostata su `easygame-staging`,
+  ambiente Production, dal giro del lavoro sportivo. Le tre voci nuove usano la
+  stessa variabile e quindi non ne servono altre. Quando esistera un progetto
+  di produzione andra impostata anche li.

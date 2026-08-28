@@ -1,26 +1,47 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
 import { sendNotificationEmails } from "@/lib/server/email/email-service";
+import {
+  buildReminderKey,
+  createReminderNotifications,
+  findAlreadyNotifiedRecipients,
+  getReminderWindowStart,
+  pickRelevantCertificate,
+  resolveGuardianRecipientIds,
+  runMedicalCertificateRemindersForAllClubs,
+  UUID_PATTERN,
+} from "@/lib/server/medical-certificate-reminders";
 
-const REMINDER_TYPE = "medical_certificate_reminder";
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+/**
+ * I promemoria sui certificati medici.
+ *
+ *   POST /api/medical-certificate-reminders   — a mano, su un atleta
+ *   GET  /api/medical-certificate-reminders   — da cron, su tutti i club
+ *
+ * **Le due porte esistono entrambe di proposito.** Il `POST` serve a chi, in
+ * segreteria, vuole sollecitare **quella** famiglia adesso, e passa dai
+ * permessi come ogni altra rotta. Il `GET` e quello che invoca Vercel Cron,
+ * non ha un attore e per questo si autentica con `CRON_SECRET` — la stessa
+ * convenzione del giro del lavoro sportivo e dell'automazione allenamenti.
+ *
+ * **Le regole stanno in `src/lib/server/medical-certificate-reminders.ts`**,
+ * non qui: la deduplica scritta due volte sarebbe due deduplica diverse dopo
+ * la prima modifica. Le due porte usano le stesse funzioni con parametri
+ * diversi, e le differenze sono dichiarate li:
+ *
+ *   - il `POST` non filtra i destinatari per club, il giro automatico si:
+ *     e la rotta a mano, e il suo comportamento non lo cambia il cron;
+ *   - il `POST` guarda solo le notifiche non lette, il giro automatico tutte.
+ *     Per una persona un promemoria letto e ignorato merita un sollecito; per
+ *     un cron sarebbe un doppione ogni notte.
+ */
 
 const jsonError = (message: string, status = 400) =>
   NextResponse.json({ data: null, error: { message } }, { status });
-
-const isRecord = (value: unknown): value is Record<string, any> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
-const asRecord = (value: unknown): Record<string, any> =>
-  isRecord(value) ? value : {};
-
-const asArray = <T = any>(value: unknown): T[] =>
-  Array.isArray(value) ? (value as T[]) : [];
 
 const firstText = (...values: unknown[]) => {
   for (const value of values) {
@@ -29,115 +50,6 @@ const firstText = (...values: unknown[]) => {
   }
 
   return "";
-};
-
-const normalizeEmail = (value: unknown) =>
-  String(value || "")
-    .trim()
-    .toLowerCase();
-
-const getGuardianRows = (athlete: any) => {
-  const data = asRecord(athlete?.data);
-  const guardians = asArray(data.guardians).map((guardian) => {
-    const record = asRecord(guardian);
-    return {
-      linkedUserId: firstText(
-        record.linkedUserId,
-        record.linked_user_id,
-        record.userId,
-        record.user_id,
-      ),
-      linkedUserEmail: firstText(
-        record.linkedUserEmail,
-        record.linked_user_email,
-        record.email,
-      ),
-    };
-  });
-
-  const legacyParents = [data.parent1, data.parent2]
-    .filter(Boolean)
-    .map((guardian) => {
-      const record = asRecord(guardian);
-      return {
-        linkedUserId: firstText(
-          record.linkedUserId,
-          record.linked_user_id,
-          record.userId,
-          record.user_id,
-        ),
-        linkedUserEmail: firstText(
-          record.linkedUserEmail,
-          record.linked_user_email,
-          record.email,
-        ),
-      };
-    });
-
-  return guardians.length > 0 ? guardians : legacyParents;
-};
-
-const getReminderKey = (notification: { data?: any }) => {
-  const data = asRecord(notification.data);
-  return firstText(data.key, data.reminderKey);
-};
-
-const getParentRecipientIds = async (athlete: any) => {
-  const guardianRows = getGuardianRows(athlete);
-  const linkedIds = guardianRows
-    .flatMap((guardian) => [guardian.linkedUserId])
-    .filter((value) => UUID_PATTERN.test(value));
-  const linkedEmails = Array.from(
-    new Set(
-      guardianRows
-        .map((guardian) => normalizeEmail(guardian.linkedUserEmail))
-        .filter(Boolean),
-    ),
-  );
-
-  const usersByEmail =
-    linkedEmails.length > 0
-      ? await prisma.user.findMany({
-          where: { email: { in: linkedEmails } },
-          select: { id: true },
-        })
-      : [];
-
-  return Array.from(
-    new Set(
-      linkedIds
-        .concat(usersByEmail.map((user) => user.id))
-        .filter((value) => UUID_PATTERN.test(value)),
-    ),
-  );
-};
-
-const pickRelevantCertificate = (athlete: any, certificateId?: string) => {
-  const certificates = asArray(athlete?.medical_certificates);
-  if (certificateId) {
-    const exact = certificates.find(
-      (certificate: any) => String(certificate?.id || "") === certificateId,
-    );
-    if (exact) return exact;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const thirtyDaysFromNow = new Date(today);
-  thirtyDaysFromNow.setDate(today.getDate() + 30);
-
-  return (
-    certificates.find((certificate: any) => {
-      const expiryDate = certificate?.expiry_date
-        ? new Date(certificate.expiry_date)
-        : null;
-      return (
-        !expiryDate ||
-        Number.isNaN(expiryDate.getTime()) ||
-        expiryDate <= thirtyDaysFromNow
-      );
-    }) || null
-  );
 };
 
 export async function POST(request: Request) {
@@ -179,7 +91,7 @@ export async function POST(request: Request) {
 
   if (!athlete) return jsonError("Atleta non appartenente al club", 403);
 
-  const parentUserIds = await getParentRecipientIds(athlete);
+  const parentUserIds = await resolveGuardianRecipientIds(athlete);
   if (parentUserIds.length === 0) {
     return jsonError("Nessun account genitore o tutore collegato", 404);
   }
@@ -188,63 +100,26 @@ export async function POST(request: Request) {
     athlete,
     firstText(body?.certificateId, body?.certificate_id),
   );
-  const certificateKey = certificate?.id || "missing";
-  const key = `${REMINDER_TYPE}:${athlete.id}:${certificateKey}`;
-  const athleteName =
-    [athlete.first_name, athlete.last_name].filter(Boolean).join(" ").trim() ||
-    "Atleta";
-  const expiryDate = certificate?.expiry_date
-    ? certificate.expiry_date.toISOString().slice(0, 10)
-    : null;
-  const title = "Certificato medico da aggiornare";
-  const message = expiryDate
-    ? `${athleteName}: certificato ${certificate?.type || "medico"} da verificare entro il ${new Date(expiryDate).toLocaleDateString("it-IT")}.`
-    : `${athleteName}: certificato medico mancante o da aggiornare.`;
+  const key = buildReminderKey(athlete.id, certificate?.id);
 
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-  const existingNotifications = await prisma.notification.findMany({
-    where: {
-      organization_id: athlete.organization_id,
-      user_id: { in: parentUserIds },
-      type: REMINDER_TYPE,
-      read: false,
-      created_at: { gte: sevenDaysAgo },
-    },
-    select: { user_id: true, data: true },
+  const duplicateUserIds = await findAlreadyNotifiedRecipients({
+    organizationId: athlete.organization_id,
+    userIds: parentUserIds,
+    key,
+    since: getReminderWindowStart(new Date()),
+    onlyUnread: true,
   });
-  const duplicateUserIds = new Set(
-    existingNotifications
-      .filter((notification) => getReminderKey(notification) === key)
-      .map((notification) => notification.user_id)
-      .filter(Boolean) as string[],
-  );
   const recipientsToNotify = parentUserIds.filter(
     (userId) => !duplicateUserIds.has(userId),
   );
 
   if (recipientsToNotify.length > 0) {
-    await prisma.notification.createMany({
-      data: recipientsToNotify.map((userId) => ({
-        organization_id: athlete.organization_id,
-        user_id: userId,
-        title,
-        message,
-        type: REMINDER_TYPE,
-        read: false,
-        data: {
-          key,
-          reminderKey: key,
-          source: "certificate_alerts",
-          athleteId: athlete.id,
-          athleteName,
-          certificateId: certificate?.id || null,
-          certificateType: certificate?.type || "Certificato Medico",
-          expiryDate,
-          actionHref: `/parent-view/${athlete.id}`,
-        },
-      })),
+    await createReminderNotifications({
+      organizationId: athlete.organization_id,
+      athlete,
+      certificate,
+      key,
+      recipientIds: recipientsToNotify,
     });
     await sendNotificationEmails(recipientsToNotify);
   }
@@ -257,4 +132,47 @@ export async function POST(request: Request) {
     },
     error: null,
   });
+}
+
+export async function GET(request: NextRequest) {
+  const cronSecret = String(process.env.CRON_SECRET || "").trim();
+  const authHeader = request.headers.get("authorization");
+
+  if (cronSecret) {
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json(
+        { data: null, error: { message: "Accesso negato: cron non autenticato" } },
+        { status: 401 },
+      );
+    }
+  } else if (process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      {
+        data: null,
+        error: {
+          message:
+            "CRON_SECRET non configurato. Imposta la variabile ambiente prima di esporre il giro automatico dei promemoria.",
+        },
+      },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const report = await runMedicalCertificateRemindersForAllClubs(new Date());
+
+    return NextResponse.json({ data: report, error: null });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        data: null,
+        error: {
+          message:
+            error?.message ||
+            "Errore durante il giro dei promemoria sui certificati medici",
+        },
+      },
+      { status: 500 },
+    );
+  }
 }

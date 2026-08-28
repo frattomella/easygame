@@ -145,14 +145,66 @@ test("senza segreto configurato la porta di servizio resta chiusa", () => {
   );
 });
 
-test("la manutenzione si aziona con POST, non con GET", () => {
+/*
+  La porta del cron.
+
+  Il `GET` prima non esisteva, e il motivo era buono: cancella righe, e un
+  prefetch del browser o un antivirus eseguono i `GET`. Ma Vercel Cron sa
+  invocare solo un `GET`, e senza di esso la pulizia non girava mai: le righe
+  scadute restavano a crescere.
+
+  Cio che rende il `GET` accettabile non e una promessa, e la severita del suo
+  controllo — piu stretta di quella delle altre porte di cron del progetto — ed
+  e esattamente cio che questi tre test presidiano. Se qualcuno la allentasse
+  per far girare il cron in locale, il `GET` tornerebbe la porta aperta che il
+  `POST` evitava.
+*/
+
+test("la manutenzione ha una porta per il cron", () => {
   const source = routeSource();
 
   assert.match(source, /export async function POST/);
-  assert.doesNotMatch(
+  assert.match(
     source,
     /export async function GET/,
-    "cancella righe: un GET lo esegue un prefetch, un antivirus o un crawler",
+    "Vercel Cron invoca un GET: senza, la pulizia non gira mai davvero",
+  );
+});
+
+test("senza CRON_SECRET la porta del cron non si apre in nessun ambiente", () => {
+  const source = routeSource();
+  const get = source.slice(source.indexOf("export async function GET"));
+
+  assert.match(
+    get,
+    /if \(!cronSecret\) \{[\s\S]*?status: 503/,
+    "il segreto manca -> 503, senza eseguire niente",
+  );
+  assert.doesNotMatch(
+    get,
+    /NODE_ENV/,
+    "qui non vale la scorciatoia «fuori da produzione passa comunque»: cancella righe",
+  );
+});
+
+test("il Bearer del cron si confronta a tempo costante", () => {
+  const source = routeSource();
+  const get = source.slice(source.indexOf("export async function GET"));
+
+  assert.match(
+    get,
+    /secretsMatch\(cronSecret, presentedSecret\)/,
+    "un !== esce al primo carattere diverso, e il tempo che ci mette lo racconta",
+  );
+  assert.doesNotMatch(
+    get,
+    /!==\s*`Bearer/,
+    "il confronto con il template literal e il confronto che si voleva evitare",
+  );
+  assert.match(
+    get,
+    /Accesso negato: cron non autenticato/,
+    "un errore di autorizzazione porta la stringa che il resto del sistema riconosce",
   );
 });
 

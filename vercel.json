@@ -9,6 +9,18 @@
     {
       "path": "/api/v1/sport-work/scheduler",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/v1/training-automation",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/v1/maintenance",
+      "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/medical-certificate-reminders",
+      "schedule": "0 7 * * *"
     }
   ]
 }

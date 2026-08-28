@@ -6,7 +6,8 @@ import { runScheduledMaintenance } from "@/lib/server/maintenance";
 /**
  * La manutenzione periodica.
  *
- *   POST /api/v1/maintenance
+ *   POST /api/v1/maintenance   — a mano, o da un cron con `x-maintenance-token`
+ *   GET  /api/v1/maintenance   — da Vercel Cron, con `CRON_SECRET`
  *
  * Cancella cio che e scaduto — sessioni, sfide OTP, contatori di rate limit,
  * audit oltre la retention. **Nessuna schermata le legge**, quindi nessuna
@@ -31,8 +32,28 @@ import { runScheduledMaintenance } from "@/lib/server/maintenance";
  * giorno in cui il dominio si sposta fuori da Next.js, si sposta la funzione
  * e non il meccanismo.
  *
- * **Perche `POST` e non `GET`.** Cancella righe. Un `GET` lo esegue un
- * prefetch del browser, un antivirus o un crawler.
+ * **Perche adesso esiste anche un `GET`.** Vercel Cron sa invocare una sola
+ * cosa: un `GET` senza corpo e senza intestazioni proprie. Finche la porta era
+ * solo `POST`, la pulizia era «azionabile da un cron» in teoria e non girava
+ * mai davvero: le righe scadute restavano li a crescere.
+ *
+ * **Perche il `GET` non riapre il problema che il `POST` evitava.** Il timore
+ * era che un `GET` lo esegua un prefetch del browser, un antivirus o un
+ * crawler. Nessuno dei tre porta il segreto: qui **senza `CRON_SECRET`
+ * corretto non si cancella niente**, e la regola e piu severa di quella delle
+ * altre porte di cron del progetto —
+ *
+ *   - `CRON_SECRET` e obbligatorio **in ogni ambiente**, produzione compresa e
+ *     sviluppo compreso: se non e configurato la rotta risponde `503` e non
+ *     esegue nulla. Non c'e la scorciatoia «fuori da produzione passa
+ *     comunque» che ha il giro del lavoro sportivo, perche quel giro riscrive
+ *     stati e questo cancella righe;
+ *   - il confronto passa da `secretsMatch`, a tempo costante, come per
+ *     `EASYGAME_MAINTENANCE_TOKEN`.
+ *
+ * Le due strade del `POST` restano invariate: `ADR-0007` vieta di legarsi a un
+ * servizio dell'hosting, quindi il token condiviso continua a valere per un
+ * cron che non sia quello di Vercel.
  */
 
 export const runtime = "nodejs";
@@ -89,5 +110,50 @@ export async function POST(request: Request) {
     farebbe risultare rotto un sistema sano e, con un cron che riprova,
     ripeterebbe anche i passi andati a buon fine.
   */
+  return NextResponse.json({ data: report, error: null });
+}
+
+/**
+ * La porta di Vercel Cron.
+ *
+ * Il segreto non e opzionale: manca -> `503`, in **qualunque** ambiente. E la
+ * differenza voluta rispetto alle altre porte di cron, ed e per questo che un
+ * prefetch o un crawler non aziona niente.
+ */
+export async function GET(request: Request) {
+  const cronSecret = String(process.env.CRON_SECRET || "").trim();
+
+  if (!cronSecret) {
+    return NextResponse.json(
+      {
+        data: null,
+        error: {
+          message:
+            "CRON_SECRET non configurato. La manutenzione cancella righe: senza il segreto la porta del cron non si apre, in nessun ambiente.",
+        },
+      },
+      { status: 503 },
+    );
+  }
+
+  /*
+    Solo la forma `Bearer <segreto>`: un'intestazione che porta il segreto nudo
+    non vale. E la forma che manda Vercel Cron, e restringerla toglie una
+    variante in meno da difendere.
+  */
+  const authHeader = String(request.headers.get("authorization") || "").trim();
+  const presentedSecret = authHeader.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length).trim()
+    : "";
+
+  if (!secretsMatch(cronSecret, presentedSecret)) {
+    return NextResponse.json(
+      { data: null, error: { message: "Accesso negato: cron non autenticato" } },
+      { status: 401 },
+    );
+  }
+
+  const report = await runScheduledMaintenance();
+
   return NextResponse.json({ data: report, error: null });
 }
