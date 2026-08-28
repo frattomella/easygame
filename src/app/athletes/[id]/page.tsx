@@ -5989,9 +5989,9 @@ export default function AthleteProfilePage() {
                 <PersonCompensationTab
                   originType="athlete"
                   originId={athleteId}
-                  firstName={athlete?.first_name}
-                  lastName={athlete?.last_name}
-                  fiscalCode={athlete?.fiscal_code}
+                  firstName={athlete?.firstName || athlete?.first_name}
+                  lastName={athlete?.lastName || athlete?.last_name}
+                  fiscalCode={athlete?.fiscalCode || athlete?.fiscal_code}
                   email={athlete?.email}
                   phone={athlete?.phone}
                 />

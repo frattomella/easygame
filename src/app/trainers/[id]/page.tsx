@@ -1567,8 +1567,8 @@ export default function TrainerDetailsPage() {
                 <PersonCompensationTab
                   originType="trainer"
                   originId={trainerId}
-                  firstName={trainer.firstName || trainer.first_name}
-                  lastName={trainer.lastName || trainer.last_name}
+                  firstName={trainer.name}
+                  lastName={trainer.surname}
                   fiscalCode={trainer.fiscalCode || trainer.fiscal_code}
                   email={trainer.email}
                   phone={trainer.phone}

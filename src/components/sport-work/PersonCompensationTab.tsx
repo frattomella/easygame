@@ -136,15 +136,36 @@ export function PersonCompensationTab({
 
   const progress = summarizePlanProgress(personInstallments);
 
+  /*
+    **Senza nome non si censisce.** Il primo giro di collaudo ha creato una
+    persona chiamata «Nome Cognome», perche i campi arrivavano da una scheda
+    che li chiama in un altro modo e il valore predefinito ha coperto il buco.
+    Una riga cosi non e riconoscibile in un elenco di compensi, e il rapporto
+    che le si attaccherebbe sarebbe intestato a nessuno: e la stessa regola con
+    cui `classifyDirectoryPerson` rifiuta di importare un'anagrafica senza
+    cognome.
+  */
+  const nameIsUsable = Boolean(
+    String(firstName || "").trim() && String(lastName || "").trim(),
+  );
+
   const handleCreatePerson = async () => {
+    if (!nameIsUsable) {
+      showToast(
+        "error",
+        "Nome o cognome mancante nella scheda: completali prima di censire la persona nel modulo compensi",
+      );
+      return;
+    }
+
     setCreating(true);
     const { data, error } = await apiRequest<any>("/api/v1/sport-work/people", {
       method: "POST",
       body: {
         originType,
         originId,
-        firstName: firstName || "Nome",
-        lastName: lastName || "Cognome",
+        firstName,
+        lastName,
         fiscalCode,
         email,
         phone,
@@ -196,10 +217,21 @@ export function PersonCompensationTab({
             </p>
           </div>
           {canManage ? (
-            <Button onClick={handleCreatePerson} disabled={creating}>
-              <Plus className="mr-2 h-4 w-4" />
-              {creating ? "Censimento…" : "Censisci nel modulo compensi"}
-            </Button>
+            <div className="space-y-2">
+              <Button
+                onClick={handleCreatePerson}
+                disabled={creating || !nameIsUsable}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {creating ? "Censimento…" : "Censisci nel modulo compensi"}
+              </Button>
+              {!nameIsUsable ? (
+                <p className="text-xs text-amber-700">
+                  La scheda non porta nome e cognome: completali prima, oppure
+                  crea la persona da «Lavoro sportivo → Rapporti».
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </CardContent>
       </Card>
