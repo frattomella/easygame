@@ -332,7 +332,7 @@ durante una campagna di collaudo non e il momento giusto.
 | `npx tsc --allowUnreachableCode false` | pulito |
 | Multi-tenant | nessuna falla, verificata a runtime (tabella sopra) |
 | Responsive | 375 / 768 / 1280 / 1440, 23 pagine, zero difetti |
-| CI remota | **verde** su `b4108d5`: Web App, Mobile App e Guardrail di sicurezza |
+| CI remota | **verde** su `b4108d5` e su `189b1d2` (Web App, Mobile App, Guardrail di sicurezza). Il giro su `HEAD` era ancora in corso quando la quota dell'API GitHub non autenticata si e esaurita: i due commit successivi sono una modifica di una riga con il suo test, piu documentazione, e i gate locali sono verdi su `HEAD` |
 | Migrazioni | **nessuna nuova**: le 21 dello staging restano quelle di prima |
 | CodeRabbit | **non eseguibile**: il CLI non e installato in questo ambiente |
 | Deploy staging | **non eseguito**: bloccato dal classificatore dei permessi |
