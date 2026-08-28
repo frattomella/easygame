@@ -404,6 +404,46 @@ l'unico posto che scrive `clubs.settings.presidentSignature` e
 `.presidentStamp`, e lo fa per chiavi (`settings_patch`), mai riscrivendo le
 impostazioni intere.
 
+### 8-ter. Il sollecito scrive a persone fuori dal prodotto — PRESIDIATO (2026-08-28, W1-F)
+
+E l'unica operazione di EasyGame che, con un clic, manda posta a decine di
+famiglie. Quattro presidi, e ognuno chiude un modo diverso di sbagliare.
+
+- **Il perimetro e quello del denaro.** `POST /api/v1/payment-reminders`
+  richiede `canManageClubConfiguration` — proprietario e gestore — lo stesso
+  che protegge la registrazione di un incasso. Non e stato introdotto un
+  permesso nuovo: un secondo sistema per un'azione sarebbe una superficie in
+  piu da tenere allineata ad `access-roles.ts`.
+- **Un identificativo che arriva dal client non e un lasciapassare.** Le rate
+  si cercano gia filtrate per `organization_id`, e ogni riga ripassa da
+  `ensureOrganizationAccess`. Un `charge_id` che non torna indietro viene
+  rifiutato con «Accesso negato» **senza dire se esista altrove**: il messaggio
+  non distingue «di un altro club» da «non esiste», perche la differenza sarebbe
+  un oracolo. Coperto da `tests/server/payment-reminders.test.mjs`.
+- **Nemmeno un account collegato lo e.** Un tutore che dichiara
+  `linkedUserId` viene raggiunto in-app solo se quell'utente e **iscritto a
+  questo club** (`organization_users`): la stessa email puo esistere in due
+  societa, e l'anagrafica di una non e un titolo per scrivere dall'altra.
+  Altrimenti compare fra i non raggiungibili come `no_account`.
+- **Un doppio clic non raddoppia la posta.** La difesa non e un controllo prima
+  della scrittura ma una **rivendicazione** scritta sotto blocco di riga
+  ([ADR-0078](18-decision-log.md#adr-0078--il-sollecito-rivendica-il-destinatario-prima-di-scrivergli-e-la-traccia-vive-sulla-rata)),
+  con finestra di sei ore. La lettura-poi-scrittura del sollecito sui documenti
+  non regge due richieste ravvicinate; su un invio massivo significherebbe
+  scrivere due volte a tutte le famiglie di un club.
+
+**Nel messaggio non c'e niente di riservato oltre al minimo**: nome
+dell'atleta, importo residuo, rate scadute, prossima scadenza. Nessun link di
+pagamento, nessun identificativo, nessun allegato — un sollecito e posta in
+chiaro, e cio che ci si mette dentro viaggia in chiaro. Il testo passa da
+`escapeHtml` prima di finire nella parte HTML: i nomi arrivano da
+un'anagrafica compilata da persone.
+
+**Ogni invio lascia una riga di audit** `payment.reminder.sent` con attore,
+club, conteggi ed esito — `failure` quando non e partito niente. E la sola
+cosa che risponde a «il sollecito e partito davvero?» quando una famiglia dice
+di non aver ricevuto nulla.
+
 ### 9. Path «segreto» del platform admin — BASSO
 
 `/private/easygame-platform-admin-0c7a` e solo poco indovinabile. La sicurezza

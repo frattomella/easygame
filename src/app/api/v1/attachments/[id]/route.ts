@@ -5,9 +5,11 @@ import {
 } from "@/lib/server/auth";
 import {
   deleteAttachment,
+  getAttachmentMetadata,
   readAttachment,
   replaceAttachmentContent,
 } from "@/lib/server/attachments";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
 import {
@@ -67,6 +69,36 @@ const scopeFor = async (request: Request, session: any) =>
     request.headers.get("x-active-club-id"),
     request.headers.get("x-active-access-role"),
   );
+
+/**
+ * Gli allegati **del club** sono configurazione del club.
+ *
+ * **Il difetto che questa guardia chiude (FIRMA-01).** Fino alla Wave 1 queste
+ * rotte autorizzavano solo su sessione e appartenenza al club: qualunque
+ * membro — un collaboratore, un allenatore — poteva elencare gli allegati del
+ * club, trovare la firma del presidente e **sostituirla o cancellarla**,
+ * scavalcando il gate che la sua schermata applica. Su una firma che finisce
+ * dentro i documenti che la societa emette non e un dettaglio.
+ *
+ * La regola e minima di proposito: non un permesso nuovo per la firma — che e
+ * cio che il planning ha deciso di non copiare da Golee — ma il permesso che
+ * gia governa la configurazione del club esteso a cio che, per `owner_type`,
+ * **e** configurazione del club. Gli allegati delle persone non cambiano
+ * perimetro.
+ *
+ * La **lettura** resta a chi appartiene al club: serve all'anteprima e ai
+ * documenti che stampa anche la segreteria.
+ */
+const assertClubAttachmentWritable = (metadata: any, role?: string | null) => {
+  if (String(metadata?.ownerType || metadata?.owner_type || "") !== "club") {
+    return;
+  }
+  if (!canManageClubConfiguration(role)) {
+    throw new Error(
+      "Accesso negato: gli allegati del club li gestisce chi ne gestisce la configurazione",
+    );
+  }
+};
 
 /**
  * Il nome che finisce nell'header.
@@ -140,6 +172,10 @@ export async function PUT(request: Request, context: Context) {
 
     const scope = await scopeFor(request, session);
 
+    const existing = await getAttachmentMetadata(context.params.id, scope);
+    if (!existing) return notFound();
+    assertClubAttachmentWritable(existing, scope.activeRole);
+
     const form = await request.formData();
     const file = form.get("file");
 
@@ -197,6 +233,11 @@ export async function DELETE(request: Request, context: Context) {
     if (!session) return unauthorized();
 
     const scope = await scopeFor(request, session);
+
+    const existing = await getAttachmentMetadata(context.params.id, scope);
+    if (!existing) return notFound();
+    assertClubAttachmentWritable(existing, scope.activeRole);
+
     const removed = await deleteAttachment(context.params.id, scope);
     if (!removed) return notFound();
 

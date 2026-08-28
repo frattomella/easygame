@@ -37,6 +37,14 @@ const TOUCHED = [
   "components/forms/document-extraction-field.tsx",
   "components/athletes/profile/athlete-profile-header.tsx",
   "components/athletes/profile/athlete-profile-tabs.tsx",
+  /*
+    Le superfici nuove della Wave 1. Valgono le stesse regole: l'elenco di
+    riconferma puo avere duecento righe, e va deciso da uno smartphone il
+    1o luglio, non da una scrivania.
+  */
+  "components/organization/season-manager.tsx",
+  "components/organization/club-signature-panel.tsx",
+  "app/reports/page.tsx",
 ];
 
 test("nessuna griglia resta a due colonne a 375 px", () => {

@@ -221,3 +221,55 @@ test("i limiti della firma sono piu stretti di quelli di un allegato", () => {
     true,
   );
 });
+
+// --- FIRMA-01: gli allegati del club non si toccano dalla porta generica ------
+
+test("le rotte allegati proteggono cio che appartiene al club", () => {
+  /*
+    Il difetto: i byte della firma vivono in `attachments`, e
+    `/api/v1/attachments/**` autorizzava solo su sessione e appartenenza al
+    club. Un collaboratore poteva quindi elencare gli allegati del club,
+    trovare la firma del presidente e sostituirla o cancellarla da li,
+    scavalcando il gate della sua schermata.
+  */
+  const collezione = readFileSync(
+    path.join(process.cwd(), "src", "app", "api", "v1", "attachments", "route.ts"),
+    "utf8",
+  );
+  const singolo = readFileSync(
+    path.join(
+      process.cwd(),
+      "src",
+      "app",
+      "api",
+      "v1",
+      "attachments",
+      "[id]",
+      "route.ts",
+    ),
+    "utf8",
+  );
+
+  assert.match(
+    collezione,
+    /owner_type[^\n]*===\s*"club"[\s\S]{0,200}canManageClubConfiguration/,
+    "creare un allegato del club deve passare dal permesso di configurazione",
+  );
+
+  assert.match(
+    singolo,
+    /assertClubAttachmentWritable/,
+    "sostituzione e cancellazione devono passare dalla guardia",
+  );
+  const guardie = singolo.match(/assertClubAttachmentWritable\(/g) || [];
+  assert.ok(
+    guardie.length >= 2,
+    `la guardia va applicata sia al PUT sia al DELETE (trovate ${guardie.length} chiamate)`,
+  );
+
+  assert.doesNotMatch(
+    singolo,
+    /export async function GET[\s\S]{0,900}assertClubAttachmentWritable/,
+    "la lettura resta a chi appartiene al club: serve all'anteprima e ai documenti",
+  );
+});

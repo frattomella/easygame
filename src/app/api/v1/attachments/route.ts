@@ -9,6 +9,7 @@ import {
 } from "@/lib/server/attachments";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 
 /**
  * Allegati: elenco e caricamento.
@@ -81,6 +82,29 @@ export async function POST(request: Request) {
 
     const form = await request.formData();
     const file = form.get("file");
+
+    /*
+      Un allegato con `owner_type: "club"` **e** configurazione del club — la
+      firma del presidente e il timbro sono i primi, e finiscono dentro i
+      documenti che la societa emette. Lo governa il permesso che gia governa
+      la configurazione, non un permesso nuovo (FIRMA-01). Gli allegati delle
+      persone non cambiano perimetro.
+    */
+    if (
+      String(form.get("owner_type") || "other") === "club" &&
+      !canManageClubConfiguration(scope.activeRole)
+    ) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: gli allegati del club li gestisce chi ne gestisce la configurazione",
+          },
+        },
+        { status: 403 },
+      );
+    }
 
     if (!file || typeof file === "string") {
       return NextResponse.json(
