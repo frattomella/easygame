@@ -1265,12 +1265,13 @@ l'email. **Nessun canale nuovo.**
 | CU da preparare | amministrazione | secondo il calendario annuale |
 | Documento scaduto (identita, polizza, mandato) | amministrazione | 30 giorni prima |
 
-**Attenzione**, e un limite noto del repository: le notifiche a scadenza
-richiedono uno **scheduler** che oggi non c'e (la generazione automatica degli
-allenamenti e i promemoria dei certificati medici vanno invocati a mano,
-`CRON_SECRET` non e configurato in staging). Prometterle senza risolvere quel
-punto significa prometterle e non consegnarle. **E una dipendenza del piano V1,
-non un dettaglio.**
+**Risolto per questo modulo il 2026-08-28.** Quando questa analisi e stata
+scritta lo scheduler non esisteva. Oggi `vercel.json` registra
+`GET /api/v1/sport-work/scheduler` alle 03:30 e `CRON_SECRET` e configurato su
+`easygame-staging`: le notifiche a scadenza del lavoro sportivo partono da sole.
+**Resta vero per il resto del prodotto**: la generazione automatica degli
+allenamenti e i promemoria dei certificati medici non hanno un cron e vanno
+ancora invocati a mano.
 
 ### 15.8 Privacy e GDPR
 

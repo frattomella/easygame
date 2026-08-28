@@ -61,7 +61,7 @@ Classificazione:
 |-----------|-------|------|
 | Allenamenti | COMPLETE | `/training`, luoghi, orari, ricorrenze |
 | Programmazione settimanale | COMPLETE | `weekly_schedule`, `WeeklyTrainingSchedulePanel` |
-| Generazione automatica allenamenti | PARTIAL | `src/lib/server/training-automation.ts` + `POST /api/v1/training-automation`. Il job «tutti i club» richiede `CRON_SECRET`, **non configurato in staging**, e non c'e uno scheduler Vercel Cron |
+| Generazione automatica allenamenti | PARTIAL | `src/lib/server/training-automation.ts` + `POST /api/v1/training-automation`. Il job «tutti i club» richiede `CRON_SECRET`, **ora configurato su staging** (2026-08-28), ma **non ha uno scheduler Vercel Cron**: l'unico `cron` in `vercel.json` e quello del lavoro sportivo. Va quindi ancora invocato a mano |
 | Presenze allenamento | COMPLETE | `training_attendance`, `AttendanceSheet` |
 | Partite | COMPLETE | `/matches`, calendario, luoghi |
 | Convocazioni | COMPLETE | `MatchConvocations` |

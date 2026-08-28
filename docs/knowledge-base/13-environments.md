@@ -114,7 +114,6 @@ invocato a mano.
 | Variabile | Effetto dell'assenza |
 |-----------|----------------------|
 | `SMTP_CREDENTIALS_SECRET` | Fallback su `AUTH_RATE_LIMIT_SECRET` — funziona, ma le password SMTP **e IMAP** restano legate a quel segreto: cambiarlo le rende indecifrabili e vanno riconfigurate dal pannello |
-| `CRON_SECRET` | Job automatico allenamenti «tutti i club» non invocabile |
 | `EASYGAME_MAINTENANCE_TOKEN` | `POST /api/v1/maintenance` non accetta il token e resta azionabile solo da una sessione `platform_admin`. **E il comportamento voluto**: un confronto con una stringa vuota aprirebbe a chiunque una rotta che cancella righe. Finche non e impostata, sessioni, sfide OTP e contatori di rate limit scaduti **restano nel database** e crescono |
 | `AUDIT_LOG_RETENTION_DAYS` | L'audit non viene mai cancellato. Voluto: il periodo di conservazione e una decisione di compliance, non un valore predefinito che si scopre dopo aver perso dei dati |
 | `TWILIO_*` | Verifica telefono disattivata |
@@ -849,6 +848,11 @@ qualcun altro.
 | Variabile | Dove serve | Se manca |
 |-----------|-----------|----------|
 | `CRON_SECRET` | Vercel, ambiente in cui il cron gira | In produzione la rotta risponde 503; in sviluppo passa, cosi la si puo provare |
+
+**Stato al 2026-08-28**: impostata su `easygame-staging`, ambiente Production.
+Il giro e stato provato — 401 senza credenziali, 200 con quelle giuste, due
+esecuzioni identiche. Non e impostata da nessun'altra parte: quando esistera un
+progetto di produzione andra impostata anche li, altrimenti il cron non parte.
 
 Il giro e **idempotente**, e la difesa contro il doppione non e uno stato sul
 lavoro ma una chiave deterministica dentro la notifica (`data.sportWorkKey`):

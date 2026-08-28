@@ -1950,10 +1950,18 @@ aggirando `resources.ts` — difetto trovato nello scope, corretto fuori.
 
 ---
 
-## WP Sport Work — Lavoro sportivo e compensi (2026-08-28)
+## WP Sport Work — Lavoro sportivo e compensi — `DONE` (2026-08-28)
 
-**Stato: implementato e collaudato a runtime su sviluppo. Non ancora esercitato
-da un club reale.**
+**Stato: SPORT WORK V1 = DONE.** Commit finale `da34f8a` spinto su
+`integration/web-v1`, CI verde su Web / Mobile / Guardrail, deployment
+`easygame-staging` in stato `READY`, `CRON_SECRET` configurato e giro notturno
+provato. Il rapporto di collaudo e in
+[29](29-lavoro-sportivo-implementazione-uat.md).
+
+**Cosa DONE non copre**, e va detto: il modulo **non e ancora stato esercitato
+da un club reale**, e le regole normative del cap. 21 dell'analisi 28 attendono
+la firma di un professionista. Sono condizioni di prodotto e di consulenza, non
+di codice.
 
 | Fase | Contenuto | Esito |
 |------|-----------|-------|
@@ -1969,7 +1977,8 @@ calcolata, tracciati telematici (CU, 770, Uniemens, F24), cedolini, agenti
 sportivi e mandati, volontari con rimborso forfettario, compensazione fra
 compensi e quote.
 
-Il debito che apre e in [16](16-technical-debt.md), voci SW-01…SW-10. Le regole
-che attendono un professionista sono nel cap. 21 dell'analisi
-[28](28-lavoro-sportivo-e-compensi-analisi.md), e finche restano `PENDING` non
-producono calcoli definitivi.
+Il debito che apre e in [16](16-technical-debt.md), voci SW-01…SW-13; SW-04 (il
+numero della circolare INPS 2026) e SW-13 (`CRON_SECRET` su staging) sono state
+chiuse il 2026-08-28. Le regole che attendono un professionista sono nel
+cap. 21 dell'analisi [28](28-lavoro-sportivo-e-compensi-analisi.md), e finche
+restano `PENDING` non producono calcoli definitivi.

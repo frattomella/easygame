@@ -3,30 +3,40 @@
 > Il work package che ha attuato l'analisi
 > [28](28-lavoro-sportivo-e-compensi-analisi.md).
 >
-> Data: **2026-08-28**. Branch: `integration/web-v1`, dieci commit da `3b9dc18`
-> ad `a7dbafc`. Le decisioni architetturali sono negli ADR **0071–0077** di
-> [18](18-decision-log.md).
+> Data: **2026-08-28**. Branch: `integration/web-v1`, dodici commit da
+> `3b9dc18` al commit finale **`da34f8a`**, spinto su `origin`. Le decisioni
+> architetturali sono negli ADR **0071–0077** di [18](18-decision-log.md).
 
 ---
 
 ## Verdetto
 
-**PARTIAL — pronto per il collaudo di un club reale su staging, non ancora
-dichiarabile DONE.**
+**SPORT WORK V1 = DONE.**
 
-Il dominio e implementato, integrato e collaudato a runtime: 263 test propri,
-72 controlli end-to-end sull'applicazione vera, nessun difetto P0 o P1 aperto.
-Restano **due condizioni** che non dipendono dal codice e una che dipende da
-un'autorizzazione:
+La consegna tecnica e chiusa. Il dominio e implementato, integrato, collaudato
+a runtime e **in esercizio su staging**: 263 test propri dentro 2.276 verdi, 72
+controlli end-to-end sull'applicazione vera, nessun difetto P0 o P1 aperto, CI
+verde su tutti e tre i job del commit finale, deployment `READY` sul commit
+finale, `CRON_SECRET` configurato e giro notturno che parte.
 
-1. le **venti regole normative** del cap. 21 dell'analisi 28 attendono la
-   firma di un professionista. Finche restano `PENDING` non producono calcoli
-   definitivi — il che e corretto, ma significa che il modulo oggi non dice al
-   club quanto trattenere sopra i 15.000;
-2. il modulo **non e mai stato esercitato da un club reale**: il collaudo lo ha
-   guidato uno script, non una segreteria;
-3. il **deploy su staging non e stato eseguito** (vedi
-   [Staging](#staging-non-eseguito)).
+Le tre condizioni che tenevano il verdetto a PARTIAL sono state chiuse per due
+terzi, e la terza non e piu una condizione tecnica:
+
+1. il **deploy su staging** e stato eseguito — **chiuso**, vedi
+   [Staging](#staging-eseguito);
+2. lo **scheduler** era registrato in `vercel.json` ma non poteva partire senza
+   `CRON_SECRET` — **chiuso**, la variabile e su `easygame-staging` e la rotta
+   non risponde piu 503 (voce SW-13 di [16](16-technical-debt.md));
+3. le **regole normative** del cap. 21 dell'analisi 28 attendono la firma di un
+   professionista. **Resta aperta, e non e un difetto**: finche sono `PENDING`
+   il motore propone e spiega invece di produrre un numero definitivo, che e la
+   scelta dell'[ADR-0073](18-decision-log.md#adr-0073--il-motore-propone-e-spiega-cio-che-non-e-validato-non-produce-un-numero-definitivo).
+
+**Cosa DONE non vuol dire.** Due cose restano vere e vanno dette a chi legge:
+il modulo **non e mai stato esercitato da un club reale** — il collaudo lo ha
+guidato uno script, non una segreteria — e la parte fiscale sopra i 15.000 non
+dice ancora al club quanto trattenere. Sono condizioni di prodotto e di
+consulenza, non di codice: nessuna delle due si chiude scrivendo software.
 
 | Voce | Esito |
 |------|-------|
@@ -41,16 +51,17 @@ un'autorizzazione:
 | Bonuses | **PASS** |
 | Expense reimbursements | **PASS** |
 | Obligations | **PASS** |
-| Scheduler | **PASS** |
+| Scheduler | **PASS** — giro notturno provato su staging, 5 club, 0 falliti |
 | Movements integration | **PASS** |
 | Permissions | **PASS** |
 | Multi-tenant | **PASS** |
 | Security | **PASS** |
 | Responsive | **PASS** — 375, 768, 1280, 1440 px, nessun trabocco su nessuna pagina |
 | Performance | cruscotto 35 ms, scadenze 32 ms su 54 rapporti e 268 scadenze |
-| Tests | **2.273 / 2.273** (263 del dominio) |
-| CI | **PASS** in locale su tutti e tre i job |
-| Staging | **NON ESEGUITO** — comando di deploy bloccato, vedi sotto |
+| Tests | **2.276 / 2.276** (263 del dominio) |
+| CI | **PASS** su GitHub Actions per il commit finale `da34f8a`: Web App, Mobile App, Guardrail di sicurezza |
+| Staging | **ESEGUITO** — deployment `READY`, smoke test verde, vedi sotto |
+| `CRON_SECRET` | **CONFIGURATO** su `easygame-staging` (target Production). Non impostato altrove |
 | Regole in attesa di validazione | **20** (cap. 21 dell'analisi 28); 3 attive nel rule set come `PENDING` |
 | Blocker pre-produzione | **0 tecnici**, 1 non tecnico: la validazione professionale |
 | Dati QA residui | **nessuno** — il collaudo ripulisce cio che crea |
@@ -252,31 +263,73 @@ riga: a mille rapporti va rimisurato.
 
 ---
 
-## Staging: non eseguito
+## Staging: eseguito
 
-Il branch e stato **spinto** su `integration/web-v1` (`3b03a30..a7dbafc`). Il
-deploy su `easygame-staging` **non e stato eseguito**: il comando e stato
-bloccato dal classificatore in modo automatico, e non e stato aggirato.
+Il branch e stato **spinto** su `integration/web-v1` fino al commit finale
+`da34f8a`. La CI di GitHub Actions e verde su tutti e tre i job — Web App
+(`src/`), Mobile App (`easygamemobile/`), Guardrail di sicurezza — e il deploy
+su `easygame-staging` **e stato eseguito**.
 
-Prima di eseguirlo va tenuto presente che il deploy fa girare
-`prisma migrate deploy`, quindi applichera `20260828100000_sport_work` al
-database di staging. La migrazione e additiva e non tocca nessuna tabella
-esistente, ma resta una migrazione: va lanciata sapendolo.
+| Cosa | Esito |
+|------|-------|
+| Deployment | `READY`, target production del progetto `easygame-staging`, alias `easygame-staging-pi.vercel.app` |
+| Migrazioni | nessuna nuova: `20260828100000_sport_work` era gia applicata dal deploy precedente |
+| `GET /` | 200 |
+| `GET /login` | 200 |
+| `GET /api/v1/registry` | 200 |
 
-Dopo il deploy: verificare lo stato `READY` e provare `/`, `/login`,
-`/api/v1/registry`, piu `/sport-work` con un ruolo che ha i permessi e uno che
-non li ha.
+### Lo scheduler
+
+`CRON_SECRET` e stato generato e impostato su `easygame-staging`, ambiente
+Production, **e su nient'altro**. Il valore non e mai stato mostrato ne scritto
+in un file del repository.
+
+| Prova | Prima | Dopo |
+|-------|-------|------|
+| `GET /api/v1/sport-work/scheduler` senza header | **503** «CRON_SECRET non configurato» | **401** «Accesso negato: cron non autenticato» |
+| stesso `GET` con un bearer sbagliato | — | **401** |
+| stesso `GET` con il bearer giusto | — | **200** |
+
+Il 503 che spariva era il punto: la porta ora esiste e chiede le credenziali
+invece di dichiararsi non configurata.
+
+**Esecuzione controllata**, due volte di fila con il bearer giusto:
+`processedClubs: 5`, `failed: 0`, e le **due risposte byte per byte
+identiche** — zero contratti portati a scaduti, zero maturati ricalcolati,
+zero adempimenti creati, zero notifiche. Un controllo sul database di staging
+conferma che non esiste **nessuna** notifica con `data.sportWorkKey`: il giro
+non ne ha create e non ne ha duplicate.
+
+**Va detto onestamente quanto vale questa prova.** Lo staging non ha oggi
+**alcun** dato di lavoro sportivo — zero persone, zero rapporti, zero rate,
+zero adempimenti — quindi il giro ha girato a vuoto. Cio che e dimostrato a
+runtime e che il job **si autentica, parte, attraversa i cinque club e non
+scrive nulla quando non c'e nulla da scrivere**. La deduplicazione vera, quella
+per `data.sportWorkKey`, resta dimostrata dai test del dominio
+(`tests/server/sport-work-scheduler.test.mjs`: «rieseguire il giro non produce
+una seconda notifica», «rieseguire il giro non duplica l'agenda»), non dal
+collaudo su staging. Per esercitarla davvero servirebbe seminare dei dati su
+staging, che e una scrittura sul database e va autorizzata a parte.
+
+Il cron di Vercel e registrato in `vercel.json` alle **03:30**: la prima
+esecuzione automatica sara quella della notte successiva al deploy.
 
 ---
 
-## Cosa manca prima di dire DONE
+## Cosa resta dopo il DONE
 
-| # | Cosa | Chi |
-|---|------|-----|
-| 1 | Validazione delle regole del cap. 21 dell'analisi 28 | commercialista, consulente del lavoro, esperto di diritto sportivo |
-| 2 | Verifica del numero e della data della circolare INPS 2026 | consulente del lavoro |
-| 3 | Deploy su staging e smoke test | chi ha l'autorizzazione |
-| 4 | Collaudo con un club reale, guidato da una segreteria | prodotto |
-| 5 | Movimenti deve dire perche mancano i compensi a chi non li puo vedere | sviluppo, voce SW-01 |
+Niente di quanto segue e un blocco tecnico: sono le cose che il software, da
+solo, non puo chiudere.
 
-Il debito aperto e in [16](16-technical-debt.md), voci SW-01…SW-10.
+| # | Cosa | Chi | Stato |
+|---|------|-----|-------|
+| 1 | Validazione delle regole del cap. 21 dell'analisi 28 | commercialista, consulente del lavoro, esperto di diritto sportivo | **aperto** — voce SW-02 |
+| 2 | Verifica del numero e della data della circolare INPS 2026 | consulente del lavoro | **chiuso** il 2026-08-28: e la n. 8 del 3 febbraio 2026 (voce SW-04) |
+| 3 | Deploy su staging e smoke test | chi ha l'autorizzazione | **chiuso**: deployment `READY` sul commit `da34f8a`, smoke test verde |
+| 4 | `CRON_SECRET` e giro notturno attivo | chi ha l'autorizzazione | **chiuso** su staging (voce SW-13). Su produzione **non e stato impostato**: quando esistera un progetto di produzione andra fatto li |
+| 5 | Collaudo con un club reale, guidato da una segreteria | prodotto | **aperto** |
+| 6 | Esercitare il giro notturno su dati veri di staging | sviluppo + autorizzazione a scrivere sul database | **aperto** |
+| 7 | Movimenti deve dire perche mancano i compensi a chi non li puo vedere | sviluppo, voce SW-01 | **aperto** |
+
+Il debito aperto e in [16](16-technical-debt.md), voci SW-01…SW-13: restano
+aperte SW-01, SW-02, SW-03, SW-05…SW-12; SW-04 e SW-13 sono chiuse.
