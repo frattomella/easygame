@@ -10,6 +10,17 @@ import type {
  * diretto a `/api` da un componente (CLAUDE.md, sezione 2).
  */
 
+export type SeasonRolloverAthletes = {
+  proposed: number;
+  confirmed: number;
+  notConfirmed: number;
+  created: number;
+  alreadyPresent: number;
+  unmappable: number;
+  carried: number;
+  requested: boolean;
+};
+
 export type SeasonRolloverSummary = {
   sourceSeasonId: string;
   targetSeasonId: string;
@@ -19,6 +30,33 @@ export type SeasonRolloverSummary = {
   createdTotal: number;
   skippedTotal: number;
   applied: boolean;
+  athletes: SeasonRolloverAthletes;
+};
+
+export type SeasonRosterMembership = {
+  membershipId: string;
+  categoryId: string;
+  categoryName: string;
+  siteId: string | null;
+  isPrimary: boolean;
+  mappable: boolean;
+};
+
+export type SeasonRosterAthlete = {
+  athleteId: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  status: string;
+  memberships: SeasonRosterMembership[];
+};
+
+export type SeasonRoster = {
+  seasonId: string;
+  seasonLabel: string;
+  athletes: SeasonRosterAthlete[];
+  total: number;
+  unmappable: number;
 };
 
 export type SeasonsOverview = {
@@ -30,6 +68,8 @@ export type SeasonsOverview = {
   rolloverTypes: SeasonRolloverTypeDescriptor[];
   globalTypes: Array<{ key: string; label: string }>;
   neverCopiedTypes: Array<{ key: string; label: string }>;
+  /** Atleti attivi senza squadra nella stagione attiva. */
+  athletesWithoutTeam?: number;
 };
 
 const unwrap = <T>(envelope: { data: T; error: { message: string } | null }) => {
@@ -47,7 +87,12 @@ export const createSeason = async (input: {
   startDate: string;
   endDate: string;
   activate?: boolean;
-  rollover?: { sourceSeasonId?: string; types: string[] } | null;
+  rollover?: {
+    sourceSeasonId?: string;
+    types: string[];
+    /** `null` = tutti i proposti. Un elenco = solo i riconfermati. */
+    athleteIds?: string[] | null;
+  } | null;
 }) =>
   unwrap(
     await apiRequest<{
@@ -72,6 +117,7 @@ export const runSeasonRollover = async (input: {
   targetSeasonId: string;
   sourceSeasonId: string;
   types: string[];
+  athleteIds?: string[] | null;
   preview?: boolean;
 }) =>
   unwrap(
@@ -82,8 +128,17 @@ export const runSeasonRollover = async (input: {
         body: {
           sourceSeasonId: input.sourceSeasonId,
           types: input.types,
+          athleteIds: input.athleteIds ?? null,
           preview: Boolean(input.preview),
         },
       },
+    ),
+  );
+
+/** L'elenco di riconferma della stagione di origine. */
+export const fetchSeasonRoster = async (seasonId: string) =>
+  unwrap(
+    await apiRequest<SeasonRoster>(
+      `/api/v1/seasons/${encodeURIComponent(seasonId)}/roster`,
     ),
   );

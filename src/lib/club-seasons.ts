@@ -456,6 +456,19 @@ export type SeasonRolloverTypeDescriptor = {
   label: string;
   description: string;
   defaultSelected: boolean;
+  /**
+   * Dove vive il dato. `club_resource` e una collezione JSON di
+   * `clubs.settings` e la clona `planSeasonRollover`; `model` e una tabella
+   * dedicata, che il piano non puo toccare perche non ha la collezione in mano
+   * — la porta il livello server, dopo, riusando l'`idMap` del piano.
+   */
+  storage?: "club_resource" | "model";
+  /**
+   * Tipi che devono essere riportati insieme a questo. Senza le categorie di
+   * destinazione le appartenenze non avrebbero dove andare, e si scriverebbero
+   * righe orfane invece di dirlo.
+   */
+  requires?: string[];
 };
 
 /**
@@ -516,11 +529,59 @@ export const SEASON_ROLLOVER_TYPES: SeasonRolloverTypeDescriptor[] = [
     description: "Voci di budget previsionale in uscita",
     defaultSelected: false,
   },
+  {
+    key: "athlete_memberships",
+    label: "Tesserati nelle squadre",
+    description:
+      "Chi rinnova entra nelle squadre della stagione nuova, con la sua sede",
+    defaultSelected: true,
+    storage: "model",
+    requires: ["categories"],
+  },
 ];
 
 const ROLLOVER_TYPE_KEYS = new Set(
   SEASON_ROLLOVER_TYPES.map((entry) => entry.key),
 );
+
+/** Il tipo che porta i tesserati: sta in tabella, non in `clubs.settings`. */
+export const ATHLETE_MEMBERSHIP_ROLLOVER_TYPE = "athlete_memberships";
+
+const MODEL_ROLLOVER_TYPE_KEYS = new Set(
+  SEASON_ROLLOVER_TYPES.filter((entry) => entry.storage === "model").map(
+    (entry) => entry.key,
+  ),
+);
+
+/**
+ * I tipi che `planSeasonRollover` sa clonare da solo. Gli altri vivono in una
+ * tabella e li porta il livello server.
+ */
+export const isClubResourceRolloverType = (dataType: string) =>
+  ROLLOVER_TYPE_KEYS.has(String(dataType || "").trim()) &&
+  !MODEL_ROLLOVER_TYPE_KEYS.has(String(dataType || "").trim());
+
+/**
+ * Un tipo che ne richiede un altro non si riporta da solo. Il messaggio dice
+ * cosa manca invece di lasciare che il riporto produca righe orfane.
+ */
+export const assertRolloverTypeRequirements = (types: string[]) => {
+  const selected = new Set(types);
+
+  for (const descriptor of SEASON_ROLLOVER_TYPES) {
+    if (!descriptor.requires?.length || !selected.has(descriptor.key)) {
+      continue;
+    }
+
+    const missing = descriptor.requires.filter((key) => !selected.has(key));
+    if (missing.length) {
+      const labels = missing.map(getSeasonRolloverTypeLabel).join(", ");
+      throw new Error(
+        `Per riportare «${descriptor.label}» devi riportare anche: ${labels}`,
+      );
+    }
+  }
+};
 
 export const isRolloverableDataType = (dataType: string) =>
   ROLLOVER_TYPE_KEYS.has(String(dataType || "").trim());
@@ -692,6 +753,14 @@ export type SeasonRolloverPlan = {
   skippedTotal: number;
   /** Solo i tipi con almeno una creazione: gli altri non vanno riscritti. */
   collections: Record<string, any[]>;
+  /**
+   * Da id della stagione di origine a id nella stagione di destinazione.
+   * Comprende anche gli elementi **gia presenti** in destinazione, non solo
+   * quelli creati adesso: al secondo riporto non si crea piu niente, ma chi
+   * deve rimappare un riferimento ha ancora bisogno di sapere dove e finito.
+   * Non esce dall'API: serve al livello server per portare i tesserati.
+   */
+  idMap: Record<string, string>;
 };
 
 const defaultRolloverId = (type: string) =>
@@ -733,7 +802,8 @@ export const planSeasonRollover = (options: {
     now = new Date().toISOString(),
   } = options;
 
-  const types = normalizeRolloverTypes(options.types);
+  const requestedTypes = normalizeRolloverTypes(options.types);
+  const types = requestedTypes.filter(isClubResourceRolloverType);
   const entries: SeasonRolloverEntry[] = [];
   const idMap: Record<string, string> = {};
   const clonedByType: Record<string, any[]> = {};
@@ -747,14 +817,27 @@ export const planSeasonRollover = (options: {
       legacySeasonId,
     });
 
-    const alreadyCopied = new Set(
-      targetItems
-        .map(readRolloverSourceId)
-        .filter((value): value is string => Boolean(value)),
-    );
-    const existingIdentities = new Set(
-      targetItems.map(rolloverIdentityKey).filter(Boolean),
-    );
+    // Da id d'origine (e da nome) all'elemento gia presente in destinazione:
+    // serve a saltare cio che e gia stato riportato **e** a sapere dove e
+    // finito, perche un secondo riporto non crea nulla ma deve comunque poter
+    // rimappare i riferimenti.
+    const copiedTargetIdBySourceId = new Map<string, string>();
+    const targetIdByIdentity = new Map<string, string>();
+    for (const item of targetItems) {
+      const targetId = String((item as any)?.id || "").trim();
+      if (!targetId) {
+        continue;
+      }
+      const copiedFrom = readRolloverSourceId(item);
+      if (copiedFrom) {
+        copiedTargetIdBySourceId.set(copiedFrom, targetId);
+      }
+      const identity = rolloverIdentityKey(item);
+      if (identity && !targetIdByIdentity.has(identity)) {
+        targetIdByIdentity.set(identity, targetId);
+      }
+    }
+    const existingIdentities = new Set(targetIdByIdentity.keys());
 
     const cloned: any[] = [];
 
@@ -762,10 +845,15 @@ export const planSeasonRollover = (options: {
       const sourceId = String(item?.id || "").trim();
       const identity = rolloverIdentityKey(item);
 
-      if (
-        (sourceId && alreadyCopied.has(sourceId)) ||
-        (identity && existingIdentities.has(identity))
-      ) {
+      const alreadyThere =
+        (sourceId && copiedTargetIdBySourceId.get(sourceId)) ||
+        (identity && targetIdByIdentity.get(identity)) ||
+        null;
+
+      if (alreadyThere) {
+        if (sourceId) {
+          idMap[sourceId] = alreadyThere;
+        }
         return;
       }
 
@@ -792,6 +880,7 @@ export const planSeasonRollover = (options: {
       }
       if (identity) {
         existingIdentities.add(identity);
+        targetIdByIdentity.set(identity, newId);
       }
     });
 
@@ -826,5 +915,6 @@ export const planSeasonRollover = (options: {
     createdTotal: entries.reduce((total, entry) => total + entry.created, 0),
     skippedTotal: entries.reduce((total, entry) => total + entry.skipped, 0),
     collections: resultCollections,
+    idMap,
   };
 };

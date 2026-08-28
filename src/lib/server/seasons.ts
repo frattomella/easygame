@@ -5,16 +5,29 @@ import {
 } from "./resources";
 import {
   applySeasonStatuses,
+  assertRolloverTypeRequirements,
   buildSeasonFromInput,
+  filterCollectionBySeason,
+  getSeasonRolloverTypeLabel,
+  isClubResourceRolloverType,
   normalizeClubSeasons,
   normalizeRolloverTypes,
   planSeasonRollover,
   sortSeasonsByRecency,
+  ATHLETE_MEMBERSHIP_ROLLOVER_TYPE,
   SEASON_ROLLOVER_TYPES,
   type ClubSeason,
   type SeasonInput,
   type SeasonRolloverPlan,
 } from "../club-seasons";
+import {
+  countAthletesWithoutTeam,
+  countSeasonMemberships,
+  listSeasonRoster,
+  runAthleteMembershipRollover,
+  type SeasonMembershipRolloverSummary,
+  type SeasonRoster,
+} from "./season-memberships";
 
 /**
  * Gestione delle stagioni sportive di un club (Blocco 6).
@@ -98,12 +111,72 @@ const findSeason = (state: ClubSeasonState, seasonId: string) =>
 export type SeasonRolloverRequest = {
   sourceSeasonId?: string | null;
   types?: unknown;
+  /**
+   * I tesserati riconfermati. `null` o assente significa «tutti quelli che la
+   * stagione di origine propone»: e la scelta di partenza dell'elenco, non un
+   * automatismo nascosto — chi non rinnova lo si toglie.
+   */
+  athleteIds?: unknown;
 };
 
-export type SeasonRolloverResult = SeasonRolloverPlan & {
+/**
+ * `idMap` resta dentro il server: e la mappa fra id di categorie e serve a
+ * portare i tesserati, non a chi legge il riepilogo.
+ */
+export type SeasonRolloverResult = Omit<SeasonRolloverPlan, "idMap"> & {
   applied: boolean;
   sourceSeasonLabel: string;
   targetSeasonLabel: string;
+  /**
+   * I tesserati, **sempre** dichiarati. Anche quando non se ne porta nessuno:
+   * il difetto che la Wave 1 chiude non e solo che non venivano riportati, e
+   * che nessuno lo diceva.
+   */
+  athletes: SeasonMembershipRolloverSummary;
+};
+
+const normalizeConfirmedAthleteIds = (value: unknown): string[] | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("L'elenco dei tesserati riconfermati non e valido");
+  }
+
+  return Array.from(
+    new Set(value.map((id) => String(id || "").trim()).filter(Boolean)),
+  );
+};
+
+const readCategoryIds = (
+  collection: any[],
+  seasonId: string,
+  legacySeasonId: string | null,
+) =>
+  filterCollectionBySeason("categories", collection, seasonId, {
+    legacySeasonId,
+  })
+    .map((category: any) => String(category?.id || "").trim())
+    .filter(Boolean);
+
+const readCategoryNames = (
+  collection: any[],
+  seasonId: string,
+  legacySeasonId: string | null,
+) => {
+  const names: Record<string, string> = {};
+  for (const category of filterCollectionBySeason(
+    "categories",
+    collection,
+    seasonId,
+    { legacySeasonId },
+  )) {
+    const id = String((category as any)?.id || "").trim();
+    if (id) {
+      names[id] = String((category as any)?.name || "").trim();
+    }
+  }
+  return names;
 };
 
 /**
@@ -118,6 +191,7 @@ export const runClubSeasonRollover = async (options: {
   sourceSeasonId: string;
   targetSeasonId: string;
   types: unknown;
+  athleteIds?: unknown;
   preview?: boolean;
 }): Promise<SeasonRolloverResult> => {
   const { organizationId, preview = false } = options;
@@ -147,9 +221,10 @@ export const runClubSeasonRollover = async (options: {
   if (!types.length) {
     throw new Error("Seleziona almeno un tipo di dato da riportare");
   }
+  assertRolloverTypeRequirements(types);
 
   const collections: Record<string, any[]> = {};
-  for (const type of types) {
+  for (const type of types.filter(isClubResourceRolloverType)) {
     collections[type] = await readClubResourceCollection(organizationId, type);
   }
 
@@ -167,12 +242,108 @@ export const runClubSeasonRollover = async (options: {
     }
   }
 
+  // I tesserati si contano sempre, anche quando non si portano: e il silenzio
+  // di prima il difetto. Le categorie servono comunque, quindi la collezione si
+  // legge anche se non e fra i tipi scelti.
+  const categoryCollection =
+    plan.collections.categories ||
+    collections.categories ||
+    (await readClubResourceCollection(organizationId, "categories"));
+
+  const sourceCategoryIds = readCategoryIds(
+    categoryCollection,
+    source.id,
+    state.legacySeasonId,
+  );
+  const targetCategoryNameById = readCategoryNames(
+    categoryCollection,
+    target.id,
+    state.legacySeasonId,
+  );
+  const categoryIdMap: Record<string, string> = {};
+  for (const sourceCategoryId of sourceCategoryIds) {
+    const mapped = plan.idMap[sourceCategoryId];
+    if (mapped) {
+      categoryIdMap[sourceCategoryId] = mapped;
+    }
+  }
+
+  const athletes = await runAthleteMembershipRollover({
+    organizationId,
+    sourceCategoryIds,
+    categoryIdMap,
+    targetCategoryNameById,
+    confirmedAthleteIds: normalizeConfirmedAthleteIds(options.athleteIds),
+    requested: types.includes(ATHLETE_MEMBERSHIP_ROLLOVER_TYPE),
+    preview,
+  });
+
+  const { idMap: _idMap, ...publicPlan } = plan;
+
   return {
-    ...plan,
+    ...publicPlan,
+    entries: [
+      ...publicPlan.entries,
+      {
+        type: ATHLETE_MEMBERSHIP_ROLLOVER_TYPE,
+        label: getSeasonRolloverTypeLabel(ATHLETE_MEMBERSHIP_ROLLOVER_TYPE),
+        available: athletes.proposed,
+        created: athletes.created,
+        skipped: athletes.proposed - athletes.carried,
+      },
+    ],
+    createdTotal: publicPlan.createdTotal + athletes.created,
     applied: !preview,
     sourceSeasonLabel: source.label,
     targetSeasonLabel: target.label,
+    athletes,
   };
+};
+
+/**
+ * L'elenco di riconferma: chi c'era nella stagione di origine e in quale
+ * squadra. E la schermata che il riporto mostra prima di scrivere.
+ */
+export const readSeasonRoster = async (options: {
+  organizationId: string;
+  seasonId: string;
+}): Promise<SeasonRoster & { seasonId: string; seasonLabel: string }> => {
+  const { organizationId } = options;
+  const state = await readClubSeasonState(organizationId);
+  const season = findSeason(state, options.seasonId);
+
+  if (!season) {
+    throw new Error("Stagione di origine non trovata");
+  }
+
+  const categoryCollection = await readClubResourceCollection(
+    organizationId,
+    "categories",
+  );
+  const sourceCategoryIds = readCategoryIds(
+    categoryCollection,
+    season.id,
+    state.legacySeasonId,
+  );
+  const categoryNameById = readCategoryNames(
+    categoryCollection,
+    season.id,
+    state.legacySeasonId,
+  );
+
+  // Ogni categoria della stagione di origine avra una destinazione: riportare i
+  // tesserati **richiede** di riportare le categorie
+  // (`assertRolloverTypeRequirements`), e una categoria gia copiata la ritrova
+  // l'`idMap`. Un'appartenenza resta senza destinazione solo se la sua
+  // categoria non appartiene piu alla stagione di origine, e in quel caso non
+  // entra nemmeno in questo elenco.
+  const roster = await listSeasonRoster({
+    organizationId,
+    sourceCategoryIds,
+    categoryNameById,
+  });
+
+  return { ...roster, seasonId: season.id, seasonLabel: season.label };
 };
 
 export type CreateClubSeasonResult = {
@@ -223,6 +394,17 @@ export const createClubSeason = async (options: {
   let rollover: SeasonRolloverResult | null = null;
   const requestedTypes = normalizeRolloverTypes(options.rollover?.types);
 
+  /*
+    Chiedere un riporto senza dire cosa riportare rispondeva `200` con
+    `rollover: null` e non faceva niente, in silenzio (W1-13). L'interfaccia
+    manda sempre i tipi, quindi non si vedeva; un chiamante API otteneva un
+    no-op che sembrava riuscito. Ora chi chiede un riporto vuoto se lo sente
+    dire.
+  */
+  if (options.rollover && !requestedTypes.length) {
+    throw new Error("Seleziona almeno un tipo di dato da riportare");
+  }
+
   if (requestedTypes.length) {
     rollover = await runClubSeasonRollover({
       organizationId,
@@ -231,6 +413,7 @@ export const createClubSeason = async (options: {
         state.activeSeasonId,
       targetSeasonId: season.id,
       types: requestedTypes,
+      athleteIds: options.rollover?.athleteIds,
     });
   }
 
@@ -331,11 +514,22 @@ export const summarizeSeasonContents = async (organizationId: string) => {
     counts[season.id] = {};
   }
 
+  let categoryCollection: any[] = [];
+
   for (const descriptor of SEASON_ROLLOVER_TYPES) {
+    if (!isClubResourceRolloverType(descriptor.key)) {
+      // I tesserati non stanno in una collezione di club: si contano dopo,
+      // dalle appartenenze.
+      continue;
+    }
+
     const collection = await readClubResourceCollection(
       organizationId,
       descriptor.key,
     );
+    if (descriptor.key === "categories") {
+      categoryCollection = collection;
+    }
 
     for (const season of state.seasons) {
       const isLegacySeason = state.legacySeasonId === season.id;
@@ -352,5 +546,35 @@ export const summarizeSeasonContents = async (organizationId: string) => {
     }
   }
 
-  return { ...state, counts };
+  // Quanti tesserati ha ogni stagione, e quanti atleti attivi sono rimasti
+  // senza squadra in quella attiva: e l'avviso che il club deve vedere il
+  // giorno dopo il cambio di stagione, non scoprire da solo a settembre.
+  const membershipCounts = await countSeasonMemberships({
+    organizationId,
+    seasons: state.seasons.map((season) => ({
+      id: season.id,
+      categoryIds: readCategoryIds(
+        categoryCollection,
+        season.id,
+        state.legacySeasonId,
+      ),
+    })),
+  });
+
+  for (const season of state.seasons) {
+    counts[season.id][ATHLETE_MEMBERSHIP_ROLLOVER_TYPE] =
+      membershipCounts.bySeason[season.id] || 0;
+  }
+
+  const activeCategoryIds = readCategoryIds(
+    categoryCollection,
+    state.activeSeasonId,
+    state.legacySeasonId,
+  );
+  const athletesWithoutTeam = await countAthletesWithoutTeam({
+    organizationId,
+    categoryIds: activeCategoryIds,
+  });
+
+  return { ...state, counts, athletesWithoutTeam };
 };

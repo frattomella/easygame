@@ -31,6 +31,7 @@ export async function POST(request: Request, context: Context) {
       sourceSeasonId: String(body?.sourceSeasonId || "").trim(),
       targetSeasonId: context.params.seasonId,
       types: body?.types,
+      athleteIds: body?.athleteIds,
       preview,
     });
 
@@ -45,6 +46,10 @@ export async function POST(request: Request, context: Context) {
           created: result.createdTotal,
           skipped: result.skippedTotal,
           entries: result.entries,
+          athletesProposed: result.athletes.proposed,
+          athletesConfirmed: result.athletes.confirmed,
+          athletesNotConfirmed: result.athletes.notConfirmed,
+          athleteMembershipsCreated: result.athletes.created,
         },
       });
     }

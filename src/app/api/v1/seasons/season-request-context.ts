@@ -3,7 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { hasSeasonPermission } from "@/lib/seasons/permissions";
 import { isValidationError, validationErrorPayload } from "@/lib/validation";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
@@ -44,6 +44,12 @@ export const isSeasonRequestFailure = (
 /**
  * Le stagioni sono configurazione di club: le governano solo `owner` e
  * `club_manager`. Un allenatore ne subisce il perimetro, non lo decide.
+ *
+ * Il controllo passa dal permesso di dominio `seasons.change`
+ * (`src/lib/seasons/permissions.ts`) e non piu da `canManageClubConfiguration`:
+ * il perimetro e lo stesso, ma cambiare la stagione attiva e un'operazione a se
+ * e va scritta come tale (AU-7). Il diniego finisce in `audit_logs` con il nome
+ * del permesso, cosi chi legge la traccia sa **cosa** e stato negato.
  */
 export const resolveSeasonRequestContext = async (
   request: Request,
@@ -66,7 +72,7 @@ export const resolveSeasonRequestContext = async (
     return failure("Nessun club attivo disponibile", 400);
   }
 
-  if (!canManageClubConfiguration(scope.activeRole)) {
+  if (!hasSeasonPermission(scope.activeRole, "seasons.change")) {
     await recordAuditEvent({
       action: AUDIT_ACTIONS.resourceAccessDenied,
       outcome: "denied",
@@ -76,7 +82,11 @@ export const resolveSeasonRequestContext = async (
       organizationId: scope.activeOrganizationId,
       resource: "seasons",
       request,
-      metadata: { attemptedAction: request.method },
+      metadata: {
+        permission: "seasons.change",
+        attemptedAction: request.method,
+        path: url.pathname,
+      },
     });
     return failure("Accesso negato: la gestione delle stagioni e riservata alla direzione del club", 403);
   }

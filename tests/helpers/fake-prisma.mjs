@@ -145,6 +145,18 @@ const UNIQUE_CONSTRAINTS = {
   fundingEnrollment: [["program_id", "athlete_id"]],
   athleteCategoryMembership: [
     ["organization_id", "athlete_id", "category_id"],
+    /*
+      L'indice unico **parziale** vero in base dati
+      (`athlete_category_memberships_single_primary_per_athlete`): al piu una
+      appartenenza primaria per atleta **per club**, non per stagione. Senza
+      questo vincolo il riporto dei tesserati potrebbe clonare una seconda
+      primaria e il test passerebbe descrivendo un database che rifiuterebbe
+      la scrittura.
+    */
+    {
+      fields: ["organization_id", "athlete_id"],
+      quando: (row) => row.is_primary === true,
+    },
   ],
   formTemplate: [["public_slug"]],
   /*
@@ -343,13 +355,35 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       rowsOf(name).push(created);
       return created;
     },
+    /*
+      `skipDuplicates` non e una comodita: e il modo in cui Postgres (`ON
+      CONFLICT DO NOTHING`) rende idempotente una scrittura in blocco. Un
+      doppio che inserisse comunque tutte le righe farebbe passare un test di
+      idempotenza provando il contrario di cio che deve provare — e il conteggio
+      restituito, che il codice usa per dire quanti record ha creato davvero,
+      sarebbe una bugia.
+    */
     createMany: async (args = {}) => {
       calls.push({ delegate: name, method: "createMany", args });
       const rows = Array.isArray(args.data) ? args.data : [args.data];
+      let count = 0;
+
       rows.forEach((row, index) => {
-        rowsOf(name).push({ id: row?.id || `${name}-generated-${index}`, ...row });
+        if (args.skipDuplicates) {
+          try {
+            assertUnique(name, row || {});
+          } catch {
+            return;
+          }
+        }
+        rowsOf(name).push({
+          id: row?.id || `${name}-generated-${(generatedIds += 1)}-${index}`,
+          ...row,
+        });
+        count += 1;
       });
-      return { count: rows.length };
+
+      return { count };
     },
     update: async (args = {}) => {
       calls.push({ delegate: name, method: "update", args });
