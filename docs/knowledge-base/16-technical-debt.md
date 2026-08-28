@@ -1068,3 +1068,36 @@ durante una campagna di collaudo.
 correnti e tenere una firma dei filtri gia caricati, cosi l'effetto debounced
 salta il primo giro quando riprodurrebbe cio che e gia in memoria; e chiedere
 le appartenenze una volta sola per apertura.
+
+### Gli incassi parziali non compaiono nel centro contabile
+
+**Dove:** `/movements` — la scheda «Entrate» e la tabella «Movimenti».
+
+**Cosa succede.** Sul club di collaudo sono stati incassati **250,00 €** su due
+rate (100 su 130 e 150 su 199,80): la scheda dell'atleta lo dice, e
+`GET /api/v1/payment-transactions` restituisce quattro movimenti netti per
+250,00 €. La pagina Movimenti — che si presenta come «centro contabile unico
+per entrate, uscite, giroconti, fatture e ricevute» — mostra
+**«Entrate 0,00 €»**, **«Nessun movimento trovato»** e «Previste: 329,80 €».
+
+Non e un errore di somma: e il modello. La pagina aggrega le **rate**, e una
+rata `partially_paid` non e «pagata», quindi finisce fra i previsti. Gli
+incassi veri — le righe di `payment_transactions` — non entrano
+nell'aggregazione. Finche una rata non e saldata per intero, il denaro gia
+arrivato non risulta da nessuna parte in contabilita.
+
+**Perche non e stato corretto durante il collaudo.** Le due strade sono
+entrambe decisioni di prodotto, non correzioni:
+
+- **postare ogni incasso come movimento**: risolve il numero, ma introduce
+  righe di prima nota che nessuno ha inserito a mano, e va deciso se e quando
+  si possano modificare o cancellare;
+- **cambiare cosa dice la scheda**: distinguere «incassato» da «rate saldate»
+  e mostrarli entrambi, lasciando la prima nota com'e.
+
+Chi sceglie deve saperlo prima: e la differenza fra un registro di cassa e un
+riepilogo di crediti, e oggi la pagina ha il titolo del primo e il contenuto
+del secondo.
+
+**Cosa farebbe la differenza, comunque si decida:** che la scheda «Entrate» non
+possa dire `0,00 €` mentre il club ha incassato 250,00 €.

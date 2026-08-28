@@ -394,6 +394,16 @@ nomi fuori da NFC; zero date di nascita impossibili.
    riscrittura in NFC dei due nomi — usano funzioni gia distribuite, e sono
    segnate come tali.
 
-6. **Nessuna verifica visiva.** Il pannello del browser era nascosto per tutta
+6. **Gli incassi parziali non compaiono nel centro contabile.** Sul club di
+   collaudo sono stati incassati 250,00 € su due rate; `/movements` — «centro
+   contabile unico» — mostra «Entrate 0,00 €» e «Nessun movimento trovato»,
+   perche aggrega le **rate** e una rata parzialmente pagata non e «pagata».
+   La scheda dell'atleta dice 250,00 €: due schermate dello stesso club che
+   non concordano su quanto denaro sia entrato. Le due correzioni possibili
+   sono entrambe decisioni di prodotto — postare ogni incasso come movimento,
+   oppure distinguere «incassato» da «rate saldate» — e sono registrate in
+   [16 — Debito tecnico](16-technical-debt.md).
+
+7. **Nessuna verifica visiva.** Il pannello del browser era nascosto per tutta
    la sessione: niente screenshot, niente animazioni. Tutto cio che in questo
    documento riguarda il layout e verifica **strutturale**.
