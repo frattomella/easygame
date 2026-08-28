@@ -47,19 +47,57 @@ const unauthorized = () =>
     { status: 401 },
   );
 
+/**
+ * Vero se il messaggio viene dall'ORM o dal driver, non dal dominio.
+ *
+ * Prisma compone messaggi lunghi che citano il **nome del modello**, la query
+ * e il codice d'errore di Postgres. Un identificativo malformato — che e il
+ * caso ordinario, non un attacco: un link vecchio, un copia-incolla monco —
+ * arriva fino a `findUnique` e ne fa uscire il testo intero verso il client.
+ *
+ * Chi legge quel messaggio non impara nulla di utile e impara qualcosa che non
+ * gli spetta: come si chiamano le tabelle di un dominio che tratta i compensi.
+ */
+const isInfrastructureError = (message: string) =>
+  /Invalid `prisma\.|ConnectorError|PostgresError|invalid input syntax for type uuid|\bat .*node_modules/i.test(
+    message,
+  );
+
 export const sportWorkFailure = (error: any, fallback: string) => {
   if (isValidationError(error)) {
     return NextResponse.json(validationErrorPayload(error), { status: 400 });
   }
 
-  const message = String(error?.message || fallback);
-  const status = message.includes("Accesso negato")
+  const raw = String(error?.message || fallback);
+
+  /*
+   * Un identificativo che non e un UUID non individua **nessun** record: la
+   * risposta onesta e 404, la stessa che riceverebbe un UUID ben formato ma
+   * inesistente. Distinguere i due casi direbbe a chi prova che quella forma
+   * di identificativo esiste, e non serve a chi ha solo sbagliato link.
+   */
+  if (/invalid input syntax for type uuid/i.test(raw)) {
+    return NextResponse.json(
+      { data: null, error: { message: "Risorsa non trovata" } },
+      { status: 404 },
+    );
+  }
+
+  if (isInfrastructureError(raw)) {
+    console.error("[sport-work] errore non gestito:", error);
+    return NextResponse.json(
+      { data: null, error: { message: fallback } },
+      { status: 400 },
+    );
+  }
+
+  const status = raw.includes("Accesso negato")
     ? 403
-    : /non trovat[ao]/i.test(message)
+    : /non trovat[ao]/i.test(raw)
       ? 404
       : 400;
 
-  return NextResponse.json({ data: null, error: { message } }, { status });
+  return NextResponse.json({ data: null, error: { message: raw } }, { status });
 };
 
 export const sportWorkRoute =

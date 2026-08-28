@@ -366,3 +366,67 @@ test("la scheda di una persona porta l'IBAN, l'elenco no", async () => {
   assert.equal(status, 200);
   assert.equal(payload.data.iban, "IT60X0542811101000000123456");
 });
+
+/**
+ * Un identificativo malformato non fa uscire il messaggio dell'ORM.
+ *
+ * Il difetto e stato trovato dal collaudo a runtime e non dai test, e non per
+ * caso: il doppio di Prisma non parla con Postgres, quindi non produce mai
+ * l'errore che il driver produce quando gli si passa una stringa al posto di
+ * un UUID. Chiamando `sportWorkFailure` con quell'errore vero si prova il
+ * pezzo che allora restava scoperto — la mappatura, non la query.
+ */
+test("un errore dell'ORM non esce dal confine della rotta", async () => {
+  const { sportWorkFailure } = await import(
+    "../../src/lib/server/sport-work-route.ts"
+  );
+
+  const errorePrisma = new Error(
+    "\nInvalid `prisma.sportWorkPerson.findUnique()` invocation:\n\n\n" +
+      "Error occurred during query execution:\n" +
+      'ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "22P02", ' +
+      'message: "invalid input syntax for type uuid: \\"non-un-uuid\\"", severity: "ERROR" }), transient: false })',
+  );
+
+  const { status, payload } = await leggi(
+    sportWorkFailure(errorePrisma, "Operazione non riuscita"),
+  );
+
+  assert.equal(status, 404);
+  assert.equal(payload.error.message, "Risorsa non trovata");
+});
+
+test("un errore dell'infrastruttura diventa il messaggio di ripiego", async () => {
+  const { sportWorkFailure } = await import(
+    "../../src/lib/server/sport-work-route.ts"
+  );
+
+  const errorePrisma = new Error(
+    "\nInvalid `prisma.sportWorkOutboundTransaction.create()` invocation:\n\n" +
+      "Error occurred during query execution: ConnectorError(...)",
+  );
+
+  const { status, payload } = await leggi(
+    sportWorkFailure(errorePrisma, "Erogazione non riuscita"),
+  );
+
+  assert.equal(status, 400);
+  assert.equal(payload.error.message, "Erogazione non riuscita");
+  assert.doesNotMatch(payload.error.message, /prisma|Connector|Postgres/i);
+});
+
+test("un errore del dominio continua a passare intatto", async () => {
+  const { sportWorkFailure } = await import(
+    "../../src/lib/server/sport-work-route.ts"
+  );
+
+  const { status, payload } = await leggi(
+    sportWorkFailure(
+      new Error("Accesso negato: il record appartiene a un altro club"),
+      "ripiego",
+    ),
+  );
+
+  assert.equal(status, 403);
+  assert.match(payload.error.message, /appartiene a un altro club/);
+});

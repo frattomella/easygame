@@ -54,8 +54,8 @@ export const SPORT_WORK_RULES_2026: SportWorkRuleSet = {
     },
     status: "VALIDATED_PROFESSIONAL",
     source:
-      "INPS, circolare sulle aliquote della Gestione separata 2026 (25% IVS + 2,03% aggiuntive per chi non ha altra copertura; 24% per assicurati presso altra gestione e per i pensionati)",
-    note: "Il NUMERO della circolare non e concorde fra le fonti consultate (n. 8 del 3 febbraio 2026 secondo alcune, n. 5/2026 secondo altre). Il valore delle aliquote e concorde; il riferimento va verificato sul portale INPS prima di dichiararlo in un documento verso il cliente. Vedi analisi 28, cap. 2.3 e V10.",
+      "INPS, circolare n. 8 del 3 febbraio 2026: aliquote della Gestione separata 2026 (25% IVS + 2,03% aggiuntive per chi non ha altra copertura; 24% per assicurati presso altra gestione e per i pensionati)",
+    note: "Il riferimento e stato confermato: la circolare e la n. 8 del 3 febbraio 2026. Alcune fonti secondarie citavano per lo stesso contenuto una «n. 5/2026»: e sbagliato, e non va reintrodotto. Le aliquote erano gia concordi fra tutte le fonti. Vedi analisi 28, cap. 2.3 e V10.",
     validatedAt: null,
   },
 

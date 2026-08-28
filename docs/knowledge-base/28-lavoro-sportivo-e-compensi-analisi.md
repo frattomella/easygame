@@ -206,7 +206,7 @@ modulo compensi su quello schema progetta su una norma superata.
 | **INAIL, circolare n. 46** | 27 ottobre 2023 | Assicurazione dei **subordinati sportivi** e dei **co.co.co. amministrativo-gestionali** ex artt. 34 e 37. **[professionale]** |
 | **Dipartimento per lo Sport — FAQ lavoro sportivo** | pubbl. 19 marzo 2024, agg. 30 maggio 2024 | Interpretazione ufficiale su lavoratore sportivo, contratto, RASD, soglie. **[ufficiale, da rileggere a mano: il PDF non e estraibile automaticamente]** |
 | **Agenzia delle Entrate — consulenza giuridica n. 14/2025** | 2025 | Ritenute sull'eccedenza dei 15.000; ruolo dell'autocertificazione; regime forfettario (coefficiente solo sull'eccedenza, ma i 15.000 rilevano per il tetto); **premi** ex art. 36 c. 6-quater (no CU, si 770 quadro SH prospetto G, ritenuta in quadro ST ex art. 30 DPR 600/73); premi che sono in realta retribuzione variabile seguono il regime del rapporto; IRAP: compensi sotto 85.000 non rilevano. **[professionale, con riferimenti puntuali]** |
-| **INPS, circolare n. 8 del 3 febbraio 2026** | 3 febbraio 2026 | Aliquote, minimale e massimale Gestione separata **2026**. **[professionale]**. **Attenzione**: alcune fonti citano per lo stesso contenuto una «circolare n. 5/2026». Il numero va verificato sul portale INPS **prima** di finire in un commento di codice |
+| **INPS, circolare n. 8 del 3 febbraio 2026** | 3 febbraio 2026 | Aliquote, minimale e massimale Gestione separata **2026**. **[professionale]**. Numero **confermato**: e la n. 8 del 3 febbraio 2026. Alcune fonti secondarie citavano per lo stesso contenuto una «circolare n. 5/2026»: e sbagliato, e non va reintrodotto |
 
 ### 2.4 Cosa e incerto, e va detto
 
@@ -473,8 +473,8 @@ mai una natura IVA da una sigla.
 
 ### 7.1 I parametri 2026
 
-Fonte: circolare INPS n. 8 del 3 febbraio 2026 **[professionale]** — numero da
-verificare sul portale INPS.
+Fonte: circolare INPS n. 8 del 3 febbraio 2026 **[professionale]** — numero
+confermato.
 
 | Parametro | Valore 2026 |
 |-----------|-------------|
