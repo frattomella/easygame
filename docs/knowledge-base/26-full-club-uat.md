@@ -314,7 +314,10 @@ durante una campagna di collaudo non e il momento giusto.
 | `npx tsc --allowUnreachableCode false` | pulito |
 | Multi-tenant | nessuna falla, verificata a runtime (tabella sopra) |
 | Responsive | 375 / 768 / 1280 / 1440, 23 pagine, zero difetti |
+| CI remota | **verde** su `b4108d5`: Web App, Mobile App e Guardrail di sicurezza |
+| Migrazioni | **nessuna nuova**: le 21 dello staging restano quelle di prima |
 | CodeRabbit | **non eseguibile**: il CLI non e installato in questo ambiente |
+| Deploy staging | **non eseguito**: bloccato dal classificatore dei permessi |
 
 ### Test nuovi, per file
 
@@ -328,6 +331,26 @@ durante una campagna di collaudo non e il momento giusto.
 | `tests/ui/club-create-dialog.test.mjs` | id non ripetibili, obbligatori raggiungibili, ordine dei campi |
 | `tests/ui/athletes-counters.test.mjs` | il conteggio viene dal server quando e il server a paginare |
 | `tests/ui/dashboard-metrics-requests.test.mjs` | **quante volte** la dashboard legge l'archivio |
+
+## I dati di collaudo lasciati sullo staging
+
+Tutti su un club **creato apposta**, `QA UAT Club`
+(`ae3d545b-717f-4197-ad65-c09f7cbbf553`): nessun dato di altri club e stato
+toccato, in lettura o in scrittura.
+
+| Cosa | Quanti | Nota |
+|---|---|---|
+| Atleti | 212 | 200 dall'import di volume, 11 dal file ostile, 1 dall'onboarding. I cognomi finiscono per `Qa` |
+| Appartenenze di categoria | 211 | |
+| Categorie | 5 | `Pulcini` ed `Esordienti` in doppia copia (riporto fra stagioni), piu `Categoria Inesistente` creata dall'import |
+| Stagioni | 2 | una e la **fantasma** del difetto 1: resta come prova, ed e archiviata |
+| Piani di pagamento | 1 | `Quota annuale QA`, 600 € su due rate, pro-rata per giorni |
+| Rate | 2 | 100/130 e 150/199,80, coerenti dopo gli storni |
+| Movimenti | 12 | 5 incassi validi, 4 storni e i loro movimenti di compensazione |
+| Allegati | 1 | il PDF di prova; i tre file ostili sono stati cancellati |
+
+Su `EasyGame FC` non e stato creato niente. Le due anagrafiche con il nome in
+forma decomposta sono state riscritte in NFC **dall'applicazione**.
 
 ## Cosa resta aperto
 
@@ -357,6 +380,16 @@ durante una campagna di collaudo non e il momento giusto.
    record, `chargesEnabled` e `payoutsEnabled` separati, `readiness.blocker`
    distinto — e le rotte di piattaforma rispondono 403 a chi non amministra.
 
-5. **Nessuna verifica visiva.** Il pannello del browser era nascosto per tutta
+5. **Le correzioni non sono state riprovate sullo staging.** Il deploy e
+   stato **bloccato dal classificatore dei permessi** dell'ambiente di
+   collaudo, quindi `easygame-staging-pi.vercel.app` porta ancora la build
+   precedente. Tutto cio che questo documento riporta come **difetto** e stato
+   osservato sullo staging; tutto cio che riporta come **correzione** e
+   verificato da test e dai gate, non riaperto a schermo. Le due riprove fatte
+   comunque sull'applicazione — lo storno degli incassi in eccesso e la
+   riscrittura in NFC dei due nomi — usano funzioni gia distribuite, e sono
+   segnate come tali.
+
+6. **Nessuna verifica visiva.** Il pannello del browser era nascosto per tutta
    la sessione: niente screenshot, niente animazioni. Tutto cio che in questo
    documento riguarda il layout e verifica **strutturale**.
