@@ -50,20 +50,16 @@ export type PaymentReport = {
   paidCount: number;
   pendingCount: number;
   overdueCount: number;
+  /**
+   * Le rate incassate in parte. E un sottoinsieme di `pendingCount` +
+   * `overdueCount`: la rata contribuisce alla cassa per cio che e entrato e al
+   * residuo per il resto, quindi resta contata nel secchio del suo residuo.
+   */
+  partialCount: number;
 };
 
 const PRESENT_STATUSES = new Set(["present", "presente", "yes", "true"]);
 const ABSENT_STATUSES = new Set(["absent", "assente", "no", "false"]);
-const PAID_STATUSES = new Set([
-  "paid",
-  "completed",
-  "complete",
-  "pagato",
-  "pagata",
-  "saldato",
-  "saldata",
-]);
-
 const normalizeText = (value: unknown) =>
   String(value || "")
     .trim()
@@ -474,56 +470,102 @@ export const calculateMatchConvocationReport = ({
   };
 };
 
+/**
+ * Il perimetro del report pagamenti: le entrate che arrivano dagli atleti e non
+ * sono annullate. E esportato perche l'invariante di cassa (ADR-0068) deve poter
+ * costruire lo **stesso** sottoinsieme che legge `summarizeClubMovements`: se le
+ * due pagine partissero da righe diverse, confrontarle non direbbe niente.
+ */
+export const isAthletePaymentMovement = (movement: NormalizedClubMovement) =>
+  movement.direction === "income" &&
+  movement.source === "athlete" &&
+  !isPaymentExcludedFromTotals(movement.raw);
+
+const toCents = (value: number) => Math.round(value * 100);
+
+/**
+ * Il report dei pagamenti legge la **cassa**, non lo stato della rata.
+ *
+ * Fino alla Wave 1 questa funzione sommava `movement.amount` — l'importo
+ * **dovuto** — quando la rata risultava saldata, e **zero** quando era incassata
+ * a meta. Il Full Club UAT ha misurato la conseguenza su dati veri: `/reports`
+ * dichiarava 179,80 «Pagato» dove `/movements` diceva 250,00 incassati, sullo
+ * stesso club e sullo stesso periodo.
+ *
+ * ADR-0068 dice quale delle due letture e quella giusta: il denaro entrato e
+ * `collectedAmount`, che il movimento normalizzato porta gia con se — non serve
+ * recuperarlo, serve sommarlo. Cio che resta dell'importo dovuto e il
+ * **residuo**, e si ripartisce fra «in attesa» e «scaduto». Una rata incassata a
+ * meta non conta piu per intero in nessuno dei due secchi.
+ *
+ * L'aritmetica e in centesimi come in `summarizeClubMovements`: e la condizione
+ * perche le due pagine chiudano sullo stesso numero invece che a meno di un
+ * arrotondamento.
+ */
 export const calculatePaymentReport = (
   movements: NormalizedClubMovement[] = [],
 ): PaymentReport => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  return movements
-    .filter(
-      (movement) =>
-        movement.direction === "income" &&
-        movement.source === "athlete" &&
-        !isPaymentExcludedFromTotals(movement.raw),
-    )
-    .reduce<PaymentReport>(
-      (summary, movement) => {
-        const amount = toAmount(movement.amount);
-        if (amount <= 0) {
-          return summary;
-        }
+  const totals = movements.filter(isAthletePaymentMovement).reduce(
+    (summary, movement) => {
+      const dueCents = Math.max(0, toCents(toAmount(movement.amount)));
+      const collectedCents = Math.max(
+        0,
+        toCents(toAmount(movement.collectedAmount)),
+      );
 
-        const status = normalizeText(movement.status);
-        const isPaid = PAID_STATUSES.has(status) || Boolean(movement.paidAt);
-        const dueDate = toDate(movement.dueDate);
-        const isOverdue = !isPaid && Boolean(dueDate && dueDate < today);
-
-        summary.hasPayments = true;
-        summary.totalDue += amount;
-
-        if (isPaid) {
-          summary.totalPaid += amount;
-          summary.paidCount += 1;
-        } else if (isOverdue) {
-          summary.totalOverdue += amount;
-          summary.overdueCount += 1;
-        } else {
-          summary.totalPending += amount;
-          summary.pendingCount += 1;
-        }
-
+      if (dueCents <= 0 && collectedCents <= 0) {
         return summary;
-      },
-      {
-        hasPayments: false,
-        totalDue: 0,
-        totalPaid: 0,
-        totalPending: 0,
-        totalOverdue: 0,
-        paidCount: 0,
-        pendingCount: 0,
-        overdueCount: 0,
-      },
-    );
+      }
+
+      const residualCents = Math.max(0, dueCents - collectedCents);
+      const dueDate = toDate(movement.dueDate);
+      const isOverdue = residualCents > 0 && Boolean(dueDate && dueDate < today);
+
+      summary.hasPayments = true;
+      summary.totalDue += dueCents;
+      summary.totalPaid += collectedCents;
+
+      if (residualCents === 0) {
+        summary.paidCount += 1;
+      } else if (isOverdue) {
+        summary.totalOverdue += residualCents;
+        summary.overdueCount += 1;
+      } else {
+        summary.totalPending += residualCents;
+        summary.pendingCount += 1;
+      }
+
+      if (collectedCents > 0 && residualCents > 0) {
+        summary.partialCount += 1;
+      }
+
+      return summary;
+    },
+    {
+      hasPayments: false,
+      totalDue: 0,
+      totalPaid: 0,
+      totalPending: 0,
+      totalOverdue: 0,
+      paidCount: 0,
+      pendingCount: 0,
+      overdueCount: 0,
+      partialCount: 0,
+    },
+  );
+
+  return {
+    hasPayments: totals.hasPayments,
+    totalDue: totals.totalDue / 100,
+    totalPaid: totals.totalPaid / 100,
+    totalPending: totals.totalPending / 100,
+    totalOverdue: totals.totalOverdue / 100,
+    paidCount: totals.paidCount,
+    pendingCount: totals.pendingCount,
+    overdueCount: totals.overdueCount,
+    partialCount: totals.partialCount,
+  };
 };

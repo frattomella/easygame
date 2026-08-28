@@ -379,19 +379,23 @@ function PaymentSection({ report }: { report: PaymentReport }) {
             <MetricCard
               title="Pagato"
               value={formatCurrency(report.totalPaid)}
-              description={`${report.paidCount} pagamenti`}
+              description={
+                report.partialCount
+                  ? `Denaro incassato · ${report.paidCount} rate saldate, ${report.partialCount} in parte`
+                  : `Denaro incassato · ${report.paidCount} rate saldate`
+              }
               icon={<CheckCircle2 className="h-5 w-5" />}
             />
             <MetricCard
               title="In attesa"
               value={formatCurrency(report.totalPending)}
-              description={`${report.pendingCount} pagamenti`}
+              description={`Residuo su ${report.pendingCount} rate`}
               icon={<FileText className="h-5 w-5" />}
             />
             <MetricCard
               title="Scaduto"
               value={formatCurrency(report.totalOverdue)}
-              description={`${report.overdueCount} pagamenti`}
+              description={`Residuo su ${report.overdueCount} rate`}
               icon={<AlertCircle className="h-5 w-5" />}
             />
           </div>
@@ -687,7 +691,7 @@ export default function ReportsPage() {
               <MetricCard
                 title="Pagato atleti"
                 value={formatCurrency(paymentReport.totalPaid)}
-                description="Pagamenti annullati esclusi"
+                description="Denaro incassato, annullati esclusi"
                 icon={<CreditCard className="h-5 w-5" />}
               />
             </div>
