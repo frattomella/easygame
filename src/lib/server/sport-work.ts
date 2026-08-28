@@ -19,6 +19,7 @@ import {
   roundMoney,
   toDateOrNull,
   toMoney,
+  toYearFilter,
   type RelationshipStatus,
 } from "@/lib/sport-work/model";
 import {
@@ -989,13 +990,13 @@ export const listDeclarations = async (
 ) => {
   const organizationId = resolveOrganizationId(scope, filter.organizationId);
   const personId = asText(filter.personId);
-  const year = Number(filter.fiscalYear);
+  const year = toYearFilter(filter.fiscalYear);
 
   return declarationClient().findMany({
     where: {
       organization_id: organizationId,
       ...(personId ? { person_id: personId } : {}),
-      ...(Number.isInteger(year) ? { fiscal_year: year } : {}),
+      ...(year === null ? {} : { fiscal_year: year }),
       ...(asText(filter.status)
         ? { status: normalizeDeclarationStatus(filter.status) }
         : {}),
@@ -1262,12 +1263,12 @@ export const listYearPositions = async (
   scope?: SportWorkScope,
 ) => {
   const organizationId = resolveOrganizationId(scope, filter.organizationId);
-  const year = Number(filter.year);
+  const year = toYearFilter(filter.year);
 
   return positionClient().findMany({
     where: {
       organization_id: organizationId,
-      ...(Number.isInteger(year) ? { year } : {}),
+      ...(year === null ? {} : { year }),
     },
     orderBy: [{ year: "desc" }, { progressive: "desc" }],
   });

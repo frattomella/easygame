@@ -752,6 +752,30 @@ export const fiscalYearOfPayment = (paidAt: Date | string) => {
   return date.getUTCFullYear();
 };
 
+/**
+ * L'anno di un filtro, oppure `null` quando il filtro non c'e.
+ *
+ * **Esiste per un difetto vero, trovato a runtime con duemila test verdi.**
+ * `Number(null)` non e `NaN`: e `0`, ed e un intero. Un elenco che filtrava
+ * con `Number.isInteger(Number(filter.year)) ? { year } : {}` funzionava nei
+ * test — che passano `undefined`, e `Number(undefined)` e `NaN` — e in
+ * produzione filtrava `fiscal_year = 0`, perche `searchParams.get()`
+ * restituisce `null` quando il parametro manca. Risultato: il registro delle
+ * uscite rispondeva **elenco vuoto** a chiunque non chiedesse un anno
+ * esplicito, e Movimenti non mostrava nessun compenso.
+ *
+ * La stessa trappola vale per la stringa vuota, che pure diventa `0`.
+ */
+export const toYearFilter = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  const raw = typeof value === "string" ? value.trim() : value;
+  if (raw === "") return null;
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1900 || parsed > 2200) return null;
+  return parsed;
+};
+
 /** Il periodo `YYYY-MM` di una data: la chiave con cui si raggruppano F24 e Uniemens. */
 export const monthKeyOf = (value: Date | string) => {
   const date = toDateOrNull(value);

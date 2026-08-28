@@ -403,3 +403,46 @@ test("una data non valida non si eroga", () => {
     /Data di erogazione non valida/,
   );
 });
+
+/**
+ * **Le note sono testo italiano, e i numeri dentro devono sembrarlo.**
+ *
+ * `toFixed(2)` produceva «Residua dopo questa erogazione: 8200.00» dentro una
+ * frase altrimenti italiana, con il punto al posto della virgola.
+ * Quella nota compare nel dialogo di erogazione, sotto gli occhi di una
+ * segreteria. Il collaudo a schermo l'ha vista; nessun test la guardava.
+ */
+test("gli importi dentro le note sono scritti in italiano", () => {
+  const result = eroga(1200, {
+    position: { clubGrossPaid: 3600, externalDeclared: 2000, declaredAt: "2026-08-20" },
+  });
+
+  /*
+    L'italiano di CLDR **non raggruppa le migliaia sotto le cinque cifre**:
+    8200 si scrive «8200,00» e 15000 si scrive «15.000,00». Non e una svista
+    del formattatore, e la regola tipografica italiana — e un test che
+    pretendesse «8.200,00» chiederebbe al prodotto di scrivere male.
+  */
+  const fiscale = result.explanation.find((line) => line.key === "fiscalFranchise");
+  assert.match(fiscale.note, /8200,00 euro/);
+  assert.ok(
+    !fiscale.note.includes("8200.00"),
+    "nessun punto decimale dentro una frase italiana",
+  );
+
+  const sottoSoglia = eroga(1000);
+  const previdenziale = sottoSoglia.explanation.find(
+    (line) => line.key === "socialFranchise",
+  );
+  assert.match(previdenziale.note, /4000,00 euro/);
+});
+
+test("anche l'avviso di soglia fiscale superata parla italiano", () => {
+  const result = eroga(18000);
+  const avviso = result.warnings.find(
+    (warning) => warning.code === "FISCAL_THRESHOLD_CROSSED",
+  );
+
+  assert.match(avviso.message, /3000,00 euro/);
+  assert.ok(!avviso.message.includes("3000.00"));
+});

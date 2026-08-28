@@ -678,3 +678,70 @@ test("un'uscita di servizio per una persona di un altro club non passa", async (
     /Accesso negato/,
   );
 });
+
+/* --------------------------------------------- i due difetti del collaudo */
+
+/**
+ * **Il registro non deve svuotarsi quando nessuno chiede un anno.**
+ *
+ * Le rotte leggono i parametri con `searchParams.get()`, che restituisce
+ * `null` quando il parametro manca — e `Number(null)` e `0`, non `NaN`. Il
+ * filtro diventava `fiscal_year = 0` e l'elenco tornava vuoto: in Movimenti
+ * non compariva nessun compenso. I test non lo vedevano perche passavano
+ * `undefined`, che invece diventa `NaN`.
+ */
+test("un filtro anno assente non svuota il registro", async () => {
+  await eroga();
+
+  const senzaAnno = await ledger.listOutboundTransactions(
+    { fiscalYear: null },
+    scopeA(),
+  );
+  const conStringaVuota = await ledger.listOutboundTransactions(
+    { fiscalYear: "" },
+    scopeA(),
+  );
+  const conAnno = await ledger.listOutboundTransactions(
+    { fiscalYear: 2026 },
+    scopeA(),
+  );
+  const altroAnno = await ledger.listOutboundTransactions(
+    { fiscalYear: 2027 },
+    scopeA(),
+  );
+
+  assert.equal(senzaAnno.length, 1, "null vuol dire nessun filtro");
+  assert.equal(conStringaVuota.length, 1, "la stringa vuota anche");
+  assert.equal(conAnno.length, 1);
+  assert.equal(altroAnno.length, 0, "un anno vero filtra davvero");
+});
+
+test("lo stesso vale per le altre due liste con un anno", async () => {
+  await service.createDeclaration(
+    { personId: PERSON_A, fiscalYear: 2026, externalAmount: 1000 },
+    scopeA(),
+  );
+
+  // Il seed ne porta gia una: la nuova la sostituisce, e restano due righe —
+  // una valida e una marcata. Senza filtro si vedono entrambe.
+  assert.equal(
+    (await service.listDeclarations({ fiscalYear: null }, scopeA())).length,
+    2,
+  );
+  assert.equal(
+    (await service.listDeclarations({ fiscalYear: 2026 }, scopeA())).length,
+    2,
+  );
+  assert.equal(
+    (await service.listDeclarations({ fiscalYear: 2030 }, scopeA())).length,
+    0,
+  );
+  assert.equal(
+    (await service.listYearPositions({ year: null }, scopeA())).length,
+    1,
+  );
+  assert.equal(
+    (await service.listYearPositions({ year: 2030 }, scopeA())).length,
+    0,
+  );
+});

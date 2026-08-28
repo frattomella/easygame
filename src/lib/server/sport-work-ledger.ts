@@ -19,6 +19,7 @@ import {
   normalizeRelationshipType,
   normalizeSocialCoverage,
   relationshipAllowsPayout,
+  toYearFilter,
   roundMoney,
   toDateOrNull,
   toMoney,
@@ -108,7 +109,7 @@ export const listOutboundTransactions = async (
     asText(filter.organizationId) || scope?.activeOrganizationId || "";
   ensureOrganizationAccess(scope, organizationId);
 
-  const year = Number(filter.fiscalYear);
+  const year = toYearFilter(filter.fiscalYear);
 
   return ledgerClient().findMany({
     where: {
@@ -120,7 +121,7 @@ export const listOutboundTransactions = async (
       ...(asText(filter.installmentId)
         ? { installment_id: asText(filter.installmentId) }
         : {}),
-      ...(Number.isInteger(year) ? { fiscal_year: year } : {}),
+      ...(year === null ? {} : { fiscal_year: year }),
       ...(asText(filter.transactionType)
         ? { transaction_type: asText(filter.transactionType).toUpperCase() }
         : {}),
@@ -321,11 +322,36 @@ export type RecordPayoutResult = {
   duplicate: boolean;
 };
 
-const isUniqueViolation = (error: any, index?: string) =>
-  error?.code === "P2002" &&
-  (!index || String(error?.message || "").includes(index) ||
-    (Array.isArray(error?.meta?.target) &&
-      error.meta.target.some((field: string) => index.includes(field))));
+/**
+ * Vero se l'errore e la violazione **di quel** vincolo unico.
+ *
+ * **Perche i nomi da cercare sono due.** Con un indice ordinario Prisma
+ * riporta in `meta.target` i nomi delle colonne; con un **indice parziale** —
+ * come `sport_work_outbound_gesto_unico`, che vale solo dove la chiave del
+ * gesto esiste — riporta il nome dell'indice. Cercare solo le colonne faceva
+ * cadere il riconoscimento proprio nel caso che l'indice esiste per servire:
+ * il secondo invio dello stesso clic riceveva un errore 400 invece del
+ * movimento gia registrato.
+ *
+ * Il difetto e stato trovato dal collaudo a runtime, non dai test: il doppio
+ * di Prisma produce sempre i nomi delle colonne, perche non conosce gli
+ * indici parziali.
+ */
+const isUniqueViolation = (error: any, ...names: string[]) => {
+  if (error?.code !== "P2002") return false;
+  if (names.length === 0) return true;
+
+  const target: string[] = Array.isArray(error?.meta?.target)
+    ? error.meta.target.map((entry: unknown) => String(entry))
+    : [String(error?.meta?.target ?? "")];
+  const message = String(error?.message || "");
+
+  return names.some(
+    (name) =>
+      target.some((entry) => entry.includes(name) || name.includes(entry)) ||
+      message.includes(name),
+  );
+};
 
 /**
  * Registra un'erogazione di compenso e riallinea scadenza e posizione annua.
@@ -593,7 +619,10 @@ export const recordCompensationPayout = async (
       duplicate: false,
     };
   } catch (error: any) {
-    if (idempotencyKey && isUniqueViolation(error, "idempotency_key")) {
+    if (
+      idempotencyKey &&
+      isUniqueViolation(error, "idempotency_key", "sport_work_outbound_gesto_unico")
+    ) {
       const existing = await ledgerClient().findFirst({
         where: {
           organization_id: organizationId,

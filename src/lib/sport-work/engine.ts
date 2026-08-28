@@ -191,6 +191,20 @@ export type ComputePayoutInput = {
   rules?: SportWorkRuleSet;
 };
 
+/**
+ * Un importo dentro il testo di una nota, scritto come lo scrive l'Italia.
+ *
+ * `toFixed(2)` produceva `8200.00` dentro frasi altrimenti italiane — punto
+ * decimale, nessun separatore di migliaia — e quella nota finisce nel dialogo
+ * di erogazione, sotto gli occhi di una segreteria. Le cifre dei campi passano
+ * gia dal formattatore dell'interfaccia; queste no, perche sono testo.
+ */
+const inWords = (value: number) =>
+  `${new Intl.NumberFormat("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)} euro`;
+
 const asAmount = (value: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
@@ -373,7 +387,7 @@ export const computeCompensationPayout = (
         ? "Gia esaurita prima di questa erogazione"
         : taxableSocialGross > 0
           ? "SUPERATA con questa erogazione"
-          : `Residua dopo questa erogazione: ${roundMoney(socialRemainingBefore - socialFranchiseUsed).toFixed(2)}`,
+          : `Residua dopo questa erogazione: ${inWords(roundMoney(socialRemainingBefore - socialFranchiseUsed))}`,
   });
   explanation.push({
     key: "socialFranchiseUsed",
@@ -450,7 +464,7 @@ export const computeCompensationPayout = (
     note:
       taxableFiscal > 0
         ? "SUPERATA"
-        : `Residua dopo questa erogazione: ${roundMoney(fiscalRemainingBefore - fiscalFranchiseUsed).toFixed(2)}`,
+        : `Residua dopo questa erogazione: ${inWords(roundMoney(fiscalRemainingBefore - fiscalFranchiseUsed))}`,
   });
   explanation.push({
     key: "taxableFiscal",
@@ -473,7 +487,7 @@ export const computeCompensationPayout = (
     warnings.push({
       code: "FISCAL_THRESHOLD_CROSSED",
       severity: "hard",
-      message: `Soglia fiscale di ${fiscalFranchise.toLocaleString("it-IT")} euro superata: imponibile eccedente ${taxableFiscal.toFixed(2)} euro.`,
+      message: `Soglia fiscale di ${fiscalFranchise.toLocaleString("it-IT")} euro superata: imponibile eccedente ${inWords(taxableFiscal)}.`,
       detail:
         "EasyGame non calcola la ritenuta IRPEF. Il valore mostrato e il netto previdenziale, non il netto da corrispondere.",
     });
