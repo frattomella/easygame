@@ -1806,7 +1806,11 @@ prevenire.
 - **Analisi, non progetto approvato.** Nessuna decisione di questo documento e
   vincolante finche non e discussa.
 - **Nessun codice scritto, nessuna migrazione creata, nessun database
-  toccato.**
+  toccato** — al momento in cui il documento e stato scritto. Il work package
+  che lo ha attuato e documentato in
+  [29](29-lavoro-sportivo-implementazione-uat.md); dove il codice si e
+  discostato da questa analisi, lo dice quel documento e vincono gli ADR
+  0071-0077 di [18](18-decision-log.md).
 - Le regole normative **devono** passare dalla validazione del
   [cap. 21](#21--validazione-professionale) prima di diventare codice.
 - Gli esempi numerici usano i parametri 2026 riportati al

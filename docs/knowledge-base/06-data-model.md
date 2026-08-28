@@ -462,3 +462,77 @@ regole: le righe con l'interruttore acceso e quelle in stato `disabled` — che
 scrive solo la sospensione esplicita — ricevono `updated_at` come data di
 decisione. Tutto il resto resta `NULL`, ed e il caso legacy che va
 inizializzato. Vedi [ADR-0064](18-decision-log.md#adr-0064--un-interruttore-spento-di-proposito-si-distingue-da-uno-mai-acceso-e-la-differenza-e-una-data).
+
+
+---
+
+## Lavoro sportivo e compensi (2026-08-28)
+
+Undici tabelle, `sport_work_*`, introdotte dalla migrazione
+`20260828100000_sport_work`. La migrazione e **additiva**: non tocca, non legge
+e non riscrive nessuna tabella esistente — in particolare non tocca `payments`,
+`payment_transactions` ne `trainer_payments`, perche un compenso che esce non e
+un incasso che entra ([ADR-0074](18-decision-log.md#adr-0074--il-denaro-che-esce-ha-un-registro-proprio-non-e-un-incasso-al-contrario)).
+
+| Tabella | Risponde a |
+|---------|-----------|
+| `sport_work_people` | chi e la persona |
+| `sport_work_relationships` | a quali condizioni lavora |
+| `sport_work_compensation_plans` | quanto e stato pattuito |
+| `sport_work_compensation_installments` | quando e dovuto, e quanto e maturato |
+| `sport_work_outbound_transactions` | quanto e uscito davvero — **il registro** |
+| `sport_work_external_declarations` | cosa il lavoratore ha dichiarato |
+| `sport_work_year_positions` | a che punto e verso le soglie |
+| `sport_work_bonuses` | i premi, che non sono compensi |
+| `sport_work_expense_reimbursements` | i rimborsi, che non sono compensi |
+| `sport_work_vat_invoices` | le fatture ricevute dai professionisti |
+| `sport_work_obligations` | cosa il club deve fare, entro quando |
+
+### Le tre grandezze che non si confondono
+
+`gross_amount`, `accrued_amount` e `paid_amount` su una scadenza sono
+**programmato**, **maturato** ed **erogato**: tre numeri diversi. La colonna
+`status` si **deriva** da loro e da una data, e nessun corpo di richiesta puo
+impostarla — stessa disciplina di
+[ADR-0036](18-decision-log.md#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una),
+applicata al denaro che esce.
+
+### Due anni, non uno
+
+`sport_work_compensation_installments.fiscal_year` e l'anno **della scadenza
+programmata**: una previsione. L'anno fiscale che conta e
+`sport_work_outbound_transactions.fiscal_year`, cioe l'anno solare della data
+di pagamento, perche le franchigie si consumano **per cassa**. Una stagione
+2026/27 attraversa due anni solari, due franchigie intere e due rule set.
+
+### Cio che il database fa rispettare da solo
+
+Quattro indici e quattro CHECK, e nessuno di loro e decorazione: sono le regole
+che sotto concorrenza il codice applicativo non riesce a garantire, perche fra
+la lettura e la scrittura c'e una finestra
+([ADR-0067](18-decision-log.md#adr-0067--il-denaro-si-arbitra-bloccando-la-riga-non-solo-con-un-indice)).
+
+| Vincolo | Cosa impedisce |
+|---------|----------------|
+| `sport_work_outbound_gesto_unico` (parziale) | che due invii dello stesso clic facciano uscire il denaro due volte |
+| `sport_work_storno_unico` (parziale) | che stornare due volte riporti il registro in attivo di un compenso intero |
+| `sport_work_dichiarazione_attiva_unica` (parziale) | che due autocertificazioni valide diano due risposte a «quanta franchigia resta» |
+| `sport_work_persona_unica_per_codice_fiscale` (parziale) | che la stessa persona censita due volte spezzi il progressivo annuo in due meta, ognuna sotto soglia |
+| `sport_work_outbound_segno_check` | che uno storno abbia importo positivo e raddoppi l'uscita invece di compensarla |
+| `sport_work_outbound_storno_coerente_check` | che uno storno non punti a niente, o che una riga qualunque si dichiari storno |
+| `sport_work_rata_importi_check` | rate di importo nullo o pagamenti negativi |
+| `sport_work_rapporto_periodo_check` | un rapporto che finisce prima di cominciare |
+
+### Il dato riservato
+
+`sport_work_people.iban` non compare **mai** in una proiezione di elenco: la
+lista risponde `has_iban: true/false`. Le coordinate bancarie si leggono
+aprendo la scheda, una alla volta, e chi lo fa ha `sport_work.manage`. Il
+filtro dell'audit gia rimuove `iban` dai metadati per nome di chiave.
+
+### Cosa non e stato creato
+
+Nessuna colonna JSON nuova su `clubs` — il club ne ha gia trentadue ed e un
+debito noto. Nessun secondo archivio di allegati: i documenti sono righe di
+`attachments` con `owner_type` `sport_work_relationship` o `sport_work_person`.
+Nessun secondo canale di notifica: il giro notturno scrive in `notifications`.

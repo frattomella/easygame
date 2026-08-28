@@ -133,3 +133,28 @@ cleanup 2026-08-22).
 | `src/lib/navigation/external-link.ts` | Proprietario unico dell'apertura di un indirizzo esterno |
 | `src/components/platform-admin/payments-billing-section.tsx` | La console «Pagamenti & Billing», quattro schede |
 | `src/components/fiscal/FiscalProfilePanel.tsx` | Il profilo fiscale nella pagina Organizzazione |
+
+---
+
+## Lavoro sportivo e compensi
+
+| File | Ruolo |
+|------|-------|
+| `src/lib/sport-work/rules/<anno>.ts` | Le regole dell'anno: soglie, aliquote, riduzione, causali F24, **con la fonte normativa accanto a ogni valore**. Dati, non logica |
+| `src/lib/sport-work/rules/index.ts` | `rulesFor(anno)`: risolve l'anno della data di pagamento e **fallisce** se non e configurato |
+| `src/lib/sport-work/engine.ts` | Il motore puro: imponibili, contributi, netto, costo club, **e la motivazione riga per riga** |
+| `src/lib/sport-work/model.ts` | Il vocabolario: stati, tipi, transizioni, denaro, date. Nessuna dipendenza |
+| `src/lib/sport-work/plan.ts` | Piano compensi e maturazione. La somma delle rate torna al pattuito |
+| `src/lib/sport-work/position.ts` | Posizione annua e **scostamento**: quanto il conto cambierebbe se si rifacesse oggi |
+| `src/lib/sport-work/obligations.ts` | Agenda degli adempimenti e dataset F24 / CU |
+| `src/lib/sport-work/permissions.ts` | Cinque permessi, nessun ruolo nuovo |
+| `src/lib/sport-work/legacy-migration.ts` | Classificazione dei dati legacy: cosa si importa e cosa no |
+| `src/lib/server/sport-work.ts` | **Unico** punto di scrittura di persone, rapporti, piani, scadenze, dichiarazioni, posizioni |
+| `src/lib/server/sport-work-ledger.ts` | **Unico** punto in cui esce denaro. Blocca prima la persona, poi la scadenza |
+| `src/lib/server/sport-work-agenda.ts` | Premi, rimborsi, fatture, adempimenti, cruscotto, dataset |
+| `src/lib/server/sport-work-scheduler.ts` | Il giro notturno. Idempotente per chiave, non per stato |
+| `src/lib/server/sport-work-route.ts` | L'involucro delle rotte: sessione, club, permesso, diniego tracciato |
+| `src/components/sport-work/` | Le schermate. Il dialogo di erogazione e la piu importante |
+| `scripts/sport-work-uat.mjs` | Il collaudo a runtime: parla HTTP con l'applicazione vera |
+| `scripts/sport-work-legacy-report.mjs` | Il rapporto sui dati legacy, in sola lettura |
+

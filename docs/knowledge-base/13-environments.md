@@ -825,3 +825,34 @@ l'exploit usa (`x-middleware-subrequest`, in tre varianti):
 
 Il middleware non si aggira. Su una versione vulnerabile la pagina avrebbe
 risposto.
+
+---
+
+## Il giro notturno del lavoro sportivo (2026-08-28)
+
+`vercel.json` dichiara un cron:
+
+```json
+{ "path": "/api/v1/sport-work/scheduler", "schedule": "30 3 * * *" }
+```
+
+Porta a scaduti i contratti finiti, ricalcola il maturato, riallinea l'agenda
+degli adempimenti e notifica cio che scade entro sette giorni (compensi) o
+quattordici (adempimenti).
+
+**Si autentica con `CRON_SECRET`**, la stessa variabile gia usata
+dall'automazione degli allenamenti. In produzione, **senza quella variabile la
+porta non si apre**: risponde 503. Un job che riscrive stati e manda notifiche,
+esposto senza autenticazione, e un modo per far arrivare messaggi ai club di
+qualcun altro.
+
+| Variabile | Dove serve | Se manca |
+|-----------|-----------|----------|
+| `CRON_SECRET` | Vercel, ambiente in cui il cron gira | In produzione la rotta risponde 503; in sviluppo passa, cosi la si puo provare |
+
+Il giro e **idempotente**, e la difesa contro il doppione non e uno stato sul
+lavoro ma una chiave deterministica dentro la notifica (`data.sportWorkKey`):
+regge anche se il job viene rieseguito a mano dalla schermata mentre il cron
+sta girando. `POST` sulla stessa rotta esegue il giro sul **solo club attivo**,
+e passa dai permessi come ogni altra rotta del dominio.
+

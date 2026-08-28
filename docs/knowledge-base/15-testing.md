@@ -263,3 +263,40 @@ l'invariante.
 Ogni commit che tocca **autenticazione, ruoli, permessi o accesso ai dati**
 deve includere o aggiornare un test. Non e negoziabile: e il presidio
 automatico piu vicino all'isolamento multi-tenant, finche quello vero manca.
+
+---
+
+## Lavoro sportivo: il collaudo che i test non sostituiscono (2026-08-28)
+
+Il dominio ha **199 test** fra unita, servizio e rotte. Non bastano, e si sa
+perche: girano su un doppio di Prisma e su uno scope costruito a mano. Provano
+il dominio, non il prodotto.
+
+`scripts/sport-work-uat.mjs` parla HTTP con l'applicazione in ascolto, con un
+cookie di sessione vero, e passa dalle stesse rotte che usa il browser. Copre
+gli scenari A–E del work package, sicurezza, concorrenza, storno, anno nuovo e
+prestazioni su un dataset realistico: **72 controlli**.
+
+```bash
+NEXT_DIST_DIR=.next-verify npm run build
+node scripts/start-verify-server.mjs
+node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs \
+  scripts/sport-work-uat.mjs --base=http://127.0.0.1:3010
+```
+
+**Ha trovato due difetti che duemila test verdi non avevano visto**, ed
+entrambi vivono nello spazio fra il dominio e il modo in cui le rotte lo
+chiamano:
+
+1. `Number(null)` non e `NaN`, e `0`, ed e un intero: il filtro per anno
+   diventava `fiscal_year = 0` e il registro delle uscite rispondeva elenco
+   vuoto. Nei test passava `undefined`, che invece diventa `NaN`;
+2. per un **indice parziale** Prisma riporta il nome dell'indice e non quello
+   delle colonne: il riconoscimento del doppio clic cadeva proprio nel caso per
+   cui l'indice esiste. Il doppio di Prisma non lo poteva mostrare, perche non
+   conosce gli indici parziali.
+
+Entrambi hanno ora un test di regressione. La lezione e la stessa di
+`tests/server/checkout-session-route.test.mjs`: **cio che i test non chiamano
+come lo chiama l'interfaccia, non e provato.**
+

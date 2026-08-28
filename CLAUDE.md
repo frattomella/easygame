@@ -67,6 +67,9 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 | Stagioni sportive | `src/lib/club-seasons.ts` (modello) + `src/lib/server/seasons.ts` (scrittura) | Una sola stagione attiva; nessuna scrittura di `settings.seasons` altrove |
 | Incassi (movimenti di denaro) | `src/lib/server/payment-transactions.ts` (scrittura) + `src/lib/payments/installment-ledger.ts` (calcolo) | Nessuno scrive `payment_transactions` altrove; lo stato di una rata **non si imposta**, si ricava |
 | Voucher e contributi da enti | `src/lib/server/funding.ts` (scrittura) + `src/lib/funding/` (calcolo) | Le regole di un bando sono **configurazione**, mai codice. I due domini non si importano: un contributo non e un pagamento della famiglia |
+| Lavoro sportivo: anagrafica, rapporti, piani, scadenze, dichiarazioni, posizioni | `src/lib/server/sport-work.ts` (scrittura) + `src/lib/sport-work/` (dominio puro) | Lo stato di una scadenza e di un rapporto si **deriva**, non si scrive. Le regole dell'anno sono dati con la loro fonte: un anno non configurato **fallisce**, non ricade sull'anno prima |
+| Denaro in uscita | `src/lib/server/sport-work-ledger.ts` | **L'unica** funzione che fa uscire denaro verso una persona. Niente `DELETE`: si storna. Blocca prima la persona e poi la scadenza, perche la franchigia annua e per persona |
+| Premi, rimborsi, fatture P.IVA, adempimenti | `src/lib/server/sport-work-agenda.ts` | Nessuno di questi e un compenso: esce dal registro ma **non** consuma le franchigie del lavoratore |
 | Accesso dati server | `src/lib/server/resources.ts` | Nessuna query Prisma club-scoped fuori da qui senza filtro esplicito |
 | Client Prisma | `src/lib/server/prisma.ts` | Mai istanziare un secondo `PrismaClient` |
 | Email | `src/lib/server/email/` | Unico punto di invio |
@@ -96,7 +99,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 Prima di ogni commit:
 
 ```bash
-npm test           # tutti verdi (2.010 al 2026-08-28, RC Fix 3)
+npm test           # tutti verdi (2.273 al 2026-08-28, WP Sport Work)
 npm run typecheck  # nessun output
 npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare

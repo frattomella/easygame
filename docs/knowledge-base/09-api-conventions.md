@@ -600,3 +600,36 @@ concluderebbe che manca da implementare.
 firma diversi. Nessuno dei due ha sessione e nessuno dei due puo averla: chi
 chiama e Stripe. Cio che li difende e la firma verificata sul corpo grezzo
 prima di guardarci dentro, piu la deduplica sull'identificativo dell'evento.
+
+---
+
+## Lavoro sportivo: un involucro invece di ventisei preamboli
+
+Le rotte di `/api/v1/sport-work/**` non ripetono il preambolo delle altre. Ne
+usano uno solo, `sportWorkRoute` (`src/lib/server/sport-work-route.ts`), che
+legge la sessione, risolve il club attivo, verifica il **permesso economico** e
+traccia il diniego.
+
+Il permesso e un parametro **obbligatorio**: non esiste una rotta di questo
+dominio senza. Scriverne una richiede dichiarare cosa serve per usarla.
+
+**Perche non ventisei copie.** Perche il giorno in cui una delle quattro cose
+cambia, venticinque rotte restano indietro — e la venticinquesima e quella che
+perde il confine. La guardia `tests/auth/api-authorization.test.mjs` riconosce
+l'involucro come marcatore di sessione e di scope, e resta severa: una rotta di
+questo dominio scritta senza involucro non ha nessuno dei due marcatori e
+fallisce.
+
+Tre convenzioni proprie, e ognuna dice qualcosa sul dominio:
+
+- **`PUT` sul piano compensi**, non `POST`: un rapporto ha **un** piano, e
+  rimandarlo lo sostituisce invece di aggiungerne un secondo;
+- **`POST /relationships/:id/status`**, non un `PATCH` sul campo: un cambio di
+  stato non e la modifica di un campo, e un atto che verifica delle condizioni,
+  e un `PATCH` generico permetterebbe di scriverlo aggirandole;
+- **`POST /payouts/prepare`**, separata dalla registrazione: la proposta non
+  scrive niente e restituisce la motivazione. La decisione la prende una
+  persona guardandola.
+
+L'elenco completo e in [`docs/api-registry.md`](../api-registry.md).
+

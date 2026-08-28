@@ -3878,3 +3878,214 @@ foglio di calcolo. Dell'import il modulo condivide la **regola**
 pubblici di iscrizione e la pagina Atleti passano entrambi da
 `createResource` / `updateResource`. Non esiste un chiamante che scriva una
 data di nascita per un'altra strada.
+
+---
+
+## ADR-0071 — Il lavoro sportivo e un dominio nuovo, non tre colonne su `trainer_payments`
+
+**Contesto.** EasyGame aveva gia un posto dove si scrivevano i compensi degli
+allenatori: la tabella `trainer_payments`, e la capability corrispondente era
+dichiarata COMPLETE in [11](11-capabilities.md). Il work package «Lavoro
+sportivo e compensi» chiedeva rapporti, piani, maturazione, contributi, soglie
+annue, adempimenti. La strada breve era aggiungere colonne a quella tabella.
+
+**Decisione.** Un dominio nuovo e isolato (`sport-work`), con undici tabelle
+proprie, che **assorbe** `trainer_payments` invece di affiancarglisi.
+
+**Perche.** `trainer_payments` e una riga con `trainer_name` in testo libero,
+`month` come stringa, `amount` in virgola mobile e uno `status` che si imposta
+a mano. Non ha un rapporto, non ha lordo e netto, non conosce i contributi,
+non sa in che anno fiscale cade e non si puo stornare. **E un promemoria di
+pagamento, e come promemoria funziona benissimo.** Cio che serviva qui e
+un'altra cosa: sapere chi lavora per il club, a quali condizioni, quanto ha
+maturato, quanto e uscito davvero, con quali regole e verso quali soglie.
+Nessuna di quelle domande si risponde aggiungendo colonne a un promemoria.
+
+**Conseguenze.** La capability «Compensi allenatori» smette di essere COMPLETE
+e diventa LEGACY: resta leggibile, non e piu la fonte canonica, e la scheda
+allenatore lo dice a chiare lettere. Le righe storiche **non vengono
+convertite** ([ADR-0076](#adr-0076--un-promemoria-di-pagamento-non-diventa-unerogazione-perche-i-contributi-non-si-inventano)).
+Il prezzo e la convivenza di due archivi per un periodo; il prezzo dell'altra
+strada sarebbe stato un registro contributivo costruito su un campo di testo.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0072 — Le regole del lavoro sportivo sono dati versionati per anno, e un anno mancante fallisce
+
+**Contesto.** Franchigie, aliquote e riduzioni della base imponibile cambiano
+per legge e hanno una data di scadenza. La riduzione al 50% dell'imponibile
+contributivo decade il **31 dicembre 2027**: dal 1 gennaio 2028, a parita di
+compenso, la contribuzione raddoppia.
+
+**Decisione.** Un modulo per anno solare (`src/lib/sport-work/rules/2026.ts`,
+`2027.ts`), con soglia, aliquota, riduzione, causali F24 e **la fonte normativa
+accanto a ogni valore**. `rulesFor(anno)` risolve l'anno **della data di
+pagamento** e **solleva** se quell'anno non e configurato.
+
+**Perche nessun fallback all'anno precedente.** Perche il 1 gennaio 2028 un
+fallback dimezzerebbe la contribuzione dovuta **in silenzio**. Un errore
+rumoroso costa un'ora di lavoro a chi deve scrivere il file mancante; un
+calcolo sbagliato che nessuno vede costa una sanzione, mesi dopo, a un cliente
+che aveva ragione di fidarsi. Il messaggio d'errore dice quale file creare e
+avverte di non copiare l'anno prima.
+
+**Conseguenze.** Il rule set 2027 esiste gia perche una stagione sportiva
+attraversa due anni solari e senza di esso il modulo sarebbe inutilizzabile da
+gennaio. Le sue aliquote sono quelle del 2026 come **valore provvisorio
+dichiarato**, con stato `PENDING_PROFESSIONAL_VALIDATION`: non e il fallback
+silenzioso che l'ADR vieta, e il suo contrario — il valore e scritto, la sua
+provvisorieta e dichiarata, e viaggia fino alla schermata, dove
+un'erogazione datata 2027 mostra i contributi come stima non definitiva.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0073 — Il motore propone e spiega; cio che non e validato non produce un numero definitivo
+
+**Contesto.** L'analisi [28](28-lavoro-sportivo-e-compensi-analisi.md) elenca
+venti punti normativi che un professionista deve confermare prima che diventino
+codice. Il piu costoso: quale ritenuta si applichi sull'eccedenza dei 15.000
+dipende dalla qualificazione reddituale della co.co.co. sportiva, e le fonti
+non sono allineate. Le due ipotesi danno netti diversi di 135 euro su un
+compenso di 18.000.
+
+**Decisione.** Ogni regola porta uno stato: `VALIDATED_OFFICIAL`,
+`VALIDATED_PROFESSIONAL`, `PENDING_PROFESSIONAL_VALIDATION`. Solo le prime due
+producono un calcolo che si presenta come definitivo. **La ritenuta IRPEF non
+si calcola affatto**: il motore mostra l'imponibile fiscale eccedente e si
+ferma.
+
+**Conseguenze.** Sotto i 15.000 il netto e definitivo e si chiama «netto da
+corrispondere». Sopra, si chiama «netto previdenziale (ritenuta fiscale
+esclusa)» e il trattamento e dichiarato «da verificare». L'etichetta la produce
+il dominio (`netAmountLabel`) e non la schermata, perche il divieto di chiamare
+definitivo cio che non lo e deve valere in ogni superficie che mostra quel
+numero — comprese quelle che non esistono ancora.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0074 — Il denaro che esce ha un registro proprio: non e un incasso al contrario
+
+**Contesto.** EasyGame ha gia un registro del denaro, `payment_transactions`,
+con una disciplina collaudata: stato derivato, storno invece di cancellazione,
+due scritture in una transazione ([ADR-0036](#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)).
+La tentazione era riusarlo per le uscite.
+
+**Decisione.** Un registro separato, `sport_work_outbound_transactions`, che
+**eredita la disciplina** ma non la tabella.
+
+**Perche.** `payment_transactions` e costruito attorno a un incasso da una
+famiglia: ha `athlete_id`, il provider, la commissione di piattaforma, il
+rimborso, la riconciliazione con ricevuta e fattura. Un compenso non ha niente
+di tutto questo, e ha invece cose che quello non ha: contributi lavoratore e
+committente, imponibili, quote, anno fiscale, posizione annua. Forzarlo dentro
+avrebbe prodotto la stessa confusione che
+[ADR-0037](#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati)
+ha gia evitato fra contributi e pagamenti.
+
+**Conseguenze.** Movimenti aggrega **entrambi** i registri e non ne duplica
+nessuno: un'erogazione produce una riga sola, e la scadenza programmata non e
+un movimento. Il blocco di riga, pero, e piu largo di quello degli incassi: si
+blocca **prima la persona** e poi la scadenza, perche la franchigia annua e per
+persona e due erogazioni su due rate diverse dello stesso lavoratore devono
+comunque mettersi in fila.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0075 — L'autocertificazione dei compensi esterni e un dato del motore, e la prova di cosa il club sapeva
+
+**Contesto.** Le soglie dei 5.000 e dei 15.000 sono **del lavoratore**, non del
+committente: si verificano sommando i compensi di tutti i committenti. Il club
+conosce solo cio che eroga. Senza la dichiarazione degli altri compensi il
+calcolo e strutturalmente parziale.
+
+Il conto e semplice e vale un esempio. Un club eroga 6.000 euro applicando la
+franchigia sui propri primi 5.000: contributi 135,15. Due mesi dopo arriva
+l'autocertificazione che dice che il lavoratore aveva gia percepito 4.000 euro
+altrove: i contributi dovuti erano 675,75. **540,60 euro di contribuzione
+omessa**, con sanzioni a carico del club.
+
+**Decisione.** L'autocertificazione e un **record** con anno, importo, data e
+firma — non un allegato — ed entra nel calcolo come termine dell'equazione.
+Registrarne una nuova sostituisce quella dell'anno, che resta marcata
+`SUPERSEDED`.
+
+Erogare senza autocertificazione **non e vietato**: bloccare costringerebbe a
+pagare fuori dal gestionale, che e peggio. Produce un avviso duro, richiede una
+conferma esplicita, e scrive
+`sport_work.payment.without_current_self_declaration` con attore, data,
+rapporto, erogazione e anno.
+
+**Conseguenze.** Il valore principale di quel record non e la precisione del
+netto: e provare **cosa il club sapeva e quando**. La schermata lo dice con
+queste parole. E cio che il club sapeva a marzo resta cio che sapeva a marzo,
+anche dopo che a maggio ha saputo altro — per questo la vecchia dichiarazione
+non si cancella.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0076 — Un promemoria di pagamento non diventa un'erogazione, perche i contributi non si inventano
+
+**Contesto.** Tre archivi precedono il modulo: `trainer_payments`,
+`clubs.procure` e le anagrafiche JSON di allenatori e staff. La domanda era
+quali migrare.
+
+**Decisione.** Si importa **solo cio che non richiede una scelta**: le
+anagrafiche. I promemoria di pagamento restano `NEEDS_CLASSIFICATION`; le
+procure restano `LEGACY_ONLY`.
+
+**Perche i pagamenti no.** Una riga di `trainer_payments` non dichiara a quale
+rapporto si riferisce, con quali regole e stata calcolata, quanti contributi
+sono stati versati e in quale anno fiscale ricade. Convertirla in un'erogazione
+scriverebbe **zero contributi** su un compenso su cui i contributi possono
+benissimo essere stati versati: un numero falso, con l'aria di un numero
+storico. Il test che lo impedisce esiste apposta, perche il giorno in cui
+qualcuno decidera che «tanto e comodo» quel test deve fallire.
+
+**Perche le procure no.** Perche «procura» copre quattro fattispecie con regimi
+diversi — agente sportivo, delega, mandato al pagamento, rapporto economico — e
+la colonna non dichiara quale. Sceglierne una per conto del cliente e
+esattamente cio che questo modulo esiste per non fare.
+
+**Conseguenze.** `npm run sport-work:legacy-report` produce il rapporto in sola
+lettura; `--import-people` importa le sole anagrafiche e non tocca la voce di
+origine. La convivenza dei due archivi e voluta e temporanea.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0077 — I compensi hanno permessi propri, e il default e negato
+
+**Contesto.** Un rapporto di lavoro dice quanto guadagna una persona. In un
+club e il dato che circola per pettegolezzo prima che per necessita. I sette
+ruoli canonici dicono chi e una persona, non cosa puo fare sul dato economico
+piu riservato che la societa possiede.
+
+**Decisione.** Cinque permessi di dominio — `sport_work.manage`, `.read`,
+`.read_own`, `.pay`, `.fiscal` — e **nessun ruolo nuovo**, che CLAUDE.md vieta
+e a ragione. Il perimetro economico coincide con quello che gia protegge conti
+correnti, metodi di pagamento e configurazione societaria: **proprietario e
+club manager**.
+
+**Conseguenze.** Allenatore, staff, collaboratore e atleta hanno solo
+`sport_work.read_own`, che in V1 nessuna superficie consuma: in pratica non
+leggono niente di questo dominio, e ogni tentativo viene tracciato. Il genitore
+non ha nulla.
+
+**Il prezzo, dichiarato.** Chi non ha `sport_work.read` vede la pagina
+Movimenti **senza i compensi**, quindi con Uscite piu basse. E la conseguenza
+voluta della riservatezza, non un difetto: mostrare il totale senza le righe
+sarebbe una fuga a meta. Va detto in schermata, e resta fra le voci aperte di
+[16](16-technical-debt.md).
+
+**Stato:** ATTIVA.

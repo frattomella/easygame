@@ -472,3 +472,39 @@ Un documento di una societa non si legge, non si emette e non si annulla da
 un'altra: il controllo e in `fiscal-documents.ts` e ha tre test dedicati.
 L'errore contiene «Accesso negato» perche il route handler lo mappi su 403,
 come ogni altra risorsa di club.
+
+---
+
+## Lavoro sportivo: il dato economico piu riservato del prodotto (2026-08-28)
+
+Quattro presidi, oltre a quelli comuni a ogni risorsa di club.
+
+**1. Il perimetro e ristretto per definizione.** Cinque permessi di dominio,
+default negato, e il confine coincide con quello che gia protegge conti
+correnti e configurazione societaria: proprietario e club manager. Allenatore,
+staff, collaboratore e atleta non leggono i compensi altrui
+([ADR-0077](18-decision-log.md#adr-0077--i-compensi-hanno-permessi-propri-e-il-default-e-negato)).
+Ogni diniego viene tracciato con il permesso mancante.
+
+**2. L'IBAN non viaggia in un elenco.** La proiezione di lista di una persona
+risponde `has_iban: true/false`; le coordinate bancarie si leggono aprendo la
+scheda, una alla volta. Un elenco si carica per mostrare venti righe, e ogni
+campo che ci sta dentro finisce nella cache del browser. L'audit gia rimuove
+`iban` dai metadati per nome di chiave.
+
+**3. Il confine di club regge anche sul denaro.** Provato a runtime dal club
+sbagliato su rapporti, scadenze, erogazioni, storni, posizioni annue,
+dichiarazioni, premi, rimborsi, fatture e adempimenti: tutti 403 con «Accesso
+negato». Il collaudo `scripts/sport-work-uat.mjs` lo rifa a ogni esecuzione.
+
+**4. La responsabilita di erogare al buio ha un nome.**
+`sport_work.payment.without_current_self_declaration` registra chi ha deciso di
+erogare sapendo che il calcolo contributivo poteva essere incompleto, con
+attore, data, rapporto, erogazione e anno. Non e un log tecnico: se un giorno
+arrivano contributi omessi e sanzioni, quella riga e il documento che dice come
+sono andate le cose.
+
+**Le tracce si scrivono nel servizio, non nelle rotte** — deviazione voluta
+rispetto a incassi e contributi. Un audit dimenticato in una delle rotte
+sarebbe un audit che manca proprio nel caso in cui serve.
+

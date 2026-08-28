@@ -1278,3 +1278,21 @@ sul movimento e la sola cosa che manca.
 e `totalPending` / `totalOverdue` che ne ripartiscono il residuo, come fa
 `summarizeClubMovements`
 ([ADR-0068](18-decision-log.md#adr-0068--le-entrate-sono-cassa-il-denaro-incassato-non-si-deduce-dallo-stato-della-rata)).
+
+---
+
+## Debito aperto dal modulo Lavoro sportivo (2026-08-28)
+
+| # | Voce | Perche resta aperta |
+|---|------|---------------------|
+| SW-01 | **Movimenti non dice perche mancano i compensi** | Chi non ha `sport_work.read` vede Uscite piu basse senza una riga che lo spieghi. La conseguenza e voluta, il silenzio no |
+| SW-02 | **Venti regole normative attendono validazione professionale** | Elencate nel cap. 21 dell'analisi [28](28-lavoro-sportivo-e-compensi-analisi.md). Le tre che pesano di piu — ritenuta sull'eccedenza, deducibilita dei contributi, trattamento dei premi — sono `PENDING` nel rule set e non producono calcoli definitivi |
+| SW-03 | **Le aliquote 2027 sono provvisorie** | Pubblicate da INPS a febbraio 2027. Fino ad allora ogni erogazione datata 2027 e una stima dichiarata, non un errore |
+| SW-04 | **Il numero della circolare INPS 2026 non e concorde** | Le fonti citano n. 8 del 3 febbraio 2026 e n. 5/2026 per lo stesso contenuto. Le aliquote sono concordi; il riferimento va verificato prima di finire in un documento verso il cliente |
+| SW-05 | **`trainer_payments` convive con il modulo nuovo** | Per scelta ([ADR-0076](18-decision-log.md#adr-0076--un-promemoria-di-pagamento-non-diventa-unerogazione-perche-i-contributi-non-si-inventano)): convertirlo inventerebbe contributi. La convivenza va chiusa quando i club avranno riportato a mano cio che serve |
+| SW-06 | **`/procura` resta ambiguo** | Quattro fattispecie con lo stesso nome. Il modulo non le migra e non le classifica: serve una decisione di prodotto |
+| SW-07 | **Rate personalizzate solo via API** | Il modello e l'endpoint le accettano; l'editor offre solo rate uguali e mensilita |
+| SW-08 | **Volontari e rimborsi forfettari non implementati** | Il tetto mensile e in regola; le condizioni di legittimita no |
+| SW-09 | **Nessun entitlement di piano sul dominio** | Il modulo e disponibile a ogni club con i permessi giusti: se deve diventare un servizio a pagamento serve una voce nel catalogo |
+| SW-10 | **Massimale annuo non applicato** | Il valore c'e, il modo in cui si applica al lavoro sportivo con franchigia e riduzione non e validato: superarlo produce un avviso, non un troncamento |
+

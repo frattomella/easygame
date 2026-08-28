@@ -132,7 +132,7 @@ Classificazione:
 | Trasmissione telematica delle rendicontazioni | MISSING | Il canale verso l'ente e quello che il bando prescrive: `reported` e interno |
 | Movimenti e trasferimenti | COMPLETE | `/movements`, `transactions`, `transfers` |
 | Budget previsionale | COMPLETE | `expected_income`, `expected_expenses` |
-| Compensi allenatori | COMPLETE | `trainer_payments` |
+| Compensi allenatori (`trainer_payments`) | **LEGACY/REVIEW** | **Non e piu la fonte canonica dei compensi** (ADR-0071). E una riga con il nome in testo libero, il mese come stringa e uno stato impostabile a mano: non conosce il rapporto, i contributi, l'anno fiscale ne lo storno. Resta leggibile come promemoria storico, con un avviso sulla scheda allenatore. Il dominio che governa i compensi e **Lavoro sportivo** |
 | Report societari | PARTIAL | `/reports` (715 righe) con aggregazioni; nessun export strutturato |
 | **Checkout online (PSP)** | **MISSING** | `PAYMENT_PROVIDER_REGISTRY` ha PayPal, Postepay, Mastercard tutti con `isImplemented: false`. `POST /api/payments/create-checkout-session` risponde **501**. Il webhook non verifica firme e non gestisce eventi (3 TODO) |
 | Fee di piattaforma | PARTIAL | `calculatePlatformFee` implementata e usata nei metadata, ma non c'e incasso reale |
@@ -234,3 +234,41 @@ Classificazione:
 | Calcolo del maturato dalle presenze | **Funziona.** E non si puo scavalcare: nessuna superficie accetta un importo maturato scritto a mano |
 | Trasmissione telematica all'ente | **NON IMPLEMENTATA.** Il canale cambia da bando a bando e non si scrive a memoria |
 | Compensazione automatica sulla rata | **NON IMPLEMENTATA**, per scelta: farebbe risultare saldate rate che nessuno ha pagato |
+
+## Lavoro sportivo e compensi (WP Sport Work V1, 2026-08-28)
+
+Il dominio nato dall'analisi [28](28-lavoro-sportivo-e-compensi-analisi.md).
+Gli stati qui sotto sono verificati **a runtime** dal collaudo
+`scripts/sport-work-uat.mjs`, che parla HTTP con l'applicazione con un cookie
+di sessione vero: 72 controlli, 72 verdi.
+
+| Funzione | Stato reale |
+|----------|-------------|
+| **Anagrafica del modulo (Person Core)** | **Funziona.** Nome, codice fiscale, nascita, contatti, regime fiscale, copertura previdenziale e IBAN stanno qui una volta sola. Il collegamento all'anagrafica di origine (atleta, allenatore, staff, socio, esterno) e **debole** di proposito: allenatori e staff non sono righe di tabella, e un contratto firmato non deve sparire insieme a una scheda |
+| **Rapporto di lavoro sportivo** | **Funziona.** Tre tipi (co.co.co. sportiva, P.IVA, subordinato con paghe esterne), cinque stati, transizioni dichiarate. Nasce sempre in bozza; l'attivazione verifica contratto e anagrafica e **dice cosa manca** |
+| **Piano compensi** | **Funziona.** Rate uguali e mensilita; la somma torna al pattuito al centesimo; il piano dichiara quando attraversa due anni solari. Rifarlo e rifiutato se una scadenza ha gia ricevuto denaro |
+| **Maturazione** | **Funziona.** Per periodo di competenza, calcolata dal sistema, idempotente. Non si imposta a mano |
+| **Programmato / maturato / erogato** | **Funziona.** Tre grandezze in tre colonne, in ogni schermata che le mostra |
+| **Motore contributivo** | **Funziona** per la co.co.co. sportiva: franchigia dei 5.000, riduzione al 50%, aliquota per copertura previdenziale, ripartizione un terzo / due terzi, netto previdenziale e costo club. Gli esempi A–E dell'analisi 28 sono i casi di prova |
+| **Regole versionate per anno** | **Funziona.** 2026 e 2027, con la fonte normativa accanto a ogni valore. Un anno non configurato **fallisce**: nessun fallback all'anno prima (ADR-0072) |
+| **Ritenuta IRPEF** | **NON CALCOLATA, per scelta.** Sopra i 15.000 il motore mostra l'imponibile eccedente e si ferma: la qualificazione reddituale della co.co.co. sportiva non e validata e cambia il netto. Il numero mostrato si chiama «netto previdenziale», non «netto da corrispondere» (ADR-0073) |
+| **Posizione annua verso le soglie** | **Funziona.** Per anno solare, per cassa. Erogato dal club e dichiarato esterno restano due numeri distinti, con la data della dichiarazione accanto |
+| **Autocertificazione compensi esterni** | **Funziona.** E un record, non un allegato, ed entra nel calcolo. Sostituirla non cancella la precedente |
+| **Erogare senza autocertificazione** | **Consentito con conferma esplicita**, e tracciato con nome e data (ADR-0075). Bloccare costringerebbe a pagare fuori dal gestionale |
+| **Registro in uscita** | **Funziona.** Append-only, storno con riga di segno opposto, doppio clic protetto da chiave di idempotenza, capienza verificata dentro la transazione dopo il blocco di riga |
+| **Uscite in Movimenti** | **Funziona.** Un'erogazione produce una riga sola; la scadenza programmata non e un movimento; le coppie stornate non compaiono |
+| **Premi** | **Funziona** come dominio separato. Il trattamento fiscale si **dichiara** e non si deduce, e il valore predefinito e «da verificare» |
+| **Rimborsi spese** | **Funziona.** Cinque categorie, ciclo bozza → presentato → approvato → liquidato. Non concorrono a nessuna soglia |
+| **Fatture dei professionisti (P.IVA)** | **Funziona** come registrazione: numero, data, imponibile, IVA, ritenuta in fattura, scadenza, pagamento, uscita. **Nessun calcolo co.co.co.**: lo ha fatto chi ha emesso il documento |
+| **Subordinati** | **Registrazione soltanto.** Rapporto, contratto e costo. Nessun cedolino, TFR, ferie, malattia, INAIL: e un mestiere diverso, con un software diverso |
+| **Agenda degli adempimenti** | **Funziona.** RASD, F24, autocertificazioni, contratti in scadenza, CU. Derivazione idempotente per chiave deterministica |
+| **Dati F24 e CU** | **Funzionano come dataset**, esportabili in CSV. **Non sono un F24 e non sono una CU**: sono le tabelle che il consulente si porta via |
+| **Trasmissione al RASD, a UNILAV, all'INPS, all'Agenzia delle Entrate** | **NON IMPLEMENTATA, e non lo sara in V1.** EasyGame prepara l'input dell'adempimento, non l'adempimento. «Assolto» significa che una persona lo ha fatto e lo ha dichiarato qui |
+| **Comunicazione RASD** | **Tracking assistito.** Sei stati sul rapporto, protocollo e data. Nessuna API ufficiale esiste: dichiarare un'integrazione che non c'e sarebbe peggio di non averla |
+| **Giro notturno** | **Funziona.** Vercel Cron alle 03:30: porta a scaduti i contratti finiti, ricalcola il maturato, riallinea l'agenda, notifica cio che scade. Idempotente: rieseguirlo non manda una seconda notifica |
+| **Permessi dedicati** | **Funzionano.** Cinque permessi, nessun ruolo nuovo, default negato. Allenatore, staff, collaboratore e atleta non vedono i compensi altrui; ogni diniego e tracciato (ADR-0077) |
+| **Sezione «Lavoro e compensi» nelle schede persona** | **Funziona** su atleta, allenatore e staff. Se la persona non e ancora censita nel modulo, la schermata lo dice e offre di farlo |
+| **Documenti** | **Funzionano** su Attachment Core, con due proprietari (rapporto e persona). Allegare il contratto lo collega al rapporto e sblocca l'attivazione |
+| **Migrazione dei dati legacy** | **Rapporto, non conversione.** Si importano solo le anagrafiche; promemoria di pagamento e procure restano dove sono (ADR-0076) |
+| **Volontari e rimborsi forfettari** | **NON IMPLEMENTATI in V1.** Il tetto mensile e in regola, ma le condizioni di legittimita (evento riconosciuto, delibera, autodichiarazione) attendono validazione |
+| **Compensazione fra compensi e quote** | **NON IMPLEMENTATA, per scelta.** Un compenso non paga una quota, un contributo non salda una rata, un rimborso non e un compenso |

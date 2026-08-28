@@ -38,6 +38,8 @@ comportamenti desiderati o pianificati.
 | 25 | [RC Fix 2](25-rc-fix-2.md) | Anagrafiche coerenti, azioni di massa, marchio dell'intermediario — e i due difetti che si sono visti solo provando l'applicazione |
 | 26 | [Full Club UAT](26-full-club-uat.md) | Il collaudo fatto creando un club da zero: due stagioni su un club nuovo, incassi concorrenti che si sommavano, e i nomi con l'accento che non si trovavano |
 | 27 | [RC Fix 3](27-rc-fix-3.md) | I tre residui fra il collaudo e la produzione: le Entrate che non erano cassa, le date di nascita che `new Date` cambiava invece di rifiutare, e le impostazioni del club che due finestre si cancellavano |
+| 28 | [Lavoro sportivo e compensi: analisi](28-lavoro-sportivo-e-compensi-analisi.md) | Cosa dice la normativa, cosa EasyGame poteva riusare, e le venti regole che non potevano diventare codice senza la firma di un professionista |
+| 29 | [Lavoro sportivo: implementazione e UAT](29-lavoro-sportivo-implementazione-uat.md) | Il dominio costruito sull'analisi 28, e il collaudo a runtime che ha trovato due difetti che duemila test verdi non vedevano |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)

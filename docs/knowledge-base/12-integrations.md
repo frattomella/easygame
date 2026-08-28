@@ -357,3 +357,27 @@ I candidati noti — Aruba, Fatture in Cloud, A-Cube, canale SdI diretto — son
 elencati nel registro **con `hasAdapter: false`**, perche la scelta va
 presentata a chi la deve prendere. Vedi
 [ADR-0053](18-decision-log.md#adr-0053--easygame-prepara-il-tracciato-fatturapa-non-lo-trasmette-e-non-lo-dichiara-trasmesso).
+
+---
+
+## Lavoro sportivo: cosa EasyGame non trasmette
+
+Il modulo compensi non ha integrazioni in uscita, e non e una mancanza: e la
+riga che il dominio non attraversa.
+
+| Canale | Stato |
+|--------|-------|
+| RASD (Registro nazionale attivita sportive dilettantistiche) | **Nessuna integrazione.** Non esiste una API pubblica utilizzabile. EasyGame tiene sei stati sul rapporto, protocollo e data, e ricorda il termine (il 30 del mese successivo all'inizio) |
+| UNILAV | **Nessuna integrazione.** Termine diverso — le 24:00 del giorno precedente — e canale diverso |
+| INPS (Uniemens, F24) | **Nessuna trasmissione.** EasyGame calcola importi e causali e li mette in una tabella esportabile in CSV |
+| Agenzia delle Entrate (CU, 770) | **Nessuna trasmissione.** Dataset annuale per persona, esportabile |
+
+E la stessa posizione gia presa su FatturaPA
+([ADR-0053](18-decision-log.md#adr-0053--easygame-prepara-il-tracciato-fatturapa-non-lo-trasmette-e-non-lo-dichiara-trasmesso))
+e sulla rendicontazione dei bandi: **un adapter finto e peggio di nessun
+adapter**. «Assolto», su un adempimento, significa che una persona lo ha fatto
+e lo ha dichiarato qui.
+
+L'unica integrazione interna e con **Platform Notifications**: il giro notturno
+scrive in `notifications` e non apre un secondo canale.
+

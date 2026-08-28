@@ -139,3 +139,60 @@ E un ruolo **ortogonale** ai 7 ruoli di club: non compare in
 `tests/auth/role-authorization.test.mjs` e
 `tests/auth/active-club-access.test.mjs` coprono la matrice. **Ogni modifica a
 `access-roles.ts` deve aggiornare questi test.**
+
+
+---
+
+## Lavoro sportivo: cinque permessi, nessun ruolo nuovo (2026-08-28)
+
+Un rapporto di lavoro dice quanto guadagna una persona. In un club e il dato
+che circola per pettegolezzo prima che per necessita, e i sette ruoli canonici
+non bastano a governarlo: dicono **chi e** una persona, non **cosa puo fare**
+sul dato economico piu riservato che la societa possiede.
+
+Da qui cinque permessi di dominio, in `src/lib/sport-work/permissions.ts`, e
+nessun ottavo ruolo — che CLAUDE.md vieta, e a ragione: aggiungere un ruolo
+avrebbe costretto a duplicare l'intera gerarchia alla capability successiva.
+
+| Permesso | Cosa consente |
+|----------|---------------|
+| `sport_work.manage` | creare e modificare rapporti, piani, premi, rimborsi, adempimenti |
+| `sport_work.read` | vedere rapporti e compensi **di tutto il club** |
+| `sport_work.read_own` | vedere i propri compensi |
+| `sport_work.pay` | registrare e stornare erogazioni |
+| `sport_work.fiscal` | vedere e preparare i dati contributivi e fiscali (F24, CU) |
+
+| Ruolo | Permessi |
+|-------|----------|
+| `owner` | tutti |
+| `club_manager` | tutti |
+| `collaborator` | `read_own` |
+| `staff` | `read_own` |
+| `trainer` | `read_own` |
+| `athlete` | `read_own` |
+| `parent` | nessuno |
+
+**Perche il perimetro si ferma a proprietario e club manager.** Perche e lo
+stesso che gia protegge conti correnti, metodi di pagamento e configurazione
+societaria (`MANAGEMENT_ADMIN_ONLY_RESOURCES`), e i compensi non sono meno
+sensibili di quelli. Allargarlo a segreteria e collaboratori e una decisione di
+prodotto: va presa esplicitamente, non per omissione.
+
+**`read_own` esiste ma in V1 nessuna superficie lo consuma.** Non c'e ancora
+una dashboard personale del collaboratore. Concederlo ora significa che il
+giorno in cui quella dashboard esistera non si dovra riaprire il modello dei
+permessi; **non** significa che un allenatore possa elencare i rapporti del
+club, perche gli endpoint di elenco richiedono `sport_work.read`.
+
+**Ogni diniego si traccia.** `sportWorkRoute` scrive `resource.access.denied`
+con il permesso mancante, il percorso e il metodo: un tentativo di leggere i
+compensi altrui e un evento di sicurezza, non un errore di navigazione.
+
+**La conseguenza da dichiarare in schermata.** Chi non ha `sport_work.read`
+vede Movimenti **senza le uscite dei compensi**, quindi con un totale Uscite
+piu basso. E voluto — mostrare il totale senza le righe sarebbe una fuga a
+meta — e resta fra le voci aperte di [16](16-technical-debt.md).
+
+`tests/lib/sport-work-permissions.test.mjs` e
+`tests/server/sport-work-routes.test.mjs` coprono la matrice, ruolo per ruolo,
+sul dominio e sulle rotte.

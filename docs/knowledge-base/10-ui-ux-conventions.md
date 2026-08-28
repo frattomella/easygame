@@ -1054,3 +1054,39 @@ resterebbe appesa fino alla chiusura della scheda.
 
 `sessionStorage` e non `localStorage`: e un fatto di questa sessione del
 browser, non una preferenza da conservare.
+
+---
+
+## Lavoro sportivo: un numero senza le sue ipotesi non si puo contestare
+
+La schermata piu importante del modulo non e il cruscotto: e il **dialogo di
+erogazione**. E l'unico posto in cui un numero calcolato da EasyGame diventa
+una decisione di una persona, e per questo mostra il conto **prima** della
+conferma, riga per riga: lordo, progressivo, franchigia consumata, eccedenza,
+riduzione, aliquota, quote, imponibile fiscale, netto, costo club.
+
+Tre regole che valgono in ogni schermata di questo dominio.
+
+1. **Programmato, maturato ed erogato stanno in tre colonne.** Mai una sola:
+   chi legge non deve indovinare quale dei tre sta guardando.
+2. **Il netto non si chiama «da corrispondere» quando non lo e.** L'etichetta
+   la produce il dominio (`netAmountLabel`), non la schermata, perche il
+   divieto deve valere anche nelle superfici che non esistono ancora.
+3. **Gli avvisi duri chiedono una spunta, non bloccano.** Bloccare
+   costringerebbe a pagare fuori dal gestionale, che e peggio. La spunta
+   finisce nell'audit con il nome di chi l'ha messa.
+
+**La chiave del gesto nasce all'apertura del dialogo, non all'invio.** Due clic
+sul pulsante di conferma portano la stessa chiave e il secondo non fa uscire il
+denaro una seconda volta; generarla all'invio avrebbe reso il doppio clic due
+gesti diversi, cioe non avrebbe protetto da niente.
+
+**L'anteprima del piano gira nel browser con il modulo del server.**
+`generatePlanItems` e puro: quello che la segreteria vede prima di salvare e,
+riga per riga, quello che il server scrivera.
+
+Responsivita verificata a 375, 768, 1280 e 1440 px su tutte le pagine del
+dominio, sulla scheda persona e su Movimenti: nessun trabocco orizzontale. Le
+barre di sezione e le tabelle larghe scorrono dentro il proprio contenitore,
+non spingono la pagina.
+

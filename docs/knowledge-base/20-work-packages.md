@@ -1947,3 +1947,29 @@ invarianti statiche coprono le griglie e la forma del dialogo consegne, ma un
 test statico non dice se una pagina e leggibile (voce B3-03). E
 [D28](16-technical-debt.md): l'API assegnazioni scrive `clubs.<json>`
 aggirando `resources.ts` — difetto trovato nello scope, corretto fuori.
+
+---
+
+## WP Sport Work — Lavoro sportivo e compensi (2026-08-28)
+
+**Stato: implementato e collaudato a runtime su sviluppo. Non ancora esercitato
+da un club reale.**
+
+| Fase | Contenuto | Esito |
+|------|-----------|-------|
+| 0 | Regole versionate per anno, motore puro, modello, permessi | **Fatta.** 109 test, gli esempi A–E dell'analisi 28 come casi di prova |
+| 1 | Undici tabelle, servizio, registro in uscita, rotte, Movimenti | **Fatta.** Migrazione additiva, 4 vincoli e 4 CHECK nel database |
+| 2 | Agenda adempimenti, cruscotto, dataset F24/CU, giro notturno | **Fatta.** Idempotente per chiave deterministica |
+| 3 | Premi, rimborsi, fatture P.IVA, documenti su Attachment Core | **Fatta.** Domini separati, nessuno concorre alle soglie |
+| — | Cinque pagine, scheda rapporto, sezione nelle schede persona | **Fatta.** Responsiva a 375/768/1280/1440 |
+| — | Migrazione dei dati legacy | **Rapporto, non conversione** (ADR-0076) |
+
+**Cosa questo WP ha deciso di non fare**, e resta fuori da V1: ritenuta IRPEF
+calcolata, tracciati telematici (CU, 770, Uniemens, F24), cedolini, agenti
+sportivi e mandati, volontari con rimborso forfettario, compensazione fra
+compensi e quote.
+
+Il debito che apre e in [16](16-technical-debt.md), voci SW-01…SW-10. Le regole
+che attendono un professionista sono nel cap. 21 dell'analisi
+[28](28-lavoro-sportivo-e-compensi-analisi.md), e finche restano `PENDING` non
+producono calcoli definitivi.
