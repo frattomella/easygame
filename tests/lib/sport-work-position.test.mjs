@@ -136,7 +136,7 @@ test("una dichiarazione di un altro anno non si applica", () => {
 
 // --- storni ---------------------------------------------------------------------
 
-test("una riga stornata smette di contare, e lo storno la compensa", () => {
+test("una coppia stornata esce a due a due, e vale zero", () => {
   const position = computeAnnualPosition({
     year: 2026,
     payouts: [
@@ -156,7 +156,35 @@ test("una riga stornata smette di contare, e lo storno la compensa", () => {
     ],
   });
 
-  assert.equal(position.clubGross, 0);
+  assert.equal(
+    position.clubGross,
+    1200,
+    "resta solo l'erogazione non stornata",
+  );
+  assert.equal(position.paymentCount, 1);
+});
+
+test("escludere solo l'originale renderebbe negativo il progressivo", () => {
+  const soloStorno = computeAnnualPosition({
+    year: 2026,
+    payouts: [
+      payout({
+        id: "a",
+        gross_amount: 1200,
+        reversed_at: "2026-10-05T00:00:00.000Z",
+      }),
+      payout({
+        id: "a-rev",
+        gross_amount: -1200,
+        transaction_type: "COMPENSATION_REVERSAL",
+        reversal_of_id: "a",
+        paid_at: "2026-10-05T00:00:00.000Z",
+      }),
+    ],
+  });
+
+  assert.equal(soloStorno.clubGross, 0);
+  assert.equal(soloStorno.socialFranchiseRemaining, 5000);
 });
 
 test("un rimborso spese non consuma la franchigia dei compensi", () => {

@@ -171,6 +171,42 @@ const UNIQUE_CONSTRAINTS = {
         Number(row.amount) < 0,
     },
   ],
+  /*
+    Lavoro sportivo. I tre vincoli che il database fa rispettare sul denaro in
+    uscita, e senza i quali i test proverebbero il contrario di cio che devono
+    provare:
+
+      * `sport_work_outbound_gesto_unico` — due invii dello stesso clic
+        portano la stessa chiave, e il secondo non deve far uscire il denaro
+        una seconda volta;
+      * `sport_work_storno_unico` — stornare due volte la stessa erogazione
+        riporterebbe il registro in attivo di un compenso intero;
+      * `sport_work_dichiarazione_attiva_unica` — due autocertificazioni valide
+        per lo stesso anno sono due risposte alla domanda «quanta franchigia
+        resta», e la scelta fra le due la farebbe l'ordinamento di una query.
+  */
+  sportWorkOutboundTransaction: [
+    {
+      fields: ["organization_id", "idempotency_key"],
+      quando: (row) =>
+        row.idempotency_key !== null && row.idempotency_key !== undefined,
+    },
+    {
+      fields: ["reversal_of_id"],
+      quando: (row) =>
+        row.reversal_of_id !== null && row.reversal_of_id !== undefined,
+    },
+  ],
+  sportWorkExternalDeclaration: [
+    {
+      fields: ["organization_id", "person_id", "fiscal_year"],
+      quando: (row) => row.status === "ACTIVE",
+    },
+  ],
+  sportWorkCompensationPlan: [["relationship_id"]],
+  sportWorkInstallment: [["plan_id", "sequence"]],
+  sportWorkObligation: [["organization_id", "reference_key"]],
+  sportWorkYearPosition: [["organization_id", "person_id", "year"]],
 };
 
 /** L'errore che Prisma lancia su una chiave duplicata. */

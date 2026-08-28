@@ -88,12 +88,24 @@ export type AnnualPosition = {
   computedAt: string;
 };
 
+/**
+ * Vero se la riga entra nella posizione annua.
+ *
+ * **Una coppia stornata esce a due a due.** L'originale porta `reversed_at`,
+ * lo storno porta `reversal_of_id`: escludendone uno solo la somma
+ * resterebbe negativa di un compenso intero, e la persona risulterebbe avere
+ * franchigia residua che non ha. Escludendoli entrambi la coppia vale zero,
+ * che e quello che significa uno storno.
+ *
+ * Restano fuori anche premi, rimborsi e versamenti contributivi: non
+ * consumano le franchigie del lavoratore, e sommarli dichiarerebbe
+ * superamenti che non ci sono.
+ */
 const isCounted = (row: PositionPayoutRow) => {
   const type = String(row.transaction_type) as OutboundTransactionType;
   if (!affectsAnnualPosition(type)) return false;
-  // Uno storno e una riga negativa che compensa: entra nella somma.
-  // Una riga *stornata* resta nel registro ma non conta piu.
   if (row.reversed_at) return false;
+  if (row.reversal_of_id) return false;
   return true;
 };
 
