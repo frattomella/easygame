@@ -298,7 +298,7 @@ export const filterCollectionBySeason = (
   dataType: string,
   records: any[],
   activeSeasonId: string | null | undefined,
-  options: { legacySeasonId?: string | null } = {},
+  options: { legacySeasonId?: string | null; knownSeasonIds?: string[] } = {},
 ) => {
   if (!isSeasonScopedDataType(dataType)) {
     return Array.isArray(records) ? records : [];
@@ -311,12 +311,28 @@ export const filterCollectionBySeason = (
   const legacySeasonId = options.legacySeasonId ?? null;
   const keepLegacyRecords = !legacySeasonId || legacySeasonId === activeSeasonId;
 
+  /*
+    Un `seasonId` che nomina una stagione **che il club non ha** non e un
+    record di un'altra annata: e un record orfano. Succede quando la stagione
+    che lo aveva marcato non e mai stata salvata — la stagione sintetizzata per
+    un club che non ne ha ancora — e la prima stagione vera la sostituisce.
+    Trattarlo come «di un'altra stagione» lo fa sparire da ogni schermata senza
+    che nulla lo dica; trattarlo come un record senza stagione lo riporta dove
+    stanno gli altri dati senza annata. Vale la regola gia scritta qui sopra:
+    meglio mostrare un dato in piu che una lista vuota inspiegabile.
+  */
+  const knownSeasonIds = options.knownSeasonIds;
+  const isKnownSeason = (seasonId: string) =>
+    !knownSeasonIds || knownSeasonIds.includes(seasonId);
+
   return (Array.isArray(records) ? records : []).filter((record) => {
     const recordSeasonId = readRecordSeasonId(record);
 
-    return recordSeasonId === null
-      ? keepLegacyRecords
-      : recordSeasonId === activeSeasonId;
+    if (recordSeasonId === null || !isKnownSeason(recordSeasonId)) {
+      return keepLegacyRecords;
+    }
+
+    return recordSeasonId === activeSeasonId;
   });
 };
 

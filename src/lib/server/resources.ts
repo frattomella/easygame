@@ -1596,7 +1596,23 @@ const resolveRequestSeason = async (
     return null;
   }
 
-  return { activeSeasonId: requested, legacySeasonId: seasonState.legacySeasonId };
+  /*
+    Un club che non ha ancora salvato nessuna stagione ne riceve **una in
+    lettura**, sintetizzata per non lasciare l'interfaccia senza perimetro.
+    Non e un dato del club: marcarci sopra i record li lega a una stagione che
+    scompare nel momento in cui il club ne crea una vera, e allora i record non
+    appartengono piu a niente. Finche non c'e una stagione salvata non si filtra
+    e non si marca.
+  */
+  if (seasonState.isFallback) {
+    return null;
+  }
+
+  return {
+    activeSeasonId: requested,
+    legacySeasonId: seasonState.legacySeasonId,
+    knownSeasonIds: seasonState.seasons.map((season) => season.id),
+  };
 };
 
 /**
@@ -2325,6 +2341,7 @@ export const listResourcePage = async (
   const seasonScopedRecords = season
     ? filterCollectionBySeason(resource, serializedRecords, season.activeSeasonId, {
         legacySeasonId: season.legacySeasonId,
+        knownSeasonIds: season.knownSeasonIds,
       })
     : serializedRecords;
 

@@ -164,3 +164,75 @@ test("la stagione creata aggiorna il club attivo memorizzato", () => {
     "nessuna seconda implementazione della stessa scrittura",
   );
 });
+
+/**
+ * I record marcati con una stagione che il club **non ha**.
+ *
+ * Non e un caso teorico: su staging, EasyGame FC ha una categoria e i suoi due
+ * gruppi operativi marcati `seasonId: "season-2026-2027"`, mentre
+ * `clubs.settings.seasons` e vuoto. Oggi si vedono perche quell'id coincide con
+ * la stagione sintetizzata in lettura. Il giorno in cui il club crea la sua
+ * prima stagione vera, la sintetizzata sparisce e quei tre record — categoria
+ * compresa — non appartengono piu a nessuna annata: scomparirebbero da ogni
+ * schermata, in silenzio.
+ */
+test("un record marcato con una stagione inesistente non sparisce", async () => {
+  const { filterCollectionBySeason } = await import(
+    "../../src/lib/club-seasons.ts"
+  );
+
+  const records = [
+    { id: "vecchia", seasonId: "season-2026-2027" },
+    { id: "senza-stagione" },
+    { id: "di-questa-stagione", seasonId: "season-2027-2028" },
+    { id: "di-un-altra-vera", seasonId: "season-2026-2027-vera" },
+  ];
+
+  const known = ["season-2027-2028", "season-2026-2027-vera"];
+
+  const visible = filterCollectionBySeason("categories", records, "season-2027-2028", {
+    legacySeasonId: "season-2027-2028",
+    knownSeasonIds: known,
+  }).map((record) => record.id);
+
+  assert.deepEqual(visible, ["vecchia", "senza-stagione", "di-questa-stagione"]);
+
+  /*
+    E la stagione vera di un'altra annata continua a essere esclusa: la
+    correzione non deve trasformare il filtro in un colabrodo.
+  */
+  assert.equal(visible.includes("di-un-altra-vera"), false);
+});
+
+test("senza l'elenco delle stagioni note il filtro si comporta come prima", async () => {
+  const { filterCollectionBySeason } = await import(
+    "../../src/lib/club-seasons.ts"
+  );
+
+  const records = [{ id: "a", seasonId: "season-x" }, { id: "b" }];
+
+  assert.deepEqual(
+    filterCollectionBySeason("categories", records, "season-y", {
+      legacySeasonId: "season-y",
+    }).map((record) => record.id),
+    ["b"],
+  );
+});
+
+/**
+ * E non si marca affatto finche la stagione e solo quella sintetizzata: e da
+ * li che nascono i record orfani.
+ */
+test("su un club senza stagioni salvate non si marca e non si filtra", () => {
+  const source = read("src/lib/server/resources.ts");
+
+  assert.match(
+    source,
+    /if \(seasonState\.isFallback\) \{\s*\n\s*return null;/,
+  );
+  assert.match(
+    source,
+    /knownSeasonIds: seasonState\.seasons\.map\(\(season\) => season\.id\),/,
+  );
+  assert.match(source, /knownSeasonIds: season\.knownSeasonIds,/);
+});
