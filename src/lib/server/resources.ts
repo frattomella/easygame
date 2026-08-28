@@ -790,6 +790,9 @@ const normalizeModelInput = async (
 
   next = normalizeDates(resource, next);
   next.settings = parseJsonIfString(next.settings);
+  if (next.settings_patch !== undefined) {
+    next.settings_patch = parseJsonIfString(next.settings_patch);
+  }
   next.user_metadata = parseJsonIfString(next.user_metadata);
   next.data = parseJsonIfString(next.data);
   next.config = parseJsonIfString(next.config);
@@ -2637,6 +2640,19 @@ export const createResource = async (
   }
 
   const normalized = await normalizeModelInput(resource, input);
+
+  /*
+    Alla creazione non c'e niente con cui fondersi e non c'e nessuno con cui
+    correre: la modifica parziale vale come valore iniziale.
+  */
+  const createSettingsPatch = takeClubSettingsPatch(resource, normalized);
+  if (createSettingsPatch) {
+    normalized.settings = {
+      ...(parseJsonIfString(normalized.settings) || {}),
+      ...createSettingsPatch,
+    };
+  }
+
   assertAnagraficaIsValid(resource, normalized);
   normalizeAnagraficaText(resource, normalized);
 
@@ -2838,6 +2854,91 @@ const guardPlatformOwnedClubSettings = async (
 };
 
 /**
+ * Una modifica **parziale** di `clubs.settings`, applicata a quello che c'e
+ * nel momento in cui si scrive.
+ *
+ * ## Il difetto che chiude
+ *
+ * `settings` e una colonna JSON unica: per cambiarne una chiave il client la
+ * rileggeva e la riscriveva **intera**. Chi salvava la scheda Contatti
+ * rimandava indietro anche i Pagamenti, nella copia letta un istante — o dieci
+ * minuti — prima. Se nel frattempo qualcun altro aveva salvato i Pagamenti,
+ * quella scrittura spariva: nessun errore, nessuna traccia, solo un dato che
+ * torna com'era. Riprodotto in `tests/server/club-settings-concurrency.test.mjs`.
+ *
+ * ## Perche una toppa e non un blocco
+ *
+ * Mettere le scritture in fila non basterebbe: la copia vecchia arriva dal
+ * **client**, e resta vecchia anche se la sua scrittura aspetta il proprio
+ * turno. L'unico modo perche due sezioni diverse non si cancellino e che
+ * ognuna dichiari **solo le proprie chiavi** e che sia il server a fonderle
+ * con il valore corrente. `settings` intero resta accettato e continua a
+ * sostituire: chi lo manda sta dichiarando tutto, e ci sono percorsi che
+ * devono poter togliere una chiave.
+ *
+ * ## Perche dentro una transazione con lock
+ *
+ * Fusione a parte, restano due richieste che leggono e riscrivono la stessa
+ * riga: la finestra e di millisecondi invece che di minuti, ma esiste. Il
+ * `FOR UPDATE` e lo stesso rimedio, e lo stesso modo di scriverlo, gia usato
+ * dal registro incassi (`lockInstallmentAndTransaction`).
+ */
+const applyClubSettingsPatch = async (
+  resource: string,
+  id: string,
+  patch: Record<string, any>,
+  scope: ResourceAccessScope | undefined,
+  options: ResourceRequestOptions | undefined,
+) => {
+  await prisma.$transaction(async (tx: any) => {
+    await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${id}::uuid FOR UPDATE`;
+
+    const current = await tx.club.findUnique({ where: { id } });
+    if (!current) return;
+
+    const currentSettings = parseJsonIfString(current.settings) || {};
+    const staged: Record<string, any> = {
+      settings: { ...currentSettings, ...patch },
+    };
+
+    // Una modifica parziale non e una scorciatoia per il piano: il guardiano
+    // del piano deve vedere anche questa strada.
+    await guardPlatformOwnedClubSettings(
+      resource,
+      staged,
+      currentSettings,
+      scope,
+      options,
+      current.id,
+    );
+
+    await tx.club.update({
+      where: { id: current.id },
+      data: { settings: staged.settings },
+    });
+  });
+};
+
+/**
+ * Stacca la modifica parziale dal resto del payload.
+ *
+ * `settings_patch` non e una colonna: se restasse nell'oggetto, Prisma
+ * rifiuterebbe l'intera scrittura.
+ */
+const takeClubSettingsPatch = (
+  resource: string,
+  normalized: Record<string, any>,
+): Record<string, any> | null => {
+  const patch = normalized.settings_patch;
+  delete normalized.settings_patch;
+
+  if (resource !== "clubs" && resource !== "organizations") return null;
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
+
+  return patch as Record<string, any>;
+};
+
+/**
  * Lo stato di una rata non si scrive dal client, nemmeno dal CRUD generico.
  *
  * **Il difetto che chiude.** `POST /api/v1/payment-transactions` era gia il
@@ -2985,6 +3086,24 @@ export const updateResource = async (
     include: getModelInclude(resource),
   });
   assertRecordAccess(resource, existing, scope);
+
+  /*
+    La modifica parziale delle impostazioni si applica per conto suo, con il
+    lock, prima del resto: e l'unica parte della scrittura in cui due richieste
+    concorrenti possono cancellarsi a vicenda. Le altre colonne sono valori
+    singoli, dove l'ultima scrittura che vince e il comportamento atteso.
+  */
+  const settingsPatch = takeClubSettingsPatch(resource, normalized);
+  if (settingsPatch && existing) {
+    await applyClubSettingsPatch(
+      resource,
+      String(existing.id),
+      settingsPatch,
+      scope,
+      options,
+    );
+  }
+
   assertAnagraficaIsValid(resource, normalized, existing);
   normalizeAnagraficaText(resource, normalized);
   await guardPlatformOwnedClubSettings(

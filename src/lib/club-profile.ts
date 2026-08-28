@@ -487,10 +487,16 @@ const readClubSettings = async (clubId: string) => {
 /**
  * Scrive una sola sezione.
  *
- * `settings` e una colonna JSON unica: per cambiarne una chiave bisogna
- * rileggerla e riscriverla intera. La rilettura avviene **solo** quando la
- * sezione tocca davvero `settings`, e chiede al server la sola colonna
- * `settings`; la PATCH si fa restituire solo `id` (WP-36).
+ * `settings` e una colonna JSON unica. Fino a RC FIX 3 la si rileggeva e la si
+ * riscriveva **intera**: salvare i Contatti rimandava indietro anche i
+ * Pagamenti, nella copia letta prima. Se qualcun altro aveva salvato i
+ * Pagamenti nel frattempo — un'altra finestra, un'altra persona della stessa
+ * societa — quella scrittura spariva senza un errore.
+ *
+ * Ora la sezione dichiara **solo le proprie chiavi**, in `settings_patch`, e
+ * la fusione la fa il server sul valore corrente, sotto lock. Non c'e piu una
+ * copia vecchia da riportare indietro, e cade anche la rilettura che serviva
+ * a costruirla: una richiesta invece di due (WP-36).
  */
 export const saveClubProfileSection = async (
   clubId: string,
@@ -516,8 +522,7 @@ export const saveClubProfileSection = async (
       : settings;
 
   if (Object.keys(stamped).length) {
-    const currentSettings = await readClubSettings(clubId);
-    payload.settings = { ...currentSettings, ...stamped };
+    payload.settings_patch = stamped;
   }
 
   if (!Object.keys(payload).length) {
