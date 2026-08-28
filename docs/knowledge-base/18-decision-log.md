@@ -3723,3 +3723,158 @@ Due correzioni, e una regola scritta meglio:
 
 Il costo di sbagliare la lista e asimmetrico: un'operazione in piu nella fila
 rallenta una rata alla volta, una in meno riapre l'invariante per tutte.
+
+---
+
+## ADR-0068 — Le Entrate sono cassa: il denaro incassato non si deduce dallo stato della rata
+
+**Data:** 2026-08-28 · **Stato:** accettata · **Contesto:** RC Fix 3, punto 1
+
+**Contesto.** L'area Movimenti calcolava Entrate e Uscite da `status`: se la
+riga risultava saldata sommava il suo **importo dovuto**, altrimenti zero. La
+regola aveva senso finche una rata e un incasso erano la stessa riga. Dal
+registro incassi ([ADR-0036](#adr-0036--una-rata-e-un-debito-un-incasso-e-un-movimento-due-tabelle-non-una)) non lo sono piu: una rata da 130 EUR
+puo essere incassata in tre volte, e fra il primo incasso e l'ultimo non e ne
+pagata ne scoperta.
+
+Il Full Club UAT ha misurato le due facce dello stesso errore sulle **stesse**
+rate: 329,80 EUR di Entrate quando risultavano saldate, 0,00 EUR quando erano
+parziali, 250,00 EUR realmente in cassa. Mai la cifra giusta.
+
+**Decisione.** Ogni movimento normalizzato porta due numeri distinti:
+
+- `amount` — il **dovuto**, cioe quello che la riga dichiara. Non cambia;
+- `collectedAmount` — il **denaro entrato**, letto dal registro.
+
+Entrate e Uscite sommano `collectedAmount`. «Previste» diventa il **residuo**
+(`amount - collectedAmount`, mai negativo): incassato e residuo tornano sempre
+al dovuto, e una rata parziale compare in tutte e due le colonne per la parte
+che le compete.
+
+`collectedAmount` non e una seconda contabilita. Viene da
+`readChargeCollectedAmount` in `src/lib/payments/installment-ledger.ts`, che
+legge la fotografia `data.ledger` scritta da `recomputeChargeFromLedger`; in
+sua assenza risponde `resolveInstallmentLedger`, cioe la stessa funzione che
+quella fotografia la produce.
+
+**Perche una fotografia sulla riga e non i movimenti.** Un elenco di movimenti
+di club contiene centinaia di rate: caricare gli incassi di ognuna per fare
+una somma sarebbe una interrogazione per riga. La fotografia esiste gia sulla
+riga proprio per questo, ed e scritta nella stessa transazione che aggiorna la
+rata: non puo raccontare un incasso che non c'e.
+
+**Compatibilita.** Una rata saldata **prima** del registro non ha nessun
+movimento a dimostrarlo e nessuna fotografia. Vale per intero, com'e sempre
+valsa: riscrivere denaro gia registrato e la cosa che si evita. Al primo
+incasso registrato comanda il registro.
+
+**Conseguenze.** Lo `status` del movimento non cambia significato: una rata
+parziale resta «in attesa», perche il debito non e chiuso. Per non lasciare la
+riga in contraddizione con il totale, l'elenco mostra «Incassato X» sotto
+l'importo quando le due cifre non coincidono. I totali si sommano in
+**centesimi**: 179,80 piu 70,20 in virgola mobile fa 250.00000000000003, e un
+totale di cassa non puo mostrarlo.
+
+**Alternative scartate.** Introdurre uno stato `partial` fra quelli dei
+movimenti: avrebbe toccato badge, filtri, abilitazione di fattura e ricevuta
+in due pagine, per un difetto che e di **importi**, non di stato. Sommare le
+righe di `payment_transactions` come movimenti a se: le rate sono gia nella
+lista e i totali si sarebbero contati due volte.
+
+---
+
+## ADR-0069 — Una modifica parziale di `clubs.settings` dichiara solo le proprie chiavi
+
+**Data:** 2026-08-28 · **Stato:** accettata · **Contesto:** RC Fix 3, punto 3
+
+**Contesto.** `settings` e una colonna JSON unica. Per cambiarne una chiave il
+client la rileggeva e la riscriveva **intera**: salvare i Contatti rimandava
+indietro anche i Pagamenti, nella copia letta un istante — o dieci minuti —
+prima. Se qualcun altro aveva salvato i Pagamenti nel frattempo, quella
+scrittura spariva. Nessun errore, nessuna traccia: solo un dato che torna
+com'era.
+
+Dentro una sola pagina il difetto era gia contenuto: `createCoalescingSaver`
+scrive le sezioni una dopo l'altra (WP-36). Restava aperto fra **due finestre**
+e fra **due persone** della stessa societa, e la finestra li non e di
+millisecondi.
+
+**Decisione.** La PATCH del club accetta `settings_patch`: le sole chiavi che
+cambiano. Il server le fonde con il valore corrente, letto **al momento della
+scrittura**, dentro una transazione con `SELECT … FOR UPDATE` sulla riga.
+`settings` intero resta accettato e continua a sostituire.
+
+**Perche non basta mettere le scritture in fila.** La copia vecchia arriva dal
+client, e resta vecchia anche se la sua scrittura aspetta il proprio turno.
+Serviva togliere di mezzo la rilettura, non ordinarla. Il lock chiude cio che
+resta: due richieste che leggono la riga nello stesso millisecondo. E lo stesso
+rimedio, e lo stesso modo di scriverlo, gia usato dal registro incassi
+([ADR-0067](#adr-0067--il-denaro-si-arbitra-bloccando-la-riga-non-solo-con-un-indice)).
+
+**Perche non un merge implicito di `settings`.** Perche allora non ci sarebbe
+piu modo di **togliere** una chiave, e `patchClubSettings` — onboarding,
+reparti staff — ne ha bisogno. Due semantiche esplicite sono piu chiare di una
+sola ambigua.
+
+**Perche una fusione di primo livello.** Ogni scheda della pagina Club possiede
+chiavi di primo livello distinte. Una fusione profonda renderebbe impossibile
+svuotare un sotto-oggetto e non servirebbe a nessuno dei chiamanti.
+
+**Conseguenze.** Il campo e additivo: nessun client esistente cambia
+comportamento e nessun consumer mobile scrive `clubs`. Il salvataggio di una
+sezione costa ora **una** richiesta invece di due, perche la rilettura che
+serviva a costruire l'oggetto intero non serve piu. Il guardiano del piano
+(`guardPlatformOwnedClubSettings`) vede anche questa strada: una modifica
+parziale non e una scorciatoia per cambiarsi l'abbonamento.
+
+---
+
+## ADR-0070 — Una data di nascita si legge come testo, non come `Date`
+
+**Data:** 2026-08-28 · **Stato:** accettata · **Contesto:** RC Fix 3, punto 2
+
+**Contesto.** L'anteprima dell'import rifiutava gia il 31 febbraio, il 29
+febbraio di un anno non bisestile e una nascita nel futuro. La stessa scheda
+salvata dalla pagina Atleti — o da un modulo di iscrizione compilato da una
+famiglia — non passava di li: arrivava alla rotta generica, che si limitava a
+`new Date(valore)`.
+
+E qui la contro-intuizione che rendeva il difetto invisibile: **in JavaScript
+`new Date("2026-02-31")` non e una data invalida, e il 3 marzo 2026.**
+`2026-04-31` diventa il 1 maggio, `2025-02-29` il 1 marzo. Il record veniva
+accettato con una data diversa da quella scritta, in silenzio — e da
+`birth_date` discendono eta, categoria per anno di nascita e codice fiscale.
+Il difetto non era «manca un controllo»: era un controllo che rispondeva di si.
+
+**Decisione.** La regola vive in `src/lib/birth-date.ts`, modulo puro, e la
+usano tutti e due i percorsi. Una data di nascita si legge **come testo**: le
+sue tre parti devono ricomporre lo stesso giorno del calendario — il viaggio di
+andata e ritorno che smaschera il riporto — poi deve essere passata e non
+anteriore al 1900.
+
+Il controllo vive in due punti, e sono due punti diversi di proposito:
+
+- `normalizeDates` (`resources.ts`) smette di mentire: se il giorno non
+  esiste, il valore resta **come e stato scritto** invece di diventare un
+  altro giorno;
+- `assertAnagraficaIsValid` (`anagrafica.ts`) lo rifiuta con un errore di
+  dominio in italiano, 400. E il proprietario della validazione anagrafica, ed
+  e l'unico che ha in mano il record esistente.
+
+**Perche l'indulgenza per l'archivio.** Vale qui la regola gia scritta di quel
+modulo: se la scheda porta **gia** quella data, non e questa scrittura a
+introdurla, e rifiutarla renderebbe immodificabile proprio la scheda che
+qualcuno sta cercando di correggere. Una data inesistente in archivio non puo
+esserci — il tipo `date` di Postgres non la accetta — quindi l'indulgenza copre
+solo le date implausibili o nel futuro entrate prima di questo controllo.
+
+**Cosa non e cambiato.** I messaggi dell'import restano i suoi: l'anteprima
+distingue «non riconosciuta» da «mancante» con parole scelte per chi guarda un
+foglio di calcolo. Dell'import il modulo condivide la **regola**
+(`isRealCalendarDate`, `MIN_PLAUSIBLE_BIRTH_YEAR`), non il vocabolario.
+
+**Consumer verificati prima di cambiare il contratto.** Il mobile legge
+`birthDate` e non lo scrive (area allenatore, [ADR-0025](#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive)); i moduli
+pubblici di iscrizione e la pagina Atleti passano entrambi da
+`createResource` / `updateResource`. Non esiste un chiamante che scriva una
+data di nascita per un'altra strada.

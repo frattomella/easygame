@@ -44,9 +44,9 @@ Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.
 
-## Cosa e coperto oggi — 1.746 test, 128 file
+## Cosa e coperto oggi — 2.010 test, 157 file
 
-**La tabella sotto ne elenca 57 e non 76**: e rimasta indietro, ed e onesto
+**La tabella sotto ne elenca 57 e non 157**: e rimasta indietro, ed e onesto
 dirlo invece di lasciar credere che sia completa. Le righe che ci sono
 descrivono correttamente cio che coprono; le mancanti si leggono da `tests/`,
 dove la discovery e automatica su `tests/**/*.test.mjs`. Il conteggio in testa
@@ -124,6 +124,9 @@ e invece verificato a ogni esecuzione.
 | `tests/server/web-v1-integration.test.mjs` | 16 | **I punti di contatto fra i tre workstream**, che nessuno di loro poteva provare da solo: incasso parziale e voucher sullo stesso atleta senza sommarsi, liquidazione che non tocca la rata, i cinque importi che restano cinque, atleta multi-sede con una rata sola, modulo pubblico che **non** sceglie il tenant, kit valutato sugli articoli e non sulla sede, allegato di un modulo che eredita il club dal modulo, isolamento multi-tenant su tutti i domini nuovi |
 | `tests/server/clothing-assignments-resources.test.mjs` | 8 | Che le assegnazioni passino da `resources.ts` (D32): `club_resource_items` e il JSON del club allineati, **una** transazione per le tre collezioni, validazione prima di qualunque scrittura, isolamento fra club, `created_at` conservato |
 | `tests/ui/athlete-profile-integration-audit.test.mjs` | 6 | L'audit della scheda atleta dopo tre workstream paralleli: le otto aree montate, **nessun pannello montato due volte**, nessun import duplicato, lo stato della rata letto e non ricalcolato, la pagina che non supera le 8480 righe della baseline, contributi e incassi in due riquadri distinti |
+| `tests/lib/movements-cash-ledger.test.mjs` | 11 | **Le Entrate di `/movements` sono cassa** (RC Fix 3): rata scoperta, parziale, saldata, piu incassi sulla stessa rata, storno, rimborso, incasso-storno-incasso, il caso misurato dal Full Club UAT (329,80 dovuti, 250,00 incassati), rata annullata, rata anteriore al registro, Uscite e saldo |
+| `tests/server/birth-date-api.test.mjs` | 15 | **Le date impossibili sul confine dell API** (RC Fix 3): 31/02, 31/04, 29/02 non bisestile e la loro grafia italiana rifiutate — e nessuna scrittura parte; futuro e anno fuori range rifiutati; il 29/02 bisestile e la data valida salvate **esattamente** com erano scritte; una scheda gia in archivio con una data impossibile resta correggibile |
+| `tests/server/club-settings-concurrency.test.mjs` | 6 | **Due modifiche concorrenti a `clubs.settings`** (RC Fix 3): il primo test **riproduce** il lost update sul percorso vero; gli altri provano che `settings_patch` non porta con se una copia vecchia — Contatti + Pagamenti, Branding + dati fiscali, due modifiche alla stessa chiave, autosave con cinque sezioni sporche — e che `settings` intero continua a sostituire |
 | `tests/ui/kb-link-integrity.test.mjs` | 3 | I 294 link interni della Knowledge Base e la numerazione degli ADR: nessun file mancante, nessuna ancora rotta, nessun ADR duplicato o fuori ordine. Esiste perche l'integrazione ha rinumerato cinque ADR a mano |
 
 ## Isolamento multi-tenant: cosa dimostrano i test

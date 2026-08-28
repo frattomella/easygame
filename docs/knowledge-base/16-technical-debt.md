@@ -1069,7 +1069,15 @@ correnti e tenere una firma dei filtri gia caricati, cosi l'effetto debounced
 salta il primo giro quando riprodurrebbe cio che e gia in memoria; e chiedere
 le appartenenze una volta sola per apertura.
 
-### Gli incassi parziali non compaiono nel centro contabile
+### Gli incassi parziali non compaiono nel centro contabile — RISOLTO (RC Fix 3, 2026-08-28)
+
+**Risolto** in [27 — RC Fix 3](27-rc-fix-3.md), punto 1, con
+[ADR-0068](18-decision-log.md#adr-0068--le-entrate-sono-cassa-il-denaro-incassato-non-si-deduce-dallo-stato-della-rata):
+delle due strade descritte qui sotto e stata scelta la **seconda**, e senza
+inventare righe di prima nota. Il movimento porta ora `collectedAmount` accanto
+ad `amount`, «Entrate» somma il primo e «Previste» e il residuo. La descrizione
+che segue resta come l'analisi che ha portato alla decisione.
+
 
 **Dove:** `/movements` — la scheda «Entrate» e la tabella «Movimenti».
 
@@ -1109,7 +1117,21 @@ Quattro cose viste rileggendo il changeset del Full Club UAT da revisore, e
 ognuna aprirebbe uno scopo che una campagna di collaudo non e il momento di
 aprire.
 
-### `clubs.settings` si riscrive per intero, e due scritture concorrenti se ne perdono una
+### `clubs.settings` si riscrive per intero, e due scritture concorrenti se ne perdono una — RISOLTO IN PARTE (RC Fix 3, 2026-08-28)
+
+**Riprodotto** — `tests/server/club-settings-concurrency.test.mjs`, primo test —
+e **chiuso per la scheda Club**: le sue sezioni mandano ora solo le proprie
+chiavi in `settings_patch`, e la fusione la fa il server sotto
+`SELECT … FOR UPDATE`
+([ADR-0069](18-decision-log.md#adr-0069--una-modifica-parziale-di-clubssettings-dichiara-solo-le-proprie-chiavi)).
+
+**Resta aperto** per i due percorsi che hanno bisogno dell'oggetto intero
+perche devono poter **cancellare** una chiave: `patchClubSettings`
+(onboarding, reparti staff) e `createClubSeason` in `src/lib/server/seasons.ts`.
+La ragione per cui la stagione non e stata spostata e ancora quella scritta qui
+sotto — il riporto passa da `resources.ts`, che usa il client globale — e non e
+cambiata.
+
 
 **Dove:** `src/lib/server/seasons.ts` — `createClubSeason` legge lo stato con
 `readClubSeasonState` e lo riscrive con `saveClubSeasons`, che rilegge
@@ -1180,7 +1202,14 @@ sanno su quale club stanno lavorando.
 
 ## Registrati dal ritest a runtime sul deployment finale (2026-08-28)
 
-### Le date di nascita impossibili passano dall'API
+### Le date di nascita impossibili passano dall'API — RISOLTO (RC Fix 3, 2026-08-28)
+
+**Risolto** in [27 — RC Fix 3](27-rc-fix-3.md), punto 2, con
+[ADR-0070](18-decision-log.md#adr-0070--una-data-di-nascita-si-legge-come-testo-non-come-date).
+La misura qui sotto ha inoltre sottostimato il difetto: non passavano solo le
+date implausibili, ma anche quelle **inesistenti** — `2026-02-31` veniva
+salvata come 3 marzo 2026, perche `new Date` la riporta invece di rifiutarla.
+
 
 **Dove:** `src/lib/athlete-import.ts` — la regola di plausibilita vive
 nell'anteprima dell'import, che gira nel browser. Lo schema di validazione
@@ -1225,3 +1254,27 @@ la sola scheda delle metriche; la pagina intera ne fa quattro.
 E la stessa doppia lettura gia registrata per l'elenco Atleti, su un'altra
 pagina, e si chiude nello stesso modo: una firma dei parametri gia caricati,
 cosi la seconda richiesta identica non parte.
+
+## Registrato da RC Fix 3 (2026-08-28)
+
+### Il report Pagamenti dice «Incassato» contando le rate saldate, non il denaro
+
+**Dove:** `calculatePaymentReport` in `src/lib/club-report-utils.ts`, letta da
+`/reports`.
+
+**Cosa succede.** E lo stesso difetto che RC Fix 3 ha chiuso su `/movements`,
+sopravvissuto su un'altra pagina: `totalPaid` somma l'**importo dovuto** di
+ogni rata che risulta saldata, e zero per una rata incassata a meta. Sui dati
+del Full Club UAT — 329,80 EUR dovuti, 250,00 EUR incassati — Movimenti dice
+ora 250,00 e il report continuerebbe a dire 179,80.
+
+**Perche non e stato corretto qui.** RC Fix 3 aveva per perimetro esplicito la
+pagina Movimenti, e ampliarlo a `/reports` avrebbe portato dentro le sue
+categorie e le sue soglie di scaduto, che nessuno ha ancora ricollaudato. La
+correzione e pero minima: il campo `collectedAmount` che il report gia riceve
+sul movimento e la sola cosa che manca.
+
+**Cosa farebbe la differenza:** `totalPaid` che somma `movement.collectedAmount`
+e `totalPending` / `totalOverdue` che ne ripartiscono il residuo, come fa
+`summarizeClubMovements`
+([ADR-0068](18-decision-log.md#adr-0068--le-entrate-sono-cassa-il-denaro-incassato-non-si-deduce-dallo-stato-della-rata)).

@@ -50,9 +50,34 @@ colonna dedicata. Le chiavi con un significato per il codice:
 | `onboarding` | `/onboarding` (Blocco 4) | Stato della configurazione iniziale: `status`, `completedSteps`, date. Vedi `src/lib/onboarding.ts` |
 | `staffDepartments` | `src/lib/api/staff-departments.ts` (Blocco 7) | Reparti dello staff. **Fonte unica**: il modello sta in `src/lib/staff-directory.ts`, e ogni schermata che salva un membro con un reparto lo persiste qui |
 
-Poiche la colonna e unica, ogni scrittura parziale e un **read-modify-write**:
-`patchClubSettings` in `src/lib/club-profile.ts` rilegge la sola colonna
-`settings` prima di riscriverla, per non azzerare le chiavi che non tocca.
+Poiche la colonna e unica, una scrittura parziale deve dire **soltanto le
+chiavi che cambia**. Dal RC Fix 3 il modo canonico e il campo `settings_patch`
+sulla PATCH del club: il server lo fonde con il valore corrente, dentro una
+transazione con `SELECT … FOR UPDATE` sulla riga
+([ADR-0069](18-decision-log.md#adr-0069--una-modifica-parziale-di-clubssettings-dichiara-solo-le-proprie-chiavi), `applyClubSettingsPatch` in
+`src/lib/server/resources.ts`). `settings` intero resta accettato e continua a
+**sostituire** — chi lo manda sta dichiarando tutto, ed e cosi che si toglie
+una chiave.
+
+Il read-modify-write lato client resta solo in `patchClubSettings`
+(`src/lib/club-profile.ts`), che serve onboarding e reparti staff e ha bisogno
+dell'oggetto intero per poter **cancellare** una chiave. Vedi
+[16 — Debito tecnico](16-technical-debt.md).
+
+#### `athletes.birth_date` — cosa il server accetta
+
+Non basta che `new Date(valore)` non fallisca: in JavaScript
+`new Date("2026-02-31")` **non** e una data invalida, e il 3 marzo 2026. Prima
+del RC Fix 3 la rotta salvava quel giorno diverso senza segnalare niente, e da
+`birth_date` discendono eta, categoria per anno di nascita e codice fiscale.
+
+La regola sta in `src/lib/birth-date.ts` (modulo puro) ed e la stessa per
+l'anteprima dell'import e per la scrittura via API: la data si legge **come
+testo** e le sue tre parti devono ricomporre lo stesso giorno; poi dev'essere
+passata e non anteriore al 1900. La respinge
+`assertAnagraficaIsValid` con un errore di dominio (400), con l'indulgenza
+consueta del modulo: una scheda che porta **gia** quella data resta
+correggibile.
 
 #### Stagioni sportive
 

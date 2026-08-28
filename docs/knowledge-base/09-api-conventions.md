@@ -355,6 +355,32 @@ Lato client la proiezione e una scelta esplicita dei lettori in
 `src/lib/simplified-db.ts` (`readClubFields` / `writeClubFields`), non un
 comportamento globale dell'adapter: le `select` normali restano invariate.
 
+### `settings_patch`: modificare una parte delle impostazioni
+
+`PATCH /api/v1/clubs/:id` accetta, oltre a `settings`, il campo
+**`settings_patch`**: un oggetto con le sole chiavi che cambiano.
+
+| Campo | Semantica |
+|-------|-----------|
+| `settings` | **Sostituisce** l'intera colonna. E il modo per togliere una chiave. |
+| `settings_patch` | **Fonde** le chiavi indicate con il valore corrente, letto al momento della scrittura sotto `SELECT … FOR UPDATE`. Le chiavi non citate non si muovono. |
+
+La fusione e sul primo livello: `settings_patch: { paymentSettings: {…} }`
+sostituisce `paymentSettings` per intero, non le sue sottochiavi. E cio che
+serve, perche ogni scheda della pagina Club possiede chiavi di primo livello
+distinte.
+
+**Perche esiste.** Con il solo `settings` una scheda doveva rileggere la
+colonna e riscriverla intera, portandosi dietro una copia delle altre sezioni
+vecchia di secondi o di minuti: salvare i Contatti cancellava i Pagamenti
+salvati nel frattempo da un'altra finestra, in silenzio
+([ADR-0069](18-decision-log.md#adr-0069--una-modifica-parziale-di-clubssettings-dichiara-solo-le-proprie-chiavi)). Il campo e **additivo**: nessun
+client esistente cambia comportamento, e nessun consumer mobile scrive
+`clubs`.
+
+Sulla **creazione** `settings_patch` vale come valore iniziale: non c'e niente
+con cui fondersi.
+
 ### Filtro di stagione
 
 Se la richiesta porta `x-active-season-id` e la risorsa e una `club_resource`
