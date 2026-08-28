@@ -878,3 +878,27 @@ e il `production` del progetto **staging**.
    toccato dal changeset.
 6. **CodeRabbit** resta non eseguibile. Al suo posto la doppia revisione
    indipendente, con i finding e le prove qui sopra.
+
+## L'avvio guidato, riprovato senza creare un club
+
+Il finding High della **seconda** revisione riguarda cosa dice il passo
+Stagione a un club che di stagioni salvate non ne ha nessuna. Non serviva un
+club nuovo per riprovarlo: `EasyGame FC` **e** un club in quella condizione —
+`settings.seasons` vuoto, stagione sintetizzata in lettura — ed e lo stesso
+club su cui il difetto 2 era stato trovato.
+
+Aperto l'avvio guidato con quel club attivo, sul deployment finale:
+
+| Cosa | Prima | Ora |
+|---|---|---|
+| Il riquadro «Stagione attiva: 2026/2027. Puoi passare avanti.» | c'era, su un club senza nessuna stagione | **non c'e** |
+| I due campi data | vuoti: premere «Avanti» non creava niente | **precompilati** con `2026-07-01` e `2027-06-30`, l'annata sportiva corrente |
+| L'anteprima | assente | «Verra creata la stagione **2026/2027**» |
+
+Cioe: dove prima l'applicazione invitava a saltare il passo e il club usciva
+senza stagione, ora propone l'annata giusta e «Salva e continua» la crea.
+
+**Nessun dato e stato scritto:** il passo non e stato salvato, e a fine prova
+`EasyGame FC` ha ancora 0 stagioni salvate e nessuno stato di onboarding
+(verificato dopo la visita). Lo scaffale del club attivo e stato rimesso su
+`QA UAT Club` dal pannello account, come si e trovato.
