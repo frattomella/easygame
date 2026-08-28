@@ -44,8 +44,9 @@ test("nessuna etichetta di sezione e nascosta dietro un breakpoint", () => {
 test("la barra continua a scorrere invece di mandare a capo", () => {
   /*
     L'alternativa sbagliata alla correzione sarebbe stata far andare a capo le
-    sette sezioni: a 375 px due righe di schede spingono il contenuto sotto la
-    piega prima che la pagina cominci.
+    sezioni: a 375 px due righe di schede spingono il contenuto sotto la piega
+    prima che la pagina cominci. Con l'ottava sezione lo scorrimento conta piu
+    di prima.
   */
   const source = sorgente();
 
@@ -62,7 +63,7 @@ test("ogni sezione ha un'etichetta, e l'icona non la sostituisce", () => {
     );
   }
 
-  assert.equal(ATHLETE_PROFILE_TABS.length, 7);
+  assert.equal(ATHLETE_PROFILE_TABS.length, 8);
   assert.ok(
     ATHLETE_PROFILE_TABS.some((tab) => tab.label === "Iscrizione"),
     "la sezione dove si guardano le rate si chiama Iscrizione",

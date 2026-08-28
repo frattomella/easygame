@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PersonCompensationTab } from "@/components/sport-work/PersonCompensationTab";
 import {
   Calendar,
   Clock,
@@ -1364,7 +1365,7 @@ export default function TrainerDetailsPage() {
 
             {/* Tabs for different sections */}
             <Tabs defaultValue="anagrafica">
-              <TabsList className="grid w-full grid-cols-2 md:grid-cols-6">
+              <TabsList className="grid w-full grid-cols-2 md:grid-cols-7">
                 <TabsTrigger value="anagrafica">
                   <User className="h-4 w-4 mr-2" />
                   Anagrafica
@@ -1388,6 +1389,10 @@ export default function TrainerDetailsPage() {
                 <TabsTrigger value="presenze">
                   <Activity className="h-4 w-4 mr-2" />
                   Presenze
+                </TabsTrigger>
+                <TabsTrigger value="lavoro">
+                  <Briefcase className="h-4 w-4 mr-2" />
+                  Lavoro e compensi
                 </TabsTrigger>
               </TabsList>
 
@@ -1553,7 +1558,35 @@ export default function TrainerDetailsPage() {
               </TabsContent>
 
               {/* PAGAMENTI TAB */}
+              {/*
+                Lavoro e compensi: il rapporto, il piano, le erogazioni e la
+                posizione verso le soglie. La scheda «Pagamenti» qui sotto e il
+                promemoria storico (trainer_payments) e non calcola contributi.
+              */}
+              <TabsContent value="lavoro" className="mt-4 space-y-6">
+                <PersonCompensationTab
+                  originType="trainer"
+                  originId={trainerId}
+                  firstName={trainer.firstName || trainer.first_name}
+                  lastName={trainer.lastName || trainer.last_name}
+                  fiscalCode={trainer.fiscalCode || trainer.fiscal_code}
+                  email={trainer.email}
+                  phone={trainer.phone}
+                />
+              </TabsContent>
+
               <TabsContent value="pagamenti" className="mt-4 space-y-6">
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-medium">
+                    Questo registro e un promemoria, non una contabilita dei compensi
+                  </p>
+                  <p className="mt-1 text-xs">
+                    Non conosce il rapporto di lavoro, i contributi, l&apos;anno
+                    fiscale ne lo storno. Il modulo che li governa e «Lavoro e
+                    compensi», nella scheda accanto. Le righe gia registrate qui
+                    restano leggibili e non vengono toccate.
+                  </p>
+                </div>
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle className="flex items-center gap-2">

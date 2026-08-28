@@ -3,6 +3,7 @@
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   BarChart3,
+  Briefcase,
   DollarSign,
   FileText,
   Heart,
@@ -45,6 +46,7 @@ const ICONS: Record<AthleteProfileTabValue, typeof User> = {
   abbigliamento: Shirt,
   documenti: FileText,
   analitiche: BarChart3,
+  lavoro: Briefcase,
 };
 
 export function AthleteProfileTabsBar() {

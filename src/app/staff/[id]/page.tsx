@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PersonCompensationTab } from "@/components/sport-work/PersonCompensationTab";
 import {
   Select,
   SelectContent,
@@ -472,7 +473,7 @@ export default function StaffMemberDetailsPage() {
 
             {/* Tabs for different sections */}
             <Tabs defaultValue="anagrafica">
-              <TabsList className="grid w-full grid-cols-2 md:grid-cols-3">
+              <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
                 <TabsTrigger value="anagrafica">
                   <User className="h-4 w-4 mr-2" />
                   Anagrafica
@@ -485,7 +486,23 @@ export default function StaffMemberDetailsPage() {
                   <IdCard className="h-4 w-4 mr-2" />
                   Documenti
                 </TabsTrigger>
+                <TabsTrigger value="lavoro">
+                  <Briefcase className="h-4 w-4 mr-2" />
+                  Lavoro e compensi
+                </TabsTrigger>
               </TabsList>
+
+              <TabsContent value="lavoro" className="mt-4 space-y-6">
+                <PersonCompensationTab
+                  originType="staff_member"
+                  originId={staffId}
+                  firstName={staffMember.name}
+                  lastName={staffMember.surname}
+                  fiscalCode={staffMember.fiscalCode || staffMember.fiscal_code}
+                  email={staffMember.email}
+                  phone={staffMember.phone}
+                />
+              </TabsContent>
 
               {/* ANAGRAFICA TAB */}
               <TabsContent value="anagrafica" className="mt-4 space-y-6">

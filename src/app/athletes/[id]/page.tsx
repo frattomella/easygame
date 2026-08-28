@@ -118,6 +118,7 @@ import {
 } from "@/lib/athlete-profile-fields";
 import { AthleteProfileHeader } from "@/components/athletes/profile/athlete-profile-header";
 import { AthleteProfileTabsBar } from "@/components/athletes/profile/athlete-profile-tabs";
+import { PersonCompensationTab } from "@/components/sport-work/PersonCompensationTab";
 import { resolveAthleteProfileTab } from "@/lib/athlete-profile-tabs";
 import { CapitalizedInput } from "@/components/forms/capitalized-input";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
@@ -5980,6 +5981,19 @@ export default function AthleteProfilePage() {
               <TabsContent value="analitiche" className="mt-4 space-y-6">
                 <AthleteCategoryAnalyticsSection
                   analytics={athleteCategoryAnalytics}
+                />
+              </TabsContent>
+
+              {/* LAVORO E COMPENSI */}
+              <TabsContent value="lavoro" className="mt-4 space-y-6">
+                <PersonCompensationTab
+                  originType="athlete"
+                  originId={athleteId}
+                  firstName={athlete?.first_name}
+                  lastName={athlete?.last_name}
+                  fiscalCode={athlete?.fiscal_code}
+                  email={athlete?.email}
+                  phone={athlete?.phone}
                 />
               </TabsContent>
             </Tabs>

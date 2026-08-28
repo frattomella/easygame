@@ -265,7 +265,7 @@ test("i componenti del kit arrivano selezionati e da consegnare", () => {
 
 /* ------------------------------------------------------------- le sezioni */
 
-test("le sette sezioni della scheda sono dichiarate in un posto solo", () => {
+test("le otto sezioni della scheda sono dichiarate in un posto solo", () => {
   assert.deepEqual(
     ATHLETE_PROFILE_TABS.map((tab) => tab.value),
     [
@@ -276,6 +276,12 @@ test("le sette sezioni della scheda sono dichiarate in un posto solo", () => {
       "abbigliamento",
       "documenti",
       "analitiche",
+      /*
+        «Lavoro e compensi» arriva con il modulo Sport Work: la scheda atleta e
+        una delle tre superfici da cui si guarda un rapporto di lavoro, perche
+        un atleta senior con una co.co.co. e un atleta prima che un lavoratore.
+      */
+      "lavoro",
     ],
   );
 });

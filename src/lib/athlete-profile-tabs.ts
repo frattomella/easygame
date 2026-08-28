@@ -17,6 +17,7 @@ export const ATHLETE_PROFILE_TABS = [
   { value: "abbigliamento", label: "Abbigliamento" },
   { value: "documenti", label: "Documenti" },
   { value: "analitiche", label: "Analitiche" },
+  { value: "lavoro", label: "Lavoro e compensi" },
 ] as const;
 
 export type AthleteProfileTabValue =

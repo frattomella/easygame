@@ -85,6 +85,7 @@ const MANAGEMENT_PATH_PREFIXES = [
   "/settings",
   "/soci",
   "/sponsors",
+  "/sport-work",
   "/staff",
   "/structures",
   "/trainers",
@@ -100,6 +101,14 @@ const MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES = [
   "/organization",
   "/permissions",
   "/settings",
+  /*
+    Lavoro sportivo: dice quanto guadagna una persona. Il perimetro coincide
+    con quello che gia protegge conti correnti e configurazione societaria, e
+    lo dichiara **anche qui** e non solo nei permessi del dominio: una guardia
+    di rotta che non lo sapesse lascerebbe aprire la pagina a un collaboratore,
+    che poi la troverebbe piena di errori 403 invece di una frase che spiega.
+  */
+  "/sport-work",
 ] as const;
 
 const MANAGEMENT_ADMIN_ONLY_RESOURCES = new Set([

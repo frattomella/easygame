@@ -7,16 +7,21 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
+  BadgeEuro,
   Briefcase,
   Building,
+  CalendarClock,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
+  FileSignature,
   FileText,
   FileUp,
   GraduationCap,
   Handshake,
+  HardHat,
   Home,
   Lock,
   MessageSquare,
@@ -135,6 +140,37 @@ const sidebarGroups: SidebarGroup[] = [
     items: [
       { id: "movements", label: "Movimenti", href: "/movements", icon: Wallet },
       { id: "sponsors", label: "Sponsor", href: "/sponsors", icon: Handshake },
+    ],
+  },
+  {
+    id: "sport-work",
+    label: "LAVORO SPORTIVO",
+    items: [
+      { id: "sport-work", label: "Dashboard", href: "/sport-work", icon: HardHat },
+      {
+        id: "sport-work-relationships",
+        label: "Rapporti",
+        href: "/sport-work/relationships",
+        icon: FileSignature,
+      },
+      {
+        id: "sport-work-compensations",
+        label: "Compensi",
+        href: "/sport-work/compensations",
+        icon: BadgeEuro,
+      },
+      {
+        id: "sport-work-deadlines",
+        label: "Scadenze",
+        href: "/sport-work/deadlines",
+        icon: CalendarClock,
+      },
+      {
+        id: "sport-work-obligations",
+        label: "Adempimenti",
+        href: "/sport-work/obligations",
+        icon: ClipboardCheck,
+      },
     ],
   },
   {
