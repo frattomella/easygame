@@ -415,6 +415,57 @@ Launcher alternativi per chi non usa la CLI:
 Gli script che scrivono (`provision-staging-e2e`) vanno eseguiti solo con
 autorizzazione esplicita.
 
+## Stato di staging verificato — 2026-08-28 (UAT di RC Fix 2)
+
+| Voce | Valore |
+|------|--------|
+| Deployment | `r8a5kgaky`, **READY**, target `production` del progetto `easygame-staging`, commit `a2f6ec7` |
+| Alias | `https://easygame-staging-pi.vercel.app` |
+| Migrazioni | **Nessuna nuova.** RC Fix 2 non tocca lo schema: `prisma migrate deploy` non ha avuto niente da applicare |
+| CI remota | verde su `ca4a51f` e su `a2f6ec7` |
+| Progetto production | **non esiste** nello scope Vercel, come dichiarato da CLAUDE.md sezione 9. Il progetto **Neon** `easygame-production` esiste, non e stato toccato e ha `active_time: 0` |
+
+**Due deploy, non uno.** Il primo (`dztsougyk`) portava le correzioni dei
+sette difetti trovati provando l'applicazione; l'ottavo — `Elimina categoria`
+che rispondeva 400 — e emerso **mentre si usava** quel deploy, ed e stato
+corretto e distribuito con il secondo (`r8a5kgaky`). E il modo in cui la
+verifica su un ambiente vero si paga da sola: la riprova di una correzione e
+il posto piu probabile dove trovare la successiva.
+
+### Cosa e stato letto, non solo interrogato
+
+La UAT ha esercitato le pagine, non gli endpoint: creazione di un atleta, di
+un allenatore, di un membro dello staff e di un socio; due sedi e una
+categoria attiva su entrambe; selezione multipla ed export sui tre elenchi;
+l'assegnazione di massa a un gruppo, due volte di fila; la scheda atleta
+aperta **senza** `clubId`; l'indicatore di autosave osservato campionando il
+DOM ogni 150 ms. Il dettaglio, punto per punto, sta in
+[25 — RC Fix 2](25-rc-fix-2.md#la-uat-su-staging-e-gli-otto-difetti-che-ha-trovato).
+
+### Due cose che restano non verificabili da qui
+
+- **La scheda del conto di incasso** non si monta su EasyGame FC: la voce
+  «Pagamenti» e dietro un abbonamento non attivo. Il contratto dei dati e
+  stato letto lo stesso — `GET /api/v1/payments/account` risponde
+  `provider: "stripe"` dal record, con `chargesEnabled` e `payoutsEnabled`
+  separati e un `readiness.blocker` distinto — ma il logotipo e le due righe
+  di stato no. Attivare un abbonamento di prova richiede una riga in
+  `platform_billing_accounts`;
+- **i deployment Preview continuano a fallire** per `DIRECT_URL` mancante
+  sull'ambiente Preview. Non e una regressione: vale da prima di questo
+  lavoro e non si corregge dal repository (vedi D39).
+
+### I dati di collaudo lasciati su EasyGame FC
+
+Le quattro categorie «Categoria importata» di RC Fix 1 **sono state
+rimosse**, dall'applicazione e con le condizioni verificate prima.
+
+Restano invece, di proposito, le anagrafiche create per la UAT — tutte con il
+cognome che finisce per `Uat` — piu la categoria `UAT Pulcini` con le sedi
+`Roma` e `Aprilia`: sono la configurazione multi-sede senza la quale tre degli
+otto difetti non si vedono, e questo e l'unico club multi-sede a cui le
+credenziali demo diano accesso.
+
 ## Stato di staging verificato — 2026-08-22
 
 | Voce | Valore |

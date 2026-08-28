@@ -1,7 +1,8 @@
 # 25 — RC Fix 2: coerenza delle anagrafiche, azioni di massa, marchio dell'intermediario
 
-**Data:** 2026-08-28 · **Branch:** `integration/web-v1` · **Staging:** *non
-ancora distribuito* (vedi [Cosa resta aperto](#cosa-resta-aperto))
+**Data:** 2026-08-28 · **Branch:** `integration/web-v1` · **Staging:**
+distribuito, deployment `r8a5kgaky` **READY**, alias
+`easygame-staging-pi.vercel.app`
 
 Come [24 — RC Fix 1](24-rc-fix-1.md), questo documento risponde a una domanda
 sola: **cosa era rotto, perche, e come si sa che adesso funziona.**
@@ -389,6 +390,69 @@ Punto per punto, a schermo, sul deployment pubblico:
 | 18-19 — copia e accessibilita | il menu Sesso offre solo Maschio e Femmina; le caselle dicono il nome della persona; il conteggio e in una regione `aria-live="polite"`; comune e sesso scelti **da tastiera** |
 | 20 — responsive | 375 / 768 / 1280 / 1440 su Atleti, Allenatori, Staff, Soci, Categorie: nessuno scorrimento orizzontale di pagina. A 375 px i cinque comandi della barra di selezione sono **tutti** dentro lo schermo. I soli controlli fuori misura stanno dentro un `overflow-x-auto`, che e il comportamento voluto |
 
+### La riprova, sul deployment che porta le correzioni
+
+Ogni difetto e stato riaperto e richiuso **sullo stesso alias pubblico**, dopo
+il redeploy:
+
+| Difetto | Prima | Dopo |
+|---|---|---|
+| Assegnazione a gruppo | assegnata Anna a Roma e poi ad Aprilia: `groupIds = [Aprilia]` | assegnata ad Aprilia e poi a Roma: `groupIds = [Aprilia, Roma]`. Luca, non selezionato, invariato |
+| Colonne del PDF allenatori | `Uat` / `Anna Rossi Uat` | `Rossi Uat` / `Anna` |
+| Colonne del PDF soci | `Della Valle Uat` / `Della Valle Uat Chiara` | `Della Valle Uat` / `Chiara` |
+| Colonne del PDF staff | gia corrette | invariate: `De Santis Uat` / `Giovanni` |
+| Conteggio in cima al PDF | «Atleti esportati» su tutti | «Allenatori esportati», «Membri dello staff esportati», «Soci esportati» |
+| Plurale | «1 allenatori selezionati» | «1 allenatore selezionato», «1 membro dello staff selezionato», «1 socio selezionato» |
+| Colonna «Categorie» | `-` dopo l'assegnazione | `UAT Pulcini · Aprilia`, `UAT Pulcini · Roma` — in tabella e nel PDF |
+| Riga Atleti a 1280 px | «Nuovo atleta» finiva a 1276 su 1265 disponibili | finisce a 1241; **zero** comandi fuori schermo a 375 / 768 / 1100 / 1265 / 1280 / 1440 |
+| Elimina categoria | 400 con l'errore del driver | le quattro categorie eliminate una per una |
+
+### La pulizia dei dati di collaudo RC Fix 1
+
+**Fatto.** Le quattro categorie «Categoria importata» — `Under 12`, `Under 13`,
+`Under 14`, `Under 15` — sono state rimosse **dall'applicazione**, non dal
+database: cosi `clubs.categories` e `club_resource_items` restano allineati
+(e la regola di [CLAUDE.md §2](../../CLAUDE.md)) e l'audit registra il gesto.
+
+Le condizioni sono state verificate **prima**, e da quattro parti
+indipendenti:
+
+1. la scheda di ognuna diceva `0 atleti`, `0 allenatori`,
+   `0 allenamenti settimanali`, e nessuna sede assegnata;
+2. `athlete_category_memberships` del club: **0 righe**; entrambi gli atleti
+   con `category_id` nullo;
+3. l'id logico di ognuna (`category-under-1X-bw552a`) non compare in nessuna
+   delle diciotto colonne JSON del club — allenamenti, gare, orario
+   settimanale, piani, sconti, gruppi, maglie, kit, appuntamenti, modelli,
+   procure, allenatori, staff, soci, impostazioni — ne in nessuna riga
+   `club_resource_items` diversa dalle categorie stesse; e ognuna delle undici
+   tabelle figlie del club e vuota;
+4. la finestra di conferma dell'applicazione: «Atleti collegati: 0 — Questa
+   categoria non contiene atleti».
+
+Che siano dati di collaudo e inequivocabile: `sport` e `description` valgono
+`Categoria importata`, il marcatore dell'import RC1, e le quattro righe sono
+nate nello stesso lampo di 0,4 secondi il 2026-08-27 alle 19:03:36.
+
+**Dopo:** una sola categoria sul club, `UAT Pulcini`; `clubs.categories` e
+`club_resource_items` concordi (1 e 1); i due gruppi operativi intatti; zero
+appartenenze orfane.
+
+### Cosa resta su staging, di proposito
+
+La UAT ha creato dei dati, e **non sono stati rimossi**: sono la
+configurazione senza la quale tre degli otto difetti non si vedono, e la sola
+occasione di provare il multi-sede su un club a cui si abbia accesso.
+
+Su **EasyGame FC**: l'atleta `Mario De Luca Uat`, l'allenatore
+`Anna Rossi Uat`, il membro dello staff `Giovanni De Santis Uat`, la socia
+`Chiara Della Valle Uat`, la categoria `UAT Pulcini` con le due sedi `Roma` e
+`Aprilia` e i due gruppi che ne discendono. Si riconoscono dal cognome: tutti
+finiscono per `Uat`.
+
+L'unico campo del club toccato per il collaudo — `foundingYear`, usato per
+guardare l'indicatore di autosave — e stato **riportato a vuoto**, come era.
+
 ## I gate
 
 | Gate | Esito |
@@ -398,6 +462,8 @@ Punto per punto, a schermo, sul deployment pubblico:
 | `npm run lint` | 0 errori, 40 warning — **invariati** |
 | `npm run build` | completa |
 | `npx tsc --allowUnreachableCode false` | pulito (gate della CI) |
+| CI remota | verde su `ca4a51f` e su `a2f6ec7` (HEAD) |
+| Deploy staging | `r8a5kgaky` **READY**, target `production` del progetto `easygame-staging`. Nessuna migrazione da applicare: RC Fix 2 non tocca lo schema, le 21 restano quelle di prima |
 | Multi-tenant | i test di isolamento restano verdi; 5 nuovi sullo scope atleta |
 | Responsive | 375 / 768 / 1280 / 1440: nessuno scorrimento orizzontale, **zero** comandi fuori schermo |
 
