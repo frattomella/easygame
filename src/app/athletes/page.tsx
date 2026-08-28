@@ -1067,14 +1067,23 @@ export default function AthletesPage() {
     righe che il server ha appena scelto di mandare.
   */
   // Filter athletes by search and status
+  /*
+    La chiave si normalizza a NFC come i nomi salvati: sotto la soglia di
+    paginazione la ricerca la fa il browser, e senza questa riga il difetto
+    di «Niccolo con l'accento» resterebbe aperto proprio sui club piccoli —
+    quelli che non passano mai dalla ricerca del server. Vedi
+    `buildSearchFilter` in `src/lib/server/resources.ts`.
+  */
+  const normalizedQuery = searchQuery.normalize("NFC").toLowerCase();
+
   const filteredAthletes = paginated
     ? athletes
     : athletes.filter((athlete) => {
     const matchesSearch =
-      athlete.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      athlete.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      athlete.name.toLowerCase().includes(normalizedQuery) ||
+      athlete.categoryLabel.toLowerCase().includes(normalizedQuery) ||
       athlete.allCategoryLabels.some((label) =>
-        label.toLowerCase().includes(searchQuery.toLowerCase()),
+        label.toLowerCase().includes(normalizedQuery),
       );
 
     const matchesStatus =

@@ -1440,7 +1440,22 @@ const sortableFieldsFor = (resource: string) =>
  */
 const buildSearchFilter = (resource: string, query: string) => {
   const fields = searchableFieldsFor(resource);
-  const trimmed = query.trim();
+  /*
+    La chiave di ricerca si normalizza a **NFC**, come i nomi salvati.
+
+    `ò` si scrive in due modi — un carattere solo, oppure `o` piu accento
+    combinante — identici a schermo e diversi per `ILIKE`. Le anagrafiche sono
+    normalizzate in scrittura (`normalizeAnagraficaText`), ma meta del difetto
+    stava dall'altra parte: una chiave in forma decomposta — ed e la forma che
+    arriva incollando da un Finder, da un foglio esportato su macOS o da certi
+    metodi di inserimento — non trova un nome in forma composta. Normalizzare
+    le due estremita allo stesso modo e cio che rende vera la frase «Niccolo
+    con l'accento si trova scrivendolo con l'accento».
+
+    Non e una trasformazione distruttiva: NFC e la forma canonica, e su un
+    testo gia composto non cambia un byte.
+  */
+  const trimmed = query.normalize("NFC").trim();
   if (!fields.length || !trimmed) return null;
 
   /*
