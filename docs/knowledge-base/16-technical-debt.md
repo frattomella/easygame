@@ -1177,3 +1177,51 @@ un club non posseduto resta un 403 — e la finestra e stretta.
 **Cosa farebbe la differenza:** un parametro `clubId` facoltativo su
 `createSeason` che imposti l'header, come fanno gia le altre chiamate che
 sanno su quale club stanno lavorando.
+
+## Registrati dal ritest a runtime sul deployment finale (2026-08-28)
+
+### Le date di nascita impossibili passano dall'API
+
+**Dove:** `src/lib/athlete-import.ts` — la regola di plausibilita vive
+nell'anteprima dell'import, che gira nel browser. Lo schema di validazione
+delle anagrafiche (`src/lib/validation/schemas.ts`) non pone limiti a
+`birth_date`.
+
+**Misurato** sullo staging, con sessione valida e ruolo che governa il club:
+
+    POST /api/v1/simplified_athletes  { birth_date: "2030-05-05" }  ->  200
+    POST /api/v1/simplified_athletes  { birth_date: "1890-05-05" }  ->  200
+
+Il difetto 5 del [Full Club UAT](26-full-club-uat.md) e stato chiuso dove era
+stato visto — il file — ma la stessa riga entrata dall'API passa senza una
+parola. Da quella data discendono eta, categoria per anno di nascita e codice
+fiscale: e la stessa conseguenza descritta li, da una porta diversa.
+
+**Perche non e stata corretta durante il closeout.** La correzione giusta e un
+limite sul campo nello schema: server, una regola sola, valida per ogni
+scrittura di anagrafica. Ma tocca il contratto di un endpoint che usano anche
+l'import a scaglioni e l'app mobile, ed e arrivata **dopo** la doppia revisione
+e dopo il deploy verificato: applicarla avrebbe richiesto un altro giro di
+deploy e di ritest per poter essere dichiarata provata.
+
+**Cosa farebbe la differenza:** `birth_date` non nel futuro e non prima del
+1900, nello schema, con lo stesso confine che `toIsoDate` applica gia a un anno
+numerico.
+
+### La Dashboard legge l'archivio atleti quattro volte
+
+**Dove:** `/dashboard` — la pagina intera, non la sola scheda delle metriche.
+
+**Misurato** sul deployment finale, club con 210 atleti, da
+`PerformanceResourceTiming`: 23 chiamate API, 1.246,5 KB decodificati, di cui
+**883,8 KB** in quattro letture di `simplified_athletes` — due URL distinte
+(`?view=summary` e la completa), ognuna chiesta **due volte** — e **324,8 KB**
+in quattro letture di `athlete_category_memberships`, tutte con la stessa URL.
+
+La query morta `all-athletes` **non c'e piu**: nessuna delle letture porta
+`select=id`. Il conteggio «4 → 3» scritto nel documento del collaudo riguardava
+la sola scheda delle metriche; la pagina intera ne fa quattro.
+
+E la stessa doppia lettura gia registrata per l'elenco Atleti, su un'altra
+pagina, e si chiude nello stesso modo: una firma dei parametri gia caricati,
+cosi la seconda richiesta identica non parte.

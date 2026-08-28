@@ -625,3 +625,256 @@ l'unico a farne un'affermazione su cui l'utente decide.
 > che questa revisione ha posto a ogni test nuovo del changeset, e che ha
 > prodotto il finding Medium 6. Averla posta anche ai propri e l'unico modo
 > di non ripetere l'errore che si e appena trovato.
+
+---
+
+# FINAL STAGING RETEST
+
+**Data:** 2026-08-28 · **Deployment:** `dpl_2NhX262F6x5FHgfnnmZYbgpu5Xa9`, target
+`production` del progetto `easygame-staging`, stato **READY**, alias
+`easygame-staging-pi.vercel.app` · **Club:** `QA UAT Club`
+(`ae3d545b-717f-4197-ad65-c09f7cbbf553`), l'unico toccato
+
+Il giro precedente non aveva potuto riaprire a schermo nessuna delle sue
+correzioni: il deploy era stato bloccato dal classificatore dei permessi e
+`easygame-staging-pi` portava ancora la build di prima. Questa volta il
+deployment e stato fatto, e **tutto cio che segue e stato osservato sul
+deployment finale**, non dedotto.
+
+## Che la build in linea sia quella giusta, prima di tutto
+
+Un ritest su una build vecchia dice il falso in modo convincente. Tre
+discriminatori, scelti perche danno una risposta diversa prima e dopo:
+
+| Prova | Prima | Sul deployment finale |
+|---|---|---|
+| `POST /auth/login` con credenziali sbagliate | `Invalid login credentials` | **`Email o password non corretti`** |
+| `POST /payment-transactions` con `payment_id` che non e un UUID | l'invocazione Prisma per intero | **`Registrazione dell'incasso non riuscita`** |
+| Ricerca `Niccolò` in forma **decomposta** | nessun atleta | **1 atleta** |
+
+## Concorrenza sugli incassi — il P0, rimisurato
+
+Stessa forma della misura che aveva trovato il difetto: richieste **simultanee**
+sulla stessa rata, da browser, su un residuo noto.
+
+| Prova | Prima (2026-08-28, build precedente) | Dopo |
+|---|---|---|
+| 6 incassi simultanei sul residuo esatto della rata | 6 × 50 € su 99,80 € di residuo → **4 accettate** | 6 × 30 € su 30,00 € di residuo → **1 accettata, 5 rifiutate** |
+| Messaggio delle rifiutate | — | «L'importo supera il residuo della rata (0.00 EUR)» — cioe **hanno letto il registro dopo** che la prima aveva scritto |
+| Stato finale della rata | 150,00 € su 130,00 €, `partially_paid` | 130,00 € su 130,00 €, `paid`, somma dei movimenti **esattamente 130,00** |
+
+Il numero che conta e la seconda riga: le cinque rifiutate non hanno visto il
+residuo di partenza, hanno visto **zero**. E quel che fa il blocco di riga.
+
+### Le altre tre corse
+
+| Scenario | Esito |
+|---|---|
+| **Tre storni simultanei dello stesso incasso** | 1 accettato, 2 rifiutati con «Questo incasso e gia stato stornato». Nessun movimento di compensazione doppio; la rata torna esattamente dov'era |
+| **Incasso e storno nello stesso istante, stessa rata** | Entrambi riusciti. `data.ledger.paidAmount` = **179,80** = somma dei movimenti netti. Nessuna contraddizione fra stato salvato e importi |
+| **Incasso e modifica dell'importo della rata nello stesso istante** | E il finding High della prima revisione, provato a runtime. L'incasso ha vinto la corsa e ha saldato la rata; la modifica dell'importo — **riletta dentro il blocco** — e stata rifiutata con «I pagamenti gia pagati non possono essere modificati». L'importo della rata e rimasto 199,80. Prima della correzione quella modifica passava, perche il guardiano girava sulla lettura vecchia |
+
+Le tre invarianti verificate dopo ogni scenario, tutte vere: incassato uguale
+alla somma dei movimenti netti; dovuto uguale all'importo della rata; stato
+coerente con i due.
+
+**Rimborso: non esercitabile, e la ragione e giusta.** `action: "refund"` su un
+incasso manuale risponde «Questo incasso non e passato dal provider: si storna,
+oppure si restituisce con le stesse modalita con cui e stato ricevuto». Un
+rimborso esiste solo su un incasso confermato dal provider, e servirebbe Stripe
+Connect attivo sul club: fuori da cio che §26 consente di toccare. La corsa
+«rimborso gemello» resta coperta dal test che esercita la funzione vera.
+
+## Messaggi d'errore — niente esce dal database
+
+Sei sonde sul deployment finale, tutte con sessione valida e ruolo che governa
+il club:
+
+| Richiesta | Risposta | Fughe |
+|---|---|---|
+| `POST /payment-transactions` con `payment_id: "non-un-uuid"` | 400 «Registrazione dell'incasso non riuscita» | nessuna |
+| `POST /payment-transactions/non-un-uuid {action:"reverse"}` | 400 «Storno dell'incasso non riuscito» | nessuna |
+| `PATCH /athlete-payments/non-un-uuid` | 500 «Errore aggiornamento pagamento» | nessuna |
+| `POST /seasons` con date non valide | 400 `VALIDATION_ERROR`, campo per campo | nessuna |
+| `PATCH /categories/<id-che-non-esiste>` | 400 «Risorsa del club non trovata» | nessuna |
+| `?order_by=` su colonna inesistente, `limit=999999` | 200, `limit` clampato | nessuna |
+
+Cercate come marcatori: `prisma.`, `PrismaClient`, ``Invalid `prisma``,
+`ConnectorError`, `PostgresError`, `invalid input syntax`, `QueryError`.
+
+## Multi-tenant
+
+| Tentativo | Esito |
+|---|---|
+| `?club_id=` estraneo | **403** «Accesso negato alla risorsa del club» |
+| `?organization_id=` estraneo | **403** |
+| `clubs?id=` estraneo | **403** |
+| `POST` atleta con `organization_id` estraneo nel corpo | **403** |
+| incasso con `organization_id` estraneo | **403** «l'incasso appartiene a un altro club» |
+| lettura incassi di un club estraneo | **403** |
+| allegati di un club estraneo | **403** «l'allegato appartiene a un altro club» |
+| header `x-active-club-id` estraneo | 200 **senza perdita**: le righe che tornano sono di un club posseduto, verificato sull'`organization_id` di ognuna |
+| id di un atleta di un club dentro il perimetro di un altro | **lista vuota** — l'identificativo del client restringe, non amplia |
+| ricerca ristretta a un club: trova nomi dell'altro? | **no** |
+
+> **Limite dichiarato.** L'utente QA di questa sessione possiede **entrambi** i
+> club di collaudo, quindi l'isolamento verso un club di **un altro
+> proprietario** non era riesercitabile qui: cio che si e riprovato e che un
+> identificativo che l'utente non ha viene rifiutato, e che un identificativo
+> che ha non amplia mai il perimetro. Il giro precedente aveva provato a
+> runtime anche il caso del terzo club, e il changeset **non tocca il livello
+> di scope**: `src/lib/server/auth.ts`, `src/lib/access-roles.ts` e il
+> middleware sono invariati rispetto alla base, verificato con `git diff`.
+
+## Stagioni, categorie, Unicode
+
+| Cosa | Esito |
+|---|---|
+| Stagioni attive su `QA UAT Club` | **una sola**; l'altra e la fantasma del difetto 1, archiviata, lasciata come prova |
+| Intestazione dell'app | dice «STAGIONE 2026/2027» — non piu «Nessuna stagione attiva» |
+| Record con un `seasonId` che il club non ha | **zero** su `QA UAT Club` |
+| Difetto 2, riprovato **creandolo**: categoria marcata `season-inesistente-qa-closeout` | **compare nell'elenco** invece di sparire. Poi cancellata |
+| Categorie: crea, aggiorna, cancella | 200/200/200; `seasonId` immutabile in aggiornamento; errore su id inesistente pulito |
+| `EasyGame FC`, il club in fallback del difetto 2 | 0 stagioni salvate, stagione sintetizzata in lettura, la categoria e i suoi due gruppi marcati `season-2026-2027` **si vedono** |
+| Ricerca `Niccolò` in forma composta | 1 atleta |
+| Ricerca `Niccolò` in forma **decomposta** | **1 atleta** — prima nessuno. Provato anche digitandolo nella casella dell'elenco, non solo via API |
+| Ricerca `Niccolo` senza accento | 0 atleti — la ricerca resta sensibile agli accenti, ed e la proposta RC 2, non un difetto |
+| Nomi fuori da NFC in archivio | **zero** |
+
+## Prestazioni, rimisurate sul deployment finale
+
+Club con **210 atleti**, misura da `PerformanceResourceTiming` (byte
+decodificati).
+
+| Pagina | Chiamate API | Peso totale | Letture di `simplified_athletes` | Letture di `athlete_category_memberships` |
+|---|---|---|---|---|
+| Dashboard Club | 23 | 1.246,5 KB | **4** (883,8 KB): due `view=summary` da 220,9 KB e due complete da 221 KB, **due URL distinte chieste due volte ciascuna** | **4**, tutte con la stessa URL, 324,8 KB |
+| Atleti | 8 | 605,8 KB | **2** (421 KB): la prima senza filtro di stato, la seconda con `status=active` | **2**, stessa URL, 162,4 KB |
+
+Due cose vanno dette con precisione, perche il documento sopra ne dava una
+diversa:
+
+1. **La query morta e sparita davvero.** Nessuna delle letture porta
+   `select=id`: `all-athletes` non c'e piu, ed era il difetto misurato.
+2. **Ma la Dashboard legge ancora l'archivio quattro volte**, non tre come
+   questo documento aveva scritto. Il conteggio «4 → 3» riguardava la sola
+   scheda delle metriche; la pagina intera, sul deployment finale, ne fa
+   quattro, e ognuna delle due URL distinte viene chiesta **due volte**. Non e
+   una regressione — e la stessa doppia lettura gia registrata per l'elenco
+   Atleti, su un'altra pagina. Vale il criterio di §27: quantificata, non
+   dichiarata bloccante. Registrata in [16](16-technical-debt.md).
+
+Sull'elenco Atleti il difetto 7 e chiuso a schermo: l'intestazione dice
+«Atleti Attivi: 210» e la barra di paginazione «210 atleti nell'archivio»,
+d'accordo fra loro. Prima diceva 200 su 212.
+
+## Responsive — **STRUTTURALE**, non visiva
+
+Come nel giro precedente il pannello del browser non era visualizzato: gli
+screenshot falliscono («the Browser pane is not displayed, so the page is not
+compositing frames»), quindi **niente in questa sezione e stato guardato**. La
+geometria pero e quella del motore vero.
+
+| Larghezza | Elenco Atleti | Movimenti |
+|---|---|---|
+| 375 | nessuno scorrimento orizzontale di pagina, **0** comandi fuori dal viewport | idem |
+| 768 | idem | — |
+| 1280 | idem | — |
+| 1440 | idem | — |
+
+## Il centro contabile, misurato nei due stati
+
+La proposta RC 1 aveva una descrizione; ora ha una coppia di misure sullo
+**stesso club, nello stesso pomeriggio**, con i soli incassi a cambiare:
+
+| Stato delle due rate | Incassato davvero | Cosa dice `/movements` |
+|---|---|---|
+| Entrambe **saldate** | 329,80 € | «Entrate **329,80 €**», «Pagati: 2, Aperti: 0», due righe da 199,80 e 130,00 |
+| Entrambe **parziali** | 250,00 € | «Entrate **0,00 €**», «Previste: 329,80 €», «Pagati: 0, Aperti: 2», **«Nessun movimento trovato»** |
+
+Le righe che la pagina mostra non sono gli incassi: sono le **rate saldate**,
+al loro importo pieno. Finche una rata non e saldata per intero, il denaro gia
+arrivato non risulta da nessuna parte — e quando lo e, quel che risulta e
+l'importo della rata, non i movimenti che l'hanno composta.
+
+## Un residuo che il ritest a runtime ha trovato, e che i test non vedevano
+
+**La regola sulle date di nascita impossibili vive solo nell'anteprima
+dell'import.** Il difetto 5 e stato chiuso dove era stato visto — il file — ma
+la stessa riga entrata dall'API passa senza una parola:
+
+    POST /api/v1/simplified_athletes  { birth_date: "2030-05-05" }  ->  200
+    POST /api/v1/simplified_athletes  { birth_date: "1890-05-05" }  ->  200
+
+Da quella data discendono eta, categoria per anno di nascita e codice fiscale:
+e la stessa conseguenza che il difetto 5 descrive, da una porta diversa.
+Gravita **Medium**, non bloccante — non e sicurezza, non e denaro, non e
+perdita di dati, e la porta piu usata (il file) e chiusa.
+
+**Non corretta qui, e con una ragione.** La correzione giusta e un limite sul
+campo nello schema di validazione delle anagrafiche: server, una regola sola,
+valida per ogni scrittura. Ma tocca il contratto di un endpoint che usano
+anche l'import a scaglioni e l'app mobile, arriva **dopo** la doppia revisione
+e dopo il deploy verificato, e richiederebbe un altro giro di deploy e di
+ritest per essere dichiarata provata. Registrata in
+[16](16-technical-debt.md), non nascosta in un commit di chiusura.
+
+I tre atleti creati per questa prova sono stati cancellati subito: sul club
+non resta nessuna data impossibile (verificato).
+
+## I dati di collaudo, dopo la pulizia
+
+Sul club QA sono stati creati **cinque incassi** e **una categoria**; piu tre
+atleti per la prova delle date. Alla fine:
+
+| Cosa | Come e stato chiuso |
+|---|---|
+| 5 incassi del closeout | **stornati dall'applicazione**, non cancellati: gli importi sono neutri, lo storico resta |
+| 1 categoria del closeout | cancellata |
+| 3 atleti della prova sulle date | cancellati |
+| Movimenti sul club | da 12 a **22** righe: le 10 nuove sono i 5 incassi e i 5 movimenti che li compensano. Sono la prova di cosa e stato fatto, e restano |
+
+Inventario finale, riletto dall'applicazione:
+
+| Voce | Valore | Uguale alla baseline? |
+|---|---|---|
+| Atleti | 210 | si |
+| Categorie | 5 | si |
+| Rate | 100/130 e 150/199,80, entrambe `partially_paid` | **si** |
+| Incasso netto | 250,00 € su 4 movimenti netti | si |
+| Allegati | 1 | si |
+| Stagioni | 2 (una attiva, una archiviata) | si |
+| Nomi fuori da NFC | 0 | si |
+| Date di nascita impossibili | 0 | si |
+| `EasyGame FC` | 2 atleti, **nulla creato, nulla modificato** | si |
+
+Nessun dato reale e stato toccato. La produzione non e stata toccata: nello
+scope Vercel non esiste un progetto di produzione, e il solo deployment fatto
+e il `production` del progetto **staging**.
+
+## Le quattro proposte RC, decise
+
+| Proposta | Blocker pre-produzione? | Perche |
+|---|---|---|
+| **1. `/movements` dice «Entrate 0,00 €» su denaro incassato** | **SI** | Due schermate dello stesso club non concordano su quanto denaro sia entrato, e quella che sbaglia si chiama «centro contabile unico». Il dato sotto e integro — il registro degli incassi dice 250,00 € — ma un tesoriere che riconcilia la cassa legge la pagina, non l'API. Non e ricerca: e una decisione di prodotto fra due strade gia scritte, e va presa prima che un club vero ci metta i suoi soldi |
+| **2. Ricerca insensibile agli accenti** | NO | `Niccolò` ora si trova in tutte e due le forme Unicode: quel che resta e che non si trova scrivendolo senza accento. E un miglioramento di ergonomia, richiede `unaccent` o una colonna normalizzata, e nessun dato e in pericolo |
+| **3. Doppia lettura dell'elenco Atleti (e della Dashboard)** | NO | Quantificata sul deployment finale: 421 KB su Atleti e 883,8 KB su Dashboard, di cui circa la meta ridondante, piu 162,4 e 324,8 KB di appartenenze rilette. Su 210 atleti sono decimi di secondo, non secondi |
+| **4. Il registro incassi e leggibile dagli allenatori** | NO, ma da decidere | La revisione non ha trovato una falla: la rotta impone l'appartenenza al club e il ruolo per **scrivere**. E una scelta di minimizzazione dichiarata in [14 §6-bis](14-security.md), e resta una proposta — ma un allenatore non ha ragione di sapere chi ha pagato e quando, e la decisione va presa prima che entrino famiglie vere |
+
+## Cosa resta aperto, dopo tutto
+
+1. **`/movements` e RC 1**, sopra: l'unico che questa revisione classifica
+   come blocker pre-produzione.
+2. **Le date impossibili passano dall'API**, sopra: Medium, registrato.
+3. **Rimborsi e Stripe Connect** non esercitati a schermo: servirebbe un
+   abbonamento e un account connesso sul club QA, cioe una modifica di
+   prodotto che §26 esclude. Il contratto dei dati e la deduplica restano
+   coperti dai test.
+4. **La verifica responsive e strutturale, non visiva**: il pannello del
+   browser non compone fotogrammi in questo ambiente.
+5. **L'isolamento verso un club di un altro proprietario** non era
+   riesercitabile con l'utente QA di questa sessione, che li possiede
+   entrambi. Vale quanto scritto sopra: il livello di scope non e stato
+   toccato dal changeset.
+6. **CodeRabbit** resta non eseguibile. Al suo posto la doppia revisione
+   indipendente, con i finding e le prove qui sopra.
