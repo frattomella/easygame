@@ -59,6 +59,19 @@ const matchesWhere = (record, where) => {
       continue;
     }
 
+    /*
+      `undefined` vuol dire **nessun filtro**, come in Prisma.
+
+      Non e un dettaglio del doppio: e la semantica su cui si e nascosto un
+      difetto vero. `external_payment_id: original.external_payment_id ||
+      undefined` sembrava «filtra su questo incasso» e diventava «non filtrare
+      niente» quando l'identificativo mancava — la somma dei rimborsi passava
+      da un movimento a tutto il club. Un doppio che trattava `undefined` come
+      un valore da confrontare rispondeva «nessuna riga» e faceva passare il
+      test provando il contrario di cio che deve provare.
+    */
+    if (condition === undefined) continue;
+
     const value = record[key];
 
     if (condition && typeof condition === "object" && !Array.isArray(condition)) {

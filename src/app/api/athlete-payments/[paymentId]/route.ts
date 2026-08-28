@@ -9,7 +9,11 @@ import {
   isPaymentExcludedFromTotals,
   isPaymentPaidLike,
 } from "@/lib/payments/payment-status-utils";
-import { recomputeChargeFromLedger } from "@/lib/server/payment-transactions";
+import {
+  lockInstallmentAndTransaction,
+  recomputeChargeFromLedger,
+} from "@/lib/server/payment-transactions";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 type Context = {
   params: {
@@ -57,6 +61,9 @@ const toAmount = (value: unknown) => {
   quattro cifre uguali per tutti.
 */
 
+/** Le sole azioni che questa rotta conosce. */
+const KNOWN_ACTIONS = new Set(["update", "delete", "cancel"]);
+
 const jsonError = (message: string, status = 400) =>
   NextResponse.json({ data: null, error: { message } }, { status });
 
@@ -92,7 +99,6 @@ export async function PATCH(request: Request, context: Context) {
     const body = await request.json().catch(() => ({}));
 
     const action = String(body?.action || "update").trim();
-    const currentData = asRecord(payment.data);
     const now = new Date();
     const auditBase = {
       actorUserId: session.db.user_id,
@@ -100,99 +106,152 @@ export async function PATCH(request: Request, context: Context) {
       action,
     };
 
-    if (isPaymentExcludedFromTotals(payment)) {
-      return jsonError("Il pagamento e gia annullato");
+    if (!KNOWN_ACTIONS.has(action)) {
+      return jsonError("Azione pagamento non supportata");
     }
 
-    if (action === "update") {
-      if (isPaymentPaidLike(payment)) {
-        return jsonError("I pagamenti gia pagati non possono essere modificati");
-      }
+    /*
+      L'importo si valida prima di aprire la transazione: e un controllo di
+      forma, non dipende da cosa c'e in archivio, e sbagliarlo non merita di
+      mettersi in fila per una riga.
+    */
+    const updates = asRecord(body?.updates);
+    const amount = action === "update" ? toAmount(updates.amount) : 0;
+    if (action === "update" && (!Number.isFinite(amount) || amount <= 0)) {
+      return jsonError("Importo non valido");
+    }
 
-      const updates = asRecord(body?.updates);
-      const amount = toAmount(updates.amount);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        return jsonError("Importo non valido");
-      }
+    /*
+      Da qui in avanti si lavora sulla rata **bloccata e riletta**, non su
+      quella caricata per il controllo di accesso.
 
-      /*
-        Lo stato di una rata non arriva dal client, nemmeno da qui.
+      Cambiare l'importo di una rata cambia il residuo, quindi cambia lo
+      stato: questa rotta e la quarta operazione che decide sullo stato
+      economico di una rata, dopo incasso, storno e rimborso. Senza mettersi
+      nella stessa fila, il suo `recomputeChargeFromLedger` — che girava fuori
+      da qualunque transazione — poteva scrivere uno stato calcolato **prima**
+      che un incasso concorrente entrasse: la rata restava `pending` con 130
+      euro incassati sopra, che e esattamente la contraddizione fra stato e
+      importi che ADR-0067 esiste per chiudere.
 
-        Questa rotta accettava lo `status` mandato dal client e lo
-        scriveva: bastava modificare l'importo di una rata scoperta mandando
-        `status: "paid"` per farla risultare saldata senza che fosse entrato
-        un euro, e la rotta le metteva pure una data di pagamento. Lo stato
-        si ricava dagli incassi (ADR-0036) e lo riscrive
-        `payment-transactions.ts`: qui si conserva quello che c'e, e le altre
-        modifiche — importo, scadenza, descrizione, note — passano come prima.
-      */
-      const status = String(payment.status || "pending").trim();
-      const nextPaidAt = payment.paid_at || null;
+      E i tre rami riscrivono `data` per intero: letto fuori dalla
+      transazione, il ricalcolo di un incasso appena committato — che scrive
+      `data.ledger` — spariva sotto la copia vecchia.
+    */
+    const result = await (prisma as any).$transaction(async (client: any) => {
+      await lockInstallmentAndTransaction(client, payment.id);
 
-      const updated = await prisma.athletePayment.update({
+      const fresh = await client.athletePayment.findUnique({
         where: { id: payment.id },
-        data: {
-          description:
-            String(updates.description || "").trim() || payment.description,
-          amount,
-          due_date: asDateOrNull(updates.dueDate),
-          status,
-          method: String(updates.method || payment.method || "").trim() || null,
-          notes: String(updates.notes || "").trim() || null,
-          paid_at: nextPaidAt,
+      });
+
+      if (!fresh) {
+        return { error: "Pagamento non trovato", status: 404 } as const;
+      }
+
+      const currentData = asRecord(fresh.data);
+
+      if (isPaymentExcludedFromTotals(fresh)) {
+        return { error: "Il pagamento e gia annullato", status: 400 } as const;
+      }
+
+      if (action === "update") {
+        if (isPaymentPaidLike(fresh)) {
+          return {
+            error: "I pagamenti gia pagati non possono essere modificati",
+            status: 400,
+          } as const;
+        }
+
+        /*
+          Lo stato di una rata non arriva dal client, nemmeno da qui.
+
+          Questa rotta accettava lo `status` mandato dal client e lo
+          scriveva: bastava modificare l'importo di una rata scoperta mandando
+          `status: "paid"` per farla risultare saldata senza che fosse entrato
+          un euro, e la rotta le metteva pure una data di pagamento. Lo stato
+          si ricava dagli incassi (ADR-0036) e lo riscrive
+          `payment-transactions.ts`: qui si conserva quello che c'e, e le altre
+          modifiche — importo, scadenza, descrizione, note — passano come prima.
+        */
+        const updated = await client.athletePayment.update({
+          where: { id: fresh.id },
           data: {
-            ...currentData,
-            updatedAt: now.toISOString(),
-            updatedBy: session.db.user_id,
-            audit: [
-              ...(Array.isArray(currentData.audit) ? currentData.audit : []),
-              {
-                ...auditBase,
-                before: {
-                  description: payment.description,
-                  amount: payment.amount,
-                  dueDate: payment.due_date?.toISOString() || null,
-                  status: payment.status,
-                  notes: payment.notes || null,
+            description:
+              String(updates.description || "").trim() || fresh.description,
+            amount,
+            due_date: asDateOrNull(updates.dueDate),
+            status: String(fresh.status || "pending").trim(),
+            method: String(updates.method || fresh.method || "").trim() || null,
+            notes: String(updates.notes || "").trim() || null,
+            paid_at: fresh.paid_at || null,
+            data: {
+              ...currentData,
+              updatedAt: now.toISOString(),
+              updatedBy: session.db.user_id,
+              audit: [
+                ...(Array.isArray(currentData.audit) ? currentData.audit : []),
+                {
+                  ...auditBase,
+                  before: {
+                    description: fresh.description,
+                    amount: fresh.amount,
+                    dueDate: fresh.due_date?.toISOString() || null,
+                    status: fresh.status,
+                    notes: fresh.notes || null,
+                  },
                 },
-              },
-            ],
+              ],
+            },
           },
-        },
-      });
+        });
 
-      /*
-        Cambiare l'importo cambia il debito, quindi puo cambiare lo stato:
-        una rata da 130 con 100 incassati e parziale, la stessa rata portata
-        a 100 e saldata. Il ricalcolo lo fa il proprietario del dominio, non
-        questa rotta.
-      */
-      const settled = await recomputeChargeFromLedger(prisma, payment.id);
+        /*
+          Cambiare l'importo cambia il debito, quindi puo cambiare lo stato:
+          una rata da 130 con 100 incassati e parziale, la stessa rata portata
+          a 100 e saldata. Il ricalcolo lo fa il proprietario del dominio, non
+          questa rotta — e gira dentro la stessa transazione che tiene la riga.
+        */
+        const settled = await recomputeChargeFromLedger(client, fresh.id);
 
-      return NextResponse.json({ data: settled || updated, error: null });
-    }
-
-    if (action === "delete") {
-      if (isPaymentPaidLike(payment)) {
-        return jsonError(
-          "I pagamenti pagati non possono essere eliminati: annullali invece",
-        );
+        return { data: settled || updated } as const;
       }
 
-      const updated = await prisma.athletePayment.update({
-        where: { id: payment.id },
+      if (action === "delete" && isPaymentPaidLike(fresh)) {
+        return {
+          error:
+            "I pagamenti pagati non possono essere eliminati: annullali invece",
+          status: 400,
+        } as const;
+      }
+
+      const isDelete = action === "delete";
+      const reason =
+        String(body?.reason || "").trim() ||
+        (isDelete
+          ? "Pagamento eliminato dallo storico atleta"
+          : "Pagamento annullato dallo storico atleta");
+
+      const updated = await client.athletePayment.update({
+        where: { id: fresh.id },
         data: {
           status: "cancelled",
           data: {
             ...currentData,
-            deletedAt: now.toISOString(),
-            deletedBy: session.db.user_id,
-            deletionReason:
-              String(body?.reason || "").trim() ||
-              "Pagamento eliminato dallo storico atleta",
-            originalStatus: payment.status,
-            originalPaidAt: payment.paid_at?.toISOString() || null,
-            originalAmount: payment.amount,
+            ...(isDelete
+              ? {
+                  deletedAt: now.toISOString(),
+                  deletedBy: session.db.user_id,
+                  deletionReason: reason,
+                }
+              : {
+                  cancelledAt: now.toISOString(),
+                  cancelledBy: session.db.user_id,
+                  cancellationReason: reason,
+                }),
+            originalStatus: fresh.status,
+            originalPaidAt: fresh.paid_at?.toISOString() || null,
+            originalAmount: fresh.amount,
             excludedFromTotals: true,
             audit: [
               ...(Array.isArray(currentData.audit) ? currentData.audit : []),
@@ -202,38 +261,25 @@ export async function PATCH(request: Request, context: Context) {
         },
       });
 
-      return NextResponse.json({ data: updated, error: null });
+      return { data: updated } as const;
+    });
+
+    if ("error" in result) {
+      return jsonError(result.error, result.status);
     }
 
-    if (action === "cancel") {
-      const updated = await prisma.athletePayment.update({
-        where: { id: payment.id },
-        data: {
-          status: "cancelled",
-          data: {
-            ...currentData,
-            cancelledAt: now.toISOString(),
-            cancelledBy: session.db.user_id,
-            cancellationReason:
-              String(body?.reason || "").trim() ||
-              "Pagamento annullato dallo storico atleta",
-            originalStatus: payment.status,
-            originalPaidAt: payment.paid_at?.toISOString() || null,
-            originalAmount: payment.amount,
-            excludedFromTotals: true,
-            audit: [
-              ...(Array.isArray(currentData.audit) ? currentData.audit : []),
-              auditBase,
-            ],
-          },
-        },
-      });
-
-      return NextResponse.json({ data: updated, error: null });
-    }
-
-    return jsonError("Azione pagamento non supportata");
+    return NextResponse.json({ data: result.data, error: null });
   } catch (error: any) {
-    return jsonError(error?.message || "Errore aggiornamento pagamento", 500);
+    /*
+      Il messaggio del driver non esce di qui: un `paymentId` che non e un
+      UUID faceva rispondere con l'invocazione Prisma per intero — nome del
+      modello, operazione, codice Postgres. Il dettaglio resta nei log del
+      server, dove serve.
+    */
+    console.error("PATCH /api/athlete-payments/[paymentId]", error);
+    return jsonError(
+      publicErrorMessage(error, "Errore aggiornamento pagamento"),
+      500,
+    );
   }
 }

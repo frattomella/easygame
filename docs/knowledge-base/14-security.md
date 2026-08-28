@@ -100,6 +100,54 @@ si ostacolano.
 **Cosa resta da fare.** I dati di collaudo dello staging portano ancora
 l'eccedenza registrata durante la prova: vanno stornati, non cancellati.
 
+**Riapertura e chiusura definitiva (revisione indipendente, 2026-08-28).** La
+revisione del changeset ha trovato che le operazioni che decidono sullo stato
+economico di una rata erano **quattro**, non tre: `PATCH
+/api/athlete-payments/:id` cambia l'importo di una rata — e cambiare l'importo
+cambia il residuo, quindi cambia lo stato — leggendo la rata fuori da
+qualunque transazione e chiamando `recomputeChargeFromLedger` fuori dal blocco.
+
+Tre conseguenze, tutte riprodotte da test che falliscono sul codice
+precedente:
+
+- il guardiano «i pagamenti gia pagati non si modificano» girava sulla lettura
+  vecchia: un incasso arrivato nel frattempo lasciava cambiare l'importo di una
+  rata **appena saldata**, e una rata da 130 incassata per intero diventava una
+  rata da 500 scoperta di 370 che nessuno doveva;
+- i tre rami della rotta riscrivono `data` per intero a partire dalla copia
+  letta fuori: il `data.ledger` scritto dal ricalcolo di un incasso appena
+  committato spariva sotto di essa;
+- la **capienza** di un nuovo incasso si calcolava sulla rata letta prima della
+  transazione. Il residuo e una sottrazione fra due numeri, e ADR-0067 ne
+  rileggeva dentro il blocco solo uno: con la rata portata da 130 a 40 mentre
+  l'incasso e in volo, il controllo diceva ancora di si a 130.
+
+La rotta ora si mette nella stessa fila — stesso blocco, stesso ordine — e
+`createPaymentTransaction` rilegge anche la rata. Vedi
+[ADR-0067](18-decision-log.md#adr-0067--il-denaro-si-arbitra-bloccando-la-riga-non-solo-con-un-indice).
+
+### I-03 — Il messaggio del driver usciva dalle rotte di incassi e stagioni (2026-08-28) — RISOLTO
+
+**Cosa succedeva.** `publicErrorMessage` esiste dal Blocco E proprio per
+impedirlo, ed e usato dalle rotte generiche delle risorse; le rotte dedicate a
+incassi, azioni sugli incassi, rate e stagioni inoltravano invece
+`error.message` cosi com'era.
+
+Lo schema del corpo non impone la forma di un UUID a `payment_id` — non e
+compito suo — quindi un identificativo arbitrario arrivava fino a
+`findUnique`, e l'envelope tornava con l'invocazione Prisma per intero: nome
+del modello, operazione, codice d'errore Postgres.
+
+**Portata.** Informazione, non dati: serve una sessione valida e il ruolo che
+governa il club, e non esce nessun dato di nessuna societa. Ma a chi cerca una
+superficie d'attacco racconta con che cosa e fatto il server, ed e
+esattamente cio che quel modulo esiste per non dire.
+
+**Correzione.** Le quattro rotte passano da `publicErrorMessage`, che lascia
+passare i messaggi di dominio — «Accesso negato» compreso, perche e la stringa
+su cui le rotte mappano il 403 — e sostituisce quelli che nominano Prisma,
+Postgres o una query. Il dettaglio resta nei log del server.
+
 ## Rischi aperti
 
 ### 1. ~~Nessuna protezione di route~~ — RISOLTO (2026-08-22)

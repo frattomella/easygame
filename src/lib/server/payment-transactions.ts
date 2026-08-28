@@ -126,8 +126,15 @@ const chargeClient = () => (prisma as any).athletePayment;
  * L'ordine e fisso perche due ordini diversi sulle stesse due righe sono un
  * abbraccio mortale che si presenta solo sotto carico, cioe il giorno delle
  * iscrizioni.
+ *
+ * **Esportata perche le tre operazioni non sono le uniche a decidere sullo
+ * stato economico di una rata.** Cambiare l'importo di una rata cambia il
+ * residuo, quindi cambia lo stato: chi lo fa deve mettersi nella stessa fila,
+ * o il suo ricalcolo — girato su una lettura presa prima — riscrive sopra
+ * quello di un incasso appena registrato. Vedi
+ * `PATCH /api/athlete-payments/:id`.
  */
-const lockInstallmentAndTransaction = async (
+export const lockInstallmentAndTransaction = async (
   client: any,
   paymentId: string | null,
   transactionId?: string | null,
@@ -456,6 +463,28 @@ export const createPaymentTransaction = async (
       */
       await lockInstallmentAndTransaction(client, paymentId);
 
+      /*
+        Anche la **rata** si rilegge qui dentro, non solo il registro.
+
+        Il residuo e una sottrazione fra due numeri: quanto e dovuto e quanto
+        e stato incassato. Rileggere solo il secondo lascia aperta meta della
+        finestra — la segreteria che porta la rata da 130 a 100 mentre
+        l'incasso e in volo, e il piano di pagamento che la sostituisce — e il
+        controllo di capienza direbbe di si a 130 su una rata che nel
+        frattempo ne vale 100. La lettura fatta prima della transazione resta
+        buona per la sola cosa per cui e stata fatta: sapere che la rata
+        esiste, e di chi e.
+      */
+      const lockedCharge = await client.athletePayment.findUnique({
+        where: { id: paymentId },
+      });
+
+      if (!lockedCharge) {
+        throw new Error("Rata non trovata");
+      }
+
+      ensureOrganizationAccess(scope, lockedCharge.organization_id);
+
       const current = normalizePaymentTransactions(
         await client.paymentTransaction.findMany({
           where: { payment_id: paymentId },
@@ -465,7 +494,10 @@ export const createPaymentTransaction = async (
       const capacityError = validatePaymentTransactionInput({
         amount,
         paymentMethod,
-        ledger: resolveInstallmentLedger({ charge, transactions: current }),
+        ledger: resolveInstallmentLedger({
+          charge: lockedCharge,
+          transactions: current,
+        }),
         allowOverpayment: Boolean(input.allowOverpayment),
       });
 
@@ -625,6 +657,35 @@ export const reversePaymentTransaction = async (
 
 /* --------------------------------------------------------------- rimborsi */
 
+/**
+ * I rimborsi gia scritti **su questo incasso**.
+ *
+ * Il legame naturale e `external_payment_id` — il PaymentIntent, lo stesso con
+ * cui il webhook ha trovato l'incasso originale. Scritto pero come
+ * `external_payment_id: original.external_payment_id || undefined`, un valore
+ * nullo diventava **nessun filtro**: Prisma ignora `undefined`, e la somma
+ * passava da «quanto e stato rimborsato su questo incasso» a «quanto e stato
+ * rimborsato in tutto il club». Un rimborso vecchio su un altro atleta
+ * sarebbe bastato a far rifiutare un rimborso legittimo, con un messaggio che
+ * accusa il movimento sbagliato.
+ *
+ * Senza PaymentIntent resta il legame che il rimborso si porta dietro in
+ * `data`: e quello che rende la domanda sempre rispondibile, anche su un
+ * incasso che un identificativo del provider non ce l'ha.
+ */
+const refundsOfTransaction = (original: any) => ({
+  organization_id: original.organization_id,
+  amount: { lt: 0 },
+  ...(original.external_payment_id
+    ? { external_payment_id: original.external_payment_id }
+    : {
+        data: {
+          path: ["refundOfTransactionId"],
+          equals: String(original.id),
+        },
+      }),
+});
+
 export type RecordRefundInput = {
   /** L'incasso rimborsato. */
   transactionId: string;
@@ -734,11 +795,7 @@ export const recordRefundTransaction = async (
     l'evento arriva malformato o fuori ordine.
   */
   const alreadyRefunded = await transactionClient().findMany({
-    where: {
-      organization_id: original.organization_id,
-      external_payment_id: original.external_payment_id || undefined,
-      amount: { lt: 0 },
-    },
+    where: refundsOfTransaction(original),
   });
 
   const alreadyRefundedCents = alreadyRefunded.reduce(
@@ -780,11 +837,7 @@ export const recordRefundTransaction = async (
     }
 
     const refundedSoFar = await client.paymentTransaction.findMany({
-      where: {
-        organization_id: original.organization_id,
-        external_payment_id: original.external_payment_id || undefined,
-        amount: { lt: 0 },
-      },
+      where: refundsOfTransaction(original),
     });
 
     const refundedSoFarCents = refundedSoFar.reduce(

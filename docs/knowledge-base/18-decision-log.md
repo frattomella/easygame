@@ -3698,3 +3698,28 @@ processo e introduce fallimenti da ritentare in un punto dove il chiamante e
 una segreteria che ha appena premuto un pulsante. Un vincolo `CHECK` sulla
 somma: Postgres non lo esprime su piu righe senza un trigger, e un trigger e
 logica di dominio spostata dove nessuno la cerca (ADR-0007).
+
+**Aggiornamento (revisione indipendente, 2026-08-28): le operazioni sono
+quattro.** La revisione del changeset ha trovato che «le tre operazioni che
+muovono denaro» era la lista sbagliata. La regola non e «chi scrive un
+movimento», e **chi decide sullo stato economico di una rata** — e la quarta e
+`PATCH /api/athlete-payments/:id`, che ne cambia l'importo. Cambiare l'importo
+cambia il residuo, quindi cambia lo stato, e quella rotta chiamava
+`recomputeChargeFromLedger` fuori da qualunque transazione, su una rata letta
+prima.
+
+Due correzioni, e una regola scritta meglio:
+
+- `lockInstallmentAndTransaction` e **esportata**, e la rotta la usa. L'ordine
+  resta quello: prima la rata, poi l'incasso;
+- `createPaymentTransaction` rilegge dentro il blocco anche la **rata**, non
+  solo il registro. Il residuo e una sottrazione fra due numeri e rileggerne
+  uno solo lascia aperta meta della finestra: con la rata portata da 130 a 40
+  mentre l'incasso e in volo, il controllo diceva ancora di si a 130;
+- la regola, riscritta: **chi decide sullo stato economico di una rata prende
+  il blocco della rata, e decide su cio che legge dopo averlo preso.** Chi
+  scrive un movimento e un sottoinsieme di chi decide, non l'inverso — ed e la
+  differenza fra le due formulazioni che aveva lasciato fuori la quarta.
+
+Il costo di sbagliare la lista e asimmetrico: un'operazione in piu nella fila
+rallenta una rata alla volta, una in meno riapre l'invariante per tutte.

@@ -15,6 +15,7 @@ import {
   validationErrorPayload,
 } from "@/lib/validation";
 import { paymentTransactionInputSchema } from "@/lib/validation/schemas";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * Il registro degli incassi.
@@ -53,7 +54,16 @@ const failure = (error: any, fallback: string) => {
     return NextResponse.json(validationErrorPayload(error), { status: 400 });
   }
 
-  const message = String(error?.message || fallback);
+  /*
+    Il messaggio del driver non esce da qui. Lo schema del corpo non impone la
+    forma di un UUID a `payment_id` — non e compito suo — quindi un
+    identificativo arbitrario arrivava fino a `findUnique`, e l'invocazione
+    Prisma per intero tornava indietro nell'envelope: nome del modello,
+    operazione, codice Postgres. `publicErrorMessage` lascia passare i
+    messaggi di dominio, «Accesso negato» compreso perche e la stringa su cui
+    la riga qui sotto decide il 403.
+  */
+  const message = publicErrorMessage(error, fallback);
   const status = message.includes("Accesso negato") ? 403 : 400;
   return NextResponse.json({ data: null, error: { message } }, { status });
 };

@@ -5,6 +5,7 @@ import {
 } from "@/lib/server/auth";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { isValidationError, validationErrorPayload } from "@/lib/validation";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
   AUDIT_ACTIONS,
   recordAuditEvent,
@@ -102,7 +103,14 @@ export const seasonErrorResponse = (error: any, fallbackStatus = 400) => {
     return NextResponse.json(validationErrorPayload(error), { status: 400 });
   }
 
-  const message = String(error?.message || "Errore sulla stagione");
+  /*
+    Il messaggio del driver non esce da qui: `createClubSeason` legge e scrive
+    `clubs.settings`, e un errore del database tornava indietro con il nome
+    del modello Prisma e il codice Postgres dentro l'envelope. «Accesso
+    negato» continua a passare, perche e la stringa su cui la riga qui sotto
+    decide il 403.
+  */
+  const message = publicErrorMessage(error, "Errore sulla stagione");
   const status = message.includes("Accesso negato") ? 403 : fallbackStatus;
 
   return NextResponse.json({ data: null, error: { message } }, { status });

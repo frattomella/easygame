@@ -11,6 +11,7 @@ import {
 } from "@/lib/server/fiscal-documents";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * Le azioni su un incasso gia registrato.
@@ -49,7 +50,14 @@ const unauthorized = () =>
   );
 
 const failure = (error: any, fallback: string) => {
-  const message = String(error?.message || fallback);
+  /*
+    Il messaggio del driver non esce da qui. `publicErrorMessage` lascia
+    passare i messaggi di dominio — «Accesso negato» compreso, perche e la
+    stringa su cui questa riga decide il 403 — e sostituisce quelli che
+    nominano Prisma, Postgres o una query: un identificativo che non e un UUID
+    faceva rispondere con l'invocazione Prisma per intero.
+  */
+  const message = publicErrorMessage(error, fallback);
   const status = message.includes("Accesso negato")
     ? 403
     : message.includes("non trovato")
