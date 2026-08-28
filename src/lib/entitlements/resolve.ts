@@ -216,11 +216,22 @@ export const resolveEntitlements = (
       definition.includedIn.includes(plan) &&
       !PAYING_STATUSES.includes(subscriptionStatus)
     ) {
+      /*
+        «Rinnovalo per riattivarla» ha senso per un abbonamento che c'e stato.
+        Un club appena creato sta a `not_active` e non ha mai sottoscritto
+        niente: si e trovato a leggere di dover rinnovare e riattivare una cosa
+        che non aveva mai avuto — la prima frase che incontra aprendo la scheda
+        Pagamenti. I due casi si distinguono gia nello stato: si dicono
+        diversamente.
+      */
       return {
         key,
         allowed: false,
         reason: "subscription_inactive",
-        message: "L'abbonamento non e in corso: rinnovalo per riattivarla.",
+        message:
+          subscriptionStatus === "not_active"
+            ? "L'abbonamento non e ancora attivo: attivalo per usarla."
+            : "L'abbonamento non e piu in corso: rinnovalo per riattivarla.",
       };
     }
 

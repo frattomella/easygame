@@ -217,3 +217,38 @@ test("l'elenco completo copre ogni funzione del catalogo", () => {
     assert.ok(verdetto.message, `${verdetto.key} senza messaggio`);
   }
 });
+
+/**
+ * Cosa legge un club appena creato aprendo la scheda Pagamenti.
+ *
+ * Il messaggio era uno solo per tutti gli abbonamenti non in corso:
+ * «rinnovalo per riattivarla». Su un club nato dieci minuti prima —
+ * `subscriptionStatus: "not_active"`, nessuna sottoscrizione mai avvenuta —
+ * chiedeva di rinnovare e riattivare una cosa che non c'era mai stata. Visto
+ * a schermo sul club di collaudo.
+ */
+test("un abbonamento mai attivato si attiva, non si rinnova", () => {
+  const nuovo = entitlements.resolveEntitlements({
+    plan: "plus",
+    subscriptionStatus: "not_active",
+  }).explain("online_payments");
+
+  assert.equal(nuovo.allowed, false);
+  assert.equal(nuovo.reason, "subscription_inactive");
+  assert.match(nuovo.message, /non e ancora attivo: attivalo/);
+  assert.equal(/rinnova/i.test(nuovo.message), false);
+
+  for (const subscriptionStatus of ["cancelled", "expired"]) {
+    const finito = entitlements.resolveEntitlements({
+      plan: "plus",
+      subscriptionStatus,
+    }).explain("online_payments");
+
+    assert.equal(finito.reason, "subscription_inactive");
+    assert.match(
+      finito.message,
+      /non e piu in corso: rinnovalo/,
+      `${subscriptionStatus}: un abbonamento che c'e stato si rinnova`,
+    );
+  }
+});
