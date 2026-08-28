@@ -603,12 +603,32 @@ export type ExistingAthleteIdentity = {
   birthDate?: string | null;
 };
 
+/**
+ * Anno di nascita piu antico che si accetta senza discutere.
+ *
+ * E la stessa soglia che `toIsoDate` applica gia da sempre a un anno arrivato
+ * come **numero**: `value >= 1900`. Fino a ora la stessa cifra scritta come
+ * testo — `05/05/1890` — passava, e l'anteprima dichiarava la riga «Pronta».
+ * Due strade per lo stesso dato non possono dare due risposte diverse.
+ */
+const MIN_PLAUSIBLE_BIRTH_YEAR = 1900;
+
+/** Vero se il testo e un anno secco: `2016`, non `12/05/2016`. */
+const isBareYear = (value: unknown) => /^\d{4}$/.test(String(value ?? "").trim());
+
 export const normalizeImportedAthletes = (
   rows: Record<string, any>[],
   mapping: AthleteImportMapping,
   categories: { id: string; name: string }[],
-  options: { existingAthletes?: ExistingAthleteIdentity[] } = {},
+  options: {
+    existingAthletes?: ExistingAthleteIdentity[];
+    /** Oggi, in forma ISO. Iniettabile perche «nel futuro» sia verificabile. */
+    today?: string;
+  } = {},
 ): NormalizedImportedAthleteRow[] => {
+  const todayIso =
+    String(options.today || "").slice(0, 10) ||
+    new Date().toISOString().slice(0, 10);
   const existingKeys = new Set(
     (options.existingAthletes || []).map((athlete) =>
       identityKey({
@@ -656,6 +676,26 @@ export const normalizeImportedAthletes = (
         String(rawBirth || "").trim()
           ? `Data di nascita non riconosciuta (${String(rawBirth).trim()})`
           : "Data di nascita mancante",
+      );
+    } else if (birthDate > todayIso) {
+      /*
+        Una data di nascita nel futuro non e un dato discutibile: e impossibile.
+        Passava come «Pronta», e nasceva un atleta del 2030 — con l'eta, la
+        categoria per anno di nascita e il codice fiscale calcolati su di essa.
+      */
+      errors.push(`Data di nascita nel futuro (${birthDate})`);
+    } else if (Number(birthDate.slice(0, 4)) < MIN_PLAUSIBLE_BIRTH_YEAR) {
+      errors.push(`Data di nascita non plausibile (${birthDate})`);
+    } else if (isBareYear(rawBirth) && mapping.birthDate) {
+      /*
+        Nella colonna «Anno di nascita» un anno secco e il dato atteso e non si
+        dice niente. Nella colonna **data** e un'informazione parziale che
+        diventa il 1 gennaio: la riga si importa lo stesso — meglio un atleta
+        con una data approssimata che nessun atleta — ma va detto, perche da
+        quella data discendono il codice fiscale e la categoria.
+      */
+      warnings.push(
+        `Solo l'anno (${String(rawBirth).trim()}): data impostata al 1 gennaio`,
       );
     }
     if (fiscalCode && !isWellFormedCodiceFiscale(fiscalCode)) {

@@ -1034,3 +1034,37 @@ test per un caso limite che non fa danni. Va fatto, non di corsa.
 
 **Cosa farebbe la differenza:** non offrire `all` quando
 `selectedCount === totalCount`.
+
+### L'elenco Atleti legge l'archivio due volte a ogni apertura
+
+**Dove:** `src/app/athletes/page.tsx` — `refreshAthletesData` e l'effetto
+debounced che chiama `loadAthletePage`.
+
+**Cosa succede.** Su un club sopra la soglia di paginazione la pagina fa due
+letture in fila:
+
+    GET /api/v1/simplified_athletes?...&view=summary&limit=200&order_by=last_name
+    GET /api/v1/simplified_athletes?...&view=summary&limit=200&status=active&order_by=last_name
+
+La prima serve a conoscere il totale, le categorie e le sedi, e a decidere se
+la pagina e paginata; appena `paginated` diventa vero, l'effetto debounced
+rilegge la stessa pagina applicando il filtro di stato predefinito
+(`active`) e butta via il primo risultato. Nella stessa apertura
+`athlete_category_memberships` viene letto **due volte**, con la stessa URL.
+
+**Misurato** su staging, club `QA UAT Club` con 212 atleti: la lettura
+scartata vale 226 KB decodificati (14 KB sul filo), quella delle appartenenze
+84 KB decodificati (11 KB sul filo). Sei chiamate API in tutto, di cui tre
+ridondanti.
+
+**Perche non e stato corretto durante il collaudo.** La prima lettura non
+serve solo alla lista: alimenta categorie, sedi, gruppi e la decisione stessa
+di paginare. Toglierla o filtrarla intreccia il debounce della ricerca, il
+ritorno a pagina 1 sui filtri e il filtro gruppo — cioe il cuore della pagina
+piu usata del prodotto. Non e il genere di modifica da fare di passaggio
+durante una campagna di collaudo.
+
+**Cosa farebbe la differenza:** far applicare alla prima lettura i filtri
+correnti e tenere una firma dei filtri gia caricati, cosi l'effetto debounced
+salta il primo giro quando riprodurrebbe cio che e gia in memoria; e chiedere
+le appartenenze una volta sola per apertura.

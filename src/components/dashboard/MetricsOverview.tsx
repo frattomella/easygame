@@ -186,7 +186,14 @@ const MetricsOverview = ({
 
         try {
           // Use cached queries for better performance
-          const [clubData, athletesData, allAthletes, allCertificates] =
+          /*
+            `all-athletes` non c'e piu: leggeva l'intero archivio atleti del
+            club e il risultato non veniva usato da nessuna riga: il totale
+            mostrato dalla scheda si ricava da `athletesData`, che e gia qui.
+            Su un club da 212 atleti erano 226 KB di JSON scaricati e
+            scartati a ogni apertura della dashboard.
+          */
+          const [clubData, athletesData, allCertificates] =
             await Promise.all([
               cachedQuery(`club-${orgId}`, () =>
                 supabase
@@ -199,12 +206,6 @@ const MetricsOverview = ({
                 supabase
                   .from("simplified_athletes")
                   .select("id, data")
-                  .eq("club_id", orgId),
-              ),
-              cachedQuery(`all-athletes-${orgId}`, () =>
-                supabase
-                  .from("simplified_athletes")
-                  .select("id")
                   .eq("club_id", orgId),
               ),
               cachedQuery(`certificates-${orgId}`, () =>

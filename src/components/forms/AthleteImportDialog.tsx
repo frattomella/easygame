@@ -411,13 +411,28 @@ export function AthleteImportDialog({
                             {row.birthDate || "—"}
                           </td>
                           <td className="px-3 py-2">{row.categoryLabel}</td>
+                          {/*
+                            La differenza fra le due righe con un problema non
+                            e il problema: e la conseguenza. «Codice fiscale
+                            non valido» significa che l'atleta **non verra
+                            creato**; «Sesso non riconosciuto» significa che
+                            verra creato senza quel dato. Finche a dirlo era
+                            solo il colore — rosso contro ambra — le due frasi
+                            si leggevano uguali, e chi non distingue quei due
+                            colori non aveva modo di sapere quali otto righe
+                            stava perdendo.
+                          */}
                           <td className="px-3 py-2">
                             {row.errors.length ? (
                               <span className="text-red-700">
+                                <span className="font-medium">Scartata:</span>{" "}
                                 {row.errors.join(" · ")}
                               </span>
                             ) : row.warnings.length ? (
                               <span className="text-amber-700">
+                                <span className="font-medium">
+                                  Importata con avviso:
+                                </span>{" "}
                                 {row.warnings.join(" · ")}
                               </span>
                             ) : (
