@@ -1259,7 +1259,13 @@ const findClubResourceRecord = async (
   });
 };
 
-const buildWhereFromSearchParams = (
+/**
+ * I filtri di una lista, ricavati dalla query string.
+ *
+ * Esportata perche il caso dell'id logico si collauda qui e non montando una
+ * rotta: e una funzione pura che decide un `where`.
+ */
+export const buildWhereFromSearchParams = (
   resource: string,
   searchParams: URLSearchParams,
 ) => {
@@ -1294,6 +1300,27 @@ const buildWhereFromSearchParams = (
 
   if (RESOURCE_CONFIG[resource]?.kind === "club_resource") {
     where.resource_type = resource;
+
+    /*
+      `id` su una risorsa di club puo essere due cose: l'UUID della riga, o
+      l'**id logico** dentro il payload — `category-under-12-bw552a`, quello
+      che l'applicazione usa dappertutto.
+
+      `club_resource_items.id` e una colonna `uuid`. Confrontarla con un id
+      logico non «non trova niente»: fa fallire la query con
+      `invalid input syntax for type uuid`, e quell'errore usciva dal 400
+      della rotta. Il difetto si vedeva alla fine di un gesto normale —
+      eliminare una categoria, che filtra per id **e** per club e quindi passa
+      di qui invece che dalla rotta del singolo elemento — e rendeva
+      **nessuna** categoria eliminabile, perche nessun id logico e un UUID.
+
+      `findClubResourceRecord` accetta gia entrambe le forme da sempre: qui si
+      fa la stessa cosa, per la lista.
+    */
+    if (where.id && !isUuid(where.id)) {
+      where.payload = { path: ["id"], equals: String(where.id) };
+      delete where.id;
+    }
   }
 
   Object.assign(where, buildAthleteMembershipFilters(resource, searchParams));

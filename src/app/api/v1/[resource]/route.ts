@@ -8,6 +8,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { assertClubResourceAccess } from "@/lib/access-roles";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { sendNotificationEmails } from "@/lib/server/email/email-service";
@@ -107,7 +108,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: [],
-        error: { message: error?.message || "Errore recupero risorsa" },
+        error: { message: publicErrorMessage(error, "Errore recupero risorsa") },
       },
       { status },
     );
@@ -206,7 +207,7 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore creazione risorsa" },
+        error: { message: publicErrorMessage(error, "Errore creazione risorsa") },
       },
       { status },
     );

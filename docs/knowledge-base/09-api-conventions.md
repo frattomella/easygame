@@ -260,6 +260,24 @@ Uguaglianza esatta, solo su una whitelist:
 
 `club_id` e accettato come alias di `organization_id`.
 
+**`id` su una risorsa di club vale due cose.** Le risorse servite da
+`club_resource_items` — categorie, allenatori, soci, sedi, gruppi, e le altre
+di `CLUB_RESOURCE_TYPES` — hanno l'UUID della riga **e** un id logico dentro
+il payload (`category-under-12-bw552a`). Il filtro `id` accetta entrambi: se
+il valore non e un UUID si cerca in `payload.id`.
+
+Non e una comodita. `club_resource_items.id` e una colonna `uuid`, e
+confrontarla con un id logico **fa fallire la query** con
+`invalid input syntax for type uuid` invece di restituire zero righe: finche
+il filtro non distingueva i due casi, nessuna categoria era eliminabile
+(vedi [25 — RC Fix 2](25-rc-fix-2.md#lottavo-difetto-trovato-mentre-si-faceva-la-pulizia)).
+
+**Cosa esce da un errore.** Il messaggio nell'envelope passa da
+`publicErrorMessage`: i messaggi di dominio escono come sono — e
+**«Accesso negato» esce sempre**, perche le rotte ci mappano sopra il 403 —
+mentre quelli del database o dell'ORM vengono sostituiti da una frase
+generica. Il dettaglio resta nei log del server.
+
 ### Pagina, ricerca e ordinamento
 
 Dal Blocco 8 (WP-12) le liste sanno impaginare. **Il default non e cambiato**:

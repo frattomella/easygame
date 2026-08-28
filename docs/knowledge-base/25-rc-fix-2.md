@@ -250,7 +250,7 @@ nascita in UAT e stata fatta **con la tastiera**, freccia giu e Invio).
 
 Corretto: «Seleziona **null**» su una riga senza nome.
 
-## La UAT su staging, e i sette difetti che ha trovato
+## La UAT su staging, e gli otto difetti che ha trovato
 
 I venti punti sopra sono stati richiusi su una build locale di produzione,
 perche il deploy era stato bloccato. Con il deploy eseguito, **la stessa
@@ -258,10 +258,11 @@ verifica e stata rifatta sullo staging vero**, con dati veri, creando dal
 principio un atleta, un allenatore, un membro dello staff, un socio, due sedi
 e una categoria attiva su entrambe.
 
-**Ha trovato sette difetti che il giro precedente non aveva visto.** Non e un
-caso: cinque dei sette si vedono solo guardando un **dato** — un cognome di
-due parole, una selezione di uno, una seconda assegnazione — e gli altri due
-solo a una **larghezza** precisa, con una configurazione precisa.
+**Ha trovato otto difetti che il giro precedente non aveva visto.** Non e un
+caso: cinque si vedono solo guardando un **dato** — un cognome di due parole,
+una selezione di uno, una seconda assegnazione — due solo a una **larghezza**
+precisa con una configurazione precisa, e l'ottavo solo **portando a termine**
+un gesto invece di guardarlo cominciare.
 
 La regola di RC Fix 1 e RC Fix 2 va quindi corretta al rialzo. Non basta che
 un punto sia stato aperto a schermo: **conta con quali dati**. Un elenco di
@@ -332,6 +333,43 @@ dichiara di coprire, e serviva un club multi-sede per romperla. Correzione:
 la riga va a capo (`lg:flex-wrap`) e il gruppo con l'azione principale non si
 comprime (`shrink-0`).
 
+### L'ottavo difetto, trovato mentre si faceva la pulizia
+
+**Nessuna categoria era eliminabile.** Il punto 0 della pulizia — togliere le
+quattro «Categoria importata» residue — si e fermato al primo clic:
+`Elimina categoria` rispondeva **400** e non cancellava niente.
+
+Nel corpo della risposta c'era questo:
+
+    Invalid `prisma.clubResourceItem.findMany()` invocation:
+    ... PostgresError { code: "22P02", message:
+    "invalid input syntax for type uuid: \"category-under-12-bw552a\"" }
+
+**La causa.** L'id di una categoria e `category-<slug>-<suffisso>` e vive nel
+**payload**; `club_resource_items.id` e una colonna `uuid`. Filtrare la lista
+per `id` metteva l'id logico nel confronto con la colonna uuid, e Postgres
+non «non trova niente»: si ferma. Poiche **nessun** id logico e un UUID, il
+difetto valeva per ogni categoria di ogni club — non solo per quelle
+importate.
+
+**Perche il gesto passava di li.** La rotta del singolo elemento accetta da
+sempre entrambe le forme (`findClubResourceRecord`). Ma la cancellazione
+filtra per id **e** per club — due filtri — e con due filtri l'adattatore
+legge la lista prima di cancellare. La strada corretta esisteva; il gesto ne
+prendeva un'altra.
+
+**Correzione.** `buildWhereFromSearchParams` fa per la lista cio che
+`findClubResourceRecord` faceva per il singolo: se l'`id` non e un UUID, si
+cerca dentro il payload. Vale per tutte le risorse di club, non solo per le
+categorie.
+
+**E una seconda cosa, sulla stessa risposta.** Il messaggio del driver usciva
+**intero** dal 400: nome del modello Prisma, nome dell'operazione, codice
+d'errore di Postgres. Ora passa da `publicErrorMessage`, che lascia i
+messaggi di dominio — e lascia **«Accesso negato»**, perche le rotte ci
+mappano sopra il 403 — e sostituisce quelli del database con una frase sola.
+Il dettaglio resta nei log del server.
+
 ### Cosa la UAT su staging ha invece confermato
 
 Punto per punto, a schermo, sul deployment pubblico:
@@ -355,7 +393,7 @@ Punto per punto, a schermo, sul deployment pubblico:
 
 | Gate | Esito |
 |---|---|
-| `npm test` | **1.906 verdi**, 0 falliti (da 1.838: **68 nuovi**, di cui 13 dalla UAT su staging) |
+| `npm test` | **1.913 verdi**, 0 falliti (da 1.838: **75 nuovi**, di cui 20 dalla UAT su staging) |
 | `npm run typecheck` | nessun output |
 | `npm run lint` | 0 errori, 40 warning — **invariati** |
 | `npm run build` | completa |
@@ -379,6 +417,7 @@ Punto per punto, a schermo, sul deployment pubblico:
 | `tests/ui/multisite-ux.test.mjs` | +4 | il filtro gruppo non attraversa le sedi |
 | `tests/lib/rc-fix-2-uat.test.mjs` | 12 | i sette difetti della UAT su staging, uno per uno |
 | `tests/ui/responsive-invariants.test.mjs` | +1 | la riga di intestazione degli Atleti a 1280 px |
+| `tests/server/resource-logical-id.test.mjs` | 7 | l'id logico di una risorsa di club, e cosa non esce da un errore |
 
 ## Cosa resta aperto
 

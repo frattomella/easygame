@@ -10,6 +10,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { assertClubResourceAccess } from "@/lib/access-roles";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import {
@@ -102,7 +103,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore dettaglio risorsa" },
+        error: { message: publicErrorMessage(error, "Errore dettaglio risorsa") },
       },
       { status },
     );
@@ -180,7 +181,7 @@ export async function PATCH(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore aggiornamento risorsa" },
+        error: { message: publicErrorMessage(error, "Errore aggiornamento risorsa") },
       },
       { status },
     );
@@ -241,7 +242,7 @@ export async function DELETE(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore eliminazione risorsa" },
+        error: { message: publicErrorMessage(error, "Errore eliminazione risorsa") },
       },
       { status },
     );
