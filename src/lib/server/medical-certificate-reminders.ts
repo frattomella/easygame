@@ -97,9 +97,9 @@ export const getGuardianRows = (athlete: any) => {
         record.user_id,
       ),
       linkedUserEmail: firstText(
+        record.email,
         record.linkedUserEmail,
         record.linked_user_email,
-        record.email,
       ),
     };
   });
@@ -116,9 +116,9 @@ export const getGuardianRows = (athlete: any) => {
           record.user_id,
         ),
         linkedUserEmail: firstText(
+          record.email,
           record.linkedUserEmail,
           record.linked_user_email,
-          record.email,
         ),
       };
     });

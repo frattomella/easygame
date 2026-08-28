@@ -171,15 +171,20 @@ test("la manutenzione ha una porta per il cron", () => {
   );
 });
 
-test("senza CRON_SECRET la porta del cron non si apre in nessun ambiente", () => {
+test("la porta del cron delega al gate condiviso", () => {
   const source = routeSource();
   const get = source.slice(source.indexOf("export async function GET"));
 
-  assert.match(
-    get,
-    /if \(!cronSecret\) \{[\s\S]*?status: 503/,
-    "il segreto manca -> 503, senza eseguire niente",
-  );
+  /*
+    La regola non vive piu qui. Dall'audit di fine Wave 1 le quattro porte
+    periodiche passano tutte da `src/lib/server/cron-auth.ts`, che pretende il
+    segreto in **ogni** ambiente e lo confronta a tempo costante: prima ognuna
+    aveva la sua copia, e tre su quattro lasciavano passare chiunque fuori da
+    produzione. Il comportamento e provato sul modulo, in
+    `tests/server/cron-auth.test.mjs`; qui si verifica che la rotta non se ne
+    sia rifatta una propria.
+  */
+  assert.match(get, /authorizeCronRequest\(/);
   assert.doesNotMatch(
     get,
     /NODE_ENV/,
@@ -187,24 +192,23 @@ test("senza CRON_SECRET la porta del cron non si apre in nessun ambiente", () =>
   );
 });
 
-test("il Bearer del cron si confronta a tempo costante", () => {
+test("il POST conserva il proprio confronto a tempo costante", () => {
   const source = routeSource();
-  const get = source.slice(source.indexOf("export async function GET"));
+  const post = source.slice(
+    source.indexOf("export async function POST"),
+    source.indexOf("export async function GET"),
+  );
 
+  /*
+    Il `POST` non e una porta di cron: si autentica con
+    `x-maintenance-token`, che ADR-0007 tiene in vita come strada per uno
+    schedulatore fuori dall'hosting. Il suo confronto resta suo, e resta a
+    tempo costante.
+  */
   assert.match(
-    get,
-    /secretsMatch\(cronSecret, presentedSecret\)/,
+    post,
+    /secretsMatch\(configuredToken, presentedToken\)/,
     "un !== esce al primo carattere diverso, e il tempo che ci mette lo racconta",
-  );
-  assert.doesNotMatch(
-    get,
-    /!==\s*`Bearer/,
-    "il confronto con il template literal e il confronto che si voleva evitare",
-  );
-  assert.match(
-    get,
-    /Accesso negato: cron non autenticato/,
-    "un errore di autorizzazione porta la stringa che il resto del sistema riconosce",
   );
 });
 

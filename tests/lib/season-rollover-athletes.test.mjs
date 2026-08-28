@@ -244,3 +244,65 @@ test("il diniego dice «Accesso negato», perche il route handler ne fa un 403",
   );
   assert.doesNotThrow(() => assertSeasonPermission("owner", "seasons.change"));
 });
+
+test("due categorie omonime nell'origine non collassano in una sola", () => {
+  /*
+    Il difetto che questo test chiude, trovato dall'audit di fine Wave.
+
+    Su un club multi-sede due categorie che si chiamano entrambe «Under 14» —
+    una a Nord e una a Sud — sono normali. La corrispondenza per nome faceva
+    trovare alla seconda il clone della prima: non veniva creata, e l'`idMap`
+    faceva puntare **entrambe** allo stesso id. Finche il riporto portava solo
+    configurazione era un difetto silenzioso; da quando porta i tesserati, e
+    mezza squadra nella squadra sbagliata — il criterio n. 1 di fallimento
+    della UAT.
+  */
+  const plan = planSeasonRollover({
+    sourceSeasonId: A,
+    targetSeasonId: B,
+    types: ["categories"],
+    collections: {
+      categories: [
+        categoria("cat-nord", "Under 14", A),
+        categoria("cat-sud", "Under 14", A),
+      ],
+    },
+    generateId: idFisso(),
+  });
+
+  assert.equal(plan.createdTotal, 2, "due categorie di origine, due categorie nuove");
+  assert.notEqual(
+    plan.idMap["cat-nord"],
+    plan.idMap["cat-sud"],
+    "due squadre diverse non possono finire nello stesso id",
+  );
+});
+
+test("una sola categoria omonima gia in destinazione serve una sola origine", () => {
+  const plan = planSeasonRollover({
+    sourceSeasonId: A,
+    targetSeasonId: B,
+    types: ["categories"],
+    collections: {
+      categories: [
+        categoria("cat-nord", "Under 14", A),
+        categoria("cat-sud", "Under 14", A),
+        // La segreteria ne ha ricreata una a mano nella stagione nuova.
+        categoria("cat-fatta-a-mano", "under 14", B),
+      ],
+    },
+    generateId: idFisso(),
+  });
+
+  assert.equal(
+    plan.idMap["cat-nord"],
+    "cat-fatta-a-mano",
+    "la prima trova quella che esiste gia",
+  );
+  assert.equal(
+    plan.createdTotal,
+    1,
+    "la seconda non puo riusarla: viene creata",
+  );
+  assert.notEqual(plan.idMap["cat-sud"], "cat-fatta-a-mano");
+});

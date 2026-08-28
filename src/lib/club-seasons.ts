@@ -838,6 +838,22 @@ export const planSeasonRollover = (options: {
       }
     }
     const existingIdentities = new Set(targetIdByIdentity.keys());
+    /*
+      Un elemento di destinazione puo fare da destinazione a **un solo**
+      elemento di origine.
+
+      Senza questo, due categorie omonime nella stagione di origine — «Under
+      14» a Nord e «Under 14» a Sud, che su un club multi-sede sono normali —
+      collassavano in una sola: la prima veniva clonata, la seconda trovava il
+      clone per nome, non veniva creata, e l'`idMap` faceva puntare **entrambe**
+      allo stesso id. Finche il riporto portava solo configurazione era un
+      difetto silenzioso; da quando porta i tesserati, e mezza squadra nel
+      posto sbagliato.
+
+      La corrispondenza per `rolloverSourceId` non ha questo problema: e gia
+      uno a uno per costruzione.
+    */
+    const identityTaken = new Set<string>();
 
     const cloned: any[] = [];
 
@@ -847,12 +863,17 @@ export const planSeasonRollover = (options: {
 
       const alreadyThere =
         (sourceId && copiedTargetIdBySourceId.get(sourceId)) ||
-        (identity && targetIdByIdentity.get(identity)) ||
+        (identity && !identityTaken.has(identity)
+          ? targetIdByIdentity.get(identity)
+          : null) ||
         null;
 
       if (alreadyThere) {
         if (sourceId) {
           idMap[sourceId] = alreadyThere;
+        }
+        if (identity) {
+          identityTaken.add(identity);
         }
         return;
       }
@@ -881,6 +902,7 @@ export const planSeasonRollover = (options: {
       if (identity) {
         existingIdentities.add(identity);
         targetIdByIdentity.set(identity, newId);
+        identityTaken.add(identity);
       }
     });
 

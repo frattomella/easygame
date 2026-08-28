@@ -1,4 +1,7 @@
-import { normalizeAccessRole, type CanonicalAccessRole } from "@/lib/access-roles";
+import {
+  canManageClubConfiguration,
+  normalizeAccessRole,
+} from "@/lib/access-roles";
 
 /**
  * Chi puo cambiare la stagione attiva di un club (AU-7).
@@ -47,24 +50,29 @@ const FULL_ACCESS: readonly SeasonPermission[] = ["seasons.change"];
  * (`MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES` in `access-roles.ts`). Allargare qui
  * sarebbe una decisione di prodotto, non una conseguenza di questa Wave.
  */
-const PERMISSIONS_BY_ROLE: Record<
-  CanonicalAccessRole,
-  readonly SeasonPermission[]
-> = {
-  owner: FULL_ACCESS,
-  club_manager: FULL_ACCESS,
-  collaborator: [],
-  staff: [],
-  trainer: [],
-  parent: [],
-  athlete: [],
-};
-
+/**
+ * Il perimetro **si delega**, non si ricopia.
+ *
+ * La prima versione elencava i ruoli a mano — `owner: FULL_ACCESS,
+ * club_manager: FULL_ACCESS, ...` — e l'audit di fine Wave lo ha rilevato:
+ * `CLAUDE.md` §2 dice «nessuna logica di ruolo altrove», e una copia della
+ * matrice e una matrice che il giorno in cui qualcuno allarga
+ * `canManageClubConfiguration` resta indietro **in silenzio**, portandosi
+ * dietro le sole stagioni.
+ *
+ * Delegando si ottiene lo stesso risultato che AU-7 chiedeva — un permesso
+ * **esplicito e spostabile** — senza una seconda fonte di verita: il giorno in
+ * cui il perimetro delle stagioni dovra staccarsi da quello della
+ * configurazione, si cambia questa riga, ed e proprio il punto in cui si
+ * andrebbe a cercare.
+ */
 export const listSeasonPermissions = (
   role: string | null | undefined,
 ): readonly SeasonPermission[] => {
   const normalized = normalizeAccessRole(role);
-  return normalized ? PERMISSIONS_BY_ROLE[normalized] : [];
+  if (!normalized) return [];
+
+  return canManageClubConfiguration(normalized) ? FULL_ACCESS : [];
 };
 
 export const hasSeasonPermission = (

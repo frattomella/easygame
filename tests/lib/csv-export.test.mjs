@@ -278,8 +278,7 @@ test("il tracciato CSV lo decide un modulo solo", () => {
   const ALLOWED = [
     "lib/csv.ts",
     "lib/funding/reconciliation.ts",
-    "components/sport-work/ObligationsPanel.tsx",
-  ];
+      ];
 
   const offenders = walk(SRC)
     .filter((file) => {
@@ -296,4 +295,42 @@ test("il tracciato CSV lo decide un modulo solo", () => {
     [],
     "un secondo tracciato CSV diverge al primo campo con un punto e virgola dentro",
   );
+});
+
+test("una cella che sembra una formula non viene eseguita dal foglio di calcolo", () => {
+  /*
+    Il difetto che questo test chiude, trovato dall'audit di fine Wave: una
+    cella che comincia per `=`, `+`, `-` o `@` e una **formula** per Excel e
+    LibreOffice. Il contenuto di questi file arriva dall'anagrafica, che la
+    compilano gli utenti e che si popola anche per import: un cognome scritto
+    `=HYPERLINK(...)` verrebbe eseguito sul computer di chi apre il file.
+  */
+  for (const pericoloso of [
+    '=HYPERLINK("http://esempio.test","clicca")',
+    "+1+1",
+    "-2+3",
+    "@SUM(A1:A9)",
+  ]) {
+    const cella = csvEscape(pericoloso);
+    assert.ok(
+      cella.startsWith("'") || cella.startsWith("\"'"),
+      `«${pericoloso}» deve uscire come testo, non come formula: ${cella}`,
+    );
+  }
+
+  assert.equal(csvEscape("Rossi"), "Rossi", "il testo normale non si tocca");
+  assert.equal(
+    csvEscape("De Luca-Rossi"),
+    "De Luca-Rossi",
+    "un trattino in mezzo non e una formula",
+  );
+});
+
+test("un importo negativo resta un numero, non diventa testo", () => {
+  assert.equal(
+    csvValue(-12.5),
+    "-12,5",
+    "la neutralizzazione delle formule non deve rovinare una colonna di importi",
+  );
+  assert.equal(csvValue(12.5), "12,5");
 });

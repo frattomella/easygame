@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 import {
@@ -83,13 +84,25 @@ const failure = (error: any, fallback: string) => {
     );
   }
 
-  const status = raw.includes("Accesso negato")
-    ? 403
-    : /non trovat[ao]/i.test(raw)
-      ? 404
-      : 400;
+  if (raw.includes("Accesso negato")) {
+    return NextResponse.json({ data: null, error: { message: raw } }, { status: 403 });
+  }
+  if (/non trovat[ao]/i.test(raw)) {
+    return NextResponse.json({ data: null, error: { message: raw } }, { status: 404 });
+  }
 
-  return NextResponse.json({ data: null, error: { message: raw } }, { status });
+  /*
+    Tutto il resto passa da `publicErrorMessage`, che e la denylist condivisa
+    del repository: `isInfrastructureError` qui sopra riconosce le forme piu
+    comuni, ma un `PrismaClientKnownRequestError` — «Unique constraint failed
+    on the fields: (...)» — non ne porta nessuna, e finiva nel corpo della
+    risposta. Due filtri in fila non sono ridondanza: il secondo copre cio che
+    il primo non ha previsto.
+  */
+  return NextResponse.json(
+    { data: null, error: { message: publicErrorMessage(error, fallback) } },
+    { status: 400 },
+  );
 };
 
 /**

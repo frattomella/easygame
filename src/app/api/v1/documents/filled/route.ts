@@ -3,6 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import { getResourceById } from "@/lib/server/resources";
 import { resolveDocumentPlaceholders } from "@/lib/server/document-placeholders";
 import { getDocumentTemplatesFromClub } from "@/lib/document-templates";
@@ -75,6 +76,25 @@ export async function GET(request: Request) {
     const organizationId = scope.activeOrganizationId;
     if (!organizationId) {
       return denied(403, "Accesso negato: nessun club attivo");
+    }
+
+    /*
+      **Il documento compilato dice quanto ha pagato una famiglia.**
+
+      Fino all'audit di fine Wave questa rotta chiedeva solo una sessione e
+      l'appartenenza al club: un genitore o un allenatore poteva scorrere gli
+      identificativi degli atleti e scaricare l'attestazione di chiunque —
+      codice fiscale, indirizzo, telefono dei tutori, versato, dovuto e
+      residuo. La schermata che la usa, `/modulistica`, e riservata alla
+      direzione del club (`MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES` in
+      `access-roles.ts`); la rotta deve dire la stessa cosa, o il gate della
+      pagina e una tenda davanti a una porta aperta.
+    */
+    if (!canManageClubConfiguration(scope.activeRole)) {
+      return denied(
+        403,
+        "Accesso negato: i documenti con i dati di una famiglia li genera la direzione del club",
+      );
     }
 
     const club = await getResourceById("clubs", organizationId, scope);

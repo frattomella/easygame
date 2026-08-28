@@ -354,14 +354,21 @@ test("la porta del cron dei promemoria non risponde a un Bearer sbagliato", () =
   const source = sourceOf("src/app/api/medical-certificate-reminders/route.ts");
   const get = source.slice(source.indexOf("export async function GET"));
 
-  assert.match(get, /authHeader !== `Bearer \$\{cronSecret\}`/);
-  assert.match(get, /Accesso negato: cron non autenticato/);
-  assert.match(get, /status: 401/);
-  assert.match(
+  /*
+    La porta delega al gate condiviso (`src/lib/server/cron-auth.ts`), che
+    pretende `CRON_SECRET` in **ogni** ambiente e confronta il Bearer a tempo
+    costante. Prima questa rotta aveva la sua copia della regola, con la
+    scorciatoia «fuori da produzione passa comunque»: una `GET` anonima
+    mandava email a tutte le famiglie di tutti i club. Il comportamento e
+    provato in `tests/server/cron-auth.test.mjs`.
+  */
+  assert.match(get, /authorizeCronRequest\(/);
+  assert.doesNotMatch(
     get,
-    /NODE_ENV === "production"[\s\S]*?status: 503/,
-    "in produzione senza segreto la porta non si apre",
+    /NODE_ENV/,
+    "qui mandava email: nessuna scorciatoia fuori da produzione",
   );
+  assert.doesNotMatch(get, /!==\s*`Bearer/);
   assert.match(get, /runMedicalCertificateRemindersForAllClubs/);
 });
 

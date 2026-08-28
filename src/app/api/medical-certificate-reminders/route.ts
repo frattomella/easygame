@@ -4,6 +4,8 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { authorizeCronRequest } from "@/lib/server/cron-auth";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { sendNotificationEmails } from "@/lib/server/email/email-service";
 import {
   buildReminderKey,
@@ -135,28 +137,8 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: NextRequest) {
-  const cronSecret = String(process.env.CRON_SECRET || "").trim();
-  const authHeader = request.headers.get("authorization");
-
-  if (cronSecret) {
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json(
-        { data: null, error: { message: "Accesso negato: cron non autenticato" } },
-        { status: 401 },
-      );
-    }
-  } else if (process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      {
-        data: null,
-        error: {
-          message:
-            "CRON_SECRET non configurato. Imposta la variabile ambiente prima di esporre il giro automatico dei promemoria.",
-        },
-      },
-      { status: 503 },
-    );
-  }
+  const denied = authorizeCronRequest(request, "il giro dei promemoria");
+  if (denied) return denied.response;
 
   try {
     const report = await runMedicalCertificateRemindersForAllClubs(new Date());
@@ -167,9 +149,12 @@ export async function GET(request: NextRequest) {
       {
         data: null,
         error: {
-          message:
-            error?.message ||
+          // Il messaggio del driver non esce da qui: un errore del database
+          // tornava indietro con il nome del modello Prisma dentro l'envelope.
+          message: publicErrorMessage(
+            error,
             "Errore durante il giro dei promemoria sui certificati medici",
+          ),
         },
       },
       { status: 500 },

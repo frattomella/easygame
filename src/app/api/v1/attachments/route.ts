@@ -90,8 +90,12 @@ export async function POST(request: Request) {
       la configurazione, non un permesso nuovo (FIRMA-01). Gli allegati delle
       persone non cambiano perimetro.
     */
+    // `createAttachment` normalizza il proprietario in minuscolo: se la
+    // guardia confrontasse la stringa cosi com'e, `owner_type=CLUB`
+    // supererebbe il controllo e verrebbe salvato come `club`.
     if (
-      String(form.get("owner_type") || "other") === "club" &&
+      String(form.get("owner_type") || "other").trim().toLowerCase() ===
+        "club" &&
       !canManageClubConfiguration(scope.activeRole)
     ) {
       return NextResponse.json(

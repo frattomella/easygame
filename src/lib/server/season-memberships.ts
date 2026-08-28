@@ -36,8 +36,6 @@ export type SeasonRosterMembership = {
   categoryName: string;
   siteId: string | null;
   isPrimary: boolean;
-  /** `false` se la categoria non ha una corrispondente nella stagione nuova. */
-  mappable: boolean;
 };
 
 export type SeasonRosterAthlete = {
@@ -52,11 +50,15 @@ export type SeasonRosterAthlete = {
 export type SeasonRoster = {
   athletes: SeasonRosterAthlete[];
   total: number;
-  /** Appartenenze che non troverebbero una categoria di destinazione. */
-  unmappable: number;
 };
 
 export type SeasonMembershipRolloverSummary = {
+  /**
+   * Appartenenze presenti nella stagione di origine. E il numero confrontabile
+   * con l'`available` degli altri tipi riportabili, che contano **record** e
+   * non persone: un atleta in due squadre e un tesserato e due appartenenze.
+   */
+  sourceMemberships: number;
   /** Tesserati che la stagione di origine propone. */
   proposed: number;
   /** Tesserati che l'operatore ha riconfermato. */
@@ -76,9 +78,11 @@ export type SeasonMembershipRolloverSummary = {
 };
 
 const emptySummary = (
+  sourceMemberships: number,
   proposed: number,
   requested: boolean,
 ): SeasonMembershipRolloverSummary => ({
+  sourceMemberships,
   proposed,
   confirmed: 0,
   notConfirmed: proposed,
@@ -127,14 +131,8 @@ export const listSeasonRoster = async (options: {
   organizationId: string;
   sourceCategoryIds: string[];
   categoryNameById?: Record<string, string>;
-  mappableCategoryIds?: string[] | null;
 }): Promise<SeasonRoster> => {
-  const {
-    organizationId,
-    sourceCategoryIds,
-    categoryNameById = {},
-    mappableCategoryIds = null,
-  } = options;
+  const { organizationId, sourceCategoryIds, categoryNameById = {} } = options;
 
   const memberships = await readMembershipsForCategories(
     organizationId,
@@ -142,7 +140,7 @@ export const listSeasonRoster = async (options: {
   );
 
   if (!memberships.length) {
-    return { athletes: [], total: 0, unmappable: 0 };
+    return { athletes: [], total: 0 };
   }
 
   const athleteIds = Array.from(
@@ -159,9 +157,7 @@ export const listSeasonRoster = async (options: {
     },
   });
 
-  const mappable = mappableCategoryIds ? new Set(mappableCategoryIds) : null;
   const byAthlete = new Map<string, SeasonRosterAthlete>();
-  let unmappable = 0;
 
   for (const athlete of athletes) {
     const firstName = String(athlete.first_name || "").trim();
@@ -184,11 +180,6 @@ export const listSeasonRoster = async (options: {
       continue;
     }
 
-    const isMappable = mappable ? mappable.has(membership.category_id) : true;
-    if (!isMappable) {
-      unmappable += 1;
-    }
-
     athlete.memberships.push({
       membershipId: membership.id,
       categoryId: membership.category_id,
@@ -198,7 +189,6 @@ export const listSeasonRoster = async (options: {
         "Categoria senza nome",
       siteId: membership.site_id,
       isPrimary: Boolean(membership.is_primary),
-      mappable: isMappable,
     });
   }
 
@@ -210,7 +200,7 @@ export const listSeasonRoster = async (options: {
       }),
     );
 
-  return { athletes: list, total: list.length, unmappable };
+  return { athletes: list, total: list.length };
 };
 
 /**
@@ -349,7 +339,7 @@ export const runAthleteMembershipRollover = async (options: {
   const proposed = proposedAthleteIds.size;
 
   if (!requested || !proposed) {
-    return emptySummary(proposed, requested);
+    return emptySummary(memberships.length, proposed, requested);
   }
 
   const confirmed = confirmedAthleteIds
@@ -369,6 +359,13 @@ export const runAthleteMembershipRollover = async (options: {
     is_primary: boolean;
   }> = [];
   const primaryByAthlete = new Map<string, string>();
+  /**
+   * La prima squadra portata per un atleta che in origine non ne aveva una
+   * primaria. Serve solo a riallineare `athletes.category_id`: senza, la sua
+   * scheda continuerebbe a citare la categoria archiviata, che e la meta
+   * visibile del difetto G-01. La bandiera **non** gliela si inventa.
+   */
+  const fallbackCategoryByAthlete = new Map<string, string>();
   const carriedAthletes = new Set<string>();
   let unmappable = 0;
 
@@ -396,10 +393,13 @@ export const runAthleteMembershipRollover = async (options: {
 
     if (membership.is_primary) {
       primaryByAthlete.set(membership.athlete_id, targetCategoryId);
+    } else if (!fallbackCategoryByAthlete.has(membership.athlete_id)) {
+      fallbackCategoryByAthlete.set(membership.athlete_id, targetCategoryId);
     }
   }
 
   const summary: SeasonMembershipRolloverSummary = {
+    sourceMemberships: memberships.length,
     proposed,
     confirmed: confirmed.size,
     notConfirmed: proposed - confirmed.size,
@@ -459,10 +459,6 @@ export const runAthleteMembershipRollover = async (options: {
       skipDuplicates: true,
     });
 
-    // Riallineamento della colonna storica `athletes.category_id`: senza, la
-    // scheda continuerebbe a mostrare la categoria della stagione archiviata.
-    // Si scrive per categoria, non per atleta: 200 tesserati non devono
-    // diventare 200 aggiornamenti.
     const athletesByTargetCategory = new Map<string, string[]>();
     for (const [athleteId, categoryId] of primaryByAthlete.entries()) {
       const bucket = athletesByTargetCategory.get(categoryId) || [];
@@ -470,7 +466,44 @@ export const runAthleteMembershipRollover = async (options: {
       athletesByTargetCategory.set(categoryId, bucket);
     }
 
+    /*
+      La bandiera si **riassegna** dopo l'inserimento, e non basta averla
+      copiata nella riga nuova.
+
+      Il difetto che questa riga chiude: se la riga di destinazione esisteva
+      gia — il club aveva assegnato a mano qualche atleta alla squadra nuova,
+      con `is_primary` falso — `ON CONFLICT DO NOTHING` la salta, e la bandiera
+      appena tolta a quella vecchia non tornava su nessuno. L'atleta restava
+      **senza squadra corrente**, mentre `athletes.category_id` diceva il
+      contrario. E sicuro farlo qui perche il passo precedente ha gia azzerato
+      ogni altra primaria di questi atleti.
+    */
     for (const [categoryId, athleteIds] of athletesByTargetCategory.entries()) {
+      await tx.athleteCategoryMembership.updateMany({
+        where: {
+          organization_id: organizationId,
+          athlete_id: { in: athleteIds },
+          category_id: categoryId,
+        },
+        data: { is_primary: true },
+      });
+    }
+
+    // Riallineamento della colonna storica `athletes.category_id`: senza, la
+    // scheda continuerebbe a mostrare la categoria della stagione archiviata.
+    // Si scrive per categoria, non per atleta: 200 tesserati non devono
+    // diventare 200 aggiornamenti.
+    const alignByCategory = new Map<string, string[]>(
+      [...athletesByTargetCategory].map(([key, ids]) => [key, [...ids]]),
+    );
+    for (const [athleteId, categoryId] of fallbackCategoryByAthlete.entries()) {
+      if (primaryByAthlete.has(athleteId)) continue;
+      const bucket = alignByCategory.get(categoryId) || [];
+      bucket.push(athleteId);
+      alignByCategory.set(categoryId, bucket);
+    }
+
+    for (const [categoryId, athleteIds] of alignByCategory.entries()) {
       await tx.athlete.updateMany({
         where: { organization_id: organizationId, id: { in: athleteIds } },
         data: {

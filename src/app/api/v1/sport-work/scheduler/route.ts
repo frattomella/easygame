@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { authorizeCronRequest } from "@/lib/server/cron-auth";
 import { ok, sportWorkRoute } from "@/lib/server/sport-work-route";
 import {
   runSportWorkSchedulerForAllClubs,
@@ -39,28 +40,11 @@ export const POST = sportWorkRoute(
 );
 
 export async function GET(request: NextRequest) {
-  const cronSecret = String(process.env.CRON_SECRET || "").trim();
-  const authHeader = request.headers.get("authorization");
-
-  if (cronSecret) {
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json(
-        { data: null, error: { message: "Accesso negato: cron non autenticato" } },
-        { status: 401 },
-      );
-    }
-  } else if (process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      {
-        data: null,
-        error: {
-          message:
-            "CRON_SECRET non configurato. Imposta la variabile ambiente prima di esporre il giro automatico del lavoro sportivo.",
-        },
-      },
-      { status: 503 },
-    );
-  }
+  const denied = authorizeCronRequest(
+    request,
+    "il giro notturno del lavoro sportivo",
+  );
+  if (denied) return denied.response;
 
   try {
     const results = await runSportWorkSchedulerForAllClubs(new Date());

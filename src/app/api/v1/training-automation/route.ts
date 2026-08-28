@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { authorizeCronRequest } from "@/lib/server/cron-auth";
 import {
   runDueTrainingAutomationForAllClubs,
   runTrainingAutomationForClub,
@@ -83,25 +84,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const cronSecret = String(process.env.CRON_SECRET || "").trim();
-  const authHeader = request.headers.get("authorization");
-
-  if (cronSecret) {
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return buildUnauthorizedResponse();
-    }
-  } else if (process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      {
-        data: null,
-        error: {
-          message:
-            "CRON_SECRET non configurato. Imposta la variabile ambiente prima di esporre il job automatico.",
-        },
-      },
-      { status: 503 },
-    );
-  }
+  const denied = authorizeCronRequest(
+    request,
+    "la generazione automatica degli allenamenti",
+  );
+  if (denied) return denied.response;
 
   try {
     const results = await runDueTrainingAutomationForAllClubs(new Date());

@@ -465,3 +465,93 @@ test("i tesserati per stagione si contano con una lettura sola", async () => {
     "una lettura per tutte le stagioni, non una per stagione",
   );
 });
+
+test("un atleta gia assegnato a mano nella stagione nuova non resta senza squadra", async () => {
+  /*
+    Il difetto che questo test chiude, trovato dall'audit di fine Wave.
+
+    Il club assegna a mano qualche atleta alle squadre della stagione nuova —
+    e l'azione di massa che il planning stesso suggerisce — lasciando la
+    bandiera «primaria» sulla squadra di ieri. Poi lancia il riporto.
+
+    L'ordine era: azzera le primarie, poi inserisci. Ma la riga di destinazione
+    esisteva gia, quindi `ON CONFLICT DO NOTHING` la saltava, e la bandiera
+    appena tolta non tornava su nessuno: l'atleta restava **senza squadra
+    corrente**, mentre `athletes.category_id` diceva il contrario. Scheda e
+    appartenenze si contraddicevano.
+  */
+  fake.rows("athleteCategoryMembership").push({
+    id: "m1-gia-assegnata",
+    organization_id: CLUB,
+    athlete_id: "atleta-1",
+    category_id: CAT_A_NUOVA,
+    category_name: "Under 12",
+    site_id: SEDE_NORD,
+    is_primary: false,
+  });
+
+  const summary = await porta();
+
+  const primarie = appartenenzeDi("atleta-1").filter((row) => row.is_primary);
+  assert.equal(
+    primarie.length,
+    1,
+    "l'atleta deve avere esattamente una squadra corrente",
+  );
+  assert.equal(
+    primarie[0].category_id,
+    CAT_A_NUOVA,
+    "ed e quella della stagione nuova",
+  );
+  assert.equal(
+    summary.alreadyPresent,
+    1,
+    "la riga c'era gia: il riporto non la duplica e lo dice",
+  );
+
+  const atleta1 = fake.rows("athlete").find((row) => row.id === "atleta-1");
+  assert.equal(
+    atleta1.category_id,
+    CAT_A_NUOVA,
+    "scheda e appartenenze devono dire la stessa cosa",
+  );
+});
+
+test("un tesserato senza primaria in origine si porta dietro la scheda", async () => {
+  /*
+    Un atleta che nella stagione vecchia non aveva nessuna appartenenza
+    primaria veniva riportato, ma `athletes.category_id` non gli veniva
+    riallineato: la sua scheda continuava a citare la categoria archiviata,
+    che e la meta visibile del difetto G-01.
+  */
+  const secondaria = fake
+    .rows("athleteCategoryMembership")
+    .find((row) => row.id === "m3");
+  secondaria.is_primary = false;
+
+  await porta({ confirmedAthleteIds: ["atleta-3"] });
+
+  const terzo = fake.rows("athlete").find((row) => row.id === "atleta-3");
+  assert.equal(
+    terzo.category_id,
+    CAT_B_NUOVA,
+    "la scheda segue il tesserato anche senza bandiera primaria",
+  );
+
+  const primarie = appartenenzeDi("atleta-3").filter((row) => row.is_primary);
+  assert.equal(
+    primarie.length,
+    0,
+    "ma la bandiera non gli viene inventata: non ce l'aveva",
+  );
+});
+
+test("il riepilogo conta le appartenenze di origine, non solo le persone", async () => {
+  const summary = await porta();
+
+  assert.equal(
+    summary.sourceMemberships,
+    3,
+    "e il numero confrontabile con l'available degli altri tipi riportabili",
+  );
+});

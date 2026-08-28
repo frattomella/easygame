@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { authorizeCronRequest } from "@/lib/server/cron-auth";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { runScheduledMaintenance } from "@/lib/server/maintenance";
@@ -116,42 +117,15 @@ export async function POST(request: Request) {
 /**
  * La porta di Vercel Cron.
  *
- * Il segreto non e opzionale: manca -> `503`, in **qualunque** ambiente. E la
- * differenza voluta rispetto alle altre porte di cron, ed e per questo che un
- * prefetch o un crawler non aziona niente.
+ * Il segreto non e opzionale: manca -> `503`, in **qualunque** ambiente, ed e
+ * per questo che un prefetch o un crawler non aziona niente. La regola vive in
+ * `src/lib/server/cron-auth.ts`, che dall'audit di fine Wave 1 e la sola porta
+ * di tutti e quattro i giri: era nata qui perche la manutenzione cancella
+ * righe, e si e scoperto che valeva per tutti.
  */
 export async function GET(request: Request) {
-  const cronSecret = String(process.env.CRON_SECRET || "").trim();
-
-  if (!cronSecret) {
-    return NextResponse.json(
-      {
-        data: null,
-        error: {
-          message:
-            "CRON_SECRET non configurato. La manutenzione cancella righe: senza il segreto la porta del cron non si apre, in nessun ambiente.",
-        },
-      },
-      { status: 503 },
-    );
-  }
-
-  /*
-    Solo la forma `Bearer <segreto>`: un'intestazione che porta il segreto nudo
-    non vale. E la forma che manda Vercel Cron, e restringerla toglie una
-    variante in meno da difendere.
-  */
-  const authHeader = String(request.headers.get("authorization") || "").trim();
-  const presentedSecret = authHeader.startsWith("Bearer ")
-    ? authHeader.slice("Bearer ".length).trim()
-    : "";
-
-  if (!secretsMatch(cronSecret, presentedSecret)) {
-    return NextResponse.json(
-      { data: null, error: { message: "Accesso negato: cron non autenticato" } },
-      { status: 401 },
-    );
-  }
+  const denied = authorizeCronRequest(request, "la manutenzione periodica");
+  if (denied) return denied.response;
 
   const report = await runScheduledMaintenance();
 

@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { lockInstallmentAndTransaction } from "./payment-transactions";
 import {
   isEmailDeliveryConfigured,
   sendPaymentReminderEmail,
@@ -209,6 +210,19 @@ const ensureOrganizationAccess = (
   }
 };
 
+/**
+ * Il club su cui si sollecita e **quello attivo**, non uno qualunque fra quelli
+ * a cui l'utente ha accesso.
+ *
+ * **Il difetto che questa riga chiude.** Il ruolo con cui la rotta decide se
+ * puoi sollecitare (`canManageClubConfiguration`) viene risolto sul club
+ * **attivo**, quello dell'intestazione `x-active-club-id`. Se il club su cui si
+ * opera potesse arrivare dal corpo e bastasse che fosse «fra quelli a cui hai
+ * accesso», chi e proprietario del proprio club e genitore in un altro
+ * passerebbe il controllo come proprietario del primo e sollecitrebbe il
+ * secondo — leggendone gli indirizzi email dei tutori e mandando email a suo
+ * nome. Il ruolo e il perimetro devono parlare dello **stesso** club.
+ */
 const resolveOrganizationId = (
   scope: PaymentReminderScope | undefined,
   requested?: string | null,
@@ -220,14 +234,18 @@ const resolveOrganizationId = (
     return wanted;
   }
 
-  if (wanted) {
-    ensureOrganizationAccess(scope, wanted);
-    return wanted;
+  if (!scope.activeOrganizationId) {
+    throw new Error("Nessun club attivo selezionato");
   }
 
-  if (scope.activeOrganizationId) return scope.activeOrganizationId;
+  if (wanted && wanted !== scope.activeOrganizationId) {
+    throw denied(
+      "si sollecita il club attivo, non un altro fra quelli a cui hai accesso",
+    );
+  }
 
-  throw new Error("Nessun club attivo selezionato");
+  ensureOrganizationAccess(scope, scope.activeOrganizationId);
+  return scope.activeOrganizationId;
 };
 
 const chargeClient = () => (prisma as any).athletePayment;
@@ -287,11 +305,24 @@ const isWithinWindow = (iso: string | undefined, now: Date) => {
  * questa e `null`, e il messaggio semplicemente non ne parla.
  */
 const nextFutureDueDate = (ledgers: InstallmentLedger[], now: Date) => {
+  /*
+    Il confronto e con l'**inizio della giornata**, non con l'istante.
+
+    Una scadenza e una data — mezzanotte — e `now` e un momento qualunque del
+    giorno: confrontarli direttamente scartava la rata che scade **oggi**. Se
+    era l'unica aperta, il messaggio alla famiglia usciva senza nessuna
+    scadenza, che e proprio il dato per cui il §5.4 punto 18 lo fa scrivere.
+  */
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+
   const dates = ledgers
     .filter((ledger) => ledger.residualAmount > 0 && ledger.dueDate)
     .map((ledger) => new Date(ledger.dueDate as string))
     .filter(
-      (date) => !Number.isNaN(date.getTime()) && date.getTime() >= now.getTime(),
+      (date) =>
+        !Number.isNaN(date.getTime()) &&
+        date.getTime() >= startOfToday.getTime(),
     )
     .sort((left, right) => left.getTime() - right.getTime());
 
@@ -456,6 +487,20 @@ const collect = async ({
     athletes.map((athlete: any) => [asText(athlete.id), athlete]),
   );
 
+  /*
+    Gli account dei tutori si risolvono **una volta sola**, prima del ciclo.
+
+    Chiamare `resolveGuardianAccounts` dentro il ciclo costava due
+    interrogazioni per atleta: su una selezione di duecento rate erano
+    quattrocento letture, e il doppio contando che anteprima e invio fanno lo
+    stesso lavoro. §10.9 del planning chiede «nessuna N+1», e questa lo era.
+    La mappa e per identificativo utente, quindi vale per tutti gli atleti.
+  */
+  const guardianAccounts = await resolveGuardianAccounts(
+    organizationId,
+    athletes.flatMap((athlete: any) => readAthleteGuardianContacts(athlete)),
+  );
+
   const work: AthleteWork[] = [];
 
   for (const athleteId of athleteIds) {
@@ -532,7 +577,7 @@ const collect = async ({
       continue;
     }
 
-    const accounts = await resolveGuardianAccounts(organizationId, contacts);
+    const accounts = guardianAccounts;
     const claims = readClaims(athlete);
     const seen = new Set<string>();
 
@@ -706,6 +751,7 @@ export const buildPaymentReminderPreview = async ({
 const claimRecipients = async (
   work: AthleteWork[],
   now: Date,
+  organizationId: string,
 ): Promise<Set<string>> => {
   const claimed = new Set<string>();
   const ordered = [...work].sort((left, right) =>
@@ -718,8 +764,11 @@ const claimRecipients = async (
 
       await client.$queryRaw`SELECT id FROM athletes WHERE id = ${entry.athleteId}::uuid FOR UPDATE`;
 
-      const fresh = await client.athlete.findUnique({
-        where: { id: entry.athleteId },
+      // Il filtro di club c'e anche se l'id viene da una lettura gia
+      // verificata: CLAUDE.md §8 lo pretende, e il giorno in cui la lettura a
+      // monte cambia nessuno rilegge queste righe.
+      const fresh = await client.athlete.findFirst({
+        where: { id: entry.athleteId, organization_id: organizationId },
       });
       if (!fresh) continue;
 
@@ -756,19 +805,38 @@ const claimRecipients = async (
  * ore per un messaggio che non e mai partito: la finestra di riguardo esiste
  * per non ripetersi, non per punire un guasto.
  */
-const releaseClaim = async (athleteId: string, email: string) => {
-  const fresh = await athleteClient().findUnique({ where: { id: athleteId } });
-  if (!fresh) return;
+const releaseClaim = async (
+  athleteId: string,
+  email: string,
+  organizationId: string,
+) => {
+  /*
+    Anche il rilascio prende il blocco sulla riga, come la rivendicazione.
 
-  const data = asRecord(fresh.data);
-  const claims = readClaims(fresh);
-  if (!(email in claims)) return;
+    Senza, era una lettura-poi-scrittura che riscriveva **tutto** `data`
+    dell'atleta da uno stato gia vecchio: bastava una modifica dell'anagrafica
+    o un'altra rivendicazione fra la lettura e la scrittura per cancellarla. Un
+    fallimento SMTP non deve poter far sparire i tutori appena inseriti da
+    un'altra scrivania.
+  */
+  await (prisma as any).$transaction(async (client: any) => {
+    await client.$queryRaw`SELECT id FROM athletes WHERE id = ${athleteId}::uuid FOR UPDATE`;
 
-  delete claims[email];
+    const fresh = await client.athlete.findFirst({
+      where: { id: athleteId, organization_id: organizationId },
+    });
+    if (!fresh) return;
 
-  await athleteClient().update({
-    where: { id: athleteId },
-    data: { data: { ...data, paymentReminders: claims } },
+    const data = asRecord(fresh.data);
+    const claims = readClaims(fresh);
+    if (!(email in claims)) return;
+
+    delete claims[email];
+
+    await client.athlete.update({
+      where: { id: athleteId },
+      data: { data: { ...data, paymentReminders: claims } },
+    });
   });
 };
 
@@ -868,7 +936,7 @@ export const sendPaymentReminders = async ({
     };
   }
 
-  const claimed = await claimRecipients(work, now);
+  const claimed = await claimRecipients(work, now, clubId);
   const nowIso = now.toISOString();
   const remindedChargeIds: string[] = [];
 
@@ -906,7 +974,7 @@ export const sendPaymentReminders = async ({
         });
 
         if (result.status !== "sent") {
-          await releaseClaim(entry.athleteId, recipient.email);
+          await releaseClaim(entry.athleteId, recipient.email, clubId);
           deliveries.push({
             athleteId: recipient.athleteId,
             athleteName: recipient.athleteName,
@@ -914,7 +982,17 @@ export const sendPaymentReminders = async ({
             guardianName: recipient.guardianName,
             email: recipient.email,
             status: "failed",
-            reason: "email_not_configured",
+            /*
+              Il motivo e quello che il servizio email ha dato, non una
+              costante. Questo ramo si raggiunge solo quando SMTP **e**
+              configurato — il caso contrario esce prima — quindi scrivere
+              «Invio email non configurato» mandava la segreteria a controllare
+              una configurazione che era a posto.
+            */
+            reason:
+              result.reason === "email_not_configured"
+                ? "email_not_configured"
+                : "delivery_failed",
           });
           continue;
         }
@@ -961,7 +1039,7 @@ export const sendPaymentReminders = async ({
           Un destinatario che fallisce non ferma gli altri: la segreteria deve
           poter vedere che tre su quattro sono partiti, e riprovare sul quarto.
         */
-        await releaseClaim(entry.athleteId, recipient.email);
+        await releaseClaim(entry.athleteId, recipient.email, clubId);
         deliveries.push({
           athleteId: recipient.athleteId,
           athleteName: recipient.athleteName,
@@ -986,20 +1064,49 @@ export const sendPaymentReminders = async ({
     if (!deliveredForAthlete) continue;
 
     for (const chargeId of entry.position.chargeIds) {
-      const charge = await chargeClient().findUnique({ where: { id: chargeId } });
-      if (!charge) continue;
+      /*
+        **La traccia del sollecito si scrive sotto il blocco della riga.**
 
-      await chargeClient().update({
-        where: { id: chargeId },
-        data: {
+        `payments.data` non contiene solo la nostra traccia: contiene
+        `data.ledger`, la fotografia degli incassi che il registro riscrive a
+        ogni movimento (ADR-0036) e da cui `/movements` e `/reports` leggono la
+        cassa (ADR-0068). Leggere il JSON, aggiungerci due chiavi e riscriverlo
+        **intero** senza blocco significa che un incasso registrato alla cassa
+        mentre il sollecito gira viene sovrascritto da uno stato letto prima:
+        gli euro appena battuti sparirebbero da entrambe le pagine.
+
+        Il proprietario del dominio lo fa cosi
+        (`payment-transactions.ts`, `lockInstallmentAndTransaction`), e questa
+        scrittura deve farlo uguale — anche se tocca due chiavi che al registro
+        non interessano.
+      */
+      const written = await (prisma as any).$transaction(async (client: any) => {
+        // Il blocco lo prende la funzione del proprietario del dominio: una
+        // seconda copia della stessa `SELECT ... FOR UPDATE` e una seconda
+        // occasione di scriverla diversa.
+        await lockInstallmentAndTransaction(client, chargeId);
+
+        const charge = await client.athletePayment.findFirst({
+          where: { id: chargeId, organization_id: clubId },
+        });
+        if (!charge) return false;
+
+        await client.athletePayment.update({
+          where: { id: chargeId },
           data: {
-            ...asRecord(charge.data),
-            lastReminderAt: nowIso,
-            lastReminderBy: scope?.userId || null,
+            data: {
+              ...asRecord(charge.data),
+              lastReminderAt: nowIso,
+              lastReminderBy: scope?.userId || null,
+            },
           },
-        },
+        });
+        return true;
       });
-      remindedChargeIds.push(chargeId);
+
+      if (written) {
+        remindedChargeIds.push(chargeId);
+      }
     }
   }
 

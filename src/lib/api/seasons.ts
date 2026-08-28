@@ -39,7 +39,6 @@ export type SeasonRosterMembership = {
   categoryName: string;
   siteId: string | null;
   isPrimary: boolean;
-  mappable: boolean;
 };
 
 export type SeasonRosterAthlete = {
@@ -56,7 +55,6 @@ export type SeasonRoster = {
   seasonLabel: string;
   athletes: SeasonRosterAthlete[];
   total: number;
-  unmappable: number;
 };
 
 export type SeasonsOverview = {

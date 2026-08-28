@@ -85,6 +85,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "clubs.signature",
+    method: "GET|PUT|DELETE",
+    path: "/api/v1/clubs/:id/signature",
+    description:
+      "Firma del presidente e timbro della societa. Senza `?kind=` restituisce i metadati di entrambi; con `?kind=signature|stamp` i byte dell'immagine. Legge chi appartiene al club, scrive solo proprietario e gestore",
+    mobile_ready: false,
+  },
+  {
     name: "attachments.list",
     method: "GET",
     path: "/api/v1/attachments",
@@ -132,6 +140,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "payment_reminders.run",
+    method: "POST",
+    path: "/api/v1/payment-reminders",
+    description:
+      "Sollecito degli insoluti verso le famiglie: con `preview: true` restituisce i destinatari raggiungibili e quelli non raggiungibili con il motivo, senza `preview` esegue l'invio e riferisce l'esito per destinatario",
+    mobile_ready: false,
+  },
+  {
     name: "funding.reconciliation",
     method: "GET",
     path: "/api/v1/funding/programs/:id/reconciliation",
@@ -145,6 +161,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     path: "/api/v1/documents/:kind/:id",
     description:
       "Il documento stampabile di una ricevuta o di una fattura, con il branding della societa. Restituisce HTML",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.filled",
+    method: "GET",
+    path: "/api/v1/documents/filled",
+    description:
+      "Un modello di modulistica compilato per un atleta e una stagione: HTML stampabile piu l'elenco dei segnaposto non risolti. `?format=html` restituisce la sola pagina",
     mobile_ready: false,
   },
   {
@@ -621,6 +645,38 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     path: "/api/v1/maintenance",
     description:
       "Toglie cio che e scaduto: sessioni, sfide OTP, contatori di rate limit e audit oltre la retention. La aziona un cron con un segreto condiviso, o un platform_admin a mano",
+    mobile_ready: false,
+  },
+  {
+    name: "maintenance.cron",
+    method: "GET",
+    path: "/api/v1/maintenance",
+    description:
+      "La stessa pulizia, invocata da Vercel Cron alle 04:30. CRON_SECRET e obbligatorio in ogni ambiente: senza, risponde 503 e non cancella niente",
+    mobile_ready: false,
+  },
+  {
+    name: "training_automation.cron",
+    method: "GET",
+    path: "/api/v1/training-automation",
+    description:
+      "La generazione automatica degli allenamenti su tutti i club, invocata da Vercel Cron alle 04:00. Si autentica con CRON_SECRET; in produzione senza quella variabile non si apre",
+    mobile_ready: false,
+  },
+  {
+    name: "medical_certificate_reminders.run",
+    method: "POST",
+    path: "/api/medical-certificate-reminders",
+    description:
+      "Il promemoria sul certificato medico di un atleta, a mano dalla segreteria. Deduplicato per chiave deterministica nei sette giorni precedenti",
+    mobile_ready: false,
+  },
+  {
+    name: "medical_certificate_reminders.cron",
+    method: "GET",
+    path: "/api/medical-certificate-reminders",
+    description:
+      "Lo stesso promemoria su tutti i club, invocato da Vercel Cron alle 07:00. Idempotente entro sette giorni a prescindere dalla lettura; si autentica con CRON_SECRET",
     mobile_ready: false,
   },
   {

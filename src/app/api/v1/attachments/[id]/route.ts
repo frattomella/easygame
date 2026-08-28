@@ -89,11 +89,27 @@ const scopeFor = async (request: Request, session: any) =>
  * La **lettura** resta a chi appartiene al club: serve all'anteprima e ai
  * documenti che stampa anche la segreteria.
  */
-const assertClubAttachmentWritable = (metadata: any, role?: string | null) => {
+const assertClubAttachmentWritable = (metadata: any, scope: any) => {
   if (String(metadata?.ownerType || metadata?.owner_type || "") !== "club") {
     return;
   }
-  if (!canManageClubConfiguration(role)) {
+
+  /*
+    Il ruolo vale per il club **attivo**. Se l'allegato appartiene a un altro
+    club fra quelli a cui l'utente ha accesso, quel ruolo non dice niente su
+    questo allegato: chi e collaboratore nel club B e proprietario del proprio
+    club A passerebbe il controllo con il cappello di A e riscriverebbe la
+    firma di B. Il ruolo e la cosa su cui decide devono parlare dello stesso
+    club.
+  */
+  const owner = String(metadata?.organizationId || "");
+  if (!owner || owner !== String(scope?.activeOrganizationId || "")) {
+    throw new Error(
+      "Accesso negato: gli allegati del club si gestiscono dal club attivo",
+    );
+  }
+
+  if (!canManageClubConfiguration(scope?.activeRole)) {
     throw new Error(
       "Accesso negato: gli allegati del club li gestisce chi ne gestisce la configurazione",
     );
@@ -174,7 +190,7 @@ export async function PUT(request: Request, context: Context) {
 
     const existing = await getAttachmentMetadata(context.params.id, scope);
     if (!existing) return notFound();
-    assertClubAttachmentWritable(existing, scope.activeRole);
+    assertClubAttachmentWritable(existing, scope);
 
     const form = await request.formData();
     const file = form.get("file");
@@ -236,7 +252,7 @@ export async function DELETE(request: Request, context: Context) {
 
     const existing = await getAttachmentMetadata(context.params.id, scope);
     if (!existing) return notFound();
-    assertClubAttachmentWritable(existing, scope.activeRole);
+    assertClubAttachmentWritable(existing, scope);
 
     const removed = await deleteAttachment(context.params.id, scope);
     if (!removed) return notFound();

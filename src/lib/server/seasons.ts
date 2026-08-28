@@ -285,14 +285,27 @@ export const runClubSeasonRollover = async (options: {
     entries: [
       ...publicPlan.entries,
       {
+        /*
+          La voce conta **appartenenze**, come tutte le altre voci del
+          riepilogo: `available` sono le appartenenze della stagione di
+          origine, `created` quelle scritte adesso, e `skipped` la differenza —
+          che comprende sia chi non e stato riconfermato sia cio che c'era gia.
+          Contare persone qui rendeva `skipped` una cosa diversa da quella che
+          significa in ogni altra riga, e al secondo riporto la tabella
+          dichiarava «0 creati, 0 saltati» su 180 appartenenze gia presenti.
+          Il dettaglio per persona resta in `athletes`.
+        */
         type: ATHLETE_MEMBERSHIP_ROLLOVER_TYPE,
         label: getSeasonRolloverTypeLabel(ATHLETE_MEMBERSHIP_ROLLOVER_TYPE),
-        available: athletes.proposed,
+        available: athletes.sourceMemberships,
         created: athletes.created,
-        skipped: athletes.proposed - athletes.carried,
+        skipped: Math.max(0, athletes.sourceMemberships - athletes.created),
       },
     ],
     createdTotal: publicPlan.createdTotal + athletes.created,
+    skippedTotal:
+      publicPlan.skippedTotal +
+      Math.max(0, athletes.sourceMemberships - athletes.created),
     applied: !preview,
     sourceSeasonLabel: source.label,
     targetSeasonLabel: target.label,
@@ -376,6 +389,35 @@ export const createClubSeason = async (options: {
     stagione: nasce attiva, perche non c'e niente da cui ereditare il
     perimetro.
   */
+  /*
+    **Il riporto si valida prima di scrivere la stagione.**
+
+    Prima non era cosi, e l'audit di fine Wave lo ha trovato: la stagione
+    veniva salvata — e attivata, se richiesto — e solo dopo si scopriva che i
+    tipi chiesti non stavano in piedi. Chi lasciava spuntato «Tesserati nelle
+    squadre» (che nasce selezionato) e toglieva «Categorie» vedeva un errore, e
+    intanto il club si ritrovava una stagione **nuova, vuota e attiva**:
+    esattamente cio che il commento qui sopra dice di voler evitare.
+
+    Validare costa niente e va fatto quando non si e ancora scritto niente.
+  */
+  const requestedTypes = normalizeRolloverTypes(options.rollover?.types);
+
+  /*
+    Chiedere un riporto senza dire cosa riportare rispondeva `200` con
+    `rollover: null` e non faceva niente, in silenzio (W1-13). L'interfaccia
+    manda sempre i tipi, quindi non si vedeva; un chiamante API otteneva un
+    no-op che sembrava riuscito. Ora chi chiede un riporto vuoto se lo sente
+    dire.
+  */
+  if (options.rollover && !requestedTypes.length) {
+    throw new Error("Seleziona almeno un tipo di dato da riportare");
+  }
+  if (requestedTypes.length) {
+    assertRolloverTypeRequirements(requestedTypes);
+    normalizeConfirmedAthleteIds(options.rollover?.athleteIds);
+  }
+
   const previousSeasons = state.isFallback ? [] : state.seasons;
   const shouldActivate = activate || previousSeasons.length === 0;
 
@@ -392,18 +434,6 @@ export const createClubSeason = async (options: {
   );
 
   let rollover: SeasonRolloverResult | null = null;
-  const requestedTypes = normalizeRolloverTypes(options.rollover?.types);
-
-  /*
-    Chiedere un riporto senza dire cosa riportare rispondeva `200` con
-    `rollover: null` e non faceva niente, in silenzio (W1-13). L'interfaccia
-    manda sempre i tipi, quindi non si vedeva; un chiamante API otteneva un
-    no-op che sembrava riuscito. Ora chi chiede un riporto vuoto se lo sente
-    dire.
-  */
-  if (options.rollover && !requestedTypes.length) {
-    throw new Error("Seleziona almeno un tipo di dato da riportare");
-  }
 
   if (requestedTypes.length) {
     rollover = await runClubSeasonRollover({

@@ -291,7 +291,7 @@ function ModulisticaPage() {
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
 
-  const [activeView, setActiveView] = useState<"list" | "editor" | "compile">(
+  const [activeView, setActiveView] = useState<"list" | "editor">(
     "list",
   );
   const [activeTab, setActiveTab] = useState<
@@ -300,7 +300,6 @@ function ModulisticaPage() {
   const [activeTemplate, setActiveTemplate] = useState<DocumentTemplate | null>(
     null,
   );
-  const [compiledContent, setCompiledContent] = useState<string>("");
   const [selectedAthlete, setSelectedAthlete] = useState<string>("");
   const [showPdfDialog, setShowPdfDialog] = useState<boolean>(false);
   const [showCompileDialog, setShowCompileDialog] = useState<boolean>(false);
@@ -710,7 +709,6 @@ function ModulisticaPage() {
   const handleBackToList = () => {
     setActiveView("list");
     setActiveTemplate(null);
-    setCompiledContent("");
   };
 
   const handleExportPdf = (template: DocumentTemplate) => {
@@ -723,142 +721,25 @@ function ModulisticaPage() {
     setShowCompileDialog(true);
   };
 
-  const compileDocument = () => {
-    if (!activeTemplate || !selectedAthlete) return;
+  /*
+    Qui viveva `compileDocument`: una **terza** interpretazione della
+    sostituzione dei segnaposto, fatta nel browser con una mappa propria di
+    chiavi storiche (`{{first_name}}`, `{{fiscalCode}}`) e l'anno sportivo
+    letto da `localStorage`.
 
-    const athlete = athletes.find((a) => a.id === selectedAthlete);
-    if (!athlete) return;
+    Finche era l'unica strada si poteva discutere. Da quando esiste il
+    risolutore lato server erano due pulsanti nella stessa schermata che, sullo
+    stesso modello e sullo stesso atleta, producevano due documenti diversi:
+    uno con gli importi giusti e le chiavi storiche in chiaro, l'altro il
+    contrario. Il §6.1 del planning chiedeva un catalogo chiuso perche «due
+    elenchi che divergono sarebbero peggio di nessun elenco» — e vale anche per
+    i consumatori.
 
-    let compiledText = activeTemplate.content;
-    const guardianName = firstNonEmptyString(
-      athlete.data?.parentName,
-      athlete.data?.guardianName,
-      athlete.data?.parent_name,
-      athlete.data?.guardian_name,
-    );
-    const parentFirstName = firstNonEmptyString(
-      athlete.data?.parentFirstName,
-      athlete.data?.parent_first_name,
-      athlete.data?.guardianFirstName,
-      athlete.data?.guardian_first_name,
-      guardianName.split(" ")[0],
-    );
-    const parentLastName = firstNonEmptyString(
-      athlete.data?.parentLastName,
-      athlete.data?.parent_last_name,
-      athlete.data?.guardianLastName,
-      athlete.data?.guardian_last_name,
-      guardianName.split(" ").slice(1).join(" "),
-    );
-    const parentPhone = firstNonEmptyString(
-      athlete.data?.parentPhone,
-      athlete.data?.parent_phone,
-      athlete.data?.guardianPhone,
-      athlete.data?.guardian_phone,
-    );
-    const parentEmail = firstNonEmptyString(
-      athlete.data?.parentEmail,
-      athlete.data?.parent_email,
-      athlete.data?.guardianEmail,
-      athlete.data?.guardian_email,
-    );
-    const categoryName = firstNonEmptyString(
-      athlete.category_name,
-      athlete.data?.categoryName,
-      athlete.data?.category_name,
-      athlete.data?.category,
-    );
-    const fiscalCode = firstNonEmptyString(
-      athlete.data?.fiscalCode,
-      athlete.data?.fiscal_code,
-    );
-    const medicalExpiry = firstNonEmptyString(
-      athlete.data?.medicalCertExpiry,
-      athlete.data?.medical_certificate_expiry_date,
-      athlete.data?.medicalCertificateExpiryDate,
-    );
-    const medicalStatus = medicalExpiry ? "Presente" : "";
-
-    // Replace placeholders with athlete data
-    const replacements = {
-      "athlete.first_name": athlete.first_name || "",
-      "athlete.last_name": athlete.last_name || "",
-      "athlete.birth_date": athlete.birth_date || "",
-      "athlete.fiscal_code": fiscalCode,
-      "athlete.address": athlete.data?.address || "",
-      "athlete.email": athlete.data?.email || "",
-      "athlete.phone": athlete.data?.phone || "",
-      "athlete.category": categoryName,
-      "athlete.category_name": categoryName,
-      "parent.first_name": parentFirstName,
-      "parent.last_name": parentLastName,
-      "parent.phone": parentPhone,
-      "parent.email": parentEmail,
-      "parent.1.first_name": parentFirstName,
-      "parent.1.last_name": parentLastName,
-      "parent.1.phone": parentPhone,
-      "parent.1.email": parentEmail,
-      "parent.2.first_name": firstNonEmptyString(
-        athlete.data?.parent2FirstName,
-        athlete.data?.parent_2_first_name,
-        athlete.data?.secondGuardianFirstName,
-      ),
-      "parent.2.last_name": firstNonEmptyString(
-        athlete.data?.parent2LastName,
-        athlete.data?.parent_2_last_name,
-        athlete.data?.secondGuardianLastName,
-      ),
-      "parent.2.phone": firstNonEmptyString(
-        athlete.data?.parent2Phone,
-        athlete.data?.parent_2_phone,
-        athlete.data?.secondGuardianPhone,
-      ),
-      "parent.2.email": firstNonEmptyString(
-        athlete.data?.parent2Email,
-        athlete.data?.parent_2_email,
-        athlete.data?.secondGuardianEmail,
-      ),
-      "medical_certificate.status": medicalStatus,
-      "medical_certificate.expiry_date": medicalExpiry,
-      "club.name": clubData?.name || "",
-      "club.address": clubData?.address || "",
-      "club.city": clubData?.city || "",
-      "club.email": clubData?.email || clubData?.contact_email || "",
-      "club.phone": clubData?.phone || clubData?.contact_phone || "",
-      "club.fiscal_code": clubData?.fiscal_code || "",
-      "club.vat_number": clubData?.vat_number || "",
-      "club.website": clubData?.website || "",
-      current_date: new Date().toLocaleDateString("it-IT"),
-      "season.year": readStoredActiveClub()?.activeSeasonLabel || "",
-      "guardian.name": guardianName,
-      "signature.parent": signatureBlockHtml("Firma genitore"),
-      "signature.athlete": signatureBlockHtml("Firma atleta"),
-      "signature.club_representative": signatureBlockHtml(
-        "Firma presidente/club",
-      ),
-      "signature.trainer": signatureBlockHtml("Firma allenatore"),
-      first_name: athlete.first_name || "",
-      last_name: athlete.last_name || "",
-      birth_date: athlete.birth_date || "",
-      fiscalCode,
-      address: athlete.data?.address || "",
-      email: athlete.data?.email || "",
-      phone: athlete.data?.phone || "",
-      category: categoryName,
-      "image.placeholder": "Immagine",
-    };
-
-    Object.entries(replacements).forEach(([key, value]) => {
-      compiledText = compiledText.replace(
-        new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, "g"),
-        value,
-      );
-    });
-
-    setCompiledContent(compiledText);
-    setActiveView("compile");
-    setShowCompileDialog(false);
-  };
+    Il pulsante «Compila» ora chiama `generateFilledPdf`, cioe il catalogo
+    unico e la cassa canonica (ADR-0068, ADR-0079). `renderBlankTemplateForPdf`
+    resta dov'e: quella e la strada del modulo da compilare a mano, ed e
+    un'altra cosa.
+  */
 
   const generatePdf = () => {
     if (!activeTemplate) return;
@@ -1425,66 +1306,7 @@ function ModulisticaPage() {
             />
           </div>
         )
-      ) : (
-        activeTemplate &&
-        compiledContent && (
-          <div>
-            <div className="mb-4">
-              <h2 className="text-2xl font-semibold">
-                {activeTemplate.title} - Compilato
-              </h2>
-              <p className="text-muted-foreground">
-                {activeTemplate.description}
-              </p>
-            </div>
-            <Card className="w-full">
-              <CardHeader>
-                <CardTitle>Documento Compilato</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div
-                  className="mb-4 document-content"
-                  dangerouslySetInnerHTML={{ __html: compiledContent }}
-                />
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={handleBackToList}>
-                    Torna alla lista
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      const printWindow = window.open("", "_blank");
-                      if (printWindow) {
-                        printWindow.document.write(`
-                        <html>
-                          <head>
-                            <title>${activeTemplate.title}</title>
-                            <style>
-                              body { font-family: Arial, sans-serif; padding: 20px; }
-                              .pdf-container { max-width: 800px; margin: 0 auto; }
-                            </style>
-                          </head>
-                          <body>
-                            <div class="pdf-container">
-                              ${compiledContent}
-                            </div>
-                          </body>
-                        </html>
-                      `);
-                        printWindow.document.close();
-                        setTimeout(() => {
-                          printWindow.print();
-                        }, 500);
-                      }
-                    }}
-                  >
-                    <Download className="mr-2 h-4 w-4" /> Esporta PDF
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )
-      )}
+      ) : null}
 
       {/* PDF Export Dialog — le due strade: modulo vuoto o documento compilato */}
       <Dialog open={showPdfDialog} onOpenChange={setShowPdfDialog}>
@@ -1693,10 +1515,14 @@ function ModulisticaPage() {
               Annulla
             </Button>
             <Button
-              onClick={compileDocument}
-              disabled={!selectedAthlete || selectedAthlete === "no-athletes"}
+              onClick={() => void generateFilledPdf()}
+              disabled={
+                generatingFilled ||
+                !selectedAthlete ||
+                selectedAthlete === "no-athletes"
+              }
             >
-              Compila
+              {generatingFilled ? "Compilo…" : "Compila"}
             </Button>
           </DialogFooter>
         </DialogContent>

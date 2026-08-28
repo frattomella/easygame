@@ -374,6 +374,18 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
     ? Array.from(confirmedIds)
     : null;
 
+  /**
+   * Vero quando l'elenco di riconferma non e stato caricato.
+   *
+   * Senza questo controllo un errore di rete produceva un `roster` nullo e
+   * `confirmedIds` vuoto, che il server legge come «nessuno riconfermato»: dopo
+   * un avviso che l'utente puo non vedere, il riporto andava a buon fine
+   * portando **zero** tesserati. Un elenco che non si e caricato deve fermare
+   * il passo, non degradare in silenzio.
+   */
+  const rosterNonCaricato =
+    carriesAthletes && !rosterLoading && roster?.seasonId !== sourceSeasonId;
+
   const goToRiporto = () => {
     if (!form.startDate || !form.endDate) {
       showToast("error", "Indica la data di inizio e la data di fine");
@@ -895,7 +907,29 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
             </div>
           ) : null}
 
-          {step === "tesserati" ? (
+          {step === "tesserati" && rosterNonCaricato ? (
+            <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="flex items-start gap-2">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  L&apos;elenco dei tesserati non si e caricato. Non si puo
+                  scegliere chi rinnova senza vederli: riprova, oppure torna
+                  indietro e togli «Tesserati nelle squadre» per riportare la
+                  sola configurazione.
+                </span>
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadRoster(sourceSeasonId)}
+                disabled={rosterLoading}
+              >
+                Riprova
+              </Button>
+            </div>
+          ) : null}
+
+          {step === "tesserati" && !rosterNonCaricato ? (
             <RosterConfirmation
               roster={roster}
               loading={rosterLoading}
@@ -1001,7 +1035,10 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
               </Button>
             ) : null}
             {step === "tesserati" ? (
-              <Button onClick={() => setStep("riepilogo")} disabled={rosterLoading}>
+              <Button
+                onClick={() => setStep("riepilogo")}
+                disabled={rosterLoading || rosterNonCaricato}
+              >
                 Avanti
               </Button>
             ) : null}

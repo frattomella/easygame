@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/list-selection";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import { apiRequest } from "@/lib/api/client";
 import {
   addClubData,
@@ -615,6 +616,14 @@ export default function MovementsPage() {
 
   const reminderSelection = useListSelection();
   const [showReminderDialog, setShowReminderDialog] = useState(false);
+  /*
+    `/movements` non e un'area riservata alla direzione: la vedono anche
+    collaboratori e staff. Il sollecito invece lo governa lo stesso permesso
+    che governa gli incassi, e la rotta risponde 403 a chi non ce l'ha.
+    Mostrare un pulsante che apre un dialogo e poi fallisce e una promessa non
+    mantenuta: il gate vero resta sul server, ma qui il pulsante non compare.
+  */
+  const canSendReminders = canManageClubConfiguration(activeClub?.role);
 
   /*
     Una selezione che tiene l'id di una rata sparita dopo una rilettura
@@ -1775,15 +1784,17 @@ export default function MovementsPage() {
                       selection={reminderSelection}
                       nouns={{ one: "rata", many: "rate" }}
                     >
-                      <Button
-                        size="sm"
-                        className="h-8"
-                        disabled={selectedReminderIds.length === 0}
-                        onClick={() => setShowReminderDialog(true)}
-                      >
-                        <Mail className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                        Sollecita
-                      </Button>
+                      {canSendReminders ? (
+                        <Button
+                          size="sm"
+                          className="h-8"
+                          disabled={selectedReminderIds.length === 0}
+                          onClick={() => setShowReminderDialog(true)}
+                        >
+                          <Mail className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                          Sollecita
+                        </Button>
+                      ) : null}
                     </BulkSelectionToolbar>
 
                     <div className="overflow-x-auto rounded-md border">

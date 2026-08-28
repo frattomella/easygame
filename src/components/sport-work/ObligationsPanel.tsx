@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { hasSportWorkPermission } from "@/lib/sport-work/permissions";
 import { CONFIGURED_RULE_YEARS } from "@/lib/sport-work/rules";
 import {
@@ -39,33 +40,24 @@ import {
  * sbagliarli.
  */
 
-const csvEscape = (value: unknown) => {
-  const text = String(value ?? "");
-  return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-};
-
 /**
- * Scarica una tabella come CSV **con il punto e virgola**: e cio che Excel in
- * italiano apre senza chiedere niente, e questa tabella la apre una segreteria,
- * non un programmatore.
+ * Scarica una tabella come CSV.
+ *
+ * Il tracciato lo decide `src/lib/csv.ts`, non questo file. Fino all'audit di
+ * fine Wave 1 qui viveva una copia — stesso separatore, stesso BOM, stesso
+ * nome di funzione — che pero **non virgolettava il ritorno a capo isolato**:
+ * una nota incollata da un programma di posta spezzava la riga, e chi apriva
+ * il file trovava un adempimento in piu che nessuno aveva censito. E il difetto
+ * per cui il modulo condiviso esiste.
  */
-const downloadCsv = (filename: string, rows: Array<Record<string, unknown>>) => {
+const downloadObligationsCsv = (
+  filename: string,
+  rows: Array<Record<string, unknown>>,
+) => {
   if (rows.length === 0) return;
-  const headers = Object.keys(rows[0]);
-  const body = [
-    headers.join(";"),
-    ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(";")),
-  ].join("\r\n");
 
-  const blob = new Blob([`﻿${body}`], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  const columns = Object.keys(rows[0]).map((key) => ({ key, label: key }));
+  downloadCsv(filename, toCsv(columns, rows));
 };
 
 export function ObligationsPanel() {
@@ -290,7 +282,7 @@ export function ObligationsPanel() {
                     size="sm"
                     variant="outline"
                     disabled={f24.length === 0}
-                    onClick={() => downloadCsv(`f24-${year}.csv`, f24)}
+                    onClick={() => downloadObligationsCsv(`f24-${year}.csv`, f24)}
                   >
                     <Download className="mr-2 h-4 w-4" />
                     CSV
@@ -362,7 +354,7 @@ export function ObligationsPanel() {
                   size="sm"
                   variant="outline"
                   disabled={cu.length === 0}
-                  onClick={() => downloadCsv(`cu-${year}.csv`, cu)}
+                  onClick={() => downloadObligationsCsv(`cu-${year}.csv`, cu)}
                 >
                   <Download className="mr-2 h-4 w-4" />
                   CSV

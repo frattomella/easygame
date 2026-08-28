@@ -799,6 +799,33 @@ const run = async () => {
     `HTTP ${senzaCategorie.status}: ${senzaCategorie.error?.message || ""}`,
   );
 
+  const stagioniPrima = (await A("/api/v1/seasons")).data?.seasons?.length || 0;
+  const richiestaIncoerente = await A("/api/v1/seasons", {
+    method: "POST",
+    body: {
+      label: "UAT-SR stagione fantasma",
+      startDate: "2033-07-01",
+      endDate: "2034-06-30",
+      activate: true,
+      rollover: {
+        sourceSeasonId: seasonAId,
+        types: ["athlete_memberships"],
+      },
+    },
+  });
+  const stagioniDopo = (await A("/api/v1/seasons")).data?.seasons?.length || 0;
+
+  check(
+    "un riporto incoerente viene rifiutato prima di creare la stagione",
+    richiestaIncoerente.status === 400,
+    `HTTP ${richiestaIncoerente.status}: ${richiestaIncoerente.error?.message || ""}`,
+  );
+  check(
+    "e non lascia una stagione vuota e attiva dietro di se",
+    stagioniDopo === stagioniPrima,
+    `${stagioniPrima} stagioni prima, ${stagioniDopo} dopo`,
+  );
+
   const senzaTipi = await A("/api/v1/seasons", {
     method: "POST",
     body: {

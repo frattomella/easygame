@@ -402,16 +402,40 @@ const FALLBACK_DICHIARATI = [
   "lib/payments/installment-ledger.ts",
 ];
 
+/**
+ * Le forme in cui si scrive «se la rata risulta pagata vale tutto, altrimenti
+ * zero».
+ *
+ * **Cosa questa guardia e, e cosa non e.** E una guardia testuale, non
+ * un'invariante: legge la grafia del codice, non il suo significato. La prima
+ * versione cercava tre sole forme — quelle esatte del codice che G-19 aveva
+ * appena cancellato — e sarebbe passata sopra un apice singolo o una variabile
+ * chiamata diversamente. L'audit di fine Wave 1 lo ha rilevato, e l'elenco e
+ * stato allargato a tutte le grafie ragionevoli.
+ *
+ * Resta aggirabile da chi si impegna a scriverlo in modo strano. La protezione
+ * vera e altrove, ed e il test funzionale qui sopra: `/reports` e `/movements`
+ * confrontati sugli stessi movimenti. Questa serve a **rendere rumorosa** la
+ * reintroduzione distratta, che e il modo in cui G-19 e nato.
+ */
+const FORME_DELLA_DEDUZIONE = [
+  // status === "paid" ? amount : 0   (apici doppi o singoli, qualunque nome)
+  /===\s*["']paid["']\s*\?\s*[A-Za-z_$][\w.$]*\s*:\s*0/,
+  // isPaid ? importo : 0
+  /\bis[A-Z]\w*Paid\w*\s*\?\s*[A-Za-z_$][\w.$]*\s*:\s*0/,
+  // if (isPaid) { totale += amount }
+  /\bis[A-Z]?\w*[Pp]aid\w*\s*\)\s*\{[^}]{0,200}\+=\s*[A-Za-z_$][\w.$]*\s*[;,)]/,
+  // PAID_STATUSES.has(...) ... += amount
+  /PAID_STATUSES\.has\([^)]*\)[\s\S]{0,200}\+=\s*[A-Za-z_$][\w.$]*\s*[;,)]/,
+  // status === "paid" ... += amount, entro poche righe
+  /===\s*["']paid["'][\s\S]{0,200}\+=\s*[A-Za-z_$][\w.$]*\s*[;,)]/,
+];
+
 test("nessuna terza interpretazione del denaro incassato", () => {
   const offenders = walk(SRC)
     .filter((file) => {
       const source = readFileSync(file, "utf8");
-      // «se e pagata vale tutto, altrimenti zero»: la formula che G-19 ha chiuso.
-      return (
-        /status\s*===\s*"paid"\s*\?\s*amount/.test(source) ||
-        /isPaid\s*\)\s*\{[^}]*\+=\s*amount/.test(source) ||
-        /PAID_STATUSES\.has\([^)]*\)[^;]*\n?[^;]*\+=\s*amount/.test(source)
-      );
+      return FORME_DELLA_DEDUZIONE.some((forma) => forma.test(source));
     })
     .map((file) => path.relative(SRC, file).replace(/\\/g, "/"))
     .filter((file) => !FALLBACK_DICHIARATI.includes(file));
@@ -421,6 +445,41 @@ test("nessuna terza interpretazione del denaro incassato", () => {
     [],
     "il denaro incassato si legge da collectedAmount (ADR-0068), non dallo stato della rata",
   );
+});
+
+test("la guardia riconosce le grafie con cui il difetto si riscrive", () => {
+  /*
+    Una guardia testuale che non si prova contro cio che deve riconoscere e
+    una decorazione. Queste sono le forme che l'audit ha indicato come vie di
+    fuga della prima versione: devono essere tutte riconosciute.
+  */
+  const riscritture = [
+    'sum += charge.status === "paid" ? charge.amount : 0;',
+    "sum += charge.status === 'paid' ? charge.amount : 0;",
+    'const isPaid = normalizeStatus(row.status) === "paid";\nif (isPaid) { totale += dovuto; }',
+    'if (PAID_STATUSES.has(status)) {\n  incassato += movement.amount;\n}',
+    'totale += stato === "paid" ? riga.importo : 0;',
+  ];
+
+  for (const riscrittura of riscritture) {
+    assert.ok(
+      FORME_DELLA_DEDUZIONE.some((forma) => forma.test(riscrittura)),
+      `la guardia non riconoscerebbe:\n${riscrittura}`,
+    );
+  }
+
+  // E non deve gridare su codice legittimo.
+  const innocenti = [
+    "summary.totalPaid += collectedCents;",
+    'const isPaid = status === "paid";\nreturn isPaid ? labels.paid : labels.pending;',
+    "residuo += Math.max(0, dueCents - collectedCents);",
+  ];
+  for (const innocente of innocenti) {
+    assert.ok(
+      !FORME_DELLA_DEDUZIONE.some((forma) => forma.test(innocente)),
+      `falso positivo su:\n${innocente}`,
+    );
+  }
 });
 
 test("il report dei pagamenti legge collectedAmount", () => {
@@ -439,4 +498,36 @@ test("il report dei pagamenti legge collectedAmount", () => {
     /PAID_STATUSES/,
     "l'elenco degli stati «pagato» non serve piu a sommare denaro",
   );
+});
+
+test("una rata esclusa dai totali sparisce da entrambe le pagine", () => {
+  /*
+    L'audit di fine Wave sospettava una divergenza: `/reports` filtra con
+    `isPaymentExcludedFromTotals` (che guarda anche `data.excludedFromTotals`),
+    `/movements` scarta lo stato `cancelled`. Sarebbero due predicati diversi
+    sullo stesso denaro.
+
+    Non lo sono, e la ragione va scritta perche non venga «corretta» per
+    sbaglio: il normalizzatore dei pagamenti atleti porta gia a `cancelled`
+    tutto cio che `isPaymentExcludedFromTotals` esclude. Il predicato e uno,
+    applicato una volta a monte. Questo test lo tiene fermo.
+  */
+  const esclusa = {
+    ...rata({ id: "r1", amount: 500 }),
+    status: "paid",
+    paid_at: "2026-09-01T10:00:00.000Z",
+    data: { installmentId: "r1-plan", excludedFromTotals: true },
+  };
+
+  const sources = { payments: [esclusa, rata({ id: "r2", amount: 40 })] };
+  const risultato = report(sources);
+  const movimenti = cassaMovimenti(sources);
+
+  assert.equal(risultato.totalPaid, 0, "il report non conta una rata esclusa");
+  assert.equal(
+    movimenti.totalIncome,
+    0,
+    "e nemmeno i movimenti: il predicato di esclusione e uno solo",
+  );
+  assert.equal(risultato.totalDue, 40);
 });

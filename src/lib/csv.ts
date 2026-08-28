@@ -38,15 +38,34 @@ export const CSV_BOM = "\uFEFF";
 const NEEDS_QUOTES = /[";\r\n]/;
 
 /**
+ * Una cella che comincia per `=`, `+`, `-` o `@` e una **formula** per Excel e
+ * LibreOffice, non un testo.
+ *
+ * Il contenuto di questo file arriva dall'anagrafica, che la compilano gli
+ * utenti e che si popola anche per import: un cognome o una nota scritti
+ * `=HYPERLINK("http://…";"clicca")` diventerebbero un collegamento eseguito
+ * all'apertura, sul computer di chi riceve il file. Si antepone un apice, che
+ * i fogli di calcolo interpretano come «questo e testo» e non mostrano.
+ *
+ * Un numero negativo scritto come numero non passa di qui — `csvValue` lo
+ * formatta prima — quindi `-12,50` in una colonna di importi resta un importo.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+const neutralizeFormula = (text: string) =>
+  FORMULA_LEAD.test(text) ? `'${text}` : text;
+
+/**
  * Un valore dentro una cella, con le virgolette quando servono.
  *
  * `String(value ?? "")`: un campo assente e una cella vuota, non la parola
  * «null» in mezzo a un'anagrafica.
  */
-export const csvEscape = (value: unknown): string => {
-  const text = String(value ?? "");
-  return NEEDS_QUOTES.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-};
+const quote = (text: string) =>
+  NEEDS_QUOTES.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+
+export const csvEscape = (value: unknown): string =>
+  quote(neutralizeFormula(String(value ?? "")));
 
 /**
  * Come `csvEscape`, ma i numeri escono con la **virgola decimale**.
@@ -57,7 +76,9 @@ export const csvEscape = (value: unknown): string => {
  */
 export const csvValue = (value: unknown): string =>
   typeof value === "number"
-    ? csvEscape(String(value).replace(".", ","))
+    ? // Un numero non passa dalla neutralizzazione delle formule: un importo
+      // negativo comincia per `-` e resterebbe testo in una colonna di importi.
+      quote(String(value).replace(".", ","))
     : csvEscape(value);
 
 export type CsvColumn = { key: string; label: string };
