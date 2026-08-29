@@ -250,11 +250,29 @@ test("le rotte allegati proteggono cio che appartiene al club", () => {
     "utf8",
   );
 
+  /*
+    L'asserzione guarda l'**invariante**, non la forma in cui e scritto.
+
+    La prima versione pretendeva `owner_type` e `=== "club"` sulla stessa riga,
+    e si e rotta quando la Wave 2 ha aggiunto un secondo proprietario protetto
+    (`announcement`, l'allegato di un annuncio della bacheca) estraendo il
+    valore in una costante. La guardia era diventata **piu larga**, e il test
+    la dichiarava sparita: un test che descrive la formattazione invece della
+    regola fallisce quando la regola migliora.
+  */
   assert.match(
     collezione,
-    /owner_type[^\n]*===\s*"club"[\s\S]{0,200}canManageClubConfiguration/,
-    "creare un allegato del club deve passare dal permesso di configurazione",
+    /canManageClubConfiguration\(/,
+    "la creazione deve consultare il permesso di configurazione",
   );
+
+  for (const proprietario of ["club", "announcement"]) {
+    assert.match(
+      collezione,
+      new RegExp(`"${proprietario}"[\\s\\S]{0,200}canManageClubConfiguration`),
+      `creare un allegato con owner_type "${proprietario}" deve passare dal permesso di configurazione`,
+    );
+  }
 
   assert.match(
     singolo,

@@ -106,6 +106,14 @@ test("le email partono solo da src/lib/server/email/", () => {
     "lib/server/email/provider.ts",
     "lib/server/auth-workflows.ts",
     "lib/server/communications.ts",
+    /*
+      Il motore di automazioni (W2-A) e il secondo chiamante legittimo, e non e
+      un secondo punto di invio: chiama la **stessa** `sendTransactionalEmail`
+      di `src/lib/server/email/`, con la stessa configurazione SMTP e la stessa
+      politica di errore. Cio che questo elenco protegge e che nessuno apra un
+      canale proprio, non che esista un chiamante solo.
+    */
+    "lib/server/automations.ts",
   ];
 
   assert.deepEqual(

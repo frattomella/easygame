@@ -45,6 +45,12 @@ const TOUCHED = [
   "components/organization/season-manager.tsx",
   "components/organization/club-signature-panel.tsx",
   "app/reports/page.tsx",
+  /*
+    Wave 2: la configurazione delle automazioni. Quattro schede con anticipi,
+    pubblico e testo del messaggio — cioe la superficie che una segreteria
+    apre per spegnere una regola, spesso di corsa e spesso dal telefono.
+  */
+  "app/communications/automazioni/page.tsx",
 ];
 
 test("nessuna griglia resta a due colonne a 375 px", () => {

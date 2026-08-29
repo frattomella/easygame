@@ -28,6 +28,7 @@ import {
   PieChart,
   Receipt,
   Scale,
+  Send,
   Settings,
   Shield,
   Shirt,
@@ -131,6 +132,19 @@ const sidebarGroups: SidebarGroup[] = [
         label: "Notifiche",
         href: "/notifications",
         icon: MessageSquare,
+      },
+      /*
+        Comunicazioni sta accanto a Notifiche, e non e la stessa cosa: li si
+        **leggono** gli avvisi che il prodotto produce, qui si **scrive** alle
+        famiglie. La bacheca e le automazioni sono sottopagine di questa, non
+        due voci di menu in piu: sono modi diversi di mandare lo stesso
+        messaggio, e tre voci suggerirebbero tre prodotti.
+      */
+      {
+        id: "communications",
+        label: "Comunicazioni",
+        href: "/communications",
+        icon: Send,
       },
     ],
   },

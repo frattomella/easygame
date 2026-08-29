@@ -372,7 +372,7 @@ test("la porta del cron dei promemoria non risponde a un Bearer sbagliato", () =
   assert.match(get, /runMedicalCertificateRemindersForAllClubs/);
 });
 
-test("le quattro porte periodiche hanno uno scheduler", () => {
+test("le porte periodiche hanno uno scheduler", () => {
   const vercel = JSON.parse(sourceOf("vercel.json"));
   const percorsi = vercel.crons.map((cron) => cron.path);
 
@@ -381,13 +381,15 @@ test("le quattro porte periodiche hanno uno scheduler", () => {
     "/api/v1/training-automation",
     "/api/v1/maintenance",
     "/api/medical-certificate-reminders",
+    /* Wave 2: il giro delle automazioni, dopo tutti gli altri. */
+    "/api/v1/automations/run",
   ]);
 
   const orari = vercel.crons.map((cron) => cron.schedule);
   assert.equal(
     new Set(orari).size,
     orari.length,
-    "quattro giri alla stessa ora si contendono le stesse connessioni al database",
+    "due giri alla stessa ora si contendono le stesse connessioni al database",
   );
 });
 

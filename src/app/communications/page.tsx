@@ -271,6 +271,9 @@ export default function CommunicationsPage() {
                   <Button variant="outline" asChild>
                     <a href="/communications/bacheca">Bacheca</a>
                   </Button>
+                  <Button variant="outline" asChild>
+                    <a href="/communications/automazioni">Automazioni</a>
+                  </Button>
                   <Button variant="outline" onClick={nuovaComunicazione}>
                     Nuova comunicazione
                   </Button>
