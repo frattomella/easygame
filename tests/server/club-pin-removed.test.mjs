@@ -190,7 +190,13 @@ test("il comparatore e utilizzabile da solo", () => {
 test("gli elenchi temporali passano dal comparatore condiviso", () => {
   for (const [file, needle] of [
     ["app/trainers/[id]/page.tsx", /sortByDateDesc\(/],
-    ["app/movements/page.tsx", /sortByDateDesc\(transfersData/],
+    /*
+      Su `/movements` i giroconti non arrivano piu dal blob `clubs.transfers`
+      da ordinare nel browser: la prima nota li ordina sul server, per
+      `entry_date`. Cio che resta da ordinare qui sono le rate, e passano dallo
+      stesso comparatore — che e cio che questo test difende.
+    */
+    ["app/movements/page.tsx", /sortByDateDesc\(/],
   ]) {
     assert.match(
       readCode(path.join(SRC, file)),

@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { memoize } from "@/lib/performance";
+import { canOpenAccounting } from "@/lib/accounting/permissions";
 import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
 type SidebarItem = {
@@ -324,6 +325,22 @@ const Sidebar = memo(() => {
     [isAthlete],
   );
 
+  /*
+    La voce «Movimenti» segue la stessa matrice della pagina e delle rotte
+    contabili — `src/lib/accounting/permissions.ts` — e non un `if` sul ruolo
+    scritto qui. Un allenatore non deve nemmeno vederla: una pagina che nega e
+    piu onesta di una assente solo per chi aveva ragione di aspettarsela, ma
+    chi non ha mai avuto niente a che fare con la cassa non ha ragione di
+    aspettarsela affatto.
+  */
+  const isItemVisible = useCallback(
+    (item: SidebarItem) =>
+      item.id === "movements"
+        ? canOpenAccounting(activeClub?.role || null)
+        : true,
+    [activeClub?.role],
+  );
+
   const isItemActive = useCallback(
     (item: SidebarItem) => {
       if (!pathname) {
@@ -467,7 +484,7 @@ const Sidebar = memo(() => {
                   isOpen ? "mb-5 max-h-[900px] opacity-100" : "mb-2 max-h-0 opacity-0",
                 )}
               >
-                {group.items.map((item) => {
+                {group.items.filter(isItemVisible).map((item) => {
                   const Icon = item.icon;
                   const active = isItemActive(item);
                   const label = getItemLabel(item);
