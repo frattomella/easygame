@@ -68,6 +68,14 @@ const MANAGEMENT_PATH_PREFIXES = [
   "/athletes",
   "/categories",
   "/clothing",
+  /*
+    Le comunicazioni verso le famiglie stanno nell'area gestionale, e il
+    prefisso amministrativo qui sotto le restringe a proprietario e gestore: e
+    lo stesso perimetro che gia protegge il sollecito degli insoluti, perche
+    mandare un messaggio a nome della societa non e meno impegnativo che
+    chiedere dei soldi.
+  */
+  "/communications",
   "/hub",
   "/matches",
   "/medical",
@@ -93,6 +101,7 @@ const MANAGEMENT_PATH_PREFIXES = [
 ] as const;
 
 const MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES = [
+  "/communications",
   "/create-club",
   "/dashboard/access-management",
   // La configurazione iniziale scrive dati societari: stesso perimetro di

@@ -5,10 +5,19 @@ import {
   sendPaymentReminderEmail,
   type PaymentReminderEmailContent,
 } from "./email/email-service";
+import { readAthleteGuardianContacts } from "@/lib/athlete-guardians";
 import {
-  readAthleteGuardianContacts,
-  type AthleteGuardianContact,
-} from "@/lib/athlete-guardians";
+  buildAudienceContacts,
+  resolveGuardianAccounts,
+} from "./audience";
+import {
+  buildDedupKey,
+  claimDelivery,
+  MANUAL_REMINDER_WINDOW_MS,
+  readAlreadyReached,
+  reachedKey,
+  settleDelivery,
+} from "./communication-deliveries";
 import {
   buildInstallmentLedgers,
   normalizePaymentTransactions,
@@ -275,25 +284,17 @@ const toIsoOrNull = (value: unknown) => {
  */
 const recipientKey = (email: string) => email.trim().toLowerCase();
 
-const windowStart = (now: Date) =>
-  new Date(now.getTime() - PAYMENT_REMINDER_WINDOW_HOURS * 60 * 60 * 1000);
-
-/** Le rivendicazioni gia scritte sull'atleta: indirizzo → istante ISO. */
-const readClaims = (athlete: any): Record<string, string> => {
-  const claims = asRecord(asRecord(athlete?.data).paymentReminders);
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(claims)) {
-    const iso = toIsoOrNull(value);
-    if (iso) result[key] = iso;
-  }
-  return result;
-};
-
-const isWithinWindow = (iso: string | undefined, now: Date) => {
-  if (!iso) return false;
-  const at = new Date(iso).getTime();
-  return Number.isFinite(at) && at >= windowStart(now).getTime();
-};
+/**
+ * La chiave con cui il registro delle consegne riconosce un sollecito.
+ *
+ * **Per atleta, non per selezione di rate.** La finestra di riguardo protegge
+ * la **famiglia** dal ricevere due messaggi ravvicinati, e la famiglia e legata
+ * all'atleta: se la chiave portasse le rate selezionate, sollecitare prima la
+ * rata di ottobre e poi quella di novembre produrrebbe due email a distanza di
+ * un minuto, che e esattamente cio che la finestra esiste per evitare.
+ */
+const reminderDedupKey = (athleteId: string) =>
+  buildDedupKey("reminder", athleteId);
 
 /**
  * La prima scadenza **non ancora passata** fra le rate ancora scoperte.
@@ -371,51 +372,6 @@ const loadCharges = async (organizationId: string, chargeIds: string[]) => {
   }
 
   return charges;
-};
-
-/**
- * L'account di un tutore, **se e un account di questo club**.
- *
- * La stessa email puo esistere in due societa: un identificativo dichiarato in
- * anagrafica non e un lasciapassare, e la verifica di iscrizione e la stessa
- * che protegge i promemoria sui certificati medici.
- */
-const resolveGuardianAccounts = async (
-  organizationId: string,
-  contacts: AthleteGuardianContact[],
-) => {
-  const userIds = Array.from(
-    new Set(contacts.map((contact) => contact.linkedUserId).filter(Boolean)),
-  );
-
-  if (userIds.length === 0) {
-    return new Map<string, { id: string; email: string }>();
-  }
-
-  const memberships = await (prisma as any).organizationUser.findMany({
-    where: { organization_id: organizationId, user_id: { in: userIds } },
-    select: { user_id: true },
-  });
-
-  const membersOfClub = new Set(
-    memberships.map((row: any) => asText(row.user_id)).filter(Boolean),
-  );
-
-  if (membersOfClub.size === 0) {
-    return new Map<string, { id: string; email: string }>();
-  }
-
-  const users = await (prisma as any).user.findMany({
-    where: { id: { in: Array.from(membersOfClub) } },
-    select: { id: true, email: true },
-  });
-
-  return new Map<string, { id: string; email: string }>(
-    users.map((user: any) => [
-      asText(user.id),
-      { id: asText(user.id), email: asText(user.email).toLowerCase() },
-    ]),
-  );
 };
 
 /**
@@ -501,6 +457,23 @@ const collect = async ({
     athletes.flatMap((athlete: any) => readAthleteGuardianContacts(athlete)),
   );
 
+  /*
+    Chi e gia stato raggiunto nella finestra di riguardo, letto **una volta
+    sola** dal registro delle consegne.
+
+    Fino alla Wave 2 questa informazione stava dentro
+    `athletes.data.paymentReminders`, cioe in un posto che sapeva rispondere a
+    «gli ho gia scritto?» e non a «cosa gli ho scritto». Sono la stessa
+    domanda, e adesso hanno la stessa riga (ADR-0084).
+  */
+  const alreadyReached = await readAlreadyReached({
+    organizationId,
+    dedupKeys: athleteIds.map(reminderDedupKey),
+    channel: "email",
+    retryAfterMs: MANUAL_REMINDER_WINDOW_MS,
+    now,
+  });
+
   const work: AthleteWork[] = [];
 
   for (const athleteId of athleteIds) {
@@ -560,7 +533,16 @@ const collect = async ({
       nextDueDate: nextFutureDueDate(open, now),
     };
 
-    const contacts = readAthleteGuardianContacts(athlete);
+    /*
+      **I contatti li risolve l'audience engine**, non questo modulo.
+
+      Prima della Wave 2 la stessa lettura esisteva qui e dentro i promemoria
+      sui certificati, con due politiche diverse: la prima raggiungeva anche
+      chi ha solo un indirizzo, la seconda **solo** chi ha un account nel club.
+      La differenza non era una scelta di prodotto, era una divergenza. Adesso
+      la politica e una sola e sta in `src/lib/server/audience.ts` (ADR-0087).
+    */
+    const contacts = buildAudienceContacts(athlete, guardianAccounts);
     const reachable: AthleteWork["reachable"] = [];
     const unreachable: PaymentReminderBlockedRecipient[] = [];
 
@@ -577,29 +559,25 @@ const collect = async ({
       continue;
     }
 
-    const accounts = guardianAccounts;
-    const claims = readClaims(athlete);
+    const dedupKey = reminderDedupKey(athleteId);
     const seen = new Set<string>();
 
     for (const contact of contacts) {
-      const account = contact.linkedUserId
-        ? accounts.get(contact.linkedUserId) || null
-        : null;
-      const email = recipientKey(contact.email || account?.email || "");
+      const email = recipientKey(contact.email);
 
       if (!email) {
         unreachable.push({
           athleteId,
           athleteName,
-          guardianId: contact.id,
-          guardianName: contact.name,
+          guardianId: contact.guardianId,
+          guardianName: contact.guardianName,
           email: null,
           /*
             Un account dichiarato ma introvabile in questo club e un caso
             diverso da «indirizzo mancante»: la segreteria deve sapere se le
             manca un dato o se il collegamento e da rifare.
           */
-          reason: contact.linkedUserId ? "no_account" : "no_email",
+          reason: contact.declaresMissingAccount ? "no_account" : "no_email",
         });
         continue;
       }
@@ -611,12 +589,12 @@ const collect = async ({
       if (seen.has(email)) continue;
       seen.add(email);
 
-      if (isWithinWindow(claims[email], now)) {
+      if (alreadyReached.has(reachedKey(dedupKey, email))) {
         unreachable.push({
           athleteId,
           athleteName,
-          guardianId: contact.id,
-          guardianName: contact.name,
+          guardianId: contact.guardianId,
+          guardianName: contact.guardianName,
           email,
           reason: "already_reminded",
         });
@@ -626,11 +604,11 @@ const collect = async ({
       reachable.push({
         athleteId,
         athleteName,
-        guardianId: contact.id,
-        guardianName: contact.name,
+        guardianId: contact.guardianId,
+        guardianName: contact.guardianName,
         email,
-        hasAccount: Boolean(account),
-        userId: account?.id || null,
+        hasAccount: Boolean(contact.userId),
+        userId: contact.userId,
       });
     }
 
@@ -736,69 +714,64 @@ export const buildPaymentReminderPreview = async ({
 /**
  * Rivendica i destinatari **prima** di scrivere loro.
  *
- * **Perche prima, e perche sotto blocco di riga.** Due richieste ravvicinate —
- * il doppio clic, o il reinvio di una richiesta lenta — leggono entrambe
- * «nessuno e stato ancora sollecitato» e mandano entrambe il messaggio. Il
- * blocco sulla riga dell'atleta le mette in fila: la seconda rilegge dopo che
- * la prima ha scritto, trova la rivendicazione e si ferma. L'ordine e fisso —
- * per identificativo crescente — perche due ordini diversi sulle stesse righe
- * sono un abbraccio mortale che si presenta solo sotto carico.
+ * **Perche prima.** Due richieste ravvicinate — il doppio clic, o il reinvio
+ * di una richiesta lenta — leggono entrambe «nessuno e stato ancora
+ * sollecitato» e mandano entrambe il messaggio.
  *
- * La rivendicazione si scrive e si **commetta subito**, e le email partono
- * dopo: tenere una transazione aperta per la durata di un dialogo SMTP
- * bloccherebbe le righe per secondi.
+ * **Cosa e cambiato in Wave 2.** La rivendicazione stava dentro
+ * `athletes.data.paymentReminders`, difesa da un blocco di riga sull'atleta:
+ * funzionava, ma metteva in fila su **una riga di anagrafica** ogni sollecito
+ * di quell'atleta, e sapeva rispondere solo a «gli ho gia scritto?». Adesso e
+ * una riga del registro delle consegne e la difesa e l'indice unico
+ * (ADR-0084): entrambe le richieste provano a rivendicare, e la seconda scopre
+ * dal conteggio delle righe toccate di aver perso la corsa. La stessa riga
+ * risponde anche a «cosa gli ho scritto», che e la seconda meta della stessa
+ * domanda.
+ *
+ * Il comportamento visibile non cambia: un gesto, un invio; passata la
+ * finestra di riguardo si puo riscrivere; un fallimento la libera subito.
  */
 const claimRecipients = async (
   work: AthleteWork[],
   now: Date,
   organizationId: string,
-): Promise<Set<string>> => {
-  const claimed = new Set<string>();
-  const ordered = [...work].sort((left, right) =>
-    left.athleteId.localeCompare(right.athleteId),
-  );
+): Promise<Map<string, string>> => {
+  const claimed = new Map<string, string>();
 
-  await (prisma as any).$transaction(async (client: any) => {
-    for (const entry of ordered) {
-      if (entry.reachable.length === 0) continue;
-
-      await client.$queryRaw`SELECT id FROM athletes WHERE id = ${entry.athleteId}::uuid FOR UPDATE`;
-
-      // Il filtro di club c'e anche se l'id viene da una lettura gia
-      // verificata: CLAUDE.md §8 lo pretende, e il giorno in cui la lettura a
-      // monte cambia nessuno rilegge queste righe.
-      const fresh = await client.athlete.findFirst({
-        where: { id: entry.athleteId, organization_id: organizationId },
+  for (const entry of work) {
+    for (const recipient of entry.reachable) {
+      const claim = await claimDelivery({
+        organizationId,
+        sourceKind: "reminder",
+        sourceId: entry.athleteId,
+        dedupKey: reminderDedupKey(entry.athleteId),
+        channel: "email",
+        recipientKey: recipient.email,
+        recipientUserId: recipient.userId,
+        recipientName: recipient.guardianName,
+        recipientEmail: recipient.email,
+        athleteIds: [entry.athleteId],
+        subject: `Quote da regolarizzare per ${entry.athleteName}`,
+        /*
+          Il sollecito lo decide una persona, e la stessa persona puo volerlo
+          rifare la settimana dopo: la difesa serve contro il doppio clic, non
+          contro la ripetizione. Passata la finestra si puo riscrivere.
+        */
+        retryAfterMs: MANUAL_REMINDER_WINDOW_MS,
+        now,
       });
-      if (!fresh) continue;
 
-      const claims = readClaims(fresh);
-      const nowIso = now.toISOString();
-      let changed = false;
-
-      for (const recipient of entry.reachable) {
-        if (isWithinWindow(claims[recipient.email], now)) continue;
-        claims[recipient.email] = nowIso;
-        claimed.add(`${entry.athleteId}:${recipient.email}`);
-        changed = true;
+      if (claim.claimed) {
+        claimed.set(`${entry.athleteId}:${recipient.email}`, claim.id);
       }
-
-      if (!changed) continue;
-
-      await client.athlete.update({
-        where: { id: entry.athleteId },
-        data: {
-          data: { ...asRecord(fresh.data), paymentReminders: claims },
-        },
-      });
     }
-  });
+  }
 
   return claimed;
 };
 
 /**
- * Toglie la rivendicazione di un destinatario che il messaggio non lo ha
+ * Chiude la rivendicazione di un destinatario che il messaggio non lo ha
  * ricevuto.
  *
  * Senza, un fallimento SMTP lascerebbe la famiglia non sollecitabile per sei
@@ -806,38 +779,17 @@ const claimRecipients = async (
  * per non ripetersi, non per punire un guasto.
  */
 const releaseClaim = async (
-  athleteId: string,
-  email: string,
-  organizationId: string,
+  deliveryId: string,
+  reason: PaymentReminderFailureReason,
+  now: Date,
 ) => {
   /*
-    Anche il rilascio prende il blocco sulla riga, come la rivendicazione.
-
-    Senza, era una lettura-poi-scrittura che riscriveva **tutto** `data`
-    dell'atleta da uno stato gia vecchio: bastava una modifica dell'anagrafica
-    o un'altra rivendicazione fra la lettura e la scrittura per cancellarla. Un
-    fallimento SMTP non deve poter far sparire i tutori appena inseriti da
-    un'altra scrivania.
+    La riga **resta**, marcata `failed`, invece di essere cancellata: un
+    tentativo andato male e un fatto da poter raccontare a chi chiama dicendo
+    di non aver ricevuto niente. E una riga fallita e comunque riprendibile
+    subito, che e cio che «rilasciare» significava prima.
   */
-  await (prisma as any).$transaction(async (client: any) => {
-    await client.$queryRaw`SELECT id FROM athletes WHERE id = ${athleteId}::uuid FOR UPDATE`;
-
-    const fresh = await client.athlete.findFirst({
-      where: { id: athleteId, organization_id: organizationId },
-    });
-    if (!fresh) return;
-
-    const data = asRecord(fresh.data);
-    const claims = readClaims(fresh);
-    if (!(email in claims)) return;
-
-    delete claims[email];
-
-    await client.athlete.update({
-      where: { id: athleteId },
-      data: { data: { ...data, paymentReminders: claims } },
-    });
-  });
+  await settleDelivery({ id: deliveryId, status: "failed", reason, now });
 };
 
 /**
@@ -944,12 +896,14 @@ export const sendPaymentReminders = async ({
     let deliveredForAthlete = false;
 
     for (const recipient of entry.reachable) {
+      const deliveryId = claimed.get(`${entry.athleteId}:${recipient.email}`);
+
       /*
         Non rivendicato significa che un'altra richiesta ha vinto la corsa
         mentre questa era in volo: e il doppio clic, e la risposta corretta e
         «gia sollecitato», non un secondo messaggio.
       */
-      if (!claimed.has(`${entry.athleteId}:${recipient.email}`)) {
+      if (!deliveryId) {
         deliveries.push({
           athleteId: recipient.athleteId,
           athleteName: recipient.athleteName,
@@ -974,7 +928,13 @@ export const sendPaymentReminders = async ({
         });
 
         if (result.status !== "sent") {
-          await releaseClaim(entry.athleteId, recipient.email, clubId);
+          await releaseClaim(
+            deliveryId,
+            result.reason === "email_not_configured"
+              ? "email_not_configured"
+              : "delivery_failed",
+            now,
+          );
           deliveries.push({
             athleteId: recipient.athleteId,
             athleteName: recipient.athleteName,
@@ -998,6 +958,12 @@ export const sendPaymentReminders = async ({
         }
 
         deliveredForAthlete = true;
+        /*
+          La rivendicazione si chiude **dopo** che il messaggio e partito, non
+          prima: fra la rivendicazione e questa riga la consegna puo fallire, e
+          una riga gia marcata `sent` direbbe una cosa che non e successa.
+        */
+        await settleDelivery({ id: deliveryId, status: "sent", now });
         deliveries.push({
           athleteId: recipient.athleteId,
           athleteName: recipient.athleteName,
@@ -1039,7 +1005,7 @@ export const sendPaymentReminders = async ({
           Un destinatario che fallisce non ferma gli altri: la segreteria deve
           poter vedere che tre su quattro sono partiti, e riprovare sul quarto.
         */
-        await releaseClaim(entry.athleteId, recipient.email, clubId);
+        await releaseClaim(deliveryId, "delivery_failed", now);
         deliveries.push({
           athleteId: recipient.athleteId,
           athleteName: recipient.athleteName,

@@ -42,6 +42,33 @@ const applyData = (record, data = {}) => {
   return record;
 };
 
+/**
+ * I nomi che in Prisma sono **operatori** e non colonne.
+ *
+ * Servono a distinguere `{ equals: x }` — un filtro — da
+ * `{ organization_id: ..., training_id: ... }` — una chiave composta.
+ */
+const PRISMA_FILTER_KEYS = new Set([
+  "equals",
+  "not",
+  "in",
+  "notIn",
+  "lt",
+  "lte",
+  "gt",
+  "gte",
+  "contains",
+  "startsWith",
+  "endsWith",
+  "mode",
+  "path",
+  "some",
+  "every",
+  "none",
+  "is",
+  "isNot",
+]);
+
 const matchesWhere = (record, where) => {
   if (!where) return true;
 
@@ -110,6 +137,29 @@ const matchesWhere = (record, where) => {
         if (!(value <= condition.lte)) return false;
         continue;
       }
+      /*
+        La **chiave unica composta**, cioe come Prisma la scrive in un `where`
+        unico: `{ organization_id_training_id_athlete_id: { organization_id,
+        training_id, athlete_id } }`. Il nome della chiave non e una colonna,
+        quindi senza questo ramo la condizione finiva in «non supportata» — che
+        la considera soddisfatta — e il doppio faceva corrispondere la **prima
+        riga qualunque**. Un `upsert` sulla chiave unica avrebbe aggiornato la
+        riga sbagliata, e un test sulla risposta duplicata sarebbe passato
+        provando il contrario di cio che deve provare.
+      */
+      const compoundFields = Object.keys(condition);
+      if (
+        value === undefined &&
+        compoundFields.length > 0 &&
+        compoundFields.every((field) => !PRISMA_FILTER_KEYS.has(field))
+      ) {
+        const matches = compoundFields.every((field) =>
+          matchesWhere(record, { [field]: condition[field] }),
+        );
+        if (!matches) return false;
+        continue;
+      }
+
       // condizione non supportata: la si considera soddisfatta, cosi il test
       // fallisce sull'asserzione vera e non su una finta non-corrispondenza
       continue;
@@ -219,6 +269,24 @@ const UNIQUE_CONSTRAINTS = {
   sportWorkInstallment: [["plan_id", "sequence"]],
   sportWorkObligation: [["organization_id", "reference_key"]],
   sportWorkYearPosition: [["organization_id", "person_id", "year"]],
+  /*
+    Wave 2. I due vincoli su cui poggia l'intera deduplica delle comunicazioni,
+    e senza i quali i test proverebbero il contrario di cio che devono provare:
+
+      * `communication_deliveries_dedup_unique` — e la difesa contro il
+        doppione, e la difesa **e l'indice**, non un controllo in memoria: e
+        proprio con due esecuzioni concorrenti che un controllo applicativo non
+        regge, quindi un doppio che non lo facesse rispettare mostrerebbe due
+        messaggi come se fosse normale;
+      * `training_attendance_event_athlete_unique` — una riga per (club,
+        evento, atleta). Due righe significano due risposte contraddittorie
+        della stessa famiglia allo stesso invito.
+  */
+  communicationDelivery: [
+    ["organization_id", "dedup_key", "recipient_key", "channel"],
+  ],
+  trainingAttendance: [["organization_id", "training_id", "athlete_id"]],
+  paymentLink: [["token_hash"]],
 };
 
 /** L'errore che Prisma lancia su una chiave duplicata. */
@@ -397,7 +465,17 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       if (row) {
         return applyData(row, args.update);
       }
-      const created = { id: args.where?.id || `${name}-generated`, ...args.create };
+      /*
+        Il ramo `create` dell'upsert si comporta come un `create`: id diverso a
+        ogni riga e vincoli fatti rispettare. Con l'id fisso di prima, due
+        upsert su chiavi diverse producevano due righe con la **stessa** chiave
+        primaria, e un `findUnique` successivo restituiva sempre la prima.
+      */
+      assertUnique(name, args.create || {});
+      const created = {
+        id: args.where?.id || `${name}-generated-${(generatedIds += 1)}`,
+        ...args.create,
+      };
       rowsOf(name).push(created);
       return created;
     },
