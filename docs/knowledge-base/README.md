@@ -44,6 +44,7 @@ comportamenti desiderati o pianificati.
 | 31 | [Wave 1: planning esecutivo](31-wave-1-planning.md) | Il piano della prima wave: i nove gap riesaminati, la verifica a runtime che ha confermato il difetto del cambio stagione, i due soli blocker veri, sette workstream e l'ordine in cui unirli |
 | 32 | [Wave 1: implementazione e collaudo](32-wave-1-implementation-uat.md) | Cosa e stato costruito davvero sui sette workstream, i 101 controlli a runtime che lo provano, i tre scostamenti dal piano e i cinque bug trovati strada facendo |
 | 33 | [Wave 2: planning esecutivo](33-wave-2-planning.md) | Il piano della seconda wave — comunicazioni e automazioni: i nove gap riverificati, perche il motore e un valutatore notturno e non un motore di eventi, le quattro sole automazioni V1, il link di pagamento firmato, e i sei workstream con il loro DAG |
+| 34 | [Wave 2: implementazione e collaudo](34-wave-2-implementation-uat.md) | Cosa e stato costruito davvero sulle sei lane, i 67 controlli a runtime con una consegna email vera, i quattro scostamenti dal piano e cosa hanno trovato le revisioni indipendenti |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)
