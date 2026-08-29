@@ -85,6 +85,16 @@ export const AUDIT_ACTIONS = {
   */
   fundingSettlementReversed: "funding.settlement.reversed",
   /*
+    La prima nota. La traccia porta l'id **del movimento**, e non e un
+    dettaglio: prima un movimento manuale finiva in `resource.updated` su
+    `clubs` con l'id **del club**, e chi leggeva l'audit sapeva che qualcuno
+    aveva modificato qualcosa senza sapere cosa.
+  */
+  accountingEntryRecorded: "accounting.entry.recorded",
+  accountingEntryReversed: "accounting.entry.reversed",
+  accountingEntryReconciled: "accounting.entry.reconciled",
+  accountingTransferRecorded: "accounting.transfer.recorded",
+  /*
     Commerciale della piattaforma. Il club non le puo compiere: se compaiono
     con un attore che non e `platform_admin`, e successo qualcosa.
   */
