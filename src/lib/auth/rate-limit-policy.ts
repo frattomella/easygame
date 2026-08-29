@@ -12,7 +12,9 @@ export type AuthRateLimitPolicy = {
     | "otp_send"
     | "otp_confirm"
     | "public_form_view"
-    | "public_form_submit";
+    | "public_form_submit"
+    | "payment_link_view"
+    | "payment_link_checkout";
   limit: number;
   windowMs: number;
 };
@@ -43,6 +45,43 @@ export const AUTH_RATE_LIMITS = {
     e fermano chi riempie la coda della segreteria.
   */
   publicFormSubmit: { scope: "public_form_submit", limit: 10, windowMs: 60 * 60_000 },
+  /*
+    Il link di pagamento (W2-B). Due contatori per gesto, e non uno: quello
+    **per token** ferma chi martella un link che ha ricevuto o indovinato,
+    quello **per indirizzo** ferma chi ne prova tanti diversi. Con un contatore
+    solo per indirizzo, chi cambia rete continuerebbe indisturbato sullo stesso
+    token; con uno solo per token, ogni tentativo su un token nuovo ripartirebbe
+    da zero — che e esattamente la forma di un tentativo a forza bruta.
+
+    Trenta aperture in un quarto d'ora sullo stesso link bastano a una famiglia
+    che ricarica e che torna dal pagamento; sessanta per indirizzo coprono una
+    rete condivisa senza lasciare spazio all'enumerazione.
+  */
+  paymentLinkViewToken: {
+    scope: "payment_link_view",
+    limit: 30,
+    windowMs: 15 * 60_000,
+  },
+  paymentLinkViewIp: {
+    scope: "payment_link_view",
+    limit: 60,
+    windowMs: 15 * 60_000,
+  },
+  /*
+    Aprire un checkout costa: e una chiamata al PSP e una sessione di pagamento
+    creata. Dieci all'ora sullo stesso link coprono una famiglia che sbaglia
+    carta piu volte, e non reggono nessun abuso.
+  */
+  paymentLinkCheckoutToken: {
+    scope: "payment_link_checkout",
+    limit: 10,
+    windowMs: 60 * 60_000,
+  },
+  paymentLinkCheckoutIp: {
+    scope: "payment_link_checkout",
+    limit: 20,
+    windowMs: 60 * 60_000,
+  },
 } as const satisfies Record<string, AuthRateLimitPolicy>;
 
 export const buildRateLimitResult = (

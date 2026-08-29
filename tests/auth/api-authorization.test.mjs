@@ -100,6 +100,23 @@ const PUBLIC_BY_DESIGN = new Map([
   ["v1/registry", "catalogo endpoint per il client mobile"],
   ["public/forms/[publicSlug]", "modulo online pubblico, per contratto"],
   /*
+    Il link di pagamento (G-06, W2-B). Non ha sessione **per progetto**: chi
+    apre il link e una famiglia che un account nel club puo non averlo. Cio che
+    lo difende non e una sessione ma il segreto stesso — 32 byte casuali di cui
+    in archivio resta il solo SHA-256, confrontato a tempo costante — piu la
+    scadenza, la revoca, un rate limit doppio (per token e per indirizzo) e una
+    risposta identica per token sconosciuto, scaduto o revocato. Nessun
+    identificativo interno esce da queste due rotte.
+  */
+  [
+    "public/payment-links/[token]",
+    "vista pubblica del link di pagamento: token opaco, hashato a riposo, con rate limit",
+  ],
+  [
+    "public/payment-links/[token]/checkout",
+    "riscatto del link: apre lo stesso checkout della rotta autenticata, con URL di ritorno costruiti dal server",
+  ],
+  /*
     I due webhook del PSP. Non hanno sessione e non possono averla: chi
     chiama e Stripe. Cio che li difende e la **firma**, verificata sul corpo
     grezzo prima di guardarci dentro, piu la deduplica sull'identificativo
@@ -279,9 +296,24 @@ test("la deroga pubblica resta piccola e giustificata", () => {
     due segreti di firma diversi (ADR-0051). Un endpoint solo avrebbe dovuto
     provare entrambi i segreti, e una firma valida «con uno dei due» non dice
     piu quale flusso ha parlato.
+
+    Da 16 a 18 nella Wave 2, per le due rotte del link di pagamento (G-06,
+    W2-B). E la deroga piu impegnativa dell'elenco — non un callback firmato
+    da un fornitore, ma una pagina che una famiglia apre da un messaggio — e
+    per questo le due rotte portano il presidio piu pesante del repository:
+    token opaco da 32 byte di cui in archivio resta il solo SHA-256,
+    confronto a tempo costante, scadenza, revoca, rate limit doppio (per
+    token e per indirizzo), una risposta identica per token sconosciuto,
+    scaduto o revocato, e nessun identificativo interno nella risposta. Il
+    denaro passa comunque dal checkout gia esistente e dal webhook firmato:
+    queste due rotte non incassano niente da sole.
+
+    Sono due e non una perche i due gesti costano in modo diverso — guardare
+    e gratuito, aprire un checkout e una chiamata al PSP — e vanno contati a
+    parte.
   */
   assert.ok(
-    PUBLIC_BY_DESIGN.size <= 16,
+    PUBLIC_BY_DESIGN.size <= 18,
     `troppi endpoint pubblici: ${PUBLIC_BY_DESIGN.size}`,
   );
   for (const [id, motivo] of PUBLIC_BY_DESIGN) {
