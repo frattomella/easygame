@@ -45,6 +45,7 @@ comportamenti desiderati o pianificati.
 | 32 | [Wave 1: implementazione e collaudo](32-wave-1-implementation-uat.md) | Cosa e stato costruito davvero sui sette workstream, i 101 controlli a runtime che lo provano, i tre scostamenti dal piano e i cinque bug trovati strada facendo |
 | 33 | [Wave 2: planning esecutivo](33-wave-2-planning.md) | Il piano della seconda wave — comunicazioni e automazioni: i nove gap riverificati, perche il motore e un valutatore notturno e non un motore di eventi, le quattro sole automazioni V1, il link di pagamento firmato, e i sei workstream con il loro DAG |
 | 34 | [Wave 2: implementazione e collaudo](34-wave-2-implementation-uat.md) | Cosa e stato costruito davvero sulle sei lane, i 67 controlli a runtime con una consegna email vera, i quattro scostamenti dal piano e cosa hanno trovato le revisioni indipendenti |
+| 35 | [Wave 3: planning esecutivo](35-wave-3-planning.md) | Il piano della terza wave — documenti e modulistica: i 14 gap riverificati, perche il motore documentale e nuovo e il risolutore no, i dieci modelli del catalogo V1 al posto dei 77 di Golee, il consenso come stato con revoca, e le sette lane con il loro DAG |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)
