@@ -234,6 +234,9 @@ export const buildAccountingReport = async (
     siteId?: unknown;
     direction?: unknown;
     activityScope?: unknown;
+    sourceDomain?: unknown;
+    reconciliationStatus?: unknown;
+    search?: unknown;
     compareWith?: { from?: unknown; to?: unknown; fiscalYear?: unknown } | null;
     now?: Date;
   },
@@ -266,6 +269,15 @@ export const buildAccountingReport = async (
     siteId: filters.siteId,
     direction: filters.direction,
     activityScope: filters.activityScope,
+    /*
+      Anche questi tre scendono nel servizio (W4-B2): il riepilogo deve
+      raccontare **lo stesso insieme di righe** che l'elenco mostra sotto.
+      Prima li ignorava, e chi filtrava per «da riconciliare» leggeva poche
+      righe sotto totali che coprivano ancora tutto il periodo.
+    */
+    sourceDomain: filters.sourceDomain,
+    reconciliationStatus: filters.reconciliationStatus,
+    search: filters.search,
   };
 
   /*

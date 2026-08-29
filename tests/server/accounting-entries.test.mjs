@@ -804,3 +804,132 @@ test("senza stagioni configurate il filtro non fa sparire il denaro", async () =
   assert.equal(esito.total, 1);
   assert.equal(esito.entries[0].seasonId, "2026-27");
 });
+
+/* ================================ la correzione, e cio che non corregge */
+
+test("si correggono descrizione, note, metodo e controparte", async () => {
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+
+  const corretto = await accounting.updateAccountingEntry(
+    {
+      entryId: riga.id,
+      description: "Affitto palestra settembre (rettificato)",
+      notes: "Ricevuta 12/A",
+      paymentMethod: "Bonifico",
+      counterpartyKind: "SUPPLIER",
+      counterpartyLabel: "Palestra Comunale",
+    },
+    scope(),
+  );
+
+  assert.match(corretto.description, /rettificato/);
+  assert.equal(corretto.payment_method, "Bonifico");
+  assert.equal(corretto.counterparty_kind, "SUPPLIER");
+});
+
+test("data, verso, importo e conto non si correggono: sono il fatto", async () => {
+  /*
+    Se uno di essi e sbagliato, il movimento registrato non e mai avvenuto
+    cosi, e la risposta e uno storno. Poterli riscrivere vorrebbe dire far
+    diventare un movimento da 10.000 EUR uno da 10 senza che nessuno se ne
+    accorga: e il difetto D-3 rientrato dalla finestra.
+  */
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+
+  await accounting.updateAccountingEntry(
+    {
+      entryId: riga.id,
+      // Campi che la firma non accetta: restano fuori anche se un client li manda.
+      description: "Solo la descrizione",
+    },
+    scope(),
+  );
+
+  const dopo = righe().find((r) => r.id === riga.id);
+  assert.equal(dopo.amount_cents, 15000);
+  assert.equal(dopo.direction, "OUT");
+  assert.equal(dopo.financial_account_id, CASSA);
+  assert.equal(
+    new Date(dopo.entry_date).toISOString(),
+    "2026-09-15T00:00:00.000Z",
+  );
+});
+
+test("riclassificare una riga ricongela l'ambito, e lascia traccia di prima e dopo", async () => {
+  /*
+    Il congelamento impedisce che modificare una causale **nel catalogo**
+    riscriva la natura di mille movimenti passati, in silenzio. Riclassificare
+    **una** riga e l'opposto: una decisione di una persona, con un autore.
+  */
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+  assert.equal(riga.activity_scope_snapshot, "institutional");
+
+  const corretto = await accounting.updateAccountingEntry(
+    { entryId: riga.id, operationTypeCode: "quota_attivita" },
+    scope(),
+  );
+
+  assert.equal(corretto.operation_type_code, "quota_attivita");
+  assert.equal(corretto.activity_scope_snapshot, "unspecified");
+
+  const traccia = fake
+    .rows("auditLog")
+    .find((r) => r.action === "accounting.entry.updated");
+  assert.equal(traccia.metadata.causalePrima, "affitto_impianto");
+  assert.equal(traccia.metadata.ambitoPrima, "institutional");
+  assert.equal(traccia.metadata.causaleDopo, "quota_attivita");
+});
+
+test("una riga stornata non si corregge", async () => {
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+  await accounting.reverseAccountingEntry({ entryId: riga.id, reason: "Errore" }, scope());
+
+  await assert.rejects(
+    () => accounting.updateAccountingEntry({ entryId: riga.id, notes: "x" }, scope()),
+    /non si corregge/i,
+  );
+});
+
+test("uno storno e un giroconto non si correggono", async () => {
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+  const [storno] = await accounting.reverseAccountingEntry(
+    { entryId: riga.id, reason: "Errore" },
+    scope(),
+  );
+  const giro = await accounting.createInternalTransfer(
+    { entryDate: "2026-09-20T00:00:00.000Z", amount: 500, fromAccountId: CASSA, toAccountId: BANCA },
+    scope(),
+  );
+
+  await assert.rejects(
+    () => accounting.updateAccountingEntry({ entryId: storno.id, notes: "x" }, scope()),
+    /storno non si corregge/i,
+  );
+  await assert.rejects(
+    () =>
+      accounting.updateAccountingEntry({ entryId: giro.entries[0].id, notes: "x" }, scope()),
+    /una gamba per volta/i,
+  );
+});
+
+test("una causale di un altro club non si usa per riclassificare", async () => {
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+
+  await assert.rejects(
+    () =>
+      accounting.updateAccountingEntry(
+        { entryId: riga.id, operationTypeCode: "solo_loro" },
+        scope(),
+      ),
+    /non trovata fra quelle configurate/i,
+  );
+});
+
+test("il movimento di un altro club non si corregge", async () => {
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+
+  await assert.rejects(
+    () => accounting.updateAccountingEntry({ entryId: riga.id, notes: "x" }, scopeAltrui()),
+    /Accesso negato/,
+  );
+});

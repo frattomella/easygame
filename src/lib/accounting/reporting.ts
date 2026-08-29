@@ -1,10 +1,14 @@
 import {
   ACTIVITY_SCOPES,
   ACTIVITY_SCOPE_LABELS,
+  RECONCILIATION_STATUSES,
+  SOURCE_DOMAINS,
   SOURCE_DOMAIN_LABELS,
   toFiscalYearFilter,
   type AccountingLine,
+  type AccountingSourceDomain,
   type ActivityScope,
+  type ReconciliationStatus,
 } from "./model";
 
 /**
@@ -458,6 +462,18 @@ export type ReportingFilters = {
   siteId?: string | null;
   direction?: "IN" | "OUT" | null;
   activityScope?: ActivityScope | null;
+  /**
+   * **I tre filtri che il riepilogo non conosceva** (W4-B2).
+   *
+   * L'elenco della prima nota li offriva e il riepilogo no: chi filtrava per
+   * «da riconciliare» leggeva un elenco di poche righe sotto **totali che
+   * coprivano ancora tutto il periodo**. La superficie lo dichiarava, ed era
+   * meglio di tacerlo — ma la risposta giusta e che i due numeri parlino della
+   * stessa cosa.
+   */
+  sourceDomain?: AccountingSourceDomain | null;
+  reconciliationStatus?: ReconciliationStatus | null;
+  search?: string | null;
 };
 
 const testo = (value: unknown) => String(value ?? "").trim();
@@ -478,6 +494,8 @@ export const normalizeReportingFilters = (
 ): ReportingFilters => {
   const verso = testo(raw.direction).toUpperCase();
   const scope = testo(raw.activityScope).toLowerCase();
+  const origine = testo(raw.sourceDomain).toUpperCase();
+  const riconciliazione = testo(raw.reconciliationStatus).toLowerCase();
 
   return {
     from: testo(raw.from) || null,
@@ -491,6 +509,20 @@ export const normalizeReportingFilters = (
     activityScope: (ACTIVITY_SCOPES as readonly string[]).includes(scope)
       ? (scope as ActivityScope)
       : null,
+    sourceDomain: (SOURCE_DOMAINS as readonly string[]).includes(origine)
+      ? (origine as AccountingSourceDomain)
+      : null,
+    reconciliationStatus: (RECONCILIATION_STATUSES as readonly string[]).includes(
+      riconciliazione,
+    )
+      ? (riconciliazione as ReconciliationStatus)
+      : null,
+    /*
+      La ricerca si normalizza **una volta sola**, qui, e non a ogni riga: un
+      `toLowerCase()` dentro il filtro costerebbe quanto le righe, e su un
+      riepilogo di un anno le righe sono migliaia.
+    */
+    search: testo(raw.search).toLowerCase() || null,
   };
 };
 
@@ -538,6 +570,34 @@ export const filterLinesForReport = (
       return false;
     }
     if (filters.siteId && (line.siteId || null) !== filters.siteId) return false;
+    if (filters.sourceDomain && line.sourceDomain !== filters.sourceDomain) {
+      return false;
+    }
+    if (
+      filters.reconciliationStatus &&
+      line.reconciliationStatus !== filters.reconciliationStatus
+    ) {
+      return false;
+    }
+    if (filters.search) {
+      /*
+        Gli stessi campi che l'elenco cerca, nello stesso ordine: due ricerche
+        che guardassero campi diversi darebbero due insiemi diversi sotto la
+        stessa parola, ed e peggio di non cercare affatto.
+      */
+      const testoRiga = [
+        line.description,
+        line.counterpartyLabel,
+        line.operationTypeLabel,
+        line.operationTypeCode,
+        line.notes,
+        line.bankReference,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!testoRiga.includes(filters.search)) return false;
+    }
     if (filters.direction && line.direction !== filters.direction) return false;
     if (filters.activityScope && line.activityScope !== filters.activityScope) {
       return false;

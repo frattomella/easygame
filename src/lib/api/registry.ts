@@ -849,6 +849,46 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "accounting.entries.update",
+    method: "PATCH",
+    path: "/api/v1/accounting/entries/:id",
+    description:
+      "Corregge cio che descrive un movimento senza cambiarlo: descrizione, note, metodo, controparte, riferimento, sede e causale. Data, verso, importo e conto non si toccano — se sono sbagliati si storna",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.reverse",
+    method: "POST",
+    path: "/api/v1/accounting/entries/:id/reverse",
+    description:
+      "Storna un movimento: nasce la riga opposta, l'originale resta con il motivo. Non esiste il DELETE, e un giroconto si storna intero. Richiede accounting.reverse, che la segreteria non ha",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.reconcile",
+    method: "POST",
+    path: "/api/v1/accounting/entries/:id/reconcile",
+    description:
+      "Spunta un movimento contro l'estratto conto, con data valuta e riferimento. Nessun import bancario e nessun matching automatico: la conferma e umana",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.read",
+    method: "GET",
+    path: "/api/v1/accounting/entries",
+    description:
+      "La prima nota: righe proprie e righe proiettate dai domini proprietari, in una lettura sola. Filtri per data, anno fiscale, stagione, conto, causale, verso, origine, sede, classificazione e riconciliazione",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.create",
+    method: "POST",
+    path: "/api/v1/accounting/entries",
+    description:
+      "Registra un movimento manuale con causale obbligatoria, oppure un giroconto con ?kind=transfer. Il giroconto nasce come due gambe in una transazione sola",
+    mobile_ready: false,
+  },
+  {
     name: "accounting.entries.reverse",
     method: "POST",
     path: "/api/v1/accounting/entries/:id/reverse",

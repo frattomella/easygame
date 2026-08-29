@@ -241,6 +241,40 @@ Fonte ufficiale da mantenere aggiornata:
   La `POST` (`accounting.manage`) registra un movimento manuale, con
   **causale obbligatoria**; con `?kind=transfer` registra un giroconto, che
   nasce come **due gambe in una transazione sola** — o entrambe, o nessuna
+- `PATCH /api/v1/accounting/entries/:id` — la **correzione**
+  (`accounting.manage`). Si corregge cio che **descrive** il fatto senza
+  cambiarlo: descrizione, note, metodo, controparte, riferimento bancario, sede
+  e causale. **Data, verso, importo e conto non si toccano**: sono il fatto
+  finanziario, e se uno di essi e sbagliato la risposta e uno storno.
+  Riclassificare una riga ricongela l'ambito e lascia in audit il valore di
+  prima e quello di dopo — cosa diversa dal modificare una causale nel
+  catalogo, che riscriverebbe la natura di mille movimenti passati in silenzio.
+  Una riga stornata, uno storno e un giroconto non si correggono
+- `POST /api/v1/accounting/entries/:id/reverse` — lo **storno**
+  (`accounting.reverse`, che la segreteria **non** ha: registrare non e
+  stornare). Nasce la riga opposta, l'originale resta e porta il motivo, e i
+  totali escludono entrambe. **Non esiste il `DELETE`.** Un giroconto si
+  storna intero: stornarne una gamba sola lascerebbe denaro sparito fra due
+  conti
+- `POST /api/v1/accounting/entries/:id/reconcile` — la **riconciliazione**
+  (`accounting.reconcile`): `unreconciled` | `reconciled` | `disputed`, con
+  data valuta e riferimento. In V1 e un atto umano su un dato che il sistema
+  gia conosce: nessun import di tracciati bancari, nessun matching automatico
+  su causale libera. Un movimento stornato non si riconcilia
+- `GET|POST /api/v1/accounting/entries` — la **prima nota**. La `GET`
+  (`accounting.read`) restituisce in una lettura sola le righe proprie —
+  movimenti manuali, gambe di giroconto, storni — e quelle **proiettate** dai
+  domini proprietari: incassi, compensi, liquidazioni. Le proiezioni sono
+  sempre in sola lettura, e i flag `canEdit`/`canReverse`/`canReconcile`
+  viaggiano **con la riga**, perche la pagina non li ricalcoli. Filtri:
+  `from`, `to`, `fiscal_year`, `season_id`, `financial_account_id`,
+  `operation_type_code`, `direction`, `source_domain`, `site_id`,
+  `activity_scope`, `reconciliation_status`, `q`, `limit`, `offset`.
+  `fiscal_year` e `season_id` sono **due assi diversi**, e una riga che non
+  dichiara una stagione appartiene a quella nel cui periodo cade.
+  La `POST` (`accounting.manage`) registra un movimento manuale, con
+  **causale obbligatoria**; con `?kind=transfer` registra un giroconto, che
+  nasce come **due gambe in una transazione sola** — o entrambe, o nessuna
 - `POST /api/v1/accounting/entries/:id/reverse` — lo **storno**
   (`accounting.reverse`, che la segreteria **non** ha: registrare non e
   stornare). Nasce la riga opposta, l'originale resta e porta il motivo, e i

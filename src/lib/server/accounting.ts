@@ -919,6 +919,177 @@ export const createInternalTransfer = async (
 };
 
 /* ========================================================================== */
+/* Correzione                                                                  */
+/* ========================================================================== */
+
+/**
+ * **Correggere un movimento, senza poter riscrivere il fatto.**
+ *
+ * `canEdit` esisteva sulla riga e non aveva una rotta: la superficie non
+ * mostrava nessun pulsante, perche uno che risponde 404 e peggio della sua
+ * assenza. Questa e la rotta, ed e volutamente stretta.
+ *
+ * **Cosa non si corregge, e perche.** Data, verso, importo e conto **non** si
+ * toccano: sono il fatto finanziario. Se uno di essi e sbagliato, il movimento
+ * registrato non e mai avvenuto cosi, e la risposta e uno storno — che lascia
+ * visibili l'errore e la correzione. Poterli riscrivere vorrebbe dire poter far
+ * sparire un movimento da 10.000 EUR trasformandolo in uno da 10, senza che
+ * nessuno se ne accorga: e il difetto D-3 con un altro nome.
+ *
+ * `entry_date` in particolare e `NOT NULL` e immutabile dal primo giorno,
+ * perche un periodo si possa chiudere senza migrazioni dolorose.
+ *
+ * **Cosa si corregge**: cio che descrive il fatto senza cambiarlo —
+ * descrizione, note, metodo, controparte, riferimento bancario, sede — e la
+ * **causale**, che merita una riga a parte.
+ *
+ * **Perche la causale si puo correggere**, benche la Wave insista sul
+ * congelamento. Le due cose non si contraddicono: il congelamento impedisce che
+ * **modificare una causale nel catalogo** riscriva la natura di mille movimenti
+ * passati, in silenzio e senza un autore. Correggere la classificazione di
+ * **una** riga e l'opposto: e una decisione presa da una persona, su un
+ * movimento solo, che lascia una traccia con il valore di prima e quello di
+ * dopo. Un errore di classificazione altrimenti non avrebbe rimedio, e uno
+ * storno per correggerlo farebbe sparire denaro vero dai totali di cassa.
+ *
+ * **Una riga stornata, uno storno e un giroconto non si correggono.** I primi
+ * due sono la coppia che racconta una correzione, e modificarne una meta la
+ * renderebbe illeggibile; il terzo si modificherebbe gamba per gamba, e le due
+ * meta possono divergere.
+ */
+export const updateAccountingEntry = async (
+  input: {
+    entryId: unknown;
+    description?: unknown;
+    notes?: unknown;
+    paymentMethod?: unknown;
+    counterpartyKind?: unknown;
+    counterpartyId?: unknown;
+    counterpartyLabel?: unknown;
+    bankReference?: unknown;
+    valueDate?: unknown;
+    siteId?: unknown;
+    operationTypeCode?: unknown;
+  },
+  scope: AccountingScope,
+) => {
+  const entryId = asText(input.entryId);
+  const originale = await entryClient().findUnique({ where: { id: entryId } });
+  if (!originale) throw new Error("Movimento non trovato");
+  ensureOrganizationAccess(scope, originale.organization_id);
+
+  if (originale.reversed_at) {
+    throw new Error(
+      "Un movimento stornato non si corregge: la coppia originale e storno racconta cosa e successo",
+    );
+  }
+  if (originale.source_domain === "REVERSAL") {
+    throw new Error("Uno storno non si corregge: si corregge cio che ha stornato");
+  }
+  if (originale.source_domain === "INTERNAL_TRANSFER") {
+    throw new Error(
+      "Un giroconto non si corregge una gamba per volta: si storna intero e si registra di nuovo",
+    );
+  }
+
+  const dati: Record<string, any> = {};
+  const scritto = (chiave: string, valore: unknown) => {
+    if (valore === undefined) return;
+    dati[chiave] = asText(valore) || null;
+  };
+
+  scritto("notes", input.notes);
+  scritto("payment_method", input.paymentMethod);
+  scritto("bank_reference", input.bankReference);
+  scritto("site_id", input.siteId);
+
+  if (input.description !== undefined) {
+    const testo = asText(input.description);
+    if (!testo) {
+      throw new Error("Un movimento senza descrizione non e leggibile da nessuno");
+    }
+    dati.description = testo;
+  }
+
+  if (input.valueDate !== undefined) {
+    dati.value_date = toDateOrNull(input.valueDate);
+  }
+
+  if (input.counterpartyKind !== undefined) {
+    Object.assign(dati, counterpartyColumns(input));
+    if (!asText(input.counterpartyKind)) {
+      dati.counterparty_kind = null;
+      dati.counterparty_id = null;
+      dati.counterparty_label = null;
+    }
+  }
+
+  let causaleDopo: any = null;
+  if (input.operationTypeCode !== undefined) {
+    const code = asText(input.operationTypeCode);
+    if (!code) {
+      throw new Error(
+        "Un movimento senza causale nasce gia sbagliato: scegliere la causale e la prima cosa",
+      );
+    }
+    causaleDopo = await resolveOperationType(prisma, originale.organization_id, code);
+    dati.operation_type_id = causaleDopo.id;
+    dati.operation_type_code = causaleDopo.code;
+    /*
+      La classificazione si **ricongela** su quella della causale nuova: e una
+      decisione presa adesso, e da adesso vale.
+    */
+    dati.activity_scope_snapshot = normalizeActivityScope(causaleDopo.activity_scope);
+    dati.operation_type_label_snapshot = causaleDopo.label;
+  }
+
+  if (Object.keys(dati).length === 0) return originale;
+
+  /*
+    I valori di prima si copiano **adesso**, non si rileggono da `originale`
+    dopo l'aggiornamento: un client che restituisse la riga viva invece di una
+    copia farebbe scrivere in audit il valore nuovo al posto del vecchio, e la
+    traccia direbbe che niente e cambiato. Copiare due stringhe costa meno di
+    dipendere da quel dettaglio.
+  */
+  const causalePrima = originale.operation_type_code;
+  const ambitoPrima = originale.activity_scope_snapshot;
+
+  const row = await entryClient().update({
+    where: { id: originale.id },
+    data: dati,
+    include: { financial_account: true, operation_type: true },
+  });
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.accountingEntryUpdated,
+    actorUserId: scope.userId,
+    actorRole: scope.activeRole,
+    organizationId: originale.organization_id,
+    resource: "accounting_entries",
+    resourceId: originale.id,
+    metadata: {
+      campi: Object.keys(dati),
+      /*
+        La riclassificazione porta il valore di prima e quello di dopo: e la
+        sola modifica che cambia la natura fiscale di una riga, e chi legge
+        l'audit deve poter ricostruire cosa diceva il rendiconto prima.
+      */
+      ...(causaleDopo
+        ? {
+            causalePrima,
+            ambitoPrima,
+            causaleDopo: causaleDopo.code,
+            ambitoDopo: dati.activity_scope_snapshot,
+          }
+        : {}),
+    },
+  });
+
+  return row;
+};
+
+/* ========================================================================== */
 /* Storno                                                                      */
 /* ========================================================================== */
 

@@ -515,3 +515,33 @@ test("il saldo dei conti dichiara che il suo proprietario e financial-accounts",
   assert.equal(saldo.owner, "src/lib/server/financial-accounts.ts");
   assert.equal(saldo.quantity, "finanziaria");
 });
+
+/* ============================ W4-B2: i tre filtri che mancavano */
+
+test("il riepilogo conosce origine, riconciliazione e ricerca", async () => {
+  /*
+    **Il difetto.** L'elenco della prima nota offriva questi tre filtri e il
+    riepilogo no: chi filtrava per «da riconciliare» leggeva un elenco di poche
+    righe sotto **totali che coprivano ancora tutto il periodo**. Due numeri
+    sulla stessa schermata che parlavano di due insiemi diversi.
+  */
+  const filtri = normalizeReportingFilters({
+    sourceDomain: "manual",
+    reconciliationStatus: "UNRECONCILED",
+    search: "  Affitto  ",
+  });
+
+  assert.equal(filtri.sourceDomain, "MANUAL");
+  assert.equal(filtri.reconciliationStatus, "unreconciled");
+  assert.equal(filtri.search, "affitto", "normalizzata una volta sola, non a ogni riga");
+});
+
+test("un valore fuori catalogo non filtra niente invece di filtrare tutto", async () => {
+  const filtri = normalizeReportingFilters({
+    sourceDomain: "QUALCOSA",
+    reconciliationStatus: "forse",
+  });
+
+  assert.equal(filtri.sourceDomain, null);
+  assert.equal(filtri.reconciliationStatus, null);
+});

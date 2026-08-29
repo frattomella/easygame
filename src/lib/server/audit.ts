@@ -93,6 +93,13 @@ export const AUDIT_ACTIONS = {
   accountingEntryRecorded: "accounting.entry.recorded",
   accountingEntryReversed: "accounting.entry.reversed",
   accountingEntryReconciled: "accounting.entry.reconciled",
+  /*
+    La correzione di un movimento. La traccia porta i campi toccati e, quando
+    la causale cambia, il valore di prima e quello di dopo: e la sola modifica
+    che cambia la natura fiscale di una riga, e chi legge deve poter
+    ricostruire cosa diceva il rendiconto prima.
+  */
+  accountingEntryUpdated: "accounting.entry.updated",
   accountingTransferRecorded: "accounting.transfer.recorded",
   /*
     Commerciale della piattaforma. Il club non le puo compiere: se compaiono

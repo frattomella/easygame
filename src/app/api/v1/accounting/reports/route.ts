@@ -56,6 +56,15 @@ export const GET = accountingRoute(
         direction: q.get("direction"),
         activityScope: q.get("activity_scope"),
         /*
+          I tre filtri che la prima nota offriva e il riepilogo no (W4-B2).
+          Senza, chi filtrava l'elenco per «da riconciliare» leggeva poche
+          righe sotto **totali che coprivano ancora tutto il periodo**: due
+          numeri sulla stessa schermata che parlavano di due insiemi diversi.
+        */
+        sourceDomain: q.get("source_domain"),
+        reconciliationStatus: q.get("reconciliation_status"),
+        search: q.get("q"),
+        /*
           Il confronto si chiede, non si deduce. Un periodo precedente inferito
           dalla durata del primo darebbe un numero che nessuno ha domandato, e
           che cambierebbe da solo spostando una data.
