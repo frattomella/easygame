@@ -633,6 +633,40 @@ mano, il secondo non ha mai visto un pagamento vero. Dichiararli chiusi
 costerebbe poco oggi e mentirebbe alla prima persona che li legge per decidere
 cosa fare dopo.
 
+### 4.7 Stato dopo la Wave 3
+
+> Aggiornato il 2026-08-29, dopo l'esecuzione della
+> [Wave 3](36-wave-3-implementation-uat.md). Vale la stessa regola del §4.5 e
+> del §4.6: **`CLOSED` significa che esiste una prova a runtime**, non che
+> esiste il codice. Le prove sono i 56 controlli di
+> `scripts/wave-3-documents-uat.mjs`, eseguiti contro un'applicazione vera con
+> due club veri e cinque ruoli veri.
+
+| Gap | Prima | Dopo | Prova |
+|---|---|---|---|
+| **G-15** — documento arricchito dagli importi | PARTIAL | **CLOSED** | L'attestazione dice **80,00** su una rata da 130 marcata pagata con 80 incassati: l'importo e il denaro entrato, non il dovuto (ADR-0068). Il documento con gli importi si rifiuta a chi non puo vederli, **dicendo perche**. Un dato che manca resta bianco ed e elencato: mai «undefined» |
+| **G-43** — stampa massiva | OPEN | **CLOSED** | Cinquanta documenti in un lotto solo in 915 ms; rieseguire lo stesso lotto produce **zero** righe nuove; un soggetto di un altro club dentro la selezione fallisce da solo e compare fra i falliti con il motivo, mentre gli altri passano. Cento documenti in due lotti: 1,7 s |
+| **G-17** — consenso con ciclo di vita | OPEN | **CLOSED** | Accettare, revocare e riaccettare lascia **tre righe** e uno stato derivato «accettato»; pubblicare una versione nuova non invalida i consensi vecchi ma li segnala; la prova del consenso dato prima della revoca resta. Una definizione di un altro club risponde «Accesso negato» |
+| **Scadenze documentali** (famiglia G-03) | OPEN | **CLOSED** | Un allegato che scade fra trenta giorni produce **una** consegna; la seconda esecuzione dello stesso giorno zero; due giri in parallelo una sola; la regola spenta tace. Il certificato medico resta su `AUT-03` e **nessun doppione** arriva da `AUT-05` |
+| **G-14** — libreria di modelli pronti | OPEN | **PARTIAL** | Il catalogo esiste e funziona: dieci voci scritte, **sei distribuite** e adottabili con un clic. Non e `CLOSED` perche non e una libreria di settantasette modelli e non lo sara: le quattro voci di classe C sono ferme in attesa di validazione professionale, e i moduli territoriali non li apriamo affatto (ADR-0092). E una differenza che resta, ed e una scelta |
+| **G-42** — ciclo di firma del documento | OPEN | **PARTIAL** | Il documento generato ha uno stato, e «firmato» pretende la copia firmata caricata come allegato: provato che senza allegato lo stato non avanza. Non e `CLOSED` perche la firma elettronica **qualificata** non c'e e non e stata promessa (ADR-0091): Golee arriva al `.p7m`, noi no |
+| **G-44** — modelli visita medica regionalizzati | OPEN | **NO ACTION** | Confermato e dichiarato: trenta moduli territoriali sono un presidio permanente, non uno sviluppo. Il motore permette al club di caricare **il suo** modulo e compilarlo con i dati veri |
+| **G-16** — contratti Co.Co.Co. pronti | OPEN | **OPEN** | POST-V1 come dichiarato. Mancano due cose distinte: la validazione professionale del testo (classe C) e i segnaposto del rapporto di lavoro sportivo. Il controllo di permesso che li proteggera esiste gia e non ha ancora niente da proteggere (debito `W3-06`) |
+| **C-126** — unione dei consensi PDF | respinta | **respinta** | Confermata: il consenso non ha bisogno di un PDF per esistere, e se un PDF serve e un documento generato che **cita** il record |
+
+**Effetto sui totali del §3.** In §3.10 — Documenti: C-118 e C-119 passano a
+`EG+` (il nostro risolutore dichiara cosa non sa riempire, e gli importi
+vengono dal registro incassi invece che da uno stato); C-120 passa a `=`;
+C-125 passa a `EG+` (la revoca, piu l'evidenza versionata); C-116 resta `EG~`
+e C-117 resta `EG-`, per scelta. `EG-` scende da **39 a 36**.
+
+**Perche due `PARTIAL` invece di due `CLOSED`.** G-14 e G-42 sono chiusi dove
+il codice gira e aperti dove il gap era nato: il primo perche un catalogo di
+sei voci non e una libreria di settantasette, il secondo perche «firmato» da
+noi significa una copia rientrata e non un `.p7m`. Dichiararli chiusi
+costerebbe poco oggi e mentirebbe alla prima persona che li legge per decidere
+cosa fare dopo.
+
 ---
 
 ## 5 — Le 6 differenze respinte (non sono gap)
