@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast-notification";
+import { TrainingRsvpSummary } from "@/components/trainer/TrainingRsvpSummary";
 import { CheckCircle, Save, X, AlertTriangle } from "lucide-react";
 import {
   getMedicalCertificateAvailability,
@@ -234,6 +235,13 @@ export function AttendanceSheet({
               Segna tutti presenti
             </Button>
           </div>
+
+          {/*
+            Le intenzioni dichiarate dalle famiglie stanno **sopra** l'appello e
+            fuori da esso: si guardano prima di segnare le presenze, e nessuna
+            delle due scritture tocca l'altra.
+          */}
+          <TrainingRsvpSummary trainingId={trainingId} />
 
           <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/70 p-3">
             <div>

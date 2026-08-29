@@ -128,7 +128,22 @@ Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 | `Athlete` | `athletes` | `organization_id`, `user_id?` (collegamento all'account), `category_id`/`category_name` denormalizzati, `data` JSON per il resto |
 | `AthleteCategoryMembership` | `athlete_category_memberships` | Multi-categoria per atleta. Unique `(organization_id, athlete_id, category_id)`, flag `is_primary`, `site_id?` (sede in cui l'atleta svolge **quella** categoria, [ADR-0038](18-decision-log.md)) |
 | `MedicalCertificate` | `medical_certificates` | `issue_date`, `expiry_date`, `status` |
-| `TrainingAttendance` | `training_attendance` | Presenze. `training_id` e `athlete_id` sono **stringhe non vincolate** (no FK), perche gli allenamenti vivono in `club_resource_items` |
+| `TrainingAttendance` | `training_attendance` | Presenze **e** RSVP sulla stessa riga. `training_id` e `athlete_id` sono **stringhe non vincolate** (no FK), perche gli allenamenti vivono in `club_resource_items`. Chiave unica `(organization_id, training_id, athlete_id)` |
+
+**`training_attendance` porta due fatti diversi, e non si scrivono a vicenda.**
+
+| Colonne | Cos'e | Chi le scrive |
+|---------|-------|---------------|
+| `status`, `notes` | La **presenza**: un fatto verificato | L'appello dell'allenatore (`saveTrainingAttendance` in `simplified-db.ts`) |
+| `rsvp_status`, `rsvp_note`, `rsvp_at`, `rsvp_by_user_id` | L'**intenzione** dichiarata dalla famiglia | Solo `src/lib/server/rsvp.ts` |
+
+`src/lib/funding/attendance-measure.ts` legge `status` per rendicontare i
+contributi pubblici: se un «si» della famiglia scrivesse `status = "present"`,
+un ente riceverebbe come frequenza dimostrata una promessa che nessuno ha
+verificato. Per questo l'upsert dell'RSVP **non nomina mai `status`** nel ramo
+di aggiornamento, e nel ramo di creazione usa il valore neutro `"pending"`, che
+nessun consumatore conta come presenza. Nessuno stato `no_response` viene
+scritto: il silenzio si **deriva** dall'assenza di risposta.
 
 ### Amministrazione
 

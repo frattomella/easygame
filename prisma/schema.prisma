@@ -1979,7 +1979,7 @@ model CommunicationDelivery {
   athlete_ids       String[]  @default([])
   /// `email` | `in_app` | `board`
   channel           String
-  /// `sent` | `skipped` | `failed`
+  /// `pending` (rivendicato, invio in corso) | `sent` | `skipped` | `failed`
   status            String
   /// Il motivo, dall'enum chiusa di `src/lib/audience/recipients.ts`.
   reason            String?

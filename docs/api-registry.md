@@ -57,6 +57,18 @@ Fonte ufficiale da mantenere aggiornata:
   Due richieste ravvicinate producono un solo invio per destinatario: la
   finestra di riguardo e di **sei ore**, la stessa del sollecito sui
   documenti. Solo proprietario e gestore del club
+- `POST /api/v1/rsvp` — la conferma di partecipazione della famiglia. Corpo:
+  `training_id`, `athlete_id`, `status` (`yes` | `no`), `note` facoltativa.
+  Registra **e** cambia la risposta finche la scadenza non e passata: e un
+  upsert sulla chiave `(organization_id, training_id, athlete_id)`, quindi due
+  invii identici lasciano una riga sola. Autorizza il **legame con l'atleta**
+  (tutore dichiarato o l'atleta stesso), non il ruolo. Non scrive mai
+  `training_attendance.status`, cioe la presenza
+- `GET /api/v1/rsvp?training_id=` — il riepilogo per lo staff: si, no e
+  **senza risposta** con i nomi. Permesso `rsvp.read`; l'allenatore lo ottiene
+  solo per i propri gruppi operativi (ADR-0055)
+- `GET /api/v1/rsvp?athlete_id=` — gli inviti di un atleta per l'area
+  genitore: comprende anche quelli gia risposti e quelli chiusi, con il motivo
 - `GET /api/v1/funding/programs/:id/reconciliation` — la riconciliazione di un
   bando: una riga per atleta e per periodo, con la misura grezza accanto al
   requisito e il non maturato accanto al maturato. `?format=csv` la scarica in

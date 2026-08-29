@@ -243,6 +243,43 @@ Quattro cose da conoscere:
   (`email_not_configured`, `delivery_failed`). Con SMTP non configurato
   nessuno risulta `sent` e nessuna traccia viene scritta.
 
+## RSVP: una rotta sola, due letture e una scrittura
+
+| Metodo | Path | Chi | Cosa fa |
+|--------|------|-----|---------|
+| `POST` | `/api/v1/rsvp` | la famiglia | Registra o **cambia** la risposta per il proprio atleta |
+| `GET` | `/api/v1/rsvp?training_id=` | lo staff | Si, no e **senza risposta** con i nomi |
+| `GET` | `/api/v1/rsvp?athlete_id=` | la famiglia | Gli inviti dell'atleta, con la risposta gia data |
+
+**Perche una rotta sola con due letture.** Le due `GET` guardano lo stesso
+fatto da due lati — l'evento e l'atleta — e devono restare coerenti: con due
+rotte, la prima volta che una cambia il calcolo della scadenza o dell'evento
+annullato, la famiglia vedrebbe un pulsante che lo staff non vede.
+
+**I due permessi non sono lo stesso permesso**
+(`src/lib/communications/permissions.ts`):
+
+- `rsvp.read` e leggere le risposte **degli altri**. Lo hanno la gestione, lo
+  staff, il collaboratore e l'allenatore — quest'ultimo **solo per i propri
+  gruppi operativi** (ADR-0055), e il perimetro lo applica
+  `src/lib/server/rsvp.ts`, non la matrice;
+- `rsvp.answer` e rispondere **per il proprio atleta**, e li il gate vero non e
+  il ruolo ma il **legame con l'atleta** (tutore dichiarato, o l'atleta
+  stesso), verificato con `canParentAccessAthlete`. Il permesso viene poi
+  chiesto alla matrice sul ruolo con cui si risponde, cosi la decisione resta
+  in un posto solo.
+
+**Non c'e un endpoint di modifica.** Cambiare risposta e la stessa operazione
+che darla: finche la scadenza non e passata, l'ultima parola vince. La
+scrittura e un **upsert sulla chiave unica**
+`(organization_id, training_id, athlete_id)`, che e anche cio che rende
+innocua la risposta inviata due volte.
+
+**Cio che questa rotta non scrive mai:** `training_attendance.status`, cioe la
+presenza. Vedi [06 — Modello dati](06-data-model.md) e
+[14 — Sicurezza](14-security.md): un «si» che diventasse una presenza
+finirebbe nella rendicontazione di un contributo pubblico.
+
 ## Contributi: due contabilita, due superfici
 
 | Metodo | Path | Cosa fa |

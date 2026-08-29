@@ -183,7 +183,9 @@ Classificazione:
 |-----------|-------|------|
 | Parent dashboard | COMPLETE | `/parent-view/[id]` + 9 sottopagine, API dedicate `/api/parent-dashboard/**` |
 | Profilo atleta | PARTIAL | `/athletes/[id]/profile` con guard; superficie ridotta rispetto al parent |
-| Conferma presenza da genitore | LEGACY/REVIEW | `AttendanceConfirmation.tsx` esiste ma **non e referenziato** |
+| RSVP: conferma di partecipazione della famiglia (G-20) | COMPLETE | Wave 2, W2-E. `src/lib/rsvp/model.ts` (dominio puro) + `src/lib/server/rsvp.ts` (unico scrittore) + `POST/GET /api/v1/rsvp`. La famiglia risponde da `/parent-view/[id]/trainings` con `AttendanceConfirmation.tsx`, ora collegato al server e senza `localStorage`; puo cambiare risposta finche la scadenza non passa. Lo staff vede si / no / **senza risposta** dentro la scheda appello (`TrainingRsvpSummary` in `AttendanceSheet`), con il perimetro per gruppo operativo dell'allenatore. **L'RSVP non scrive mai `training_attendance.status`**: l'intenzione della famiglia non entra nella misura presenze dei bandi. 30 test |
+| RSVP su partite e convocazioni | MISSING | V1.1. La convocazione non ha una forma unica (nove grafie): darle una forma e un lavoro proprio |
+| RSVP da link senza account | MISSING | V1.1. Riuserebbe il meccanismo di token dei link di pagamento (W2-B); sarebbe la seconda superficie pubblica e non e stata costruita ora |
 
 ## Mobile
 
