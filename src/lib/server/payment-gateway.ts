@@ -1124,6 +1124,23 @@ export const handleGatewayWebhookEvent = async (
           externalEventId: eventId,
           settlement,
           /*
+            **La causale resta nulla, e si dichiara perche.**
+
+            L'evento del provider non porta una classificazione, e nessuno dei
+            dati che porta ne e una fonte affidabile: la rata non ha una
+            causale propria, e dedurla dal fatto che l'incasso e online
+            direbbe qualcosa sul *canale*, non sull'operazione. Il §5.2 del
+            piano della Wave 4 chiede l'opposto di inventarla: cio che nessuno
+            ha dichiarato deve **vedersi** come non dichiarato, e a valle il
+            documento risultera NON CLASSIFICATO finche una persona non
+            sceglie.
+
+            Il giorno in cui il checkout portera con se la causale — e sarebbe
+            la fonte giusta, perche la sceglie chi prepara la richiesta di
+            pagamento — questa riga la legge da `payment.reference`.
+          */
+          operationTypeCode: null,
+          /*
           L'unico punto in cui EasyGame accetta un incasso non manuale. Lo
           accetta perche arriva da un evento la cui firma e stata verificata,
           non perche qualcuno lo ha dichiarato: la rotta HTTP non puo impostare

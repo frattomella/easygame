@@ -59,6 +59,19 @@ export const resetPasswordInputSchema = z.object({
  * entrambe circolano gia fra i chiamanti, e uniformarle sarebbe un cambio di
  * contratto che non appartiene a questo lavoro. Lo schema le riconosce
  * entrambe e restituisce una forma sola.
+ *
+ * **La riga che rompeva la catena fiscale.** `operation_type_code` esiste su
+ * `payment_transactions` da tempo, e `createPaymentTransaction` lo scrive. Ma
+ * questo schema **non lo accettava**, e Zod scarta cio che non dichiara: il
+ * campo spariva fra la richiesta e il dominio, la colonna restava `null` su
+ * ogni incasso reale, e a valle il motore fiscale classificava ogni documento
+ * come «quota attivita» ricadendo su un valore predefinito. Un motore
+ * completo che non raggiungeva nessun dato, per un campo mancante in uno
+ * schema (§5.2 del piano della Wave 4).
+ *
+ * Lo stesso vale per il conto finanziario e per la controparte, aggiunti al
+ * dominio dalla stessa Wave: senza una riga qui non sarebbero mai arrivati a
+ * una riga.
  */
 export const paymentTransactionInputSchema = z
   .object({
@@ -79,6 +92,23 @@ export const paymentTransactionInputSchema = z
     externalReference: z.string().trim().max(200).optional(),
     allow_overpayment: z.boolean().optional(),
     allowOverpayment: z.boolean().optional(),
+    /*
+      La causale. Qui si controlla solo la **forma**: che il codice esista nel
+      catalogo del club lo sa `fiscal_operation_types`, e chiederlo qui
+      significherebbe una lettura del database dentro uno schema.
+    */
+    operation_type_code: z.string().trim().max(60).optional(),
+    operationTypeCode: z.string().trim().max(60).optional(),
+    /** Su quale conto e entrato il denaro. */
+    financial_account_id: z.string().trim().max(64).optional(),
+    financialAccountId: z.string().trim().max(64).optional(),
+    /** La controparte, quando non e l'atleta: un socio, uno sponsor. */
+    counterparty_kind: z.string().trim().max(40).optional(),
+    counterpartyKind: z.string().trim().max(40).optional(),
+    counterparty_id: z.string().trim().max(64).optional(),
+    counterpartyId: z.string().trim().max(64).optional(),
+    counterparty_label: z.string().trim().max(200).optional(),
+    counterpartyLabel: z.string().trim().max(200).optional(),
   })
   .transform((body) => ({
     organizationId: body.organization_id ?? body.organizationId,
@@ -91,6 +121,11 @@ export const paymentTransactionInputSchema = z
     source: body.source,
     externalReference: body.external_reference ?? body.externalReference,
     allowOverpayment: Boolean(body.allow_overpayment ?? body.allowOverpayment),
+    operationTypeCode: body.operation_type_code ?? body.operationTypeCode,
+    financialAccountId: body.financial_account_id ?? body.financialAccountId,
+    counterpartyKind: body.counterparty_kind ?? body.counterpartyKind,
+    counterpartyId: body.counterparty_id ?? body.counterpartyId,
+    counterpartyLabel: body.counterparty_label ?? body.counterpartyLabel,
   }));
 
 /**

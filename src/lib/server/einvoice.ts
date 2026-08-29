@@ -153,11 +153,22 @@ const linesFromInvoice = (invoice: any): EInvoiceLine[] => {
     snapshot?.amounts.totalCents ??
     Math.round(toPaymentAmount(invoice.amount) * 100);
 
+  /*
+    **La riga del tracciato porta l'imponibile, non il lordo.** Il costruttore
+    somma le righe, ci aggiunge l'imposta calcolata dall'aliquota e ottiene
+    `<ImportoTotaleDocumento>`: passargli il lordo su un documento al 22%
+    dichiarerebbe un totale del 22% piu alto di quanto la famiglia ha pagato.
+    L'imponibile e congelato sullo snapshot (W4-E); quando l'aliquota non e
+    dichiarata resta `null`, e li lordo e imponibile coincidono perche non c'e
+    imposta da aggiungere.
+  */
+  const lineCents = snapshot?.amounts.taxableAmountCents ?? totalCents;
+
   return [
     {
       description: asText(invoice.description) || "Quota sportiva",
       quantity: 1,
-      unitPriceCents: totalCents,
+      unitPriceCents: lineCents,
       vatRate: snapshot?.amounts.vatRate ?? null,
       vatNature: snapshot?.amounts.vatNature ?? null,
     },

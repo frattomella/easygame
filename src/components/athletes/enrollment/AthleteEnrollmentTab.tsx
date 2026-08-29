@@ -25,6 +25,7 @@ import { InstallmentLedgerList } from "@/components/payments/InstallmentLedgerLi
 import { RegisterPaymentDialog } from "@/components/payments/RegisterPaymentDialog";
 import { PayOnlineDialog } from "@/components/payments/PayOnlineDialog";
 import { RefundDialog } from "@/components/payments/RefundDialog";
+import { DocumentDecisionDialog } from "@/components/payments/DocumentDecisionDialog";
 import { useAthletePaymentLedger } from "@/components/payments/use-athlete-payment-ledger";
 import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
@@ -788,6 +789,25 @@ export function AthleteEnrollmentTab({
             ? ledger.payOnline(ledger.onlineLedger, amount)
             : undefined
         }
+      />
+
+      {/*
+        La proposta del motore fiscale, **prima** dell'emissione: quale
+        documento, con quale numero, con quale classificazione. Prima di questa
+        finestra la spiegazione arrivava solo come errore, e solo quando
+        qualcosa andava storto.
+      */}
+      <DocumentDecisionDialog
+        open={Boolean(ledger.documentDecision.kind)}
+        onOpenChange={(open) => {
+          if (!open) ledger.closeDocumentDecision();
+        }}
+        kind={ledger.documentDecision.kind}
+        preview={ledger.documentDecision.preview}
+        isLoading={ledger.documentDecision.isLoading}
+        isSubmitting={ledger.documentDecision.isSubmitting}
+        error={ledger.documentDecision.error}
+        onConfirm={() => void ledger.confirmDocumentIssue()}
       />
 
       <RefundDialog

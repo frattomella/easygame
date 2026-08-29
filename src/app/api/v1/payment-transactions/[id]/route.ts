@@ -95,7 +95,18 @@ export async function POST(request: Request, context: Context) {
 
     if (action === "issue-receipt") {
       const receipt = await issueReceiptForTransaction(
-        { transactionId: context.params.id, description: body?.description },
+        {
+          transactionId: context.params.id,
+          description: body?.description,
+          /*
+            La causale scelta al momento dell'emissione **vale come
+            dichiarazione**: l'ha indicata una persona guardando la proposta.
+            Assente, il documento resta non classificato e lo dice, invece di
+            ereditare in silenzio il valore predefinito del dominio (§5.2).
+          */
+          operationTypeCode:
+            body?.operation_type_code ?? body?.operationTypeCode,
+        },
         scope,
       );
 
@@ -120,7 +131,12 @@ export async function POST(request: Request, context: Context) {
 
     if (action === "issue-invoice") {
       const invoice = await issueInvoiceForTransaction(
-        { transactionId: context.params.id, description: body?.description },
+        {
+          transactionId: context.params.id,
+          description: body?.description,
+          operationTypeCode:
+            body?.operation_type_code ?? body?.operationTypeCode,
+        },
         scope,
       );
 

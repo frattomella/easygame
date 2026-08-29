@@ -22,6 +22,17 @@ import {
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+/*
+  W4-E, modifica minima a un file non suo: due regole del dominio dei documenti
+  fiscali mancavano di un chiamante proprio qui. Le funzioni vivono nel modulo
+  **puro** degli snapshot e non in `fiscal-documents.ts`, perche quello importa
+  `sponsors.ts` che importa questo file: chiamarle da li chiuderebbe un anello
+  fra tre moduli server per una logica che non tocca il database.
+*/
+import {
+  assertDocumentMutable,
+  clientAssignedDocumentNumberField,
+} from "@/lib/documents/document-snapshot";
 
 type ResourceConfig = {
   kind: "model" | "club_resource";
@@ -2936,6 +2947,17 @@ export const createResource = async (
     normalized.id || null,
   );
 
+  /*
+    Anche la creazione: un documento che **nasce** con un numero digitato e il
+    modo piu diretto di aggirare la sequenza, e in `upsert` la riga puo gia
+    esistere — allora il confronto va fatto con cio che c'e.
+  */
+  const existingDocument =
+    (resource === "invoices" || resource === "receipts") && normalized.id
+      ? await delegate.findUnique({ where: { id: String(normalized.id) } })
+      : null;
+  guardFiscalDocumentIntegrity(resource, normalized, existingDocument);
+
   if (
     mode === "upsert" &&
     resource === "organization_users" &&
@@ -3231,6 +3253,55 @@ const guardLedgerOwnedPaymentState = async (
     metadata: { rejectedFields: ["status"], requestedState: requested, keptState: current },
   });
 };
+
+/**
+ * **I documenti fiscali non si scrivono come una riga qualunque.** (W4-E)
+ *
+ * Due regole del dominio esistevano gia scritte e **non avevano un chiamante**
+ * proprio su questa porta, che e la piu aperta di tutte:
+ *
+ * 1. *il numero lo assegna la sequenza, non il client.* `POST /api/v1/invoices`
+ *    accettava `invoice_number` come una colonna qualunque: si poteva digitare
+ *    un numero, e — con il vincolo di unicita per club — **occupare** quello
+ *    che `document_number_sequences` avrebbe assegnato al documento successivo.
+ *    Un documento fiscale si emette dal suo incasso, dove il numero si alloca
+ *    dentro una transazione;
+ * 2. *un documento emesso non si modifica.* `assertDocumentMutable` esisteva dal
+ *    Blocco D e nessuno la chiamava, mentre da qui si poteva riscrivere importo,
+ *    data, intestatario e snapshot di una fattura gia consegnata.
+ *
+ * **Perche rifiuta invece di ignorare**, al contrario della guardia sullo stato
+ * di una rata: li il valore rimandato indietro dai form era il caso normale e
+ * ignorarlo non toglieva niente a nessuno. Qui chi sta cambiando il numero o
+ * l'importo di un documento emesso sta facendo una cosa che non deve riuscire,
+ * e proseguire in silenzio gli lascerebbe credere di averla fatta. Rimandare
+ * indietro **lo stesso** valore non e una modifica e non viene rifiutato.
+ */
+const guardFiscalDocumentIntegrity = (
+  resource: string,
+  normalized: Record<string, any>,
+  existing: Record<string, any> | null | undefined,
+) => {
+  if (resource !== "invoices" && resource !== "receipts") return;
+
+  const numberField = clientAssignedDocumentNumberField(resource, normalized);
+  if (numberField) {
+    const requested = String(normalized[numberField] ?? "").trim();
+    const current = String(existing?.[numberField] ?? "").trim();
+
+    if (requested !== current) {
+      throw new Error(
+        "Il numero di un documento non si digita: lo assegna la numerazione del club. " +
+          "Un documento si emette dal suo incasso, e il numero nasce li.",
+      );
+    }
+  }
+
+  if (existing) {
+    assertDocumentMutable(existing, normalized);
+  }
+};
+
 export const updateResource = async (
   resource: string,
   id: string,
@@ -3356,6 +3427,7 @@ export const updateResource = async (
     existing?.id || id,
   );
   await guardLedgerOwnedPaymentState(resource, normalized, existing, scope, id);
+  guardFiscalDocumentIntegrity(resource, normalized, existing);
 
   if (isOrganizationScopedResource(resource)) {
     normalized.organization_id = resolveScopedOrganizationId(

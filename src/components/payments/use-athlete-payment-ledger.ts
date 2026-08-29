@@ -24,6 +24,7 @@ import {
 import { buildCheckoutReturnUrl } from "@/lib/payments/checkout-return";
 import type { RegisterPaymentSubmission } from "./RegisterPaymentDialog";
 import type { RefundSubmission } from "./RefundDialog";
+import type { DocumentDecisionPreview } from "./DocumentDecisionDialog";
 
 /**
  * Rate e incassi di un atleta: **lo stato, non la sua rappresentazione**.
@@ -63,12 +64,31 @@ export type AthletePaymentLedgerState = {
   reverseTransaction: (
     transaction: NormalizedPaymentTransaction,
   ) => Promise<void>;
+  /**
+   * Apre la spiegazione di cosa si sta per emettere. **Non emette.**
+   *
+   * Il nome resta quello che le due schede chiamano gia, per non toccare due
+   * componenti per un rinominamento: cio che cambia e che il primo clic apre la
+   * proposta del motore fiscale invece di produrre il documento al buio.
+   */
   generateReceipt: (
     transaction: NormalizedPaymentTransaction,
   ) => Promise<void>;
   generateInvoice: (
     transaction: NormalizedPaymentTransaction,
   ) => Promise<void>;
+  /** Lo stato della finestra «cosa stai per emettere». */
+  documentDecision: {
+    kind: "receipt" | "invoice" | null;
+    transaction: NormalizedPaymentTransaction | null;
+    preview: DocumentDecisionPreview | null;
+    isLoading: boolean;
+    isSubmitting: boolean;
+    error: string | null;
+  };
+  closeDocumentDecision: () => void;
+  /** Emette davvero, dopo che la proposta e stata letta. */
+  confirmDocumentIssue: () => Promise<void>;
   /**
    * Se un incasso si puo rimborsare adesso, e quanto.
    *
@@ -407,24 +427,62 @@ export function useAthletePaymentLedger({
     );
   };
 
-  const generateReceipt = React.useCallback(
-    async (transaction: NormalizedPaymentTransaction) => {
-      setBusyTransactionId(transaction.id);
+  /* ------------------------------- la proposta si legge prima di emettere */
+
+  /**
+   * **Il primo clic apre la spiegazione, non emette.**
+   *
+   * `describeDocumentDecision` esisteva dal Blocco D e non aveva chiamanti: la
+   * spiegazione arrivava, quando arrivava, come errore *dopo*. Ora chi emette
+   * legge prima quale documento uscira, con quale numero, con quale
+   * classificazione — e soprattutto **se non ce n'e nessuna**, che e il caso
+   * di quasi tutti gli incassi finche le causali non sono configurate.
+   */
+  const [documentTarget, setDocumentTarget] = React.useState<{
+    kind: "receipt" | "invoice";
+    transaction: NormalizedPaymentTransaction;
+  } | null>(null);
+  const [documentPreview, setDocumentPreview] =
+    React.useState<DocumentDecisionPreview | null>(null);
+  const [isReadingDecision, setIsReadingDecision] = React.useState(false);
+  const [isIssuing, setIsIssuing] = React.useState(false);
+  const [decisionError, setDecisionError] = React.useState<string | null>(null);
+
+  const openDocumentDecision = React.useCallback(
+    async (
+      kind: "receipt" | "invoice",
+      transaction: NormalizedPaymentTransaction,
+    ) => {
+      setDocumentTarget({ kind, transaction });
+      setDocumentPreview(null);
+      setDecisionError(null);
+      setIsReadingDecision(true);
+
       const { data, error } = await apiRequest(
-        `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
-        { method: "POST", body: { action: "issue-receipt" } },
+        `/api/v1/payment-transactions/${encodeURIComponent(
+          transaction.id,
+        )}/document-decision`,
       );
-      setBusyTransactionId(null);
+
+      setIsReadingDecision(false);
 
       if (error) {
-        showToast("error", error.message || "Emissione ricevuta non riuscita");
+        setDecisionError(
+          error.message || "Lettura della proposta documentale non riuscita",
+        );
         return;
       }
 
-      showToast("success", `Ricevuta ${data?.receipt_number || ""} emessa`.trim());
-      openDocument("receipt", data?.id);
+      setDocumentPreview(data as DocumentDecisionPreview);
     },
-    [showToast],
+    [],
+  );
+
+  const generateReceipt = React.useCallback(
+    async (transaction: NormalizedPaymentTransaction) => {
+      await openDocumentDecision("receipt", transaction);
+    },
+    [openDocumentDecision],
   );
 
   /*
@@ -435,23 +493,68 @@ export function useAthletePaymentLedger({
   */
   const generateInvoice = React.useCallback(
     async (transaction: NormalizedPaymentTransaction) => {
-      setBusyTransactionId(transaction.id);
-      const { data, error } = await apiRequest(
-        `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
-        { method: "POST", body: { action: "issue-invoice" } },
-      );
-      setBusyTransactionId(null);
-
-      if (error) {
-        showToast("error", error.message || "Emissione fattura non riuscita");
-        return;
-      }
-
-      showToast("success", `Fattura ${data?.invoice_number || ""} emessa`.trim());
-      openDocument("invoice", data?.id);
+      await openDocumentDecision("invoice", transaction);
     },
-    [showToast],
+    [openDocumentDecision],
   );
+
+  const closeDocumentDecision = React.useCallback(() => {
+    setDocumentTarget(null);
+    setDocumentPreview(null);
+    setDecisionError(null);
+  }, []);
+
+  const confirmDocumentIssue = React.useCallback(async () => {
+    if (!documentTarget) return;
+
+    const { kind, transaction } = documentTarget;
+    setIsIssuing(true);
+    setBusyTransactionId(transaction.id);
+
+    const { data, error } = await apiRequest(
+      `/api/v1/payment-transactions/${encodeURIComponent(transaction.id)}`,
+      {
+        method: "POST",
+        /*
+          **La causale non torna indietro dall'anteprima.** Il server rilegge
+          quella scritta sull'incasso: rimandargli quella che il motore aveva
+          soltanto *proposto* la trasformerebbe in una scelta dell'operatore
+          per il solo fatto di essergli passata davanti, ed e esattamente il
+          travestimento che questa Wave toglie. Classificare un incasso e un
+          gesto a se, e si fa sull'incasso.
+        */
+        body: { action: kind === "invoice" ? "issue-invoice" : "issue-receipt" },
+      },
+    );
+
+    setIsIssuing(false);
+    setBusyTransactionId(null);
+
+    if (error) {
+      /*
+        L'errore resta **dentro** la finestra, accanto alla proposta che lo
+        spiega: chiuderla e mostrare un avviso che scompare lascerebbe chi
+        emette senza il contesto che gli serve per rimediare.
+      */
+      setDecisionError(
+        error.message ||
+          (kind === "invoice"
+            ? "Emissione fattura non riuscita"
+            : "Emissione ricevuta non riuscita"),
+      );
+      return;
+    }
+
+    closeDocumentDecision();
+
+    showToast(
+      "success",
+      kind === "invoice"
+        ? `Fattura ${data?.invoice_number || ""} emessa`.trim()
+        : `Ricevuta ${data?.receipt_number || ""} emessa`.trim(),
+    );
+    openDocument(kind, data?.id);
+  }, [closeDocumentDecision, documentTarget, showToast]);
 
   /* ------------------------------------------------------------ i rimborsi */
 
@@ -644,6 +747,16 @@ export function useAthletePaymentLedger({
     reverseTransaction,
     generateReceipt,
     generateInvoice,
+    documentDecision: {
+      kind: documentTarget?.kind || null,
+      transaction: documentTarget?.transaction || null,
+      preview: documentPreview,
+      isLoading: isReadingDecision,
+      isSubmitting: isIssuing,
+      error: decisionError,
+    },
+    closeDocumentDecision,
+    confirmDocumentIssue,
     refundAvailabilityFor,
     refundTarget,
     selectRefundTransaction: setRefundTarget,

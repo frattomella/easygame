@@ -24,9 +24,10 @@
  */
 
 import { prisma } from "./prisma";
-import { allocateDocumentNumber } from "./document-numbering";
+import { allocateDocumentNumber, peekDocumentNumber } from "./document-numbering";
 import {
   documentYearOf,
+  formatDocumentNumber,
   type DocumentNumberKind,
 } from "@/lib/documents/numbering";
 import {
@@ -34,10 +35,14 @@ import {
   type FiscalCounterparty,
 } from "@/lib/documents/fiscal-recipient";
 import { findSponsorCounterparty } from "./sponsors";
-import {
-  buildDocumentSnapshot,
-  immutableFieldsTouchedBy,
-} from "@/lib/documents/document-snapshot";
+import { buildDocumentSnapshot } from "@/lib/documents/document-snapshot";
+/*
+  La regola dell'immodificabilita vive nel modulo puro degli snapshot e si
+  riesporta da qui, che resta il punto di ingresso documentato del dominio: il
+  chiamante che mancava e il CRUD generico, e `resources.ts` non puo importare
+  questo file senza chiudere un anello con `sponsors.ts`.
+*/
+export { assertDocumentMutable } from "@/lib/documents/document-snapshot";
 import { toPaymentAmount } from "@/lib/payments/installment-ledger";
 import {
   getFiscalProfile,
@@ -45,9 +50,12 @@ import {
   resolveDefaultSeries,
 } from "./fiscal-config";
 import { decideDocument, resolveStampDuty } from "@/lib/fiscal/engine";
+import { splitVatFromTotal } from "@/lib/fiscal/vat";
 import {
   DEFAULT_OPERATION_TYPE_BY_ORIGIN,
+  freezeClassification,
   type NormalizedOperationType,
+  type OperationTypeSource,
 } from "@/lib/fiscal/operation-types";
 import type { PaymentTransactionScope } from "./payment-transactions";
 import { getPaymentTransactionById } from "./payment-transactions";
@@ -77,6 +85,15 @@ type IssueContext = {
    */
   counterparty: FiscalCounterparty | null;
   operationType: NormalizedOperationType | null;
+  /**
+   * **Chi ha detto che l'operazione e quella.**
+   *
+   * Prima non esisteva, e la conseguenza era il §5.2 del piano: il codice
+   * ricadeva su `DEFAULT_OPERATION_TYPE_BY_ORIGIN` e da quel punto in poi
+   * nessuno, ne il motore ne il documento, poteva piu distinguere una scelta
+   * da un ripiego.
+   */
+  operationTypeSource: OperationTypeSource;
   profile: Awaited<ReturnType<typeof getFiscalProfile>>;
 };
 
@@ -142,18 +159,39 @@ const loadIssueContext = async (
 
   /*
     Il tipo di operazione: quello chiesto adesso, altrimenti quello registrato
-    sull'incasso, altrimenti quello che il dominio propone. La terza opzione e
-    una proposta e non una dichiarazione: `decideDocument` lo sa, e infatti
-    marca la decisione come «da configurare».
-  */
-  const code =
-    asText(operationTypeCode) ||
-    asText(transaction.operation_type_code) ||
-    (counterparty
-      ? DEFAULT_OPERATION_TYPE_BY_ORIGIN.sponsor
-      : DEFAULT_OPERATION_TYPE_BY_ORIGIN.athlete);
+    sull'incasso, altrimenti quello che il dominio propone.
 
-  const operationType = await getOperationType({ organizationId, code });
+    **La terza opzione non e piu indistinguibile dalle prime due.** Prima
+    questa catena produceva una stringa e basta, e da li in poi «quota
+    attivita» arrivava sul documento con la stessa faccia che avrebbe avuto se
+    qualcuno l'avesse scelta — mentre `operation_type_code` era nullo su ogni
+    incasso reale (§5.2). La provenienza viaggia accanto al codice: la proposta
+    resta, perche serve a scegliere il documento giusto, ma non si presenta
+    come una dichiarazione.
+  */
+  const declaredCode =
+    asText(operationTypeCode) || asText(transaction.operation_type_code);
+
+  const proposedCode = counterparty
+    ? DEFAULT_OPERATION_TYPE_BY_ORIGIN.sponsor
+    : DEFAULT_OPERATION_TYPE_BY_ORIGIN.athlete;
+
+  const operationType = await getOperationType({
+    organizationId,
+    code: declaredCode || proposedCode,
+  });
+
+  /*
+    Una causale dichiarata che il club non ha in catalogo non e una
+    dichiarazione valida: `getOperationType` restituisce `null`, e chiamarla
+    «dichiarata» direbbe che qualcuno ha classificato un incasso con un codice
+    che non esiste.
+  */
+  const operationTypeSource: OperationTypeSource = !operationType
+    ? "absent"
+    : declaredCode
+      ? "declared"
+      : "proposed";
 
   return {
     organizationId,
@@ -163,6 +201,7 @@ const loadIssueContext = async (
     athlete,
     counterparty,
     operationType,
+    operationTypeSource,
     profile,
   };
 };
@@ -185,15 +224,100 @@ export const describeDocumentDecision = async (
   );
   const recipient = recipientOf(context);
 
+  const decision = decideDocument({
+    profile: context.profile,
+    operationType: context.operationType,
+    operationTypeSource: context.operationTypeSource,
+    recipient,
+  });
+
+  const amountCents = Math.round(
+    toPaymentAmount(context.transaction.amount) * 100,
+  );
+
+  /*
+    Il bollo si **spiega** qui e non si scopre dopo: `undetermined` non e un
+    errore, e la domanda a cui manca la risposta perche l'aliquota della
+    causale non e dichiarata (ADR-0073).
+  */
+  const stampDuty = resolveStampDuty({
+    profile: context.profile,
+    amountCents,
+    vatRate: context.operationType?.vatRate ?? null,
+  });
+
   return {
-    decision: decideDocument({
-      profile: context.profile,
-      operationType: context.operationType,
-      recipient,
-    }),
+    decision,
     recipient,
     operationType: context.operationType,
+    operationTypeSource: context.operationTypeSource,
+    classification: decision.classification,
+    amounts: {
+      totalCents: amountCents,
+      stampDuty,
+      ...splitVatFromTotal({
+        totalCents: amountCents,
+        vatRate: context.operationType?.vatRate ?? null,
+      }),
+    },
+    /*
+      **Il numero che verra assegnato, letto senza consumarlo.**
+
+      `peekDocumentNumber` esisteva e non aveva chiamanti. Serve qui: chi emette
+      deve poter vedere prima quale numero sta per uscire — e chi tiene il
+      registro puo accorgersi di un salto **prima** che il documento sia
+      emesso, non dopo. La lettura non incrementa: e la stessa sequenza che
+      `allocateDocumentNumber` incrementera, quindi i due numeri sono coerenti
+      salvo un'emissione concorrente, che e il solo caso in cui devono
+      divergere.
+    */
+    nextNumbers: await nextNumbersFor(context),
   };
+};
+
+/**
+ * Il prossimo numero di ricevuta e di fattura, per serie ed esercizio.
+ *
+ * Non alloca niente: `peekDocumentNumber` legge il contatore, e il `+1` qui e
+ * cio che la prossima allocazione produrra. Se nel frattempo qualcun altro
+ * emette, il numero mostrato sara stato quello di un altro documento — ed e la
+ * ragione per cui questa e una **anteprima** e non una prenotazione.
+ */
+const nextNumbersFor = async (context: IssueContext) => {
+  const issueDate = context.transaction.paid_at || new Date();
+  const year = documentYearOf(issueDate);
+
+  const kinds: DocumentNumberKind[] = ["receipt", "invoice"];
+
+  const entries = await Promise.all(
+    kinds.map(async (kind) => {
+      const series = await resolveDefaultSeries({
+        organizationId: context.organizationId,
+        kind,
+      });
+      const last = await peekDocumentNumber({
+        organizationId: context.organizationId,
+        kind,
+        series,
+        year,
+      });
+
+      return [
+        kind,
+        {
+          series,
+          year,
+          sequence: last + 1,
+          number: formatDocumentNumber(kind, year, last + 1, series),
+        },
+      ] as const;
+    }),
+  );
+
+  return Object.fromEntries(entries) as Record<
+    "receipt" | "invoice",
+    { series: string; year: number; sequence: number; number: string }
+  >;
 };
 
 /* ------------------------------------------------------------ emissione */
@@ -218,16 +342,41 @@ const assertIssuable = (transaction: Record<string, any>) => {
   }
 };
 
+/**
+ * L'aliquota che il documento puo dichiarare.
+ *
+ * **Solo quella di una causale dichiarata.** L'aliquota di una causale che
+ * EasyGame ha soltanto proposto non e un'aliquota che qualcuno ha scelto, e
+ * scriverla sullo snapshot — che e la fonte autorevole della ristampa e del
+ * tracciato — significherebbe far dire al documento una cosa che nessuno ha
+ * detto.
+ */
+const declaredVatRateOf = (context: IssueContext) =>
+  context.operationTypeSource === "declared"
+    ? (context.operationType?.vatRate ?? null)
+    : null;
+
 const buildSnapshotFor = (
   context: IssueContext,
   input: { issueDate: Date; description: string; totalCents: number },
 ) => {
   const recipient = recipientOf(context);
+  const vatRate = declaredVatRateOf(context);
+
+  /*
+    **Il difetto latente del bollo, chiuso qui.** Il chiamante passava
+    `vatApplied: Boolean(operationType?.vatRate)`, e `Boolean(0)` e falso:
+    un'operazione dichiarata **ad aliquota zero** — che e una dichiarazione
+    fiscale precisa, diversa da «non dichiarata» — finiva nello stesso ramo di
+    un'operazione non classificata. Con `vatRate` i tre stati restano tre.
+  */
   const stamp = resolveStampDuty({
     profile: context.profile,
     amountCents: input.totalCents,
-    vatApplied: Boolean(context.operationType?.vatRate),
+    vatRate,
   });
+
+  const vat = splitVatFromTotal({ totalCents: input.totalCents, vatRate });
 
   return buildDocumentSnapshot({
     profile: context.profile,
@@ -237,14 +386,61 @@ const buildSnapshotFor = (
     description: input.description,
     totalCents: input.totalCents,
     stampDutyCents: stamp.applies ? stamp.amountCents : 0,
-    vatRate: context.operationType?.vatRate ?? null,
-    vatNature: context.operationType?.vatNature ?? null,
+    vatRate,
+    vatNature:
+      context.operationTypeSource === "declared"
+        ? (context.operationType?.vatNature ?? null)
+        : null,
+    taxableAmountCents: vat.taxableAmountCents,
+    vatAmountCents: vat.vatAmountCents,
     operationTypeCode: context.operationType?.code || null,
     operationTypeLabel: context.operationType?.label || null,
+    /*
+      La classificazione si congela **adesso**: la causale e configurazione
+      mutabile, e un documento consegnato non cambia natura perche sei mesi
+      dopo qualcuno ha corretto una voce del catalogo (§8 e §15 del piano).
+    */
+    classification: freezeClassification(
+      context.operationType,
+      context.operationTypeSource,
+    ),
     transactionIds: [String(context.transaction.id)],
     installmentId: context.transaction.payment_id || null,
   });
 };
+
+/**
+ * Le colonne interrogabili dell'imponibile e dell'imposta.
+ *
+ * Sono una **copia** dello snapshot, come gia `vat_number` e `method`: lo
+ * snapshot resta la fonte autorevole, queste servono a chi filtra e somma senza
+ * aprire un JSON. Restano nulle quando l'aliquota non e dichiarata, che e cio
+ * che le rende leggibili come «da guardare» invece che come zero.
+ */
+const vatColumnsFor = (context: IssueContext, totalCents: number) => {
+  const vat = splitVatFromTotal({
+    totalCents,
+    vatRate: declaredVatRateOf(context),
+  });
+
+  return {
+    taxable_amount_cents: vat.taxableAmountCents,
+    vat_amount_cents: vat.vatAmountCents,
+  };
+};
+
+/**
+ * Il codice di operazione da scrivere **sulla riga** del documento.
+ *
+ * `null` quando la causale era soltanto proposta. E la riga che chiude il
+ * §5.2: scrivere il codice proposto renderebbe il documento indistinguibile da
+ * uno classificato, e la colonna tornerebbe a raccontare che ogni incasso e una
+ * quota di attivita — che e esattamente cio che raccontava prima.
+ */
+const declaredOperationTypeCodeOf = (context: IssueContext) =>
+  context.operationTypeSource === "declared"
+    ? context.operationType?.code || null
+    : null;
 
 export type IssueDocumentInput = {
   transactionId: string;
@@ -321,11 +517,12 @@ export const issueReceiptForTransaction = async (
       series: allocation.series,
       sequence: allocation.sequence,
       document_year: allocation.year,
-      operation_type_code: context.operationType?.code || null,
+      operation_type_code: declaredOperationTypeCodeOf(context),
       snapshot,
       issued_by: scope?.userId || null,
       issue_date: issueDate,
       amount,
+      ...vatColumnsFor(context, Math.round(amount * 100)),
       description,
       status: "issued",
       method: context.transaction.payment_method,
@@ -367,6 +564,7 @@ export const issueInvoiceForTransaction = async (
   const decision = decideDocument({
     profile: context.profile,
     operationType: context.operationType,
+    operationTypeSource: context.operationTypeSource,
     recipient,
   });
 
@@ -435,11 +633,12 @@ export const issueInvoiceForTransaction = async (
       series: allocation.series,
       sequence: allocation.sequence,
       document_year: allocation.year,
-      operation_type_code: context.operationType?.code || null,
+      operation_type_code: declaredOperationTypeCodeOf(context),
       snapshot,
       issued_by: scope?.userId || null,
       issue_date: issueDate,
       amount,
+      ...vatColumnsFor(context, Math.round(amount * 100)),
       description,
       payment_method: context.transaction.payment_method,
       status: "issued",
@@ -520,28 +719,3 @@ export const cancelDocument = async (
   });
 };
 
-/**
- * Rifiuta una modifica che tocchi i dati fiscalmente rilevanti di un documento
- * emesso.
- *
- * **Perche una funzione e non un controllo dentro il CRUD.** Perche un
- * documento si aggiorna da piu punti — il CRUD generico, la rigenerazione del
- * PDF, l'annullamento — e la regola deve valere per tutti e tre. Il messaggio
- * dice **quale** campo: «documento non modificabile» manda al telefono, «il
- * numero e la data di un documento emesso non si cambiano» no.
- */
-export const assertDocumentMutable = (
-  current: Record<string, any>,
-  updates: Record<string, any>,
-) => {
-  const isIssued =
-    asText(current?.status) === "issued" || asText(current?.status) === "cancelled";
-  if (!isIssued) return;
-
-  const touched = immutableFieldsTouchedBy(updates, current);
-  if (!touched.length) return;
-
-  throw new Error(
-    `Un documento emesso non si modifica: ${touched.join(", ")} appartengono al documento consegnato. Annullalo ed emetti una rettifica.`,
-  );
-};

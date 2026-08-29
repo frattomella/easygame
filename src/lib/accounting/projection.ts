@@ -137,6 +137,8 @@ export type PaymentTransactionRow = {
   athlete_id?: string | null;
   financial_account_id?: string | null;
   operation_type_code?: string | null;
+  /** L'ambito congelato all'incasso. La causale corrente non lo riscrive. */
+  activity_scope_snapshot?: string | null;
   counterparty_kind?: string | null;
   counterparty_id?: string | null;
   counterparty_label?: string | null;
@@ -199,7 +201,15 @@ export const projectPaymentTransactions = (
         financialAccountName: testo(row._accountName),
         operationTypeCode: testo(row.operation_type_code),
         operationTypeLabel: testo(row._operationTypeLabel),
-        activityScope: normalizeActivityScope(row._activityScope),
+        /*
+          Prima si legge cio che e **congelato sulla riga**, e solo in mancanza
+          si ricade su cio che la causale dice **adesso**. L'ordine e il punto:
+          invertirlo farebbe cambiare natura al passato ogni volta che qualcuno
+          corregge una classificazione.
+        */
+        activityScope: normalizeActivityScope(
+          row.activity_scope_snapshot ?? row._activityScope,
+        ),
         counterpartyKind:
           (testo(row.counterparty_kind)?.toUpperCase() as CounterpartyKind | null) ??
           (row.athlete_id ? "ATHLETE" : null),

@@ -25,8 +25,11 @@
 
 import {
   DOCUMENT_ROUTE_LABELS,
+  freezeClassification,
   type DocumentRoute,
+  type FrozenClassification,
   type NormalizedOperationType,
+  type OperationTypeSource,
 } from "./operation-types";
 import {
   missingForInvoicing,
@@ -69,6 +72,15 @@ export type FiscalDecision = {
    * configurare, non un errore.
    */
   needsConfiguration: boolean;
+  /**
+   * **Cosa risultera scritto sul documento, e chi l'ha detto.**
+   *
+   * Il campo esiste perche una proposta non diventi una dichiarazione
+   * attraversando un'interfaccia. Quando `declared` e falso, l'ambito e
+   * `unspecified` e l'etichetta e `NON CLASSIFICATO`, qualunque cosa il motore
+   * abbia proposto per scegliere il documento (§5.2 e §15 del piano).
+   */
+  classification: FrozenClassification;
 };
 
 const asText = (value: unknown) => String(value ?? "").trim();
@@ -103,11 +115,11 @@ const missingRecipientFields = (recipient: FiscalRecipientSummary): string[] => 
  * arriva il denaro. In quel caso la proposta e ricevuta, e si dichiara che
  * manca la classificazione.
  */
-export const decideDocument = (input: {
+const decideRoute = (input: {
   profile: FiscalProfile;
   operationType: NormalizedOperationType | null;
   recipient?: FiscalRecipientSummary | null;
-}): FiscalDecision => {
+}): Omit<FiscalDecision, "classification"> => {
   const recipient = input.recipient || { name: "" };
   const issuerMissing = missingForInvoicing(input.profile);
 
@@ -203,6 +215,55 @@ export const decideDocument = (input: {
     reason: `«${operation.label}» e configurata per produrre una ricevuta.`,
     blockers: [],
     needsConfiguration: false,
+  };
+};
+
+/**
+ * La proposta documentale, **con la provenienza della classificazione**.
+ *
+ * `operationTypeSource` distingue tre cose che prima erano una sola:
+ *
+ * - `declared` — la causale l'ha scelta una persona. La decisione e quella di
+ *   sempre;
+ * - `proposed` — la causale l'ha proposta EasyGame dal dominio di origine
+ *   (`DEFAULT_OPERATION_TYPE_BY_ORIGIN`). La proposta **resta** — serve a
+ *   scegliere il documento giusto, e toglierla peggiorerebbe il prodotto — ma
+ *   la classificazione che ne discende **non si presenta come dichiarata**: il
+ *   documento risultera `NON CLASSIFICATO` e la decisione lo dice;
+ * - `absent` — non c'e nessuna causale.
+ *
+ * Il valore predefinito conserva il comportamento precedente per chi passa una
+ * causale gia risolta: chi non dichiara una provenienza sta passando una scelta
+ * esplicita.
+ */
+export const decideDocument = (input: {
+  profile: FiscalProfile;
+  operationType: NormalizedOperationType | null;
+  recipient?: FiscalRecipientSummary | null;
+  operationTypeSource?: OperationTypeSource;
+}): FiscalDecision => {
+  const source: OperationTypeSource =
+    input.operationTypeSource || (input.operationType ? "declared" : "absent");
+
+  const base = decideRoute(input);
+  const classification = freezeClassification(input.operationType, source);
+
+  if (source !== "proposed") {
+    return { ...base, classification };
+  }
+
+  return {
+    ...base,
+    /*
+      Il testo non nasconde la proposta e non la spaccia per una scelta. Chi
+      emette deve poter leggere entrambe le cose in una riga: cosa EasyGame
+      propone, e che nessuno l'ha ancora confermato.
+    */
+    reason: `${base.reason} Nessuno ha classificato questo incasso: «${
+      input.operationType?.label || "—"
+    }» e una proposta di EasyGame, e il documento risultera ${classification.label}.`,
+    needsConfiguration: true,
+    classification,
   };
 };
 

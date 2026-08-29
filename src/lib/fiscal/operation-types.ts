@@ -388,3 +388,115 @@ export const classificationOf = (
   deductible: operationType.deductible,
   isMembershipFee: operationType.isMembershipFee,
 });
+
+/* ------------------------------------ dichiarato, proposto, non classificato */
+
+/**
+ * **Da dove viene la causale di un fatto economico.**
+ *
+ * Il difetto che questo tipo chiude e il §5.2 del piano della Wave 4, e non
+ * era un difetto di calcolo: era un difetto di **presentazione**.
+ * `operation_type_code` era sempre nullo sugli incassi, la catena ricadeva su
+ * `DEFAULT_OPERATION_TYPE_BY_ORIGIN`, e da quel momento in poi il prodotto
+ * mostrava «Rata / quota periodica dell'attivita sportiva» su ogni documento —
+ * con la stessa faccia che avrebbe avuto se qualcuno l'avesse scelto. Un
+ * rendiconto costruito su quel dato diceva «istituzionale 0, commerciale 0»
+ * e sembrava un rendiconto.
+ *
+ * - `declared` — l'ha detto una persona: e sulla riga dell'incasso, oppure
+ *   arriva nella richiesta di emissione;
+ * - `proposed` — l'ha proposta EasyGame a partire dal dominio di origine. E
+ *   una proposta utile e non e una dichiarazione;
+ * - `absent` — non c'e ne l'una ne l'altra.
+ *
+ * Vedi ADR-0073: il motore propone e spiega; cio che non e stato dichiarato
+ * non deve sembrare dichiarato.
+ */
+export const OPERATION_TYPE_SOURCES = [
+  "declared",
+  "proposed",
+  "absent",
+] as const;
+
+export type OperationTypeSource = (typeof OPERATION_TYPE_SOURCES)[number];
+
+/**
+ * L'etichetta di cio che nessuno ha classificato.
+ *
+ * Maiuscola di proposito: in un elenco di voci di rendiconto deve **saltare
+ * all'occhio**, perche e la riga che dice al club che c'e una configurazione da
+ * fare. «Non dichiarata» in mezzo ad altre etichette si legge come una
+ * categoria fra le altre.
+ */
+export const UNCLASSIFIED_LABEL = "NON CLASSIFICATO";
+
+/**
+ * Come si scrive l'ambito di un fatto economico, tenendo conto di **chi** l'ha
+ * detto.
+ *
+ * Una causale soltanto proposta non porta il suo ambito: sarebbe
+ * indistinguibile da un ambito scelto, ed e esattamente la confusione che il
+ * §15 del piano chiede di togliere.
+ */
+export const activityScopeLabelOf = (
+  scope: ActivityScope,
+  source: OperationTypeSource = "declared",
+) =>
+  source === "declared" && scope !== "unspecified"
+    ? ACTIVITY_SCOPE_LABELS[scope]
+    : UNCLASSIFIED_LABEL;
+
+/**
+ * La classificazione **congelata** su un fatto: cio che si scrive sulla riga e
+ * nello snapshot, e che non cambia piu.
+ *
+ * **Perche congelata e non referenziata.** La causale e configurazione
+ * mutabile: `saveOperationType` riscrive `activity_scope` in place. Se domani
+ * un club corregge la classificazione di una causale, tutti i documenti gia
+ * emessi cambierebbero natura retroattivamente — e un documento consegnato non
+ * cambia natura. E la stessa disciplina con cui il lavoro sportivo congela
+ * contributi e aliquote sulla riga di registro.
+ */
+export type FrozenClassification = {
+  operationTypeCode: string | null;
+  operationTypeLabel: string | null;
+  activityScope: ActivityScope;
+  /** Falso quando l'ambito e solo proposto: e cio che rende visibile il vuoto. */
+  declared: boolean;
+  source: OperationTypeSource;
+  /** Gia pronta da mostrare: `NON CLASSIFICATO` quando nessuno ha deciso. */
+  label: string;
+  deductible: boolean | null;
+  isMembershipFee: boolean | null;
+};
+
+export const freezeClassification = (
+  operationType: NormalizedOperationType | null,
+  source: OperationTypeSource,
+): FrozenClassification => {
+  const declared = Boolean(
+    operationType && source === "declared" && operationType.activityScope !== "unspecified",
+  );
+
+  /*
+    Il codice e l'etichetta di una causale **proposta** restano leggibili — chi
+    emette deve poter vedere cosa EasyGame stava proponendo — ma l'ambito no:
+    quello e la grandezza che un rendiconto somma, e sommare una proposta e il
+    modo in cui un numero inventato diventa un totale.
+  */
+  const activityScope: ActivityScope = declared
+    ? (operationType as NormalizedOperationType).activityScope
+    : "unspecified";
+
+  return {
+    operationTypeCode: operationType?.code || null,
+    operationTypeLabel: operationType?.label || null,
+    activityScope,
+    declared,
+    source,
+    label: activityScopeLabelOf(activityScope, declared ? "declared" : source),
+    deductible: source === "declared" ? (operationType?.deductible ?? null) : null,
+    isMembershipFee:
+      source === "declared" ? (operationType?.isMembershipFee ?? null) : null,
+  };
+};

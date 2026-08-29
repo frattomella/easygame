@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import type { FrozenSettlement } from "@/lib/payments/commission";
-import { isCounterpartyKind } from "@/lib/accounting/model";
+import { isCounterpartyKind, normalizeActivityScope } from "@/lib/accounting/model";
 import {
   isSettledTransaction,
   normalizePaymentTransaction,
@@ -380,6 +380,15 @@ export type CreatePaymentTransactionInput = {
   counterpartyKind?: unknown;
   counterpartyId?: unknown;
   counterpartyLabel?: unknown;
+  /**
+   * L'ambito dichiarato dalla causale, **congelato adesso**.
+   *
+   * Lo passa chi ha appena letto la causale, e non viene riletto dopo: se
+   * domani il club ne corregge la natura, questo incasso resta quello che era
+   * il giorno in cui e avvenuto. E la stessa scelta dello snapshot di un
+   * documento fiscale.
+   */
+  activityScope?: unknown;
 };
 
 /**
@@ -572,6 +581,9 @@ export const createPaymentTransaction = async (
         external_payment_id: asText(input.externalPaymentId) || null,
         external_event_id: asText(input.externalEventId) || null,
         operation_type_code: asText(input.operationTypeCode) || null,
+        activity_scope_snapshot: asText(input.operationTypeCode)
+          ? normalizeActivityScope(input.activityScope)
+          : null,
         financial_account_id: asText(input.financialAccountId) || null,
         ...counterpartyColumns(input),
         ...settlementColumns(input.settlement),
@@ -695,6 +707,7 @@ export const reversePaymentTransaction = async (
         counterparty_id: original.counterparty_id || null,
         counterparty_label: original.counterparty_label || null,
         operation_type_code: original.operation_type_code || null,
+        activity_scope_snapshot: original.activity_scope_snapshot || null,
         data: {},
       },
     });
@@ -942,6 +955,7 @@ export const recordRefundTransaction = async (
         external_payment_id: original.external_payment_id,
         external_event_id: asText(input.externalEventId) || null,
         operation_type_code: original.operation_type_code,
+        activity_scope_snapshot: original.activity_scope_snapshot,
         /* Il denaro torna indietro dallo stesso conto, alla stessa controparte. */
         financial_account_id: original.financial_account_id || null,
         counterparty_kind: original.counterparty_kind || null,

@@ -288,6 +288,34 @@ Due invarianti che valgono anche come misura di integrita:
 
 Vedi [ADR-0037](18-decision-log.md#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati).
 
+### 6-quater. Il CRUD generico scriveva sui documenti fiscali — PRESIDIATO (2026-08-29, W4-E)
+
+Due regole del dominio dei documenti esistevano **scritte e senza chiamanti**,
+e la porta piu aperta del prodotto — `/api/v1/<resource>` — le ignorava
+entrambe:
+
+1. **il numero lo digitava il client.** `POST /api/v1/invoices` accettava
+   `invoice_number` come una colonna qualunque. Con il vincolo di unicita per
+   club, un numero scelto a mano poteva **occupare** quello che
+   `document_number_sequences` avrebbe assegnato al documento successivo — e la
+   sequenza, che e l'unica difesa contro due sportelli che emettono nello stesso
+   secondo, veniva aggirata da fuori;
+2. **un documento emesso si poteva riscrivere.** `assertDocumentMutable`
+   implementava «un documento emesso non si modifica» dal Blocco D e nessuno la
+   chiamava: da `PATCH /api/v1/receipts/:id` si cambiavano importo, data,
+   intestatario e snapshot di un documento **gia consegnato**.
+
+Ora `guardFiscalDocumentIntegrity` (`src/lib/server/resources.ts`) le applica su
+creazione e modifica, per `invoices` e `receipts`. **Rifiuta** invece di
+ignorare, al contrario della guardia sullo stato di una rata: chi cambia il
+numero o l'importo di un documento emesso sta facendo una cosa che non deve
+riuscire, e proseguire in silenzio gli lascerebbe credere di averla fatta.
+Rimandare indietro lo **stesso** valore non e una modifica e passa.
+
+Le due funzioni vivono nel modulo puro `src/lib/documents/document-snapshot.ts`
+e sono riesportate da `fiscal-documents.ts`: importarle da li avrebbe chiuso un
+anello `resources → fiscal-documents → sponsors → resources`.
+
 ### 7. ~~Nessun audit log~~ — IMPLEMENTATO (2026-08-22)
 
 `src/lib/server/audit.ts` scrive su `audit_logs` chi ha fatto cosa, su quale

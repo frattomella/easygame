@@ -315,3 +315,80 @@ test("un incasso con la controparte di un altro club non passa dallo scope sbagl
 
   assert.equal(incassi().length, 0);
 });
+
+/* ============================ la classificazione congelata (W4-E1) */
+
+test("l'ambito della causale si congela sull'incasso", async () => {
+  /*
+    La causale e configurazione **mutabile**. Se la prima nota leggesse la
+    classificazione dalla voce corrente, il giorno in cui un club ne corregge
+    la natura **tutti gli incassi passati cambierebbero natura
+    retroattivamente** — e un rendiconto gia consegnato al commercialista
+    direbbe qualcosa di diverso da quello che diceva.
+  */
+  await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Contanti",
+      operationTypeCode: "quota_attivita",
+      activityScope: "institutional",
+    },
+    scope(),
+  );
+
+  assert.equal(incassi()[0].activity_scope_snapshot, "institutional");
+});
+
+test("senza causale dichiarata non si congela nessun ambito", async () => {
+  /*
+    Un ambito senza una causale che lo giustifichi sarebbe una classificazione
+    che nessuno ha dichiarato. Meglio nullo, e visibile.
+  */
+  await service.createPaymentTransaction(
+    { paymentId: RATA, amount: 200, paymentMethod: "Contanti", activityScope: "commercial" },
+    scope(),
+  );
+
+  assert.equal(incassi()[0].activity_scope_snapshot, null);
+});
+
+test("un ambito fuori catalogo non entra: diventa «non classificato»", async () => {
+  await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Contanti",
+      operationTypeCode: "quota_attivita",
+      activityScope: "qualcosa",
+    },
+    scope(),
+  );
+
+  assert.equal(incassi()[0].activity_scope_snapshot, "unspecified");
+});
+
+test("lo storno conserva l'ambito congelato dell'originale", async () => {
+  const creato = await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Contanti",
+      operationTypeCode: "quota_attivita",
+      activityScope: "institutional",
+    },
+    scope(),
+  );
+
+  await service.reversePaymentTransaction(
+    { transactionId: creato.transaction.id, reason: "Errore" },
+    scope(),
+  );
+
+  const storno = incassi().find((r) => r.reverses_transaction_id);
+  assert.equal(
+    storno.activity_scope_snapshot,
+    "institutional",
+    "uno storno classificato diversamente sposterebbe denaro fra due voci di rendiconto",
+  );
+});

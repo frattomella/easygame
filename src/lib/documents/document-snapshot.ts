@@ -25,6 +25,11 @@
  */
 
 import type { FiscalProfile } from "@/lib/fiscal/fiscal-profile";
+import {
+  UNCLASSIFIED_LABEL,
+  type ActivityScope,
+  type FrozenClassification,
+} from "@/lib/fiscal/operation-types";
 import type { FiscalRecipient } from "./fiscal-recipient";
 
 /** La versione dello schema dello snapshot. Cambia solo se cambia la forma. */
@@ -70,6 +75,34 @@ export type DocumentAmountsSnapshot = {
   stampDutyCents: number;
   vatRate: number | null;
   vatNature: string | null;
+  /**
+   * **Imponibile e imposta, congelati.**
+   *
+   * `null` quando l'aliquota non e dichiarata, che e il caso di quasi tutti i
+   * documenti di quasi tutte le ASD: un imponibile pari al totale scritto senza
+   * che nessuno abbia dichiarato l'aliquota sarebbe un'affermazione fiscale
+   * gratuita. Vedi `src/lib/fiscal/vat.ts` e §16 del piano della Wave 4.
+   */
+  taxableAmountCents: number | null;
+  vatAmountCents: number | null;
+};
+
+/**
+ * **La classificazione al momento dell'emissione.**
+ *
+ * La causale e configurazione **mutabile**: se domani il club corregge
+ * l'ambito di «quota di iscrizione», tutti i documenti gia consegnati
+ * cambierebbero natura retroattivamente. Qui l'ambito si congela, con la
+ * dichiarazione di **chi** l'ha detto: `declared: false` significa che
+ * EasyGame l'aveva solo proposto, e il documento resta `NON CLASSIFICATO`.
+ */
+export type DocumentClassificationSnapshot = {
+  activityScope: ActivityScope;
+  declared: boolean;
+  source: FrozenClassification["source"];
+  label: string;
+  deductible: boolean | null;
+  isMembershipFee: boolean | null;
 };
 
 export type DocumentSnapshot = {
@@ -82,6 +115,8 @@ export type DocumentSnapshot = {
   description: string;
   operationTypeCode: string | null;
   operationTypeLabel: string | null;
+  /** Cosa il documento dichiara di essere, fiscalmente, e chi l'ha deciso. */
+  classification: DocumentClassificationSnapshot;
   /** Gli incassi documentati. Un documento puo coprirne piu di uno. */
   transactionIds: string[];
   /** La rata a cui l'incasso si riferisce, quando c'e. */
@@ -138,14 +173,45 @@ export const buildDocumentSnapshot = (input: {
   stampDutyCents?: number;
   vatRate?: number | null;
   vatNature?: string | null;
+  taxableAmountCents?: number | null;
+  vatAmountCents?: number | null;
   operationTypeCode?: string | null;
   operationTypeLabel?: string | null;
+  /** La classificazione da congelare. Assente = nessuno l'ha dichiarata. */
+  classification?: FrozenClassification | null;
   transactionIds?: string[];
   installmentId?: string | null;
   issuedByUserId?: string | null;
 }): DocumentSnapshot => {
   const issuedAt =
     input.issuedAt instanceof Date ? input.issuedAt : new Date(input.issuedAt);
+
+  /*
+    Nessuna classificazione passata **non** vuol dire «istituzionale», e non
+    vuol dire nemmeno «commerciale»: vuol dire che questo documento non porta
+    una dichiarazione, e deve dirlo. Un default silenzioso qui e esattamente il
+    difetto del §5.2 spostato di un file.
+  */
+  const classification: DocumentClassificationSnapshot = input.classification
+    ? {
+        activityScope: input.classification.activityScope,
+        declared: input.classification.declared,
+        source: input.classification.source,
+        label: input.classification.label,
+        deductible: input.classification.deductible,
+        isMembershipFee: input.classification.isMembershipFee,
+      }
+    : {
+        activityScope: "unspecified",
+        declared: false,
+        source: "absent",
+        label: UNCLASSIFIED_LABEL,
+        deductible: null,
+        isMembershipFee: null,
+      };
+
+  const asCentsOrNull = (value: unknown) =>
+    value === null || value === undefined ? null : Math.round(Number(value) || 0);
 
   return {
     version: DOCUMENT_SNAPSHOT_VERSION,
@@ -163,10 +229,13 @@ export const buildDocumentSnapshot = (input: {
           ? null
           : Number(input.vatRate),
       vatNature: asText(input.vatNature) || null,
+      taxableAmountCents: asCentsOrNull(input.taxableAmountCents),
+      vatAmountCents: asCentsOrNull(input.vatAmountCents),
     },
     description: asText(input.description),
     operationTypeCode: asText(input.operationTypeCode) || null,
     operationTypeLabel: asText(input.operationTypeLabel) || null,
+    classification,
     transactionIds: (input.transactionIds || []).map(asText).filter(Boolean),
     installmentId: asText(input.installmentId) || null,
     issuedByUserId: asText(input.issuedByUserId) || null,
@@ -210,6 +279,14 @@ export const IMMUTABLE_DOCUMENT_FIELDS = [
   "document_year",
   "issue_date",
   "amount",
+  /*
+    Imponibile e imposta entrano nell'elenco perche sono **importi**: sono la
+    scomposizione dello stesso numero che il documento consegnato porta, e
+    riscriverli dopo l'emissione cambierebbe cio che quel documento dichiara
+    senza cambiare il totale — cioe nel modo meno visibile possibile.
+  */
+  "taxable_amount_cents",
+  "vat_amount_cents",
   "snapshot",
   "athlete_id",
   "transaction_id",
@@ -254,3 +331,69 @@ export const immutableFieldsTouchedBy = (
       return wanted !== existing;
     }
   });
+
+/**
+ * Rifiuta una modifica che tocchi i dati fiscalmente rilevanti di un documento
+ * emesso.
+ *
+ * **Perche una funzione e non un controllo dentro il CRUD.** Perche un
+ * documento si aggiorna da piu punti — il CRUD generico, la rigenerazione del
+ * PDF, l'annullamento — e la regola deve valere per tutti e tre. Il messaggio
+ * dice **quale** campo: «documento non modificabile» manda al telefono, «il
+ * numero e la data di un documento emesso non si cambiano» no.
+ *
+ * **Perche vive qui e non accanto all'emissione.** Perche il chiamante che
+ * mancava e `src/lib/server/resources.ts`, e `fiscal-documents.ts` importa
+ * `sponsors.ts` che importa `resources.ts`: chiamarla da li avrebbe chiuso un
+ * anello fra tre moduli server per una funzione che non tocca il database. Il
+ * proprietario del dominio la riesporta, cosi il punto di ingresso documentato
+ * resta uno solo.
+ */
+export const assertDocumentMutable = (
+  current: Record<string, any>,
+  updates: Record<string, any>,
+) => {
+  const status = String(current?.status ?? "").trim();
+  const isIssued = status === "issued" || status === "cancelled";
+  if (!isIssued) return;
+
+  const touched = immutableFieldsTouchedBy(updates, current);
+  if (!touched.length) return;
+
+  throw new Error(
+    `Un documento emesso non si modifica: ${touched.join(", ")} appartengono al documento consegnato. Annullalo ed emetti una rettifica.`,
+  );
+};
+
+/* --------------------------------------- il numero non lo digita il client */
+
+/** Le risorse del CRUD generico che portano un numero di documento. */
+export const CLIENT_ASSIGNED_DOCUMENT_NUMBER_FIELDS: Record<string, string> = {
+  invoices: "invoice_number",
+  receipts: "receipt_number",
+};
+
+/**
+ * **Il numero di un documento non arriva mai dal client.**
+ *
+ * Lo alloca `document_number_sequences` dentro una transazione, ed e l'unico
+ * modo per cui due sportelli della stessa segreteria che emettono nello stesso
+ * secondo non ottengono lo stesso numero. Il CRUD generico invece accettava
+ * `invoice_number` come una colonna qualunque: bastava un `POST
+ * /api/v1/invoices {"invoice_number":"FT-2026-0001"}` per scrivere un numero
+ * scelto a mano — e, con il vincolo di unicita per club, per **occupare** il
+ * numero che la sequenza avrebbe assegnato dopo.
+ *
+ * Restituisce il campo rifiutato, o `null` se non c'era niente da rifiutare:
+ * chi chiama decide se ignorarlo o fermarsi, e l'audit sa cosa e stato tolto.
+ */
+export const clientAssignedDocumentNumberField = (
+  resource: string,
+  input: Record<string, unknown> | null | undefined,
+): string | null => {
+  const field = CLIENT_ASSIGNED_DOCUMENT_NUMBER_FIELDS[resource];
+  if (!field || !input) return null;
+  if (!Object.prototype.hasOwnProperty.call(input, field)) return null;
+
+  return String(input[field] ?? "").trim() ? field : null;
+};

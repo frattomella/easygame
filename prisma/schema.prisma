@@ -468,6 +468,14 @@ model PaymentTransaction {
   external_event_id       String?
   /// Il tipo di operazione dichiarato, quando si conosce. Vedi FiscalOperationType.
   operation_type_code     String?
+  /// **La classificazione, congelata al momento dell'incasso.**
+  ///
+  /// La causale e configurazione mutabile: leggerla dalla voce corrente
+  /// farebbe cambiare natura, retroattivamente, a ogni incasso passato il
+  /// giorno in cui un club corregge una classificazione. E la stessa
+  /// disciplina degli snapshot dei documenti e delle aliquote congelate dal
+  /// lavoro sportivo.
+  activity_scope_snapshot String?
   /// **Su quale conto e entrato il denaro.** Prima non esisteva: un incasso
   /// registrato dalla scheda atleta o dal webhook non toccava nessun saldo, e
   /// «quanto c'e in cassa» restava una cifra mutata a mano dal browser.
