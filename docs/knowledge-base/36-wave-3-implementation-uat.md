@@ -290,7 +290,30 @@ allegato — regge: nessun percorso scrive un documento dentro `attachments`.
 
 ### La seconda revisione
 
-_Da compilare._
+Chiuse le ventuno, la Wave e stata rivista **una seconda volta**, sulle
+correzioni e non piu sul codice originale: e la domanda giusta da fare a una
+remediation, perche una correzione scritta in fretta e un posto dove un difetto
+nuovo entra senza che nessuno lo guardi.
+
+Ha trovato **una CRITICAL e una HIGH**, entrambe nate dalle correzioni stesse.
+
+| Gravita | Cosa | Esito |
+|---------|------|-------|
+| **CRITICAL** | Lo stesso confine sbagliato della #1 — il ruolo del club attivo applicato ai dati di un altro — sopravviveva in `form-submissions.ts`, che la prima correzione non aveva toccato perche appartiene alla Wave 2 | Gia chiusa da `c93a8c3`, con `roleForNeighbours`: fuori dal club attivo il ruolo e `null`, non «quello che ho qui» |
+| **HIGH** | **Una regressione mia.** Filtrando `values` alle sole chiavi usate — la correzione della #2 — era sparito anche `recipient.name`, che il chiamante leggeva da li per intestare il documento: `subject_label` era `null` su **ogni** modello del catalogo | Chiusa in `12edf8b`: il nome del destinatario esce come campo proprio, non come effetto collaterale della mappa dei segnaposto |
+
+La seconda vale piu della prima, e per un motivo scomodo: la HIGH l'avevo
+introdotta io correggendo una CRITICAL, i test esistenti non la vedevano — il
+documento usciva, ben formato, senza intestazione — e senza una revisione delle
+correzioni sarebbe arrivata su staging.
+
+Poi lo **smoke su staging** ne ha trovata una terza, che nessuna delle sei
+revisioni poteva vedere leggendo il codice: `/consensi` era stata aggiunta ai
+percorsi gestionali di `access-roles.ts` e **dimenticata** nell'elenco del
+middleware, quindi rispondeva `200` senza sessione mentre `/modulistica`
+rispondeva `307`. Non era una fuga — la pagina si difende da sola e ogni rotta
+rifiuta con 401 — ma e esattamente il tipo di disallineamento che un elenco
+scritto a mano produce, e che si vede solo interrogando il server vero.
 
 ---
 

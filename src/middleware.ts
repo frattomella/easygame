@@ -30,6 +30,18 @@ const PROTECTED_PREFIXES = [
   "/categories",
   "/clothing",
   "/communications",
+  /*
+    La Wave 3 ha aggiunto `/consensi` a `MANAGEMENT_PATH_PREFIXES` e si e
+    dimenticata di questo elenco: lo smoke su staging lo ha visto rispondere
+    **200 senza sessione**, mentre `/modulistica` rispondeva 307.
+
+    Non era una fuga — la pagina si difende da sola e ogni rotta rifiuta — ma
+    due percorsi gestionali che rispondono diversamente alla stessa domanda
+    sono un difetto anche quando nessuno dei due e sbagliato da solo. E questo
+    elenco esiste apposta per non far arrivare a una pagina chi non ha una
+    sessione.
+  */
+  "/consensi",
   "/create-club",
   "/dashboard",
   "/hub",
