@@ -638,6 +638,20 @@ sono escluse dalla lettura delle scadenze, dal filtro configurabile e dal
 valutatore — tre volte, perche un doppio promemoria per la stessa scadenza e
 esattamente il difetto che si stava evitando.
 
+### Una deriva nota fra schema e database
+
+L indice che impedisce di adottare due volte la stessa voce di catalogo e
+**parziale** in base dati — `WHERE catalog_key IS NOT NULL` — perche un modello
+scritto dal club non ha una voce di catalogo e deve restare libero di chiamarsi
+come vuole. Prisma non sa modellare un indice parziale, quindi nello schema
+compare **pieno**.
+
+Semanticamente i due coincidono: PostgreSQL tratta i `NULL` come distinti in un
+indice unico. Ma `prisma migrate diff` segnala la differenza, e un
+`prisma migrate dev` proverebbe a creare l indice pieno accanto al parziale: chi
+genera la prossima migrazione deve scartare quella riga. E lo stesso genere di
+deriva gia registrata al §«Drift noto e benigno».
+
 ### Cosa non e stato creato
 
 Nessuna colonna JSON nuova su `clubs`. **Nessun secondo archivio di file**: la

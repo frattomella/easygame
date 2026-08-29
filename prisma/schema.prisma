@@ -2145,6 +2145,15 @@ model DocumentTemplate {
   generated         GeneratedDocument[]
 
   @@index([organization_id, status])
+  /// **In base dati questo indice e parziale** (`WHERE catalog_key IS NOT NULL`),
+  /// e Prisma non sa modellarlo: qui compare pieno. La deriva e nota e voluta,
+  /// e semanticamente i due sono equivalenti perche PostgreSQL tratta i NULL
+  /// come distinti — un modello scritto dal club non ha una voce di catalogo e
+  /// deve restare libero di chiamarsi come vuole.
+  ///
+  /// Conseguenza da sapere: `prisma migrate diff` segnala una differenza, e un
+  /// `migrate dev` proverebbe a creare l indice pieno accanto al parziale. Vedi
+  /// il §Wave 3 di docs/knowledge-base/06-data-model.md.
   @@unique([organization_id, catalog_key], name: "document_templates_catalog_key")
   @@map("document_templates_v2")
 }

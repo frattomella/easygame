@@ -237,12 +237,15 @@ export async function POST(request: Request) {
           subjectKind: subject.kind,
           subjectId: subject.id,
           /*
-            `recipient.name` e il nome del soggetto per **tutti e quattro** i
-            soggetti: e la ragione per cui il risolutore lo produce sempre.
-            Congelarlo qui serve a rileggere l'elenco fra un anno anche se la
-            persona nel frattempo e stata rinominata o rimossa.
+            Il nome del soggetto arriva da `recipientName`, **non** da
+            `values`: quella mappa porta solo cio che il modello ha davvero
+            scritto, e nessuna voce del catalogo nomina `{{recipient.name}}` —
+            scrivono nome e cognome separati. Leggendolo da li, il registro
+            perdeva il destinatario di **ogni** documento adottato dal
+            catalogo, e un lotto da trenta produceva trenta righe
+            indistinguibili.
           */
-          subjectLabel: resolved.values["recipient.name"] || null,
+          subjectLabel: resolved.recipientName || null,
           seasonId: seasonId || null,
           valuesSnapshot: resolved.values,
           contentHtml: page,

@@ -780,7 +780,6 @@ export const recordGeneratedDocument = async (
   if (refusal) throw new Error(refusal);
 
   const batchId = asText(input.batchId) || null;
-  const startedAt = Date.now();
 
   const data = {
     organization_id: organizationId,
@@ -812,26 +811,40 @@ export const recordGeneratedDocument = async (
     innocuo su cio che era gia riuscito, che e esattamente cio che serve a
     «rigenera solo i tre falliti».
   */
-  const created = await (prisma as any).generatedDocument.upsert({
-    where: {
-      generated_documents_batch_subject: {
-        organization_id: organizationId,
-        batch_id: batchId,
-        template_id: data.template_id,
-        subject_kind: data.subject_kind,
-        subject_id: data.subject_id,
-      },
+  const chiaveLotto = {
+    generated_documents_batch_subject: {
+      organization_id: organizationId,
+      batch_id: batchId,
+      template_id: data.template_id,
+      subject_kind: data.subject_kind,
+      subject_id: data.subject_id,
     },
+  };
+
+  /*
+    Se c'era gia lo si chiede **prima**, e non lo si deduce da un orologio.
+
+    La prima versione ricavava `reused` confrontando la data di generazione
+    della riga con l'istante della chiamata: due orologi diversi — quello di
+    Postgres e quello dell'applicazione — e su Vercel piu Neon non sono lo
+    stesso. Una riga appena **creata** poteva risultare riusata, cioe un dato
+    sbagliato mostrato a chi lo legge.
+
+    Una lettura in piu per documento, sull'indice del lotto: e il prezzo di
+    una risposta che si puo credere.
+  */
+  const esistente = await (prisma as any).generatedDocument.findUnique({
+    where: chiaveLotto,
+    select: { id: true },
+  });
+
+  const created = await (prisma as any).generatedDocument.upsert({
+    where: chiaveLotto,
     create: data,
     update: {},
   });
 
-  /*
-    L'upsert non dice se ha creato o riusato. La riga riusata porta una data
-    di generazione **anteriore** a questa chiamata: e la sola differenza
-    osservabile, e basta a non mentire a chi chiama.
-  */
-  const reused = new Date(created.generated_at).getTime() < startedAt;
+  const reused = Boolean(esistente);
 
   return { ...summarizeGenerated({ ...created, version }), reused };
 };

@@ -160,7 +160,13 @@ export const EMBEDDED_IMAGE_PAYLOAD_ID = "fascicolo-immagini";
   Una regex nuova a ogni chiamata, che `lastIndex` di una globale sopravvive
   fra le chiamate.
 */
-const dataImagePattern = () => /src="(data:[^"]+)"/g;
+/*
+  L'attributo, **non** la sottostringa: senza il confine iniziale,
+  `data-src="data:…"` contiene `src="data:…"` e la sostituzione produceva
+  `data-data-fascicolo-immagine`, che l'idratazione non rimette mai — cioe
+  un'immagine persa in silenzio.
+*/
+const dataImagePattern = () => /(\s)src="(data:[^"]+)"/g;
 
 export type EmbeddedImages = Record<string, string>;
 
@@ -198,7 +204,8 @@ export const extractRepeatedImages = (sheets: readonly string[]) => {
     const pattern = dataImagePattern();
     let match = pattern.exec(sheet);
     while (match) {
-      conteggio.set(match[1], (conteggio.get(match[1]) || 0) + 1);
+      // Il primo gruppo e lo spazio che ancora l attributo; il secondo l URL.
+      conteggio.set(match[2], (conteggio.get(match[2]) || 0) + 1);
       match = pattern.exec(sheet);
     }
   }
@@ -215,10 +222,15 @@ export const extractRepeatedImages = (sheets: readonly string[]) => {
 
   return {
     sheets: sheets.map((sheet) =>
-      sheet.replace(dataImagePattern(), (intero, url: string) => {
-        const chiave = chiavi.get(url);
-        return chiave ? `${EMBEDDED_IMAGE_ATTRIBUTE}="${chiave}"` : intero;
-      }),
+      sheet.replace(
+        dataImagePattern(),
+        (intero, spazio: string, url: string) => {
+          const chiave = chiavi.get(url);
+          return chiave
+            ? `${spazio}${EMBEDDED_IMAGE_ATTRIBUTE}="${chiave}"`
+            : intero;
+        },
+      ),
     ),
     images,
   };

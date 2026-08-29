@@ -87,6 +87,20 @@ export type ResolvedDocumentPlaceholders = {
   missing: string[];
   /** Cose da dire **prima** di stampare (firma o timbro mancanti). */
   warnings: string[];
+  /**
+   * Il nome del soggetto, **sempre**, anche quando il modello non lo nomina.
+   *
+   * Non sta dentro `values` per costruzione: `values` porta solo cio che il
+   * documento ha davvero scritto, e nessuna voce del catalogo usa
+   * `{{recipient.name}}` — scrivono nome e cognome separati. Prendendolo da li
+   * il registro dei documenti generati perdeva il destinatario di **ogni**
+   * documento adottato dal catalogo, e la colonna «Soggetto» diceva «athlete»
+   * su tutte le righe di un lotto da trenta.
+   *
+   * E un dato che si **conserva**: serve a rileggere l elenco fra un anno anche
+   * se la persona nel frattempo e stata rinominata o rimossa.
+   */
+  recipientName: string;
   /** L'intestazione della pagina stampabile. */
   issuer: {
     name: string;
@@ -714,6 +728,7 @@ export const resolveDocumentPlaceholders = async ({
     unresolved: compiled.unresolved,
     missing: compiled.missing,
     warnings,
+    recipientName: values["recipient.name"]?.text || "",
     issuer: {
       name: firstText((club as any).business_name, (club as any).name),
       logoUrl: (club as any).logo_url || null,
@@ -786,61 +801,68 @@ export type DocumentSubjectRef =
  * dell'identificativo perche queste collezioni sono state scritte da schermate
  * diverse in anni diversi.
  */
-const findClubPerson = (club: Record<string, any>, id: string) => {
+/**
+ * Una riga di una collezione JSON del club, cercata per identificativo.
+ *
+ * **Meglio rifiutare che indovinare, e vale per tutti i soggetti.** In una
+ * ASD la stessa persona ha spesso due schede, e l'identificativo di una puo
+ * coincidere con una delle grafie storiche dell'altra: prendere la prima
+ * corrispondenza fa uscire un documento intestato alla scheda sbagliata — e
+ * **ben formato**, quindi nessuno se ne accorge.
+ *
+ * Si cerca in due giri, e il secondo esiste perche le collezioni sono state
+ * scritte da schermate diverse in anni diversi:
+ *
+ * 1. `id`, che e la grafia di oggi. Se corrisponde a una riga sola, e quella;
+ * 2. le grafie storiche, per le schede che un `id` non ce l'hanno.
+ *
+ * In entrambi i giri, **due** corrispondenze non si scelgono: si rifiuta.
+ */
+const findInClubCollections = (
+  club: Record<string, any>,
+  collections: string[],
+  id: string,
+  historicKeys: string[],
+) => {
   const wanted = asText(id);
   if (!wanted) return null;
 
-  /*
-    **Si confronta un campo solo, e se corrisponde a due righe non si sceglie.**
-
-    Prima si confrontavano quattro grafie dell'identificativo — `id`, `uuid`,
-    `user_id`, `userId` — e si prendeva la prima corrispondenza, cercando
-    prima fra gli allenatori e poi nello staff. In una ASD la stessa persona
-    ha spesso due schede, e il `user_id` di una puo coincidere con l'`id`
-    dell'altra: il documento usciva intestato alla scheda sbagliata, con nome
-    e codice fiscale di un'altra riga, e **ben formato** — quindi nessuno se
-    ne accorgeva.
-
-    Meglio rifiutare che indovinare: un documento intestato alla persona
-    sbagliata e peggio di un documento non generato.
-  */
-  const matches: Record<string, any>[] = [];
-
-  for (const key of ["trainers", "staff_members"]) {
+  const rows: Record<string, any>[] = [];
+  for (const key of collections) {
     const list = Array.isArray(club[key]) ? club[key] : [];
     for (const entry of list) {
-      if (!entry || typeof entry !== "object") continue;
-      if (asText((entry as any).id) === wanted) {
-        matches.push(entry as Record<string, any>);
-      }
+      if (entry && typeof entry === "object") rows.push(entry);
     }
   }
 
-  if (matches.length > 1) {
-    throw new Error(
-      "L'identificativo della persona corrisponde a piu di una scheda: correggila prima di generare il documento",
+  const matchOn = (fields: string[]) =>
+    rows.filter((entry) =>
+      fields.some((field) => asText(entry[field]) === wanted),
     );
+
+  for (const fields of [["id"], historicKeys]) {
+    const found = matchOn(fields);
+    if (found.length === 1) return found[0];
+    if (found.length > 1) {
+      throw new Error(
+        "L'identificativo corrisponde a piu di una scheda: correggila prima di generare il documento",
+      );
+    }
   }
 
-  return matches[0] || null;
+  return null;
 };
 
-const findClubMember = (club: Record<string, any>, id: string) => {
-  const wanted = asText(id);
-  if (!wanted) return null;
-
-  const list = Array.isArray(club.members) ? club.members : [];
-  const found = list.find(
-    (entry: any) =>
-      entry &&
-      typeof entry === "object" &&
-      [entry.id, entry.uuid, entry.member_id, entry.user_id]
-        .map((value) => asText(value))
-        .includes(wanted),
+const findClubPerson = (club: Record<string, any>, id: string) =>
+  findInClubCollections(
+    club,
+    ["trainers", "staff_members"],
+    id,
+    ["uuid", "user_id", "userId"],
   );
 
-  return (found as Record<string, any>) || null;
-};
+const findClubMember = (club: Record<string, any>, id: string) =>
+  findInClubCollections(club, ["members"], id, ["uuid", "member_id", "user_id"]);
 
 /**
  * Il documento compilato, per **qualunque** soggetto.
@@ -951,6 +973,7 @@ export const resolveDocumentForSubject = async ({
     unresolved: compiled.unresolved,
     missing: compiled.missing,
     warnings,
+    recipientName: values["recipient.name"]?.text || "",
     issuer: {
       name: firstText((club as any).business_name, (club as any).name),
       logoUrl: (club as any).logo_url || null,

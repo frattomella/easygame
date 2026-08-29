@@ -235,6 +235,7 @@ export function BulkGenerationDialog({
           subjectId: document.subjectId,
           label: document.subjectLabel || "",
           missing: document.missing || [],
+          reused: Boolean(document.reused),
         })),
         failed: outcome.failed.map((failure) => ({
           subjectId: failure.subject.id,
@@ -581,11 +582,20 @@ export function BulkGenerationDialog({
                   value={progress.percent}
                   aria-label="Avanzamento del lotto"
                 />
+                {/*
+                  «Cinquanta documenti» e «cinquanta ce n'erano gia» sono due
+                  risposte diverse. Senza il conteggio, chi riprende un lotto non
+                  ha modo di distinguerle — ed e proprio la ripresa il caso in
+                  cui la differenza conta.
+                */}
                 {stage === "done" ? (
                   <p className="text-muted-foreground">
                     Lotto concluso: {batch?.producedIds.length || 0}{" "}
                     {batch?.producedIds.length === 1 ? "documento" : "documenti"}{" "}
                     prodotti
+                    {batch?.reusedCount
+                      ? `, di cui ${batch.reusedCount} gia presenti`
+                      : ""}
                     {batch?.failures.length
                       ? `, ${batch.failures.length} non generati`
                       : ""}

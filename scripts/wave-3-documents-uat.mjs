@@ -1556,6 +1556,28 @@ const main = async () => {
 
     /* La segreteria puo aprire Modulistica: la matrice del §13 e reale. */
     const paginaCollaboratore = await COLLAB("/api/v1/documents/templates");
+    /*
+      Il registro deve conservare il **nome** del destinatario anche quando il
+      modello non nomina `{{recipient.name}}` — e nessuna voce del catalogo lo
+      nomina. Prendendolo dai valori scritti, la colonna «Soggetto» diceva
+      «athlete» su tutte le righe di un lotto da trenta.
+    */
+    const daCatalogo = await OWNER(
+      `/api/v1/documents/generated?template_id=${copia.data.id}`,
+    );
+    const generatoDaCatalogo = await OWNER("/api/v1/documents/generated", {
+      method: "POST",
+      body: {
+        template_id: copia.data.id,
+        subjects: [{ kind: "athlete", id: mario.id }],
+      },
+    });
+    check(
+      "46. il documento conserva il nome del destinatario, anche se il modello non lo nomina",
+      generatoDaCatalogo.data?.produced?.[0]?.subjectLabel === "Mario Rossi",
+      `subjectLabel = ${JSON.stringify(generatoDaCatalogo.data?.produced?.[0]?.subjectLabel)} (elenco: ${daCatalogo.status})`,
+    );
+
     check(
       "45. il collaboratore vede i modelli, e la matrice non e piu teorica",
       paginaCollaboratore.status === 200,

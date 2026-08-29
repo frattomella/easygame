@@ -69,6 +69,14 @@ export type BulkBatchState = {
   subjects: BulkSubject[];
   /** Gli id dei documenti prodotti: e da qui che nasce il fascicolo. */
   producedIds: string[];
+  /**
+   * Quanti, fra i prodotti, **c'erano gia** in questo lotto.
+   *
+   * «Cinquanta documenti» e «cinquanta ce n'erano gia» sono due risposte
+   * diverse, e chi riprende un lotto ha diritto di sapere quale delle due e
+   * successa: senza, una ripresa sembra un lavoro fatto due volte.
+   */
+  reusedCount: number;
   /** I soggetti gia serviti da una fetta chiusa, riusciti o falliti. */
   servedSubjectIds: string[];
   failures: BulkFailure[];
@@ -143,6 +151,7 @@ export const startBatch = (input: {
     seasonId: input.seasonId || null,
     subjects,
     producedIds: [],
+    reusedCount: 0,
     servedSubjectIds: [],
     failures: [],
     blanks: [],
@@ -178,7 +187,14 @@ export const batchProgress = (state: BulkBatchState) => {
 export const applySliceOutcome = (
   state: BulkBatchState,
   outcome: {
-    produced: Array<{ id: string; subjectId: string; label: string; missing: string[] }>;
+    produced: Array<{
+      id: string;
+      subjectId: string;
+      label: string;
+      missing: string[];
+      /** Vero quando la riga esisteva gia in questo lotto. */
+      reused?: boolean;
+    }>;
     failed: Array<{ subjectId: string; reason: string }>;
   },
 ): BulkBatchState => {
@@ -186,11 +202,13 @@ export const applySliceOutcome = (
     state.subjects.find((subject) => subject.id === subjectId)?.label || subjectId;
 
   const producedIds = [...state.producedIds];
+  let reusedCount = state.reusedCount;
   const blanks = [...state.blanks];
   const served = new Set(state.servedSubjectIds);
 
   for (const document of outcome.produced) {
     if (!producedIds.includes(document.id)) producedIds.push(document.id);
+    if (document.reused) reusedCount += 1;
     served.add(document.subjectId);
 
     if (document.missing.length) {
@@ -215,6 +233,7 @@ export const applySliceOutcome = (
   return {
     ...state,
     producedIds,
+    reusedCount,
     blanks,
     failures,
     servedSubjectIds: Array.from(served),
@@ -265,6 +284,7 @@ export const readStoredBatch = (): BulkBatchState | null => {
       ...parsed,
       subjects: parsed.subjects.filter((subject: any) => subject?.id),
       producedIds: Array.isArray(parsed.producedIds) ? parsed.producedIds : [],
+      reusedCount: Number(parsed.reusedCount) || 0,
       servedSubjectIds: Array.isArray(parsed.servedSubjectIds)
         ? parsed.servedSubjectIds
         : [],

@@ -74,6 +74,14 @@ export type GeneratedDocumentSummary = {
   batchId: string | null;
   generatedBy: string | null;
   generatedAt: string;
+  /**
+   * Vero quando la riga esisteva **gia** dentro questo lotto.
+   *
+   * Serve a chi riprende un lotto: «cinquanta documenti» e «cinquanta ce n'erano
+   * gia» sono due risposte diverse, e senza questo campo la seconda si
+   * travestiva da prima.
+   */
+  reused?: boolean;
 };
 
 /** Il problema che impedisce di pubblicare, detto con la chiave che lo causa. */
@@ -252,6 +260,8 @@ export type GenerationOutcome = {
   templateId: string;
   versionId: string;
   requested: number;
+  /** Quanti dei prodotti erano gia nel lotto. */
+  reused?: number;
   produced: GeneratedDocumentSummary[];
   failed: Array<{
     subject: { kind: string; id: string };
