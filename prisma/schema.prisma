@@ -265,6 +265,9 @@ model Club {
   generated_documents          GeneratedDocument[]
   consent_definitions          ConsentDefinition[]
   consent_records              ConsentRecord[]
+  financial_accounts           FinancialAccount[]
+  accounting_entries           AccountingEntry[]
+  membership_events            MembershipEvent[]
 
   @@map("clubs")
 }
@@ -387,6 +390,12 @@ model AthletePayment {
   method          String?
   reference       String?
   notes           String?
+  /// La controparte quando il debitore non e un atleta: un socio per la quota
+  /// associativa, uno sponsor per una tranche di contratto. Vedi
+  /// `PaymentTransaction.counterparty_kind`.
+  counterparty_kind  String?
+  counterparty_id    String?
+  counterparty_label String?
   data            Json?
   created_at      DateTime             @default(now())
   updated_at      DateTime             @updatedAt
@@ -459,11 +468,25 @@ model PaymentTransaction {
   external_event_id       String?
   /// Il tipo di operazione dichiarato, quando si conosce. Vedi FiscalOperationType.
   operation_type_code     String?
+  /// **Su quale conto e entrato il denaro.** Prima non esisteva: un incasso
+  /// registrato dalla scheda atleta o dal webhook non toccava nessun saldo, e
+  /// «quanto c'e in cassa» restava una cifra mutata a mano dal browser.
+  financial_account_id    String?              @db.Uuid
+  /// **La controparte, quando non e l'atleta.** Un socio che versa la quota
+  /// associativa, uno sponsor che paga una tranche: sono incassi come gli altri
+  /// e passano da questa tabella, che finora sapeva parlare solo di atleti.
+  /// `athlete_id` resta dov'e: nessuna migrazione distruttiva.
+  counterparty_kind       String?
+  counterparty_id         String?
+  /// Il nome **al momento dell'incasso**, congelato: se la scheda cambia o
+  /// sparisce, la riga deve poter ancora dire a chi si riferiva.
+  counterparty_label      String?
   data                    Json?
   created_at              DateTime             @default(now())
   updated_at              DateTime             @updatedAt
   organization            Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   athlete                 Athlete?             @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  financial_account       FinancialAccount?    @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
   payment                 AthletePayment?      @relation(fields: [payment_id], references: [id], onDelete: Cascade)
   reverses                PaymentTransaction?  @relation("PaymentTransactionReversal", fields: [reverses_transaction_id], references: [id], onDelete: SetNull)
   reversals               PaymentTransaction[] @relation("PaymentTransactionReversal")
@@ -474,6 +497,7 @@ model PaymentTransaction {
   @@index([athlete_id])
   @@index([payment_id])
   @@index([external_payment_id])
+  @@index([financial_account_id])
   @@map("payment_transactions")
 }
 
@@ -512,6 +536,16 @@ model Invoice {
   issued_by           String?               @db.Uuid
   issue_date          DateTime
   amount              Float
+  /**
+   * **Imponibile e imposta, in centesimi.** Non esistevano: c'era un solo
+   * `amount`, e nessuno poteva dire quanta parte fosse IVA.
+   *
+   * Sono un **dato**, non un motore (§16 del piano). EasyGame li conserva e li
+   * espone; non li usa per liquidazioni, saldi periodici o detraibilita, che
+   * sono regole di classe C e non entrano in questa Wave.
+   */
+  taxable_amount_cents Int?
+  vat_amount_cents     Int?
   description         String
   payment_method      String?
   status              String                @default("issued")
@@ -571,6 +605,9 @@ model Receipt {
   issued_by           String?             @db.Uuid
   issue_date          DateTime
   amount              Float
+  /// Imponibile e imposta, in centesimi. Vedi la nota su `Invoice`.
+  taxable_amount_cents Int?
+  vat_amount_cents     Int?
   description         String
   status              String              @default("issued")
   method              String?
@@ -818,15 +855,38 @@ model FundingSettlement {
   amount          Float
   method          String?
   notes           String?
+  /// **Su quale conto e arrivato il bonifico dell'ente.** Senza, la
+  /// liquidazione era invisibile nel saldo: il credito si chiudeva e il denaro
+  /// non compariva da nessuna parte.
+  financial_account_id String?            @db.Uuid
+  /**
+   * ------------------------------------------------------------- lo storno
+   * Una liquidazione registrata per errore non aveva rimedio, e l'errore
+   * **propagava**: l'accrual diventava `settled`, non si riscriveva piu, non
+   * si confermava piu, e l'iscrizione non si cancellava piu.
+   *
+   * La forma e quella che il lavoro sportivo ha gia dimostrato sufficiente:
+   * una riga opposta che cita l'originale, l'originale che resta e porta il
+   * motivo, e un indice unico parziale che vieta il doppio storno.
+   */
+  reversal_of_id  String?                 @db.Uuid
+  reversed_at     DateTime?
+  reversed_by     String?                 @db.Uuid
+  reversal_reason String?
   created_by      String?                 @db.Uuid
   created_at      DateTime                @default(now())
   updated_at      DateTime                @updatedAt
   organization    Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   program         FundingProgram          @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  financial_account FinancialAccount?     @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
+  reverses        FundingSettlement?      @relation("FundingSettlementReversal", fields: [reversal_of_id], references: [id], onDelete: SetNull)
+  reversals       FundingSettlement[]     @relation("FundingSettlementReversal")
   lines           FundingSettlementLine[]
 
   @@index([organization_id])
   @@index([program_id])
+  @@index([financial_account_id])
+  @@index([reversal_of_id])
   @@map("funding_settlements")
 }
 
@@ -1445,6 +1505,30 @@ model FiscalOperationType {
   vat_nature      String?
   /// `institutional` | `commercial` | `unspecified`. Lo dichiara chi configura.
   activity_scope  String   @default("unspecified")
+  /// Verso suggerito quando si sceglie questa causale: `IN` | `OUT`.
+  /// `null` = la causale serve in entrambi i versi (un rimborso, un giroconto).
+  /// E un **suggerimento**, non un vincolo: il verso lo decide il movimento.
+  direction_hint    String?
+  /// La voce di rendiconto sotto cui questa causale si somma. Testo libero
+  /// deciso dal club: EasyGame non impone un piano dei conti (§35 del piano).
+  reporting_bucket  String?
+  /// La descrizione che il movimento eredita quando l'operatore non ne scrive una.
+  default_description String?
+  /// **I due flag che il documento 30 chiama «il perno».**
+  ///
+  /// Nascono `null` e non `false`, e non e pignoleria: dire «questa quota non
+  /// e detraibile» quando nessuno l'ha stabilito e una risposta sbagliata che
+  /// sembra compilata. Un valore non dichiarato si vede che manca.
+  ///
+  /// `deductible` e il flag del 730; `is_membership_fee` distingue la quota
+  /// associativa dalla quota sportiva, che oggi sono due nomi in un catalogo e
+  /// lo stesso dato nel database.
+  deductible        Boolean?
+  is_membership_fee Boolean?
+  /// Chi ha attribuito la classificazione fiscale, e quando. La natura di
+  /// un'entrata e una **decisione**, e una decisione ha un autore.
+  classified_by     String?   @db.Uuid
+  classified_at     DateTime?
   is_active       Boolean  @default(true)
   /// Vero per le voci del catalogo predefinito: si disattivano, non si cancellano.
   is_system       Boolean  @default(false)
@@ -1452,6 +1536,7 @@ model FiscalOperationType {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  accounting_entries AccountingEntry[]
 
   @@unique([organization_id, code])
   @@index([organization_id])
@@ -1720,7 +1805,13 @@ model SportWorkOutboundTransaction {
   currency              String                 @default("EUR")
   payment_method        String?
   reference             String?
+  /// L'id del conto nel vecchio blob `clubs.bank_accounts`. Resta per le righe
+  /// scritte prima della Wave 4; il riferimento buono e `financial_account_id`.
   bank_account_id       String?
+  /// **Il conto da cui il denaro e uscito.** La colonna a fianco esisteva gia e
+  /// il servizio la scriveva: nessuna superficie la compilava, e i tre metodi
+  /// dell'agenda non l'accettavano nemmeno nella firma.
+  financial_account_id  String?                @db.Uuid
   /// L'anno del rule set che ha prodotto i numeri di questa riga.
   rules_version         String?
   social_rate           Float                  @default(0)
@@ -1752,6 +1843,7 @@ model SportWorkOutboundTransaction {
   created_at            DateTime               @default(now())
   updated_at            DateTime               @updatedAt
   organization          Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  financial_account     FinancialAccount?      @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
   person                SportWorkPerson        @relation(fields: [person_id], references: [id], onDelete: Cascade)
   relationship          SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
   installment           SportWorkInstallment?  @relation(fields: [installment_id], references: [id], onDelete: SetNull)
@@ -1761,6 +1853,7 @@ model SportWorkOutboundTransaction {
   @@index([organization_id, person_id, fiscal_year])
   @@index([installment_id])
   @@index([reversal_of_id])
+  @@index([financial_account_id])
   @@map("sport_work_outbound_transactions")
 }
 
@@ -2364,4 +2457,234 @@ model ConsentRecord {
   @@index([organization_id, subject_kind, subject_id])
   @@index([organization_id, evidence_kind, evidence_id])
   @@map("consent_records")
+}
+
+/// Un **conto finanziario** del club: la cassa, un conto corrente, il transito
+/// di un incassatore online.
+///
+/// **Perche una tabella e non il blob che c'era.** `clubs.bank_accounts` era
+/// una colonna JSON con `{id, name, iban, current_balance}`, e quel saldo non
+/// era calcolato: veniva **mutato a mano dal browser** con una seconda chiamata
+/// HTTP non transazionale. Se la scrittura del movimento riusciva e quella del
+/// saldo no, restavano disallineati per sempre; due utenti in contemporanea, e
+/// il saldo di uno spariva. Nessuna funzione era in grado di ricostruirlo.
+///
+/// **Il saldo qui non e una colonna.** E la somma dei movimenti, esattamente
+/// come lo stato di una rata e la somma dei suoi incassi (ADR-0036): la stessa
+/// disciplina, applicata al conto. Cio che si conserva del vecchio saldo e
+/// `opening_balance_cents` con la sua data — l'unico modo onesto di tenerlo,
+/// perche i movimenti che l'hanno prodotto nessuno puo ricostruirli.
+///
+/// **Perche serviva una tabella vera**: e il bersaglio di una foreign key da
+/// tre tabelle diverse — incassi, uscite del lavoro sportivo, liquidazioni dei
+/// bandi — e un blob JSON non puo esserlo.
+model FinancialAccount {
+  id                      String    @id @default(uuid()) @db.Uuid
+  organization_id         String    @db.Uuid
+  name                    String
+  /// `CASH` | `BANK` | `CLEARING`.
+  ///
+  /// Il transito (`CLEARING`) non e un vezzo: il denaro incassato online non e
+  /// in banca il giorno dell'incasso, e il versamento arriva dopo, al netto
+  /// delle commissioni. Senza un conto di transito o il saldo banca e sbagliato
+  /// per giorni, o le commissioni spariscono.
+  kind                    String    @default("BANK")
+  iban                    String?
+  bank_name               String?
+  /// Sede, quando il club ne ha piu di una (ADR-0038). Facoltativa: un conto
+  /// senza sede appartiene a tutte le sedi, non a nessuna.
+  site_id                 String?
+  /// Il saldo che il blob dichiarava il giorno della migrazione, con la sua
+  /// data. Non e un saldo mutabile: e il punto di partenza della somma.
+  opening_balance_cents   Int       @default(0)
+  opening_balance_at      DateTime?
+  /// L'id che il conto aveva dentro `clubs.bank_accounts`. Serve a far
+  /// combaciare le righe scritte prima della migrazione, e a non ripeterla.
+  legacy_account_id       String?
+  /// Un conto con movimenti non si cancella: si archivia.
+  is_archived             Boolean   @default(false)
+  archived_at             DateTime?
+  notes                   String?
+  created_by              String?   @db.Uuid
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+  organization            Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  accounting_entries      AccountingEntry[]
+  payment_transactions    PaymentTransaction[]
+  sport_work_transactions SportWorkOutboundTransaction[]
+  funding_settlements     FundingSettlement[]
+
+  @@unique([organization_id, name])
+  @@index([organization_id])
+  @@index([organization_id, is_archived])
+  @@map("financial_accounts")
+}
+
+/// Una riga di **prima nota**: un fatto finanziario che nessun altro dominio ha
+/// generato.
+///
+/// **Cosa vive qui, e cosa no.** Qui vive solo cio che oggi sta nelle colonne
+/// JSON `clubs.transactions` e `clubs.transfers`: il movimento di cassa
+/// registrato a mano e il giroconto. L'affitto della palestra pagato in
+/// contanti non e ne un incasso da famiglia, ne un compenso, ne un contributo:
+/// non ha un dominio che possa possederlo, e ha bisogno di una riga propria.
+///
+/// **Cosa non vive qui.** Gli incassi delle famiglie, le uscite del lavoro
+/// sportivo, le liquidazioni dei bandi, i pagamenti degli sponsor. Quelli hanno
+/// gia un proprietario canonico e restano dove sono: la prima nota li **legge**
+/// e li proietta, non li ricopia. Materializzarli qui sarebbe la seconda
+/// contabilita che il committente ha vietato — due fonti per lo stesso numero,
+/// e nessun modo di tenerle allineate.
+///
+/// > Un movimento di prima nota non e mai la fonte di un numero che un altro
+/// > dominio possiede. E la sua proiezione datata e classificata. Se i due
+/// > divergono, ha ragione il dominio.
+///
+/// **Il denaro non si cancella.** Una riga si storna: nasce una riga opposta
+/// che cita l'originale, l'originale resta e porta il motivo, e i totali
+/// escludono entrambe. Un indice unico parziale vieta il doppio storno.
+model AccountingEntry {
+  id                            String    @id @default(uuid()) @db.Uuid
+  organization_id               String    @db.Uuid
+  /// **La data del fatto**, non quella della registrazione. `NOT NULL` dal
+  /// primo giorno, e nessun percorso la modifica dopo la creazione: e la
+  /// condizione perche un giorno si possa chiudere un periodo senza migrazioni
+  /// dolorose.
+  entry_date                    DateTime
+  /// **L'anno solare di `entry_date`**, derivato e mai digitato.
+  ///
+  /// E un asse diverso dalla stagione, e servono entrambi: la stagione 2026/27
+  /// contiene movimenti del 2026 e del 2027, e il riepilogo fiscale del 2026
+  /// prende solo i primi. Sono due domande, e il prodotto risponde a tutte e
+  /// due senza che l'utente debba capire perche.
+  fiscal_year                   Int
+  /// La stagione sportiva attiva al momento della registrazione. Facoltativa:
+  /// un movimento fuori stagione e ancora un movimento.
+  season_id                     String?
+  /// `IN` | `OUT`. Il segno lo dice il verso: l'importo e sempre positivo.
+  direction                     String
+  amount_cents                  Int
+  currency                      String    @default("EUR")
+  financial_account_id          String    @db.Uuid
+  /// La causale scelta, come riferimento e in chiaro. Obbligatoria sul
+  /// movimento manuale: un movimento senza causale nasce gia sbagliato, e il
+  /// campo che c'era prima (`category`, testo libero) veniva precompilato con
+  /// la categoria **sportiva** dell'atleta — «Under 15» — e non era collegato
+  /// a niente.
+  operation_type_id             String?   @db.Uuid
+  operation_type_code           String?
+  /// **La classificazione, congelata sulla riga.**
+  ///
+  /// La causale e configurazione **mutabile**: se domani un club corregge la
+  /// natura di una causale, tutti i movimenti passati cambierebbero natura
+  /// retroattivamente. E lo stesso motivo per cui il lavoro sportivo congela
+  /// contributi e aliquote, e per cui un documento fiscale porta uno snapshot.
+  activity_scope_snapshot       String    @default("unspecified")
+  operation_type_label_snapshot String?
+  description                   String
+  notes                         String?
+  payment_method                String?
+  /// La controparte: il tipo, l'id nel dominio proprietario quando esiste, e
+  /// **il nome al momento del movimento**, congelato. Non una tabella
+  /// `counterparties` che duplichi atleti, soci, sponsor e persone del lavoro
+  /// sportivo: una coppia polimorfa e un'etichetta che sopravvive alla scheda.
+  counterparty_kind             String?
+  counterparty_id               String?
+  counterparty_label            String?
+  /// **Da dove nasce questo movimento.** Elenco chiuso: vedi `SOURCE_DOMAINS`
+  /// in `src/lib/accounting/model.ts`. Le righe di questa tabella sono
+  /// `MANUAL` o `INTERNAL_TRANSFER`; gli altri valori esistono perche la
+  /// proiezione parli la stessa lingua della tabella.
+  source_domain                 String    @default("MANUAL")
+  source_id                     String?
+  /// La chiave dell'evento che ha prodotto la riga. E l'idempotenza: lo stesso
+  /// fatto non puo avere due rappresentazioni finanziarie.
+  source_event_key              String?
+  /// Il documento collegato: `invoice` | `receipt` | `generated_document`.
+  document_kind                 String?
+  document_id                   String?   @db.Uuid
+  /// Sede, facoltativa (ADR-0038). Un movimento senza sede appartiene a tutte.
+  site_id                       String?
+  /// `unreconciled` | `reconciled` | `disputed`. La riconciliazione della V1
+  /// e un atto umano su un dato che il sistema gia conosce: chi ha l'estratto
+  /// conto davanti spunta. Nessun import bancario, nessuna euristica.
+  reconciliation_status         String    @default("unreconciled")
+  /// La data valuta e il riferimento dell'operazione bancaria (CRO, distinta).
+  value_date                    DateTime?
+  bank_reference                String?
+  reconciled_at                 DateTime?
+  reconciled_by                 String?   @db.Uuid
+  /// Le due gambe di un giroconto portano lo stesso gruppo: e cio che permette
+  /// al rendiconto di spiegare il trasferimento invece di contarlo due volte.
+  transfer_group_id             String?   @db.Uuid
+  reversal_of_id                String?   @db.Uuid
+  reversed_at                   DateTime?
+  reversed_by                   String?   @db.Uuid
+  reversal_reason               String?
+  created_by                    String?   @db.Uuid
+  created_at                    DateTime  @default(now())
+  updated_at                    DateTime  @updatedAt
+  organization                  Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  financial_account             FinancialAccount     @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
+  operation_type                FiscalOperationType? @relation(fields: [operation_type_id], references: [id], onDelete: Restrict)
+  reverses                      AccountingEntry?     @relation("AccountingEntryReversal", fields: [reversal_of_id], references: [id], onDelete: Restrict)
+  reversals                     AccountingEntry[]    @relation("AccountingEntryReversal")
+
+  @@index([organization_id, entry_date])
+  @@index([organization_id, fiscal_year])
+  @@index([organization_id, financial_account_id, entry_date])
+  @@index([organization_id, reconciliation_status])
+  @@index([organization_id, source_domain, source_id])
+  @@index([transfer_group_id])
+  @@index([reversal_of_id])
+  @@index([operation_type_id])
+  @@map("accounting_entries")
+}
+
+/// Un **evento del libro soci**: ammissione, dimissione, decadenza, riammissione.
+///
+/// **Perche un registro e non un flag.** L'anagrafica del socio vive in
+/// `clubs.members` ed e un oggetto **mutabile**: dice com'e il socio oggi, e
+/// non sa dire chi era socio il 12 marzo 2026. E la differenza fra un elenco e
+/// un libro, ed e anche una necessita del modello fiscale: la
+/// decommercializzazione di un'entrata dipende dalla qualifica della
+/// controparte **al momento dell'operazione**, non dal suo stato corrente.
+///
+/// Il registro e **append-only**, come i consensi della Wave 3: gli eventi non
+/// si modificano e non si cancellano, e lo **stato si deriva** leggendoli in
+/// ordine. L'anagrafica non si tocca: resta dov'e, e questo le nasce accanto.
+///
+/// **Il numero progressivo non si digita.** Prima era un campo di testo libero:
+/// due segreterie potevano assegnare lo stesso numero, e nessuno se ne
+/// accorgeva. Qui e allocato, e un indice unico parziale lo difende.
+model MembershipEvent {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organization_id      String    @db.Uuid
+  /// L'id del socio dentro `clubs.members`. Non una chiave esterna, perche
+  /// l'anagrafica e ancora una colonna JSON e questa Wave non la sposta.
+  member_id            String
+  /// Il nome al momento dell'evento, congelato: un libro deve poter dire chi
+  /// e stato ammesso anche se la scheda e stata poi corretta.
+  member_label         String
+  /// `ADMISSION` | `RESIGNATION` | `EXPULSION` | `LAPSE` | `REINSTATEMENT`.
+  event_type           String
+  /// La data da cui l'evento ha effetto. Diversa da `created_at`: una
+  /// dimissione si registra spesso dopo che e avvenuta.
+  effective_date       DateTime
+  /// Gli estremi della delibera che ha deciso l'evento, quando c'e.
+  resolution_reference String?
+  resolution_date      DateTime?
+  /// Il motivo, per le cessazioni.
+  reason               String?
+  /// Il numero di tessera assegnato dall'ammissione. Unico per club.
+  membership_number    String?
+  notes                String?
+  recorded_by          String?   @db.Uuid
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+  organization         Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, member_id, effective_date])
+  @@index([organization_id, event_type])
+  @@map("membership_events")
 }
