@@ -23,6 +23,7 @@
 8. [Audit e seconda revisione](#8--audit-e-seconda-revisione)
 9. [Verdetto](#9--verdetto)
 10. [Residui dichiarati](#10--residui-dichiarati)
+11. [Il deploy su staging](#11--il-deploy-su-staging)
 
 ---
 
@@ -419,3 +420,51 @@ perimetro: la correzione della fuga di notifiche del **lavoro sportivo**
 diventato pericoloso invece che difensivo. Nessuna delle due bloccava la Wave;
 entrambe erano della stessa classe di cio che la Wave stava correggendo, e
 lasciarle sarebbe stato indifendibile.
+
+---
+
+## 11 — Il deploy su staging
+
+**Progetto:** `easygame-staging` — l'unico che esista nello scope Vercel
+corrente. Nessun progetto di produzione: se ne comparisse uno, CLAUDE.md §9
+impone di fermarsi e chiedere.
+
+**Esito:** `READY`, alias `https://easygame-staging-pi.vercel.app`.
+
+Il deploy esegue `prisma migrate deploy`, quindi le tre migrazioni della Wave
+sono state applicate all'archivio di staging. Una di loro **deduplica**
+`training_attendance` prima di imporre la chiave unica: e la migrazione
+prevista, ed e scritta per tenere la riga aggiornata piu di recente, ma va detto
+perche e l'unica scrittura distruttiva della Wave.
+
+### 11.1 Lo smoke test
+
+| Controllo | Esito |
+|---|---|
+| `/`, `/login`, `/api/v1/registry` | **200** |
+| Il registro dichiara le rotte nuove | comunicazioni, annunci, link di pagamento, RSVP e automazioni tutte presenti |
+| Le cinque rotte autenticate senza sessione | **401** su tutte |
+| `/communications` senza sessione | **307** verso `/login?next=/communications` — il presidio aggiunto dalla correzione funziona sulla build vera |
+| Porta cron senza segreto, e con segreto sbagliato | **401** in entrambi i casi, mai `200` a vuoto |
+| Pagina pubblica `/pay/[token]` | **200**, con lo stato «Link non disponibile» |
+| Due token inventati diversi | **404** entrambi, e i due corpi sono identici **byte per byte** — la proprieta che ADR-0085 promette, verificata sull'ambiente distribuito e non solo in locale |
+
+### 11.2 Perche la UAT completa non gira su staging
+
+Il collaudo dei 67 controlli **non e stato eseguito contro il deployment**, e
+non per prudenza: non e tecnicamente possibile, per tre ragioni indipendenti.
+
+1. **Scrive.** Crea due club QA con 125 atleti, rate, allenamenti e annunci. Su
+   staging vivono i dati di collaudo di tutte le Wave precedenti, e lo script
+   e progettato per un archivio di sviluppo che puo ricreare da zero.
+2. **Riconfigura SMTP.** Riscrive la riga di configurazione dell'invio email
+   per farla puntare al proprio server finto. Su un ambiente condiviso vorrebbe
+   dire spegnere l'invio per chiunque altro lo stia usando, e ripristinarlo
+   dipenderebbe dalla riuscita dello script.
+3. **Il server finto vive su `127.0.0.1`.** Un'applicazione su Vercel non lo
+   raggiunge, quindi la parte che rende questo collaudo migliore di quello di
+   Wave 1 — la consegna vera — non funzionerebbe comunque.
+
+Cio che si poteva verificare a distanza — le porte, i codici di stato,
+l'indistinguibilita delle risposte negative, il presidio sulle pagine — e stato
+verificato, ed e la tabella qui sopra.
