@@ -756,3 +756,46 @@ test("una chiave di consenso su un campo che non e una casella si scarta", async
   assert.equal(fake.rows("consentRecord").length, 0);
   assert.deepEqual(esito.issues, []);
 });
+
+test("il ruolo di un altro club non genera documenti sensibili", async () => {
+  /*
+    Residuo della stessa classe del difetto trovato dall'audit nel motore
+    documentale. Il confine dei moduli e `allowedOrganizationIds` — tutti i
+    club a cui l'utente appartiene — mentre `activeRole` e il ruolo del club
+    **attivo**: chi ha due societa puo approvare una compilazione della prima
+    tenendo attiva la seconda, e i due valori smettono di parlare della stessa
+    cosa.
+
+    Adesso il ruolo si passa ai domini vicini **solo** se i due club
+    coincidono. L'approvazione riesce comunque — l'anagrafica e il fatto
+    principale — e cio che non si e potuto fare compare fra gli avvisi.
+  */
+  const modello = await modelloDocumento({
+    content: "<p>{{athlete.first_name}} — {{payment.total_paid}}</p>",
+  });
+  const template = await moduloPubblicato({ documentTemplateId: modello.id });
+  const row = await invia(template, { f_nome: "Mario", f_cognome: "Rossi" });
+
+  const scopeAltroveAttivo = {
+    ...scopeA(),
+    activeOrganizationId: CLUB_B,
+    allowedOrganizationIds: [CLUB_A, CLUB_B],
+    activeRole: "owner",
+  };
+
+  const esito = await submissions.decideFormSubmission(
+    scopeAltroveAttivo,
+    row.id,
+    { decision: "approve" },
+  );
+
+  assert.equal(esito.submission.status, "approved");
+  assert.equal(esito.generatedDocumentId, null);
+  assert.ok((esito.issues || []).length > 0);
+  assert.equal(
+    fake
+      .rows("generatedDocument")
+      .filter((riga) => riga.template_id === modello.id).length,
+    0,
+  );
+});

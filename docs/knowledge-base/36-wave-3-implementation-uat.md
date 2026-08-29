@@ -56,6 +56,12 @@ commit a se davanti a tutte.
 | **W3-A** — schermata | `fab5cd9` | `/modulistica` sopra il motore nuovo, e **cinquecento righe** di implementazioni doppie rimosse |
 | **UAT** | `34a06d0` | I 38 scenari del §19, decisi prima del codice: 56 controlli su 56 |
 | **W3-D** — catalogo | `ae8cdd6` | Dieci voci scritte, sei distribuite, quattro ferme e dichiarate |
+| **W3-F** — moduli | `797f76c` | Un campo puo dichiarare un consenso, un modulo un modello: all'approvazione nascono la decisione e il documento, con due idempotenze diverse e la ragione di entrambe |
+| **W3-E** — massiva | `ea27d01` | Fette da cinquanta, lotto ripartibile dopo un ricaricamento, fascicolo stampabile, «riprova i falliti» |
+| **audit** | `41404ee` | Le ventuno correzioni delle quattro revisioni ostili, la porta del catalogo, e sette scenari di collaudo che le provano |
+| **W3-F** — moduli | `797f76c` | Un campo puo dichiarare un consenso, un modulo un modello: all'approvazione nascono la decisione e il documento, con due idempotenze diverse e la ragione di entrambe |
+| **W3-E** — massiva | `ea27d01` | Fette da cinquanta, lotto ripartibile dopo un ricaricamento, fascicolo stampabile, «riprova i falliti» |
+| **audit** | `41404ee` | Le ventuno correzioni delle quattro revisioni ostili, piu sette scenari di collaudo che le provano |
 
 ---
 
@@ -83,11 +89,21 @@ lane che scrivono lo stesso file nello stesso giorno sono due lane che si
 sovrascrivono. W3-B si e concentrata sul risolutore, che e il pezzo che
 mancava davvero.
 
-**Quattro.** Il planning dava per scontato che la segreteria potesse generare
-documenti senza dati delicati. Il server lo consente, ed e provato — ma
-l'unica schermata che genera e `/modulistica`, che la stessa Wave ha riservato
-alla direzione per chiudere `W3-14`. Il permesso esiste e oggi non ha una
-porta: e il debito `W3-02`, e la chiusura e una schermata, non un permesso.
+**Quattro, e poi rientrato.** La Wave aveva riservato `/modulistica` alla
+direzione per chiudere `W3-14`, rendendo pero irraggiungibili quattro righe
+della matrice del §13 — la segreteria puo generare cio che non porta dati
+delicati, e il server glielo consente. L'audit ha misurato il costo dal lato
+peggiore: il collaboratore **vedeva la voce nel menu**, ci cliccava, e finiva
+sulla dashboard senza una parola. La pagina e tornata gestionale; il difetto
+vero di `W3-14` erano le **rotte**, e quelle restano chiuse dove serve.
+
+**Cinque.** Due `EXTEND` del §16.2 sono decaduti senza che il piano lo
+prevedesse: **E-7** (il naming dei file in un fascicolo, su
+`attachment-names.ts`) e **E-10** (la consegna del fascicolo, su
+`stored-file-response.ts`). Senza un motore PDF un documento non e un file,
+quindi non ha un nome di file ne una risposta di file: il fascicolo e diventato
+una pagina HTML stampabile. La scelta e difendibile — e la stessa decisione del
+§3.4 — ma va detta, perche il planning li impegnava.
 
 ---
 
@@ -96,7 +112,7 @@ porta: e il debito `W3-02`, e la chiusura e una schermata, non un permesso.
 `scripts/wave-3-documents-uat.mjs`, contro un'applicazione vera con un
 database vero, due club veri e cinque ruoli veri.
 
-**56 controlli su 56.**
+**67 controlli su 67.**
 
 Cosa dimostra, in ordine di importanza:
 
@@ -126,6 +142,15 @@ Cosa dimostra, in ordine di importanza:
 10. **Unicode.** `Nicolò D'Angiò` e `Öztürk Đurić` arrivano interi; un cognome
     che contiene `<script>` resta un cognome.
 
+Piu **sette scenari aggiunti dopo l'audit**, che provano a runtime le
+correzioni piu delicate: il ruolo di un club che non vale su un altro (sei
+tentativi, sei 403, e la bozza intatta), il documento che porta **solo** i
+valori che ha nominato — in anteprima e nella copia conservata — l'identificativo
+malformato che non racconta lo schema, «firmato» che pretende una copia
+esistente, lo stesso lotto su due modelli che produce due documenti distinti, la
+decisione di consenso datata nel futuro che viene rifiutata, e la segreteria che
+vede i modelli.
+
 ---
 
 ## 5 — Prestazioni
@@ -141,6 +166,15 @@ Misurate durante il collaudo, sulla stessa esecuzione dei 56 controlli.
 | **Cento** in due lotti | < 30 s | **1.712 ms** | 17x |
 | Elenco dei modelli | < 200 ms | **22 ms** | 9x |
 | Elenco dei documenti generati (174) | — | 32 ms, 116 kB | — |
+
+**Il fascicolo, misurato dopo l'audit.** Il §20 del planning chiedeva
+esplicitamente di cercare il costo della firma incorporata, e il primo collaudo
+non lo aveva fatto. Con una firma da 90 kB e un timbro da 76 kB — dimensioni
+normali per una scansione — ogni documento portava **222 kB** di `data:` URL, e
+un fascicolo da cento pesava **22,24 MB**: 2,5 volte la soglia, e si spezzava
+gia a trentasei documenti, cioe dentro il caso d'uso che giustifica G-43.
+Estraendo le immagini ripetute e portandole una volta sola: **0,84 MB**, due
+`data:` URL invece di duecento, e una parte sola invece di tre.
 
 Due controlli verificano che gli elenchi **non portino il peso**: l'elenco dei
 modelli non contiene `draftContent`, quello dei documenti non contiene
@@ -201,8 +235,62 @@ consegnato.
 
 ## 8 — Audit e seconda revisione
 
-_Da compilare al termine delle quattro revisioni parallele e della seconda
-revisione._
+Quattro revisioni **indipendenti e ostili**, in parallelo, ognuna con il mandato
+di rompere la Wave e non di confermarla: correttezza e versionamento, sicurezza
+e multi-tenant, architettura e duplicazione, UX e prestazioni.
+
+**Esito: sette CRITICAL e quattordici HIGH.** Quasi tutti dimostrati con un
+test scritto apposta o con una sonda contro il server vero — non segnalati come
+sospetti. Sono stati corretti tutti.
+
+### Gli otto che pesavano di piu
+
+| # | Cosa | Come e stato trovato |
+|---|---|---|
+| **1** | **Il ruolo di un club valeva sui documenti di un altro.** Il confine confrontava con **tutti** i club accessibili mentre `role` e il ruolo del club **attivo**. Chiunque puo crearsi una societa e diventarne proprietario: bastava tenerla attiva e mandare l'identificativo di un modello altrui per riprendere cancellazione, modifica e pubblicazione — e per leggere documenti con gli importi da **allenatore** | Sonda a runtime, due club veri, con la controprova: la stessa richiesta con il club giusto selezionato rispondeva 403 |
+| **2** | **Gli importi di una famiglia uscivano da ogni documento.** Il risolutore costruisce sempre la mappa completa per il soggetto, e usciva **intera** anche da un modello che nomina il solo nome — pubblicato con `sensitivity: []`, quindi generabile da chi gli importi non li vede. E si **conservava** in `values_snapshot` | Sonda a runtime: `values.payment.total_paid = "320,00"` su un modello dichiarato non sensibile |
+| **3** | **Il catalogo non aveva nessuna porta.** `GET`/`POST /documents/catalog` funzionavano, erano nel registro, avevano i test — e nessuna riga di client li chiamava. Cinque voci su sei irraggiungibili, e l'unica adozione possibile era un pulsante che si scriveva da se una copia **impoverita**, senza classe redazionale ne data di rilettura | Lettura: zero riferimenti in `src/` e `tests/` |
+| **4** | **`/modulistica` era chiusa a chi il server autorizza.** Quattro righe della matrice del §13 erano irraggiungibili, e il collaboratore vedeva la voce nel menu, ci cliccava, e finiva sulla dashboard **senza una parola** | Verificato a schermo, con la tabella dei quattro ruoli sulle rotte vere |
+| **5** | **L'unicita del lotto ignorava il modello.** Due lotti con lo stesso identificativo su modelli diversi restituivano il documento **dell'altro**, e la rotta rispondeva 201 | Test con il doppio di Prisma: `due.templateId === a.id` |
+| **6** | **Un consenso datato nel futuro mascherava ogni revoca successiva.** Un refuso sull'anno, non un attacco: la famiglia revocava, l'operatore scriveva la revoca, e la schermata continuava a dire «accettato» | Test: `deriveConsentState([accettazione2027, revoca2026]).status === "accepted"` |
+| **7** | **Il fascicolo da cento documenti pesava 22,24 MB**, 2,5 volte la soglia dichiarata, perche firma e timbro erano incorporati **cento volte**. Con una firma normale il fascicolo si spezzava gia a trentasei documenti — cioe dentro il caso d'uso che giustifica G-43 | Misurato: mediana di una riga 229 kB, di cui il 97% due immagini ripetute |
+| **8** | **«Firmato» accettava un allegato inventato**, o di un altro club: la colonna non ha chiave esterna e nessuno controllava. ADR-0091 era tornata una spunta | Test: `PATCH { status: "signed", signed_attachment_id: "9999…" }` riusciva |
+
+### Le altre, in breve
+
+Chi non poteva **leggere** un documento poteva cambiarne lo stato, e la
+risposta gli diceva di chi era · cambiare **solo** il soggetto non creava una
+versione e non compariva fra le modifiche non pubblicate, lasciando il modello
+ingenerabile senza via d'uscita · un valore di anagrafica che conteneva
+`{{…}}` veniva **interpretato**, perche le tre sostituzioni erano in catena ·
+le rotte documentali facevano uscire l'invocazione Prisma per intero · la
+provenienza redazionale si dichiarava dal corpo della richiesta, cioe si poteva
+falsificare · il nome di una persona aveva una **settima** copia che stampava
+«undefined undefined» · il modulo vuoto stampava la bozza con una regex propria
+· c'era un **terzo** foglio di stile di stampa e una stampa a tempo ·
+`/consensi` a 375 px tagliava sessantasette elementi senza modo di
+raggiungerli · «Produci il documento» diceva **«Bad Request»** invece del
+motivo · gli avvisi dell'approvazione uscivano come N toast in una pila che ne
+tiene uno · il fascicolo scartava in silenzio i documenti illeggibili e poi
+dichiarava un totale sicuro · un lotto interrotto veniva buttato via da
+qualunque altro lotto · azioni offerte su stati che il server rifiuta.
+
+### Cosa le revisioni hanno trovato **giusto**
+
+Vale la pena scriverlo, perche e cio che regge senza essere stato toccato.
+L'invariante «un documento rilasciato non cambia mai» e stata verificata
+elencando **ogni** scrittura su `generated_documents`: nessun percorso tocca
+`content_html`, `values_snapshot` o `version_id` dopo la creazione. Nessun
+`update` su una versione pubblicata, in tutto l'albero. Nessuna scrittura
+Prisma sui domini posseduti fuori dai due proprietari. Nessun `fetch` diretto a
+`/api` nei componenti. Nessun modulo dichiarato puro che importi Prisma, la
+rete o il DOM. Nessun refactoring opportunistico, nessun `console.log`, nessun
+`TODO` nuovo. E la separazione di ADR-0089 — un documento generato non e un
+allegato — regge: nessun percorso scrive un documento dentro `attachments`.
+
+### La seconda revisione
+
+_Da compilare._
 
 ---
 

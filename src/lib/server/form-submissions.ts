@@ -1005,13 +1005,37 @@ type ApprovalExtras = {
   generatedDocumentId: string | null;
 };
 
+/**
+ * Il ruolo da passare ai domini vicini quando si approva una compilazione.
+ *
+ * **Vale solo se il club della compilazione e quello attivo.** Il confine dei
+ * moduli e `allowedOrganizationIds` — tutti i club a cui l utente appartiene —
+ * mentre `activeRole` e il ruolo del club **attivo**: chi ha due societa puo
+ * approvare una compilazione della prima tenendo attiva la seconda, e i due
+ * valori non parlano piu della stessa cosa.
+ *
+ * E la stessa forma del difetto che l audit ha trovato nel motore documentale,
+ * dove il ruolo di un club valeva sui documenti di un altro. Qui la si chiude
+ * al contrario: **niente ruolo**, quindi nessuna generazione con dati delicati
+ * e nessun consenso registrato per conto di qualcuno. L approvazione riesce
+ * comunque — l anagrafica e il fatto principale — e cio che non si e potuto
+ * fare compare fra gli avvisi.
+ */
+const roleForNeighbours = (
+  scope: FormsAccessScope,
+  organizationId: string,
+) =>
+  asText(scope.activeOrganizationId) === asText(organizationId)
+    ? (scope.activeRole ?? null)
+    : null;
+
 const consentScopeOf = (
   scope: FormsAccessScope,
   organizationId: string,
 ) => ({
   userId: scope.userId,
   activeOrganizationId: organizationId,
-  activeRole: scope.activeRole ?? null,
+  activeRole: roleForNeighbours(scope, organizationId),
   allowedOrganizationIds: scope.allowedOrganizationIds,
 });
 
@@ -1176,7 +1200,7 @@ const generateSubmissionDocument = async ({
     userId: scope.userId,
     activeOrganizationId: organizationId,
     allowedOrganizationIds: scope.allowedOrganizationIds,
-    role: scope.activeRole ?? null,
+    role: roleForNeighbours(scope, organizationId),
   };
 
   try {
