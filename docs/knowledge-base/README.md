@@ -47,6 +47,7 @@ comportamenti desiderati o pianificati.
 | 34 | [Wave 2: implementazione e collaudo](34-wave-2-implementation-uat.md) | Cosa e stato costruito davvero sulle sei lane, i 67 controlli a runtime con una consegna email vera, i quattro scostamenti dal piano e cosa hanno trovato le revisioni indipendenti |
 | 35 | [Wave 3: planning esecutivo](35-wave-3-planning.md) | Il piano della terza wave — documenti e modulistica: i 14 gap riverificati, perche il motore documentale e nuovo e il risolutore no, i dieci modelli del catalogo V1 al posto dei 77 di Golee, il consenso come stato con revoca, e le sette lane con il loro DAG |
 | 36 | [Wave 3: implementazione e collaudo](36-wave-3-implementation-uat.md) | Cosa e stato costruito davvero sulle sette lane, i 68 controlli a runtime che lo provano, i quattro scostamenti dal piano, i cinque bug trovati strada facendo, cosa hanno trovato tre revisioni ostili in fila, e perche il catalogo distribuisce sei voci su dieci |
+| 37 | [Wave 4: planning esecutivo](37-wave-4-planning.md) | Il piano della quarta wave — contabilita, prima nota, rendiconto e fiscalita: la mappa del denaro in sette flussi, la scoperta che una tabella movimenti non esiste, i tre difetti che vengono prima del piano, tre entita nuove contro undici estensioni, e ventitre regole classificate fra cio che si puo scrivere e cio che serve un commercialista |
 | — | [Report di cleanup](cleanup-report.md) | Classificazione file SAFE / REVIEW / KEEP |
 
 ## Documenti operativi preesistenti (mantenuti)
