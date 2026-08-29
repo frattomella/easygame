@@ -250,3 +250,86 @@ test("il risolutore dichiara cosa sa produrre per ogni soggetto", () => {
   assert.ok(perSoggetto.member.includes("member.first_name"));
   assert.ok(!perSoggetto.person.includes("member.first_name"));
 });
+
+/* ============================ le regressioni dell'audit di fine Wave ==== */
+
+test("un documento porta solo i valori che ha davvero nominato", async () => {
+  /*
+    Il difetto piu grave della Wave, trovato dall'audit. Il risolutore
+    costruisce sempre la mappa completa per il soggetto — versato, dovuto,
+    residuo, codice fiscale — perche non sa in anticipo quali chiavi il modello
+    usera. Se quella mappa usciva intera, usciva anche da un modello che nomina
+    il solo nome dell'atleta: e quel modello e pubblicato con `sensitivity: []`,
+    quindi lo genera anche chi gli importi non li puo vedere. E finiva in
+    `values_snapshot`, cioe si conservava.
+  */
+  const esito = await risolvi("<p>{{club.name}}</p>", { kind: "club" });
+
+  assert.deepEqual(Object.keys(esito.values).sort(), ["club.name"]);
+  assert.equal("payment.total_paid" in esito.values, false);
+  assert.equal("athlete.fiscal_code" in esito.values, false);
+});
+
+test("un valore che contiene graffe non diventa un segnaposto", async () => {
+  /*
+    Le tre sostituzioni erano in catena: la seconda e la terza giravano
+    sull'HTML gia sostituito dalla prima. `escapeHtml` neutralizza i tag, non
+    le graffe — quindi un cognome scritto `{{payment.remaining}}` faceva
+    stampare il residuo dentro un documento che non lo aveva mai nominato, e
+    `unresolved` restava vuoto.
+  */
+  fake.rows("club")[0].trainers = [
+    { id: "all-graffe", firstName: "{{club.fiscal_code}}", lastName: "Neri" },
+  ];
+
+  const esito = await risolvi("<p>[{{trainer.first_name}}]</p>", {
+    kind: "person",
+    id: "all-graffe",
+  });
+
+  // Il codice fiscale del club NON compare: la graffa e testo, non sintassi.
+  assert.ok(!esito.html.includes("12345678901"));
+  assert.match(esito.html, /\{\{club\.fiscal_code\}\}/);
+});
+
+test("«undefined undefined» non arriva mai su un documento", async () => {
+  /*
+    Il risolutore aveva una **copia** della composizione del nome, e divergeva
+    dal proprietario proprio dove conta: `buildMemberIdentity` neutralizza la
+    stringa letterale «undefined undefined» — una forma storica reale del dato
+    — la copia no. Un attestato con la firma del presidente sopra usciva
+    intestato cosi.
+  */
+  fake.rows("club")[0].members = [
+    { id: "socio-rotto", name: "undefined undefined" },
+  ];
+
+  const esito = await risolvi(
+    "<p>[{{member.first_name}}|{{member.last_name}}|{{recipient.name}}]</p>",
+    { kind: "member", id: "socio-rotto" },
+  );
+
+  assert.ok(!esito.html.includes("undefined"));
+  assert.equal(esito.values["recipient.name"], "");
+});
+
+test("un identificativo che corrisponde a due schede non si indovina", async () => {
+  /*
+    Prima si confrontavano quattro grafie dell'identificativo e si prendeva la
+    prima corrispondenza. In una ASD la stessa persona ha spesso due schede: il
+    documento usciva intestato a quella sbagliata, e **ben formato**, quindi
+    nessuno se ne accorgeva.
+  */
+  fake.rows("club")[0].trainers = [
+    { id: "doppio", firstName: "Giulia", lastName: "Bianchi" },
+  ];
+  fake.rows("club")[0].staff_members = [
+    { id: "doppio", firstName: "Luca", lastName: "Verdi" },
+  ];
+
+  await assert.rejects(
+    () =>
+      risolvi("<p>{{trainer.first_name}}</p>", { kind: "person", id: "doppio" }),
+    /piu di una scheda/i,
+  );
+});

@@ -282,33 +282,22 @@ export const renderDocumentHtml = (input: {
 };
 
 /**
- * Un modello di modulistica gia compilato, come pagina stampabile.
+ * Il foglio di stile di un documento stampabile: **una sola definizione**.
  *
- * **Perche sta qui e non in `/modulistica`.** Perche e la stessa pagina
- * autonoma di una ricevuta — stile dentro, nessuna richiesta verso l'esterno,
- * `Stampa → Salva come PDF` — e perche l'intestazione con il logo del club era
- * gia scritta. Rifarla nel browser vorrebbe dire due impaginazioni per lo
- * stesso club, che e il difetto che questo file esiste per non avere.
+ * **Perche e una costante e non quattro regole ripetute.** Le stesse quattro
+ * cose — il campo tratteggiato, l'interruzione di pagina, il formato A4 con i
+ * suoi margini, la larghezza di un foglio a 794 px — servono a chiunque
+ * stampi: il documento compilato qui sotto, e il modulo vuoto di
+ * `/modulistica`. Ricopiarle di la ha gia prodotto due fogli di stile che
+ * divergevano in silenzio: lo stesso modello stampato vuoto e stampato
+ * compilato veniva su due impaginazioni diverse, e chi lo firmava se ne
+ * accorgeva.
  *
- * `bodyHtml` arriva **gia sostituito e gia neutralizzato** dal risolutore dei
- * segnaposto (`src/lib/server/document-placeholders.ts`): qui non si sfugge
- * nulla, perche il corpo e HTML voluto — il modello lo ha scritto la
- * segreteria.
+ * E la stessa ragione per cui il fascicolo
+ * (`src/components/documents/document-bundle.ts`) lo **estrae** dal documento
+ * invece di riscriverlo.
  */
-export const renderFilledDocumentHtml = (input: {
-  title: string;
-  bodyHtml: string;
-  issuer: DocumentIssuer;
-}) => {
-  const { title, bodyHtml, issuer } = input;
-
-  return `<!doctype html>
-<html lang="it">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title)}</title>
-<style>
+export const PRINTABLE_DOCUMENT_STYLESHEET = `
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
@@ -347,7 +336,36 @@ export const renderFilledDocumentHtml = (input: {
     body { background: #fff; padding: 0; }
     .sheet { border: 0; border-radius: 0; max-width: none; padding: 0; }
   }
-</style>
+`;
+
+/**
+ * Un modello di modulistica gia compilato, come pagina stampabile.
+ *
+ * **Perche sta qui e non in `/modulistica`.** Perche e la stessa pagina
+ * autonoma di una ricevuta — stile dentro, nessuna richiesta verso l'esterno,
+ * `Stampa → Salva come PDF` — e perche l'intestazione con il logo del club era
+ * gia scritta. Rifarla nel browser vorrebbe dire due impaginazioni per lo
+ * stesso club, che e il difetto che questo file esiste per non avere.
+ *
+ * `bodyHtml` arriva **gia sostituito e gia neutralizzato** dal risolutore dei
+ * segnaposto (`src/lib/server/document-placeholders.ts`): qui non si sfugge
+ * nulla, perche il corpo e HTML voluto — il modello lo ha scritto la
+ * segreteria.
+ */
+export const renderFilledDocumentHtml = (input: {
+  title: string;
+  bodyHtml: string;
+  issuer: DocumentIssuer;
+}) => {
+  const { title, bodyHtml, issuer } = input;
+
+  return `<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(title)}</title>
+<style>${PRINTABLE_DOCUMENT_STYLESHEET}</style>
 </head>
 <body>
   <div class="sheet">
@@ -373,3 +391,39 @@ export const renderFilledDocumentHtml = (input: {
 </body>
 </html>`;
 };
+
+/**
+ * Il **modulo vuoto**: lo stesso foglio, senza nessun dato dentro.
+ *
+ * **Perche sta qui accanto al compilato.** Sono la stessa pagina stampata due
+ * volte — stesso formato, stessi margini, stessi campi tratteggiati — e finche
+ * la componeva `/modulistica` con il suo `<style>` a mano, le due impaginazioni
+ * potevano divergere senza che nessun test se ne accorgesse. Adesso il foglio
+ * di stile e uno solo (`PRINTABLE_DOCUMENT_STYLESHEET`) e lo condividono.
+ *
+ * **Non porta l'intestazione del club.** Un modulo da compilare a penna esce
+ * dal modello, e il modello la sua intestazione ce l'ha gia scritta dentro: il
+ * compilato invece nasce dal server, che conosce logo e dati fiscali. Metterla
+ * anche qui vorrebbe dire stampare due volte lo stesso nome.
+ *
+ * `bodyHtml` e HTML **voluto**: e il testo del modello con i segnaposto gia
+ * svuotati da `applyPlaceholderValues`. Qui non si sfugge niente, come nel
+ * compilato.
+ */
+export const renderBlankFormHtml = (input: {
+  title: string;
+  bodyHtml: string;
+}) => `<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(input.title)}</title>
+<style>${PRINTABLE_DOCUMENT_STYLESHEET}</style>
+</head>
+<body>
+  <div class="sheet">
+    ${input.bodyHtml}
+  </div>
+</body>
+</html>`;

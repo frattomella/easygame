@@ -100,6 +100,13 @@ export const measureHtmlBytes = (html: string) => {
  * foto del logo pesano piu di cento righe di testo, e un taglio ogni N
  * documenti produrrebbe parti a caso. Un singolo documento piu grande della
  * soglia resta da solo nella sua parte: non lo si taglia a meta.
+ *
+ * **Si misura il fascicolo, non i documenti.** La misura passa dalla stessa
+ * estrazione delle immagini ripetute che fa `buildDocumentBundleHtml`, o il
+ * guardrail conterebbe cento volte una firma che nel fascicolo entra una
+ * volta sola: dividerebbe a trentasei documenti un fascicolo che ne regge
+ * cento. Ogni parte porta con se la sua copia delle immagini condivise, e
+ * quella copia entra nel conto.
  */
 export const planBundleParts = (
   documents: readonly BundleDocument[],
@@ -108,26 +115,128 @@ export const planBundleParts = (
   const limit = Math.max(1, limitBytes);
   const parts: BundleDocument[][] = [];
 
-  let current: BundleDocument[] = [];
-  let currentBytes = 0;
+  const estratti = extractRepeatedImages(
+    documents.map((document) => extractDocumentSheet(document.html)),
+  );
+  const condivise = Object.keys(estratti.images).length
+    ? measureHtmlBytes(JSON.stringify(estratti.images))
+    : 0;
 
-  for (const document of documents) {
-    const bytes = measureHtmlBytes(document.html);
+  let current: BundleDocument[] = [];
+  let currentBytes = condivise;
+
+  documents.forEach((document, index) => {
+    const bytes = measureHtmlBytes(estratti.sheets[index] || document.html);
 
     if (current.length && currentBytes + bytes > limit) {
       parts.push(current);
       current = [];
-      currentBytes = 0;
+      currentBytes = condivise;
     }
 
     current.push(document);
     currentBytes += bytes;
-  }
+  });
 
   if (current.length) parts.push(current);
 
   return parts;
 };
+
+/**
+ * L'attributo che segna un'immagine il cui contenuto sta **altrove nella
+ * pagina**, e l'elemento che lo porta.
+ *
+ * Non sono un dettaglio interno: `renderBundleInto` li legge per rimettere
+ * ogni `src` al suo posto, e i due nomi devono restare gli stessi da entrambe
+ * le parti.
+ */
+export const EMBEDDED_IMAGE_ATTRIBUTE = "data-fascicolo-immagine";
+export const EMBEDDED_IMAGE_PAYLOAD_ID = "fascicolo-immagini";
+
+/*
+  Le `src` in chiaro dei documenti conservati: le scrive il renderer del
+  server, sempre fra virgolette doppie, perche l'URL passa da `escapeHtml`.
+  Una regex nuova a ogni chiamata, che `lastIndex` di una globale sopravvive
+  fra le chiamate.
+*/
+const dataImagePattern = () => /src="(data:[^"]+)"/g;
+
+export type EmbeddedImages = Record<string, string>;
+
+/**
+ * La firma del presidente, dentro cento documenti, **una volta sola**.
+ *
+ * **Il difetto, misurato.** Una firma scansionata da 90 kB e un timbro da
+ * 76 kB — dimensioni normali, il limite ammesso e 2 MB — diventano due
+ * `data:` URL da ~222 kB **in ogni documento**: il 97% di una riga
+ * `generated_documents`, la cui mediana e 229 kB. Un fascicolo da cento
+ * documenti pesava cosi **22,2 MB**, cioe quasi tre volte la soglia di
+ * `BUNDLE_HTML_LIMIT_BYTES`, e si spezzava gia intorno al trentaseiesimo:
+ * «trenta richieste di visita a settembre» — il caso d'uso per cui il
+ * fascicolo esiste — ci finiva dentro. Estraendo le ripetute lo stesso
+ * fascicolo pesa **0,84 MB** e sta in una parte sola: le due immagini
+ * compaiono duecento volte come elemento e **due** volte come dato.
+ *
+ * **Perche l'immagine resta un `<img>`.** Il vincolo e che il documento
+ * stampato dentro il fascicolo venga **identico** a quello stampato da solo, e
+ * un `background-image` non lo garantisce: un `<img>` si dimensiona sulla
+ * dimensione intrinseca del file, e firma e timbro escono dal server con
+ * `max-height`/`max-width` che su un riquadro di sfondo si comporterebbero in
+ * un altro modo. L'elemento resta quindi quello che era, gli si toglie solo
+ * l'URL — che `renderBundleInto` gli rimette prima che la pagina si veda. A
+ * fine idratazione il DOM del fascicolo e lo stesso del documento singolo.
+ *
+ * **Perche solo le ripetute.** Un'immagine che compare una volta sola non
+ * costa niente e non si tocca: un fascicolo da un documento resta cosi
+ * byte per byte quello di prima.
+ */
+export const extractRepeatedImages = (sheets: readonly string[]) => {
+  const conteggio = new Map<string, number>();
+
+  for (const sheet of sheets) {
+    const pattern = dataImagePattern();
+    let match = pattern.exec(sheet);
+    while (match) {
+      conteggio.set(match[1], (conteggio.get(match[1]) || 0) + 1);
+      match = pattern.exec(sheet);
+    }
+  }
+
+  const chiavi = new Map<string, string>();
+  for (const [url, volte] of conteggio) {
+    if (volte > 1) chiavi.set(url, `immagine-${chiavi.size + 1}`);
+  }
+
+  if (!chiavi.size) return { sheets: [...sheets], images: {} as EmbeddedImages };
+
+  const images: EmbeddedImages = {};
+  for (const [url, chiave] of chiavi) images[chiave] = url;
+
+  return {
+    sheets: sheets.map((sheet) =>
+      sheet.replace(dataImagePattern(), (intero, url: string) => {
+        const chiave = chiavi.get(url);
+        return chiave ? `${EMBEDDED_IMAGE_ATTRIBUTE}="${chiave}"` : intero;
+      }),
+    ),
+    images,
+  };
+};
+
+/*
+  Il carico e **dati**, non codice: `type="application/json"` non viene
+  eseguito da nessun browser, e lo rilegge `renderBundleInto` — che e
+  TypeScript controllato, non una stringa. La sola sequenza che potrebbe
+  chiudere il tag prima del tempo e `<`, che in un URL base64 non compare mai:
+  si neutralizza comunque, perche «non compare mai» non e una garanzia.
+*/
+const imagePayloadScript = (images: EmbeddedImages) =>
+  Object.keys(images).length
+    ? `<script type="application/json" id="${EMBEDDED_IMAGE_PAYLOAD_ID}">${JSON.stringify(
+        images,
+      ).replace(/</g, "\\u003c")}</script>`
+    : "";
 
 /**
  * Il fascicolo, come pagina.
@@ -146,17 +255,37 @@ export const buildDocumentBundleHtml = (input: {
   title: string;
   documents: readonly BundleDocument[];
   partLabel?: string;
+  /**
+   * Cosa dice il pulsante. Un foglio solo — un modulo vuoto, un'anteprima —
+   * non e «un fascicolo», e chiamarlo cosi fa cercare gli altri.
+   */
+  printLabel?: string;
+  /**
+   * Quanti documenti prodotti **non** sono entrati, perche non si e riusciti a
+   * rileggerli. Zero e il caso normale; sopra zero il fascicolo lo scrive in
+   * intestazione e nel titolo della pagina. Un fascicolo incompleto che tace
+   * di esserlo e peggio di due fascicoli, ed e la stessa ragione per cui sopra
+   * la soglia si divide invece di troncare.
+   */
+  missingCount?: number;
 }) => {
-  const fogli = input.documents
-    .map(
-      (document) =>
-        `<article class="fascicolo-foglio">${extractDocumentSheet(document.html)}</article>`,
-    )
+  const estratti = extractRepeatedImages(
+    input.documents.map((document) => extractDocumentSheet(document.html)),
+  );
+
+  const fogli = estratti.sheets
+    .map((sheet) => `<article class="fascicolo-foglio">${sheet}</article>`)
     .join("\n");
+
+  const mancanti = Math.max(0, Math.floor(input.missingCount || 0));
+  const lacuna = mancanti
+    ? `${mancanti} ${mancanti === 1 ? "documento non letto" : "documenti non letti"}`
+    : "";
 
   const intestazione = [
     escapeHtml(input.title),
     input.partLabel ? escapeHtml(input.partLabel) : "",
+    lacuna,
   ]
     .filter(Boolean)
     .join(" — ");
@@ -202,10 +331,17 @@ ${extractDocumentStyle(input.documents[0]?.html || "")}
 </head>
 <body>
   <div class="fascicolo-barra">
-    <span>${intestazione} — ${input.documents.length} ${input.documents.length === 1 ? "documento" : "documenti"}</span>
-    <button type="button" id="fascicolo-stampa">Stampa il fascicolo</button>
+    <span>${intestazione} — ${input.documents.length} ${input.documents.length === 1 ? "documento" : "documenti"}${
+      mancanti
+        ? ` — <strong>incompleto</strong>: ${lacuna}, cercali in «Documenti generati»`
+        : ""
+    }</span>
+    <button type="button" id="fascicolo-stampa">${escapeHtml(
+      input.printLabel || "Stampa il fascicolo",
+    )}</button>
   </div>
 ${fogli}
+${imagePayloadScript(estratti.images)}
 </body>
 </html>`;
 };
@@ -232,6 +368,47 @@ export const openBundleWindow = () => {
 };
 
 /**
+ * Rimette a ogni immagine il suo `data:` URL, letto dall'unica copia.
+ *
+ * **Perche lo fa questo modulo e non uno `<script>` dentro la pagina.** Per la
+ * stessa ragione per cui il pulsante di stampa si lega da qui: uno script
+ * scritto in una stringa e codice che nessun controllo di tipo guarda. E
+ * perche una finestra aperta con `window.open("")` eredita la policy di
+ * sicurezza di chi l'ha aperta: uno script in linea la un giorno smetterebbe
+ * di partire, e il fascicolo uscirebbe senza firme senza dire niente.
+ *
+ * Gira **prima** che chiunque veda la pagina — la finestra e appena stata
+ * scritta e il pulsante di stampa lo preme una persona, dopo.
+ */
+export const hydrateEmbeddedImages = (document: Document) => {
+  const payload = document.getElementById(EMBEDDED_IMAGE_PAYLOAD_ID)?.textContent;
+  if (!payload) return 0;
+
+  let images: EmbeddedImages;
+  try {
+    images = JSON.parse(payload) as EmbeddedImages;
+  } catch {
+    /* Carico illeggibile: meglio un'immagine mancante che una pagina rotta. */
+    return 0;
+  }
+
+  let rimesse = 0;
+  const elementi = document.querySelectorAll(`img[${EMBEDDED_IMAGE_ATTRIBUTE}]`);
+
+  elementi.forEach((elemento) => {
+    const chiave = elemento.getAttribute(EMBEDDED_IMAGE_ATTRIBUTE) || "";
+    const url = images[chiave];
+    if (!url) return;
+
+    elemento.setAttribute("src", url);
+    elemento.removeAttribute(EMBEDDED_IMAGE_ATTRIBUTE);
+    rimesse += 1;
+  });
+
+  return rimesse;
+};
+
+/**
  * Scrive il fascicolo nella finestra, e si ferma li.
  *
  * E il pattern di `src/lib/people-pdf-export.ts` — finestra nuova, stampa del
@@ -246,6 +423,8 @@ export const renderBundleInto = (printWindow: Window, html: string) => {
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();
+
+  hydrateEmbeddedImages(printWindow.document);
 
   /*
     Il gestore si lega da qui invece di scriverlo dentro la pagina: un

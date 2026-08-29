@@ -14,6 +14,7 @@ import {
 import { renderFilledDocumentHtml } from "@/lib/documents/document-view";
 import { MAX_GENERATION_BATCH } from "@/lib/documents/template-model";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * I documenti generati: elencali, oppure producine di nuovi.
@@ -95,7 +96,7 @@ export async function GET(request: Request) {
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error: any) {
-    const message = String(error?.message || "Impossibile leggere i documenti");
+    const message = publicErrorMessage(error, "Impossibile leggere i documenti");
     return fail(message.includes("Accesso negato") ? 403 : 400, message);
   }
 }
@@ -154,6 +155,21 @@ export async function POST(request: Request) {
     const subjects = readSubjects(body);
 
     if (!templateId) return fail(400, "Indicare il modello");
+
+    /*
+      Un lotto fatto di soli spazi diventava `null`, e con lui **spariva
+      l'idempotenza**: la riesecuzione avrebbe prodotto doppioni, e la risposta
+      lo diceva soltanto a chi fosse andato a leggere `batchId: null`. Un
+      identificativo che non si puo usare va rifiutato, non ridotto in silenzio
+      a nessun identificativo.
+    */
+    const batchIdGrezzo = body?.batch_id ?? body?.batchId;
+    if (batchIdGrezzo !== undefined && batchIdGrezzo !== null && !batchId) {
+      return fail(
+        400,
+        "L'identificativo del lotto e vuoto: senza, la riesecuzione produrrebbe doppioni",
+      );
+    }
     if (!subjects.length) return fail(400, "Indicare almeno un destinatario");
     if (subjects.length > MAX_GENERATION_BATCH) {
       return fail(
@@ -239,7 +255,7 @@ export async function POST(request: Request) {
 
         produced.push(document);
       } catch (error: any) {
-        const reason = String(error?.message || "Errore sconosciuto");
+        const reason = publicErrorMessage(error, "Errore sconosciuto");
         /*
           Il lotto **continua**. Chi non si e potuto generare compare qui con
           il suo motivo, esattamente come gli esclusi di una comunicazione
@@ -270,6 +286,21 @@ export async function POST(request: Request) {
       },
     });
 
+    /*
+      **Quando non e uscito niente, il motivo va nell'errore.**
+
+      Prima la risposta era `400` con `error: null` e il motivo nascosto in
+      `failed[0].reason`: il trasporto del client, non trovando un errore
+      nell'envelope, sintetizzava il messaggio dallo `statusText` — e la
+      segreteria leggeva **«Bad Request»** al posto di «l'atleta non appartiene
+      a questo club». Su HTTP/2, dove `statusText` e vuoto, leggeva «API
+      request failed».
+
+      I falliti restano dove sono, perche in un lotto parziale servono tutti;
+      qui si porta in evidenza il primo, che nel caso singolo e l'unico.
+    */
+    const nienteProdotto = produced.length === 0;
+
     return NextResponse.json(
       {
         data: {
@@ -278,17 +309,29 @@ export async function POST(request: Request) {
           versionId: version.id,
           requested: subjects.length,
           produced,
+          /*
+            Quanti erano **gia** nel lotto. Non e un dettaglio contabile: e la
+            differenza fra «ho generato cinquanta documenti» e «cinquanta
+            c'erano gia», e chi riprende un lotto ha diritto di sapere quale
+            delle due e successa.
+          */
+          reused: produced.filter((documento: any) => documento?.reused).length,
           failed,
         },
-        error: null,
+        error: nienteProdotto
+          ? {
+              message:
+                failed[0]?.reason || "Nessun documento e stato generato",
+            }
+          : null,
       },
       {
-        status: produced.length ? 201 : 400,
+        status: nienteProdotto ? 400 : 201,
         headers: { "Cache-Control": "private, no-store" },
       },
     );
   } catch (error: any) {
-    const message = String(error?.message || "Impossibile generare");
+    const message = publicErrorMessage(error, "Impossibile generare");
     if (message.includes("Accesso negato")) return fail(403, message);
     return fail(400, message);
   }

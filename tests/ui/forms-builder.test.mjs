@@ -233,6 +233,42 @@ test("la revisione non decide al posto della segreteria", () => {
   );
 });
 
+/**
+ * **Il difetto, per nome.** Cio che l'approvazione non era riuscita a fare
+ * usciva come un avviso passeggero per ogni problema, e la pila ne tiene
+ * **uno** (`TOAST_LIMIT = 1`): con tre consensi falliti se ne vedeva uno, per
+ * cinque secondi, su un dialogo gia chiuso. Gli altri due sparivano — e
+ * ognuno era un consenso che il club crede di aver raccolto e non ha.
+ */
+test("cio che l'approvazione non e riuscita a fare si legge nel dialogo", () => {
+  const dialog = readCode("components/forms/submission-review-dialog.tsx");
+
+  assert.ok(
+    !/for \(const issue of outcome\.issues/.test(dialog),
+    "un avviso per problema, in una pila che ne tiene uno: gli altri sparivano",
+  );
+  assert.match(
+    dialog,
+    /setIssues\(problemi\);\s*\n\s*return;/,
+    "con dei problemi il dialogo resta aperto invece di chiudersi",
+  );
+  assert.match(
+    dialog,
+    /issues\.map\(\(issue\) => \(/,
+    "si elencano uno per uno, come nel dialogo che spiega perche non si puo pubblicare",
+  );
+  assert.match(
+    dialog,
+    /La compilazione e stata registrata, ma queste cose non sono/,
+    "non e un errore dell'operazione: l'anagrafica e stata scritta, e va detto",
+  );
+  assert.match(
+    dialog,
+    /role="alert"/,
+    "chi non vede il dialogo deve sentirlo: e la sola cosa che chiede un gesto",
+  );
+});
+
 /* ------------------------------------------------------------ responsive */
 
 test("nessuna griglia dei moduli resta a due colonne a 375 px", () => {

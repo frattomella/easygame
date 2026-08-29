@@ -473,16 +473,36 @@ const normalizeUuid = (value: any) => {
 const isUuid = (value: any) =>
   typeof value === "string" && UUID_PATTERN.test(value.trim());
 
-const buildMemberIdentity = (member: Record<string, any>) => {
+/**
+ * Nome, cognome e nome completo di una persona che vive in una collezione JSON
+ * del club: soci, allenatori, staff.
+ *
+ * **Esportata perche il documento generato la usa** (Wave 3). Ne era nata una
+ * copia dentro il risolutore dei segnaposto, e le due divergevano proprio dove
+ * conta: questa neutralizza la stringa letterale `"undefined undefined"` — una
+ * forma storica reale del dato, altrimenti non ci sarebbe una guardia dedicata
+ * — la copia no. Il risultato era un attestato, con la firma del presidente
+ * sopra, intestato a «undefined undefined»: cioe esattamente cio che
+ * `DOCUMENT_ENGINE_INVARIANTS` promette che non succeda.
+ *
+ * Accetta anche le grafie italiane (`nome`, `cognome`) perche le collezioni
+ * degli allenatori e dello staff sono state scritte da schermate diverse in
+ * anni diversi.
+ */
+export const buildMemberIdentity = (member: Record<string, any>) => {
   const sanitizeText = (value: any) => {
     const trimmed = String(value ?? "").trim();
     return trimmed.toLowerCase() === "undefined undefined" ? "" : trimmed;
   };
   const rawFirstName = String(
-    member?.firstName ?? member?.first_name ?? "",
+    member?.firstName ?? member?.first_name ?? member?.nome ?? "",
   ).trim();
   const rawLastName = String(
-    member?.lastName ?? member?.last_name ?? member?.surname ?? "",
+    member?.lastName ??
+      member?.last_name ??
+      member?.surname ??
+      member?.cognome ??
+      "",
   ).trim();
   const explicitFullName = sanitizeText(member?.fullName ?? member?.full_name);
   const fallbackName = sanitizeText(member?.name);

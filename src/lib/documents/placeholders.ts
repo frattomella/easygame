@@ -550,6 +550,20 @@ export const getPlaceholderToken = (
   TOKEN_BY_KEY.get(normalizePlaceholderKey(key));
 
 /**
+ * L etichetta leggibile di una chiave, per chi **non** ha scritto il modello.
+ *
+ * «Mancano `athlete.fiscal_code`» e una riga per chi lo ha scritto; chi genera
+ * un attestazione legge «Codice fiscale atleta». L etichetta esiste gia nel
+ * catalogo e non si riscrive.
+ *
+ * Una chiave **fuori** catalogo resta com e, ed e voluto: li la chiave grezza
+ * e proprio l informazione utile, perche dice quale parola nel modello e
+ * sbagliata.
+ */
+export const describePlaceholderKey = (key: unknown): string =>
+  getPlaceholderToken(key)?.label || normalizePlaceholderKey(key);
+
+/**
  * Il soggetto di una chiave. Predefinito `club`, che c'e sempre.
  *
  * I blocchi firma non sono nel catalogo dei token e non hanno soggetto: sono
@@ -711,10 +725,34 @@ export const applyPlaceholderValues = ({
     return value;
   };
 
-  const html = String(content || "")
-    .replace(TEMPLATE_CHIP_PATTERN, (_match, key) => substitute(key))
-    .replace(SIGNATURE_BLOCK_PATTERN, (_match, key) => substitute(key))
-    .replace(INLINE_PLACEHOLDER_PATTERN, (_match, key) => substitute(key));
+  /*
+    **Una passata sola, e non tre in catena.**
+
+    Prima le tre sostituzioni erano concatenate: la seconda e la terza
+    giravano sull'HTML **gia sostituito** dalla prima. Un valore che venisse
+    da un'anagrafica e contenesse `{{…}}` veniva quindi interpretato come un
+    segnaposto — `escapeHtml` neutralizza i tag, non le graffe. Un cognome
+    scritto `{{payment.remaining}}` faceva stampare il residuo dentro un
+    documento che non lo aveva mai nominato, e `unresolved` restava vuoto: il
+    documento non solo mentiva, taceva anche di averlo fatto.
+
+    Conseguenza piu grave della resa sbagliata: `sensitivity` si calcola dai
+    segnaposto che il **modello** dichiara, quindi un modello innocuo poteva
+    stampare un dato sensibile e restare leggibile da chi non doveva.
+
+    Con l'alternanza in un solo `replace`, cio che viene scritto non viene piu
+    riletto.
+  */
+  const combined = new RegExp(
+    `${TEMPLATE_CHIP_PATTERN.source}|${SIGNATURE_BLOCK_PATTERN.source}|${INLINE_PLACEHOLDER_PATTERN.source}`,
+    "gis",
+  );
+
+  const html = String(content || "").replace(
+    combined,
+    (_match, chipKey, signatureKey, inlineKey) =>
+      substitute(chipKey ?? signatureKey ?? inlineKey),
+  );
 
   return { html, unresolved: [...unresolved].sort() };
 };

@@ -68,9 +68,26 @@ import {
 export type DocumentTemplateScope = {
   userId: string;
   activeOrganizationId: string | null;
+  /**
+   * I club a cui l'utente appartiene.
+   *
+   * **Non e il confine**, e non va usato come tale: il confine e
+   * `activeOrganizationId`, perche e a quello che si riferisce il `role`.
+   * Resta qui perche la forma dello scope e quella di tutto il resto del
+   * server, e cambiarla renderebbe questo dominio diverso dagli altri.
+   */
   allowedOrganizationIds: string[];
-  /** Il ruolo attivo: serve alle sole funzioni che decidono un permesso. */
-  role?: string | null;
+  /**
+   * Il ruolo **nel club attivo**.
+   *
+   * **Obbligatorio, e non per pignoleria.** Quando era opzionale, ogni
+   * controllo di permesso di questo file era scritto
+   * `if (scope.role !== undefined)`: un chiamante che si fosse dimenticato il
+   * campo non avrebbe avuto **nessun** controllo, in silenzio. Un permesso che
+   * fallisce aperto e peggio di un permesso assente, perche sembra esserci.
+   * Adesso chi lo dimentica non compila.
+   */
+  role: string | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
@@ -80,16 +97,47 @@ const asText = (value: unknown) => String(value ?? "").trim();
 const toIso = (value: unknown) =>
   value instanceof Date ? value.toISOString() : asText(value);
 
+/**
+ * Il confine, ed e il **club attivo** — non l'insieme dei club accessibili.
+ *
+ * **Il difetto che questa funzione ha avuto, e che l'audit ha misurato.**
+ * Confrontava con `allowedOrganizationIds`, cioe con tutti i club a cui
+ * l'utente appartiene. Ma `scope.role` e il ruolo **nel club attivo**, e i due
+ * insiemi non coincidono mai per chi ha piu di un club. Chiunque puo crearsi
+ * una societa e diventarne proprietario: bastava mandare
+ * `x-active-club-id: <la mia>` insieme all'identificativo di un modello **di
+ * un'altra**, e il permesso veniva concesso con il ruolo sbagliato. Un
+ * collaboratore riprendeva cosi la scrittura sui modelli che §13 gli aveva
+ * tolto — cancellazione e pubblicazione comprese — e un allenatore leggeva
+ * documenti con gli importi.
+ *
+ * La regola giusta e una sola: **la riga deve appartenere al club attivo**. Se
+ * si vuole lavorare su un altro club, si cambia club, e il ruolo viene
+ * risolto di nuovo per quello — che e cio che fa gia il dominio dei consensi.
+ */
 const ensureOrganizationAccess = (
   scope: DocumentTemplateScope | undefined,
   organizationId: string | null | undefined,
 ) => {
   if (!scope) return;
   if (!organizationId) throw denied("documento senza club");
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("appartiene a un altro club");
+
+  const active = asText(scope.activeOrganizationId);
+  if (!active) throw denied("nessun club attivo");
+  if (active !== asText(organizationId)) {
+    throw notFound();
   }
 };
+
+/**
+ * La risposta a «non esiste» e a «e di un altro club» deve essere **la
+ * stessa stringa**.
+ *
+ * Il commento c era gia e diceva la cosa giusta; le due stringhe erano
+ * diverse, e la differenza e un oracolo: chi prova identificativi a caso
+ * impara quali esistono, che e meta di cio che gli serve.
+ */
+const notFound = () => denied("non trovato, o non appartiene al club attivo");
 
 const resolveOrganizationId = (
   scope: DocumentTemplateScope | undefined,
@@ -160,6 +208,21 @@ const subjectOf = (value: unknown): TemplateSubjectKind =>
 const statusOf = (value: unknown): TemplateStatus =>
   isTemplateStatus(value) ? (asText(value).toLowerCase() as TemplateStatus) : "draft";
 
+/**
+ * La versione pubblicata dice ancora quello che dice la bozza?
+ *
+ * **Il soggetto conta quanto il testo, e dimenticarlo costava caro.** Quando
+ * il confronto guardava solo titolo e contenuto, cambiare **solo** il soggetto
+ * non creava una versione: la riga del modello diceva «atleta», la versione
+ * pubblicata diceva «persona», la schermata abilitava la generazione leggendo
+ * la riga e il server la rifiutava leggendo la versione. E `hasUnpublishedChanges`
+ * restava falso, quindi la schermata non proponeva nemmeno di ripubblicare:
+ * il modello restava ingenerabile senza via d uscita.
+ */
+const publishedMatchesDraft = (row: any, published: any) =>
+  asText(published.content_html) === asText(row.draft_content) &&
+  asText(published.title) === asText(row.title) &&
+  subjectOf(published.subject_kind) === subjectOf(row.subject_kind);
 const summarize = (
   row: any,
   extra: {
@@ -191,8 +254,7 @@ const summarize = (
       l'avviso smette di significare qualcosa e si impara a ignorarlo.
     */
     hasUnpublishedChanges: published
-      ? asText(published.content_html) !== asText(row.draft_content) ||
-        asText(published.title) !== asText(row.title)
+      ? !publishedMatchesDraft(row, published)
       : asText(row.draft_content).length > 0,
     placeholderKeys: published?.placeholder_keys ?? [],
     sensitivity: published?.sensitivity ?? [],
@@ -215,7 +277,7 @@ const loadTemplateRow = async (
     risposta. Distinguerli direbbe a chi prova identificativi a caso quali
     esistono, che e meta di cio che serve a chi ci prova.
   */
-  if (!row) throw denied("modello non trovato");
+  if (!row) throw notFound();
   ensureOrganizationAccess(scope, row.organization_id);
 
   return row;
@@ -485,10 +547,7 @@ export const publishDocumentTemplate = async (
   }
 
   const published = await loadPublishedVersion(row);
-  const unchanged =
-    published &&
-    asText(published.content_html) === asText(row.draft_content) &&
-    asText(published.title) === asText(row.title);
+  const unchanged = published && publishedMatchesDraft(row, published);
 
   const now = new Date();
 
@@ -593,12 +652,24 @@ export const deleteDocumentTemplate = async (
   }
 
   await (prisma as any).documentTemplate.delete({ where: { id: row.id } });
-  return { id: row.id };
+  // Il club della riga cancellata: e cio che l audit deve registrare.
+  return { id: row.id, organizationId: row.organization_id as string };
 };
 
 /* --------------------------------------------------- i documenti generati */
 
 export type GeneratedDocumentSummary = {
+  /**
+   * Vero quando la riga esisteva **gia** dentro questo lotto e non e stata
+   * riscritta.
+   *
+   * Senza questo campo l'upsert restituiva la riga vecchia in silenzio: una
+   * segreteria che correggeva un codice fiscale e ripeteva la fetta otteneva
+   * lo stesso documento di prima, ancora con il campo bianco, e non aveva
+   * nessun modo di accorgersene. Per «rigenera solo i falliti» va bene ed e
+   * voluto; per chiunque altro era una trappola.
+   */
+  reused?: boolean;
   id: string;
   organizationId: string;
   templateId: string;
@@ -691,7 +762,7 @@ export const recordGeneratedDocument = async (
   });
 
   if (!version || version.organization_id !== organizationId) {
-    throw denied("la versione del modello appartiene a un altro club");
+    throw notFound();
   }
   if (version.template_id !== asText(input.templateId)) {
     throw new Error("La versione indicata non appartiene a questo modello");
@@ -705,12 +776,11 @@ export const recordGeneratedDocument = async (
     pubblica, e tre chiamanti che si ricordano da soli di chiedere il permesso
     sono tre occasioni di dimenticarselo.
   */
-  if (scope.role !== undefined) {
-    const refusal = explainGenerationDenial(scope.role, sensitivity);
-    if (refusal) throw new Error(refusal);
-  }
+  const refusal = explainGenerationDenial(scope.role, sensitivity);
+  if (refusal) throw new Error(refusal);
 
   const batchId = asText(input.batchId) || null;
+  const startedAt = Date.now();
 
   const data = {
     organization_id: organizationId,
@@ -733,7 +803,7 @@ export const recordGeneratedDocument = async (
 
   if (!batchId) {
     const created = await (prisma as any).generatedDocument.create({ data });
-    return summarizeGenerated({ ...created, version });
+    return { ...summarizeGenerated({ ...created, version }), reused: false };
   }
 
   /*
@@ -747,6 +817,7 @@ export const recordGeneratedDocument = async (
       generated_documents_batch_subject: {
         organization_id: organizationId,
         batch_id: batchId,
+        template_id: data.template_id,
         subject_kind: data.subject_kind,
         subject_id: data.subject_id,
       },
@@ -755,7 +826,14 @@ export const recordGeneratedDocument = async (
     update: {},
   });
 
-  return summarizeGenerated({ ...created, version });
+  /*
+    L'upsert non dice se ha creato o riusato. La riga riusata porta una data
+    di generazione **anteriore** a questa chiamata: e la sola differenza
+    osservabile, e basta a non mentire a chi chiama.
+  */
+  const reused = new Date(created.generated_at).getTime() < startedAt;
+
+  return { ...summarizeGenerated({ ...created, version }), reused };
 };
 
 export const listGeneratedDocuments = async (
@@ -854,11 +932,10 @@ export const getGeneratedDocument = async (
     },
   });
 
-  if (!row) throw denied("documento non trovato");
+  if (!row) throw notFound();
   ensureOrganizationAccess(scope, row.organization_id);
 
   if (
-    scope.role !== undefined &&
     !canReadGeneratedDocument(
       scope.role,
       { sensitivity: row.sensitivity || [], generated_by: row.generated_by },
@@ -892,8 +969,25 @@ export const advanceGeneratedDocument = async (
     include: { version: { select: { version: true, title: true } } },
   });
 
-  if (!row) throw denied("documento non trovato");
+  if (!row) throw notFound();
   ensureOrganizationAccess(scope, row.organization_id);
+
+  /*
+    **Chi non puo leggerlo non puo nemmeno toccarlo.** Prima qui bastava
+    appartenere ai ruoli di segreteria: chi non poteva aprire un'attestazione
+    con gli importi poteva comunque archiviarla, e la risposta gli restituiva
+    il nome del soggetto e le classi sensibili. Un permesso di scrittura piu
+    largo di quello di lettura non e mai stato una scelta: era una svista.
+  */
+  if (
+    !canReadGeneratedDocument(
+      scope.role,
+      { sensitivity: row.sensitivity || [], generated_by: row.generated_by },
+      scope.userId,
+    )
+  ) {
+    throw denied("questo documento contiene dati che il tuo ruolo non vede");
+  }
 
   const target = asText(input.status).toLowerCase();
   if (!isGeneratedDocumentStatus(target)) {
@@ -908,10 +1002,32 @@ export const advanceGeneratedDocument = async (
 
   const signedAttachmentId = asText(input.signedAttachmentId) || null;
 
-  if (requiresSignedAttachment(target) && !signedAttachmentId) {
-    throw new Error(
-      "Per dire «firmato» serve la copia firmata: caricala e riprova",
-    );
+  if (requiresSignedAttachment(target)) {
+    if (!signedAttachmentId) {
+      throw new Error(
+        "Per dire «firmato» serve la copia firmata: caricala e riprova",
+      );
+    }
+
+    /*
+      **E la copia firmata deve esistere, e deve essere di questo club.**
+      Prima l'identificativo veniva conservato cosi com'era: bastava mandare un
+      UUID inventato per portare un documento in «firmato», e lo stato che
+      ADR-0091 definisce come «e rientrata una copia» diventava esattamente
+      quella spunta che l'ADR dice di non fare. La colonna non ha una chiave
+      esterna — un allegato si puo cancellare, e il documento storico non deve
+      diventare incancellabile per questo — quindi il controllo va fatto qui.
+    */
+    const attachment = await (prisma as any).attachment.findFirst({
+      where: { id: signedAttachmentId, organization_id: row.organization_id },
+      select: { id: true },
+    });
+
+    if (!attachment) {
+      throw denied(
+        "la copia firmata indicata non esiste, o appartiene a un altro club",
+      );
+    }
   }
 
   const updated = await (prisma as any).generatedDocument.update({
@@ -955,10 +1071,7 @@ export const loadPublishableVersion = async (
     );
   }
 
-  if (
-    scope.role !== undefined &&
-    !canGenerateDocumentWithSensitivity(scope.role, version.sensitivity || [])
-  ) {
+  if (!canGenerateDocumentWithSensitivity(scope.role, version.sensitivity || [])) {
     throw new Error(
       explainGenerationDenial(scope.role, version.sensitivity || []) ||
         "Accesso negato",

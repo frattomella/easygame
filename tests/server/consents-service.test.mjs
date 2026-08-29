@@ -166,14 +166,14 @@ test("accettazione, revoca, riaccettazione: tre righe, e la revoca non cancella"
   const { definizione } = await definizioneAttiva();
 
   await decidi(scopeA(), definizione.id, "accepted", {
-    decidedAt: "2026-09-01T10:00:00.000Z",
+    decidedAt: "2025-09-01T10:00:00.000Z",
   });
   await decidi(scopeA(), definizione.id, "revoked", {
-    decidedAt: "2027-01-15T09:00:00.000Z",
+    decidedAt: "2026-01-15T09:00:00.000Z",
     note: "Richiesta della famiglia",
   });
   const terza = await decidi(scopeA(), definizione.id, "accepted", {
-    decidedAt: "2027-03-02T08:30:00.000Z",
+    decidedAt: "2026-03-02T08:30:00.000Z",
   });
 
   // Tre righe in archivio: nessuna e stata sostituita.
@@ -222,17 +222,17 @@ test("non si revoca un consenso che non risulta dato", async () => {
   );
 
   await decidi(scopeA(), definizione.id, "accepted", {
-    decidedAt: "2026-09-01T10:00:00.000Z",
+    decidedAt: "2025-09-01T10:00:00.000Z",
   });
   await decidi(scopeA(), definizione.id, "revoked", {
-    decidedAt: "2026-10-01T10:00:00.000Z",
+    decidedAt: "2025-10-01T10:00:00.000Z",
   });
 
   // Due revoche di fila sono un errore di chi registra, non un fatto.
   await assert.rejects(
     () =>
       decidi(scopeA(), definizione.id, "revoked", {
-        decidedAt: "2026-11-01T10:00:00.000Z",
+        decidedAt: "2025-11-01T10:00:00.000Z",
       }),
     /gia revocato/i,
   );
@@ -265,7 +265,7 @@ test("pubblicare V2 non invalida i record su V1: li segnala", async () => {
   const { definizione, versione } = await definizioneAttiva();
 
   await decidi(scopeA(), definizione.id, "accepted", {
-    decidedAt: "2026-09-01T10:00:00.000Z",
+    decidedAt: "2025-09-01T10:00:00.000Z",
   });
 
   const primoStato = await consents.getConsentStateForSubject(scopeA(), {
@@ -312,7 +312,7 @@ test("pubblicare V2 non invalida i record su V1: li segnala", async () => {
 
   // Riaccettato sul testo nuovo, la segnalazione sparisce.
   await decidi(scopeA(), definizione.id, "accepted", {
-    decidedAt: "2027-01-10T10:00:00.000Z",
+    decidedAt: "2026-01-10T10:00:00.000Z",
   });
   const riaccettato = await consents.getConsentStateForSubject(scopeA(), {
     definitionId: definizione.id,
@@ -482,10 +482,10 @@ test("la vista d'insieme dice chi manca e chi ha revocato", async () => {
   const privacy = await definizioneAttiva(scopeA(), "privacy");
 
   await decidi(scopeA(), immagini.definizione.id, "accepted", {
-    decidedAt: "2026-09-01T10:00:00.000Z",
+    decidedAt: "2025-09-01T10:00:00.000Z",
   });
   await decidi(scopeA(), immagini.definizione.id, "revoked", {
-    decidedAt: "2027-01-01T10:00:00.000Z",
+    decidedAt: "2026-01-01T10:00:00.000Z",
   });
 
   // Con un soggetto: una riga per **ogni** consenso, anche dove non c'e niente.
@@ -648,10 +648,10 @@ test("pubblicazione e revoca lasciano una traccia, e la revoca ha la sua", async
   const { definizione } = await definizioneAttiva();
 
   await decidi(scopeA(), definizione.id, "accepted", {
-    decidedAt: "2026-09-01T10:00:00.000Z",
+    decidedAt: "2025-09-01T10:00:00.000Z",
   });
   await decidi(scopeA(), definizione.id, "revoked", {
-    decidedAt: "2027-01-01T10:00:00.000Z",
+    decidedAt: "2026-01-01T10:00:00.000Z",
   });
 
   const azioni = fake.rows("auditLog").map((riga) => riga.action);
@@ -670,4 +670,26 @@ test("pubblicazione e revoca lasciano una traccia, e la revoca ha la sua", async
   assert.equal(revoca.organization_id, CLUB_A);
   assert.equal(revoca.metadata.chiave, "images");
   assert.equal(revoca.metadata.decisione, "revoked");
+});
+
+test("una decisione datata nel futuro viene rifiutata", async () => {
+  /*
+    Il difetto che l'audit ha dimostrato, e non era un attacco: un refuso
+    sull'anno. Lo stato attuale e l'**ultima** decisione per data, quindi
+    un'accettazione registrata con l'anno sbagliato restava l'ultima per un
+    anno intero — la famiglia revocava, l'operatore scriveva la revoca, e la
+    schermata continuava a dire «accettato». Si poteva revocare all'infinito
+    senza effetto: era l'accettazione a cancellare la revoca.
+  */
+  const { definizione } = await definizioneAttiva();
+  const domani = new Date(Date.now() + 48 * 3600_000).toISOString();
+
+  await assert.rejects(
+    () => decidi(scopeA(), definizione.id, "accepted", { decidedAt: domani }),
+    /nel futuro/i,
+  );
+
+  // E una decisione di oggi passa, cosi la tolleranza sugli orologi regge.
+  await decidi(scopeA(), definizione.id, "accepted");
+  assert.equal(fake.rows("consentRecord").length, 1);
 });

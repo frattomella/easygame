@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { getResourceById } from "./resources";
+import { buildMemberIdentity, getResourceById } from "./resources";
 import { readClubSignatureImage } from "./club-signature";
 import { loadAttendanceInputs } from "./funding";
 import {
@@ -365,42 +365,16 @@ export const buildPlaceholderValues = (
 };
 
 /**
- * Nome e cognome di una persona che vive in una collezione JSON.
+ * Nome e cognome di una persona che vive in una collezione JSON del club.
  *
- * **Perche una funzione e non un accesso ai campi.** Allenatori, staff e soci
- * sono array dentro la riga del club, scritti da schermate diverse in anni
- * diversi: la stessa persona puo avere `firstName`, `first_name` o `nome`, e
- * il cognome puo stare in `lastName`, `last_name`, `surname` o dentro `name`
- * insieme al nome. E la stessa normalizzazione che `resources.ts` applica gia
- * ai soci (`buildMemberIdentity`), e qui serve per la stessa ragione: un
- * documento intestato a «undefined undefined» non e un documento.
+ * **Chiama il proprietario, non lo ricopia.** Ne era nata una copia qui, e le
+ * due divergevano proprio dove conta: `buildMemberIdentity` neutralizza la
+ * stringa letterale «undefined undefined» — una forma storica reale del dato —
+ * la copia no. Il risultato sarebbe stato un attestato, con la firma del
+ * presidente sopra, intestato a «undefined undefined».
  */
-const readPersonIdentity = (person: Record<string, any>) => {
-  const first = firstText(
-    person.firstName,
-    person.first_name,
-    person.nome,
-  );
-  const last = firstText(
-    person.lastName,
-    person.last_name,
-    person.surname,
-    person.cognome,
-  );
-  const full = firstText(
-    person.fullName,
-    person.full_name,
-    person.name,
-    [first, last].filter(Boolean).join(" "),
-  );
-
-  return {
-    firstName: first || (full ? full.split(/\s+/)[0] || "" : ""),
-    lastName:
-      last || (full ? full.split(/\s+/).slice(1).join(" ").trim() : ""),
-    fullName: full,
-  };
-};
+const readClubPersonIdentity = (person: Record<string, any>) =>
+  buildMemberIdentity(person || {});
 
 /**
  * I valori di un documento che parla di **una persona del club**: allenatore
@@ -422,7 +396,7 @@ const buildPersonValues = (context: {
   documentTitle: string;
   now: Date;
 }): Record<string, PlaceholderValue> => {
-  const identity = readPersonIdentity(context.person);
+  const identity = readClubPersonIdentity(context.person);
   const person = context.person;
 
   const role = firstText(person.role, person.ruolo, person.position);
@@ -467,7 +441,7 @@ const buildMemberValues = (context: {
   documentTitle: string;
   now: Date;
 }): Record<string, PlaceholderValue> => {
-  const identity = readPersonIdentity(context.member);
+  const identity = readClubPersonIdentity(context.member);
   const member = context.member;
 
   return {
@@ -542,7 +516,31 @@ export const compileTemplateWithValues = ({
     .filter((key) => values[key] !== undefined && !values[key].text)
     .sort();
 
-  return { html, values: plain, unresolved, missing, used };
+  /*
+    **`values` porta soltanto cio che il modello ha davvero nominato**, e non
+    tutto quello che il risolutore sa produrre.
+
+    Il difetto che questa riga chiude era il piu grave della Wave, e l'audit lo
+    ha misurato. Il risolutore costruisce sempre la mappa **completa** per il
+    soggetto — versato, dovuto, residuo, codice fiscale del minore, recapiti
+    dei tutori — perche non sa in anticipo quali chiavi il modello usera. Se
+    quella mappa esce intera, esce anche da un modello che nomina il solo nome
+    dell'atleta: e quel modello e stato pubblicato con `sensitivity: []`,
+    quindi lo genera anche chi gli importi non li puo vedere.
+
+    Peggio: `values` finisce in `values_snapshot`, cioe **si conserva**. Il
+    documento resterebbe leggibile per sempre da chiunque, con dentro numeri
+    che nessuno gli aveva chiesto di scrivere.
+
+    Filtrando qui, `sensitivity` torna a descrivere onestamente il contenuto:
+    cio che il documento dice e cio che il documento porta.
+  */
+  const disclosed: Record<string, string> = {};
+  for (const key of used) {
+    if (plain[key] !== undefined) disclosed[key] = plain[key];
+  }
+
+  return { html, values: disclosed, unresolved, missing, used };
 };
 
 /* ================================================ la parte che legge */
@@ -792,20 +790,39 @@ const findClubPerson = (club: Record<string, any>, id: string) => {
   const wanted = asText(id);
   if (!wanted) return null;
 
+  /*
+    **Si confronta un campo solo, e se corrisponde a due righe non si sceglie.**
+
+    Prima si confrontavano quattro grafie dell'identificativo — `id`, `uuid`,
+    `user_id`, `userId` — e si prendeva la prima corrispondenza, cercando
+    prima fra gli allenatori e poi nello staff. In una ASD la stessa persona
+    ha spesso due schede, e il `user_id` di una puo coincidere con l'`id`
+    dell'altra: il documento usciva intestato alla scheda sbagliata, con nome
+    e codice fiscale di un'altra riga, e **ben formato** — quindi nessuno se
+    ne accorgeva.
+
+    Meglio rifiutare che indovinare: un documento intestato alla persona
+    sbagliata e peggio di un documento non generato.
+  */
+  const matches: Record<string, any>[] = [];
+
   for (const key of ["trainers", "staff_members"]) {
     const list = Array.isArray(club[key]) ? club[key] : [];
-    const found = list.find(
-      (entry: any) =>
-        entry &&
-        typeof entry === "object" &&
-        [entry.id, entry.uuid, entry.user_id, entry.userId]
-          .map((value) => asText(value))
-          .includes(wanted),
-    );
-    if (found) return found as Record<string, any>;
+    for (const entry of list) {
+      if (!entry || typeof entry !== "object") continue;
+      if (asText((entry as any).id) === wanted) {
+        matches.push(entry as Record<string, any>);
+      }
+    }
   }
 
-  return null;
+  if (matches.length > 1) {
+    throw new Error(
+      "L'identificativo della persona corrisponde a piu di una scheda: correggila prima di generare il documento",
+    );
+  }
+
+  return matches[0] || null;
 };
 
 const findClubMember = (club: Record<string, any>, id: string) => {

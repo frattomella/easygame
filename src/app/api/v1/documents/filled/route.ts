@@ -7,6 +7,7 @@ import { canReadDocumentTemplates } from "@/lib/documents/permissions";
 import { resolveDocumentForSubject } from "@/lib/server/document-placeholders";
 import { loadPublishableVersion } from "@/lib/server/document-templates";
 import { renderFilledDocumentHtml } from "@/lib/documents/document-view";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * L'**anteprima** di un modello compilato.
@@ -104,6 +105,19 @@ export async function GET(request: Request) {
 
     const { version } = await loadPublishableVersion(templateScope, templateId);
 
+    /*
+      **L'anteprima applica la stessa regola della generazione.** Prima non lo
+      faceva: si poteva vedere un foglio che poi il server si rifiutava di
+      produrre, e nulla nell'anteprima diceva perche. Un'anteprima che mostra
+      qualcosa di irraggiungibile e peggio di nessuna anteprima.
+    */
+    if (subjectKind !== String(version.subject_kind || "athlete")) {
+      return denied(
+        400,
+        `Questo modello parla di «${version.subject_kind}»: non si genera su un «${subjectKind}»`,
+      );
+    }
+
     const resolved = await resolveDocumentForSubject({
       template: {
         id: String(version.template_id || ""),
@@ -157,7 +171,7 @@ export async function GET(request: Request) {
       { status: 200, headers },
     );
   } catch (error: any) {
-    const message = String(error?.message || "");
+    const message = publicErrorMessage(error, "");
     if (message.includes("Accesso negato")) {
       return denied(403, message);
     }

@@ -103,6 +103,7 @@ const teachCompositeVersionLookup = () => {
         (row) =>
           row.organization_id === composite.organization_id &&
           row.batch_id === composite.batch_id &&
+          row.template_id === composite.template_id &&
           row.subject_kind === composite.subject_kind &&
           row.subject_id === composite.subject_id,
       );
@@ -459,12 +460,77 @@ test("«firmato» pretende la copia firmata", async () => {
     /copia firmata/i,
   );
 
+  // Un identificativo inventato non basta: «firmato» significa che una copia
+  // e rientrata davvero, e senza questo controllo sarebbe di nuovo una spunta.
+  await assert.rejects(
+    () =>
+      service.advanceGeneratedDocument(scope, documento.id, {
+        status: "signed",
+        signedAttachmentId: "99999999-0000-4000-8000-00000000000f",
+      }),
+    /Accesso negato/,
+  );
+
+  // E nemmeno una copia che sta in un altro club.
+  fake.rows("attachment").push({
+    id: "66666666-0000-4000-8000-00000000000f",
+    organization_id: CLUB_B,
+    owner_type: "athlete",
+    owner_id: "atleta-1",
+  });
+  await assert.rejects(
+    () =>
+      service.advanceGeneratedDocument(scope, documento.id, {
+        status: "signed",
+        signedAttachmentId: "66666666-0000-4000-8000-00000000000f",
+      }),
+    /Accesso negato/,
+  );
+
+  fake.rows("attachment").push({
+    id: "55555555-0000-4000-8000-00000000000e",
+    organization_id: CLUB_A,
+    owner_type: "athlete",
+    owner_id: "atleta-1",
+  });
+
   const firmato = await service.advanceGeneratedDocument(scope, documento.id, {
     status: "signed",
     signedAttachmentId: "55555555-0000-4000-8000-00000000000e",
   });
   assert.equal(firmato.status, "signed");
   assert.ok(firmato.signedAt);
+});
+
+test("chi non puo leggere un documento non ne cambia lo stato", async () => {
+  const direzione = scopeDirezione();
+  const segreteria = scopeSegreteria();
+
+  const creato = await nuovoModello(
+    direzione,
+    "<p>{{athlete.first_name}} — {{payment.remaining}}</p>",
+  );
+  const pubblicato = await service.publishDocumentTemplate(
+    direzione,
+    creato.id,
+  );
+  const documento = await generaDocumento(direzione, {
+    template: pubblicato,
+    version: pubblicato.versions[0],
+  });
+
+  /*
+    Prima bastava appartenere ai ruoli di segreteria: chi non poteva aprire il
+    documento poteva comunque archiviarlo, e la risposta gli restituiva il nome
+    del soggetto e le classi sensibili.
+  */
+  await assert.rejects(
+    () =>
+      service.advanceGeneratedDocument(segreteria, documento.id, {
+        status: "archived",
+      }),
+    /Accesso negato/,
+  );
 });
 
 test("uno stato che non esiste, e una transizione che non si puo fare", async () => {
@@ -524,4 +590,116 @@ test("i modelli ritirati non compaiono, a meno di chiederli", async () => {
       .length,
     1,
   );
+});
+
+/* ============================ le regressioni dell'audit di fine Wave ==== */
+
+test("il ruolo di un club non vale sui documenti di un altro", async () => {
+  /*
+    Il difetto piu grave trovato dall'audit. `ensureOrganizationAccess`
+    confrontava con **tutti** i club accessibili, mentre `role` e il ruolo del
+    club **attivo**: bastava crearsi una societa, diventarne proprietario, e
+    tenerla come club attivo per riprendere sui modelli di un'altra i permessi
+    che §13 aveva tolto.
+  */
+  const direzione = scopeDirezione();
+  const creato = await nuovoModello(direzione);
+  const pubblicato = await service.publishDocumentTemplate(
+    direzione,
+    creato.id,
+  );
+  const documento = await generaDocumento(direzione, {
+    template: pubblicato,
+    version: pubblicato.versions[0],
+  });
+
+  // Un collaboratore del club A che ha **anche** il club B, e lo tiene attivo
+  // come proprietario.
+  const doppioClub = {
+    userId: USER_SEGRETERIA,
+    activeOrganizationId: CLUB_B,
+    allowedOrganizationIds: [CLUB_A, CLUB_B],
+    role: "owner",
+  };
+
+  for (const [nome, azione] of [
+    ["leggere il modello", () => service.getDocumentTemplate(doppioClub, creato.id)],
+    [
+      "riscrivere la bozza",
+      () =>
+        service.updateDocumentTemplateDraft(doppioClub, creato.id, {
+          content: "<p>SABOTATO</p>",
+        }),
+    ],
+    ["pubblicare", () => service.publishDocumentTemplate(doppioClub, creato.id)],
+    ["cancellare", () => service.deleteDocumentTemplate(doppioClub, creato.id)],
+    [
+      "leggere il documento",
+      () => service.getGeneratedDocument(doppioClub, documento.id),
+    ],
+    [
+      "cambiarne lo stato",
+      () =>
+        service.advanceGeneratedDocument(doppioClub, documento.id, {
+          status: "archived",
+        }),
+    ],
+  ]) {
+    await assert.rejects(azione, /Accesso negato/, `${nome} deve fallire`);
+  }
+
+  // E la bozza non e stata toccata.
+  const riletto = await service.getDocumentTemplate(direzione, creato.id);
+  assert.ok(!riletto.draftContent.includes("SABOTATO"));
+});
+
+test("un identificativo inesistente e uno altrui dicono la stessa cosa", async () => {
+  const direzione = scopeDirezione();
+  const creato = await nuovoModello(direzione);
+
+  const altroClub = {
+    userId: USER_SEGRETERIA,
+    activeOrganizationId: CLUB_B,
+    allowedOrganizationIds: [CLUB_A, CLUB_B],
+    role: "owner",
+  };
+
+  const inesistente = await service
+    .getDocumentTemplate(direzione, "44444444-0000-4000-8000-00000000000d")
+    .catch((error) => error.message);
+  const altrui = await service
+    .getDocumentTemplate(altroClub, creato.id)
+    .catch((error) => error.message);
+
+  assert.equal(inesistente, altrui);
+});
+
+test("cambiare solo il soggetto crea una versione, e la schermata lo sa", async () => {
+  const scope = scopeDirezione();
+  // Un modello che nomina il solo club: valido per qualunque soggetto.
+  const creato = await service.createDocumentTemplate(scope, {
+    title: "Delibera",
+    subjectKind: "person",
+    content: "<p>{{club.name}} — {{current_date}}</p>",
+  });
+  const v1 = await service.publishDocumentTemplate(scope, creato.id);
+  assert.equal(v1.publishedVersion, 1);
+
+  const conSoggettoNuovo = await service.updateDocumentTemplateDraft(
+    scope,
+    creato.id,
+    { subjectKind: "athlete" },
+  );
+
+  /*
+    Prima il confronto guardava solo titolo e contenuto: la riga diceva
+    «atleta», la versione pubblicata «persona», la schermata abilitava la
+    generazione e il server la rifiutava — senza che «ci sono modifiche non
+    pubblicate» comparisse mai.
+  */
+  assert.equal(conSoggettoNuovo.hasUnpublishedChanges, true);
+
+  const v2 = await service.publishDocumentTemplate(scope, creato.id);
+  assert.equal(v2.publishedVersion, 2);
+  assert.equal(v2.versions[0].version, 2);
 });

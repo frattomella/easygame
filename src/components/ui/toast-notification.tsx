@@ -43,16 +43,30 @@ export function Toast({ type, message, onClose }: ToastProps) {
   };
 
   return (
+    /*
+      **Annunciato, non solo mostrato.** Questo componente non aveva ne `role`
+      ne `aria-live`: chi usa uno screen reader compiva l'azione e non sentiva
+      niente — mentre le schermate che usano il toast di Radix sentivano tutto.
+      La stessa azione, annunciata su una pagina e muta sull'altra.
+
+      `alert` per un errore (interrompe), `status` per il resto (attende una
+      pausa): un errore che aspetta il proprio turno arriva quando la persona
+      ha gia premuto il pulsante una seconda volta.
+    */
     <div
+      role={type === "error" ? "alert" : "status"}
+      aria-live={type === "error" ? "assertive" : "polite"}
       className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-lg border p-4 shadow-md ${getBackgroundColor()}`}
     >
       {getIcon()}
       <p className="flex-1 text-sm">{message}</p>
       <button
+        type="button"
         onClick={onClose}
+        aria-label="Chiudi la notifica"
         className="rounded-full p-1 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300"
       >
-        <X className="h-4 w-4" />
+        <X className="h-4 w-4" aria-hidden="true" />
       </button>
     </div>
   );

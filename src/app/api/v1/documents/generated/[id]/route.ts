@@ -13,6 +13,7 @@ import {
   getGeneratedDocument,
 } from "@/lib/server/document-templates";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * Un documento gia generato: rileggilo com'era, o portane avanti lo stato.
@@ -92,7 +93,7 @@ export async function GET(request: Request, context: Context) {
 
     return NextResponse.json({ data: document, error: null }, { headers });
   } catch (error: any) {
-    const message = String(error?.message || "Documento non trovato");
+    const message = publicErrorMessage(error, "Documento non trovato");
     return fail(message.includes("Accesso negato") ? 403 : 400, message);
   }
 }
@@ -140,7 +141,7 @@ export async function PATCH(request: Request, context: Context) {
 
     return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    const message = String(error?.message || "Impossibile aggiornare");
+    const message = publicErrorMessage(error, "Impossibile aggiornare");
     return fail(message.includes("Accesso negato") ? 403 : 400, message);
   }
 }

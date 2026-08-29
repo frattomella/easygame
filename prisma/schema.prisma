@@ -2145,7 +2145,7 @@ model DocumentTemplate {
   generated         GeneratedDocument[]
 
   @@index([organization_id, status])
-  @@index([organization_id, catalog_key])
+  @@unique([organization_id, catalog_key], name: "document_templates_catalog_key")
   @@map("document_templates_v2")
 }
 
@@ -2251,7 +2251,7 @@ model GeneratedDocument {
   /// L'idempotenza del lotto, e la ragione per cui un nuovo tentativo rigenera
   /// **solo** i falliti: dentro lo stesso `batch_id` un soggetto compare una
   /// volta sola.
-  @@unique([organization_id, batch_id, subject_kind, subject_id], name: "generated_documents_batch_subject")
+  @@unique([organization_id, batch_id, template_id, subject_kind, subject_id], name: "generated_documents_batch_subject")
   @@index([organization_id, subject_kind, subject_id])
   @@index([organization_id, template_id])
   @@index([organization_id, generated_at])

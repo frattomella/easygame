@@ -402,8 +402,16 @@ const toIso = (value: unknown): string | null => {
 const compareRecords = (left: ConsentRecordInput, right: ConsentRecordInput) => {
   const decidedLeft = toTime(left.decidedAt);
   const decidedRight = toTime(right.decidedAt);
-  const safeLeft = Number.isNaN(decidedLeft) ? Number.NEGATIVE_INFINITY : decidedLeft;
-  const safeRight = Number.isNaN(decidedRight) ? Number.NEGATIVE_INFINITY : decidedRight;
+  /*
+    **Una data illeggibile va in cima, non in fondo.**
+
+    Con `-Infinity` una revoca la cui data si fosse corrotta finiva prima di
+    qualunque accettazione, e quindi non contava piu: una riga di cui non si sa
+    la data non deve poter **sparire**. Spingendola in avanti resta l ultima —
+    cioe visibile, e sospetta, che e cio che serve a chi la guarda.
+  */
+  const safeLeft = Number.isNaN(decidedLeft) ? Number.POSITIVE_INFINITY : decidedLeft;
+  const safeRight = Number.isNaN(decidedRight) ? Number.POSITIVE_INFINITY : decidedRight;
   if (safeLeft !== safeRight) return safeLeft - safeRight;
 
   const createdLeft = toTime(left.createdAt);

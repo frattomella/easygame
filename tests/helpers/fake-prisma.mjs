@@ -305,11 +305,23 @@ const UNIQUE_CONSTRAINTS = {
   documentTemplateVersion: [["template_id", "version"]],
   generatedDocument: [
     {
-      fields: ["organization_id", "batch_id", "subject_kind", "subject_id"],
+      fields: [
+        "organization_id",
+        "batch_id",
+        "template_id",
+        "subject_kind",
+        "subject_id",
+      ],
       quando: (row) => row.batch_id !== null && row.batch_id !== undefined,
     },
   ],
   consentDefinition: [["organization_id", "key"]],
+  documentTemplate: [
+    {
+      fields: ["organization_id", "catalog_key"],
+      quando: (row) => row.catalog_key !== null && row.catalog_key !== undefined,
+    },
+  ],
   consentVersion: [["definition_id", "version"]],
 };
 

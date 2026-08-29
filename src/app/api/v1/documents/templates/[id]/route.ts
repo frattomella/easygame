@@ -15,6 +15,7 @@ import {
   updateDocumentTemplateDraft,
 } from "@/lib/server/document-templates";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * Un modello: leggilo, correggine la bozza, ritiralo, cancellalo.
@@ -36,7 +37,7 @@ const fail = (status: number, message: string) =>
   NextResponse.json({ data: null, error: { message } }, { status });
 
 const failure = (error: any, fallback: string) => {
-  const message = String(error?.message || fallback);
+  const message = publicErrorMessage(error, fallback);
   const status = message.includes("Accesso negato") ? 403 : 400;
   return NextResponse.json(
     {
@@ -105,9 +106,10 @@ export async function PATCH(request: Request, context: Context) {
         description: body?.description,
         subjectKind: body?.subject_kind ?? body?.subjectKind,
         content: body?.content,
-        editorialOwner: body?.editorial_owner ?? body?.editorialOwner,
+        // La provenienza redazionale la scrive solo la rotta di adozione dal
+        // catalogo (ADR-0092): qui si correggono le note del club, non le
+        // garanzie di EasyGame.
         editorialNotes: body?.editorial_notes ?? body?.editorialNotes,
-        lastReviewedAt: body?.last_reviewed_at ?? body?.lastReviewedAt,
       },
     );
 
@@ -164,7 +166,13 @@ export async function DELETE(request: Request, context: Context) {
       actorUserId: session.db.user_id,
       actorEmail: session.db.user.email,
       actorRole: scope.activeRole,
-      organizationId: scope.activeOrganizationId,
+      /*
+        Il club della **riga cancellata**, non quello attivo. Erano lo stesso
+        finche il confine non era stato stretto; adesso lo sono sempre, ma un
+        registro che attribuisce un atto distruttivo al club sbagliato e un
+        registro che non serve proprio nel giorno in cui serve.
+      */
+      organizationId: data.organizationId,
       resource: "document_templates",
       resourceId: data.id,
     });

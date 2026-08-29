@@ -48,12 +48,24 @@ test("i modelli li legge chi lavora in segreteria, non l'allenatore", () => {
 });
 
 test("la pagina Modulistica e la rotta dicono la stessa cosa", () => {
-  // La pagina.
+  /*
+    La pagina **si apre** anche alla segreteria, ed e la correzione dell'audit
+    di fine Wave. Chiuderla a proprietario e gestore rendeva irraggiungibili
+    quattro righe della matrice del §13 — vedere i modelli, generare cio che
+    non porta dati delicati, la generazione massiva, rileggere i propri
+    documenti — e faceva vedere al collaboratore una voce di menu che lo
+    rimbalzava senza una parola.
+
+    Il difetto vero di `W3-14` erano le **rotte**, ed e li che resta chiuso:
+    un modello lo scrive la direzione, e nessun ruolo lo tocca dal CRUD
+    generico.
+  */
   assert.equal(canAccessPath("owner", "/modulistica"), true);
   assert.equal(canAccessPath("club_manager", "/modulistica"), true);
-  assert.equal(canAccessPath("collaborator", "/modulistica"), false);
-  assert.equal(canAccessPath("staff", "/modulistica"), false);
+  assert.equal(canAccessPath("collaborator", "/modulistica"), true);
+  assert.equal(canAccessPath("staff", "/modulistica"), true);
   assert.equal(canAccessPath("trainer", "/modulistica"), false);
+  assert.equal(canAccessPath("parent", "/modulistica"), false);
 
   // La rotta del CRUD generico, che e da dove la sonda otteneva i suoi 200.
   for (const azione of ["create", "update", "delete"]) {

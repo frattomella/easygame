@@ -19,6 +19,7 @@ import {
   publishDocumentTemplate,
 } from "@/lib/server/document-templates";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * Il catalogo dei modelli di piattaforma, e l'adozione di una voce.
@@ -103,7 +104,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    const message = String(error?.message || "Impossibile leggere il catalogo");
+    const message = publicErrorMessage(error, "Impossibile leggere il catalogo");
     return fail(message.includes("Accesso negato") ? 403 : 400, message);
   }
 }
@@ -187,7 +188,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ data: attivo, error: null }, { status: 201 });
   } catch (error: any) {
-    const message = String(error?.message || "Impossibile adottare il modello");
+    const message = publicErrorMessage(error, "Impossibile adottare il modello");
     return fail(message.includes("Accesso negato") ? 403 : 400, message);
   }
 }

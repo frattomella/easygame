@@ -143,6 +143,14 @@ export default function ConsensiPage() {
   const [definizioni, setDefinizioni] = useState<Definizione[]>([]);
   const [selezionata, setSelezionata] = useState<string>("");
   const [decisioni, setDecisioni] = useState<Decisione[]>([]);
+  /*
+    **«Non ha firmato nessuno» e «non sono riuscito a chiedere» non sono la
+    stessa risposta**, e su un registro dei consensi la differenza conta: la
+    prima si legge e si va avanti, la seconda va riprovata. Una lettura fallita
+    finiva in un elenco vuoto, cioe raccontava una cosa falsa con l aria di
+    saperla.
+  */
+  const [erroreDecisioni, setErroreDecisioni] = useState<string | null>(null);
   const [stati, setStati] = useState<Stato[]>([]);
   const [caricamento, setCaricamento] = useState(true);
   const [occupato, setOccupato] = useState("");
@@ -194,12 +202,21 @@ export default function ConsensiPage() {
   const caricaDecisioni = useCallback(async (definitionId: string) => {
     if (!definitionId) {
       setDecisioni([]);
+      setErroreDecisioni(null);
       return;
     }
     const risposta = await apiRequest<Decisione[]>(
       `/api/v1/consents/${definitionId}/records?limit=50`,
     );
-    setDecisioni(risposta.error || !Array.isArray(risposta.data) ? [] : risposta.data);
+    if (risposta.error || !Array.isArray(risposta.data)) {
+      setDecisioni([]);
+      setErroreDecisioni(
+        risposta.error?.message || "Non sono riuscito a leggere le decisioni",
+      );
+      return;
+    }
+    setErroreDecisioni(null);
+    setDecisioni(risposta.data);
   }, []);
 
   useEffect(() => {
@@ -375,7 +392,17 @@ export default function ConsensiPage() {
               subtitle="Cosa il club chiede di acconsentire, con quale testo, e chi ha detto di si. Una revoca non cancella niente: aggiunge una riga."
             />
 
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+            {/*
+              `grid-cols-1` alla base non e ridondante, ed e la correzione di
+              un difetto misurato a 375 px: senza una definizione di colonne,
+              la traccia implicita e `auto` e cresce oltre il contenitore. La
+              pagina restava larga 375 — quindi il controllo strutturale
+              passava — ma sessantasette elementi arrivavano a 502 px e
+              venivano **tagliati** da `overflow-x-hidden`, senza possibilita
+              di raggiungerli scorrendo. Il `minmax(0,…)` che lo impedisce era
+              scritto solo sotto `lg:`.
+            */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
               {/* ---------------------------------------------- elenco */}
               <div className="flex flex-col gap-4">
                 <Card>
@@ -714,7 +741,27 @@ export default function ConsensiPage() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        {decisioni.length === 0 ? (
+                        {erroreDecisioni ? (
+                          <div
+                            role="alert"
+                            className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                          >
+                            <span>{erroreDecisioni}</span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="self-start"
+                              onClick={() => {
+                                caricaDecisioni(selezionata).catch(
+                                  () => undefined,
+                                );
+                              }}
+                            >
+                              Riprova
+                            </Button>
+                          </div>
+                        ) : decisioni.length === 0 ? (
                           <p className="text-sm text-slate-500">
                             Nessuna decisione registrata per questo consenso.
                           </p>

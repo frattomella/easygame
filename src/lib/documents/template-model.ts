@@ -277,8 +277,24 @@ export const validateTemplateDraft = (
  * perche «versione 0» non e una cosa che si dice a una persona.
  */
 export const nextTemplateVersion = (publishedVersion: unknown) => {
-  const current = Number(publishedVersion || 0);
-  return Number.isFinite(current) && current > 0 ? Math.trunc(current) + 1 : 1;
+  const current = Number(publishedVersion ?? 0);
+
+  /*
+    **Un valore che non si sa leggere non diventa «uno».**
+
+    Prima `NaN`, `-7` e `"ciao"` tornavano tutti 1, cioe il numero di una
+    versione che quasi certamente esiste gia: la scrittura sarebbe fallita con
+    il messaggio grezzo del vincolo unico. Una funzione che dichiara di essere
+    «l'unico posto in cui si decide» deve difendere il proprio contratto, non
+    fingere che l'ingresso sporco sia zero.
+  */
+  if (!Number.isFinite(current) || current < 0) {
+    throw new Error(
+      `Numero di versione non leggibile: ${String(publishedVersion)}`,
+    );
+  }
+
+  return current > 0 ? Math.trunc(current) + 1 : 1;
 };
 
 /**

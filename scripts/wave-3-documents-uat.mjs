@@ -464,15 +464,16 @@ const main = async () => {
 
     // Scenario 4 — la copia adottata e del club (catalogo: verificato sul
     // campo `catalog_key`, che resta quello di partenza ma non lega niente).
-    const copia = await OWNER("/api/v1/documents/templates", {
+    /*
+      Si adotta dalla **rotta del catalogo**, e non creando un modello con la
+      chiave nel corpo: la provenienza redazionale — classe, chi risponde del
+      testo, quando e stato riletto — la scrive solo quella rotta, o un club
+      potrebbe dichiarare un proprio modello «classe A, redazione EasyGame,
+      riletto oggi».
+    */
+    const copia = await OWNER("/api/v1/documents/catalog", {
       method: "POST",
-      body: {
-        title: "Copia dal catalogo",
-        subject_kind: "athlete",
-        content: "<p>{{club.name}}</p>",
-        catalog_key: "attestazione-frequenza",
-        catalog_class: "A",
-      },
+      body: { key: "attestazione-frequenza" },
     });
     await OWNER(`/api/v1/documents/templates/${copia.data.id}`, {
       method: "PATCH",
@@ -484,8 +485,31 @@ const main = async () => {
     check(
       "4. una copia adottata dal catalogo e del club e si modifica",
       /modificata dal club/.test(copiaRiletta.data?.draftContent || "") &&
-        copiaRiletta.data?.catalogKey === "attestazione-frequenza",
-      "",
+        copiaRiletta.data?.catalogKey === "attestazione-frequenza" &&
+        copiaRiletta.data?.catalogClass === "A" &&
+        Boolean(copiaRiletta.data?.editorialOwner) &&
+        Boolean(copiaRiletta.data?.lastReviewedAt),
+      `classe ${copiaRiletta.data?.catalogClass}, redazione ${copiaRiletta.data?.editorialOwner}`,
+    );
+
+    const doppiaAdozione = await OWNER("/api/v1/documents/catalog", {
+      method: "POST",
+      body: { key: "attestazione-frequenza" },
+    });
+    check(
+      "4b. la stessa voce non si adotta due volte",
+      doppiaAdozione.status === 409,
+      `status ${doppiaAdozione.status}`,
+    );
+
+    const nonDistribuita = await OWNER("/api/v1/documents/catalog", {
+      method: "POST",
+      body: { key: "informativa-consenso-privacy" },
+    });
+    check(
+      "4c. una voce di classe C non si adotta, e non si distingue da una che non esiste",
+      nonDistribuita.status === 404,
+      `status ${nonDistribuita.status} — ${nonDistribuita.error?.message || ""}`,
     );
 
     /* ============================ 19.2 — SEGNAPOSTO E SOGGETTI ========= */
@@ -1314,6 +1338,229 @@ const main = async () => {
     );
 
     /* ================================== 19.7 — TRASVERSALI ============= */
+
+    /* ================ 19.8 — LE REGRESSIONI DELL'AUDIT ============= */
+
+    group("19.8 — Le regressioni dell audit di fine Wave");
+
+    /*
+      Il difetto piu grave trovato dalle quattro revisioni. Il confine
+      confrontava con **tutti** i club accessibili, mentre il ruolo e quello
+      del club **attivo**: chiunque poteva crearsi una societa, diventarne
+      proprietario, tenerla come club attivo, e riprendere sui modelli di
+      un'altra i permessi che §13 gli aveva tolto.
+
+      Qui il collaboratore del club A viene reso **proprietario** del club B
+      e lavora con B attivo sugli identificativi di A.
+    */
+    await prisma.organizationUser.create({
+      data: {
+        organization_id: B.club.id,
+        user_id: collaboratore.user.id,
+        role: "owner",
+      },
+    });
+
+    const DOPPIO = (path, options = {}) =>
+      call(collaboratore.token, path, {
+        clubId: B.club.id,
+        role: "owner",
+        ...options,
+      });
+
+    const attraversamenti = [
+      [
+        "leggere il modello",
+        await DOPPIO(`/api/v1/documents/templates/${modello.id}`),
+      ],
+      [
+        "riscrivere la bozza",
+        await DOPPIO(`/api/v1/documents/templates/${modello.id}`, {
+          method: "PATCH",
+          body: { content: "<p>SABOTATO</p>" },
+        }),
+      ],
+      [
+        "pubblicare",
+        await DOPPIO(`/api/v1/documents/templates/${modello.id}/publish`, {
+          method: "POST",
+        }),
+      ],
+      [
+        "cancellare",
+        await DOPPIO(`/api/v1/documents/templates/${modello.id}`, {
+          method: "DELETE",
+        }),
+      ],
+      [
+        "leggere il documento",
+        await DOPPIO(`/api/v1/documents/generated/${documentoA.id}`),
+      ],
+      [
+        "cambiarne lo stato",
+        await DOPPIO(`/api/v1/documents/generated/${documentoA.id}`, {
+          method: "PATCH",
+          body: { status: "archived" },
+        }),
+      ],
+    ];
+
+    check(
+      "39. il ruolo di un club non vale sui documenti di un altro",
+      attraversamenti.every(([, esito]) => esito.status === 403),
+      attraversamenti
+        .filter(([, esito]) => esito.status !== 403)
+        .map(([nome, esito]) => `${nome}: ${esito.status}`)
+        .join(", ") || "sei tentativi, sei 403",
+    );
+
+    const bozzaIntatta = await OWNER(
+      `/api/v1/documents/templates/${modello.id}`,
+    );
+    check(
+      "39b. e la bozza non e stata toccata",
+      !/SABOTATO/.test(bozzaIntatta.data?.draftContent || ""),
+      "",
+    );
+
+    /*
+      Il secondo difetto piu grave: il risolutore costruisce sempre la mappa
+      completa per il soggetto, e quella mappa usciva **intera** — importi e
+      codice fiscale compresi — anche da un modello che nomina il solo nome,
+      pubblicato con `sensitivity: []` e quindi generabile da chi gli importi
+      non li puo vedere. E finiva in `values_snapshot`, cioe si conservava.
+    */
+    const neutro = await OWNER("/api/v1/documents/templates", {
+      method: "POST",
+      body: {
+        title: "Modello senza importi",
+        subject_kind: "athlete",
+        content: "<p>{{athlete.first_name}}</p>",
+      },
+    });
+    await OWNER(`/api/v1/documents/templates/${neutro.data.id}/publish`, {
+      method: "POST",
+    });
+
+    const anteprimaNeutra = await COLLAB(
+      `/api/v1/documents/filled?templateId=${neutro.data.id}&athleteId=${mario.id}`,
+    );
+    const chiaviEsposte = Object.keys(anteprimaNeutra.data?.values || {});
+    check(
+      "40. un documento porta solo i valori che ha davvero nominato",
+      anteprimaNeutra.status === 200 &&
+        chiaviEsposte.length === 1 &&
+        chiaviEsposte[0] === "athlete.first_name",
+      `esposte: ${chiaviEsposte.join(", ")}`,
+    );
+
+    const generatoNeutro = await COLLAB("/api/v1/documents/generated", {
+      method: "POST",
+      body: {
+        template_id: neutro.data.id,
+        subjects: [{ kind: "athlete", id: mario.id }],
+      },
+    });
+    const rilettoNeutro = await OWNER(
+      `/api/v1/documents/generated/${generatoNeutro.data?.produced?.[0]?.id}`,
+    );
+    check(
+      "40b. e nemmeno la copia conservata li porta",
+      !("payment.total_paid" in (rilettoNeutro.data?.valuesSnapshot || {})),
+      JSON.stringify(Object.keys(rilettoNeutro.data?.valuesSnapshot || {})),
+    );
+
+    /* Il messaggio dell ORM non esce piu da nessuna rotta documentale. */
+    const malformato = await OWNER("/api/v1/documents/templates/non-un-uuid");
+    const malformatoDoc = await OWNER(
+      "/api/v1/documents/generated/non-un-uuid",
+    );
+    check(
+      "41. un identificativo malformato non racconta lo schema",
+      [malformato, malformatoDoc].every(
+        (esito) =>
+          !/prisma|ConnectorError|PostgresError|invalid input syntax/i.test(
+            esito.error?.message || "",
+          ),
+      ),
+      `${malformato.error?.message} / ${malformatoDoc.error?.message}`,
+    );
+
+    /* «Firmato» non si raggiunge con un allegato che non esiste. */
+    const daFirmare = generatoNeutro.data?.produced?.[0]?.id;
+    await OWNER(`/api/v1/documents/generated/${daFirmare}`, {
+      method: "PATCH",
+      body: { status: "awaiting_signature" },
+    });
+    const firmaInventata = await OWNER(
+      `/api/v1/documents/generated/${daFirmare}`,
+      {
+        method: "PATCH",
+        body: {
+          status: "signed",
+          signed_attachment_id: "99999999-0000-4000-8000-00000000000f",
+        },
+      },
+    );
+    check(
+      "42. «firmato» pretende una copia che esiste, in questo club",
+      firmaInventata.status === 403 || firmaInventata.status === 400,
+      `status ${firmaInventata.status} — ${firmaInventata.error?.message || ""}`,
+    );
+
+    /* Un lotto riusato su due modelli non restituisce il documento dell altro. */
+    const lottoCondiviso = `uat-w3-${randomUUID()}`;
+    const primoModello = await OWNER("/api/v1/documents/generated", {
+      method: "POST",
+      body: {
+        template_id: modello.id,
+        batch_id: lottoCondiviso,
+        subjects: [{ kind: "athlete", id: mario.id }],
+      },
+    });
+    const secondoModello = await OWNER("/api/v1/documents/generated", {
+      method: "POST",
+      body: {
+        template_id: neutro.data.id,
+        batch_id: lottoCondiviso,
+        subjects: [{ kind: "athlete", id: mario.id }],
+      },
+    });
+    check(
+      "43. uno stesso lotto su due modelli produce due documenti distinti",
+      secondoModello.data?.produced?.[0]?.templateId === neutro.data.id &&
+        secondoModello.data?.produced?.[0]?.id !==
+          primoModello.data?.produced?.[0]?.id,
+      `modello del secondo: ${secondoModello.data?.produced?.[0]?.templateId}`,
+    );
+
+    /* Una decisione di consenso datata nel futuro non entra. */
+    const domani = new Date(Date.now() + 48 * 3600_000).toISOString();
+    const consensoFuturo = await OWNER(
+      `/api/v1/consents/${definizioneId}/records`,
+      {
+        method: "POST",
+        body: {
+          subject_kind: "athlete",
+          subject_id: mario.id,
+          status: "accepted",
+          decided_at: domani,
+        },
+      },
+    );
+    check(
+      "44. una decisione datata nel futuro non maschera una revoca",
+      consensoFuturo.status >= 400,
+      `status ${consensoFuturo.status} — ${consensoFuturo.error?.message || ""}`,
+    );
+
+    /* La segreteria puo aprire Modulistica: la matrice del §13 e reale. */
+    const paginaCollaboratore = await COLLAB("/api/v1/documents/templates");
+    check(
+      "45. il collaboratore vede i modelli, e la matrice non e piu teorica",
+      paginaCollaboratore.status === 200,
+      `status ${paginaCollaboratore.status}`,
+    );
 
     group("19.7 — Trasversali");
 

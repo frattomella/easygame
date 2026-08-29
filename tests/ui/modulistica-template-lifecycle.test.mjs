@@ -42,6 +42,8 @@ const readCode = (...segments) =>
 
 const PAGE = readCode("app", "modulistica", "page.tsx");
 const EDITOR = readCode("components", "forms", "DocumentEditor.tsx");
+const CLIENT = readCode("lib", "api", "documents.ts");
+const VIEW = readCode("lib", "documents", "document-view.ts");
 
 /* ------------------------------------------------ un motore solo, il nuovo */
 
@@ -250,6 +252,236 @@ test("un documento generato si riapre com'era, senza rigenerarlo", () => {
     "si apre la resa conservata: modificare un modello non cambia un documento gia consegnato",
   );
   assert.ok(PAGE.includes("Documenti generati"));
+});
+
+/* --------------------------------------------- il catalogo ha una porta */
+
+/**
+ * **Il difetto, per nome.** `GET`/`POST /api/v1/documents/catalog`
+ * funzionavano, erano nel registro e avevano i test — e non li chiamava
+ * nessuna riga di client. Delle sei voci distribuite, cinque erano
+ * irraggiungibili: l'unica adozione possibile era un pulsante che si scriveva
+ * da se la copia dell'attestazione, senza classe redazionale, senza
+ * proprietario del testo, senza data di rilettura e senza audit.
+ */
+test("il catalogo si legge e si adotta dal client documentale", () => {
+  for (const gesto of ["listDocumentCatalog", "adoptCatalogEntry"]) {
+    assert.ok(
+      PAGE.includes(gesto),
+      `${gesto}: senza, la rotta del catalogo resta una porta murata`,
+    );
+  }
+
+  assert.match(
+    CLIENT,
+    /export const listDocumentCatalog = async/,
+    "il trasporto verso il catalogo sta nel client documentale, come tutto il resto",
+  );
+  assert.match(CLIENT, /export const adoptCatalogEntry = async/);
+});
+
+test("la scheda «Catalogo» dice classe, proprietario e data di rilettura", () => {
+  assert.match(
+    PAGE,
+    /<TabsTrigger value="catalog">Catalogo<\/TabsTrigger>/,
+    "cinque voci su sei non avevano nessuna schermata da cui prenderle",
+  );
+
+  assert.match(PAGE, /entry\.catalogClass/, "di che classe e la voce");
+  assert.match(PAGE, /entry\.editorialOwner/, "chi risponde del testo");
+  assert.match(
+    PAGE,
+    /formatDate\(entry\.lastReviewedAt\)/,
+    "da quanto tempo nessuno lo rilegge: e meta di ADR-0092",
+  );
+  assert.match(
+    PAGE,
+    /entry\.adopted \?/,
+    "una voce gia adottata si dice, non si ripropone",
+  );
+});
+
+test("la scheda «Catalogo» la vede solo chi puo adottare", () => {
+  assert.match(
+    PAGE,
+    /\{canManage \? \(\s*<TabsTrigger value="catalog">/,
+    "la pagina e aperta anche a collaboratori e staff: una vetrina che risponde «Accesso negato» e un difetto",
+  );
+  assert.match(PAGE, /canManage\s*\?\s*listDocumentCatalog\(\)/);
+});
+
+test("la seconda adozione impoverita non esiste piu", () => {
+  for (const residuo of [
+    "handleAddAttestationTemplate",
+    "buildAttestationTemplate",
+    "ATTESTATION_TEMPLATE_ID",
+    "Aggiungi attestazione",
+  ]) {
+    assert.ok(
+      !PAGE.includes(residuo),
+      `${residuo}: era la stessa adozione senza classe, proprietario, rilettura e audit`,
+    );
+  }
+});
+
+/* ------------------------------------------- il modulo vuoto, e la stampa */
+
+test("il modulo vuoto non ha una sintassi dei segnaposto tutta sua", () => {
+  assert.ok(
+    !/\{\{\\s\*/.test(PAGE),
+    "la copia in pagina era gia divergente dal proprietario: due sintassi, due documenti diversi",
+  );
+  assert.match(
+    PAGE,
+    /applyPlaceholderValues\(\{ content, rendered: BLANK_SIGNATURE_HTML \}\)/,
+    "a svuotare i segnaposto e il motore di placeholders.ts",
+  );
+  assert.ok(
+    !PAGE.includes(`'<span class="blank-field"></span>'`),
+    "BLANK_FIELD_HTML e esportato: ricopiarne il valore e come ricopiare la regex",
+  );
+});
+
+test("il modulo vuoto stampa la bozza solo dicendolo", () => {
+  assert.ok(
+    PAGE.includes("template.draftContent"),
+    "il contenuto pubblicato non lo restituisce nessuna rotta: si stampa la bozza",
+  );
+  assert.match(
+    PAGE,
+    /generateTarget\?\.hasUnpublishedChanges/,
+    "quando bozza e versione pubblicata dicono cose diverse, va detto prima di stampare",
+  );
+  assert.match(
+    PAGE,
+    /Questo modello ha modifiche non pubblicate/,
+    "un modulo cartaceo che non dice quello che dira il generato va dichiarato",
+  );
+  assert.match(
+    PAGE,
+    /Questo modello non e mai stato pubblicato/,
+    "mai pubblicato: la bozza si stampa lo stesso, ma dicendolo",
+  );
+});
+
+test("la pagina non ha un terzo foglio di stile di stampa", () => {
+  for (const regola of ["@page", "794px", "size: A4", "margin: 18mm"]) {
+    assert.ok(
+      !PAGE.includes(regola),
+      `«${regola}» e in document-view.ts: due fogli di stile divergono, e lo stesso modello si stampa in due impaginazioni`,
+    );
+  }
+
+  assert.match(
+    PAGE,
+    /renderBlankFormHtml\(\{/,
+    "la pagina stampabile la compone il proprietario dei documenti stampabili",
+  );
+  assert.match(
+    VIEW,
+    /export const PRINTABLE_DOCUMENT_STYLESHEET/,
+    "una sola definizione, e si esporta",
+  );
+  assert.equal(
+    (VIEW.match(/@page \{ size: A4; margin: 18mm; \}/g) || []).length,
+    1,
+    "anche dentro il proprietario, una volta sola",
+  );
+});
+
+test("la stampa non parte a tempo, la fa partire chi guarda", () => {
+  assert.ok(
+    !/setTimeout\([\s\S]{0,80}print\(\)/.test(PAGE),
+    "una finestra di stampa che parte prima dell'impaginazione mostra la cosa sbagliata",
+  );
+  assert.ok(
+    !PAGE.includes("printHtmlPage"),
+    "la stampa temporizzata era una seconda strada accanto a quella del fascicolo",
+  );
+  assert.match(
+    PAGE,
+    /openBundleWindow\(\)/,
+    "la finestra si apre nel gestore del clic, prima di ogni await, o il browser la blocca",
+  );
+  assert.match(PAGE, /renderBundleInto\(/);
+  assert.match(PAGE, /openPrintableBundle\(/);
+});
+
+/* ------------------------- le azioni hanno un nome, e stati che le ammettono */
+
+test("il menu azioni di ogni modello dice su cosa agisce (H6)", () => {
+  assert.match(
+    PAGE,
+    /aria-label=\{`Azioni su \$\{template\.title\}`\}/,
+    "era l'unica via a Modifica/Pubblica/Ritira/Elimina, ripetuta N volte senza nome",
+  );
+  assert.match(
+    PAGE,
+    /<MoreVertical className="h-4 w-4" aria-hidden \/>/,
+    "l'icona non deve essere letta due volte accanto all'etichetta",
+  );
+
+  const iconeParlanti = PAGE.match(
+    /<(Download|Users|Edit|Trash2|MoreVertical|RotateCcw|Upload) className="[^"]*"\s*\/>/g,
+  );
+  assert.equal(
+    iconeParlanti,
+    null,
+    `icone decorative senza aria-hidden: ${iconeParlanti?.join(", ")}`,
+  );
+});
+
+test("non si offre un gesto che il server rifiutera (M1)", () => {
+  assert.match(
+    PAGE,
+    /\) : template\.status === "active" \? \(/,
+    "«Ritira» su una bozza faceva rispondere 400: le transizioni sono draft→active, active→retired",
+  );
+
+  assert.match(
+    PAGE,
+    /const canProduceFilled = \(template: DocumentTemplateSummary\) =>\s*\n\s*template\.status !== "retired" && template\.publishedVersion > 0;/,
+    "sono le due condizioni di loadPublishableVersion, dette con le stesse parole",
+  );
+  assert.match(
+    PAGE,
+    /\?\s*"Genera documento"\s*\n?\s*:\s*"Stampa il modulo vuoto"/,
+    "su una bozza il gesto possibile e uno solo, e l'etichetta lo deve dire",
+  );
+  assert.match(
+    PAGE,
+    /!canProduceFilled\(generateTarget\)/,
+    "«Genera compilato» era offerto anche su bozze e ritirati",
+  );
+  assert.match(
+    PAGE,
+    /Questo modello e ritirato/,
+    "un rifiuto va spiegato dove viene rifiutato",
+  );
+});
+
+test("i dati mancanti si dicono in italiano, non in chiavi", () => {
+  assert.match(
+    PAGE,
+    /filledPreview\.missing\.map\(describePlaceholderKey\)/,
+    "«athlete.fiscal_code» e la chiave; l'etichetta umana e gia nel catalogo",
+  );
+  /*
+    E la funzione vive nel **proprietario del catalogo**, non in pagina: la
+    useranno due componenti — l'anteprima e il dialogo del lotto — e una
+    seconda copia divergerebbe alla prima etichetta che qualcuno decide di
+    cambiare.
+  */
+  assert.match(
+    PAGE,
+    /describePlaceholderKey,[\s\S]*from "@\/lib\/documents\/placeholders"/,
+    "l'etichetta si legge dal proprietario dei segnaposto, non si riscrive qui",
+  );
+  assert.doesNotMatch(
+    PAGE,
+    /const describePlaceholderKey/,
+    "una seconda copia dell'etichetta divergerebbe dalla prima",
+  );
 });
 
 /* ------------------------------------------------------------- l'editor */

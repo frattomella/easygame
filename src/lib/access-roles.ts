@@ -87,6 +87,24 @@ const MANAGEMENT_PATH_PREFIXES = [
   "/hub",
   "/matches",
   "/medical",
+  /*
+    Modulistica resta **gestionale e non riservata alla direzione**, ed e una
+    decisione presa due volte.
+
+    La Wave 3 l'aveva chiusa a proprietario e gestore per riparare `W3-14`:
+    collaboratore e staff potevano riscrivere i modelli societari e non
+    potevano generare un documento. Ma il difetto vero erano le **rotte**, e
+    quelle adesso sono chiuse dove serve — un modello lo scrive
+    `canManageDocumentTemplates`, cioe la direzione — mentre chiudere anche la
+    pagina rendeva irraggiungibili quattro righe della matrice del §13:
+    vedere i modelli, generare cio che non porta dati delicati, la generazione
+    massiva, rileggere i propri documenti.
+
+    L'audit di fine Wave lo ha misurato: il collaboratore vedeva la voce nel
+    menu, ci cliccava, e finiva sulla dashboard **senza una parola**. Un
+    permesso che il server concede e che nessuna schermata sa esercitare non e
+    un permesso: e una riga di documentazione.
+  */
   "/modulistica",
   "/movements",
   "/notifications",
@@ -112,8 +130,6 @@ const MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES = [
   "/communications",
   "/create-club",
   "/dashboard/access-management",
-  // I modelli sono configurazione societaria: W3-14, §13 del documento 35.
-  "/modulistica",
   // La configurazione iniziale scrive dati societari: stesso perimetro di
   // /organization, quindi proprietario e club manager.
   "/onboarding",

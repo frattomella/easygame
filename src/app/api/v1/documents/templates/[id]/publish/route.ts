@@ -7,6 +7,7 @@ import {
 import { canManageDocumentTemplates } from "@/lib/documents/permissions";
 import { publishDocumentTemplate } from "@/lib/server/document-templates";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * Pubblica un modello: l'atto che congela la bozza in una versione.
@@ -82,7 +83,7 @@ export async function POST(request: Request, context: Context) {
 
     return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    const message = String(error?.message || "Impossibile pubblicare");
+    const message = publicErrorMessage(error, "Impossibile pubblicare");
     return NextResponse.json(
       {
         data: null,

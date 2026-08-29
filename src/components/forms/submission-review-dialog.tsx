@@ -83,6 +83,13 @@ export function SubmissionReviewDialog({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
 
+  /*
+    Cio che la decisione **non** e riuscita a fare. Non e un errore
+    dell'operazione — l'anagrafica e stata scritta — ed e per questo che finiva
+    in un avviso passeggero invece che qui.
+  */
+  const [issues, setIssues] = useState<string[]>([]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -140,16 +147,30 @@ export function SubmissionReviewDialog({
           : "Compilazione rifiutata",
       );
 
-      /*
-        Cio che non e riuscito si dice **a parte** e non si mescola con cio che
-        e riuscito: l'anagrafica e stata scritta, ma un consenso che non e
-        diventato un consenso e una cosa che la segreteria deve rifare a mano,
-        e non deve scoprirlo fra sei mesi.
-      */
-      for (const issue of outcome.issues || []) {
-        showToast("error", issue);
-      }
+      /* La coda si rilegge comunque: la decisione e stata presa. */
       onReviewed();
+
+      /*
+        **Cio che non e riuscito tiene aperta la finestra.**
+
+        Prima era un avviso passeggero per ognuno, e la pila degli avvisi ne
+        tiene **uno** (`TOAST_LIMIT` in `use-toast.ts`): approvando una
+        compilazione con tre consensi falliti se ne vedeva uno, per cinque
+        secondi, su un dialogo gia chiuso. Gli altri due — ognuno un consenso
+        che il club crede di aver raccolto e non ha — sparivano senza lasciare
+        traccia da nessuna parte.
+
+        Un avviso passeggero e per una cosa che si puo perdere. Questi no: sono
+        lavoro che qualcuno deve rifare a mano, e vanno letti prima di chiudere
+        — come nel dialogo «Questo modello non si puo pubblicare», che elenca
+        le ragioni una per una invece di riassumerle.
+      */
+      const problemi = (outcome.issues || []).filter(Boolean);
+      if (problemi.length) {
+        setIssues(problemi);
+        return;
+      }
+
       onClose();
     } catch (error: any) {
       showToast("error", error?.message || "Operazione non riuscita");
@@ -170,7 +191,34 @@ export function SubmissionReviewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {loading || !review ? (
+        {issues.length ? (
+          <section
+            role="alert"
+            className="space-y-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+          >
+            <h3 className="flex items-center gap-2 font-semibold">
+              <AlertTriangle className="h-4 w-4" aria-hidden />
+              La compilazione e stata registrata, ma queste cose non sono
+              riuscite
+            </h3>
+            <ul className="list-disc space-y-1 pl-5">
+              {issues.map((issue) => (
+                <li key={issue} className="break-words">
+                  {issue}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs">
+              Ognuna e da rifare a mano: qui non c&apos;e un secondo tentativo
+              automatico, e nessuno le ripropone. Segnale prima di chiudere.
+            </p>
+            <div className="flex justify-end">
+              <Button type="button" onClick={onClose}>
+                Ho capito
+              </Button>
+            </div>
+          </section>
+        ) : loading || !review ? (
           <p
             role="status"
             aria-live="polite"

@@ -114,10 +114,23 @@ test("renderBlankTemplateForPdf esiste ancora e continua a svuotare i segnaposto
     /const renderBlankTemplateForPdf = /,
     "il modulo da compilare a mano non e stato sostituito: gli si e affiancata una seconda strada",
   );
+  /*
+    L'asserzione era sulla **regex ricopiata** dalla pagina, e cosi
+    inchiodava il difetto invece del comportamento: quella copia era gia
+    divergente dall'originale (`{{\s*[^}]+}}` contro `{{\s*([^{}]+?)\s*}}`),
+    cioe la pagina accettava segnaposto che il risolutore rifiuta. Il
+    comportamento da presidiare e sempre lo stesso — un segnaposto, nel modulo
+    vuoto, resta un campo da riempire a penna — ma a svuotarlo dev'essere il
+    proprietario del catalogo, non una quarta interpretazione.
+  */
   assert.match(
     source,
-    /\.replace\(\/\{\{\\s\*\[\^\}\]\+\}\}\/g, '<span class="blank-field"><\/span>'\)/,
-    "un segnaposto, nel modulo vuoto, resta un campo da riempire a penna",
+    /applyPlaceholderValues\(\{ content, rendered: BLANK_SIGNATURE_HTML \}\)/,
+    "il modulo vuoto svuota i segnaposto con il motore di placeholders.ts",
+  );
+  assert.ok(
+    !/\{\{\\s\*/.test(source),
+    "nessuna sintassi di segnaposto riscritta in pagina: sarebbe la quinta",
   );
 });
 

@@ -13,6 +13,7 @@ import {
   listDocumentTemplates,
 } from "@/lib/server/document-templates";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 /**
  * I modelli di documento del club.
@@ -38,7 +39,7 @@ const fail = (status: number, message: string) =>
   NextResponse.json({ data: null, error: { message } }, { status });
 
 const failure = (error: any, fallback: string) => {
-  const message = String(error?.message || fallback);
+  const message = publicErrorMessage(error, fallback);
   const status = message.includes("Accesso negato") ? 403 : 400;
   return NextResponse.json({ data: null, error: { message } }, { status });
 };
@@ -117,11 +118,22 @@ export async function POST(request: Request) {
         description: body?.description,
         subjectKind: body?.subject_kind ?? body?.subjectKind,
         content: body?.content,
-        catalogKey: body?.catalog_key ?? body?.catalogKey,
-        catalogClass: body?.catalog_class ?? body?.catalogClass,
-        editorialOwner: body?.editorial_owner ?? body?.editorialOwner,
+        /*
+          **La provenienza redazionale non si dichiara da qui.** `catalogKey`,
+          `catalogClass`, `editorialOwner` e `lastReviewedAt` dicono da quale
+          voce di catalogo nasce un modello, chi risponde del suo testo e
+          quando e stato riletto: sono esattamente le due informazioni che
+          ADR-0092 esiste per garantire. Accettandole dal corpo della richiesta,
+          un gestore poteva dichiarare un proprio modello «classe A, redazione
+          EasyGame, riletto oggi» — cioe falsificare la garanzia.
+
+          Le scrive **solo** la rotta di adozione
+          (`/api/v1/documents/catalog`), che le prende dalla voce vera.
+
+          `editorialNotes` resta: sono le note del club sul proprio modello, e
+          non garantiscono niente a nessuno.
+        */
         editorialNotes: body?.editorial_notes ?? body?.editorialNotes,
-        lastReviewedAt: body?.last_reviewed_at ?? body?.lastReviewedAt,
       },
     );
 

@@ -77,6 +77,19 @@ test("le versioni partono da 1 e crescono di uno", () => {
   assert.equal(nextTemplateVersion(undefined), 1);
   assert.equal(nextTemplateVersion(3), 4);
   assert.equal(nextTemplateVersion("7"), 8);
+
+  /*
+    Un valore che non si sa leggere non diventa «uno»: tornerebbe il numero di
+    una versione che quasi certamente esiste gia, e la scrittura fallirebbe con
+    il messaggio grezzo del vincolo unico.
+  */
+  for (const sporco of [NaN, -7, "ciao", Infinity, {}]) {
+    assert.throws(
+      () => nextTemplateVersion(sporco),
+      /non leggibile/i,
+      String(sporco),
+    );
+  }
 });
 
 test("un segnaposto fuori catalogo impedisce la pubblicazione, e dice quale", () => {

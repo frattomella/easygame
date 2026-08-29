@@ -833,6 +833,28 @@ export const recordConsentDecision = async (
     throw new Error("La data della decisione non e valida");
   }
 
+  /*
+    **Una decisione non si data nel futuro**, e non e una pignoleria.
+
+    Lo stato attuale e l'**ultima** decisione per data. Una accettazione
+    registrata per errore con l'anno sbagliato — «2027» invece di «2026», un
+    refuso, non un attacco — resta l'ultima per un anno intero: la famiglia
+    revoca, l'operatore scrive la revoca, e la schermata continua a dire
+    «accettato». Si puo revocare all'infinito senza effetto.
+
+    E il modo in cui l'invariante «una revoca non cancella l'accettazione» si
+    rovescia nel suo contrario: e l'accettazione a cancellare la revoca.
+
+    Un minuto di tolleranza copre lo scarto fra l'orologio di chi scrive e
+    quello del server.
+  */
+  const TOLLERANZA_MS = 60_000;
+  if (decidedAt.getTime() > Date.now() + TOLLERANZA_MS) {
+    throw new Error(
+      "La data della decisione e nel futuro: una decisione si registra quando e stata presa",
+    );
+  }
+
   const created = (await prisma.consentRecord.create({
     data: {
       organization_id: row.organization_id,

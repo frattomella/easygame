@@ -85,6 +85,63 @@ export type TemplateIssue = {
 
 const TEMPLATES = "/api/v1/documents/templates";
 const GENERATED = "/api/v1/documents/generated";
+const CATALOG = "/api/v1/documents/catalog";
+
+/**
+ * Una voce del catalogo di piattaforma, come la racconta la rotta.
+ *
+ * Le tre informazioni che sembrano di servizio — classe redazionale, chi
+ * risponde del testo, quando e stato riletto — sono il **punto** di ADR-0092 e
+ * non un dettaglio da nascondere: un modello distribuito da noi esce con il
+ * timbro del presidente, e un club ha diritto di sapere chi lo mantiene e da
+ * quanto tempo nessuno lo rilegge.
+ */
+export type DocumentCatalogEntry = {
+  key: string;
+  title: string;
+  description: string;
+  subjectKind: TemplateSubject;
+  /** `A` — le uniche che si distribuiscono. Vedi `src/lib/documents/catalog/`. */
+  catalogClass: string;
+  editorialOwner: string;
+  /** `AAAA-MM-GG`. */
+  lastReviewedAt: string;
+  adopted: boolean;
+  adoptedTemplateId: string | null;
+};
+
+/**
+ * Cosa il club puo adottare, e cosa ha gia.
+ *
+ * L'elenco lo compone il server: cio che non si distribuisce non compare
+ * nemmeno, perche una voce ferma e una voce che non esiste devono dare la
+ * stessa risposta.
+ */
+export const listDocumentCatalog = async () => {
+  const response = await apiRequest<DocumentCatalogEntry[]>(CATALOG);
+  return {
+    entries: Array.isArray(response.data) ? response.data : [],
+    error: response.error?.message || null,
+  };
+};
+
+/**
+ * Adotta una voce: da qui in poi la copia **e del club**.
+ *
+ * Non e «creare un modello con lo stesso testo». La rotta scrive anche da dove
+ * viene (`catalogKey`), di che classe e, chi ne risponde e quando e stato
+ * riletto, registra l'audit del catalogo e la consegna **gia pubblicata** —
+ * una voce di catalogo e stata scritta per essere usata. Rifarlo a mano con
+ * `createDocumentTemplate` produrrebbe una copia impoverita e muta, ed e
+ * esattamente cio che il pulsante «Aggiungi attestazione» faceva.
+ */
+export const adoptCatalogEntry = async (key: string) => {
+  const response = await apiRequest<DocumentTemplateDetail>(CATALOG, {
+    method: "POST",
+    body: { key },
+  });
+  return { template: response.data || null, error: response.error?.message || null };
+};
 
 export const listDocumentTemplates = async (options: {
   includeRetired?: boolean;

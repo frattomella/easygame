@@ -56,20 +56,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FormsDashboard } from "@/components/forms/forms-dashboard";
 import { getClubAthletes } from "@/lib/simplified-db";
 import {
-  ATTESTATION_TEMPLATE_ID,
-  ATTESTATION_TEMPLATE_TITLE,
-  buildAttestationTemplate,
-} from "@/lib/documents/attestation-template";
-import {
+  adoptCatalogEntry,
   createDocumentTemplate,
   deleteDocumentTemplate,
   generateDocuments,
   getDocumentTemplate,
+  listDocumentCatalog,
   listDocumentTemplates,
   listGeneratedDocuments,
   previewFilledDocument,
   publishDocumentTemplate,
   saveDocumentTemplateDraft,
+  type DocumentCatalogEntry,
   type DocumentTemplateDetail,
   type DocumentTemplateSummary,
   type GeneratedDocumentSummary,
@@ -81,9 +79,23 @@ import {
   canManageDocumentTemplates,
   canReadDocumentTemplates,
 } from "@/lib/documents/permissions";
+import {
+  applyPlaceholderValues,
+  describePlaceholderKey,
+  normalizePlaceholderKey,
+  DOCUMENT_SIGNATURE_TOKENS,
+} from "@/lib/documents/placeholders";
+import { renderBlankFormHtml } from "@/lib/documents/document-view";
 import { BulkGenerationDialog } from "@/components/documents/BulkGenerationDialog";
 import {
+  buildDocumentBundleHtml,
+  openBundleWindow,
+  openPrintableBundle,
+  renderBundleInto,
+} from "@/components/documents/document-bundle";
+import {
   clearStoredBatch,
+  pendingSubjects,
   readStoredBatch,
   type BulkBatchState,
 } from "@/components/documents/bulk-generation";
@@ -130,7 +142,27 @@ type Athlete = {
   };
 };
 
-type PageTab = "documents" | "online-forms" | "retired" | "generated";
+type PageTab =
+  | "documents"
+  | "catalog"
+  | "online-forms"
+  | "retired"
+  | "generated";
+
+/**
+ * La classe redazionale di una voce di catalogo, detta a chi la adotta.
+ *
+ * Non e una sigla da nascondere: dice **chi puo mantenere quel testo**, ed e
+ * la ragione per cui il catalogo distribuisce sei voci e non settantasette
+ * (ADR-0092). Oggi escono solo le `A`; le altre due esistono qui perche il
+ * giorno in cui una `B` o una `C` venisse validata, l'elenco non debba
+ * imparare una parola nuova.
+ */
+const CATALOG_CLASS_LABELS: Record<string, string> = {
+  A: "Classe A — dice fatti del gestionale",
+  B: "Classe B — modulo di un ente terzo",
+  C: "Classe C — contenuto legale o fiscale",
+};
 
 const STATUS_LABELS: Record<TemplateStatus, string> = {
   draft: "Bozza",
@@ -221,22 +253,44 @@ const signatureBlockHtml = (label: string) =>
   `<div style="margin: 28px 0 18px; padding: 18px; border: 1px dashed #94a3b8; border-radius: 8px; color: #475569; background-color: #f8fafc;"><strong>${label}</strong></div>`;
 
 /*
-  Il modulo da compilare a mano: i segnaposto diventano righe da riempire a
-  penna. Non e la strada vecchia della compilazione — e un'altra cosa, ed e
-  quella giusta per una liberatoria che si firma in segreteria.
+  I blocchi firma, e solo quelli: nel modulo vuoto diventano il riquadro
+  tratteggiato che si firma a penna, con scritto **quale** firma ci va. Tutto
+  il resto non e in questa mappa, e per un segnaposto assente
+  `applyPlaceholderValues` mette da se il campo tratteggiato.
 */
+const BLANK_SIGNATURE_HTML: Record<string, string> = Object.fromEntries(
+  DOCUMENT_SIGNATURE_TOKENS.map((token) => [
+    normalizePlaceholderKey(token.value),
+    signatureBlockHtml(token.label),
+  ]),
+);
+
+/**
+ * Il modulo da compilare a mano: i segnaposto diventano righe da riempire a
+ * penna.
+ *
+ * **Perche non ha piu una regex sua.** Ne aveva tre, ricopiate da
+ * `src/lib/documents/placeholders.ts`, e una delle tre era gia diversa
+ * dall'originale: la pagina accettava `{{ a{b }}` che il proprietario rifiuta.
+ * Due sintassi per la stessa cosa vogliono dire un modello che si stampa in un
+ * modo e si genera in un altro, e la differenza si vede solo sul foglio in
+ * mano alla famiglia. Il motore e uno: quello del catalogo dei segnaposto, lo
+ * stesso che usa il risolutore del server.
+ */
 const renderBlankTemplateForPdf = (content: string) =>
-  String(content || "")
-    .replace(
-      /<span[^>]*data-template-placeholder=["'][^"']+["'][^>]*>.*?<\/span>/gis,
-      '<span class="blank-field"></span>',
-    )
-    .replace(
-      /<div[^>]*data-signature-placeholder=["'][^"']+["'][^>]*>.*?<\/div>/gis,
-      signatureBlockHtml("Firma"),
-    )
-    .replace(/{{\s*signature\.[^}]+}}/g, signatureBlockHtml("Firma"))
-    .replace(/{{\s*[^}]+}}/g, '<span class="blank-field"></span>');
+  applyPlaceholderValues({ content, rendered: BLANK_SIGNATURE_HTML }).html;
+
+/**
+ * Da questo modello si puo produrre un documento **compilato**?
+ *
+ * Sono le due condizioni di `loadPublishableVersion` lato server, dette qui
+ * con le stesse parole: un modello ritirato non produce documenti nuovi, e uno
+ * senza versione pubblicata non ha niente da citare. Offrire il gesto lo
+ * stesso significa promettere un 400 — e il server ha ragione lui.
+ */
+const canProduceFilled = (template: DocumentTemplateSummary) =>
+  template.status !== "retired" && template.publishedVersion > 0;
+
 
 const TemplateStatusBadge = ({ status }: { status: TemplateStatus }) => (
   <span
@@ -317,7 +371,15 @@ function ModulisticaPage() {
   const [newDocumentSubject, setNewDocumentSubject] =
     useState<TemplateSubject>("athlete");
   const [creating, setCreating] = useState(false);
-  const [addingAttestation, setAddingAttestation] = useState(false);
+
+  /*
+    Il catalogo. Non e un elenco di modelli del club: e cio che il club **puo**
+    adottare, con la sua provenienza. Lo si legge solo se chi guarda potrebbe
+    adottarlo, perche una vetrina di cose che non si possono prendere e solo
+    una scheda in piu da chiudere.
+  */
+  const [catalog, setCatalog] = useState<DocumentCatalogEntry[]>([]);
+  const [adoptingKey, setAdoptingKey] = useState("");
 
   const [generateTarget, setGenerateTarget] =
     useState<DocumentTemplateSummary | null>(null);
@@ -363,11 +425,14 @@ function ModulisticaPage() {
     setLoading(true);
 
     try {
-      const [templatesResult, generatedResult, athletesData] =
+      const [templatesResult, generatedResult, athletesData, catalogResult] =
         await Promise.all([
           listDocumentTemplates({ includeRetired: true }),
           listGeneratedDocuments({ limit: 100 }),
           getClubAthletes(clubId).catch(() => []),
+          canManage
+            ? listDocumentCatalog()
+            : Promise.resolve({ entries: [], error: null }),
         ]);
 
       if (templatesResult.error) {
@@ -377,6 +442,7 @@ function ModulisticaPage() {
       setTemplates(templatesResult.templates);
       setGeneratedDocuments(generatedResult.documents);
       setAthletes(normalizeAthletes((athletesData as any[]) || []));
+      setCatalog(catalogResult.entries);
     } catch {
       showToast("error", "Errore nel caricamento dei modelli");
     } finally {
@@ -385,7 +451,7 @@ function ModulisticaPage() {
     // `showToast` cambia identita a ogni render: includerlo qui rifarebbe
     // partire il caricamento a ogni render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clubId]);
+  }, [clubId, canManage]);
 
   useEffect(() => {
     void loadAll();
@@ -452,8 +518,14 @@ function ModulisticaPage() {
     () => templates.filter((template) => template.status === "retired"),
     [templates],
   );
-  const hasAttestationTemplate = templates.some(
-    (template) => template.catalogKey === ATTESTATION_TEMPLATE_ID,
+  /*
+    Cio che resta da adottare. Le voci gia prese restano in elenco, dette come
+    tali: sparire vorrebbe dire lasciare chi cerca «l'attestazione» davanti a
+    un catalogo che non la nomina piu.
+  */
+  const adoptableCatalog = useMemo(
+    () => catalog.filter((entry) => !entry.adopted),
+    [catalog],
   );
 
   /* ------------------------------------------------------------- l'editor */
@@ -579,33 +651,42 @@ function ModulisticaPage() {
   };
 
   /**
-   * Semina il modello «Attestazione di pagamento e frequenza».
+   * Adottare una voce di catalogo: l'unico gesto che porta un modello di
+   * piattaforma dentro il club.
    *
-   * Nasce bozza come qualunque altro modello: si apre, si corregge, e vale
-   * dal momento in cui qualcuno lo pubblica.
+   * **Cosa c'era prima, e perche non c'e piu.** C'era un pulsante «Aggiungi
+   * attestazione di pagamento» che si scriveva da se la copia con
+   * `createDocumentTemplate`: nasceva bozza, senza classe redazionale, senza
+   * chi risponde del testo, senza la data dell'ultima rilettura e senza
+   * l'audit del catalogo. Era la stessa adozione, impoverita — e per giunta
+   * l'unica raggiungibile, perche delle sei voci le altre cinque non avevano
+   * nessuna porta. Adesso il gesto e uno e lo fa il server, che di quelle
+   * quattro informazioni e il proprietario.
    */
-  const handleAddAttestationTemplate = async () => {
-    const seed = buildAttestationTemplate();
+  const adoptEntry = async (entry: DocumentCatalogEntry) => {
+    setAdoptingKey(entry.key);
 
-    setAddingAttestation(true);
+    const { template, error } = await adoptCatalogEntry(entry.key);
 
-    const { template, error } = await createDocumentTemplate({
-      title: seed.title,
-      description: seed.description,
-      subjectKind: "athlete",
-      content: seed.content,
-      catalogKey: ATTESTATION_TEMPLATE_ID,
-    });
-
-    setAddingAttestation(false);
+    setAdoptingKey("");
 
     if (error || !template) {
-      showToast("error", error || "Errore nella creazione del modello");
+      showToast("error", error || "Errore nell'adozione del modello");
       return;
     }
 
     setTemplates((current) => [...current, template]);
-    showToast("success", `Modello «${ATTESTATION_TEMPLATE_TITLE}» aggiunto`);
+    setCatalog((current) =>
+      current.map((voce) =>
+        voce.key === entry.key
+          ? { ...voce, adopted: true, adoptedTemplateId: template.id }
+          : voce,
+      ),
+    );
+    showToast(
+      "success",
+      `«${template.title}» adottato: e gia pubblicato, lo trovi fra i modelli del club`,
+    );
   };
 
   const handleChangeStatus = async (
@@ -662,47 +743,88 @@ function ModulisticaPage() {
     setAthleteSearchTerm("");
   };
 
-  const printHtmlPage = (html: string) => {
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
+  /**
+   * Una pagina stampabile, aperta come il fascicolo.
+   *
+   * **Perche non stampa piu da sola dopo mezzo secondo.** Lo faceva, e
+   * `src/components/documents/document-bundle.ts` aveva gia spiegato perche
+   * non si fa: una finestra di stampa che parte prima che il documento sia
+   * impaginato mostra la cosa sbagliata, e con un logo o una firma da
+   * caricare mezzo secondo non basta. Il pulsante lo preme chi guarda, quando
+   * vede che c'e tutto — e il fascicolo lo scrive gia, con la sua barra.
+   */
+  const printDocumentPage = (input: {
+    id: string;
+    title: string;
+    html: string;
+  }) => {
+    const aperto = openPrintableBundle(
+      buildDocumentBundleHtml({
+        title: input.title,
+        documents: [input],
+        printLabel: "Stampa il documento",
+      }),
+    );
 
-    printWindow.document.write(html);
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
+    if (!aperto) {
+      showToast("error", "Il browser ha bloccato la finestra di stampa");
+    }
   };
 
-  /** Il modulo vuoto: si stampa e si compila a penna. */
+  /**
+   * Il modulo vuoto: si stampa e si compila a penna.
+   *
+   * **Quale testo stampa, e perche.** Stampa la **bozza**, ed e corretto in
+   * due casi su tre: il server considera «modifiche non pubblicate» qualunque
+   * differenza fra bozza e versione pubblicata (`publishedMatchesDraft`),
+   * quindi quando `hasUnpublishedChanges` e falso la bozza **e** il testo
+   * pubblicato, parola per parola. Nel terzo caso — bozza corretta e non
+   * pubblicata — il testo del modulo cartaceo non e quello che i documenti
+   * generati citeranno, e il dialogo lo dice **prima** di stampare invece di
+   * lasciarlo scoprire alla famiglia.
+   *
+   * Non stampa la versione pubblicata perche nessuna rotta la restituisce: il
+   * dettaglio di un modello porta la bozza e i **dati** delle versioni, non il
+   * loro contenuto. Farsela dare vorrebbe dire cambiare il contratto dell'API,
+   * che e una decisione a se e non un dettaglio di questa schermata.
+   */
   const generateBlankPdf = async () => {
     if (!generateTarget) return;
 
+    /*
+      La finestra si apre **prima** della lettura: aperta dopo un `await`, il
+      browser non la collega piu al clic e la blocca come una pubblicita.
+    */
+    const finestra = openBundleWindow();
+    if (!finestra) {
+      showToast("error", "Il browser ha bloccato la finestra di stampa");
+      return;
+    }
+
     const { template, error } = await getDocumentTemplate(generateTarget.id);
     if (error || !template) {
+      finestra.close();
       showToast("error", error || "Modello non trovato");
       return;
     }
 
-    printHtmlPage(`
-      <html>
-        <head>
-          <title>${escapeHtmlText(template.title)}</title>
-          <style>
-            @page { size: A4; margin: 18mm; }
-            body { font-family: Arial, sans-serif; background: #fff; color: #111827; }
-            .pdf-container { max-width: 794px; margin: 0 auto; font-size: 14px; line-height: 1.65; }
-            .blank-field { display: inline-block; min-width: 160px; height: 1.2em; border-bottom: 1px solid #94a3b8; vertical-align: baseline; }
-            .easygame-page-break { break-before: page; page-break-before: always; height: 0; overflow: hidden; }
-            img { max-width: 100%; height: auto; }
-          </style>
-        </head>
-        <body>
-          <div class="pdf-container">
-            ${renderBlankTemplateForPdf(template.draftContent)}
-          </div>
-        </body>
-      </html>
-    `);
+    renderBundleInto(
+      finestra,
+      buildDocumentBundleHtml({
+        title: template.title,
+        printLabel: "Stampa il modulo",
+        documents: [
+          {
+            id: template.id,
+            title: template.title,
+            html: renderBlankFormHtml({
+              title: template.title,
+              bodyHtml: renderBlankTemplateForPdf(template.draftContent),
+            }),
+          },
+        ],
+      }),
+    );
 
     setGenerateTarget(null);
   };
@@ -792,7 +914,42 @@ function ModulisticaPage() {
 
   /* --------------------------------------------- la generazione massiva */
 
+  /**
+   * Un lotto nuovo, ma non sopra uno lasciato a meta.
+   *
+   * **Il difetto che questo rifiuto chiude.** Il lotto in sospeso vive sotto
+   * **una** chiave di `sessionStorage`: chi aveva un lotto da cento fermo a
+   * cinquanta e, invece di premere «Riprendi», ne apriva un altro su un altro
+   * modello, si vedeva sovrascrivere lo stato alla prima fetta. I cinquanta
+   * mancanti sparivano, il banner non tornava piu, e nessuno diceva niente.
+   *
+   * Fra una chiave per lotto e un rifiuto, il rifiuto e piu onesto: un lotto a
+   * meta e un lavoro non finito, e va ripreso o scartato — due gesti che il
+   * banner offre gia — prima di cominciarne un altro. Lo stato si rilegge qui
+   * dallo storage e non dalla memoria della pagina, perche fra il montaggio e
+   * questo clic il lotto puo essere finito in un'altra scheda.
+   */
   const openBulkDialog = (template: DocumentTemplateSummary) => {
+    const sospeso = readStoredBatch();
+
+    /*
+      Un lotto che ha servito tutti non e «a meta»: e finito, e chi ha chiuso
+      la finestra senza dirlo non deve trovarsi sbarrata la strada. Si butta
+      qui, non prima, perche fino a questo momento il fascicolo poteva ancora
+      servire.
+    */
+    if (sospeso && !pendingSubjects(sospeso).length) {
+      clearStoredBatch();
+      setInterruptedBatch(null);
+    } else if (sospeso) {
+      setInterruptedBatch(sospeso);
+      showToast(
+        "error",
+        `Un lotto di «${sospeso.templateTitle}» e rimasto a meta: riprendilo o scartalo prima di cominciarne un altro`,
+      );
+      return;
+    }
+
     setBulkResume(null);
     setBulkTarget(template);
   };
@@ -896,41 +1053,59 @@ function ModulisticaPage() {
           {canManage ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreVertical className="h-4 w-4" />
+                {/*
+                  Il nome del pulsante non e decorativo: e l'**unica** via a
+                  Modifica, Pubblica, Ritira ed Elimina, ed e ripetuto per ogni
+                  scheda. Senza etichetta, chi naviga per elementi attivi
+                  trovava venti pulsanti identici e senza nome.
+                */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Azioni su ${template.title}`}
+                >
+                  <MoreVertical className="h-4 w-4" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => void openEditor(template)}>
-                  <Edit className="mr-2 h-4 w-4" />
+                  <Edit className="mr-2 h-4 w-4" aria-hidden />
                   Modifica
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => void handlePublish(template.id)}
                 >
-                  <Upload className="mr-2 h-4 w-4" />
+                  <Upload className="mr-2 h-4 w-4" aria-hidden />
                   Pubblica
                 </DropdownMenuItem>
+                {/*
+                  Si offre solo cio che lo stato ammette: le transizioni sono
+                  `draft → active`, `active → retired|draft`, `retired →
+                  active` (`canTransitionTemplate`). «Ritira» su una bozza
+                  faceva rispondere 400 al server, cioe prometteva un gesto che
+                  non esiste. Su una bozza non compare nessuna delle due: si
+                  pubblica, e da li si ritira.
+                */}
                 {template.status === "retired" ? (
                   <DropdownMenuItem
                     onClick={() => void handleChangeStatus(template, "active")}
                   >
-                    <RotateCcw className="mr-2 h-4 w-4" />
+                    <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
                     Riattiva
                   </DropdownMenuItem>
-                ) : (
+                ) : template.status === "active" ? (
                   <DropdownMenuItem
                     onClick={() => void handleChangeStatus(template, "retired")}
                   >
-                    <RotateCcw className="mr-2 h-4 w-4" />
+                    <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
                     Ritira
                   </DropdownMenuItem>
-                )}
+                ) : null}
                 <DropdownMenuItem
                   onClick={() => setDeleteTarget(template)}
                   className="text-red-600"
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  <Trash2 className="mr-2 h-4 w-4" aria-hidden />
                   Elimina
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -941,12 +1116,21 @@ function ModulisticaPage() {
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-2">
+          {/*
+            L'etichetta dice cosa succedera davvero: da una bozza o da un
+            modello ritirato il compilato non esce — il server risponde 400 —
+            e da qui si stampa solo il modulo da riempire a penna. Prometterlo
+            e poi negarlo e peggio che non prometterlo.
+          */}
           <Button
             variant="outline"
             className="w-full"
             onClick={() => openGenerateDialog(template)}
           >
-            <Download className="mr-2 h-4 w-4" /> Genera documento
+            <Download className="mr-2 h-4 w-4" aria-hidden />
+            {canProduceFilled(template)
+              ? "Genera documento"
+              : "Stampa il modulo vuoto"}
           </Button>
           {/*
             Il lotto parte solo da un modello **pubblicato** che parla di un
@@ -959,7 +1143,7 @@ function ModulisticaPage() {
               className="w-full"
               onClick={() => openBulkDialog(template)}
             >
-              <Users className="mr-2 h-4 w-4" /> Genera per piu atleti
+              <Users className="mr-2 h-4 w-4" aria-hidden /> Genera per piu atleti
             </Button>
           ) : null}
           {canManage ? (
@@ -968,7 +1152,7 @@ function ModulisticaPage() {
               className="w-full"
               onClick={() => void openEditor(template)}
             >
-              <Edit className="mr-2 h-4 w-4" /> Modifica il testo
+              <Edit className="mr-2 h-4 w-4" aria-hidden /> Modifica il testo
             </Button>
           ) : null}
         </div>
@@ -984,26 +1168,13 @@ function ModulisticaPage() {
         actions={
           activeView === "list" && activeTab === "documents" && canManage ? (
             /*
-              In colonna sotto i 640 px: due azioni affiancate a 375 px
-              tagliavano la seconda.
+              Un'azione sola: «Aggiungi attestazione di pagamento» non e piu
+              qui, perche l'attestazione e la prima voce del catalogo e si
+              adotta dalla sua scheda insieme alle altre cinque.
             */
-            <div className="flex flex-col gap-2 sm:flex-row">
-              {hasAttestationTemplate ? null : (
-                <Button
-                  variant="outline"
-                  onClick={handleAddAttestationTemplate}
-                  disabled={addingAttestation}
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  {addingAttestation
-                    ? "Aggiunta..."
-                    : "Aggiungi attestazione di pagamento"}
-                </Button>
-              )}
-              <Button onClick={handleCreateNew}>
-                <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
-              </Button>
-            </div>
+            <Button onClick={handleCreateNew}>
+              <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
+            </Button>
           ) : activeView === "list" ? null : (
             <Button variant="outline" onClick={handleBackToList}>
               Torna alla lista
@@ -1026,6 +1197,14 @@ function ModulisticaPage() {
           */}
           <TabsList className="h-auto w-full flex-wrap justify-start">
             <TabsTrigger value="documents">Documenti / Template</TabsTrigger>
+            {/*
+              La scheda la vede solo chi puo adottare: la pagina e aperta anche
+              a collaboratori e staff, e una vetrina con sei pulsanti che
+              rispondono «Accesso negato» e un difetto quanto una porta aperta.
+            */}
+            {canManage ? (
+              <TabsTrigger value="catalog">Catalogo</TabsTrigger>
+            ) : null}
             <TabsTrigger value="online-forms">Moduli online</TabsTrigger>
             <TabsTrigger value="retired">Ritirati</TabsTrigger>
             <TabsTrigger value="generated">Documenti generati</TabsTrigger>
@@ -1094,6 +1273,95 @@ function ModulisticaPage() {
             )}
           </TabsContent>
 
+          {/*
+            Il catalogo dei modelli di EasyGame.
+
+            Di ogni voce si vedono le tre cose che ADR-0092 esiste per non
+            tacere: di che **classe** e, **chi risponde** del testo, **quando**
+            e stato riletto l'ultima volta. Un modello che esce con il timbro
+            del presidente e scritto da noi, e un club ha diritto di sapere da
+            quanto tempo nessuno lo rilegge prima di firmarlo.
+          */}
+          {canManage ? (
+            <TabsContent value="catalog" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Catalogo dei modelli</CardTitle>
+                  <CardDescription>
+                    Modelli scritti da EasyGame che il club puo adottare.
+                    Adottarne uno ne crea una <strong>copia del club</strong>,
+                    gia pubblicata: da quel momento si modifica liberamente e il
+                    catalogo non la tocca piu.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {catalog.length > 0 ? (
+                    <div className="space-y-3">
+                      {catalog.map((entry) => (
+                        <div
+                          key={entry.key}
+                          className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-start sm:justify-between"
+                        >
+                          <div className="min-w-0 space-y-1">
+                            <p className="break-words font-semibold text-slate-900">
+                              {entry.title}
+                            </p>
+                            <p className="break-words text-sm text-slate-600">
+                              {entry.description}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 font-medium text-slate-700">
+                                Parla di:{" "}
+                                {SUBJECT_LABELS[entry.subjectKind].toLowerCase()}
+                              </span>
+                              <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
+                                {CATALOG_CLASS_LABELS[entry.catalogClass] ||
+                                  `Classe ${entry.catalogClass}`}
+                              </span>
+                            </div>
+                            <p className="break-words text-xs text-slate-500">
+                              Del testo risponde {entry.editorialOwner} —
+                              riletto il {formatDate(entry.lastReviewedAt)}
+                            </p>
+                          </div>
+                          <div className="shrink-0">
+                            {entry.adopted ? (
+                              <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                                Gia fra i modelli del club
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={() => void adoptEntry(entry)}
+                                disabled={Boolean(adoptingKey)}
+                              >
+                                <Plus className="mr-2 h-4 w-4" />
+                                {adoptingKey === entry.key
+                                  ? "Adozione..."
+                                  : "Adotta"}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      Nessun modello disponibile nel catalogo.
+                    </p>
+                  )}
+
+                  {catalog.length > 0 && adoptableCatalog.length === 0 ? (
+                    <p className="mt-4 text-sm text-slate-500">
+                      Il club ha gia adottato tutto quello che il catalogo
+                      distribuisce.
+                    </p>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          ) : null}
+
           <TabsContent value="online-forms">
             <FormsDashboard />
           </TabsContent>
@@ -1131,7 +1399,7 @@ function ModulisticaPage() {
                                 void handleChangeStatus(template, "active")
                               }
                             >
-                              <RotateCcw className="mr-2 h-4 w-4" />
+                              <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
                               Riattiva
                             </Button>
                             <Button
@@ -1140,7 +1408,7 @@ function ModulisticaPage() {
                               className="text-red-600 hover:text-red-700"
                               onClick={() => setDeleteTarget(template)}
                             >
-                              <Trash2 className="mr-2 h-4 w-4" />
+                              <Trash2 className="mr-2 h-4 w-4" aria-hidden />
                               Elimina
                             </Button>
                           </div>
@@ -1270,7 +1538,7 @@ function ModulisticaPage() {
                 onClick={() => void handlePublish(editorTemplate.id)}
                 disabled={publishing || savingDraft}
               >
-                <Upload className="mr-2 h-4 w-4" />
+                <Upload className="mr-2 h-4 w-4" aria-hidden />
                 {publishing ? "Pubblicazione..." : "Pubblica"}
               </Button>
             </div>
@@ -1341,6 +1609,33 @@ function ModulisticaPage() {
               </p>
             ) : null}
 
+            {/*
+              Cosa stampera il modulo vuoto, detto prima di stamparlo. Quando
+              il modello e pubblicato e senza modifiche in sospeso non c'e
+              niente da dire: bozza e versione pubblicata sono lo stesso testo.
+            */}
+            {generateTarget?.status === "retired" ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Questo modello e ritirato: non produce documenti nuovi, e
+                continua a spiegare quelli gia prodotti. Da qui esce solo il
+                modulo vuoto; per generare di nuovo, riattivalo.
+              </p>
+            ) : generateTarget && generateTarget.publishedVersion === 0 ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Questo modello non e mai stato pubblicato:{" "}
+                <strong>Genera vuoto</strong> stampa la bozza, e il compilato
+                non si puo ancora produrre.
+              </p>
+            ) : generateTarget?.hasUnpublishedChanges ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Questo modello ha modifiche non pubblicate:{" "}
+                <strong>Genera vuoto</strong> stampa la <strong>bozza</strong>,
+                mentre i documenti compilati continuano a citare la versione{" "}
+                {generateTarget.publishedVersion}. Pubblica prima, se il foglio
+                di carta deve dire la stessa cosa.
+              </p>
+            ) : null}
+
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
               <Input
@@ -1394,11 +1689,24 @@ function ModulisticaPage() {
             <Button
               className="w-full sm:w-auto"
               onClick={() => void previewFilled()}
+              /*
+                Le stesse condizioni con cui il server accetta di produrre: un
+                atleta scelto, un modello che parla di atleti, e una versione
+                pubblicata da citare su un modello non ritirato. Il compilato
+                si vedeva offerto anche su una bozza, e finiva in un 400 dopo
+                aver fatto scegliere l'atleta.
+              */
               disabled={
                 generatingFilled ||
                 !selectedAthlete ||
                 selectedAthlete === "no-athletes" ||
-                generateTarget?.subjectKind !== "athlete"
+                generateTarget?.subjectKind !== "athlete" ||
+                !canProduceFilled(generateTarget)
+              }
+              title={
+                generateTarget && !canProduceFilled(generateTarget)
+                  ? "Serve un modello pubblicato e non ritirato"
+                  : undefined
               }
             >
               {generatingFilled ? "Generazione..." : "Genera compilato"}
@@ -1451,7 +1759,7 @@ function ModulisticaPage() {
                   Dati mancanti: restano campi da riempire a mano
                 </p>
                 <p className="mt-1 break-words text-muted-foreground">
-                  {filledPreview.missing.join(", ")}
+                  {filledPreview.missing.map(describePlaceholderKey).join(", ")}
                 </p>
               </div>
             ) : null}
@@ -1496,7 +1804,13 @@ function ModulisticaPage() {
               variant="outline"
               className="w-full sm:w-auto"
               onClick={() =>
-                filledPreview ? printHtmlPage(filledPreview.html) : undefined
+                filledPreview
+                  ? printDocumentPage({
+                      id: filledPreview.templateId,
+                      title: filledPreview.title,
+                      html: filledPreview.html,
+                    })
+                  : undefined
               }
             >
               Stampa l&apos;anteprima

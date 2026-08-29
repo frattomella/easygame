@@ -19,8 +19,13 @@ import {
 } from "../../src/components/documents/bulk-generation.ts";
 import {
   BUNDLE_HTML_LIMIT_BYTES,
+  EMBEDDED_IMAGE_ATTRIBUTE,
+  EMBEDDED_IMAGE_PAYLOAD_ID,
   buildDocumentBundleHtml,
   extractDocumentSheet,
+  extractRepeatedImages,
+  hydrateEmbeddedImages,
+  measureHtmlBytes,
   planBundleParts,
 } from "../../src/components/documents/document-bundle.ts";
 import { MAX_GENERATION_BATCH } from "../../src/lib/documents/template-model.ts";
@@ -461,6 +466,253 @@ test("sopra gli otto megabyte il fascicolo si divide, e non si tronca", () => {
     planBundleParts([grosso("a")]).length,
     1,
     "sotto soglia resta un fascicolo solo",
+  );
+});
+
+/* ------------------------------ le immagini ripetute, una volta sola (H1) */
+
+/*
+  Un documento come quelli veri: firma e timbro scansionati, che in base64
+  diventano ~222 kB **per documento**. E il 97% di una riga
+  `generated_documents`, e per cento documenti erano 22 MB di fascicolo.
+*/
+const dataUrl = (bytes) =>
+  `data:image/png;base64,${"A".repeat(Math.ceil(bytes / 3) * 4)}`;
+const FIRMA = dataUrl(90 * 1024);
+const TIMBRO = dataUrl(76 * 1024);
+
+const documentoConFirma = (id) => ({
+  id,
+  title: "Attestazione",
+  html: `<html><head><style>.sheet{}</style></head><body><div class="sheet"><p>Testo</p><img src="${FIRMA}" alt="Firma" style="max-height: 90px;" /><img src="${TIMBRO}" alt="Timbro" style="max-height: 90px;" /></div></body></html>`,
+});
+
+test("la firma entra nel fascicolo una volta sola, e resta un <img>", () => {
+  const documenti = Array.from({ length: 100 }, (_, indice) =>
+    documentoConFirma(`d${indice}`),
+  );
+
+  const grezzo = documenti.reduce(
+    (totale, documento) => totale + measureHtmlBytes(documento.html),
+    0,
+  );
+  const html = buildDocumentBundleHtml({
+    title: "Attestazioni",
+    documents: documenti,
+  });
+  const fascicolo = measureHtmlBytes(html);
+
+  assert.ok(
+    grezzo > 20 * 1024 * 1024,
+    "il caso da riprodurre e proprio quello: cento documenti con firma e timbro pesano oltre 20 MB",
+  );
+  assert.ok(
+    fascicolo < grezzo / 10,
+    `il fascicolo deve smettere di ricopiare le stesse immagini: ${fascicolo} byte`,
+  );
+  assert.equal(
+    (html.match(/data:image\/png/g) || []).length,
+    2,
+    "due immagini, due copie del dato: non duecento",
+  );
+  assert.equal(
+    (html.match(new RegExp(EMBEDDED_IMAGE_ATTRIBUTE, "g")) || []).length,
+    200,
+    "ogni documento tiene i suoi due <img>: il foglio non cambia, cambia dove sta il dato",
+  );
+  assert.ok(
+    html.includes(`id="${EMBEDDED_IMAGE_PAYLOAD_ID}"`),
+    "l'unica copia viaggia con la pagina, altrimenti il fascicolo esce senza firme",
+  );
+});
+
+test("cento documenti firmati stanno in un fascicolo solo", () => {
+  const documenti = Array.from({ length: 100 }, (_, indice) =>
+    documentoConFirma(`d${indice}`),
+  );
+
+  assert.equal(
+    planBundleParts(documenti).length,
+    1,
+    "il guardrail deve misurare il fascicolo, non la somma dei documenti: si spezzava a trentasei",
+  );
+});
+
+test("un'immagine che compare una volta sola non si tocca", () => {
+  const solo = extractRepeatedImages([
+    `<div><img src="${FIRMA}" alt="Firma" /></div>`,
+  ]);
+
+  assert.deepEqual(solo.images, {});
+  assert.ok(
+    solo.sheets[0].includes(FIRMA),
+    "estrarre un'immagine unica non risparmia niente e cambia il foglio per niente",
+  );
+});
+
+/*
+  Il minimo di DOM che l'idratazione tocca: il carico e gli `<img>` marcati.
+  Non si aggiunge una libreria per due `getAttribute` — e la lettura viene
+  comunque dalla pagina vera, non da un finto HTML scritto qui.
+*/
+const documentoFinto = (html) => {
+  const carico = new RegExp(
+    `<script type="application/json" id="${EMBEDDED_IMAGE_PAYLOAD_ID}">([\\s\\S]*?)</script>`,
+  ).exec(html);
+
+  const marcati = html.match(
+    new RegExp(`${EMBEDDED_IMAGE_ATTRIBUTE}="[^"]+"`, "g"),
+  ) || [];
+
+  const elementi = marcati.map((marcato) => {
+    const attributi = {
+      [EMBEDDED_IMAGE_ATTRIBUTE]: marcato.split('"')[1],
+    };
+    return {
+      attributi,
+      getAttribute: (nome) =>
+        nome in attributi ? attributi[nome] : null,
+      setAttribute: (nome, valore) => {
+        attributi[nome] = valore;
+      },
+      removeAttribute: (nome) => {
+        delete attributi[nome];
+      },
+    };
+  });
+
+  return {
+    elementi,
+    getElementById: (id) =>
+      id === EMBEDDED_IMAGE_PAYLOAD_ID && carico
+        ? { textContent: carico[1] }
+        : null,
+    querySelectorAll: () => elementi,
+  };
+};
+
+test("il fascicolo rimette le immagini prima che qualcuno lo guardi", () => {
+  const html = buildDocumentBundleHtml({
+    title: "Attestazioni",
+    documents: [documentoConFirma("a"), documentoConFirma("b")],
+  });
+
+  const documento = documentoFinto(html);
+  const rimesse = hydrateEmbeddedImages(documento);
+
+  assert.equal(rimesse, 4, "quattro <img> in due documenti");
+  assert.deepEqual(
+    documento.elementi.map((elemento) => elemento.getAttribute("src")),
+    [FIRMA, TIMBRO, FIRMA, TIMBRO],
+    "dentro il fascicolo il documento deve venire identico a quello stampato da solo",
+  );
+  assert.deepEqual(
+    documento.elementi.map((elemento) =>
+      elemento.getAttribute(EMBEDDED_IMAGE_ATTRIBUTE),
+    ),
+    [null, null, null, null],
+    "a idratazione finita il marcatore non serve piu",
+  );
+});
+
+/* -------------------- il fascicolo incompleto lo dice, e non lo tace (H3) */
+
+test("un documento che non si rilegge non sparisce dal conteggio", () => {
+  assert.match(
+    DIALOG,
+    /const \{ html \} = await readGeneratedDocumentHtml\(id\);[\s\S]{0,400}mancanti \+= 1;/,
+    "prima veniva saltato e basta: novantasette fogli con scritto «97 documenti»",
+  );
+  assert.match(
+    DIALOG,
+    /setBundleGap\(\{ documenti, mancanti \}\)/,
+    "si dice prima di aprire il fascicolo, non dopo averlo stampato",
+  );
+  assert.match(DIALOG, /non si sono potuti leggere/);
+  assert.match(
+    DIALOG,
+    /Continua con \{bundleGap\.documenti\.length\}/,
+    "le due strade restano aperte: continuare dichiarandolo, o riprovare",
+  );
+  assert.match(DIALOG, /Riprova la lettura/);
+  assert.match(
+    DIALOG,
+    /missingCount: mancanti/,
+    "la lacuna viaggia fino all'intestazione della pagina stampata",
+  );
+});
+
+test("l'intestazione del fascicolo dichiara quanti ne mancano", () => {
+  const completo = buildDocumentBundleHtml({
+    title: "Attestazione",
+    documents: [
+      { id: "1", title: "A", html: "<html><body><p>Uno</p></body></html>" },
+    ],
+  });
+  assert.ok(
+    !/incompleto/.test(completo),
+    "un fascicolo completo non deve dire niente: l'avviso deve voler dire qualcosa",
+  );
+
+  const parziale = buildDocumentBundleHtml({
+    title: "Attestazione",
+    documents: [
+      { id: "1", title: "A", html: "<html><body><p>Uno</p></body></html>" },
+    ],
+    missingCount: 3,
+  });
+
+  assert.match(parziale, /incompleto/);
+  assert.match(
+    parziale,
+    /3 documenti non letti/,
+    "«97 documenti» su cento prodotti e un fascicolo che sembra completo",
+  );
+  assert.match(
+    parziale,
+    /<title>[^<]*3 documenti non letti[^<]*<\/title>/,
+    "il titolo finisce nell'intestazione di stampa: e cio che resta sul foglio",
+  );
+});
+
+/* ------------------------------ il lotto si annuncia a chi non vede (H7) */
+
+test("avanzamento, interruzione e conclusione hanno una voce", () => {
+  assert.match(
+    DIALOG,
+    /<div className="space-y-2" role="status" aria-live="polite">/,
+    "un lotto da cento atleti era due minuti di silenzio: nessun modo di sapere se andava avanti",
+  );
+  assert.match(
+    DIALOG,
+    /Lotto concluso: \{batch\?\.producedIds\.length \|\| 0\}/,
+    "la fine del lotto va annunciata, non solo disegnata",
+  );
+
+  const allarmi = DIALOG.match(/role="alert"/g) || [];
+  assert.ok(
+    allarmi.length >= 2,
+    "l'interruzione e le letture mancate chiedono un gesto subito: sono allarmi, non aggiornamenti",
+  );
+});
+
+/* ------------------------- un lotto per volta, o il primo sparisce (M-6) */
+
+test("un lotto nuovo non parte sopra uno rimasto a meta", () => {
+  assert.match(
+    PAGE,
+    /const openBulkDialog = \(template: DocumentTemplateSummary\) => \{\s*const sospeso = readStoredBatch\(\);/,
+    "lo stato in sospeso si rilegge dallo storage al clic: quello in memoria puo essere di dieci minuti fa",
+  );
+  assert.match(
+    PAGE,
+    /riprendilo o scartalo prima di cominciarne un altro/,
+    "sovrascriverlo in silenzio faceva sparire i cinquanta mancanti senza dire niente",
+  );
+  assert.match(
+    PAGE,
+    /if \(sospeso && !pendingSubjects\(sospeso\)\.length\)/,
+    "un lotto che ha servito tutti non e «a meta»: non deve sbarrare la strada",
   );
 });
 

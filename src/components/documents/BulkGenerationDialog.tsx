@@ -121,6 +121,19 @@ export function BulkGenerationDialog({
   const [bundleParts, setBundleParts] = useState<BundleDocument[][] | null>(null);
   const [bundling, setBundling] = useState(false);
 
+  /*
+    I documenti prodotti che non si sono potuti **rileggere**. Non e la stessa
+    cosa di un fallimento di generazione: quelli il lotto li conosce e li
+    elenca. Questi sono documenti che esistono e che il fascicolo non e
+    riuscito a prendere — rete, sessione, un permesso cambiato nel frattempo.
+  */
+  const [bundleGap, setBundleGap] = useState<{
+    documenti: BundleDocument[];
+    mancanti: number;
+  } | null>(null);
+  /** Quanti ne mancano al fascicolo gia diviso in parti. */
+  const [bundleMissing, setBundleMissing] = useState(0);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return athletes;
@@ -279,11 +292,65 @@ export function BulkGenerationDialog({
   };
 
   /**
+   * Compone il fascicolo con cio che si e riusciti a leggere, e lo dice.
+   *
+   * `mancanti` viaggia fino all'intestazione della pagina: un fascicolo a cui
+   * manca qualcosa deve **dichiararlo sul foglio**, non solo in un dialogo che
+   * si chiude. Chi lo stampa e chi lo ritrova fra un mese sono due persone
+   * diverse.
+   */
+  const componiFascicolo = (
+    documenti: BundleDocument[],
+    mancanti: number,
+    finestra?: Window | null,
+  ) => {
+    if (!batch) return;
+
+    const parti = planBundleParts(documenti);
+
+    if (parti.length > 1) {
+      /*
+        Sopra la soglia non si tronca in silenzio: si dice, e si propone la
+        divisione. Un fascicolo incompleto che sembra completo e peggio di due
+        fascicoli.
+      */
+      finestra?.close();
+      setBundleMissing(mancanti);
+      setBundleParts(parti);
+      return;
+    }
+
+    setBundleParts(null);
+    const html = buildDocumentBundleHtml({
+      title: batch.templateTitle,
+      documents: parti[0],
+      missingCount: mancanti,
+    });
+
+    if (finestra) {
+      renderBundleInto(finestra, html);
+      return;
+    }
+
+    if (!openPrintableBundle(html)) {
+      showToast("error", "Il browser ha bloccato la finestra del fascicolo");
+    }
+  };
+
+  /**
    * Il fascicolo: si legge il conservato, non si rigenera niente.
    *
    * L'HTML arriva dalla rotta del singolo documento perche i riepiloghi che
    * tornano dalla generazione non lo portano — il perche sta in
    * `./document-bundle`.
+   *
+   * **Cosa succede a un documento che non si rilegge.** Prima veniva saltato e
+   * basta: `readGeneratedDocumentHtml` restituisce anche `error`, e quel ramo
+   * lo buttava via. Il fascicolo usciva con novantasette fogli e
+   * un'intestazione che diceva «97 documenti» — un fascicolo incompleto che
+   * sembra completo, cioe l'errore contro cui il modulo accanto e scritto. Ora
+   * le letture fallite si contano, si dicono **prima** di aprire, e chi guarda
+   * sceglie: stampare i novantasette dichiarandolo, o riprovare.
    */
   const apriFascicolo = async (parte?: BundleDocument[]) => {
     if (!batch) return;
@@ -294,6 +361,7 @@ export function BulkGenerationDialog({
           title: batch.templateTitle,
           documents: parte,
           partLabel: `parte ${(bundleParts || []).indexOf(parte) + 1} di ${(bundleParts || []).length}`,
+          missingCount: bundleMissing,
         }),
       );
       if (!aperto) {
@@ -313,11 +381,23 @@ export function BulkGenerationDialog({
     }
 
     setBundling(true);
+    setBundleGap(null);
 
     const documenti: BundleDocument[] = [];
+    let mancanti = 0;
+
     for (const id of batch.producedIds) {
       const { html } = await readGeneratedDocumentHtml(id);
-      if (html) documenti.push({ id, title: batch.templateTitle, html });
+      if (html) {
+        documenti.push({ id, title: batch.templateTitle, html });
+      } else {
+        /*
+          Il motivo della singola lettura non si mostra: sono cento righe e il
+          motivo e lo stesso per tutte — quello che conta e **quanti** non ci
+          sono, perche e cio che rende il fascicolo incompleto.
+        */
+        mancanti += 1;
+      }
     }
 
     setBundling(false);
@@ -328,27 +408,14 @@ export function BulkGenerationDialog({
       return;
     }
 
-    const parti = planBundleParts(documenti);
-
-    if (parti.length > 1) {
-      /*
-        Sopra la soglia non si tronca in silenzio: si dice, e si propone la
-        divisione. Un fascicolo incompleto che sembra completo e peggio di due
-        fascicoli.
-      */
+    if (mancanti) {
       finestra.close();
-      setBundleParts(parti);
+      setBundleGap({ documenti, mancanti });
       return;
     }
 
-    setBundleParts(null);
-    renderBundleInto(
-      finestra,
-      buildDocumentBundleHtml({
-        title: batch.templateTitle,
-        documents: parti[0],
-      }),
-    );
+    setBundleMissing(0);
+    componiFascicolo(documenti, 0, finestra);
   };
 
   /** Chiudere a lotto finito butta via lo stato: quel lotto non si riprende. */
@@ -492,8 +559,15 @@ export function BulkGenerationDialog({
 
         {stage === "running" || stage === "done" ? (
           <div className="space-y-4 py-2 text-sm">
+            {/*
+              L'avanzamento si **annuncia**: per chi non vede la barra, un
+              lotto da cento atleti era due minuti di silenzio assoluto — nessun
+              modo di sapere se stava andando avanti, se era finito o se si era
+              fermato. `polite` e non `assertive` perche non interrompe cio che
+              si sta leggendo: arriva fra una fetta e l'altra.
+            */}
             {progress ? (
-              <div className="space-y-2">
+              <div className="space-y-2" role="status" aria-live="polite">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium text-slate-900">
                     {progress.served} di {progress.total} serviti
@@ -507,13 +581,83 @@ export function BulkGenerationDialog({
                   value={progress.percent}
                   aria-label="Avanzamento del lotto"
                 />
+                {stage === "done" ? (
+                  <p className="text-muted-foreground">
+                    Lotto concluso: {batch?.producedIds.length || 0}{" "}
+                    {batch?.producedIds.length === 1 ? "documento" : "documenti"}{" "}
+                    prodotti
+                    {batch?.failures.length
+                      ? `, ${batch.failures.length} non generati`
+                      : ""}
+                    .
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
+            {/*
+              L'interruzione e un `alert`: e la sola cosa che chiede un gesto
+              subito — riprendere, o lasciar perdere — e aspettare la fine
+              della frase in corso vorrebbe dire scoprirla dopo aver chiuso.
+            */}
             {interrupted ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <p
+                role="alert"
+                className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900"
+              >
                 {interrupted}
               </p>
+            ) : null}
+
+            {/*
+              Le letture mancate: si dicono **prima** di aprire il fascicolo, e
+              con le due strade aperte. Chiuderlo qui e ammettere di non sapere
+              cosa ci sia dentro.
+            */}
+            {bundleGap ? (
+              <div
+                role="alert"
+                className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900"
+              >
+                <p className="font-medium">
+                  {bundleGap.mancanti}{" "}
+                  {bundleGap.mancanti === 1
+                    ? "documento non si e potuto leggere"
+                    : "documenti non si sono potuti leggere"}
+                </p>
+                <p className="mt-1 text-xs">
+                  Sono stati prodotti e restano in «Documenti generati»: e la
+                  rilettura per il fascicolo che non e riuscita. Il fascicolo
+                  puo uscire lo stesso con {bundleGap.documenti.length}, e lo
+                  dichiara in intestazione.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const gap = bundleGap;
+                      setBundleGap(null);
+                      setBundleMissing(gap.mancanti);
+                      componiFascicolo(gap.documenti, gap.mancanti);
+                    }}
+                  >
+                    <Printer className="mr-2 h-4 w-4" aria-hidden />
+                    Continua con {bundleGap.documenti.length}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setBundleGap(null);
+                      void apriFascicolo();
+                    }}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
+                    Riprova la lettura
+                  </Button>
+                </div>
+              </div>
             ) : null}
 
             {batch?.failures.length ? (
