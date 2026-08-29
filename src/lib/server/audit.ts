@@ -78,6 +78,13 @@ export const AUDIT_ACTIONS = {
   fundingReported: "funding.period.reported",
   fundingSettled: "funding.period.settled",
   /*
+    Lo storno di una liquidazione. La traccia la scrive il **servizio** e non la
+    rotta: il resto del dominio bandi la scrive nella rotta, e chiamare il
+    servizio da altrove non lascerebbe segno. Il codice nuovo segue il modello
+    del lavoro sportivo, che e quello giusto.
+  */
+  fundingSettlementReversed: "funding.settlement.reversed",
+  /*
     Commerciale della piattaforma. Il club non le puo compiere: se compaiono
     con un attore che non e `platform_admin`, e successo qualcosa.
   */
@@ -161,6 +168,19 @@ export const AUDIT_ACTIONS = {
   consentVersionPublished: "consent.version.published",
   consentDecisionRecorded: "consent.decision.recorded",
   consentRevoked: "consent.revoked",
+  /*
+    Il libro soci (Wave 4, W4-F). Tre azioni e non una, per la stessa ragione
+    per cui la revoca di un consenso ha la sua: la **cessazione** e la riga che
+    si va a cercare quando qualcuno chiede perche una persona non era piu socia
+    — o perche non e stata convocata in assemblea — e cercarla fra tutti gli
+    eventi associativi non la trova.
+
+    Non si chiamano `membership.*` perche quel prefisso e gia occupato
+    dall'accesso di un utente a un'organizzazione, che e un fatto diverso.
+  */
+  memberAdmitted: "member.admitted",
+  memberCeased: "member.ceased",
+  memberReinstated: "member.reinstated",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

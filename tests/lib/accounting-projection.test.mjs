@@ -118,6 +118,7 @@ const compenso = (over = {}) => ({
   transaction_type: "COMPENSATION_PAYMENT",
   paid_at: "2026-10-01T10:00:00.000Z",
   gross_amount: 1000,
+  net_amount: 924,
   club_cost: 1240,
   payment_method: "Bonifico",
   person_id: "persona-1",
@@ -126,18 +127,49 @@ const compenso = (over = {}) => ({
   ...over,
 });
 
-test("un compenso esce dal conto per il costo del club, non per il netto", () => {
+test("un compenso esce dal conto per quanto e uscito davvero: il netto", () => {
   /*
-    E la differenza fra sapere quanto e stato bonificato e sapere quanto e
-    costato: il secondo comprende la quota contributiva a carico del club, che
-    esce comunque. Senza, il costo del lavoro sportivo in prima nota e
-    sistematicamente inferiore al vero.
+    **Una contraddizione del piano, sciolta qui.**
+
+    Lo scenario 16 chiede la riga con «il costo del club e non solo il netto»;
+    lo scenario 19 chiede che il versamento F24 dei contributi compaia fra le
+    uscite. Insieme conterebbero i contributi **due volte**: 1.240 di compenso
+    piu 316 di F24, per un costo che il registro dice essere 1.240. Il saldo
+    del conto — che questa Wave rende derivato — sarebbe sbagliato di quella
+    cifra a ogni compenso.
+
+    La prima nota registra fatti finanziari. Dal conto verso la persona esce il
+    **netto**; dal conto verso l'erario esce l'F24. Sono due movimenti, in due
+    momenti, verso due controparti — ed e il motivo per cui lo scenario 19
+    esiste.
   */
   const [riga] = projectSportWorkPayouts([compenso()]);
 
   assert.equal(riga.direction, "OUT");
-  assert.equal(riga.amountCents, 124000, "1.240, non 1.000");
+  assert.equal(riga.amountCents, 92400, "il netto bonificato, non il costo");
   assert.equal(riga.sourceDomain, "SPORT_WORK_PAYOUT");
+});
+
+test("netto piu F24 fanno il costo del club, senza contarlo due volte", () => {
+  const righe = projectSportWorkPayouts([
+    compenso(),
+    compenso({
+      id: "sw-f24",
+      transaction_type: "CONTRIBUTION_PAYMENT",
+      gross_amount: 316,
+      net_amount: 316,
+      club_cost: 316,
+    }),
+  ]);
+
+  const uscite = righe.reduce((sum, r) => sum + r.amountCents, 0);
+
+  assert.equal(uscite, 92400 + 31600);
+  assert.equal(
+    uscite,
+    124000,
+    "e esattamente il costo del club congelato sulla riga di registro",
+  );
 });
 
 test("la prima nota non ricalcola nessun contributo: legge il valore congelato", () => {
@@ -146,14 +178,23 @@ test("la prima nota non ricalcola nessun contributo: legge il valore congelato",
     ricalcolasse, un cambio di regole cambierebbe il costo di un compenso di
     sei mesi fa.
   */
-  const [riga] = projectSportWorkPayouts([compenso({ club_cost: 1177.5 })]);
+  const [riga] = projectSportWorkPayouts([compenso({ net_amount: 1177.5 })]);
   assert.equal(riga.amountCents, 117750);
 });
 
-test("dove il costo del club non e valorizzato vale il lordo", () => {
-  /* Premi, rimborsi e fatture dei professionisti: li il lordo e l'intero esborso. */
+test("dove il netto non e valorizzato vale il lordo", () => {
+  /*
+    Premi, rimborsi e fatture dei professionisti non sono compensi, non
+    consumano franchigie e non hanno una quota contributiva: li il lordo e
+    l'intero esborso.
+  */
   const [riga] = projectSportWorkPayouts([
-    compenso({ transaction_type: "BONUS_PAYMENT", club_cost: 0, gross_amount: 300 }),
+    compenso({
+      transaction_type: "BONUS_PAYMENT",
+      net_amount: 0,
+      club_cost: 0,
+      gross_amount: 300,
+    }),
   ]);
 
   assert.equal(riga.amountCents, 30000);
@@ -167,6 +208,7 @@ test("lo storno di un compenso rientra, e non si somma all'uscita", () => {
       id: "sw-storno",
       transaction_type: "COMPENSATION_REVERSAL",
       gross_amount: -1000,
+      net_amount: -924,
       club_cost: -1240,
       reversal_of_id: "sw-1",
     }),
@@ -174,7 +216,7 @@ test("lo storno di un compenso rientra, e non si somma all'uscita", () => {
 
   const storno = righe.find((r) => r.sourceId === "sw-storno");
   assert.equal(storno.direction, "IN");
-  assert.equal(storno.amountCents, 124000);
+  assert.equal(storno.amountCents, 92400);
 
   const saldo = deriveAccountBalanceCents(
     0,
@@ -193,6 +235,7 @@ test("il versamento dei contributi compare fra le uscite", () => {
       id: "sw-f24",
       transaction_type: "CONTRIBUTION_PAYMENT",
       gross_amount: 240,
+      net_amount: 240,
       club_cost: 240,
     }),
   ]);
@@ -350,7 +393,7 @@ test("una riga senza data non si proietta: non e collocabile in nessun esercizio
 test("una riga da zero euro non si proietta", () => {
   assert.deepEqual(projectPaymentTransactions([incasso({ amount: 0 })]), []);
   assert.deepEqual(
-    projectSportWorkPayouts([compenso({ gross_amount: 0, club_cost: 0 })]),
+    projectSportWorkPayouts([compenso({ gross_amount: 0, net_amount: 0, club_cost: 0 })]),
     [],
   );
 });

@@ -333,6 +333,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "membership.events",
+    method: "GET|POST",
+    path: "/api/v1/membership/events",
+    description:
+      "Il libro soci. `GET ?member_id=` la posizione di un socio: storico e stato **derivato**, con `&at=` a una data passata. `POST` registra ammissione, dimissione, decadenza, esclusione o riammissione. Registro **append-only**: nessun `PATCH`, nessun `DELETE`, e il numero di tessera mandato dal client viene rifiutato",
+    mobile_ready: false,
+  },
+  {
+    name: "membership.register",
+    method: "GET",
+    path: "/api/v1/membership/register",
+    description:
+      "Il libro completo. Con `?at=2026-03-12` risponde a «chi era socio quel giorno»: la qualifica della controparte **al momento dell'operazione** e cio da cui dipende la classificazione di un'entrata",
+    mobile_ready: false,
+  },
+  {
+    name: "membership.admissions",
+    method: "POST",
+    path: "/api/v1/membership/admissions",
+    description:
+      "Crea l'anagrafica del socio **e** la sua ammissione in una transazione sola. Prima la creazione riscriveva l'intera colonna `clubs.members` dal browser: due segreterie in contemporanea si cancellavano a vicenda",
+    mobile_ready: false,
+  },
+  {
     name: "rsvp.answer",
     method: "GET|POST",
     path: "/api/v1/rsvp",
@@ -753,11 +777,51 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "fiscal.operations.deactivate",
+    method: "DELETE",
+    path: "/api/v1/fiscal/operation-types",
+    description:
+      "?code=&action=deactivate|activate|delete. Una voce predefinita, e una gia citata da un movimento, non si cancella: si disattiva, e la risposta lo dichiara",
+    mobile_ready: false,
+  },
+  {
     name: "fiscal.series.write",
     method: "POST",
     path: "/api/v1/fiscal/operation-types",
     description:
       "Creazione o aggiornamento di una serie di numerazione. Una sola serie predefinita per tipo di documento",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.accounts.read",
+    method: "GET",
+    path: "/api/v1/accounting/accounts",
+    description:
+      "I conti finanziari del club. ?with_balances=1 aggiunge i saldi, che sono derivati dai movimenti e richiedono accounting.accounts_read",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.accounts.create",
+    method: "POST",
+    path: "/api/v1/accounting/accounts",
+    description:
+      "Apertura di un conto: cassa, banca o transito. Il saldo non si digita, si dichiara solo il saldo di apertura con la sua data",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.accounts.detail",
+    method: "GET",
+    path: "/api/v1/accounting/accounts/:id",
+    description:
+      "Un conto solo. ?with_balance=1 ne calcola il saldo sommando prima nota, incassi, uscite del lavoro sportivo e liquidazioni",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.accounts.update",
+    method: "PATCH",
+    path: "/api/v1/accounting/accounts/:id",
+    description:
+      "Rinomina, corregge gli estremi e archivia un conto. Non esiste il DELETE: un conto e citato dai movimenti che ci sono passati",
     mobile_ready: false,
   },
   {

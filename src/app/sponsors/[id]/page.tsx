@@ -39,6 +39,16 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import {
+  EMPTY_SPONSOR_CONTRACT,
+  fromSponsorCents,
+  normalizeLegacySponsorCollections,
+  normalizeSponsorContract,
+  resolveSponsorCredit,
+  sanitizeSponsorContract,
+  toSponsorCents,
+  type SponsorContract,
+} from "@/lib/sponsors/model";
+import {
   Table,
   TableBody,
   TableCell,
@@ -82,6 +92,22 @@ export default function SponsorDetailsPage() {
     title: "",
     description: "",
     file: null as File | null,
+  });
+  /*
+    Il contratto vive accanto allo sponsor, non in una tabella sua: quattro
+    campi che rendono il credito calcolabile. Il **residuo non sta qui** e non
+    sta in archivio — si ricava a ogni render da contratto e incassi.
+  */
+  const [contract, setContract] = useState<SponsorContract>({
+    ...EMPTY_SPONSOR_CONTRACT,
+  });
+  const [isEditingContract, setIsEditingContract] = useState(false);
+  const [contractDraft, setContractDraft] = useState({
+    agreedAmount: "",
+    startDate: "",
+    endDate: "",
+    documentReference: "",
+    notes: "",
   });
 
   // Fetch sponsor data from database
@@ -173,6 +199,8 @@ export default function SponsorDetailsPage() {
           // Existing fields
           type: sponsorData.type || "sponsor",
         });
+
+        setContract(normalizeSponsorContract(sponsorData.contract));
 
         // Load payments and documents from sponsorData if available
         const sponsorPayments = sponsorData.payments || [];
@@ -345,6 +373,76 @@ export default function SponsorDetailsPage() {
       showToast("error", "Errore nell'eliminazione del documento");
     }
   };
+
+  /*
+    Le tre cifre, ricalcolate a ogni render.
+
+    **Nessuna delle tre e salvata**, e il residuo meno delle altre: e la
+    sottrazione fra il pattuito e cio che e davvero arrivato. Salvarlo vorrebbe
+    dire vederlo divergere dagli incassi il primo giorno in cui qualcuno storna.
+  */
+  const credit = React.useMemo(
+    () =>
+      resolveSponsorCredit({
+        contract,
+        collections: normalizeLegacySponsorCollections(payments),
+      }),
+    [contract, payments],
+  );
+
+  const openContractEditor = () => {
+    setContractDraft({
+      agreedAmount: contract.agreedAmountCents
+        ? String(fromSponsorCents(contract.agreedAmountCents))
+        : "",
+      startDate: contract.startDate || "",
+      endDate: contract.endDate || "",
+      documentReference: contract.documentReference,
+      notes: contract.notes,
+    });
+    setIsEditingContract(true);
+  };
+
+  const handleSaveContract = async () => {
+    if (!clubId || !sponsorId) return;
+
+    let next: SponsorContract;
+    try {
+      next = sanitizeSponsorContract({
+        agreedAmountCents: toSponsorCents(contractDraft.agreedAmount),
+        startDate: contractDraft.startDate,
+        endDate: contractDraft.endDate,
+        documentReference: contractDraft.documentReference,
+        notes: contractDraft.notes,
+      });
+    } catch (error) {
+      showToast(
+        "error",
+        error instanceof Error ? error.message : "Contratto non valido",
+      );
+      return;
+    }
+
+    try {
+      const { updateClubDataItem } = await import("@/lib/simplified-db");
+      await updateClubDataItem(clubId, "sponsors", sponsorId, {
+        contract: next,
+      });
+
+      setContract(next);
+      setIsEditingContract(false);
+      showToast("success", "Contratto salvato");
+    } catch (error) {
+      console.error("Error saving sponsor contract:", error);
+      showToast("error", "Errore nel salvataggio del contratto");
+    }
+  };
+
+  const formatAmount = (cents: number) =>
+    new Intl.NumberFormat("it-IT", {
+      style: "currency",
+      currency: "EUR",
+    }).format(fromSponsorCents(cents));
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
@@ -589,6 +687,190 @@ export default function SponsorDetailsPage() {
 
               {/* FINANZA TAB */}
               <TabsContent value="finanza" className="mt-4 space-y-6">
+                <Card>
+                  <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle>Contratto e credito</CardTitle>
+                    {!isEditingContract && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="self-start sm:self-auto"
+                        onClick={openContractEditor}
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        {credit.hasContract ? "Modifica" : "Registra contratto"}
+                      </Button>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {/*
+                      Le tre cifre stanno **accanto**, mai sommate: il dovuto e
+                      un impegno, l'incassato e cassa, il residuo e la loro
+                      differenza. Un riquadro unico che le sommasse direbbe un
+                      numero che non esiste.
+                    */}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <div className="rounded-lg border p-4">
+                        <p className="text-sm text-muted-foreground">Dovuto</p>
+                        <p className="mt-1 text-2xl font-semibold">
+                          {formatAmount(credit.dueCents)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Pattuito dal contratto. Non e cassa.
+                        </p>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <p className="text-sm text-muted-foreground">Incassato</p>
+                        <p className="mt-1 text-2xl font-semibold text-green-600">
+                          {formatAmount(credit.collectedCents)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Somma degli incassi registrati.
+                        </p>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <p className="text-sm text-muted-foreground">Residuo</p>
+                        <p
+                          className={
+                            credit.outstandingCents > 0
+                              ? "mt-1 text-2xl font-semibold text-amber-600"
+                              : "mt-1 text-2xl font-semibold"
+                          }
+                        >
+                          {formatAmount(credit.outstandingCents)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {credit.hasContract
+                            ? "Dovuto meno incassato."
+                            : "Nessun contratto registrato."}
+                        </p>
+                      </div>
+                    </div>
+
+                    {isEditingContract ? (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="contract-amount">
+                              Importo pattuito (€)
+                            </Label>
+                            <Input
+                              id="contract-amount"
+                              inputMode="decimal"
+                              value={contractDraft.agreedAmount}
+                              onChange={(event) =>
+                                setContractDraft({
+                                  ...contractDraft,
+                                  agreedAmount: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="contract-reference">
+                              Riferimento del contratto
+                            </Label>
+                            <Input
+                              id="contract-reference"
+                              value={contractDraft.documentReference}
+                              onChange={(event) =>
+                                setContractDraft({
+                                  ...contractDraft,
+                                  documentReference: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="contract-start">Dal</Label>
+                            <Input
+                              id="contract-start"
+                              type="date"
+                              value={contractDraft.startDate}
+                              onChange={(event) =>
+                                setContractDraft({
+                                  ...contractDraft,
+                                  startDate: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="contract-end">Al</Label>
+                            <Input
+                              id="contract-end"
+                              type="date"
+                              value={contractDraft.endDate}
+                              onChange={(event) =>
+                                setContractDraft({
+                                  ...contractDraft,
+                                  endDate: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="contract-notes">Note</Label>
+                          <Textarea
+                            id="contract-notes"
+                            value={contractDraft.notes}
+                            onChange={(event) =>
+                              setContractDraft({
+                                ...contractDraft,
+                                notes: event.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                          <Button
+                            variant="outline"
+                            onClick={() => setIsEditingContract(false)}
+                          >
+                            Annulla
+                          </Button>
+                          <Button
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={handleSaveContract}
+                          >
+                            Salva contratto
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div>
+                          <h3 className="text-sm font-medium text-muted-foreground">
+                            Periodo
+                          </h3>
+                          <p className="mt-1">
+                            {contract.startDate || contract.endDate
+                              ? `${formatDate(contract.startDate || "") || "—"} → ${formatDate(contract.endDate || "") || "—"}`
+                              : "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-medium text-muted-foreground">
+                            Riferimento del contratto
+                          </h3>
+                          <p className="mt-1">
+                            {contract.documentReference || "-"}
+                          </p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <h3 className="text-sm font-medium text-muted-foreground">
+                            Note
+                          </h3>
+                          <p className="mt-1 whitespace-pre-line">
+                            {contract.notes || "-"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle>Dati Finanziari</CardTitle>

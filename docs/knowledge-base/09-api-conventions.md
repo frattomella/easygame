@@ -683,6 +683,87 @@ permette di assistere — ma la scrittura resta di chi risponde del contenuto.
 non un `PATCH`, perche un documento emesso non si modifica affatto: l'unica
 cosa che gli puo succedere dopo l'emissione e essere annullato.
 
+### Le causali: leggere e modificare sono due permessi (Wave 4)
+
+`GET|PUT|POST|DELETE /api/v1/fiscal/operation-types`.
+
+**Leggere e lavoro di segreteria** (`accounting.read`): senza l'elenco non si
+registra un movimento, e sul movimento manuale la causale e obbligatoria.
+**Modificare e configurazione societaria** (`accounting.causes_manage`):
+cambiare la classificazione di una causale cambia la natura fiscale di cio che
+si registrera dopo. La lettura restituisce `permissions.canManage`, perche la
+superficie non mostri un pulsante che poi risponde `403`.
+
+Il `PUT` **aggiorna solo cio che gli si nomina**: la riga esistente si legge
+prima, e i campi assenti dal corpo restano com'erano. Prima riscriveva tutte le
+colonne partendo dal corpo normalizzato, e un aggiornamento della sola etichetta
+azzerava aliquota, natura IVA e ambito, in silenzio.
+
+Il `DELETE` vuole `?code=` e `?action=deactivate|activate|delete`, e **quasi
+sempre disattiva anche quando gli si chiede di cancellare**: una voce di
+sistema non si cancella mai, e una gia citata da un movimento nemmeno — la
+chiave esterna e `RESTRICT`. La risposta porta `deleted` e un messaggio che
+dice quale delle due cose e successa, perche chi ha premuto «elimina» non deve
+restare a cercare la causale nel posto sbagliato.
+
+### Contabilita: i conti, e il saldo che non e una colonna (Wave 4)
+
+`GET|POST /api/v1/accounting/accounts` e `GET|PATCH
+/api/v1/accounting/accounts/:id`, con l'involucro `accountingRoute` colocato in
+`src/app/api/v1/accounting/accounts/route-context.ts` — stessa forma di
+`sportWorkRoute`, stesso motivo, e la guardia
+`tests/auth/api-authorization.test.mjs` lo segue perche e un import relativo
+dentro `src/app/api`.
+
+Tre cose sono proprie di queste rotte:
+
+- **i saldi non arrivano per difetto.** L'elenco ha due lettori: chi registra
+  un movimento (che deve solo scegliere il conto, `accounting.read`) e chi
+  tiene i conti (`accounting.accounts_read`). `?with_balances=1` chiede la
+  seconda cosa, e chi non ne ha il diritto riceve un **403 che dice perche**,
+  non un elenco con i saldi a zero;
+- **il saldo e derivato**, e la risposta lo dichiara con `balancesIncluded`:
+  non esiste nessuna rotta che scriva un saldo, perche non c'e un saldo da
+  scrivere. E la somma di prima nota, incassi, uscite del lavoro sportivo e
+  liquidazioni dei bandi, aggregata nel database;
+- **non esiste il `DELETE`.** Un conto e citato dai movimenti che ci sono
+  passati: `PATCH {"archived": true}` lo toglie dagli elenchi in cui si sceglie
+  dove registrare e lo lascia leggibile ovunque sia gia citato. Il `PATCH` non
+  accetta `kind` ne il saldo di apertura, che riscriverebbero retroattivamente
+  cio che il conto ha significato finora.
+
+### Il libro soci: un registro, non una risorsa (Wave 4)
+
+`GET|POST /api/v1/membership/events`, `GET /api/v1/membership/register` e
+`POST /api/v1/membership/admissions`, con lo scope risolto da `resolveMembershipScope`
+in `src/app/api/v1/membership/http.ts` — stessa forma delle rotte dei consensi,
+stesso motivo.
+
+Quattro cose sono proprie di queste rotte:
+
+- **il nome e `membership` e non `members`**, e non e una preferenza:
+  `/api/v1/:resource` e il CRUD generico e `members` e una delle sue risorse.
+  Una cartella statica con quel nome oscurerebbe la rotta dinamica e farebbe
+  sparire un endpoint documentato;
+- **non esistono `PATCH` ne `DELETE`.** Il registro e append-only: una
+  dimissione e un `POST` che aggiunge una riga, e l'ammissione di tre anni fa
+  resta dimostrabile. E la stessa forma dei consensi (Wave 3) e dello storno di
+  un incasso (ADR-0062);
+- **il numero di tessera mandato dal client viene rifiutato** con un messaggio,
+  non ignorato: ignorarlo farebbe credere a chi lo manda di averlo assegnato.
+  Lo assegna `document_number_sequences` dentro la stessa transazione della
+  riga;
+- **`?at=` non e un filtro, e la domanda.** `GET /api/v1/membership/register?at=2026-03-12`
+  risponde a «chi era socio quel giorno»: la decommercializzazione di
+  un'entrata dipende dalla qualifica della controparte **al momento
+  dell'operazione**, e a quella uno stato corrente non sa rispondere.
+
+`POST /api/v1/membership/admissions` scrive anagrafica **ed** evento in una
+transazione sola. Prima la creazione di un socio era una lettura, un append e
+una riscrittura dell'intera colonna `clubs.members` **fatta dal browser**: due
+segreterie nello stesso minuto, e la seconda scrittura cancellava la prima
+senza un errore e senza una traccia.
+
 ### Il documento compilato
 
 `GET /api/v1/documents/filled?templateId=…&athleteId=…&seasonId=…` sta accanto

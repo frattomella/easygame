@@ -146,11 +146,22 @@ const ENTITY_COLUMNS: Record<PersonEntity, PersonExportColumn[]> = {
     { key: "hireDate", label: "Data assunzione", toggleKey: "hireDate" },
     { key: "status", label: "Stato", toggleKey: "status" },
   ],
+  /*
+    I soci portano anche il **libro** (Wave 4, §19): lo stato derivato dagli
+    eventi, la data di ammissione, e la cessazione con il suo motivo. Non sono
+    campi dell'anagrafica — arrivano dal registro — e senza di loro un elenco
+    stampato non direbbe ne da quando ne perche una persona e uscita, che e
+    l'unica cosa che a un elenco di soci viene chiesta.
+  */
   members: [
     { key: "type", label: "Tipo socio" },
     { key: "membershipNumber", label: "N. tessera" },
     { key: "membershipDate", label: "Data iscrizione", toggleKey: "membershipDate" },
-    { key: "status", label: "Stato", toggleKey: "status" },
+    { key: "membershipStatus", label: "Stato nel libro", toggleKey: "status" },
+    { key: "admissionDate", label: "Data ammissione" },
+    { key: "cessationDate", label: "Data cessazione" },
+    { key: "cessationReason", label: "Motivo cessazione" },
+    { key: "status", label: "Stato scheda", toggleKey: "status" },
   ],
 };
 
@@ -247,6 +258,20 @@ export const personExportValue = (
       return formatDate(
         pick(person, ["membershipDate", "registrationDate", "membership_date"]),
       );
+    /*
+      Lo stato del libro non passa da `formatStatus`: quelle etichette
+      traducono il flag dell'anagrafica («active» → «Attivo»), mentre qui la
+      frase arriva gia scritta dalla derivazione — ed e la stessa che la
+      schermata mostra, apposta.
+    */
+    case "membershipStatus":
+      return pick(person, ["membershipStatus", "membership_status"]);
+    case "admissionDate":
+      return formatDate(pick(person, ["admissionDate", "admission_date"]));
+    case "cessationDate":
+      return formatDate(pick(person, ["cessationDate", "cessation_date"]));
+    case "cessationReason":
+      return pick(person, ["cessationReason", "cessation_reason"]);
     case "hireDate":
       return formatDate(pick(person, ["hireDate", "hire_date", "startDate"]));
     case "startDate":

@@ -65,6 +65,8 @@ import {
 } from "@/lib/athlete-name-utils";
 import { EntityIcon } from "@/components/ui/entity-icon";
 import { exportPeopleCsv, exportPeoplePdf } from "@/lib/person-export";
+import { fetchMembershipRegister } from "@/lib/members/client";
+import { MEMBERSHIP_REGISTER_DISCLAIMER } from "@/lib/members/model";
 import { useToast } from "@/components/ui/toast-notification";
 import { FileDown, FileSpreadsheet } from "lucide-react";
 
@@ -82,6 +84,19 @@ interface Socio {
   role?: string;
   /** Ordinario, sostenitore, onorario: l'elenco sta in `lib/member-types.ts`. */
   type?: string;
+  /*
+    Il libro soci (Wave 4, §19). Sono campi **derivati** dagli eventi, non
+    scritti in anagrafica: arrivano dal registro e servono all'elenco e
+    all'export. `inRegister` distingue «non e socio» da «non e ancora nel
+    libro», che per un club che parte adesso sono due cose molto diverse.
+  */
+  membershipStatus?: string;
+  membershipNumber?: string;
+  admissionDate?: string;
+  cessationDate?: string;
+  cessationReason?: string;
+  isMemberNow?: boolean;
+  inRegister?: boolean;
 }
 
 const getSocioIdentity = (member: Record<string, any>) => {
@@ -123,6 +138,48 @@ const isRegisteredSocio = (member: Record<string, any>) => {
       member?.email ||
       member?.phone ||
       member?.fiscalCode,
+  );
+};
+
+/**
+ * Lo stato di un socio in elenco.
+ *
+ * **Perche non e piu il flag dell'anagrafica.** «Attivo» in `clubs.members` e
+ * un interruttore che qualcuno ha premuto; la qualifica di socio si **ricava**
+ * dagli eventi del libro, e sa dire anche da quando. Dove il libro parla, si
+ * mostra il libro.
+ *
+ * **Perche il flag resta quando il libro tace.** Un club che apre il libro
+ * adesso ha centinaia di schede senza nessun evento: dire «Non socio» a tutte
+ * sarebbe falso quanto dire «Attivo» a chi si e dimesso. Si dichiara che quella
+ * persona non e ancora nel libro, che e cio che c'e da fare.
+ */
+const MembershipStatusBadge = ({ socio }: { socio: Socio }) => {
+  if (socio.inRegister) {
+    return (
+      <Badge
+        variant={socio.isMemberNow ? "default" : "outline"}
+        className={
+          socio.isMemberNow
+            ? "bg-green-100 text-green-800 border-green-200"
+            : "bg-amber-100 text-amber-900 border-amber-200"
+        }
+      >
+        {socio.membershipStatus}
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge
+      variant="outline"
+      className="bg-gray-100 text-gray-800 border-gray-200"
+      title="Non ancora registrato nel libro soci"
+    >
+      {socio.is_active || socio.status === "active"
+        ? "Scheda attiva"
+        : "Scheda non attiva"}
+    </Badge>
   );
 };
 
@@ -293,10 +350,40 @@ export default function SociPage() {
           })
           .sort(comparePeopleByLastName);
 
-        setSoci(transformedData);
+        /*
+          Il libro soci, accanto all'anagrafica (Wave 4, §19).
+
+          Sono due letture perche sono due cose: l'anagrafica dice chi c'e, il
+          registro dice **chi e socio**, e lo dice derivandolo dagli eventi.
+          Se il registro non e leggibile — un ruolo che non ha il permesso, un
+          club che non ha ancora nessun evento — l'elenco resta quello di
+          prima invece di sparire.
+        */
+        const { data: libro } = await fetchMembershipRegister({ clubId });
+        const perSocio = new Map(
+          (libro?.rows || []).map((riga) => [String(riga.memberId), riga]),
+        );
+
+        const conLibro = transformedData.map((socio: Socio) => {
+          const riga = perSocio.get(String(socio.id));
+          if (!riga) return socio;
+
+          return {
+            ...socio,
+            membershipStatus: riga.eventCount > 0 ? riga.status.label : "",
+            membershipNumber: riga.status.membershipNumber || "",
+            admissionDate: riga.status.admittedOn || "",
+            cessationDate: riga.status.endedOn || "",
+            cessationReason: riga.status.endedOn ? riga.status.reason || "" : "",
+            isMemberNow: riga.status.isMember,
+            inRegister: riga.eventCount > 0,
+          };
+        });
+
+        setSoci(conLibro);
         // Un id selezionato che non esiste piu mostrerebbe un conteggio che
         // non corrisponde a niente.
-        selection.prune(transformedData.map((socio: Socio) => String(socio.id)));
+        selection.prune(conLibro.map((socio: Socio) => String(socio.id)));
       } catch (error) {
         console.error("Error fetching soci:", error);
         setSoci([]);
@@ -608,6 +695,16 @@ export default function SociPage() {
               }
             />
 
+            {/*
+              Cosa e questo elenco, detto nel prodotto (§19, §31). Il libro
+              soci per una ASD non-ETS e obbligo statutario ed elemento
+              probatorio, non un modello da depositare: chiamarlo «conforme»
+              prometterebbe cio che nessuna norma definisce.
+            */}
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              {MEMBERSHIP_REGISTER_DISCLAIMER}
+            </p>
+
             <BulkSelectionToolbar
               selection={selection}
               nouns={{ one: "socio", many: "soci" }}
@@ -806,22 +903,7 @@ export default function SociPage() {
                                 key={`${socio.id}-status`}
                                 className="hidden md:table-cell"
                               >
-                                <Badge
-                                  variant={
-                                    socio.is_active || socio.status === "active"
-                                      ? "default"
-                                      : "outline"
-                                  }
-                                  className={
-                                    socio.is_active || socio.status === "active"
-                                      ? "bg-green-100 text-green-800 border-green-200"
-                                      : "bg-gray-100 text-gray-800 border-gray-200"
-                                  }
-                                >
-                                  {socio.is_active || socio.status === "active"
-                                    ? "Attivo"
-                                    : "Non Attivo"}
-                                </Badge>
+                                <MembershipStatusBadge socio={socio} />
                               </TableCell>
                             )}
                             <TableCell
@@ -905,22 +987,7 @@ export default function SociPage() {
                           </CardTitle>
                         </div>
                       </div>
-                      <Badge
-                        variant={
-                          socio.is_active || socio.status === "active"
-                            ? "default"
-                            : "outline"
-                        }
-                        className={
-                          socio.is_active || socio.status === "active"
-                            ? "bg-green-100 text-green-800 border-green-200"
-                            : "bg-gray-100 text-gray-800 border-gray-200"
-                        }
-                      >
-                        {socio.is_active || socio.status === "active"
-                          ? "Attivo"
-                          : "Non Attivo"}
-                      </Badge>
+                      <MembershipStatusBadge socio={socio} />
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <div className="flex items-center text-sm text-gray-600">

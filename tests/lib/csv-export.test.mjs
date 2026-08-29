@@ -219,8 +219,24 @@ test("le colonne senza interruttore restano sempre", () => {
     membershipDate: false,
   }).map((column) => column.key);
 
-  // Codice fiscale e taglie in tabella non ci stanno, in un export servono.
-  assert.deepEqual(keys, ["fiscalCode", "clothingSizes", "type", "membershipNumber"]);
+  /*
+    Codice fiscale e taglie in tabella non ci stanno, in un export servono.
+
+    Dalla Wave 4 (W4-F) valgono lo stesso per i tre campi del libro soci:
+    quando e stata ammessa quella persona, quando e uscita e perche. Un elenco
+    di soci stampato senza il «perche» e cio che il libro attuale gia sa fare,
+    e non basta. Lo **stato** nel libro non e qui perche segue l'interruttore
+    della colonna «Stato», che qui e spento.
+  */
+  assert.deepEqual(keys, [
+    "fiscalCode",
+    "clothingSizes",
+    "type",
+    "membershipNumber",
+    "admissionDate",
+    "cessationDate",
+    "cessationReason",
+  ]);
 });
 
 test("esportare un elenco vuoto e un errore con un nome", () => {

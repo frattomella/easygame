@@ -53,6 +53,12 @@ import {
 } from "@/lib/simplified-db";
 import { useRouter } from "next/navigation";
 import { sortByName } from "@/lib/sorting";
+import {
+  fromSponsorCents,
+  normalizeLegacySponsorCollections,
+  normalizeSponsorContract,
+  resolveSponsorCredit,
+} from "@/lib/sponsors/model";
 
 const SPONSOR_TYPE_OPTIONS = [
   { value: "sponsor", label: "Sponsor" },
@@ -69,6 +75,12 @@ type Sponsor = {
   phone: string;
   email: string;
   vatNumber: string;
+  /**
+   * Il codice fiscale, **accanto** alla partita IVA e non al posto suo: uno
+   * sponsor puo essere una persona fisica o un ente non commerciale, e una
+   * fattura senza nessuno dei due non e emettibile.
+   */
+  fiscalCode: string;
   pec: string;
   sdi: string;
   iban: string;
@@ -161,6 +173,7 @@ export default function SponsorsPage() {
     phone: "",
     email: "",
     vatNumber: "",
+    fiscalCode: "",
     pec: "",
     sdi: "",
     iban: "",
@@ -191,6 +204,7 @@ export default function SponsorsPage() {
       phone: "",
       email: "",
       vatNumber: "",
+      fiscalCode: "",
       pec: "",
       sdi: "",
       iban: "",
@@ -283,6 +297,45 @@ export default function SponsorsPage() {
       );
     },
     [payments],
+  );
+
+  /*
+    Il **residuo** di uno sponsor, ricalcolato ogni volta: pattuito meno
+    incassato. Non e una colonna in archivio e non deve diventarlo — un residuo
+    salvato divergerebbe dagli incassi il primo giorno in cui qualcuno storna.
+
+    Le due fonti degli incassi convivono per ragioni storiche: la collezione
+    `sponsor_payments` e la lista annidata sulla scheda. Si uniscono per id,
+    perche un club che ha usato entrambe non deve vedere lo stesso incasso due
+    volte.
+  */
+  const sponsorCredit = React.useCallback(
+    (sponsor: any) => {
+      const merged = new Map<string, any>();
+      for (const payment of [
+        ...getSponsorPayments(sponsor?.id),
+        ...(Array.isArray(sponsor?.payments) ? sponsor.payments : []),
+      ]) {
+        const key = String(payment?.id || "").trim();
+        if (key && merged.has(key)) continue;
+        merged.set(key || `riga-${merged.size}`, payment);
+      }
+
+      return resolveSponsorCredit({
+        contract: normalizeSponsorContract(sponsor?.contract),
+        collections: normalizeLegacySponsorCollections([...merged.values()]),
+      });
+    },
+    [getSponsorPayments],
+  );
+
+  const formatAmount = React.useCallback(
+    (cents: number) =>
+      new Intl.NumberFormat("it-IT", {
+        style: "currency",
+        currency: "EUR",
+      }).format(fromSponsorCents(cents)),
+    [],
   );
 
   // Handle sponsor form change
@@ -762,13 +815,19 @@ export default function SponsorsPage() {
                         <TableHead>Email</TableHead>
                         <TableHead>Telefono</TableHead>
                         <TableHead>P.IVA</TableHead>
+                        {/*
+                          Il residuo del contratto, non un totale: dovuto e
+                          incassato restano separati sulla scheda, dove c'e lo
+                          spazio per mostrarli accanto senza sommarli.
+                        */}
+                        <TableHead className="text-right">Residuo</TableHead>
                         <TableHead className="text-right">Azioni</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loading ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center">
+                          <TableCell colSpan={6} className="h-24 text-center">
                             Caricamento...
                           </TableCell>
                         </TableRow>
@@ -805,6 +864,29 @@ export default function SponsorsPage() {
                                   {sponsor.vatNumber || "N/A"}
                                 </TableCell>
                                 <TableCell className="text-right">
+                                  {(() => {
+                                    const credit = sponsorCredit(sponsor);
+                                    if (!credit.hasContract) {
+                                      return (
+                                        <span className="text-muted-foreground">
+                                          Nessun contratto
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <span
+                                        className={
+                                          credit.outstandingCents > 0
+                                            ? "font-medium text-amber-600"
+                                            : "font-medium"
+                                        }
+                                      >
+                                        {formatAmount(credit.outstandingCents)}
+                                      </span>
+                                    );
+                                  })()}
+                                </TableCell>
+                                <TableCell className="text-right">
                                   <div className="flex justify-end gap-2">
                                     <Button
                                       variant="outline"
@@ -837,7 +919,7 @@ export default function SponsorsPage() {
                           .filter(Boolean)
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center">
+                          <TableCell colSpan={6} className="h-24 text-center">
                             Nessuno sponsor trovato.
                           </TableCell>
                         </TableRow>
@@ -1195,6 +1277,16 @@ export default function SponsorsPage() {
                     value={newSponsor.vatNumber}
                     onChange={handleSponsorChange}
                     placeholder="IT01234567890"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sponsor-fiscal-code">Codice fiscale</Label>
+                  <Input
+                    id="sponsor-fiscal-code"
+                    name="fiscalCode"
+                    value={newSponsor.fiscalCode}
+                    onChange={handleSponsorChange}
+                    placeholder="RSSMRA80A01H501U"
                   />
                 </div>
                 <div className="space-y-2">

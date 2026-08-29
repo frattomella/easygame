@@ -29,7 +29,11 @@ import {
   documentYearOf,
   type DocumentNumberKind,
 } from "@/lib/documents/numbering";
-import { resolveFiscalRecipient } from "@/lib/documents/fiscal-recipient";
+import {
+  resolveFiscalRecipient,
+  type FiscalCounterparty,
+} from "@/lib/documents/fiscal-recipient";
+import { findSponsorCounterparty } from "./sponsors";
 import {
   buildDocumentSnapshot,
   immutableFieldsTouchedBy,
@@ -64,9 +68,29 @@ type IssueContext = {
   transaction: Record<string, any>;
   charge: Record<string, any> | null;
   athlete: Record<string, any> | null;
+  /**
+   * L'intestatario quando **non** e un atleta: uno sponsor, e domani un socio.
+   *
+   * Estensione minima di W4-H. Prima di questa riga l'intestatario era sempre
+   * risolto dall'atleta, e la sponsorizzazione — l'unica entrata del catalogo
+   * che una fattura la **richiede** — era l'unica che non poteva averla.
+   */
+  counterparty: FiscalCounterparty | null;
   operationType: NormalizedOperationType | null;
   profile: Awaited<ReturnType<typeof getFiscalProfile>>;
 };
+
+/**
+ * L'intestatario del documento, dalla forma giusta delle due.
+ *
+ * La controparte, quando c'e, **vince sull'atleta**: un incasso che dichiara
+ * uno sponsor lo dichiara perche il documento e suo, e cadere sull'atleta
+ * intesterebbe a una famiglia una fattura di sponsorizzazione.
+ */
+const recipientOf = (context: IssueContext) =>
+  context.counterparty
+    ? resolveFiscalRecipient({ counterparty: context.counterparty })
+    : resolveFiscalRecipient(context.athlete);
 
 /**
  * Tutto cio che serve per decidere ed emettere, caricato una volta.
@@ -101,6 +125,22 @@ const loadIssueContext = async (
   ]);
 
   /*
+    L'intestatario non-atleta, quando l'incasso ne dichiara uno.
+
+    Il club arriva **dalla riga dell'incasso**, mai dal client: uno sponsor si
+    cerca solo dentro il club a cui l'incasso appartiene, e uno sponsor
+    cancellato non impedisce di ristampare — per quello c'e lo snapshot.
+  */
+  const counterpartyKind = asText(transaction.counterparty_kind).toUpperCase();
+  const counterparty =
+    counterpartyKind === "SPONSOR" || counterpartyKind === "SUPPLIER"
+      ? await findSponsorCounterparty(
+          organizationId,
+          asText(transaction.counterparty_id),
+        )
+      : null;
+
+  /*
     Il tipo di operazione: quello chiesto adesso, altrimenti quello registrato
     sull'incasso, altrimenti quello che il dominio propone. La terza opzione e
     una proposta e non una dichiarazione: `decideDocument` lo sa, e infatti
@@ -109,7 +149,9 @@ const loadIssueContext = async (
   const code =
     asText(operationTypeCode) ||
     asText(transaction.operation_type_code) ||
-    DEFAULT_OPERATION_TYPE_BY_ORIGIN.athlete;
+    (counterparty
+      ? DEFAULT_OPERATION_TYPE_BY_ORIGIN.sponsor
+      : DEFAULT_OPERATION_TYPE_BY_ORIGIN.athlete);
 
   const operationType = await getOperationType({ organizationId, code });
 
@@ -119,6 +161,7 @@ const loadIssueContext = async (
     transaction,
     charge,
     athlete,
+    counterparty,
     operationType,
     profile,
   };
@@ -140,7 +183,7 @@ export const describeDocumentDecision = async (
     scope,
     input.operationTypeCode,
   );
-  const recipient = resolveFiscalRecipient(context.athlete);
+  const recipient = recipientOf(context);
 
   return {
     decision: decideDocument({
@@ -179,7 +222,7 @@ const buildSnapshotFor = (
   context: IssueContext,
   input: { issueDate: Date; description: string; totalCents: number },
 ) => {
-  const recipient = resolveFiscalRecipient(context.athlete);
+  const recipient = recipientOf(context);
   const stamp = resolveStampDuty({
     profile: context.profile,
     amountCents: input.totalCents,
@@ -320,7 +363,7 @@ export const issueInvoiceForTransaction = async (
 
   assertIssuable(context.transaction);
 
-  const recipient = resolveFiscalRecipient(context.athlete);
+  const recipient = recipientOf(context);
   const decision = decideDocument({
     profile: context.profile,
     operationType: context.operationType,
@@ -364,9 +407,16 @@ export const issueInvoiceForTransaction = async (
   });
 
   const amount = toPaymentAmount(context.transaction.amount);
+  /*
+    La descrizione predefinita segue l'intestatario, non l'abitudine: «Quota
+    sportiva» su una fattura a uno sponsor sarebbe una riga sbagliata su un
+    documento fiscale, che e la cosa che i documenti non perdonano.
+  */
   const description =
     asText(input.description) ||
-    `Quota ${context.charge?.description || "sportiva"}`.trim();
+    (context.counterparty
+      ? asText(context.operationType?.label) || "Sponsorizzazione"
+      : `Quota ${context.charge?.description || "sportiva"}`.trim());
 
   const snapshot = buildSnapshotFor(context, {
     issueDate: new Date(issueDate),

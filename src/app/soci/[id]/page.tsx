@@ -30,7 +30,9 @@ import {
   CreditCard,
   Shirt,
   X,
+  BookOpen,
 } from "lucide-react";
+import { MembershipRegisterPanel } from "./membership-register-panel";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
@@ -421,7 +423,11 @@ export default function MemberDetailsPage() {
 
             {/* Tabs for different sections */}
             <Tabs defaultValue="anagrafica">
-              <TabsList className="grid w-full grid-cols-2">
+              {/*
+                Tre colonne su schermo largo, una colonna sotto i 768 px: a 375
+                px tre etichette in fila diventano illeggibili.
+              */}
+              <TabsList className="grid w-full grid-cols-1 md:grid-cols-3">
                 <TabsTrigger value="anagrafica">
                   <User className="h-4 w-4 mr-2" />
                   Informazioni Personali
@@ -429,6 +435,10 @@ export default function MemberDetailsPage() {
                 <TabsTrigger value="associativi">
                   <CreditCard className="h-4 w-4 mr-2" />
                   Dati Associativi
+                </TabsTrigger>
+                <TabsTrigger value="libro">
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Libro soci
                 </TabsTrigger>
               </TabsList>
 
@@ -590,8 +600,16 @@ export default function MemberDetailsPage() {
                         <h3 className="text-sm font-medium text-muted-foreground">Tipo Socio</h3>
                         <p className="mt-1">{member.type}</p>
                       </div>
+                      {/*
+                        Il numero digitato a mano prima della Wave 4. Resta
+                        visibile perche le tessere gia consegnate lo portano
+                        stampato, ma **non e piu la fonte**: quello assegnato dal
+                        libro sta nella scheda «Libro soci».
+                      */}
                       <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Numero Tessera</h3>
+                        <h3 className="text-sm font-medium text-muted-foreground">
+                          Numero tessera (storico)
+                        </h3>
                         <p className="mt-1">{member.membershipNumber || "-"}</p>
                       </div>
                       <div>
@@ -608,15 +626,29 @@ export default function MemberDetailsPage() {
                           <p>{formatDate(member.membershipExpiry)}</p>
                         </div>
                       </div>
+                      {/*
+                        Lo stato dell'anagrafica dice se la scheda e in uso.
+                        **Non dice se quella persona e socia**: quello lo dice il
+                        libro, che si ricava dagli eventi e sa rispondere anche a
+                        una data passata.
+                      */}
                       <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Stato</h3>
+                        <h3 className="text-sm font-medium text-muted-foreground">Scheda</h3>
                         <Badge className={member.status === "active" ? "bg-green-500" : "bg-gray-500"}>
-                          {member.status === "active" ? "Attivo" : "Inattivo"}
+                          {member.status === "active" ? "Attiva" : "Non attiva"}
                         </Badge>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          La qualifica di socio e nella scheda «Libro soci».
+                        </p>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* LIBRO SOCI TAB */}
+              <TabsContent value="libro" className="mt-4">
+                <MembershipRegisterPanel clubId={clubId} memberId={memberId} />
               </TabsContent>
             </Tabs>
           </DashboardPageContainer>

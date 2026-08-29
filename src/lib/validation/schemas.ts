@@ -381,8 +381,79 @@ export const fiscalOperationTypeInputSchema = z.object({
   activityScope: z
     .enum(["institutional", "commercial", "unspecified"])
     .optional(),
+  /** Verso suggerito, mai imposto. `null` = la causale serve in entrambi. */
+  directionHint: z.enum(["IN", "OUT"]).nullable().optional(),
+  /** La voce di rendiconto: testo libero del club, non un piano dei conti. */
+  reportingBucket: z.string().trim().max(120).nullable().optional(),
+  defaultDescription: z.string().trim().max(200).nullable().optional(),
+  /*
+    I due flag fiscali sono **tri-stato**, e `nullable()` non e una comodita:
+    `null` significa «nessuno l'ha dichiarato» ed e diverso da `false`. Un
+    `z.boolean().optional()` avrebbe reso impossibile ritirare una
+    dichiarazione, e un valore predefinito `false` avrebbe scritto un no che
+    nessuno ha detto.
+  */
+  deductible: z.boolean().nullable().optional(),
+  isMembershipFee: z.boolean().nullable().optional(),
   isActive: z.boolean().optional(),
   notes: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * La disattivazione o la cancellazione di una causale.
+ *
+ * `action` e obbligatoria: «disattiva» e «cancella» sono due gesti diversi con
+ * due esiti diversi, e una rotta che li indovinasse dal contesto ne
+ * sceglierebbe uno per conto di chi non l'ha detto.
+ */
+export const fiscalOperationTypeActionSchema = z.object({
+  code: fields.id("Codice operazione"),
+  action: z.enum(["activate", "deactivate", "delete"], {
+    required_error: "Azione obbligatoria",
+    invalid_type_error: "Azione non riconosciuta",
+  }),
+});
+
+/* ------------------------------------------------------- conti finanziari */
+
+/**
+ * L'apertura di un conto finanziario.
+ *
+ * **Il saldo non compare, e non e una dimenticanza.** Un conto non ha un saldo
+ * che si digita: il saldo e la somma dei suoi movimenti. Cio che si dichiara e
+ * il **saldo di apertura**, cioe quanto c'era il giorno in cui il conto entra
+ * in EasyGame, e ha una data propria perche un numero senza data non si sa a
+ * cosa si riferisca.
+ */
+export const financialAccountCreateSchema = z.object({
+  name: fields.text("Nome del conto", 120),
+  kind: z.enum(["CASH", "BANK", "CLEARING"]).optional(),
+  iban: z.string().trim().max(34).nullable().optional(),
+  bankName: z.string().trim().max(120).nullable().optional(),
+  /** Facoltativa e mai obbligatoria: un conto senza sede vale per tutte (ADR-0038). */
+  siteId: z.string().trim().max(200).nullable().optional(),
+  notes: z.string().trim().max(1000).nullable().optional(),
+  openingBalance: z.coerce.number().finite().optional(),
+  openingBalanceCents: z.coerce.number().int().optional(),
+  openingBalanceAt: fields.isoDate("Data del saldo di apertura").optional(),
+});
+
+/**
+ * La modifica di un conto.
+ *
+ * **`kind`, `openingBalance` e `openingBalanceAt` non ci sono.** Il tipo dice
+ * la natura di tutti i movimenti gia registrati e il saldo di apertura e il
+ * punto di partenza della somma: cambiarli riscrive retroattivamente cio che
+ * il conto ha significato finora. Si archivia e se ne apre un altro.
+ */
+export const financialAccountPatchSchema = z.object({
+  name: z.string().trim().min(1, "Nome del conto obbligatorio").max(120).optional(),
+  iban: z.string().trim().max(34).nullable().optional(),
+  bankName: z.string().trim().max(120).nullable().optional(),
+  siteId: z.string().trim().max(200).nullable().optional(),
+  notes: z.string().trim().max(1000).nullable().optional(),
+  /** `true` archivia, `false` riapre. Non esiste una cancellazione. */
+  archived: z.boolean().optional(),
 });
 
 export const documentSeriesInputSchema = z.object({

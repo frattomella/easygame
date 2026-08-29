@@ -50,35 +50,78 @@ const isDuplicateKey = (error: any) =>
   error?.code === "P2002" ||
   String(error?.message || "").includes("document_number_sequences");
 
-const allocateOnce = async (
+const bumpSequence = async (
+  client: any,
+  where: { organization_id: string; kind: string; series: string; year: number },
+): Promise<number> => {
+  /*
+    `updateMany` con `increment` e una sola istruzione SQL: il valore non
+    passa mai dall'applicazione, quindi non c'e un intervallo in cui due
+    richieste possano leggere lo stesso numero.
+  */
+  const bumped = await sequenceClient(client).updateMany({
+    where,
+    data: { last_number: { increment: 1 } },
+  });
+
+  if (!bumped.count) {
+    await sequenceClient(client).create({
+      data: { ...where, last_number: 1 },
+    });
+    return 1;
+  }
+
+  const row = await sequenceClient(client).findFirst({ where });
+  return Number(row?.last_number || 1);
+};
+
+/**
+ * Il prossimo numero di una sequenza, **senza** decidere come si scrive.
+ *
+ * Esiste perche non tutto cio che si numera e un documento fiscale: il libro
+ * soci ha bisogno dello stesso contatore e della stessa garanzia — un numero
+ * che nessuno digita e che due richieste simultanee non possono ottenere uguale
+ * — ma non ha prefisso, ne serie, ne esercizio. Duplicare l'incremento altrove
+ * avrebbe significato due proprietari della stessa tabella.
+ *
+ * **`client` serve a chi ha gia una transazione aperta.** Il numero e la riga
+ * che lo usa devono nascere insieme: se la riga fallisce, il numero non deve
+ * risultare assegnato a niente. Chi lo passa si prende pero l'onere del
+ * riprova: una chiave duplicata annulla in Postgres l'intera transazione, e
+ * l'unico rimedio e rieseguirla da capo.
+ */
+export const allocateSequenceNumber = async (input: {
+  organizationId: string;
+  kind: string;
+  series?: string;
+  /** Zero e ammesso, e significa «sequenza che non si azzera mai». */
+  year: number;
+  client?: any;
+}): Promise<number> => {
+  const organizationId = String(input.organizationId || "").trim();
+  if (!organizationId) {
+    throw new Error("Accesso negato: numerazione senza club");
+  }
+
+  const where = {
+    organization_id: organizationId,
+    kind: String(input.kind || "").trim(),
+    series: normalizeSeriesCode(input.series),
+    year: Math.trunc(Number(input.year) || 0),
+  };
+
+  if (input.client) return bumpSequence(input.client, where);
+
+  return (prisma as any).$transaction((tx: any) => bumpSequence(tx, where));
+};
+
+const allocateOnce = (
   organizationId: string,
   kind: DocumentNumberKind,
   series: string,
   year: number,
 ): Promise<number> =>
-  (prisma as any).$transaction(async (tx: any) => {
-    const where = { organization_id: organizationId, kind, series, year };
-
-    /*
-      `updateMany` con `increment` e una sola istruzione SQL: il valore non
-      passa mai dall'applicazione, quindi non c'e un intervallo in cui due
-      richieste possano leggere lo stesso numero.
-    */
-    const bumped = await sequenceClient(tx).updateMany({
-      where,
-      data: { last_number: { increment: 1 } },
-    });
-
-    if (!bumped.count) {
-      await sequenceClient(tx).create({
-        data: { ...where, last_number: 1 },
-      });
-      return 1;
-    }
-
-    const row = await sequenceClient(tx).findFirst({ where });
-    return Number(row?.last_number || 1);
-  });
+  allocateSequenceNumber({ organizationId, kind, series, year });
 
 /**
  * Il prossimo numero per un club, un tipo di documento e un anno.

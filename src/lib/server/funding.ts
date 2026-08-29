@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   buildFundingReconciliation,
   type FundingReconciliation,
@@ -1022,6 +1023,14 @@ export const createFundingSettlement = async (
     reference?: unknown;
     method?: unknown;
     notes?: unknown;
+    /**
+     * **Su quale conto e arrivato il bonifico dell'ente.**
+     *
+     * Senza, la liquidazione era invisibile nel saldo: il credito verso l'ente
+     * si chiudeva e il denaro non compariva da nessuna parte. Facoltativo,
+     * perche le liquidazioni gia registrate non ce l'hanno.
+     */
+    financialAccountId?: unknown;
     lines?: Array<{ accrualId: unknown; amount: unknown }>;
   },
   scope?: FundingScope,
@@ -1092,6 +1101,7 @@ export const createFundingSettlement = async (
         amount: toFundingAmount(input.amount),
         method: asText(input.method) || null,
         notes: asText(input.notes) || null,
+        financial_account_id: asText(input.financialAccountId) || null,
         created_by: scope?.userId || null,
       },
     });
@@ -1138,6 +1148,158 @@ export const createFundingSettlement = async (
       include: { lines: true },
     });
   });
+};
+
+/**
+ * **Storna una liquidazione registrata per errore.**
+ *
+ * **Il difetto che chiude.** Il dominio dei bandi non aveva alcun rimedio: non
+ * un `update`, non un `delete`, non una rotta. Una liquidazione sbagliata
+ * restava — e l'errore non restava fermo, **propagava**: l'accrual passava a
+ * `settled`, e da li non si riscriveva piu, non si confermava piu, e
+ * l'iscrizione non si cancellava piu. Un bonifico digitato con uno zero di
+ * troppo bloccava un periodo per sempre.
+ *
+ * **La forma e quella che gli altri tre domini usano gia**, e non e stata
+ * inventata qui: una riga opposta che cita l'originale, l'originale che resta e
+ * porta il motivo, e un indice unico parziale che vieta il doppio storno. Il
+ * denaro non si cancella, in nessuno dei cinque domini.
+ *
+ * **Cosa succede ai periodi.** Le righe di ripartizione dello storno rimettono
+ * indietro esattamente cio che avevano coperto, e ogni accrual toccato torna
+ * allo stato che gli compete: `reported` se resta scoperto, `settled` se
+ * un'altra liquidazione lo copre ancora. Lo stato **si ricalcola**, non si
+ * indovina — e la stessa disciplina di `recomputeChargeFromLedger`.
+ */
+export const reverseFundingSettlement = async (
+  input: { settlementId: unknown; reason?: unknown },
+  scope?: FundingScope,
+) => {
+  const settlementId = asText(input.settlementId);
+  if (!settlementId) {
+    throw new Error("Liquidazione non trovata");
+  }
+
+  const original = await settlementClient().findUnique({ where: { id: settlementId } });
+  if (!original) {
+    throw new Error("Liquidazione non trovata");
+  }
+  ensureOrganizationAccess(scope, original.organization_id);
+
+  if (original.reversal_of_id) {
+    throw new Error("Uno storno non si storna");
+  }
+  if (original.reversed_at) {
+    throw new Error("Questa liquidazione e gia stata stornata");
+  }
+
+  const reason = asText(input.reason);
+  if (!reason) {
+    throw new Error("Uno storno deve dire perche: senza motivo la riga non spiega niente");
+  }
+
+  const now = new Date();
+  /*
+    Le righe si leggono a parte e non con un `include`: la ripartizione e cio
+    che lo storno deve rimettere indietro, e leggerla dalla relazione di un
+    record gia caricato la rende dipendente da **come** l'originale e stato
+    letto. Una lettura esplicita dice cosa serve.
+  */
+  const lines = await settlementLineClient().findMany({
+    where: { settlement_id: original.id },
+  });
+
+  const risultato = await (prisma as any).$transaction(async (client: any) => {
+    /*
+      Marcare **prima** l'originale, e nella stessa transazione: se due richieste
+      arrivano insieme, la seconda trova `reversed_at` gia scritto e si ferma
+      sull'indice unico parziale invece di produrre due storni.
+    */
+    await client.fundingSettlement.update({
+      where: { id: original.id },
+      data: {
+        reversed_at: now,
+        reversed_by: scope?.userId || null,
+        reversal_reason: reason,
+      },
+    });
+
+    const reversal = await client.fundingSettlement.create({
+      data: {
+        organization_id: original.organization_id,
+        program_id: original.program_id,
+        reference: original.reference,
+        settled_at: now,
+        amount: -toFundingAmount(original.amount),
+        method: original.method,
+        notes: reason,
+        /* Il denaro torna indietro dal conto su cui era entrato. */
+        financial_account_id: original.financial_account_id || null,
+        reversal_of_id: original.id,
+        created_by: scope?.userId || null,
+      },
+    });
+
+    for (const line of lines) {
+      await client.fundingSettlementLine.create({
+        data: {
+          organization_id: original.organization_id,
+          settlement_id: reversal.id,
+          accrual_id: line.accrual_id,
+          amount: -toFundingAmount(line.amount),
+        },
+      });
+    }
+
+    /*
+      Lo stato di ogni periodo toccato si **ricalcola** dalla somma di tutte le
+      righe che lo riguardano, storno compreso. Rimetterlo a `reported` per
+      decreto sarebbe sbagliato quando un'altra liquidazione lo copre ancora.
+    */
+    for (const accrualId of new Set(lines.map((line: any) => String(line.accrual_id)))) {
+      const accrual = await client.fundingAccrual.findUnique({ where: { id: accrualId } });
+      if (!accrual) continue;
+
+      const tutteLeRighe = await client.fundingSettlementLine.findMany({
+        where: { accrual_id: accrualId },
+      });
+      const coperto = (Array.isArray(tutteLeRighe) ? tutteLeRighe : []).reduce(
+        (sum: number, riga: any) => sum + toFundingAmount(riga.amount),
+        0,
+      );
+
+      await client.fundingAccrual.update({
+        where: { id: accrualId },
+        data: {
+          status:
+            Number(coperto.toFixed(2)) >= toFundingAmount(accrual.accrued_amount)
+              ? "settled"
+              : "reported",
+        },
+      });
+    }
+
+    return client.fundingSettlement.findUnique({
+      where: { id: reversal.id },
+      include: { lines: true },
+    });
+  });
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.fundingSettlementReversed,
+    actorUserId: scope?.userId,
+    organizationId: original.organization_id,
+    resource: "funding_settlements",
+    resourceId: original.id,
+    metadata: {
+      reversalId: risultato?.id || null,
+      amount: toFundingAmount(original.amount),
+      reason,
+      accrualIds: lines.map((line: any) => String(line.accrual_id)),
+    },
+  });
+
+  return risultato;
 };
 
 /* ------------------------------------------------------------- riepilogo */

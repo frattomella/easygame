@@ -43,6 +43,7 @@ export type AccountingPermission =
   | "accounting.reverse"
   | "accounting.export"
   | "accounting.accounts_read"
+  | "accounting.accounts_manage"
   | "accounting.causes_manage";
 
 export const ACCOUNTING_PERMISSIONS: readonly AccountingPermission[] = [
@@ -52,6 +53,7 @@ export const ACCOUNTING_PERMISSIONS: readonly AccountingPermission[] = [
   "accounting.reverse",
   "accounting.export",
   "accounting.accounts_read",
+  "accounting.accounts_manage",
   "accounting.causes_manage",
 ] as const;
 
@@ -62,6 +64,7 @@ export const ACCOUNTING_PERMISSION_LABELS: Record<AccountingPermission, string> 
   "accounting.reverse": "Stornare un movimento gia registrato",
   "accounting.export": "Esportare la contabilita per il commercialista",
   "accounting.accounts_read": "Vedere i conti finanziari e i loro saldi",
+  "accounting.accounts_manage": "Creare, rinominare e archiviare un conto finanziario",
   "accounting.causes_manage": "Configurare le causali e la loro classificazione",
 };
 
@@ -79,6 +82,20 @@ const AMMINISTRAZIONE: readonly AccountingPermission[] = [
   "accounting.reverse",
   "accounting.export",
   "accounting.accounts_read",
+  /*
+    **Perche un permesso distinto da `accounts_read`**, anche se oggi entrambi
+    finiscono nello stesso perimetro.
+
+    Non e simmetria per gusto: fu la lane W4-A a chiederlo, avendo dovuto usare
+    il permesso di **lettura** come gate di una **scrittura** perche l'altro non
+    esisteva. Funzionava — stessi ruoli — e diceva la cosa sbagliata a chi
+    legge il codice, che e il modo in cui un permesso finisce allargato per
+    distrazione il giorno in cui la lettura viene concessa a qualcuno in piu.
+
+    Il giorno in cui una segreteria dovra vedere i saldi senza poter creare
+    conti, questa riga esiste gia e la matrice cambia in un punto solo.
+  */
+  "accounting.accounts_manage",
   "accounting.causes_manage",
 ];
 

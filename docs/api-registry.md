@@ -148,6 +148,20 @@ Fonte ufficiale da mantenere aggiornata:
   l'elenco di **cio che manca**. Senza soggetto, chi ha deciso e cosa. Il flag
   `onOutdatedVersion` dice che la decisione valida cita una versione precedente
   a quella pubblicata: non invalida niente, e il club a decidere
+- `GET|POST /api/v1/membership/events` — il **libro soci**. `GET ?member_id=`
+  la posizione di un socio: lo storico e lo stato **derivato**, con `&at=` a
+  una data passata. `POST` registra ammissione, dimissione, decadenza,
+  esclusione o riammissione. Il registro e **append-only**: non esistono
+  `PATCH` ne `DELETE`, e il `membership_number` mandato dal client viene
+  **rifiutato** — lo assegna il libro
+- `GET /api/v1/membership/register` — il libro completo. Con `?at=2026-03-12`
+  risponde a «chi era socio quel giorno», che e la domanda per cui il registro
+  esiste: la classificazione di un'entrata dipende dalla qualifica della
+  controparte al momento dell'operazione
+- `POST /api/v1/membership/admissions` — crea l'anagrafica del socio **e** la
+  sua ammissione in una transazione sola. Prima la creazione riscriveva
+  l'intera colonna `clubs.members` dal browser, e due segreterie in
+  contemporanea si cancellavano a vicenda
 - `GET /api/v1/funding/programs/:id/reconciliation` — la riconciliazione di un
   bando: una riga per atleta e per periodo, con la misura grezza accanto al
   requisito e il non maturato accanto al maturato. `?format=csv` la scarica in
@@ -182,8 +196,24 @@ Fonte ufficiale da mantenere aggiornata:
   (account centrale di Cedi Soft). Segreto di firma **distinto**
 - `GET|PUT /api/v1/fiscal/profile` — profilo fiscale della societa, con i
   vocabolari e cosa manca per fatturare e per la fattura elettronica
-- `GET|PUT|POST /api/v1/fiscal/operation-types` — classificazione delle
-  operazioni e serie di numerazione
+- `GET|PUT|POST|DELETE /api/v1/fiscal/operation-types` — classificazione delle
+  operazioni e serie di numerazione. Leggere e lavoro di segreteria
+  (`accounting.read`: senza l'elenco non si registra un movimento);
+  **modificare** e configurazione societaria (`accounting.causes_manage`). Il
+  `DELETE` vuole `?code=` e `?action=deactivate|activate|delete`: una voce
+  predefinita, e una gia citata da un movimento, si disattiva e non si
+  cancella, e la risposta dice quale delle due cose e successa
+- `GET|POST /api/v1/accounting/accounts` — i conti finanziari del club.
+  `?with_balances=1` aggiunge i saldi, che **non sono una colonna**: sono la
+  somma di prima nota, incassi, uscite del lavoro sportivo e liquidazioni dei
+  bandi. L'elenco senza saldi basta `accounting.read`, perche chi registra un
+  movimento deve poter scegliere il conto; i saldi vogliono
+  `accounting.accounts_read`
+- `GET|PATCH /api/v1/accounting/accounts/:id` — un conto.
+  `?with_balance=1` ne calcola il saldo. Il `PATCH` rinomina, corregge gli
+  estremi e archivia (`{"archived": true}`). **Non esiste il `DELETE`**: un
+  conto e citato dai movimenti che ci sono passati, e il tipo e il saldo di
+  apertura non si modificano
 - `POST /api/v1/documents/:kind/:id/cancel` — annullamento di un documento
   emesso, con motivo obbligatorio. Il numero non si libera
 - `GET|POST /api/v1/einvoice/:invoiceId` — stato e preparazione del tracciato

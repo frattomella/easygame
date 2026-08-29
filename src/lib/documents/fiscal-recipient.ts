@@ -15,8 +15,19 @@
  * una ricevuta valida, e rifiutarsi di emetterla vorrebbe dire non
  * documentare un incasso che e avvenuto.
  *
+ * **La seconda forma: l'intestatario che non e un atleta.** Non ogni documento
+ * nasce da una quota. Una sponsorizzazione e l'unica entrata dichiaratamente
+ * commerciale del catalogo, l'unica che una fattura la richiede — e finche
+ * questo modulo sapeva partire solo da un atleta, era l'unica che non poteva
+ * averla. Da qui in avanti l'intestatario puo essere anche una **controparte**:
+ * uno sponsor, un fornitore, un socio, un ente. Porta la sua partita IVA o il
+ * suo codice fiscale e la sua sede, e viene congelato nello snapshot esattamente
+ * come l'atleta.
+ *
  * Modulo **puro**: riceve i record gia caricati.
  */
+
+import type { CounterpartyKind } from "@/lib/accounting/model";
 
 const asText = (value: unknown) => String(value ?? "").trim();
 
@@ -45,7 +56,38 @@ export type FiscalRecipient = {
   province: string;
   country: string;
   /** Da dove sono stati presi i dati: si mostra, non si indovina. */
-  source: "guardian" | "athlete" | "unknown";
+  source: "guardian" | "athlete" | "counterparty" | "unknown";
+  /**
+   * Il tipo di controparte, quando l'intestatario non e un atleta.
+   *
+   * Serve a chi legge il documento per sapere **di che soggetto si tratta**
+   * senza risalire alla riga che lo ha prodotto, e allo snapshot per congelarlo.
+   */
+  counterpartyKind?: CounterpartyKind | null;
+  counterpartyId?: string | null;
+};
+
+/**
+ * L'intestatario non-atleta, nella forma in cui i domini lo consegnano.
+ *
+ * **Non e una tabella `counterparties`**: e la stessa coppia polimorfa dei
+ * movimenti — tipo, id nel dominio proprietario — piu i dati fiscali letti dal
+ * dominio che li possiede. Chi la costruisce e lo sponsor
+ * (`src/lib/sponsors/model.ts`), e domani il socio, non questo modulo.
+ */
+export type FiscalCounterparty = {
+  kind: CounterpartyKind;
+  id?: string | null;
+  name: string;
+  fiscalCode?: string | null;
+  vatNumber?: string | null;
+  recipientCode?: string | null;
+  email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
+  province?: string | null;
+  country?: string | null;
 };
 
 const EMPTY: FiscalRecipient = {
@@ -96,16 +138,72 @@ const fromAthlete = (athlete: Record<string, any>): FiscalRecipient => {
   };
 };
 
+const fromCounterparty = (
+  counterparty: FiscalCounterparty,
+): FiscalRecipient => ({
+  name: asText(counterparty.name),
+  fiscalCode: asText(counterparty.fiscalCode),
+  vatNumber: asText(counterparty.vatNumber),
+  recipientCode: asText(counterparty.recipientCode),
+  email: asText(counterparty.email),
+  address: asText(counterparty.address),
+  city: asText(counterparty.city),
+  postalCode: asText(counterparty.postalCode),
+  province: asText(counterparty.province),
+  country: firstText(counterparty.country, "Italia"),
+  source: "counterparty",
+  counterpartyKind: counterparty.kind,
+  counterpartyId: asText(counterparty.id) || null,
+});
+
 /**
- * L'intestatario di un documento, dato l'atleta.
+ * L'intestatario di un documento quando **non** e un atleta.
+ *
+ * Esportata a parte perche ha un chiamante che l'atleta non ce l'ha proprio —
+ * un'anteprima di fattura allo sponsor, prima ancora che un incasso esista.
+ */
+export const resolveCounterpartyFiscalRecipient = (
+  counterparty: FiscalCounterparty | null | undefined,
+): FiscalRecipient =>
+  isRecord(counterparty) && asText(counterparty.name)
+    ? fromCounterparty(counterparty)
+    : EMPTY;
+
+/**
+ * Il soggetto di un documento, nelle **due** forme che esistono.
+ *
+ * La forma storica — l'atleta passato direttamente — resta valida e resta la
+ * piu comune: nessun chiamante e stato costretto a cambiare per far posto alla
+ * seconda.
+ */
+export type FiscalRecipientSubject =
+  | Record<string, any>
+  | { counterparty: FiscalCounterparty }
+  | null
+  | undefined;
+
+/**
+ * L'intestatario di un documento, dato l'atleta **o** la controparte.
  *
  * `billingGuardianIndex` e la scelta esplicita del club, quando c'e: chi paga
  * non e sempre il primo genitore dell'elenco, e indovinarlo significa
  * intestare la detrazione alla persona sbagliata.
+ *
+ * **Quando la controparte c'e, vince.** Non e un ordine di preferenza
+ * arbitrario: un incasso che dichiara una controparte non-atleta la dichiara
+ * perche il documento e suo. Cadere sull'atleta intesterebbe a una famiglia una
+ * fattura di sponsorizzazione, che e l'errore peggiore fra quelli possibili qui.
  */
 export const resolveFiscalRecipient = (
-  athlete: Record<string, any> | null | undefined,
+  subject: FiscalRecipientSubject,
 ): FiscalRecipient => {
+  if (isRecord(subject) && isRecord((subject as any).counterparty)) {
+    return resolveCounterpartyFiscalRecipient(
+      (subject as { counterparty: FiscalCounterparty }).counterparty,
+    );
+  }
+
+  const athlete = subject as Record<string, any> | null | undefined;
   if (!isRecord(athlete)) return EMPTY;
 
   const data = isRecord(athlete.data) ? athlete.data : {};

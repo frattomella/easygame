@@ -1,0 +1,317 @@
+import assert from "node:assert/strict";
+import test, { before, beforeEach } from "node:test";
+
+import { createFakePrisma } from "../helpers/fake-prisma.mjs";
+
+/**
+ * **W4-C — l'incasso impara due cose: su quale conto, e da chi.**
+ *
+ * Nessuna delle due riscrive il dominio degli incassi: il registro resta il
+ * proprietario di quanto e stato incassato, e queste sono due colonne che
+ * rispondono a due domande che prima non avevano risposta.
+ *
+ * 1. **Su quale conto.** Un incasso registrato dalla scheda atleta o dal
+ *    webhook non toccava nessun saldo. «Quanto c'e in cassa» restava una cifra
+ *    mutata a mano dal browser, che nessuna somma poteva confermare.
+ * 2. **Da chi, quando non e un atleta.** Un socio che versa la quota
+ *    associativa e uno sponsor che paga una tranche sono incassi come gli
+ *    altri, e passano da qui — che finora sapeva parlare solo di atleti.
+ *    `athlete_id` resta dov'e: nessuna migrazione distruttiva.
+ *
+ * La cosa che questi test difendono davvero e la **terza**: storno e rimborso
+ * ereditano entrambe. Uno storno che perde il conto lascia quel saldo piu alto
+ * del vero — cioe l'errore che lo storno esisteva per correggere. Uno storno
+ * che perde la controparte sbaglia il credito proprio quando serve leggerlo.
+ */
+
+const CLUB = "aaaaaaaa-0000-4000-8000-000000000001";
+const RATA = "11111111-0000-4000-8000-00000000000a";
+const ATLETA = "99999999-0000-4000-8000-000000000009";
+const CONTO_CASSA = "cccccccc-0000-4000-8000-00000000c001";
+const CONTO_BANCA = "cccccccc-0000-4000-8000-00000000c002";
+const SPONSOR = "sponsor-ferramenta";
+
+const scope = () => ({
+  userId: "user-a",
+  activeOrganizationId: CLUB,
+  allowedOrganizationIds: [CLUB],
+});
+
+let service;
+let setPrismaClientForTests;
+let fake;
+
+const seed = () => ({
+  club: [{ id: CLUB, slug: "club-a", name: "Club A" }],
+  athlete: [{ id: ATLETA, organization_id: CLUB, first_name: "Anna", last_name: "Rossi" }],
+  financialAccount: [
+    { id: CONTO_CASSA, organization_id: CLUB, name: "Cassa", kind: "CASH" },
+    { id: CONTO_BANCA, organization_id: CLUB, name: "Banca", kind: "BANK" },
+  ],
+  athletePayment: [
+    {
+      id: RATA,
+      organization_id: CLUB,
+      athlete_id: ATLETA,
+      description: "Quota annuale - Rata 1",
+      amount: 600,
+      due_date: new Date("2026-09-30T00:00:00Z"),
+      paid_at: null,
+      status: "pending",
+      data: {},
+    },
+  ],
+  paymentTransaction: [],
+  auditLog: [],
+});
+
+before(async () => {
+  process.env.DATABASE_URL ||= "postgresql://test:test@127.0.0.1:5432/test";
+  service = await import("../../src/lib/server/payment-transactions.ts");
+  ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
+    "../../src/lib/server/prisma.ts"
+  ));
+});
+
+beforeEach(() => {
+  fake = createFakePrisma(seed());
+  setPrismaClientForTests(fake.client);
+});
+
+const incassi = () => fake.rows("paymentTransaction");
+
+/* ============================================================= il conto */
+
+test("un incasso dice su quale conto il denaro e entrato", async () => {
+  await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Contanti",
+      financialAccountId: CONTO_CASSA,
+    },
+    scope(),
+  );
+
+  assert.equal(incassi()[0].financial_account_id, CONTO_CASSA);
+});
+
+test("il conto resta facoltativo: gli incassi gia registrati non ce l'hanno", async () => {
+  /*
+    Inventarne uno per una riga vecchia significherebbe attribuire denaro a una
+    cassa che non l'ha mai visto.
+  */
+  await service.createPaymentTransaction(
+    { paymentId: RATA, amount: 200, paymentMethod: "Contanti" },
+    scope(),
+  );
+
+  assert.equal(incassi()[0].financial_account_id, null);
+});
+
+test("due incassi su due conti diversi restano su due conti diversi", async () => {
+  await service.createPaymentTransaction(
+    { paymentId: RATA, amount: 200, paymentMethod: "Contanti", financialAccountId: CONTO_CASSA },
+    scope(),
+  );
+  await service.createPaymentTransaction(
+    { paymentId: RATA, amount: 400, paymentMethod: "Bonifico", financialAccountId: CONTO_BANCA },
+    scope(),
+  );
+
+  assert.deepEqual(
+    incassi().map((r) => r.financial_account_id),
+    [CONTO_CASSA, CONTO_BANCA],
+  );
+});
+
+/* ======================================================== la controparte */
+
+test("un incasso da uno sponsor dichiara la controparte, non un atleta", async () => {
+  await service.createPaymentTransaction(
+    {
+      organizationId: CLUB,
+      amount: 2000,
+      paymentMethod: "Bonifico",
+      financialAccountId: CONTO_BANCA,
+      counterpartyKind: "SPONSOR",
+      counterpartyId: SPONSOR,
+      counterpartyLabel: "Ferramenta Bianchi",
+    },
+    scope(),
+  );
+
+  const riga = incassi()[0];
+  assert.equal(riga.counterparty_kind, "SPONSOR");
+  assert.equal(riga.counterparty_id, SPONSOR);
+  assert.equal(riga.athlete_id, null, "una sponsorizzazione non e la quota di nessuno");
+});
+
+test("l'etichetta e congelata: il nome del momento, non quello di oggi", async () => {
+  /*
+    Se domani la scheda dello sponsor viene rinominata o cancellata, la riga
+    deve poter ancora dire a chi si riferiva. E la stessa scelta dello snapshot
+    di un documento fiscale.
+  */
+  await service.createPaymentTransaction(
+    {
+      organizationId: CLUB,
+      amount: 2000,
+      paymentMethod: "Bonifico",
+      counterpartyKind: "SPONSOR",
+      counterpartyId: SPONSOR,
+      counterpartyLabel: "Ferramenta Bianchi",
+    },
+    scope(),
+  );
+
+  assert.equal(incassi()[0].counterparty_label, "Ferramenta Bianchi");
+});
+
+test("un tipo di controparte fuori catalogo si rifiuta, e dice quale", async () => {
+  await assert.rejects(
+    () =>
+      service.createPaymentTransaction(
+        {
+          organizationId: CLUB,
+          amount: 100,
+          paymentMethod: "Contanti",
+          counterpartyKind: "CHIUNQUE",
+        },
+        scope(),
+      ),
+    /controparte sconosciuto/i,
+  );
+});
+
+test("senza controparte dichiarata le colonne restano vuote", async () => {
+  await service.createPaymentTransaction(
+    { paymentId: RATA, amount: 200, paymentMethod: "Contanti" },
+    scope(),
+  );
+
+  const riga = incassi()[0];
+  assert.equal(riga.counterparty_kind, undefined);
+  assert.equal(riga.athlete_id, ATLETA, "la rata dice gia di chi e");
+});
+
+/* =========================================== storno: eredita entrambe */
+
+test("lo storno torna sullo stesso conto dell'incasso", async () => {
+  /*
+    Se lo storno finisse su un altro conto — o su nessuno — il saldo di quello
+    originale resterebbe piu alto del vero, cioe l'errore che lo storno
+    esisteva per correggere.
+  */
+  const creato = await service.createPaymentTransaction(
+    { paymentId: RATA, amount: 200, paymentMethod: "Contanti", financialAccountId: CONTO_CASSA },
+    scope(),
+  );
+
+  await service.reversePaymentTransaction(
+    { transactionId: creato.transaction.id, reason: "Registrato per errore" },
+    scope(),
+  );
+
+  const storno = incassi().find((r) => r.reverses_transaction_id);
+  assert.equal(storno.financial_account_id, CONTO_CASSA);
+  assert.equal(storno.amount, -200);
+});
+
+test("lo storno conserva la controparte: un credito si legge per controparte", async () => {
+  const creato = await service.createPaymentTransaction(
+    {
+      organizationId: CLUB,
+      amount: 2000,
+      paymentMethod: "Bonifico",
+      financialAccountId: CONTO_BANCA,
+      counterpartyKind: "SPONSOR",
+      counterpartyId: SPONSOR,
+      counterpartyLabel: "Ferramenta Bianchi",
+    },
+    scope(),
+  );
+
+  await service.reversePaymentTransaction(
+    { transactionId: creato.transaction.id, reason: "Bonifico mai arrivato" },
+    scope(),
+  );
+
+  const storno = incassi().find((r) => r.reverses_transaction_id);
+  assert.equal(storno.counterparty_kind, "SPONSOR");
+  assert.equal(storno.counterparty_id, SPONSOR);
+  assert.equal(
+    storno.counterparty_label,
+    "Ferramenta Bianchi",
+    "senza, il residuo dello sponsor tornerebbe sbagliato",
+  );
+});
+
+test("lo storno conserva anche la causale dell'originale", async () => {
+  /*
+    Uno storno classificato diversamente dall'originale sposterebbe denaro da
+    una voce di rendiconto a un'altra senza che nessuno lo abbia deciso.
+  */
+  const creato = await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Contanti",
+      operationTypeCode: "quota_attivita",
+    },
+    scope(),
+  );
+
+  await service.reversePaymentTransaction(
+    { transactionId: creato.transaction.id, reason: "Errore" },
+    scope(),
+  );
+
+  const storno = incassi().find((r) => r.reverses_transaction_id);
+  assert.equal(storno.operation_type_code, "quota_attivita");
+});
+
+/* ============================================ l'originale resta intatto */
+
+test("l'originale resta, marcato, con il suo conto e la sua controparte", async () => {
+  const creato = await service.createPaymentTransaction(
+    { paymentId: RATA, amount: 200, paymentMethod: "Contanti", financialAccountId: CONTO_CASSA },
+    scope(),
+  );
+
+  await service.reversePaymentTransaction(
+    { transactionId: creato.transaction.id, reason: "Errore" },
+    scope(),
+  );
+
+  const originale = incassi().find((r) => r.id === creato.transaction.id);
+  assert.ok(originale, "il denaro non si cancella");
+  assert.ok(originale.reversed_at, "ma si vede che e stato stornato");
+  assert.equal(originale.financial_account_id, CONTO_CASSA);
+});
+
+/* ================================================== multi-tenant */
+
+test("un incasso con la controparte di un altro club non passa dallo scope sbagliato", async () => {
+  const altro = {
+    userId: "user-b",
+    activeOrganizationId: "bbbbbbbb-0000-4000-8000-000000000002",
+    allowedOrganizationIds: ["bbbbbbbb-0000-4000-8000-000000000002"],
+  };
+
+  await assert.rejects(
+    () =>
+      service.createPaymentTransaction(
+        {
+          paymentId: RATA,
+          amount: 200,
+          paymentMethod: "Contanti",
+          financialAccountId: CONTO_CASSA,
+        },
+        altro,
+      ),
+    /Accesso negato/,
+  );
+
+  assert.equal(incassi().length, 0);
+});

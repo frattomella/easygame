@@ -79,6 +79,11 @@ test("la segreteria non vede i saldi dei conti, ne esporta, ne tocca le causali"
       "gli estremi e i saldi bancari sono gia riservati oggi",
     );
     assert.equal(
+      hasAccountingPermission(ruolo, "accounting.accounts_manage"),
+      false,
+      "aprire un conto e configurazione societaria",
+    );
+    assert.equal(
       hasAccountingPermission(ruolo, "accounting.export"),
       false,
       "l'export e una fotografia completa dei conti che lascia l'applicazione",

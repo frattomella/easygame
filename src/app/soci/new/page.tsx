@@ -2,7 +2,8 @@
 
 import React, { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { admitNewMember } from "@/lib/members/client";
+import { MEMBERSHIP_REGISTER_DISCLAIMER } from "@/lib/members/model";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +65,16 @@ function NewSocioPageContent() {
     city: "",
     postalCode: "",
     membershipDate: new Date().toISOString().split("T")[0],
+    /*
+      La delibera che ammette (Wave 4, §19). Non e un campo in piu: e il
+      consiglio direttivo ad ammettere un socio, e un'ammissione senza i suoi
+      estremi e la riga che manca quando qualcuno chiede conto del libro.
+
+      Il **numero di tessera** non c'e, ed e voluto: era un campo di testo
+      libero digitato a mano, e adesso lo assegna il server.
+    */
+    resolutionReference: "",
+    resolutionDate: "",
     notes: "",
   });
 
@@ -114,67 +125,63 @@ function NewSocioPageContent() {
       return;
     }
 
+    if (!formData.resolutionReference.trim()) {
+      showToast(
+        "error",
+        "Servono gli estremi della delibera che ha ammesso il socio",
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // First get the current club data
-      const { data: clubData, error: clubFetchError } = await supabase
-        .from("clubs")
-        .select("members")
-        .eq("id", clubId)
-        .single();
+      /*
+        **Una chiamata al server, non tre al browser.**
 
-      if (clubFetchError) {
-        console.error("Error fetching club:", clubFetchError);
-        showToast("error", `Errore nel recupero del club: ${clubFetchError.message}`);
+        Fino alla Wave 4 questa schermata leggeva `clubs.members`, ci appendeva
+        il socio nuovo e riscriveva l'intera colonna: due segreterie che
+        creavano un socio nello stesso minuto, e la seconda scrittura
+        cancellava la prima — senza un errore e senza una traccia. Adesso il
+        server aggiunge **una riga** sotto un lock, e nella stessa transazione
+        scrive l'ammissione nel libro soci con il suo numero progressivo.
+      */
+      const { data, error } = await admitNewMember({
+        clubId,
+        member: {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email || null,
+          phone: formData.phone || null,
+          fiscalCode: formData.fiscalCode || null,
+          birthDate: formData.birthDate || null,
+          gender: formData.gender || null,
+          birthPlace: formData.birthPlace || null,
+          birthPlaceCode: formData.birthPlaceCode || null,
+          type: formData.type || DEFAULT_MEMBER_TYPE,
+          clothingSizes: formData.clothingSizes,
+          address: formData.address || null,
+          city: formData.city || null,
+          postalCode: formData.postalCode || null,
+          notes: formData.notes || null,
+        },
+        effectiveDate: formData.membershipDate,
+        resolutionReference: formData.resolutionReference,
+        resolutionDate: formData.resolutionDate || null,
+      });
+
+      if (error) {
+        showToast("error", error.message);
         setIsSubmitting(false);
         return;
       }
 
-      // Create new member object
-      const fullName = `${formData.firstName} ${formData.lastName}`.trim();
-      const newMember = {
-        id: crypto.randomUUID(),
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        name: fullName,
-        fullName,
-        email: formData.email || null,
-        phone: formData.phone || null,
-        fiscalCode: formData.fiscalCode || null,
-        birthDate: formData.birthDate || null,
-        gender: formData.gender || null,
-        birthPlace: formData.birthPlace || null,
-        birthPlaceCode: formData.birthPlaceCode || null,
-        type: formData.type || DEFAULT_MEMBER_TYPE,
-        clothingSizes: formData.clothingSizes,
-        address: formData.address || null,
-        city: formData.city || null,
-        postalCode: formData.postalCode || null,
-        membershipDate: formData.membershipDate,
-        notes: formData.notes || null,
-        role: "socio",
-        status: "active",
-        createdAt: new Date().toISOString(),
-      };
-
-      // Add member to the club's members array
-      const currentMembers = clubData?.members || [];
-      const updatedMembers = [...currentMembers, newMember];
-
-      const { error: updateError } = await supabase
-        .from("clubs")
-        .update({ members: updatedMembers })
-        .eq("id", clubId);
-
-      if (updateError) {
-        console.error("Error updating club members:", updateError);
-        showToast("error", `Errore nell'aggiunta del socio: ${updateError.message}`);
-        setIsSubmitting(false);
-        return;
-      }
-
-      showToast("success", "Socio aggiunto con successo!");
+      showToast(
+        "success",
+        data?.event?.membershipNumber
+          ? `Socio ammesso con la tessera n. ${data.event.membershipNumber}`
+          : "Socio aggiunto con successo!",
+      );
       router.push(`/soci?clubId=${clubId}`);
     } catch (error: any) {
       console.error("Error:", error);
@@ -328,16 +335,52 @@ function NewSocioPageContent() {
 
                   {/* Dati Associazione */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Dati Associazione</h3>
+                    <h3 className="text-lg font-medium">Ammissione</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {MEMBERSHIP_REGISTER_DISCLAIMER}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="membershipDate">
+                          Data di ammissione
+                        </Label>
+                        <Input
+                          id="membershipDate"
+                          name="membershipDate"
+                          type="date"
+                          value={formData.membershipDate}
+                          onChange={handleChange}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="resolutionDate">
+                          Data della delibera
+                        </Label>
+                        <Input
+                          id="resolutionDate"
+                          name="resolutionDate"
+                          type="date"
+                          value={formData.resolutionDate}
+                          onChange={handleChange}
+                        />
+                      </div>
+                    </div>
                     <div className="space-y-2">
-                      <Label htmlFor="membershipDate">Data Iscrizione</Label>
+                      <Label htmlFor="resolutionReference">
+                        Estremi della delibera *
+                      </Label>
                       <Input
-                        id="membershipDate"
-                        name="membershipDate"
-                        type="date"
-                        value={formData.membershipDate}
+                        id="resolutionReference"
+                        name="resolutionReference"
+                        value={formData.resolutionReference}
                         onChange={handleChange}
+                        placeholder="Delibera del consiglio direttivo n. 12 del 28/08/2026"
+                        required
                       />
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Il numero di tessera lo assegna il libro soci: non si
+                        digita piu a mano.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="notes">Note</Label>

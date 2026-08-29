@@ -1540,3 +1540,17 @@ primi due **non sono debito, sono difetti attivi**.
 | **W4-D15** | **`invoices.transaction_id` non e unique.** La ricevuta ha l'idempotenza **garantita dal database**; la fattura ha solo un `findFirst` applicativo, e due richieste simultanee possono produrre due fatture con due numeri su un documento fiscale. La differenza non e dichiarata da nessuna parte | Wave 4, lane W4-E. E una riga di migrazione |
 | **W4-D16** | **Il riferimento normativo scritto come costante scade il 31 dicembre 2026.** Il riordino in testi unici cambia la numerazione di quasi tutti gli articoli rilevanti: il TUIR, il decreto IVA e gli artt. 20, 20-bis e 22 del D.P.R. 600/1973. Le costanti del bollo (soglia 77,45 €, importo 2,00 €) sono gia oggi **senza fonte e senza anno** in `src/lib/fiscal/fiscal-profile.ts` | Wave 4, lane W4-E. La forma giusta esiste gia: `src/lib/sport-work/rules/`, un file per anno con `source` obbligatorio |
 | **W4-D17** | **Il §3 del documento 30 non e stato riscritto dopo tre Wave.** C-144 e ancora `EG~` P1 benche G-19 sia chiuso; C-118, C-119, C-120 e C-125 portano i verdetti di prima della Wave 3; i totali del §3.19 e del §23 sono fermi a `EG- 48` quando le Wave dichiarano 36. Le §4.5, §4.6 e §4.7 sono le uniche sezioni aggiornate. Piu tre gap — **G-13, G-40 e G-52** — che il §22 assegnava alla Wave 3 e che **non hanno uno stato dichiarato** | Non e debito di codice, ma disorienta chiunque legga quel documento per decidere cosa fare dopo |
+
+---
+
+## Debito aperto dagli sponsor (W4-H, 2026-08-29)
+
+Trovato mentre si costruivano il contratto e il credito. Nessuno e stato
+corretto qui: sono superfici e domini di altre lane, e correggerli nello stesso
+diff avrebbe nascosto la catena che questa lane doveva chiudere.
+
+| # | Cosa | Perche non e stato corretto qui |
+|---|---|---|
+| **W4-H1** | **I pagamenti di uno sponsor vivono in due archivi diversi, e le due superfici ne leggono uno ciascuna.** L'elenco `/sponsors` legge la collezione di club `sponsor_payments`; la scheda `/sponsors/[id]` legge la lista annidata `sponsor.payments`. Un pagamento registrato da una parte non compare dall'altra, e il credito calcolato dalle due superfici puo differire. Il servizio (`listSponsorCollections`) le unisce entrambe **e in piu** legge `payment_transactions`, che e la fonte che resta | Unificare vuol dire migrare lo storico, e la migrazione ha senso solo dopo che W4-C ha reso scrivibile la controparte non-atleta: prima non c'e dove migrare |
+| **W4-H2** | **Un pagamento sponsor si cancella, fisicamente, con un `confirm()` del browser.** `handleDeletePayment` in `src/app/sponsors/[id]/page.tsx` filtra l'array e risalva. E la stessa famiglia di `W4-D3`: la regola «il denaro non si cancella» vale dove il denaro e una riga di tabella e non vale dove e un oggetto in un JSON | Il rimedio non e una guardia in piu sul JSON: e far passare l'incasso sponsor da `payment_transactions`, dove lo storno esiste gia. Dipende da W4-C |
+| **W4-H3** | **Il salvataggio di uno sponsor riscrive l'intera colonna dal browser.** `updateClubDataItem` legge `clubs.sponsors`, fonde l'elemento e risalva tutto: due segreterie che modificano due sponsor diversi nello stesso minuto, la seconda scrittura cancella la prima. E `W4-D14` sui soci, sulla stessa colonna JSON e con lo stesso rimedio — `appendClubResourceItem` e la scrittura per riga di `resources.ts` | Il rimedio e una rotta di dominio per lo sponsor. Fuori dal perimetro di questa lane, che doveva chiudere la catena del credito e non riscrivere la pagina |

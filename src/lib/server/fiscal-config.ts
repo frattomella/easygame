@@ -24,7 +24,15 @@ import {
 } from "@/lib/fiscal/fiscal-profile";
 import {
   OPERATION_TYPE_SEEDS,
+  asDeclaredFlag,
+  classificationChanged,
+  classificationOf,
+  isActivityScope,
+  isClassificationDeclared,
+  isDirectionHint,
   normalizeOperationType,
+  type ActivityScope,
+  type DirectionHint,
   type NormalizedOperationType,
 } from "@/lib/fiscal/operation-types";
 import {
@@ -195,8 +203,16 @@ export const listOperationTypes = async (
       label: seed.label,
       document_route: seed.documentRoute,
       activity_scope: seed.activityScope,
+      direction_hint: seed.directionHint ?? null,
       is_system: true,
       notes: seed.notes || null,
+      /*
+        Nessuna voce del seme nasce con `deductible`, `is_membership_fee` o un
+        autore della classificazione. Le sette `unspecified` restano tali
+        finche un professionista non le guarda (§15 del piano): una causale
+        seminata gia classificata sembrerebbe configurata, e nessuno tornerebbe
+        a controllarla.
+      */
     })),
     /*
       Due richieste simultanee sulla stessa societa proverebbero a seminare
@@ -228,31 +244,147 @@ export const getOperationType = async (input: {
 };
 
 /**
+ * Le chiavi che il chiamante puo esprimere, in entrambe le grafie.
+ *
+ * Serve a distinguere «non lo hai nominato» da «lo hai messo a null», che
+ * sono due intenzioni diverse: la prima conserva, la seconda cancella una
+ * dichiarazione. Senza questa distinzione un `PATCH` che tocca solo
+ * l'etichetta azzererebbe l'aliquota e l'ambito — ed e cio che il salvataggio
+ * precedente faceva davvero, perche normalizzava il corpo e riscriveva tutte
+ * le colonne.
+ */
+const dichiarato = (updates: Record<string, any>, ...keys: string[]) =>
+  keys.some((key) => Object.prototype.hasOwnProperty.call(updates, key));
+
+const asRecord = (value: unknown): Record<string, any> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : {};
+
+/**
  * Aggiorna la configurazione di un tipo di operazione.
  *
  * **Il codice non si cambia mai.** E la chiave con cui gli incassi gia
  * registrati citano la classificazione: cambiarlo li lascerebbe a citare
  * qualcosa che non esiste piu. Si disattiva e se ne crea un altro.
+ *
+ * **Aggiorna solo cio che gli si nomina.** La riga esistente si legge prima, e
+ * ogni campo assente dal corpo resta com'era. Il salvataggio precedente
+ * riscriveva tutte le colonne partendo dal corpo normalizzato: un
+ * aggiornamento della sola etichetta azzerava aliquota, natura IVA e ambito, e
+ * lo faceva in silenzio.
+ *
+ * **La classificazione ha un autore.** Ambito, detraibilita e quota associativa
+ * non sono attributi: sono una **decisione** fiscale, e una decisione presa da
+ * nessuno non si distingue da una lasciata in bianco. Quando una delle tre
+ * cambia verso un valore dichiarato, la riga registra chi e quando; quando
+ * tutte e tre tornano non dichiarate, l'autore si cancella con esse — una
+ * firma sotto un foglio bianco sarebbe peggio di nessuna firma.
  */
 export const saveOperationType = async (input: {
   organizationId: string;
   code: string;
   updates: unknown;
+  /** Chi sta dichiarando. Nullo per le scritture di sistema. */
+  actorUserId?: string | null;
 }): Promise<NormalizedOperationType> => {
   const id = asText(input.organizationId);
   const code = asText(input.code);
   if (!id || !code) throw new Error("Accesso negato: operazione senza club");
 
-  const normalized = normalizeOperationType({ ...(input.updates as any), code });
+  const updates = asRecord(input.updates);
+
+  const existing = await operationClient().findUnique({
+    where: { organization_id_code: { organization_id: id, code } },
+  });
+
+  const before = existing
+    ? normalizeOperationType(existing)
+    : normalizeOperationType({ code });
+
+  /*
+    Ogni campo si risolve **solo se nominato**, e cade su cio che c'era
+    altrimenti. Non si fondono i due oggetti prima di normalizzarli: la riga
+    porta le chiavi in `snake_case` e il corpo puo portarle in `camelCase`, e
+    `normalizeOperationType` legge la prima delle due che trova — la fusione
+    avrebbe fatto vincere sempre il valore vecchio.
+  */
+  const scelto = (chiavi: string[], fallback: unknown): unknown =>
+    dichiarato(updates, ...chiavi)
+      ? chiavi.map((key) => updates[key]).find((value) => value !== undefined)
+      : fallback;
+
+  const merged = normalizeOperationType({
+    code,
+    label: scelto(["label"], before.label),
+    document_route: scelto(["document_route", "documentRoute"], before.documentRoute),
+    vat_rate: scelto(["vat_rate", "vatRate"], before.vatRate),
+    vat_nature: scelto(["vat_nature", "vatNature"], before.vatNature),
+    reporting_bucket: scelto(
+      ["reporting_bucket", "reportingBucket"],
+      before.reportingBucket,
+    ),
+    default_description: scelto(
+      ["default_description", "defaultDescription"],
+      before.defaultDescription,
+    ),
+    is_active: scelto(["is_active", "isActive"], before.isActive),
+    notes: scelto(["notes"], before.notes),
+  });
+
+  const scopeRichiesto =
+    dichiarato(updates, "activity_scope", "activityScope") &&
+    isActivityScope(updates.activity_scope ?? updates.activityScope)
+      ? (String(updates.activity_scope ?? updates.activityScope) as ActivityScope)
+      : before.activityScope;
+
+  const after = {
+    activityScope: scopeRichiesto,
+    deductible: dichiarato(updates, "deductible")
+      ? asDeclaredFlag(updates.deductible)
+      : before.deductible,
+    isMembershipFee: dichiarato(updates, "is_membership_fee", "isMembershipFee")
+      ? asDeclaredFlag(updates.is_membership_fee ?? updates.isMembershipFee)
+      : before.isMembershipFee,
+  };
+
+  const classificazioneCambiata = classificationChanged(
+    classificationOf(before),
+    after,
+  );
+  const dichiarazioneViva = isClassificationDeclared(after);
+
+  const firma = classificazioneCambiata
+    ? dichiarazioneViva
+      ? {
+          classified_by: asText(input.actorUserId) || null,
+          classified_at: new Date(),
+        }
+      : { classified_by: null, classified_at: null }
+    : {};
+
+  const versoRichiesto = dichiarato(updates, "direction_hint", "directionHint")
+    ? isDirectionHint(updates.direction_hint ?? updates.directionHint)
+      ? (String(updates.direction_hint ?? updates.directionHint)
+          .trim()
+          .toUpperCase() as DirectionHint)
+      : null
+    : before.directionHint;
 
   const data = {
-    label: normalized.label || code,
-    document_route: normalized.documentRoute,
-    vat_rate: normalized.vatRate,
-    vat_nature: normalized.vatNature,
-    activity_scope: normalized.activityScope,
-    is_active: normalized.isActive,
-    notes: normalized.notes,
+    label: merged.label || code,
+    document_route: merged.documentRoute,
+    vat_rate: merged.vatRate,
+    vat_nature: merged.vatNature,
+    activity_scope: after.activityScope,
+    direction_hint: versoRichiesto,
+    reporting_bucket: merged.reportingBucket,
+    default_description: merged.defaultDescription,
+    deductible: after.deductible,
+    is_membership_fee: after.isMembershipFee,
+    is_active: merged.isActive,
+    notes: merged.notes,
+    ...firma,
   };
 
   const row = await operationClient().upsert({
@@ -262,6 +394,93 @@ export const saveOperationType = async (input: {
   });
 
   return normalizeOperationType(row);
+};
+
+/**
+ * Disattiva una causale, o la riattiva.
+ *
+ * **E l'unica cosa che si puo fare a una voce di sistema.** Le nove del seme
+ * sono il vocabolario minimo con cui il prodotto parla di incassi: cancellarne
+ * una lascerebbe i movimenti gia registrati a citare un codice che non esiste
+ * piu, e la prossima semina la farebbe rinascere identica dando l'impressione
+ * che il gesto non sia servito.
+ */
+export const setOperationTypeActive = async (input: {
+  organizationId: string;
+  code: string;
+  isActive: boolean;
+}): Promise<NormalizedOperationType> => {
+  const id = asText(input.organizationId);
+  const code = asText(input.code);
+  if (!id || !code) throw new Error("Accesso negato: operazione senza club");
+
+  const existing = await operationClient().findUnique({
+    where: { organization_id_code: { organization_id: id, code } },
+  });
+  if (!existing) throw new Error("Causale non trovata");
+
+  const row = await operationClient().update({
+    where: { organization_id_code: { organization_id: id, code } },
+    data: { is_active: Boolean(input.isActive) },
+  });
+
+  return normalizeOperationType(row);
+};
+
+/**
+ * Cancella una causale, e quasi sempre si rifiuta di farlo.
+ *
+ * Tre casi, e due su tre finiscono con una disattivazione:
+ *
+ * 1. **voce di sistema**: non si cancella mai, per la ragione scritta sopra;
+ * 2. **voce gia usata**: c'e un movimento o un incasso che la cita, e la chiave
+ *    esterna e `RESTRICT`. Il database direbbe di no con un errore di vincolo:
+ *    qui si dice di no con una frase che spiega cosa fare;
+ * 3. **voce del club mai usata**: e un errore di battitura di dieci minuti fa,
+ *    e cancellarla non toglie niente a nessuno.
+ */
+export const deleteOperationType = async (input: {
+  organizationId: string;
+  code: string;
+}): Promise<{ deleted: boolean; operationType: NormalizedOperationType }> => {
+  const id = asText(input.organizationId);
+  const code = asText(input.code);
+  if (!id || !code) throw new Error("Accesso negato: operazione senza club");
+
+  const existing = await operationClient().findUnique({
+    where: { organization_id_code: { organization_id: id, code } },
+  });
+  if (!existing) throw new Error("Causale non trovata");
+
+  if (existing.is_system) {
+    throw new Error(
+      "Una causale predefinita non si cancella: si disattiva, e resta leggibile sui movimenti che la citano",
+    );
+  }
+
+  const [movimenti, incassi] = await Promise.all([
+    (prisma as any).accountingEntry.count({
+      where: { organization_id: id, operation_type_code: code },
+    }),
+    (prisma as any).paymentTransaction.count({
+      where: { organization_id: id, operation_type_code: code },
+    }),
+  ]);
+
+  if (movimenti + incassi > 0) {
+    const row = await operationClient().update({
+      where: { organization_id_code: { organization_id: id, code } },
+      data: { is_active: false },
+    });
+
+    return { deleted: false, operationType: normalizeOperationType(row) };
+  }
+
+  const row = await operationClient().delete({
+    where: { organization_id_code: { organization_id: id, code } },
+  });
+
+  return { deleted: true, operationType: normalizeOperationType(row) };
 };
 
 /* ------------------------------------------------------------- le serie */

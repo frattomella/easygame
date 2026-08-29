@@ -1172,6 +1172,80 @@ export const readClubResourceCollection = async (
 };
 
 /**
+ * Aggiunge **un** elemento a una collezione di club, dentro una transazione
+ * gia aperta.
+ *
+ * **Il difetto che chiude** (Wave 4, §19). Creare un socio era una lettura, un
+ * append e una riscrittura dell'intera colonna JSON **fatta dal browser**: due
+ * segreterie che creavano un socio nello stesso minuto, la seconda scrittura
+ * cancellava la prima. Nessun errore, nessuna traccia — un socio che sparisce.
+ *
+ * Qui non si riscrive la collezione: si inserisce **una riga** in
+ * `club_resource_items` e si ricalcola l'aggregato JSON leggendo la tabella,
+ * che e la fonte. Il `FOR UPDATE` sul club mette in fila le richieste
+ * simultanee — lo stesso rimedio, e lo stesso modo di scriverlo, di
+ * `applyClubSettingsPatch` e del registro incassi.
+ *
+ * Prende il client della transazione e non ne apre una propria perche chi
+ * aggiunge un elemento sta quasi sempre facendo anche altro: l'ammissione di un
+ * socio scrive la sua anagrafica **e** il suo primo evento di libro, e le due
+ * cose devono riuscire o fallire insieme.
+ */
+export const appendClubResourceItem = async (
+  tx: Prisma.TransactionClient,
+  organization_id: string,
+  resource_type: string,
+  item: Record<string, any>,
+) => {
+  assertKnownClubResourceType(resource_type);
+
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    throw new Error(`Elemento non valido per ${resource_type}`);
+  }
+
+  await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${organization_id}::uuid FOR UPDATE`;
+
+  const now = new Date();
+  /*
+    Il tipo e dichiarato: lo spread di un `Record<string, any>` perde l'indice
+    e il risultato sarebbe `{ id: string }`, cioe un oggetto senza nessuno dei
+    campi del socio.
+  */
+  const payload: Record<string, any> = {
+    ...item,
+    id: String(item.id || "").trim() || newResourceItemId(),
+  };
+
+  await tx.clubResourceItem.create({
+    data: {
+      id: isUuid(payload.id) ? normalizeUuid(payload.id) : newResourceItemId(),
+      organization_id,
+      resource_type,
+      name: payload?.name || payload?.title || null,
+      status: payload?.status || null,
+      date: toDateOrUndefined(payload?.date) || null,
+      payload,
+      created_at: now,
+      updated_at: now,
+    },
+  });
+
+  if (CLUB_JSON_FIELDS.includes(resource_type)) {
+    const rows = await tx.clubResourceItem.findMany({
+      where: { organization_id, resource_type },
+      orderBy: { created_at: "asc" },
+    });
+
+    await tx.club.update({
+      where: { id: organization_id },
+      data: { [resource_type]: rows.map((row) => serializeClubResourceItem(row)) },
+    });
+  }
+
+  return payload;
+};
+
+/**
  * Riscrive una collezione di club mantenendo allineati `club_resource_items` e
  * il campo JSON aggregato. Gli elementi gia esistenti conservano riga e
  * `created_at`: senza, un riporto rigenererebbe l'identita di tutte le

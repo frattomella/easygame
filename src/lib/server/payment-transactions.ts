@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import type { FrozenSettlement } from "@/lib/payments/commission";
+import { isCounterpartyKind } from "@/lib/accounting/model";
 import {
   isSettledTransaction,
   normalizePaymentTransaction,
@@ -355,6 +356,55 @@ export type CreatePaymentTransactionInput = {
   externalEventId?: unknown;
   /** Il tipo di operazione, quando chi registra lo dichiara. */
   operationTypeCode?: unknown;
+  /**
+   * **Su quale conto e entrato il denaro.**
+   *
+   * Prima non esisteva, e la conseguenza si vedeva: un incasso registrato dalla
+   * scheda atleta o dal webhook non toccava nessun saldo, e «quanto c'e in
+   * cassa» restava una cifra mutata a mano dal browser. Facoltativo, perche gli
+   * incassi gia registrati non ce l'hanno e nessuno puo inventarglielo.
+   */
+  financialAccountId?: unknown;
+  /**
+   * **La controparte, quando non e l'atleta.**
+   *
+   * Un socio che versa la quota associativa, uno sponsor che paga una tranche:
+   * sono incassi come gli altri e passano da questo registro, che finora sapeva
+   * parlare solo di atleti. `athleteId` resta dov'e.
+   *
+   * L'etichetta viaggia **congelata**, cioe il nome letto nel momento
+   * dell'incasso: se domani la scheda dello sponsor viene rinominata o
+   * cancellata, la riga deve poter ancora dire a chi si riferiva. E la stessa
+   * scelta dello snapshot di un documento fiscale.
+   */
+  counterpartyKind?: unknown;
+  counterpartyId?: unknown;
+  counterpartyLabel?: unknown;
+};
+
+/**
+ * I campi della controparte, nella forma in cui vanno scritti sulla riga.
+ *
+ * Il tipo passa da `isCounterpartyKind`: una stringa arbitraria in quella
+ * colonna renderebbe impossibile raggruppare per controparte, ed e il difetto
+ * che il catalogo chiuso esiste per evitare.
+ */
+const counterpartyColumns = (input: {
+  counterpartyKind?: unknown;
+  counterpartyId?: unknown;
+  counterpartyLabel?: unknown;
+}) => {
+  const kind = asText(input.counterpartyKind).toUpperCase();
+  if (!kind) return {};
+  if (!isCounterpartyKind(kind)) {
+    throw new Error(`Tipo di controparte sconosciuto: ${kind}`);
+  }
+
+  return {
+    counterparty_kind: kind,
+    counterparty_id: asText(input.counterpartyId) || null,
+    counterparty_label: asText(input.counterpartyLabel) || null,
+  };
 };
 
 /** I campi di riconciliazione, nella forma in cui vanno scritti sulla riga. */
@@ -522,6 +572,8 @@ export const createPaymentTransaction = async (
         external_payment_id: asText(input.externalPaymentId) || null,
         external_event_id: asText(input.externalEventId) || null,
         operation_type_code: asText(input.operationTypeCode) || null,
+        financial_account_id: asText(input.financialAccountId) || null,
+        ...counterpartyColumns(input),
         ...settlementColumns(input.settlement),
         data: {},
       },
@@ -626,6 +678,23 @@ export const reversePaymentTransaction = async (
         external_reference: original.external_reference,
         created_by: scope?.userId || null,
         reverses_transaction_id: original.id,
+        /*
+          **Lo storno eredita il conto e la controparte dell'originale.**
+
+          Il conto, perche il denaro torna indietro da dove era entrato:
+          scriverlo altrove — o non scriverlo — lascerebbe il saldo di quel
+          conto piu alto del vero, che e l'errore che lo storno esisteva per
+          correggere.
+
+          La controparte, perche un credito si legge per controparte: uno
+          storno che la perde sbaglia proprio il numero che serve leggere.
+          E la stessa cosa che questa riga fa gia con `athlete_id`.
+        */
+        financial_account_id: original.financial_account_id || null,
+        counterparty_kind: original.counterparty_kind || null,
+        counterparty_id: original.counterparty_id || null,
+        counterparty_label: original.counterparty_label || null,
+        operation_type_code: original.operation_type_code || null,
         data: {},
       },
     });
@@ -873,6 +942,11 @@ export const recordRefundTransaction = async (
         external_payment_id: original.external_payment_id,
         external_event_id: asText(input.externalEventId) || null,
         operation_type_code: original.operation_type_code,
+        /* Il denaro torna indietro dallo stesso conto, alla stessa controparte. */
+        financial_account_id: original.financial_account_id || null,
+        counterparty_kind: original.counterparty_kind || null,
+        counterparty_id: original.counterparty_id || null,
+        counterparty_label: original.counterparty_label || null,
         created_by: null,
         ...settlementColumns(input.settlement),
         data: {

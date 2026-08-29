@@ -73,6 +73,7 @@ import {
 } from "@/components/forms/assisted-anagrafica";
 import { ClubBillingSettings } from "@/components/payments/ClubBillingSettings";
 import { FiscalProfilePanel } from "@/components/fiscal/FiscalProfilePanel";
+import { OperationTypesPanel } from "@/components/fiscal/OperationTypesPanel";
 import { readSubscriptionSettingsSource } from "@/lib/entitlements";
 import { CapabilityGate } from "@/components/club/capability-gate";
 import { ClubPaymentSettings } from "@/components/payments/ClubPaymentSettings";
@@ -1740,6 +1741,20 @@ const [federations, setFederations] = useState<any[]>([]);
               stessa scheda in cui si guarda quando si parla di documenti.
             */}
             <FiscalProfilePanel organizationId={clubId} />
+
+            {/*
+              Le causali stanno accanto al profilo fiscale e non in «Dati
+              Fiscali»: quella scheda dice chi e la societa, questa cosa
+              incassa e paga. E soprattutto sono la stessa cosa che si guarda
+              quando si parla di documenti — la causale decide se
+              un'operazione porta ricevuta, fattura o niente — e cercarle in
+              due schede diverse vorrebbe dire configurarne meta.
+
+              Fino alla Wave 4 questa configurazione non era raggiungibile da
+              nessuna schermata: l'API esisteva e nessun componente la
+              chiamava.
+            */}
+            <OperationTypesPanel organizationId={clubId} />
           </TabsContent>
 {/* SOCIAL */}
           <TabsContent value="social" className="space-y-4 mt-4">

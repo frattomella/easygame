@@ -225,6 +225,9 @@ export type SportWorkOutboundRow = {
   transaction_type?: string | null;
   paid_at: Date | string;
   gross_amount: number | string;
+  /** Quanto e uscito dal conto verso la persona. Congelato dal registro. */
+  net_amount?: number | string | null;
+  /** L'intero costo sostenuto dal club. **Non** e cassa: e netto piu F24. */
   club_cost?: number | string | null;
   payment_method?: string | null;
   reference?: string | null;
@@ -250,15 +253,42 @@ const ETICHETTE_LAVORO_SPORTIVO: Record<string, string> = {
 };
 
 /**
- * Un'erogazione diventa un'uscita.
+ * Un'erogazione diventa un'uscita, **per quanto e uscito davvero dal conto**.
  *
- * **Il numero e il costo del club, non il netto.** E la differenza fra sapere
- * quanto e stato bonificato e sapere quanto e costato: il secondo comprende la
- * quota contributiva a carico del club, che esce comunque. Il registro lo
- * congela sulla riga (`club_cost`) e qui **non si ricalcola niente**: si legge.
+ * ---
  *
- * Dove il costo del club non e valorizzato — le voci dell'agenda, che compenso
- * non sono — vale il lordo, che li e l'intero esborso.
+ * **Una contraddizione del piano, e come e stata sciolta.**
+ *
+ * Il §37 chiede due cose che insieme non stanno in piedi:
+ *
+ * - scenario 16: la riga di prima nota di un compenso porta «**il costo del
+ *   club** e non solo il netto»;
+ * - scenario 19: «il versamento F24 dei contributi **compare** fra le uscite».
+ *
+ * Se valessero entrambe alla lettera, un compenso lordo da 1.000 con 240 di
+ * contributi produrrebbe 1.240 di uscita **piu** 240 di F24: 1.480 usciti dal
+ * conto per un costo di 1.240. I contributi sarebbero contati due volte, e il
+ * saldo del conto — che questa Wave rende derivato — sarebbe sbagliato di
+ * quella cifra a ogni compenso.
+ *
+ * **Il criterio che scioglie il nodo** e quello che governa tutta la Wave: la
+ * prima nota registra **fatti finanziari**, cioe denaro che si muove. Dal conto
+ * verso la persona esce il **netto**; dal conto verso l'erario esce l'F24. Sono
+ * due movimenti, in due momenti diversi, verso due controparti diverse — ed e
+ * il motivo per cui lo scenario 19 esiste.
+ *
+ * La somma dei due **e** il costo del club. Lo scenario 16 chiede che la prima
+ * nota non fermi il conto al netto, e cosi non lo ferma: lo completa con la
+ * riga che gli manca, invece di gonfiare la prima. Cosi anche lo scenario 18
+ * torna — «il rendiconto mostra il costo del lavoro sportivo senza ricalcolare
+ * nessun contributo: i numeri sono identici a quelli del registro».
+ *
+ * Qui **non si ricalcola niente**: `net_amount` e congelato sulla riga di
+ * registro, come i contributi e le aliquote che l'hanno prodotto.
+ *
+ * Dove il netto non e valorizzato — le voci dell'agenda: premi, rimborsi,
+ * fatture dei professionisti, che compensi non sono e franchigie non ne
+ * consumano — vale il lordo, che li e l'intero esborso.
  */
 export const projectSportWorkPayouts = (
   rows: readonly SportWorkOutboundRow[],
@@ -270,9 +300,9 @@ export const projectSportWorkPayouts = (
     const tipo = String(row.transaction_type || "OTHER").toUpperCase();
     const storno = tipo === "COMPENSATION_REVERSAL" || Boolean(row.reversal_of_id);
 
-    const costo = Number(row.club_cost);
+    const netto = Number(row.net_amount);
     const lordo = Number(row.gross_amount) || 0;
-    const base = Number.isFinite(costo) && costo !== 0 ? costo : lordo;
+    const base = Number.isFinite(netto) && netto !== 0 ? netto : lordo;
     const amountCents = Math.abs(toCents(base));
     if (amountCents === 0) return [];
 

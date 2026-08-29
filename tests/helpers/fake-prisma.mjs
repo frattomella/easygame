@@ -189,6 +189,12 @@ const UNIQUE_CONSTRAINTS = {
   organizationFiscalProfile: [["organization_id"]],
   documentSeries: [["organization_id", "kind", "code"]],
   fiscalOperationType: [["organization_id", "code"]],
+  /*
+    Due conti «Banca» nello stesso club sono il modo piu rapido di far
+    scegliere il conto sbagliato a chi registra. Il vincolo esiste in base dati
+    (`financial_accounts_organization_id_name_key`) e un test ci si appoggia.
+  */
+  financialAccount: [["organization_id", "name"]],
   eInvoiceTransmission: [["invoice_id"]],
   platformSetting: [["key"]],
   receipt: [["transaction_id"]],
@@ -323,6 +329,29 @@ const UNIQUE_CONSTRAINTS = {
     },
   ],
   consentVersion: [["definition_id", "version"]],
+  /*
+    Wave 4, libro soci. I due indici **parziali** che il database fa rispettare,
+    e senza i quali i test proverebbero il contrario di cio che devono provare:
+
+      * `membership_events_ammissione_unica` — un socio si ammette una volta
+        sola. Due ammissioni sono due date di ingresso, e il libro non saprebbe
+        quale usare; chi rientra viene **riammesso**, che e un altro tipo di
+        evento e per questo il vincolo e parziale;
+      * `membership_events_numero_unico` — il numero di tessera non si ripete.
+        La difesa e l'indice e non un controllo in memoria: e proprio con due
+        ammissioni contemporanee che un controllo applicativo non regge.
+  */
+  membershipEvent: [
+    {
+      fields: ["organization_id", "member_id"],
+      quando: (row) => row.event_type === "ADMISSION",
+    },
+    {
+      fields: ["organization_id", "membership_number"],
+      quando: (row) =>
+        row.membership_number !== null && row.membership_number !== undefined,
+    },
+  ],
 };
 
 /** L'errore che Prisma lancia su una chiave duplicata. */
@@ -570,11 +599,27 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       calls.push({ delegate: name, method: "count", args });
       return rowsOf(name).filter((r) => matchesWhere(r, args.where)).length;
     },
-    // Solo `_count._all`: e la sola aggregazione che il codice usa, e un
-    // doppio che ne simulasse altre direbbe di supportare cio che non prova.
+    /*
+      `_count._all` e `_sum`, e nient'altro.
+
+      `_sum` e arrivato con il saldo dei conti finanziari, che si deriva
+      sommando quattro tabelle **nel database**: la soglia del piano e 200 ms
+      per conto, e un `findMany` di tutte le righe la sfonda al primo club con
+      duemila incassi. Un doppio senza `_sum` avrebbe costretto il servizio a
+      leggere tutte le righe per essere testabile — cioe a scrivere il codice
+      lento per far passare il test.
+
+      Le somme restano `null` quando il gruppo non ha righe con quel campo, ed
+      e la semantica di Postgres: un `SUM` su nessuna riga non e zero, e un
+      doppio che rispondesse `0` nasconderebbe la differenza fra «non c'e
+      niente» e «la somma fa zero».
+    */
     groupBy: async (args = {}) => {
       calls.push({ delegate: name, method: "groupBy", args });
       const by = Array.isArray(args.by) ? args.by : [args.by].filter(Boolean);
+      const sumFields = Object.entries(args._sum || {})
+        .filter(([, wanted]) => wanted)
+        .map(([field]) => field);
       const groups = new Map();
 
       for (const row of rowsOf(name).filter((r) => matchesWhere(r, args.where))) {
@@ -583,7 +628,26 @@ export const createFakePrisma = (seedByDelegate = {}) => {
           groups.get(key) ||
           Object.fromEntries(by.map((field) => [field, row[field]]));
         group._count = { _all: (group._count?._all || 0) + 1 };
+
+        if (sumFields.length) {
+          group._sum = group._sum || {};
+          for (const field of sumFields) {
+            const value = row[field];
+            if (value === null || value === undefined) continue;
+            group._sum[field] = (group._sum[field] || 0) + Number(value);
+          }
+        }
+
         groups.set(key, group);
+      }
+
+      if (sumFields.length) {
+        for (const group of groups.values()) {
+          group._sum = group._sum || {};
+          for (const field of sumFields) {
+            if (!(field in group._sum)) group._sum[field] = null;
+          }
+        }
       }
 
       return [...groups.values()];

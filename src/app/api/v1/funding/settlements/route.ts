@@ -109,6 +109,12 @@ export async function POST(request: Request) {
         reference: body?.reference,
         method: body?.method,
         notes: body?.notes,
+        /*
+          Il conto su cui il bonifico dell'ente e arrivato. Senza, la
+          liquidazione restava invisibile nel saldo: il credito si chiudeva e il
+          denaro non compariva da nessuna parte.
+        */
+        financialAccountId: body?.financial_account_id ?? body?.financialAccountId,
         lines: (Array.isArray(body?.lines) ? body.lines : []).map(
           (line: any) => ({
             accrualId: line?.accrual_id ?? line?.accrualId,
