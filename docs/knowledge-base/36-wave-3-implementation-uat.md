@@ -156,13 +156,21 @@ Misurate durante il collaudo, sulla stessa esecuzione dei 68 controlli.
 
 | Misura | Soglia (§20 del planning) | Misurato | Margine |
 |---|---|---|---|
-| Render di **un** documento | < 400 ms | **44 ms** | 9x |
-| Anteprima completa | — | 57 ms | — |
-| **Dieci** documenti | < 3 s | **228 ms** | 13x |
-| **Cinquanta** in un lotto | — | **915 ms** | — |
-| **Cento** in due lotti | < 30 s | **1.712 ms** | 17x |
-| Elenco dei modelli | < 200 ms | **22 ms** | 9x |
-| Elenco dei documenti generati (174) | — | 32 ms, 116 kB | — |
+| Render di **un** documento | < 400 ms | **59 ms** | 7x |
+| Anteprima completa | — | 107 ms | — |
+| **Dieci** documenti | < 3 s | **237 ms** | 13x |
+| **Cinquanta** in un lotto | — | **1.155 ms** | — |
+| **Cento** in due lotti | < 30 s | **1.945 ms** | 15x |
+| Elenco dei modelli | < 200 ms | **31 ms** | 6x |
+| Elenco dei documenti generati (178) | — | 38 ms, 120 kB | — |
+
+Sono le misure **finali**, prese dopo la terza lettura: il lotto da cinquanta
+e passato da 915 a 1.155 ms perche `reused` non si deduce piu da un orologio,
+si chiede alla base dati con una lettura in piu per documento. Isolata, quella
+lettura costa **0,67 ms per documento** su un indice che la copre esattamente;
+su Neon da Vercel vale qualche millisecondo, cioe 0,1–0,5 s per un lotto
+intero. Contro una soglia di 15 s, e un prezzo che si paga per non mostrare a
+chi riprende un lotto un numero che due orologi diversi possono sbagliare.
 
 **Il fascicolo, misurato dopo l'audit.** Il §20 del planning chiedeva
 esplicitamente di cercare il costo della firma incorporata, e il primo collaudo

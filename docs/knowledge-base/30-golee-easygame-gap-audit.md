@@ -638,14 +638,14 @@ cosa fare dopo.
 > Aggiornato il 2026-08-29, dopo l'esecuzione della
 > [Wave 3](36-wave-3-implementation-uat.md). Vale la stessa regola del §4.5 e
 > del §4.6: **`CLOSED` significa che esiste una prova a runtime**, non che
-> esiste il codice. Le prove sono i 56 controlli di
+> esiste il codice. Le prove sono i 68 controlli di
 > `scripts/wave-3-documents-uat.mjs`, eseguiti contro un'applicazione vera con
 > due club veri e cinque ruoli veri.
 
 | Gap | Prima | Dopo | Prova |
 |---|---|---|---|
 | **G-15** — documento arricchito dagli importi | PARTIAL | **CLOSED** | L'attestazione dice **80,00** su una rata da 130 marcata pagata con 80 incassati: l'importo e il denaro entrato, non il dovuto (ADR-0068). Il documento con gli importi si rifiuta a chi non puo vederli, **dicendo perche**. Un dato che manca resta bianco ed e elencato: mai «undefined» |
-| **G-43** — stampa massiva | OPEN | **CLOSED** | Cinquanta documenti in un lotto solo in 915 ms; rieseguire lo stesso lotto produce **zero** righe nuove; un soggetto di un altro club dentro la selezione fallisce da solo e compare fra i falliti con il motivo, mentre gli altri passano. Cento documenti in due lotti: 1,7 s |
+| **G-43** — stampa massiva | OPEN | **CLOSED** | Cinquanta documenti in un lotto solo in 1.155 ms; rieseguire lo stesso lotto produce **zero** righe nuove; un soggetto di un altro club dentro la selezione fallisce da solo e compare fra i falliti con il motivo, mentre gli altri passano. Cento documenti in due lotti: 1,9 s |
 | **G-17** — consenso con ciclo di vita | OPEN | **CLOSED** | Accettare, revocare e riaccettare lascia **tre righe** e uno stato derivato «accettato»; pubblicare una versione nuova non invalida i consensi vecchi ma li segnala; la prova del consenso dato prima della revoca resta. Una definizione di un altro club risponde «Accesso negato» |
 | **Scadenze documentali** (famiglia G-03) | OPEN | **CLOSED** | Un allegato che scade fra trenta giorni produce **una** consegna; la seconda esecuzione dello stesso giorno zero; due giri in parallelo una sola; la regola spenta tace. Il certificato medico resta su `AUT-03` e **nessun doppione** arriva da `AUT-05` |
 | **G-14** — libreria di modelli pronti | OPEN | **PARTIAL** | Il catalogo esiste e funziona: dieci voci scritte, **sei distribuite** e adottabili con un clic. Non e `CLOSED` perche non e una libreria di settantasette modelli e non lo sara: le quattro voci di classe C sono ferme in attesa di validazione professionale, e i moduli territoriali non li apriamo affatto (ADR-0092). E una differenza che resta, ed e una scelta |
