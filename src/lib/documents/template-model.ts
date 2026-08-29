@@ -171,6 +171,22 @@ export type TemplateValidationResult = {
 export const MAX_TEMPLATE_CONTENT_CHARS = 200_000;
 
 /**
+ * Quanti documenti al piu in una sola chiamata di generazione.
+ *
+ * **Non 200 come i messaggi di Wave 2**: li un elemento e una riga di
+ * registro, qui e una risoluzione di segnaposto con letture di cassa e
+ * presenze. Cento atleti sono due chiamate con lo stesso lotto, non una
+ * richiesta che tiene occupata una funzione finche non scade.
+ *
+ * **Perche sta qui e non nella rotta.** Un file di rotta di Next puo esportare
+ * solo i nomi che il framework conosce: una costante in piu fa fallire la
+ * generazione dei tipi, e quindi la build. Il valore serve al server per
+ * rifiutare e al client per dividere il lotto: e un dato di dominio, e il
+ * dominio e questo modulo.
+ */
+export const MAX_GENERATION_BATCH = 50;
+
+/**
  * Una bozza si puo pubblicare?
  *
  * **Il punto e il segnaposto fuori catalogo.** Fino alla Wave 2 un modello

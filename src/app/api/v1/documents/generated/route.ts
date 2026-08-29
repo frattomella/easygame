@@ -12,6 +12,7 @@ import {
   recordGeneratedDocument,
 } from "@/lib/server/document-templates";
 import { renderFilledDocumentHtml } from "@/lib/documents/document-view";
+import { MAX_GENERATION_BATCH } from "@/lib/documents/template-model";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -43,9 +44,6 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  */
 
 export const runtime = "nodejs";
-
-/** Il tetto per chiamata. Vedi la regola 2 qui sopra. */
-export const MAX_GENERATION_BATCH = 50;
 
 const fail = (status: number, message: string) =>
   NextResponse.json({ data: null, error: { message } }, { status });
