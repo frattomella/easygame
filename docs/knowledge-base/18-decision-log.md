@@ -4419,3 +4419,275 @@ che stampa anche la segreteria.
   il prossimo allegato di club che qualcuno aggiungera.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0083 — Le automazioni sono un valutatore notturno di regole, non un motore di eventi
+
+**Contesto.** Il gap G-03 chiede un motore di automazioni sulle scadenze. Il
+riflesso naturale e un motore *event-driven*: qualcosa succede, un evento viene
+emesso, una regola lo intercetta.
+
+L'inventario del §2 del [planning di Wave 2](33-wave-2-planning.md) ha guardato
+cosa esiste davvero, e ha trovato due fatti che decidono la questione. **In
+EasyGame non esiste nessun evento di dominio**: nessun modulo ne emette, e
+l'unico evento vero del prodotto — il webhook di pagamento — non serve a nessuna
+delle automazioni utili. E ADR-0036 **vieta di materializzare lo stato
+derivato**: lo stato di una rata non si imposta, si ricava.
+
+Un motore a eventi avrebbe quindi richiesto prima un bus e delle proiezioni,
+cioe esattamente la copia dello stato derivato che il prodotto ha deciso di non
+avere.
+
+**Decisione.** Il motore e un **valutatore periodico**: ogni notte, per ogni
+club, per ogni regola accesa, chiede al proprietario del dominio «chi rientra
+oggi in questa condizione?». Il modello e
+TRIGGER → CONDITIONS → AUDIENCE → CONTENT → ACTION → DELIVERY → AUDIT, e i tipi
+di trigger sono un **catalogo chiuso implementato in codice**: il club sceglie
+quando, a chi e con che parole, non cosa sia un trigger.
+
+Il motore **non modifica il dominio**. Non tocca rate, presenze, pagamenti,
+documenti o lavoro sportivo: legge stato e produce comunicazioni.
+
+**Conseguenze.**
+- Nessuna infrastruttura nuova: la porta cron, il giro per club con `try/catch`
+  per club e il modello delle notifiche esistono gia e si estendono.
+- Le valutazioni si **delegano** ai proprietari — `buildInstallmentLedgers` per
+  le rate, `getMedicalCertificateAvailability` per i certificati — e il motore
+  non interroga mai il denaro per conto proprio: sarebbe la terza
+  interpretazione che `tests/lib/reports-cash-invariant.test.mjs` esiste per
+  impedire.
+- Un difetto notturno puo mandare un messaggio sbagliato, che e grave; **non
+  puo riscrivere l'archivio di un club**, che sarebbe irreparabile.
+- Un trigger nuovo e una decisione di prodotto e una riga di catalogo, non una
+  configurazione che l'utente scrive.
+
+**Alternative scartate.**
+- *Un bus di eventi con proiezioni.* Contraddice ADR-0036 e introduce
+  l'accoppiamento che ADR-0007 chiede di non introdurre.
+- *Un workflow builder generico.* Sposterebbe sul club la responsabilita di un
+  messaggio sbagliato senza toglierla a nessuno: e il prodotto che manda
+  l'email. E la matrice di 34 automazioni di Golee e la prova di dove porta.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0084 — Un solo registro delle consegne: «gli ho gia scritto?» e «cosa gli ho scritto?» sono la stessa riga
+
+**Contesto.** Prima della Wave 2 EasyGame deduplicava i messaggi in **tre modi
+diversi**, nati in tre momenti diversi e mai confrontati:
+
+| Dove | Come | Finestra |
+|---|---|---|
+| `sport-work-scheduler.ts` | `data.sportWorkKey` dentro la notifica | per sempre |
+| `medical-certificate-reminders.ts` | `data.key` dentro la notifica | 7 giorni |
+| `payment-reminders.ts` | rivendicazione dentro `athletes.data.paymentReminders` | 6 ore |
+
+Nessuno dei tre sapeva rispondere a «chi ha ricevuto cosa», che e la domanda che
+arriva quando una famiglia dice di non aver ricevuto niente. E il terzo metteva
+in fila su **una riga di anagrafica** ogni sollecito di quell'atleta.
+
+**Decisione.** Una tabella sola, `communication_deliveries`, per quattro
+sorgenti — solleciti, automazioni, comunicazioni massive, bacheca. Un indice
+unico su `(organization_id, dedup_key, recipient_key, channel)` fa **tre**
+lavori: impedisce il doppione, risponde a «chi ha ricevuto cosa», e regge il
+letto/non letto della bacheca.
+
+**La deduplica e l'indice, non un controllo in memoria.** E proprio quando due
+esecuzioni girano insieme — il cron invocato due volte, il doppio clic — che un
+controllo applicativo non regge: entrambe leggono «nessuno e stato ancora
+raggiunto» e mandano entrambe. La rivendicazione e quindi una scrittura
+condizionata, e chi perde la corsa se ne accorge dal conteggio delle righe
+toccate.
+
+**Due politiche di ripetizione, un solo parametro.** Un'automazione parla di
+un'occorrenza che capita una volta sola: la riga resta per sempre e il messaggio
+non si ripete mai (`retryAfterMs: null`). Un sollecito a mano lo decide una
+persona che puo volerlo rifare: la difesa serve contro il doppio clic, non
+contro la ripetizione, e dopo la finestra di riguardo si puo riscrivere.
+
+`recipient_key` e **l'indirizzo, non l'account**: un tutore senza account non ha
+un id, e l'indirizzo e cio che il messaggio raggiunge davvero. Le persone
+rappresentate restano tracciate in `athlete_ids`, cosi un messaggio unico a una
+famiglia con due figli non perde per chi era.
+
+**Conseguenze.**
+- Il sollecito di Wave 1 e stato **migrato** su questo registro: i suoi 23 test
+  passano invariati, quindi il comportamento visibile non e cambiato.
+- Una consegna fallita **resta**, marcata `failed`, ed e riprendibile subito: un
+  guasto SMTP non deve rendere una famiglia irraggiungibile per sei ore.
+- «Chi ha ricevuto cosa» diventa una lettura, non una ricostruzione.
+- I due dialetti dentro le notifiche (`sportWorkKey`, `key`) **restano dove
+  sono**: migrarli sarebbe un refactor con rischio non nullo su domini che
+  funzionano, e senza guadagno per l'utente. E debito dichiarato.
+
+**Alternative scartate.**
+- *Una tabella per sorgente.* Quattro tabelle per la stessa domanda, e quattro
+  posti dove ricordarsi di scrivere.
+- *Un contatore in memoria.* Non regge la concorrenza, che e l'unico caso in cui
+  serve.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0085 — Il link di pagamento e un token opaco in archivio, non un token firmato senza stato
+
+**Contesto.** Il gap G-06 chiede un link, dentro il sollecito, con cui una
+famiglia paga senza avere un account. Il requisito e esplicito: firmato,
+delimitato al club e alla rata, con scadenza, **revocabile**, **auditabile**, e
+non manomettibile.
+
+Il riflesso e un token firmato senza stato — un JWT che porta dentro club, rata
+e scadenza.
+
+**Decisione.** Un token **opaco**: 32 byte casuali, di cui in archivio si
+conserva solo lo SHA-256. L'ambito, la scadenza e la revoca stanno nella riga
+`payment_links`, non nel token.
+
+Le ragioni, in ordine di peso:
+
+1. **Revocabile** e **auditabile** richiedono comunque una riga. Un token senza
+   stato le ottiene solo con una lista di revoca e un registro degli accessi:
+   cioe con un token in archivio, piu un passaggio.
+2. Un token che **non porta claim** non e manomettibile — non c'e niente da
+   manomettere — e **non espone nessun identificativo interno**, che era il
+   primo requisito della lista. Trentadue byte casuali non dicono ne il club ne
+   la rata.
+3. Il prodotto ha gia **due precedenti** di questa forma: lo slug pubblico dei
+   moduli e il token di accesso genitore. Un terzo meccanismo di forma diversa
+   sarebbe un dialetto in piu.
+
+**Il residuo non si congela nel link**: si ricalcola al riscatto da
+`buildInstallmentLedgers`, perche chi ha gia pagato allo sportello non deve
+pagare due volte. Per la stessa ragione il link e **multi-uso fino a scadenza**:
+il prodotto ammette il pagamento parziale (ADR-0036), e un link monouso
+romperebbe il secondo acconto.
+
+**Sconosciuto, scaduto, revocato e manomesso rispondono la stessa cosa.**
+Distinguerli direbbe a chi prova token a caso quando ha indovinato.
+
+**Conseguenze.**
+- Il checkout resta `openGatewayCheckout`, con `actorUserId: null`: **lo
+  stesso**, non un secondo percorso del denaro.
+- L'entitlement `online_payments` vale in emissione e in riscatto; in emissione
+  e un esito tipizzato, cosi il sollecito puo dire «questo club non incassa
+  online» e partire comunque.
+- Un sollecito nuovo emette un token nuovo e **lascia validi i precedenti**:
+  revocarli renderebbe morto il link mandato la settimana prima.
+- Chi legge il database non ottiene link funzionanti.
+
+**Alternative scartate.**
+- *JWT firmato con i claim dentro.* Vedi sopra: non risparmia la riga e espone
+  gli identificativi.
+- *Riusare il token di accesso genitore.* Concede l'**intera** area genitore per
+  pagare una rata: e lo strumento sbagliato, troppo largo.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0086 — L'RSVP e un'intenzione, la presenza e un fatto: stessa riga, colonne separate, nessuna scrittura incrociata
+
+**Contesto.** Il gap G-20 chiede che la famiglia confermi la partecipazione a un
+evento. `training_attendance` esiste gia e porta `status`, con i valori
+`present` e `absent` scritti dall'appello dell'allenatore.
+
+La strada corta sarebbe far scrivere a un «si» della famiglia
+`status = "present"`. E la strada sbagliata, e la ragione non e di eleganza:
+`src/lib/funding/attendance-measure.ts` legge quella colonna per misurare la
+frequenza con cui si **rendicontano i contributi pubblici**. Una promessa che
+diventa una presenza e un contributo rendicontato su un dato che nessuno ha
+verificato.
+
+**Decisione.** Sulla stessa riga, due colonne separate. `status` resta la
+presenza registrata dall'allenatore; `rsvp_status`, `rsvp_note`, `rsvp_at` e
+`rsvp_by_user_id` sono l'intenzione dichiarata dalla famiglia. **Non si scrivono
+mai a vicenda**: l'upsert della risposta nomina solo i campi `rsvp_*`, e
+l'appello non tocca l'RSVP.
+
+`no_response` **si deriva** dall'assenza di risposta, non si scrive: e lo stato
+che serve all'allenatore, ed e l'unico che non ha bisogno di una riga.
+
+Insieme e stata imposta la chiave unica
+`(organization_id, training_id, athlete_id)`, che non c'era: il client
+compensava cancellando a mano le righe duplicate dopo averle trovate. Finche la
+riga porta solo la presenza il difetto e sopportabile; con la risposta della
+famiglia sulla stessa riga, due righe sono **due risposte contraddittorie**.
+
+**Conseguenze.**
+- Nessun secondo sistema di presenze, che e cio che il §9 del planning vietava.
+- Due test lo misurano con la **funzione vera** dei bandi: un «si» da zero
+  sessioni; un `present` scritto dall'appello ne da una.
+- La risposta si puo **cambiare** finche la scadenza non e passata: un imprevisto
+  arriva dopo la conferma, non prima.
+- `maybe` non e stato introdotto: il perimetro non lo prevede e il modello non
+  lo distingue. Introdurlo sara una decisione, non una conseguenza.
+
+**Alternative scartate.**
+- *Una tabella `event_rsvp` a se.* Due archivi per lo stesso evento e lo stesso
+  atleta, con la garanzia di divergere.
+- *Riusare `status` con valori nuovi.* La misura dei bandi filtra su `present`:
+  qualunque valore nuovo la attraverserebbe in silenzio il giorno in cui
+  qualcuno rilassasse il filtro.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0087 — Il pubblico di una comunicazione ha un solo risolutore
+
+**Contesto.** Cinque funzioni della Wave 2 chiedono la stessa cosa — solleciti,
+automazioni, comunicazione massiva, bacheca, invito a rispondere: «chi sono i
+destinatari, chi non raggiungo, e perche».
+
+Prima della Wave la risposta era scritta **due volte, con politiche diverse**, e
+la differenza non era una scelta di prodotto: i promemoria sui certificati
+raggiungevano **solo chi ha un account nel club**
+(`resolveGuardianRecipientIds` filtra su `organization_users`), mentre il
+sollecito degli insoluti raggiungeva **anche chi ha solo un indirizzo**. Le due
+politiche erano nate in momenti diversi e nessuno le aveva mai confrontate.
+
+**Decisione.** Un risolutore solo — `src/lib/audience/` per la parte pura,
+`src/lib/server/audience.ts` per la lettura — con una politica sola: **si scrive
+a un indirizzo**, e l'account decide soltanto se arriva anche la notifica in
+applicazione.
+
+Due regole lo governano:
+
+1. **Una email, un messaggio.** La stessa famiglia con due figli riceve un
+   messaggio che li nomina entrambi. La chiave e l'indirizzo normalizzato, non
+   l'account, che un tutore puo non avere.
+2. **Chi non si raggiunge compare, con il motivo.** Sei motivi in enum chiusa —
+   `no_guardian`, `no_email`, `no_account`, `not_active`, `duplicate`,
+   `already_sent`. Un invio che non raggiunge nessuno **non e un successo**.
+
+I criteri sono un'**enum chiusa**: un criterio sconosciuto fa fallire invece di
+allargare il pubblico in silenzio, che e il modo piu semplice per mandare un
+messaggio alle persone sbagliate.
+
+**Il permesso protegge il criterio, non la pagina.** «Manda a chi non ha pagato»
+non mostra nessun importo a schermo, eppure produce l'elenco delle famiglie in
+arretrato: senza `communications.audience_economic` un allenatore lo otterrebbe
+passando di qui invece che dai movimenti.
+
+**Conseguenze.**
+- Il sollecito di Wave 1 e stato **portato sopra** questo motore, non affiancato:
+  legge i contatti da `buildAudienceContacts` e non risolve piu gli account per
+  conto proprio.
+- `tests/ui/communications-ownership.test.mjs` vieta strutturalmente un secondo
+  risolutore, un secondo punto di invio e una seconda matrice di permessi.
+- Il conteggio di chi non ha email o non ha account arriva come effetto
+  collaterale onesto, ed e la meta misurabile di G-18 senza averlo sviluppato.
+- `medical-certificate-reminders.ts` **non e ancora migrato**: e l'ultimo
+  consumatore con una politica propria, ed e debito dichiarato della Wave.
+
+**Alternative scartate.**
+- *Un filtro libero componibile dall'utente.* Sposterebbe sulla segreteria la
+  responsabilita di un messaggio mandato alle persone sbagliate, senza toglierla
+  a nessuno.
+- *Lasciare a ogni chiamante il suo risolutore.* E lo stato da cui si e partiti,
+  e le due politiche divergenti sono la prova di dove porta.
+
+**Stato:** ATTIVA.

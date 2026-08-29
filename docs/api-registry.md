@@ -57,6 +57,43 @@ Fonte ufficiale da mantenere aggiornata:
   Due richieste ravvicinate producono un solo invio per destinatario: la
   finestra di riguardo e di **sei ore**, la stessa del sollecito sui
   documenti. Solo proprietario e gestore del club
+- `POST /api/v1/communications` — la **comunicazione massiva** alle famiglie.
+  Il corpo porta `criteria` (enum chiusa: `all_families`, `category_ids`,
+  `group_ids`, `site_ids`, `athlete_ids`, `overdue_payments`,
+  `certificate_missing_or_expiring`, `no_account`), `template`
+  (`subject` + `body` con i segnaposto del catalogo unico) e
+  `communication_id`, che e cio che rende **lo stesso gesto** due clic sullo
+  stesso pulsante. Con `preview: true` risponde con i raggiungibili, gli
+  esclusi **con il motivo** e il messaggio come lo leggera il primo
+  destinatario; senza `preview` invia a lotti e dichiara `remaining`. Un
+  criterio sconosciuto risponde **400** invece di allargare il pubblico. Il
+  criterio `overdue_payments` richiede `communications.audience_economic`
+- `GET|POST /api/v1/announcements` — la **bacheca**. Senza parametri gli
+  annunci che la societa governa, con `?mine=1` quelli destinati a chi sta
+  guardando (solo i pubblicati, dentro la finestra di validita). `POST` crea
+  una **bozza**: la creazione non pubblica
+- `GET|PATCH|POST /api/v1/announcements/:id` — un annuncio. `?deliveries=1`
+  dice chi lo ha ricevuto e chi lo ha aperto (permesso
+  `communications.read_recipients`). `POST { action }` accetta `publish`,
+  `withdraw` e `read`; `read` e l'unica che un genitore puo chiamare, e porta
+  `delivery_id`. Un annuncio di un altro club risponde **404**, non 403
+- `POST /api/v1/payment-links` — emette un **link di pagamento** per una rata
+  (`payment_id`). Il club lo dice la sessione, non il corpo. Risponde con
+  `url`, `path`, `linkId` e `expiresAt`; **mai** il token nudo. Senza
+  l'entitlement `online_payments` risponde **409** con
+  `code: "ENTITLEMENT_MISSING"`, cosi il sollecito puo dirlo e partire comunque
+- `DELETE /api/v1/payment-links/:id` — revoca un link. Un link di un altro club
+  risponde come uno inesistente
+- `GET /api/public/payment-links/:token` — **superficie pubblica, senza
+  autenticazione.** Quanto resta da versare, con il residuo ricalcolato al
+  momento e **nessun identificativo interno**. Token sconosciuto, scaduto,
+  revocato o manomesso rispondono **la stessa cosa**. Rate limit per token e
+  per indirizzo
+- `POST /api/public/payment-links/:token/checkout` — **superficie pubblica.**
+  Apre il checkout sulla rata del link passando dallo **stesso**
+  `openGatewayCheckout` del canale autenticato. `successUrl` e `cancelUrl` li
+  costruisce il server: accettarli dal client renderebbe il link un redirector
+  aperto
 - `POST /api/v1/rsvp` — la conferma di partecipazione della famiglia. Corpo:
   `training_id`, `athlete_id`, `status` (`yes` | `no`), `note` facoltativa.
   Registra **e** cambia la risposta finche la scadenza non e passata: e un

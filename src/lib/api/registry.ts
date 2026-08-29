@@ -147,6 +147,74 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
       "Sollecito degli insoluti verso le famiglie: con `preview: true` restituisce i destinatari raggiungibili e quelli non raggiungibili con il motivo, senza `preview` esegue l'invio e riferisce l'esito per destinatario",
     mobile_ready: false,
   },
+  /*
+    Wave 2 — comunicazioni. Nessuna e `mobile_ready`: lo sviluppo mobile e
+    differito (ADR-0025), e dichiararle pronte sarebbe una promessa che nessuno
+    ha verificato.
+  */
+  {
+    name: "communications.send",
+    method: "POST",
+    path: "/api/v1/communications",
+    description:
+      "Comunicazione massiva alle famiglie: con `preview: true` restituisce i destinatari raggiungibili, gli esclusi con il motivo e il messaggio come lo leggera il primo destinatario; senza `preview` invia a lotti e riferisce l'esito per destinatario",
+    mobile_ready: false,
+  },
+  {
+    name: "announcements.list",
+    method: "GET|POST",
+    path: "/api/v1/announcements",
+    description:
+      "La bacheca del club: senza parametri gli annunci che la societa governa, con `?mine=1` quelli destinati a chi sta guardando. `POST` crea una bozza",
+    mobile_ready: false,
+  },
+  {
+    name: "announcements.item",
+    method: "GET|PATCH|POST",
+    path: "/api/v1/announcements/:id",
+    description:
+      "Un annuncio. `?deliveries=1` dice chi lo ha ricevuto e chi lo ha aperto; `POST { action }` accetta `publish`, `withdraw` e `read`",
+    mobile_ready: false,
+  },
+  {
+    name: "payment_links.issue",
+    method: "POST",
+    path: "/api/v1/payment-links",
+    description:
+      "Emette un link di pagamento per una rata: token opaco, scadenza, revocabile. Richiede l'entitlement `online_payments`",
+    mobile_ready: false,
+  },
+  {
+    name: "payment_links.revoke",
+    method: "DELETE",
+    path: "/api/v1/payment-links/:id",
+    description: "Revoca un link di pagamento senza cancellarne la traccia",
+    mobile_ready: false,
+  },
+  {
+    name: "payment_links.public_view",
+    method: "GET",
+    path: "/api/public/payment-links/:token",
+    description:
+      "**Superficie pubblica, senza autenticazione.** Quanto resta da versare su una rata, senza nessun identificativo interno. Token sconosciuto, scaduto, revocato o manomesso rispondono la stessa cosa",
+    mobile_ready: false,
+  },
+  {
+    name: "payment_links.public_checkout",
+    method: "POST",
+    path: "/api/public/payment-links/:token/checkout",
+    description:
+      "**Superficie pubblica, senza autenticazione.** Apre il checkout sulla rata del link, con il residuo ricalcolato al momento. Passa dallo stesso `openGatewayCheckout` del canale autenticato",
+    mobile_ready: false,
+  },
+  {
+    name: "rsvp.answer",
+    method: "GET|POST",
+    path: "/api/v1/rsvp",
+    description:
+      "Conferma di partecipazione a un evento. `POST` registra la risposta della famiglia; `GET ?training_id=` il riepilogo per lo staff con chi non ha risposto, `GET ?athlete_id=` gli inviti aperti di un atleta",
+    mobile_ready: false,
+  },
   {
     name: "funding.reconciliation",
     method: "GET",
