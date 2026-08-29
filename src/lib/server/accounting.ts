@@ -131,6 +131,7 @@ const iso = (value: unknown): string | null => toDateOrNull(value)?.toISOString(
 const toLine = (
   row: any,
   can: { reverse: boolean; reconcile: boolean; manage: boolean },
+  numeriDocumento?: Map<string, string>,
 ): AccountingLine => {
   const stornata = Boolean(row.reversed_at);
   const eStorno = row.source_domain === "REVERSAL";
@@ -161,7 +162,12 @@ const toLine = (
     sourceId: row.source_id || null,
     documentKind: row.document_kind || null,
     documentId: row.document_id || null,
-    documentNumber: null,
+    /*
+      Il numero del documento arriva da una lettura sola per pagina, non da un
+      join riga per riga: i documenti collegati sono pochi, e chiederli uno
+      alla volta e il difetto che questa Wave ha tolto alla pagina.
+    */
+    documentNumber: numeriDocumento?.get(String(row.document_id || "")) || null,
     siteId: row.site_id || null,
     reconciliationStatus: row.reconciliation_status as ReconciliationStatus,
     valueDate: iso(row.value_date),
@@ -445,7 +451,8 @@ export const listAccountingEntries = async (
     include: { financial_account: true, operation_type: true },
   });
 
-  let righe = proprie.map((row: any) => toLine(row, permissions));
+  const numeriDocumento = await risolviNumeriDocumento(organizationId, proprie);
+  let righe = proprie.map((row: any) => toLine(row, permissions, numeriDocumento));
 
   if (filters.includeProjections !== false) {
     righe = righe.concat(
@@ -527,6 +534,53 @@ export const listAccountingEntries = async (
 };
 
 /**
+ * I numeri dei documenti collegati alle righe proprie, in **una** lettura.
+ *
+ * La lettura porta il suo `organization_id` anche se gli id arrivano da righe
+ * gia verificate: un documento di un altro club che per un errore finisse
+ * referenziato non deve poter comparire con il suo numero. E il confine, non un
+ * doppione del confine.
+ */
+const risolviNumeriDocumento = async (
+  organizationId: string,
+  righe: readonly any[],
+): Promise<Map<string, string>> => {
+  const fatture: string[] = [];
+  const ricevute: string[] = [];
+  for (const riga of righe) {
+    const id = asText(riga.document_id);
+    if (!id) continue;
+    const tipo = asText(riga.document_kind).toLowerCase();
+    if (tipo === "invoice" || tipo === "fattura") fatture.push(id);
+    else if (tipo === "receipt" || tipo === "ricevuta") ricevute.push(id);
+  }
+
+  const mappa = new Map<string, string>();
+  if (!fatture.length && !ricevute.length) return mappa;
+
+  const [f, r] = await Promise.all([
+    fatture.length
+      ? (prisma as any).invoice.findMany({
+          where: { organization_id: organizationId, id: { in: fatture } },
+          select: { id: true, invoice_number: true },
+        })
+      : [],
+    ricevute.length
+      ? (prisma as any).receipt.findMany({
+          where: { organization_id: organizationId, id: { in: ricevute } },
+          select: { id: true, receipt_number: true },
+        })
+      : [],
+  ]);
+
+  for (const riga of f || []) mappa.set(riga.id, riga.invoice_number);
+  for (const riga of r || []) {
+    if (riga.receipt_number) mappa.set(riga.id, riga.receipt_number);
+  }
+  return mappa;
+};
+
+/**
  * Le righe dei domini proprietari, lette con i loro filtri e proiettate.
  *
  * **Ogni lettura porta il suo `organization_id`.** Non e ridondanza rispetto al
@@ -553,7 +607,24 @@ const loadProjectedLines = async (
   const [incassi, compensi, liquidazioni] = await Promise.all([
     (prisma as any).paymentTransaction.findMany({
       where: { organization_id: organizationId, ...periodo("paid_at"), ...contoSe },
-      include: { athlete: { select: { first_name: true, last_name: true } } },
+      include: {
+        athlete: { select: { first_name: true, last_name: true } },
+        /*
+          Il documento che attesta l'incasso, quando e stato emesso. Prima le
+          colonne documento restavano vuote su ogni riga proiettata, e l'export
+          doveva rileggerle da capo: e lo stesso dato, chiesto due volte.
+        */
+        receipts: {
+          select: { id: true, receipt_number: true, cancelled_at: true },
+          take: 1,
+          orderBy: [{ issue_date: "desc" }],
+        },
+        transaction_invoices: {
+          select: { id: true, invoice_number: true, cancelled_at: true },
+          take: 1,
+          orderBy: [{ issue_date: "desc" }],
+        },
+      },
       orderBy: [{ paid_at: "desc" }],
     }),
     (prisma as any).sportWorkOutboundTransaction.findMany({
@@ -575,7 +646,26 @@ const loadProjectedLines = async (
 
   return [
     ...projectPaymentTransactions(
-      (incassi || []).map((row: any) => ({ ...row, _athleteName: nome(row.athlete) })),
+      (incassi || []).map((row: any) => {
+        /*
+          La fattura vince sulla ricevuta quando ci sono entrambe: e il
+          documento con la numerazione fiscale propria, ed e quello che un
+          commercialista cerca. Un documento **annullato** non si mostra: dire
+          che un incasso porta un numero ritirato e peggio che non dirne
+          nessuno.
+        */
+        const fattura = (row.transaction_invoices || []).find((d: any) => !d.cancelled_at);
+        const ricevuta = (row.receipts || []).find((d: any) => !d.cancelled_at);
+        const documento = fattura || ricevuta;
+
+        return {
+          ...row,
+          _athleteName: nome(row.athlete),
+          _documentKind: documento ? (fattura ? "invoice" : "receipt") : null,
+          _documentId: documento?.id || null,
+          _documentNumber: fattura?.invoice_number || ricevuta?.receipt_number || null,
+        };
+      }),
     ),
     ...projectSportWorkPayouts(
       (compensi || []).map((row: any) => ({ ...row, _personName: nome(row.person) })),

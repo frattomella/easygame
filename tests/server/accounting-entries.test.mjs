@@ -933,3 +933,81 @@ test("il movimento di un altro club non si corregge", async () => {
     /Accesso negato/,
   );
 });
+
+/* ================================ il documento collegato alla riga */
+
+test("un incasso proiettato porta il numero della sua ricevuta", async () => {
+  /*
+    Prima le colonne documento restavano vuote su ogni riga proiettata, e
+    l'export doveva rileggerle da capo: lo stesso dato chiesto due volte.
+  */
+  fake.rows("paymentTransaction").push({
+    id: "inc-doc",
+    organization_id: CLUB,
+    paid_at: new Date("2026-09-10T00:00:00Z"),
+    amount: 200,
+    payment_method: "Contanti",
+    financial_account_id: CASSA,
+    receipts: [{ id: "ric-1", receipt_number: "2026/000012", cancelled_at: null }],
+    transaction_invoices: [],
+  });
+
+  const esito = await accounting.listAccountingEntries({}, scope(), PIENI);
+  const riga = esito.entries.find((r) => r.sourceId === "inc-doc");
+
+  assert.equal(riga.documentKind, "receipt");
+  assert.equal(riga.documentNumber, "2026/000012");
+});
+
+test("la fattura vince sulla ricevuta quando ci sono entrambe", async () => {
+  /*
+    E il documento con la numerazione fiscale propria, ed e quello che un
+    commercialista cerca.
+  */
+  fake.rows("paymentTransaction").push({
+    id: "inc-due",
+    organization_id: CLUB,
+    paid_at: new Date("2026-09-10T00:00:00Z"),
+    amount: 200,
+    payment_method: "Bonifico",
+    financial_account_id: BANCA,
+    receipts: [{ id: "ric-2", receipt_number: "2026/000013", cancelled_at: null }],
+    transaction_invoices: [
+      { id: "fat-1", invoice_number: "FT-2026-0007", cancelled_at: null },
+    ],
+  });
+
+  const esito = await accounting.listAccountingEntries({}, scope(), PIENI);
+  const riga = esito.entries.find((r) => r.sourceId === "inc-due");
+
+  assert.equal(riga.documentKind, "invoice");
+  assert.equal(riga.documentNumber, "FT-2026-0007");
+});
+
+test("un documento annullato non si mostra", async () => {
+  /*
+    Dire che un incasso porta un numero ritirato e peggio che non dirne nessuno.
+  */
+  fake.rows("paymentTransaction").push({
+    id: "inc-annullato",
+    organization_id: CLUB,
+    paid_at: new Date("2026-09-10T00:00:00Z"),
+    amount: 200,
+    payment_method: "Contanti",
+    financial_account_id: CASSA,
+    receipts: [
+      {
+        id: "ric-3",
+        receipt_number: "2026/000014",
+        cancelled_at: new Date("2026-09-12T00:00:00Z"),
+      },
+    ],
+    transaction_invoices: [],
+  });
+
+  const esito = await accounting.listAccountingEntries({}, scope(), PIENI);
+  const riga = esito.entries.find((r) => r.sourceId === "inc-annullato");
+
+  assert.equal(riga.documentNumber, null);
+  assert.equal(riga.documentKind, null);
+});
