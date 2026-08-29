@@ -501,14 +501,27 @@ const toCents = (value: number) => Math.round(value * 100);
  * L'aritmetica e in centesimi come in `summarizeClubMovements`: e la condizione
  * perche le due pagine chiudano sullo stesso numero invece che a meno di un
  * arrotondamento.
+ *
+ * **Il periodo, e perche e un parametro e non un'omissione.** Fino alla Wave 4
+ * questa funzione ignorava il filtro Periodo di `/reports`: scegliere «Ultimo
+ * mese» cambiava allenamenti, presenze e gare e lasciava i quattro numeri
+ * finanziari sull'intero storico, **senza dirlo**. Non era un difetto di
+ * questa funzione — che il periodo non lo riceveva — ma della chiamata, che
+ * non glielo passava; la correzione mette il periodo dove le altre tre
+ * funzioni di report lo hanno gia, cosi che dimenticarlo sia una scelta
+ * visibile invece che un'omissione invisibile. Il valore predefinito resta
+ * «intero periodo», che e cio che i chiamanti esistenti si aspettano.
  */
 export const calculatePaymentReport = (
   movements: NormalizedClubMovement[] = [],
+  period: ReportPeriodKey = "all",
 ): PaymentReport => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const totals = movements.filter(isAthletePaymentMovement).reduce(
+  const totals = filterByPeriod(movements, period)
+    .filter(isAthletePaymentMovement)
+    .reduce(
     (summary, movement) => {
       const dueCents = Math.max(0, toCents(toAmount(movement.amount)));
       const collectedCents = Math.max(

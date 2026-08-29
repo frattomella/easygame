@@ -185,8 +185,18 @@ un documento), e il proprietario del dominio e
 | Metodo | Path | Cosa fa |
 |--------|------|---------|
 | `GET` | `/api/v1/payment-transactions?athlete_id=&payment_id=` | Gli incassi, in ordine cronologico **crescente** |
-| `POST` | `/api/v1/payment-transactions` | Registra un incasso su una rata |
+| `POST` | `/api/v1/payment-transactions` | Registra un incasso su una rata. Accetta anche `operation_type_code`, `financial_account_id` e la controparte |
 | `POST` | `/api/v1/payment-transactions/:id` | `{"action":"reverse"}` storna, `{"action":"issue-receipt"}` emette la ricevuta |
+| `GET` | `/api/v1/payment-transactions/:id/document-decision` | Cosa si sta per emettere, **prima** di emetterlo: documento proposto, numero letto senza consumarlo, classificazione, imponibile e imposta, e cosa manca |
+
+**Perche lo schema di validazione degli incassi e la porta piu stretta della
+fiscalita.** Fino alla Wave 4 `paymentTransactionInputSchema` non dichiarava
+`operation_type_code`, e Zod scarta cio che non dichiara: il campo spariva fra
+la richiesta e il dominio benche la colonna esistesse e il servizio la
+scrivesse. La conseguenza era `operation_type_code = null` su **ogni** incasso
+reale, e a valle un motore fiscale completo che classificava ogni documento con
+un valore predefinito. Un campo che il dominio accetta e che lo schema non
+dichiara non arriva a nessuna riga.
 
 Registrare un incasso non e scrivere una riga: e scrivere una riga **e**
 ricalcolare lo stato della rata, nella stessa transazione. Il CRUD generico sa
@@ -731,6 +741,40 @@ Tre cose sono proprie di queste rotte:
   dove registrare e lo lascia leggibile ovunque sia gia citato. Il `PATCH` non
   accetta `kind` ne il saldo di apertura, che riscriverebbero retroattivamente
   cio che il conto ha significato finora.
+
+### Il riepilogo gestionale: cosa la risposta dichiara di non essere (Wave 4)
+
+`GET /api/v1/accounting/reports`, sullo stesso involucro `accountingRoute` e
+con il permesso `accounting.read`. Il servizio e
+`src/lib/server/accounting-reports.ts`, l'aritmetica sta nel modulo puro
+`src/lib/accounting/reporting.ts`.
+
+Quattro cose sono proprie di questa rotta:
+
+- **cassa e competenza sono due campi distinti**, `cash` e `accrual`, e non
+  esiste nessun campo che li sommi. E il difetto D-2 («Entrate» sommava cassa e
+  dovuto) chiuso nella forma dei dati invece che in una raccomandazione: il
+  numero sbagliato non si puo produrre perche non c'e;
+- **`fiscal_year` e `season_id` sono due assi diversi**, e si possono chiedere
+  insieme: la stagione 2026/27 contiene movimenti del 2026 e del 2027, e il
+  riepilogo fiscale del 2026 prende solo i primi. L'anno passa da
+  `toFiscalYearFilter`, sempre — un filtro scritto a mano interrogherebbe
+  `fiscal_year = 0` e risponderebbe elenco vuoto a chi non chiede un anno,
+  perche `searchParams.get()` restituisce `null` e `Number(null)` vale `0`;
+- **le righe non classificate si contano, non si nascondono.** La ripartizione
+  per `activity_scope` porta sempre tutti e tre i valori — anche a zero — piu
+  `unspecifiedLineCount` e `unspecifiedShare`. Un club che vede solo
+  istituzionale e commerciale crede di avere un rendiconto;
+- **non e un documento ufficiale**, e la risposta lo dice: `disclaimer` viaggia
+  con i numeri, e nessuna etichetta del dominio contiene «ufficiale»,
+  «conforme», «a norma» o «per il deposito» — `assertNoOfficialClaim` lo rende
+  verificabile e un test lo verifica.
+
+I saldi dei conti arrivano da `listFinancialAccountBalances` e solo a chi ha
+`accounting.accounts_read`; per gli altri `accountBalances` vale `null`, **mai
+zero**. `compare_from` / `compare_to` / `compare_fiscal_year` aggiungono un
+confronto, e confronta **solo cassa con cassa**: la differenza fra incassato e
+crediti non e una variazione.
 
 ### Il libro soci: un registro, non una risorsa (Wave 4)
 

@@ -49,15 +49,21 @@ import {
 import { getClub, getClubAthletes, getClubData } from "@/lib/simplified-db";
 import { supabase } from "@/lib/supabase";
 import type { NormalizedCategoryOption } from "@/lib/category-utils";
+import ManagementSummary from "./management-summary";
 
 type ClubData = {
   id: string;
   name?: string | null;
   categories?: unknown;
+  /** Le sedi: il filtro sede del riepilogo compare solo se sono piu di una. */
+  club_sites?: unknown;
+  /** Le stagioni vivono qui dentro: `settings.seasons`. */
+  settings?: unknown;
 };
 
 type StoredClub = Partial<ClubData> & {
   id?: string;
+  role?: string | null;
 };
 
 type ReportState = {
@@ -417,6 +423,14 @@ export default function ReportsPage() {
   const [loading, setLoading] = React.useState(true);
   const [selectedCategoryId, setSelectedCategoryId] = React.useState("all");
   const [period, setPeriod] = React.useState<ReportPeriodKey>("all");
+  /*
+    Club e ruolo attivi si leggono una volta e si tengono nello stato: il
+    riepilogo gestionale ne ha bisogno a ogni render, e rileggerli da
+    `localStorage` dentro il corpo del componente farebbe divergere server e
+    client alla prima idratazione.
+  */
+  const [activeClubId, setActiveClubId] = React.useState("");
+  const [activeRole, setActiveRole] = React.useState<string | null>(null);
   const { showToast } = useToast();
 
   React.useEffect(() => {
@@ -435,6 +449,8 @@ export default function ReportsPage() {
         setLoading(true);
         const activeClub = readStoredActiveClub();
         const clubId = getActiveClubId();
+        setActiveClubId(clubId);
+        setActiveRole(activeClub?.role ? String(activeClub.role) : null);
 
         if (!clubId) {
           setReportState(emptyReportState);
@@ -575,9 +591,18 @@ export default function ReportsPage() {
     [categoryOptions, period, reportState.matches, selectedCategoryId],
   );
 
+  /*
+    **Il filtro Periodo tocca anche i numeri finanziari.**
+
+    Fino alla Wave 4 questo `useMemo` non dipendeva da `period` e non glielo
+    passava: scegliere «Ultimo mese» cambiava allenamenti, presenze e gare e
+    lasciava i quattro numeri del report pagamenti sull'intero storico, senza
+    che niente sulla pagina lo dicesse. Un filtro che ne muove tre su quattro e
+    peggio di un filtro assente, perche chi legge crede di guardare un periodo.
+  */
   const paymentReport = React.useMemo(
-    () => calculatePaymentReport(reportState.movements),
-    [reportState.movements],
+    () => calculatePaymentReport(reportState.movements, period),
+    [period, reportState.movements],
   );
 
   const athleteCount = React.useMemo(() => {
@@ -711,6 +736,19 @@ export default function ReportsPage() {
             <AttendanceSection report={attendanceReport} />
             <MatchSection report={matchReport} />
             <PaymentSection report={paymentReport} />
+
+            {/*
+              Il riepilogo gestionale ha filtri propri — date, anno fiscale,
+              stagione, conto, causale, sede, verso, classificazione — e non
+              eredita quelli sopra: «ultimo mese» sulle presenze e un'altra
+              domanda rispetto a «l'anno fiscale 2026» sui movimenti, e
+              legarli avrebbe prodotto un filtro che significa due cose.
+            */}
+            <ManagementSummary
+              clubId={activeClubId}
+              club={reportState.club}
+              role={activeRole}
+            />
           </DashboardPageContainer>
         </main>
       </div>

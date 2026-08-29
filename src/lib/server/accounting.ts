@@ -15,6 +15,7 @@ import {
   type CounterpartyKind,
   type ReconciliationStatus,
 } from "@/lib/accounting/model";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
 import {
   mergeAccountingLines,
   projectFundingSettlements,
@@ -293,6 +294,46 @@ const projectLegacyClubMovements = (club: any): AccountingLine[] => {
   return [...movimenti, ...giroconti];
 };
 
+/**
+ * **La finestra di date di una stagione.**
+ *
+ * Serve a un problema preciso, trovato dalla lane del rendiconto: il filtro per
+ * stagione scendeva nel `where` di Prisma, che vale **solo per le righe
+ * proprie**. Le righe proiettate — incassi, compensi, liquidazioni — non hanno
+ * una colonna `season_id` e non possono averla: `payment_transactions` non sa
+ * cosa sia una stagione sportiva. Il risultato osservabile era che un riepilogo
+ * filtrato per stagione mostrava comunque gli incassi di **tutte** le stagioni.
+ *
+ * Le due risposte facili sono entrambe sbagliate. Escluderle nasconde denaro
+ * vero; lasciarle passare tutte risponde a una domanda diversa da quella posta.
+ *
+ * La risposta giusta e che **una riga che non dichiara una stagione appartiene
+ * alla stagione nel cui periodo cade**, e le stagioni sono gia configurate con
+ * le loro date. E la stessa forma con cui l'anno fiscale si deriva dalla data:
+ * un asse temporale non si digita, si legge dal fatto.
+ */
+const resolveSeasonWindow = async (organizationId: string, seasonId: string) => {
+  const club = await (prisma as any).club.findUnique({
+    where: { id: organizationId },
+    select: { settings: true },
+  });
+  const stagioni = normalizeClubSeasons(club?.settings)?.seasons || [];
+  const stagione = stagioni.find((riga: any) => String(riga.id) === seasonId);
+  if (!stagione) return null;
+
+  const inizio = toDateOrNull(stagione.startDate);
+  const fine = toDateOrNull(stagione.endDate);
+  if (!inizio || !fine) return null;
+
+  /*
+    La fine e inclusiva: una stagione che finisce il 30 giugno contiene il 30
+    giugno. Senza l'ultimo istante del giorno, un incasso di quella mattina
+    cadrebbe fuori da entrambe le stagioni.
+  */
+  fine.setUTCHours(23, 59, 59, 999);
+  return { inizio, fine };
+};
+
 /* ========================================================================== */
 /* Lettura                                                                     */
 /* ========================================================================== */
@@ -365,6 +406,21 @@ export const listAccountingEntries = async (
   const reconciliation = asText(filters.reconciliationStatus).toLowerCase() || null;
   const search = asText(filters.search).toLowerCase() || null;
 
+  /*
+    La finestra si risolve **prima** della lettura, e puo non esserci: un club
+    che non ha ancora configurato le stagioni, o una stagione senza date, non
+    permettono di attribuire per data una riga che la stagione non la dichiara.
+
+    In quel caso **non** si risponde elenco vuoto — sarebbe far sparire denaro
+    vero per una configurazione mancante. Vale la sola regola che il dato
+    sostiene: chi dichiara la stagione risponde con quella. Le proiezioni, che
+    non la dichiarano mai, restano fuori dal filtro, e la superficie che le
+    voleva dovra prima far configurare le stagioni.
+  */
+  const finestraStagione = seasonId
+    ? await resolveSeasonWindow(organizationId, seasonId)
+    : null;
+
   const proprie = await entryClient().findMany({
     where: {
       organization_id: organizationId,
@@ -373,7 +429,12 @@ export const listAccountingEntries = async (
         : {}),
       ...(fiscalYear !== null ? { fiscal_year: fiscalYear } : {}),
       ...(accountId ? { financial_account_id: accountId } : {}),
-      ...(seasonId ? { season_id: seasonId } : {}),
+      /*
+        Non si filtra qui su `season_id`: le righe proprie che **non** lo
+        dichiarano (un movimento registrato prima che le stagioni esistessero)
+        sparirebbero, mentre appartengono alla stagione in cui cadono. Il filtro
+        vale su tutte le righe allo stesso modo, poco piu sotto.
+      */
       ...(siteId ? { site_id: siteId } : {}),
       ...(operationTypeCode ? { operation_type_code: operationTypeCode } : {}),
       ...(direction ? { direction } : {}),
@@ -405,6 +466,31 @@ export const listAccountingEntries = async (
     if (from && Date.parse(riga.entryDate) < from.getTime()) return false;
     if (to && Date.parse(riga.entryDate) > to.getTime()) return false;
     if (fiscalYear !== null && riga.fiscalYear !== fiscalYear) return false;
+    if (seasonId && !finestraStagione) {
+      /*
+        Nessuna finestra: si puo solo confrontare cio che la riga dichiara.
+      */
+      if (riga.seasonId !== seasonId) return false;
+    }
+    if (finestraStagione) {
+      /*
+        Chi dichiara la stagione risponde con quella; chi non la dichiara —
+        ogni riga proiettata — risponde con la data. Le due vie devono
+        coesistere: un movimento manuale registrato in una stagione e
+        retrodatato a un'altra deve restare dove l'operatore l'ha messo.
+      */
+      if (riga.seasonId) {
+        if (riga.seasonId !== seasonId) return false;
+      } else {
+        const quando = Date.parse(riga.entryDate);
+        if (
+          quando < finestraStagione.inizio.getTime() ||
+          quando > finestraStagione.fine.getTime()
+        ) {
+          return false;
+        }
+      }
+    }
     if (direction && riga.direction !== direction) return false;
     if (accountId && riga.financialAccountId !== accountId) return false;
     if (siteId && riga.siteId !== siteId) return false;

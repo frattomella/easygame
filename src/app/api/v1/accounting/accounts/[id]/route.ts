@@ -52,7 +52,7 @@ export const GET = accountingRoute(
 );
 
 export const PATCH = accountingRoute(
-  "accounting.accounts_read",
+  "accounting.accounts_manage",
   async ({ params, request, scope }) => {
     const raw = await readBody(request);
     const input = parseInput(financialAccountPatchSchema, raw);

@@ -44,7 +44,31 @@ let fake;
 
 const seed = () => ({
   club: [
-    { id: CLUB, slug: "club-a", name: "Club A", transactions: [], transfers: [] },
+    {
+      id: CLUB,
+      slug: "club-a",
+      name: "Club A",
+      transactions: [],
+      transfers: [],
+      settings: {
+        seasons: [
+          {
+            id: "2026-27",
+            label: "2026/27",
+            startDate: "2026-07-01",
+            endDate: "2027-06-30",
+            status: "active",
+          },
+          {
+            id: "2025-26",
+            label: "2025/26",
+            startDate: "2025-07-01",
+            endDate: "2026-06-30",
+            status: "archived",
+          },
+        ],
+      },
+    },
     { id: ALTRO, slug: "club-b", name: "Club B", transactions: [], transfers: [] },
   ],
   financialAccount: [
@@ -645,4 +669,138 @@ test("storno e riconciliazione lasciano la loro traccia", async () => {
 
   const azioni = fake.rows("auditLog").map((r) => r.action);
   assert.ok(azioni.includes("accounting.entry.reversed"));
+});
+
+/* ================================= la stagione, anche sulle proiezioni */
+
+test("il filtro per stagione prende anche le righe proiettate", async () => {
+  /*
+    Difetto trovato dalla lane del rendiconto. Il filtro scendeva nel `where` di
+    Prisma, che vale **solo per le righe proprie**: le proiezioni — incassi,
+    compensi, liquidazioni — non hanno una colonna `season_id` e non possono
+    averla, quindi passavano tutte. Un riepilogo filtrato per stagione mostrava
+    gli incassi di **ogni** stagione.
+
+    Una riga che non dichiara una stagione appartiene a quella nel cui periodo
+    cade: e la stessa forma con cui l'anno fiscale si deriva dalla data.
+  */
+  fake.rows("paymentTransaction").push(
+    {
+      id: "inc-dentro",
+      organization_id: CLUB,
+      paid_at: new Date("2026-09-10T00:00:00Z"),
+      amount: 200,
+      payment_method: "Contanti",
+      financial_account_id: CASSA,
+    },
+    {
+      id: "inc-fuori",
+      organization_id: CLUB,
+      paid_at: new Date("2025-09-10T00:00:00Z"),
+      amount: 300,
+      payment_method: "Contanti",
+      financial_account_id: CASSA,
+    },
+  );
+
+  const esito = await accounting.listAccountingEntries(
+    { seasonId: "2026-27" },
+    scope(),
+    PIENI,
+  );
+
+  assert.deepEqual(
+    esito.entries.map((r) => r.sourceId),
+    ["inc-dentro"],
+    "l'incasso della stagione precedente non deve comparire",
+  );
+});
+
+test("l'ultimo giorno della stagione ci sta dentro", async () => {
+  /*
+    Una stagione che finisce il 30 giugno contiene il 30 giugno. Senza
+    l'ultimo istante del giorno, un incasso di quella mattina cadrebbe fuori da
+    entrambe le stagioni.
+  */
+  fake.rows("paymentTransaction").push({
+    id: "inc-ultimo",
+    organization_id: CLUB,
+    paid_at: new Date("2027-06-30T09:00:00Z"),
+    amount: 100,
+    payment_method: "Contanti",
+    financial_account_id: CASSA,
+  });
+
+  const esito = await accounting.listAccountingEntries(
+    { seasonId: "2026-27" },
+    scope(),
+    PIENI,
+  );
+
+  assert.equal(esito.total, 1);
+});
+
+test("una riga propria che dichiara la stagione risponde con quella", async () => {
+  /*
+    Un movimento registrato in una stagione e retrodatato a un'altra deve
+    restare dove l'operatore l'ha messo: la dichiarazione vince sulla data.
+  */
+  await accounting.createAccountingEntry(
+    movimento({ entryDate: "2026-03-10T00:00:00.000Z", seasonId: "2026-27" }),
+    scope(),
+  );
+
+  const dichiarata = await accounting.listAccountingEntries(
+    { seasonId: "2026-27" },
+    scope(),
+    PIENI,
+  );
+  const perData = await accounting.listAccountingEntries(
+    { seasonId: "2025-26" },
+    scope(),
+    PIENI,
+  );
+
+  assert.equal(dichiarata.total, 1, "vale la stagione dichiarata");
+  assert.equal(perData.total, 0, "e non quella in cui la data cadrebbe");
+});
+
+test("una stagione che il club non ha configurato da elenco vuoto, non un errore", async () => {
+  await accounting.createAccountingEntry(movimento(), scope());
+
+  const esito = await accounting.listAccountingEntries(
+    { seasonId: "1999-2000" },
+    scope(),
+    PIENI,
+  );
+
+  assert.equal(esito.total, 0);
+});
+
+test("senza stagioni configurate il filtro non fa sparire il denaro", async () => {
+  /*
+    Un club che non ha ancora configurato le stagioni non permette di attribuire
+    per data una riga che la stagione non la dichiara. Rispondere elenco vuoto
+    farebbe sparire denaro vero per una configurazione mancante: vale la sola
+    regola che il dato sostiene — chi dichiara la stagione risponde con quella.
+  */
+  fake.rows("club")[0].settings = {};
+
+  await accounting.createAccountingEntry(
+    movimento({ seasonId: "2026-27" }),
+    scope(),
+  );
+  await accounting.createAccountingEntry(
+    movimento({ seasonId: "2025-26", description: "Altra stagione" }),
+    scope(),
+  );
+
+  const esito = await accounting.listAccountingEntries(
+    { seasonId: "2026-27" },
+    scope(),
+    PIENI,
+  );
+
+  assert.equal(esito.total, 1);
+  assert.equal(esito.entries[0].seasonId, "2026-27");
 });

@@ -140,6 +140,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "payment_transactions.document_decision",
+    method: "GET",
+    path: "/api/v1/payment-transactions/:id/document-decision",
+    description:
+      "Cosa EasyGame propone di emettere per un incasso e perche: documento proposto, numero che verra assegnato (letto senza consumarlo), classificazione — NON CLASSIFICATO quando nessuno l'ha dichiarata — imponibile, imposta e cosa manca per la fattura. Si legge prima di emettere",
+    mobile_ready: false,
+  },
+  {
     name: "payment_reminders.run",
     method: "POST",
     path: "/api/v1/payment-reminders",
@@ -822,6 +830,46 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     path: "/api/v1/accounting/accounts/:id",
     description:
       "Rinomina, corregge gli estremi e archivia un conto. Non esiste il DELETE: un conto e citato dai movimenti che ci sono passati",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.read",
+    method: "GET",
+    path: "/api/v1/accounting/entries",
+    description:
+      "La prima nota: righe proprie e righe proiettate dai domini proprietari, in una lettura sola. Filtri per data, anno fiscale, stagione, conto, causale, verso, origine, sede, classificazione e riconciliazione",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.create",
+    method: "POST",
+    path: "/api/v1/accounting/entries",
+    description:
+      "Registra un movimento manuale con causale obbligatoria, oppure un giroconto con ?kind=transfer. Il giroconto nasce come due gambe in una transazione sola",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.reverse",
+    method: "POST",
+    path: "/api/v1/accounting/entries/:id/reverse",
+    description:
+      "Storna un movimento: nasce la riga opposta, l'originale resta con il motivo. Non esiste il DELETE, e un giroconto si storna intero. Richiede accounting.reverse, che la segreteria non ha",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.entries.reconcile",
+    method: "POST",
+    path: "/api/v1/accounting/entries/:id/reconcile",
+    description:
+      "Spunta un movimento contro l'estratto conto, con data valuta e riferimento. Nessun import bancario e nessun matching automatico: la conferma e umana",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.reports.read",
+    method: "GET",
+    path: "/api/v1/accounting/reports",
+    description:
+      "Il riepilogo gestionale: incassato, pagato, crediti e debiti tenuti separati, raggruppati per causale, voce, conto, mese e classificazione. Non e un documento ufficiale e la risposta lo dichiara",
     mobile_ready: false,
   },
   {

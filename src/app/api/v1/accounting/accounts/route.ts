@@ -70,7 +70,17 @@ export const GET = accountingRoute(
 );
 
 export const POST = accountingRoute(
-  "accounting.accounts_read",
+  /*
+    **Scrivere si dichiara con il permesso di scrittura.**
+
+    Qui c'era `accounts_read`, ereditato da quando `accounts_manage` non
+    esisteva ancora nel catalogo. Il servizio dentro verificava gia il permesso
+    giusto, quindi non era sfruttabile — ma e esattamente la distinzione che
+    `permissions.ts` descrive come «il modo in cui un permesso finisce
+    allargato per distrazione il giorno in cui la lettura viene concessa a
+    qualcuno in piu».
+  */
+  "accounting.accounts_manage",
   async ({ request, scope }) => {
     const raw = await readBody(request);
     const input = parseInput(financialAccountCreateSchema, raw);

@@ -34,7 +34,20 @@ Fonte ufficiale da mantenere aggiornata:
   firma con cui un documento diventa della societa
 - `GET|POST /api/v1/payment-transactions` — registro incassi: elenco dei
   movimenti (`?athlete_id=`, `?payment_id=`) e registrazione di un incasso su
-  una rata. La rata viene ricalcolata nella stessa transazione
+  una rata. La rata viene ricalcolata nella stessa transazione. Il corpo
+  accetta anche `operation_type_code` (la causale), `financial_account_id` (il
+  conto su cui il denaro e entrato) e la controparte
+  (`counterparty_kind`/`_id`/`_label`): senza queste righe nello schema di
+  validazione i tre campi sparivano fra la richiesta e il dominio, ed e il
+  motivo per cui `operation_type_code` era `null` su ogni incasso reale
+- `GET /api/v1/payment-transactions/:id/document-decision` — **cosa si sta per
+  emettere, prima di emetterlo**: documento proposto e perche, numero che
+  verra assegnato (letto senza consumarlo), classificazione — `NON
+  CLASSIFICATO` quando nessuno l'ha dichiarata — imponibile e imposta, e cosa
+  manca per la fattura, distinguendo l'emittente dall'intestatario. Solo
+  proprietario e gestore del club, come l'emissione. Con
+  `?operation_type_code=` risponde «e se lo classificassi cosi?» senza
+  scrivere niente
 - `POST /api/v1/payment-transactions/:id` — `{"action":"reverse"}` storna un
   incasso, `{"action":"refund"}` ne chiede al provider la restituzione,
   `{"action":"issue-receipt"}` ne emette la ricevuta e
@@ -214,6 +227,42 @@ Fonte ufficiale da mantenere aggiornata:
   estremi e archivia (`{"archived": true}`). **Non esiste il `DELETE`**: un
   conto e citato dai movimenti che ci sono passati, e il tipo e il saldo di
   apertura non si modificano
+- `GET|POST /api/v1/accounting/entries` — la **prima nota**. La `GET`
+  (`accounting.read`) restituisce in una lettura sola le righe proprie —
+  movimenti manuali, gambe di giroconto, storni — e quelle **proiettate** dai
+  domini proprietari: incassi, compensi, liquidazioni. Le proiezioni sono
+  sempre in sola lettura, e i flag `canEdit`/`canReverse`/`canReconcile`
+  viaggiano **con la riga**, perche la pagina non li ricalcoli. Filtri:
+  `from`, `to`, `fiscal_year`, `season_id`, `financial_account_id`,
+  `operation_type_code`, `direction`, `source_domain`, `site_id`,
+  `activity_scope`, `reconciliation_status`, `q`, `limit`, `offset`.
+  `fiscal_year` e `season_id` sono **due assi diversi**, e una riga che non
+  dichiara una stagione appartiene a quella nel cui periodo cade.
+  La `POST` (`accounting.manage`) registra un movimento manuale, con
+  **causale obbligatoria**; con `?kind=transfer` registra un giroconto, che
+  nasce come **due gambe in una transazione sola** — o entrambe, o nessuna
+- `POST /api/v1/accounting/entries/:id/reverse` — lo **storno**
+  (`accounting.reverse`, che la segreteria **non** ha: registrare non e
+  stornare). Nasce la riga opposta, l'originale resta e porta il motivo, e i
+  totali escludono entrambe. **Non esiste il `DELETE`.** Un giroconto si
+  storna intero: stornarne una gamba sola lascerebbe denaro sparito fra due
+  conti
+- `POST /api/v1/accounting/entries/:id/reconcile` — la **riconciliazione**
+  (`accounting.reconcile`): `unreconciled` | `reconciled` | `disputed`, con
+  data valuta e riferimento. In V1 e un atto umano su un dato che il sistema
+  gia conosce: nessun import di tracciati bancari, nessun matching automatico
+  su causale libera. Un movimento stornato non si riconcilia
+- `GET /api/v1/accounting/reports` — il **riepilogo gestionale**
+  (`accounting.read`). Incassato e pagato (cassa) restano separati da crediti
+  e debiti (competenza), e nessun campo li somma. Filtri: `from`, `to`,
+  `fiscal_year`, `season_id`, `financial_account_id`, `operation_type_code`,
+  `site_id`, `direction`, `activity_scope`; `compare_from`/`compare_to`/
+  `compare_fiscal_year` aggiungono il confronto con un secondo periodo, **solo
+  fra grandezze omogenee**. `fiscal_year` e `season_id` sono due assi diversi:
+  la stagione 2026/27 contiene movimenti del 2026 e del 2027. I saldi dei conti
+  arrivano solo a chi ha `accounting.accounts_read`, e per gli altri valgono
+  `null` e non zero. **Non e un documento ufficiale**: la risposta porta il suo
+  `disclaimer`, e nessuna etichetta usa «ufficiale», «conforme» o «a norma»
 - `POST /api/v1/documents/:kind/:id/cancel` — annullamento di un documento
   emesso, con motivo obbligatorio. Il numero non si libera
 - `GET|POST /api/v1/einvoice/:invoiceId` — stato e preparazione del tracciato
