@@ -174,6 +174,74 @@ export type DocumentPlaceholderContext = {
  */
 export type PlaceholderValue = { text: string; html?: string };
 
+const text = (value: unknown): PlaceholderValue => ({ text: asText(value) });
+
+const signatureBlock = (label: string): PlaceholderValue => ({
+  // Uno spazio per firmare non e un dato mancante: e cio che il documento
+  // deve avere. Il testo dice a cosa serve, l'HTML disegna il riquadro.
+  text: label,
+  html: signaturePlaceholderHtml(label),
+});
+
+const clubImage = (
+  image: { dataUrl: string } | null,
+  label: string,
+): PlaceholderValue =>
+  image
+    ? { text: label, html: signatureImageHtml(image.dataUrl, label) }
+    : { text: "", html: signaturePlaceholderHtml(label) };
+
+/**
+ * Cio che **qualunque** documento ha, qualunque sia il suo soggetto.
+ *
+ * **Perche e una funzione a se** (Wave 3, W3-B). Fino alla Wave 2 il
+ * risolutore sapeva compilare un documento solo: quello intestato a un atleta.
+ * Un contratto per un allenatore o una delibera del club non avevano modo di
+ * esistere, e le chiavi di staff, allenatori e soci restavano bianche — il
+ * debito `DOC-04`.
+ *
+ * Il club, la data, la stagione, il titolo e i blocchi firma non dipendono dal
+ * soggetto: vivono qui, e ogni soggetto ci aggiunge cio che sa di se.
+ */
+const buildCommonValues = (context: {
+  club: Record<string, any>;
+  season: ClubSeason | null;
+  signature: { dataUrl: string } | null;
+  stamp: { dataUrl: string } | null;
+  documentTitle: string;
+  now: Date;
+}): Record<string, PlaceholderValue> => {
+  const { club, season, now } = context;
+  const clubSettings = asRecord(club.settings);
+
+  return {
+    "club.name": text(firstText(club.business_name, club.name)),
+    "club.address": text(firstText(club.legal_address, club.address)),
+    "club.city": text(firstText(club.legal_city, club.city)),
+    "club.email": text(firstText(club.contact_email, clubSettings.companyEmail)),
+    "club.phone": text(club.contact_phone),
+    "club.fiscal_code": text(club.fiscal_code),
+    "club.vat_number": text(club.vat_number),
+    "club.website": text(firstText(club.website, clubSettings.website)),
+
+    "document.title": text(context.documentTitle),
+    "document.date": text(formatDate(now)),
+    "current_date": text(formatDate(now)),
+    "season.year": text(season?.label),
+    "season.start_date": text(season ? formatDate(season.startDate) : ""),
+    "season.end_date": text(season ? formatDate(season.endDate) : ""),
+
+    "signature.athlete": signatureBlock("Firma dell'atleta"),
+    "signature.parent": signatureBlock("Firma del genitore/tutore"),
+    "signature.trainer": signatureBlock("Firma dell'allenatore"),
+    "signature.club_representative": clubImage(
+      context.signature,
+      "Firma del presidente",
+    ),
+    "stamp.club": clubImage(context.stamp, "Timbro del club"),
+  };
+};
+
 const guardianAt = (athlete: Record<string, any>, index: number) => {
   const guardians = asRecord(athlete.data).guardians;
   const list = Array.isArray(guardians) ? guardians.filter(Boolean) : [];
@@ -228,32 +296,8 @@ export const buildPlaceholderValues = (
     .filter(Boolean)
     .join(" — ");
 
-  const text = (value: unknown): PlaceholderValue => ({ text: asText(value) });
-
-  const signatureBlock = (label: string): PlaceholderValue => ({
-    // Uno spazio per firmare non e un dato mancante: e cio che il documento
-    // deve avere. Il testo dice a cosa serve, l'HTML disegna il riquadro.
-    text: label,
-    html: signaturePlaceholderHtml(label),
-  });
-
-  const clubImage = (
-    image: { dataUrl: string } | null,
-    label: string,
-  ): PlaceholderValue =>
-    image
-      ? { text: label, html: signatureImageHtml(image.dataUrl, label) }
-      : { text: "", html: signaturePlaceholderHtml(label) };
-
   return {
-    "club.name": text(firstText(club.business_name, club.name)),
-    "club.address": text(firstText(club.legal_address, club.address)),
-    "club.city": text(firstText(club.legal_city, club.city)),
-    "club.email": text(firstText(club.contact_email, clubSettings.companyEmail)),
-    "club.phone": text(club.contact_phone),
-    "club.fiscal_code": text(club.fiscal_code),
-    "club.vat_number": text(club.vat_number),
-    "club.website": text(firstText(club.website, clubSettings.website)),
+    ...buildCommonValues(context),
 
     "athlete.first_name": text(athlete.first_name),
     "athlete.last_name": text(athlete.last_name),
@@ -306,21 +350,160 @@ export const buildPlaceholderValues = (
     "attendance.sessions": text(String(context.attendance.sessions)),
     "attendance.hours": text(formatAmountValue(context.attendance.hours)),
 
-    "document.title": text(context.documentTitle),
-    "document.date": text(formatDate(now)),
-    "current_date": text(formatDate(now)),
-    "season.year": text(season?.label),
-    "season.start_date": text(season ? formatDate(season.startDate) : ""),
-    "season.end_date": text(season ? formatDate(season.endDate) : ""),
-
-    "signature.athlete": signatureBlock("Firma dell'atleta"),
-    "signature.parent": signatureBlock("Firma del genitore/tutore"),
-    "signature.trainer": signatureBlock("Firma dell'allenatore"),
-    "signature.club_representative": clubImage(
-      context.signature,
-      "Firma del presidente",
+    /*
+      Il destinatario, in un **documento**, e il soggetto: e la differenza con
+      un messaggio, dove il destinatario e chi legge — un genitore — e lo
+      risolve chi manda. Un modello che scrive «Gentile {{recipient.name}}»
+      funziona quindi in tutti e quattro i soggetti, ed e la ragione per cui la
+      chiave e marcata `system` nel catalogo invece che «atleta».
+    */
+    "recipient.name": text(
+      [athlete.first_name, athlete.last_name].filter(Boolean).join(" "),
     ),
-    "stamp.club": clubImage(context.stamp, "Timbro del club"),
+    "recipient.first_name": text(athlete.first_name),
+  };
+};
+
+/**
+ * Nome e cognome di una persona che vive in una collezione JSON.
+ *
+ * **Perche una funzione e non un accesso ai campi.** Allenatori, staff e soci
+ * sono array dentro la riga del club, scritti da schermate diverse in anni
+ * diversi: la stessa persona puo avere `firstName`, `first_name` o `nome`, e
+ * il cognome puo stare in `lastName`, `last_name`, `surname` o dentro `name`
+ * insieme al nome. E la stessa normalizzazione che `resources.ts` applica gia
+ * ai soci (`buildMemberIdentity`), e qui serve per la stessa ragione: un
+ * documento intestato a «undefined undefined» non e un documento.
+ */
+const readPersonIdentity = (person: Record<string, any>) => {
+  const first = firstText(
+    person.firstName,
+    person.first_name,
+    person.nome,
+  );
+  const last = firstText(
+    person.lastName,
+    person.last_name,
+    person.surname,
+    person.cognome,
+  );
+  const full = firstText(
+    person.fullName,
+    person.full_name,
+    person.name,
+    [first, last].filter(Boolean).join(" "),
+  );
+
+  return {
+    firstName: first || (full ? full.split(/\s+/)[0] || "" : ""),
+    lastName:
+      last || (full ? full.split(/\s+/).slice(1).join(" ").trim() : ""),
+    fullName: full,
+  };
+};
+
+/**
+ * I valori di un documento che parla di **una persona del club**: allenatore
+ * o staff.
+ *
+ * Le due famiglie di chiavi — `trainer.*` e `staff.*` — producono lo stesso
+ * dato, e non e una svista. Chi scrive un modello per un allenatore cerca
+ * «Allenatori» nella barra laterale, chi lo scrive per un dirigente cerca
+ * «Staff», e nessuno dei due deve sapere che sotto sono la stessa persona con
+ * un ruolo diverso. Il **soggetto** e lo stesso (`person`), quindi il modello
+ * non promette niente che non sappia riempire.
+ */
+const buildPersonValues = (context: {
+  club: Record<string, any>;
+  person: Record<string, any>;
+  season: ClubSeason | null;
+  signature: { dataUrl: string } | null;
+  stamp: { dataUrl: string } | null;
+  documentTitle: string;
+  now: Date;
+}): Record<string, PlaceholderValue> => {
+  const identity = readPersonIdentity(context.person);
+  const person = context.person;
+
+  const role = firstText(person.role, person.ruolo, person.position);
+  const email = firstText(person.email, person.mail);
+  const phone = firstText(person.phone, person.telefono, person.mobile);
+
+  const shared = {
+    first_name: text(identity.firstName),
+    last_name: text(identity.lastName),
+    role: text(role),
+    email: text(email),
+    phone: text(phone),
+  };
+
+  return {
+    ...buildCommonValues(context),
+
+    "trainer.first_name": shared.first_name,
+    "trainer.last_name": shared.last_name,
+    "trainer.role": shared.role,
+    "trainer.email": shared.email,
+    "trainer.phone": shared.phone,
+
+    "staff.first_name": shared.first_name,
+    "staff.last_name": shared.last_name,
+    "staff.role": shared.role,
+    "staff.email": shared.email,
+    "staff.phone": shared.phone,
+
+    "recipient.name": text(identity.fullName),
+    "recipient.first_name": shared.first_name,
+  };
+};
+
+/** I valori di un documento che parla di **un socio**. */
+const buildMemberValues = (context: {
+  club: Record<string, any>;
+  member: Record<string, any>;
+  season: ClubSeason | null;
+  signature: { dataUrl: string } | null;
+  stamp: { dataUrl: string } | null;
+  documentTitle: string;
+  now: Date;
+}): Record<string, PlaceholderValue> => {
+  const identity = readPersonIdentity(context.member);
+  const member = context.member;
+
+  return {
+    ...buildCommonValues(context),
+
+    "member.first_name": text(identity.firstName),
+    "member.last_name": text(identity.lastName),
+    "member.email": text(firstText(member.email, member.mail)),
+    "member.phone": text(firstText(member.phone, member.telefono)),
+
+    "recipient.name": text(identity.fullName),
+    "recipient.first_name": text(identity.firstName),
+  };
+};
+
+/**
+ * I valori di un documento che parla **solo del club**: una delibera, un
+ * regolamento, una comunicazione a firma della societa.
+ *
+ * Non ha bisogno di nessuna persona, ed e il caso che prima non esisteva: un
+ * documento senza soggetto era impossibile da generare perche il risolutore
+ * pretendeva un atleta.
+ */
+const buildClubOnlyValues = (context: {
+  club: Record<string, any>;
+  season: ClubSeason | null;
+  signature: { dataUrl: string } | null;
+  stamp: { dataUrl: string } | null;
+  documentTitle: string;
+  now: Date;
+}): Record<string, PlaceholderValue> => {
+  const common = buildCommonValues(context);
+  return {
+    ...common,
+    "recipient.name": common["club.name"],
+    "recipient.first_name": common["club.name"],
   };
 };
 
@@ -580,3 +763,230 @@ export const RESOLVED_PLACEHOLDER_KEYS = Object.keys(
 export const PLACEHOLDER_KEYS_OUTSIDE_CATALOG = RESOLVED_PLACEHOLDER_KEYS.filter(
   (key) => !isKnownPlaceholderKey(key),
 );
+
+/* ============================================ i soggetti oltre l'atleta */
+
+/**
+ * Di chi parla il documento che si sta generando.
+ *
+ * `athlete` e il caso di Wave 1 e resta identico; gli altri tre sono la
+ * chiusura di `DOC-04` — l'editor proponeva chiavi di staff, allenatori e soci
+ * dentro modelli che non avevano nessuno a cui riferirle.
+ */
+export type DocumentSubjectRef =
+  | { kind: "club" }
+  | { kind: "athlete"; id: string }
+  | { kind: "person"; id: string }
+  | { kind: "member"; id: string };
+
+/**
+ * Trova una persona dentro una collezione JSON del club.
+ *
+ * Cerca in `trainers` **e** in `staff_members`, nell'ordine, perche il
+ * soggetto e uno solo — «una persona del club» — mentre le due collezioni sono
+ * due elenchi che l'interfaccia tiene separati. Confronta piu grafie
+ * dell'identificativo perche queste collezioni sono state scritte da schermate
+ * diverse in anni diversi.
+ */
+const findClubPerson = (club: Record<string, any>, id: string) => {
+  const wanted = asText(id);
+  if (!wanted) return null;
+
+  for (const key of ["trainers", "staff_members"]) {
+    const list = Array.isArray(club[key]) ? club[key] : [];
+    const found = list.find(
+      (entry: any) =>
+        entry &&
+        typeof entry === "object" &&
+        [entry.id, entry.uuid, entry.user_id, entry.userId]
+          .map((value) => asText(value))
+          .includes(wanted),
+    );
+    if (found) return found as Record<string, any>;
+  }
+
+  return null;
+};
+
+const findClubMember = (club: Record<string, any>, id: string) => {
+  const wanted = asText(id);
+  if (!wanted) return null;
+
+  const list = Array.isArray(club.members) ? club.members : [];
+  const found = list.find(
+    (entry: any) =>
+      entry &&
+      typeof entry === "object" &&
+      [entry.id, entry.uuid, entry.member_id, entry.user_id]
+        .map((value) => asText(value))
+        .includes(wanted),
+  );
+
+  return (found as Record<string, any>) || null;
+};
+
+/**
+ * Il documento compilato, per **qualunque** soggetto.
+ *
+ * **Perche una funzione sola e non quattro rotte.** Il confine di sicurezza,
+ * la lettura del club, la stagione, la firma e il timbro sono identici per
+ * tutti e quattro i soggetti: quattro copie sarebbero quattro occasioni di
+ * dimenticare un controllo. Cambia solo **chi** si legge e **quali chiavi** si
+ * producono.
+ *
+ * L'atleta continua a passare da `resolveDocumentPlaceholders`, che resta la
+ * strada collaudata: qui viene semplicemente richiamata.
+ */
+export const resolveDocumentForSubject = async ({
+  template,
+  organizationId,
+  subject,
+  seasonId,
+  scope,
+  now = new Date(),
+}: {
+  template: DocumentPlaceholderTemplate;
+  organizationId: string;
+  subject: DocumentSubjectRef;
+  seasonId?: string | null;
+  scope?: DocumentPlaceholderScope;
+  now?: Date;
+}): Promise<ResolvedDocumentPlaceholders> => {
+  if (subject.kind === "athlete") {
+    return resolveDocumentPlaceholders({
+      template,
+      organizationId,
+      athleteId: subject.id,
+      seasonId,
+      scope,
+      now,
+    });
+  }
+
+  const clubId = asText(organizationId);
+  ensureOrganizationAccess(scope, clubId);
+
+  const club = await getResourceById("clubs", clubId, scope);
+  if (!club) throw new Error("Club non trovato");
+
+  const seasons = normalizeClubSeasons(asRecord((club as any).settings));
+  const wantedSeasonId = asText(seasonId);
+  const season =
+    (wantedSeasonId
+      ? seasons.seasons.find((item) => item.id === wantedSeasonId)
+      : null) || seasons.activeSeason;
+
+  const [signature, stamp] = await Promise.all([
+    readClubSignatureImage(clubId, "signature", scope),
+    readClubSignatureImage(clubId, "stamp", scope),
+  ]);
+
+  const documentTitle = firstText(template.title, "Documento");
+  const common = {
+    club: club as Record<string, any>,
+    season,
+    signature,
+    stamp,
+    documentTitle,
+    now,
+  };
+
+  let values: Record<string, PlaceholderValue>;
+
+  if (subject.kind === "club") {
+    values = buildClubOnlyValues(common);
+  } else if (subject.kind === "person") {
+    const person = findClubPerson(club as Record<string, any>, subject.id);
+    /*
+      Una persona che non sta nelle collezioni di **questo** club risponde come
+      un identificativo di un'altra societa: la ricerca e gia ristretta alla
+      riga del club, quindi non esiste un modo di sbagliare il confine.
+    */
+    if (!person) throw denied("la persona non appartiene a questo club");
+    values = buildPersonValues({ ...common, person });
+  } else {
+    const member = findClubMember(club as Record<string, any>, subject.id);
+    if (!member) throw denied("il socio non appartiene a questo club");
+    values = buildMemberValues({ ...common, member });
+  }
+
+  const compiled = compileTemplateWithValues({
+    content: String(template.content || ""),
+    values,
+  });
+
+  const warnings: string[] = [];
+  if (compiled.used.has("signature.club_representative") && !signature) {
+    warnings.push(
+      "Il club non ha caricato la firma del presidente: il documento lascia lo spazio per firmarlo a mano. Si carica in Organizzazione → Firma e timbro.",
+    );
+  }
+  if (compiled.used.has("stamp.club") && !stamp) {
+    warnings.push(
+      "Il club non ha caricato il timbro: il documento lascia lo spazio per apporlo a mano. Si carica in Organizzazione → Firma e timbro.",
+    );
+  }
+
+  return {
+    html: compiled.html,
+    title: documentTitle,
+    values: compiled.values,
+    unresolved: compiled.unresolved,
+    missing: compiled.missing,
+    warnings,
+    issuer: {
+      name: firstText((club as any).business_name, (club as any).name),
+      logoUrl: (club as any).logo_url || null,
+      address: (club as any).legal_address || (club as any).address || null,
+      city: (club as any).legal_city || (club as any).city || null,
+      postalCode:
+        (club as any).legal_postal_code || (club as any).postal_code || null,
+      province: (club as any).legal_province || (club as any).province || null,
+      fiscalCode: (club as any).fiscal_code || null,
+      vatNumber: (club as any).vat_number || null,
+    },
+  };
+};
+
+/**
+ * Le chiavi che il risolutore sa produrre **per ogni soggetto**.
+ *
+ * Serve al test di contratto e all'editor: dire «questo modello parla di un
+ * socio, quindi sa scrivere queste undici cose» e possibile solo se l'elenco
+ * lo produce il risolutore, non un secondo elenco scritto a mano.
+ */
+export const RESOLVED_KEYS_BY_SUBJECT: Record<string, string[]> = {
+  club: Object.keys(
+    buildClubOnlyValues({
+      club: {},
+      season: null,
+      signature: null,
+      stamp: null,
+      documentTitle: "",
+      now: new Date(0),
+    }),
+  ),
+  athlete: RESOLVED_PLACEHOLDER_KEYS,
+  person: Object.keys(
+    buildPersonValues({
+      club: {},
+      person: {},
+      season: null,
+      signature: null,
+      stamp: null,
+      documentTitle: "",
+      now: new Date(0),
+    }),
+  ),
+  member: Object.keys(
+    buildMemberValues({
+      club: {},
+      member: {},
+      season: null,
+      signature: null,
+      stamp: null,
+      documentTitle: "",
+      now: new Date(0),
+    }),
+  ),
+};

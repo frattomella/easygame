@@ -445,16 +445,16 @@ const PLACEHOLDER_CONTRACT: Record<
 
   /* Le persone del lavoro sportivo: allenatori e staff sono lo stesso
      soggetto, perche il documento parla di **una persona con un ruolo**. */
-  "staff.first_name": { subject: "person", owner: "sport-work" },
-  "staff.last_name": { subject: "person", owner: "sport-work" },
-  "staff.role": { subject: "person", owner: "sport-work" },
-  "staff.email": { subject: "person", owner: "sport-work" },
-  "staff.phone": { subject: "person", owner: "sport-work" },
-  "trainer.first_name": { subject: "person", owner: "sport-work" },
-  "trainer.last_name": { subject: "person", owner: "sport-work" },
-  "trainer.role": { subject: "person", owner: "sport-work" },
-  "trainer.email": { subject: "person", owner: "sport-work" },
-  "trainer.phone": { subject: "person", owner: "sport-work" },
+  "staff.first_name": { subject: "person", owner: "resources:trainers+staff_members" },
+  "staff.last_name": { subject: "person", owner: "resources:trainers+staff_members" },
+  "staff.role": { subject: "person", owner: "resources:trainers+staff_members" },
+  "staff.email": { subject: "person", owner: "resources:trainers+staff_members" },
+  "staff.phone": { subject: "person", owner: "resources:trainers+staff_members" },
+  "trainer.first_name": { subject: "person", owner: "resources:trainers+staff_members" },
+  "trainer.last_name": { subject: "person", owner: "resources:trainers+staff_members" },
+  "trainer.role": { subject: "person", owner: "resources:trainers+staff_members" },
+  "trainer.email": { subject: "person", owner: "resources:trainers+staff_members" },
+  "trainer.phone": { subject: "person", owner: "resources:trainers+staff_members" },
 
   /* I soci. */
   "member.first_name": { subject: "member", owner: "resources:members" },
