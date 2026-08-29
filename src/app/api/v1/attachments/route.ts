@@ -93,9 +93,20 @@ export async function POST(request: Request) {
     // `createAttachment` normalizza il proprietario in minuscolo: se la
     // guardia confrontasse la stringa cosi com'e, `owner_type=CLUB`
     // supererebbe il controllo e verrebbe salvato come `club`.
+    /*
+      L'allegato di un **annuncio** segue la stessa regola: lo carica chi puo
+      pubblicare in bacheca, che oggi e lo stesso perimetro di
+      `canManageClubConfiguration` (`src/lib/communications/permissions.ts`).
+      Senza questa riga un allenatore potrebbe caricare un file e poi
+      allegarlo a un annuncio che non puo pubblicare — un file orfano dentro
+      l'archivio del club, senza nessuno che risponda di averlo messo li.
+    */
+    const ownerTypeCaricato = String(form.get("owner_type") || "other")
+      .trim()
+      .toLowerCase();
+
     if (
-      String(form.get("owner_type") || "other").trim().toLowerCase() ===
-        "club" &&
+      (ownerTypeCaricato === "club" || ownerTypeCaricato === "announcement") &&
       !canManageClubConfiguration(scope.activeRole)
     ) {
       return NextResponse.json(

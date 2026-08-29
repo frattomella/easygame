@@ -310,6 +310,69 @@ export const listDeliveriesForSource = async ({
   });
 
 /**
+ * Quante consegne e quante letture, per ogni sorgente di un tipo.
+ *
+ * Serve alla bacheca, che accanto a ogni avviso mostra «lo vedono in venti, lo
+ * hanno aperto in tre»: due numeri, perche uno solo non direbbe se il canale
+ * funziona.
+ *
+ * **Perche sta qui e non dove serve.** Chi ha bisogno di un conteggio chiede a
+ * questo modulo invece di interrogare la tabella per conto proprio: e la
+ * condizione perche il registro resti l'unico posto che sa cosa e uscito, e un
+ * test strutturale la fa rispettare.
+ */
+export const countDeliveriesBySource = async ({
+  organizationId,
+  sourceKind,
+}: {
+  organizationId: string;
+  sourceKind: DeliverySourceKind;
+}): Promise<Map<string, { total: number; read: number }>> => {
+  const rows = await deliveryClient().findMany({
+    where: {
+      organization_id: organizationId,
+      source_kind: sourceKind,
+      status: "sent",
+    },
+    select: { source_id: true, read_at: true },
+  });
+
+  const counts = new Map<string, { total: number; read: number }>();
+
+  for (const row of rows) {
+    const key = asText(row.source_id);
+    const bucket = counts.get(key) || { total: 0, read: 0 };
+    bucket.total += 1;
+    if (row.read_at) bucket.read += 1;
+    counts.set(key, bucket);
+  }
+
+  return counts;
+};
+
+/** Le consegne riuscite verso una persona, su un canale. */
+export const listDeliveriesForRecipient = async ({
+  organizationId,
+  sourceKind,
+  channel,
+  userId,
+}: {
+  organizationId: string;
+  sourceKind: DeliverySourceKind;
+  channel: DeliveryChannel;
+  userId: string;
+}) =>
+  deliveryClient().findMany({
+    where: {
+      organization_id: organizationId,
+      source_kind: sourceKind,
+      channel,
+      recipient_user_id: userId,
+      status: "sent",
+    },
+  });
+
+/**
  * Segna letto.
  *
  * **Una volta sola**: una seconda apertura non sposta la data, altrimenti

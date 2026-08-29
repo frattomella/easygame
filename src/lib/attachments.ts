@@ -100,6 +100,14 @@ export const ATTACHMENT_OWNER_TYPES = [
   */
   "sport_work_relationship",
   "sport_work_person",
+  /*
+    L'allegato di un annuncio della bacheca (Wave 2, G-08): il modulo del
+    torneo, il calendario in PDF. Il proprietario e l'**annuncio** e non il
+    club, perche e l'annuncio a decidere chi puo vederlo — il suo pubblico e
+    quello dell'audience engine, non tutti quelli che vedono la configurazione
+    societaria.
+  */
+  "announcement",
   "other",
 ] as const;
 

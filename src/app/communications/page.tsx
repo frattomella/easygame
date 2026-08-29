@@ -267,9 +267,14 @@ export default function CommunicationsPage() {
               title="Comunicazioni"
               subtitle={`Scrivi alle famiglie ${clubName ? `di ${clubName}` : "del club"} e vedi chi raggiungi prima di mandare.`}
               actions={
-                <Button variant="outline" onClick={nuovaComunicazione}>
-                  Nuova comunicazione
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" asChild>
+                    <a href="/communications/bacheca">Bacheca</a>
+                  </Button>
+                  <Button variant="outline" onClick={nuovaComunicazione}>
+                    Nuova comunicazione
+                  </Button>
+                </div>
               }
             />
 
