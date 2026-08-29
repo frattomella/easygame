@@ -99,6 +99,20 @@ export const DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] = [
   { label: "Cognome socio", value: "{{member.last_name}}", group: "Soci" },
   { label: "Email socio", value: "{{member.email}}", group: "Soci" },
   { label: "Telefono socio", value: "{{member.phone}}", group: "Soci" },
+  /*
+    Il destinatario non e l'atleta, e in un **messaggio** non e nemmeno
+    l'intestatario fiscale: e la persona a cui il messaggio arriva — un
+    genitore, un socio, un allenatore — e chi scrive il modello non sa in
+    anticipo quale delle tre sia. Senza queste due chiavi ogni modello dovrebbe
+    scegliere un soggetto («Gentile {{parent.1.first_name}}») e sbagliare tutte
+    le volte in cui il destinatario e un altro.
+  */
+  { label: "Nome destinatario", value: "{{recipient.name}}", group: "Destinatario" },
+  {
+    label: "Nome di battesimo destinatario",
+    value: "{{recipient.first_name}}",
+    group: "Destinatario",
+  },
   { label: "Nome sponsor", value: "{{sponsor.name}}", group: "Sponsor/Fornitori" },
   { label: "Referente sponsor", value: "{{sponsor.contact_name}}", group: "Sponsor/Fornitori" },
   { label: "Email sponsor", value: "{{sponsor.email}}", group: "Sponsor/Fornitori" },
@@ -113,6 +127,52 @@ export const DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] = [
   { label: "Totale dovuto", value: "{{payment.total_due}}", group: "Iscrizione/Pagamenti" },
   { label: "Totale pagato", value: "{{payment.total_paid}}", group: "Iscrizione/Pagamenti" },
   { label: "Totale rimanente", value: "{{payment.remaining}}", group: "Iscrizione/Pagamenti" },
+  /*
+    I segnaposto della **singola rata**, che un'attestazione non usa e un
+    messaggio non puo evitare: un sollecito che non dice quale rata e quando
+    scade obbliga la famiglia a telefonare in segreteria, cioe non solleva
+    nessuno da niente.
+
+    La data di scadenza **non** e un dato economico (vedi
+    `ECONOMIC_PLACEHOLDER_KEYS`): dice quando, non quanto.
+  */
+  { label: "Scadenza rata", value: "{{installment.due_date}}", group: "Iscrizione/Pagamenti" },
+  {
+    label: "Descrizione rata",
+    value: "{{installment.description}}",
+    group: "Iscrizione/Pagamenti",
+  },
+  {
+    label: "Residuo della rata",
+    value: "{{installment.residual_amount}}",
+    group: "Iscrizione/Pagamenti",
+  },
+  {
+    label: "Numero di rate scadute",
+    value: "{{installment.overdue_count}}",
+    group: "Iscrizione/Pagamenti",
+  },
+  {
+    label: "Prossima scadenza",
+    value: "{{payment.next_due_date}}",
+    group: "Iscrizione/Pagamenti",
+  },
+  /*
+    Il link di pagamento sicuro lo **produce** un altro dominio
+    (`src/lib/server/payment-links.ts`, lane W2-B): qui e solo una chiave che
+    un modello puo nominare. Il catalogo dichiara cosa si puo chiedere, non sa
+    fabbricarlo — chi risolve i valori passa il link gia firmato, oppure il
+    segnaposto resta irrisolto e chi manda lo vede in anteprima.
+  */
+  { label: "Link di pagamento", value: "{{payment.link}}", group: "Iscrizione/Pagamenti" },
+  /*
+    L'evento: serve all'invito a confermare la presenza (AUT-04). Data e ora
+    sono due chiavi e non una perche un messaggio le scrive quasi sempre in due
+    punti diversi della frase — «domenica 12» e «alle 15:30».
+  */
+  { label: "Titolo evento", value: "{{event.title}}", group: "Eventi" },
+  { label: "Data evento", value: "{{event.date}}", group: "Eventi" },
+  { label: "Ora evento", value: "{{event.time}}", group: "Eventi" },
   /*
     La frequenza e la meta dell'attestazione che le famiglie chiedono: «ha
     pagato» e «ha frequentato» viaggiano sullo stesso foglio. La misura non si
@@ -165,6 +225,35 @@ const PLACEHOLDER_KEY_SET = new Set(DOCUMENT_PLACEHOLDER_KEYS);
 export const isKnownPlaceholderKey = (key: unknown) =>
   PLACEHOLDER_KEY_SET.has(normalizePlaceholderKey(key));
 
+/**
+ * I segnaposto che portano un dato **economico**.
+ *
+ * **Perche vive qui e non nel modulo dei messaggi.** E una proprieta della
+ * chiave, non del canale: `{{payment.remaining}}` e un dato economico che lo
+ * si stampi su un'attestazione o lo si mandi per email. Se l'elenco stesse
+ * altrove sarebbe un secondo catalogo, e il giorno in cui qualcuno aggiunge
+ * una chiave di importo qui sopra dimenticandosi di aggiungerla la, il
+ * messaggio la scriverebbe a chi non puo vederla.
+ *
+ * Il criterio: **quanto**, non **quando**. Una data di scadenza dice a una
+ * famiglia una cosa che gia sa; un residuo, un numero di rate scadute o un
+ * link che apre un pagamento dicono la posizione debitoria — ed e quella che
+ * §11 del planning di Wave 2 chiude dietro `canManageClubConfiguration`.
+ */
+export const ECONOMIC_PLACEHOLDER_KEYS: string[] = [
+  "payment.total_due",
+  "payment.total_paid",
+  "payment.remaining",
+  "installment.residual_amount",
+  "installment.overdue_count",
+  "payment.link",
+];
+
+const ECONOMIC_KEY_SET = new Set(ECONOMIC_PLACEHOLDER_KEYS);
+
+export const isEconomicPlaceholderKey = (key: unknown) =>
+  ECONOMIC_KEY_SET.has(normalizePlaceholderKey(key));
+
 /*
   Le tre forme in cui un segnaposto compare dentro un modello.
 
@@ -178,7 +267,19 @@ const TEMPLATE_CHIP_PATTERN =
   /<span[^>]*data-template-placeholder=["']([^"']+)["'][^>]*>.*?<\/span>/gis;
 const SIGNATURE_BLOCK_PATTERN =
   /<div[^>]*data-signature-placeholder=["']([^"']+)["'][^>]*>.*?<\/div>/gis;
-const INLINE_PLACEHOLDER_PATTERN = /{{\s*([^{}]+?)\s*}}/g;
+/**
+ * La sintassi di un segnaposto in chiaro, in una copia nuova ogni volta.
+ *
+ * Serve a chi deve **sostituire diversamente** — il corpo di un messaggio non
+ * produce campi tratteggiati, produce testo — senza riscriversi la regex e
+ * quindi senza far divergere la sintassi accettata dai due lati. La copia e
+ * necessaria perche `lastIndex` di una regex globale sopravvive fra le
+ * chiamate: condividerne l'istanza farebbe leggere meno segnaposto alla
+ * seconda passata.
+ */
+export const createInlinePlaceholderPattern = () => /{{\s*([^{}]+?)\s*}}/g;
+
+const INLINE_PLACEHOLDER_PATTERN = createInlinePlaceholderPattern();
 
 /** Il campo da compilare a mano: la stessa classe che usa il modulo vuoto. */
 export const BLANK_FIELD_HTML = '<span class="blank-field"></span>';
