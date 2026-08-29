@@ -95,6 +95,35 @@ export const AUDIT_ACTIONS = {
     stato creato, non che il giro di quella notte sia girato su quel club.
   */
   medicalReminderRun: "medical_certificate_reminder.run",
+  /*
+    Wave 2 — comunicazioni. Raggiungono persone reali fuori dal prodotto, e la
+    domanda che arriva e sempre la stessa: «chi ha mandato questa email, e a
+    chi». Il registro delle consegne dice **cosa** e uscito; queste righe
+    dicono **chi lo ha deciso**, che e un fatto diverso e che il registro non
+    porta perche una consegna non ha un attore.
+  */
+  communicationSent: "communication.sent",
+  announcementPublished: "communication.announcement.published",
+  /*
+    Automazioni. Il giro non ha un attore — lo aziona il cron — ma accendere o
+    spegnere una regola si, ed e la decisione che spiega perche trecento
+    famiglie hanno ricevuto o non hanno ricevuto un messaggio.
+  */
+  automationRuleChanged: "automation.rule.changed",
+  automationRun: "automation.run",
+  /*
+    Link di pagamento. `issued` e `revoked` hanno un attore; `opened` no, ed e
+    proprio la riga che serve quando una famiglia dice di non aver mai visto
+    il link.
+  */
+  paymentLinkIssued: "payment.link.issued",
+  paymentLinkOpened: "payment.link.opened",
+  paymentLinkRevoked: "payment.link.revoked",
+  /*
+    RSVP. La risposta della famiglia e un atto verso la societa: e il dato su
+    cui l'allenatore decide se convocare qualcun altro.
+  */
+  rsvpAnswered: "rsvp.answered",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

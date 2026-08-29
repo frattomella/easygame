@@ -147,17 +147,17 @@ model Session {
 }
 
 model Club {
-  id                           String                      @id @default(uuid()) @db.Uuid
-  slug                         String                      @unique
+  id                           String                          @id @default(uuid()) @db.Uuid
+  slug                         String                          @unique
   name                         String
-  creator_id                   String                      @db.Uuid
+  creator_id                   String                          @db.Uuid
   logo_url                     String?
   address                      String?
   city                         String?
   postal_code                  String?
   region                       String?
   province                     String?
-  country                      String?                     @default("Italia")
+  country                      String?                         @default("Italia")
   contact_email                String?
   contact_phone                String?
   business_name                String?
@@ -214,9 +214,9 @@ model Club {
   /// categoria, la collocano.
   category_groups              Json?
   dashboard_data               Json?
-  created_at                   DateTime                    @default(now())
-  updated_at                   DateTime                    @updatedAt
-  creator                      User                        @relation("ClubCreator", fields: [creator_id], references: [id], onDelete: Cascade)
+  created_at                   DateTime                        @default(now())
+  updated_at                   DateTime                        @updatedAt
+  creator                      User                            @relation("ClubCreator", fields: [creator_id], references: [id], onDelete: Cascade)
   dashboards                   Dashboard[]
   organization_users           OrganizationUser[]
   athletes                     Athlete[]
@@ -259,6 +259,8 @@ model Club {
   sport_work_reimbursements    SportWorkExpenseReimbursement[]
   sport_work_vat_invoices      SportWorkVatInvoice[]
   sport_work_obligations       SportWorkObligation[]
+  communication_deliveries     CommunicationDelivery[]
+  payment_links                PaymentLink[]
 
   @@map("clubs")
 }
@@ -753,45 +755,45 @@ model FundingEnrollment {
 /// ne matura. Sono due numeri diversi di proposito: sotto la soglia il primo
 /// puo essere alto e il secondo zero.
 model FundingAccrual {
-  id               String                  @id @default(uuid()) @db.Uuid
-  organization_id  String                  @db.Uuid
-  enrollment_id    String                  @db.Uuid
-  period_index     Int
-  period_start     DateTime
-  period_end       DateTime
-  period_label     String
-  requirement_min  Float
-  requirement_unit String
-  measured_value   Float                   @default(0)
-  requirement_met  Boolean                 @default(false)
+  id                 String                  @id @default(uuid()) @db.Uuid
+  organization_id    String                  @db.Uuid
+  enrollment_id      String                  @db.Uuid
+  period_index       Int
+  period_start       DateTime
+  period_end         DateTime
+  period_label       String
+  requirement_min    Float
+  requirement_unit   String
+  measured_value     Float                   @default(0)
+  requirement_met    Boolean                 @default(false)
   /// Importo che il periodo varrebbe se maturasse per intero.
-  eligible_amount  Float                   @default(0)
+  eligible_amount    Float                   @default(0)
   /// **Previsione EasyGame**: quanto il periodo varrebbe secondo l'appello
   /// registrato qui. Con la fonte esterna resta un numero da leggere mentre
   /// `accrued_amount` resta zero fino alla conferma (ADR-0054).
-  estimated_amount Float                   @default(0)
+  estimated_amount   Float                   @default(0)
   /// Importo effettivamente maturato, dopo soglia, assegnato e conferma.
-  accrued_amount   Float                   @default(0)
+  accrued_amount     Float                   @default(0)
   /// Quanto e andato perso: `eligible_amount - accrued_amount`.
-  unaccrued_amount Float                   @default(0)
+  unaccrued_amount   Float                   @default(0)
   /// not_accrued | pending_confirmation | accrued | reported | settled
-  status           String                  @default("not_accrued")
+  status             String                  @default("not_accrued")
   /// easygame_attendance | manual_confirmation | external_import | external_api
-  accrual_origin   String?
-  confirmed_at     DateTime?
-  confirmed_by     String?                 @db.Uuid
+  accrual_origin     String?
+  confirmed_at       DateTime?
+  confirmed_by       String?                 @db.Uuid
   /// Riferimento della fonte esterna: protocollo, id pratica, nome del file.
   external_reference String?
   confirmation_notes String?
-  reported_at      DateTime?
-  reported_by      String?                 @db.Uuid
-  computed_at      DateTime
-  data             Json?
-  created_at       DateTime                @default(now())
-  updated_at       DateTime                @updatedAt
-  organization     Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  enrollment       FundingEnrollment       @relation(fields: [enrollment_id], references: [id], onDelete: Cascade)
-  settlement_lines FundingSettlementLine[]
+  reported_at        DateTime?
+  reported_by        String?                 @db.Uuid
+  computed_at        DateTime
+  data               Json?
+  created_at         DateTime                @default(now())
+  updated_at         DateTime                @updatedAt
+  organization       Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  enrollment         FundingEnrollment       @relation(fields: [enrollment_id], references: [id], onDelete: Cascade)
+  settlement_lines   FundingSettlementLine[]
 
   @@unique([enrollment_id, period_index])
   @@index([organization_id])
@@ -902,18 +904,41 @@ model ClubResourceItem {
   @@map("club_resource_items")
 }
 
+/// Presenze e conferme sull'evento: **due fatti diversi sulla stessa riga**.
+///
+/// `status` e la **presenza**, cioe il fatto registrato dall'allenatore con
+/// l'appello. La legge `src/lib/funding/attendance-measure.ts` per misurare la
+/// frequenza con cui si rendicontano i contributi pubblici.
+///
+/// `rsvp_*` e l'**intenzione**, cioe la risposta della famiglia all'invito.
+/// Non e una presenza e non lo diventa mai: se un «si» scrivesse `status`, un
+/// contributo verrebbe rendicontato su una promessa che nessuno ha verificato.
+/// Vedi ADR-0086.
+///
+/// La chiave unica non c'era, e il client compensava cancellando a mano le
+/// righe duplicate dopo averle trovate (`simplified-db.ts`). Con una risposta
+/// della famiglia sulla stessa riga, due righe significano due risposte
+/// contraddittorie per lo stesso atleta.
 model TrainingAttendance {
-  id              String   @id @default(uuid()) @db.Uuid
-  organization_id String   @db.Uuid
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
   training_id     String
   athlete_id      String
+  /// La presenza: `present` | `absent`. La scrive l'appello dell'allenatore.
   status          String
   notes           String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  /// L'intenzione dichiarata dalla famiglia: `yes` | `no`. Mai scritta dall'appello.
+  rsvp_status     String?
+  rsvp_note       String?
+  rsvp_at         DateTime?
+  rsvp_by_user_id String?   @db.Uuid
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 
+  @@unique([organization_id, training_id, athlete_id])
   @@index([organization_id, training_id])
+  @@index([organization_id, athlete_id, rsvp_status])
   @@map("training_attendance")
 }
 
@@ -1216,22 +1241,22 @@ model PlatformCommissionRule {
 /// che resta una preferenza del club: uno dei due sospende un servizio,
 /// l'altro e una scelta operativa.
 model ClubPaymentAccount {
-  id                      String    @id @default(uuid()) @db.Uuid
-  organization_id         String    @unique @db.Uuid
-  provider                String    @default("stripe")
+  id                         String    @id @default(uuid()) @db.Uuid
+  organization_id            String    @unique @db.Uuid
+  provider                   String    @default("stripe")
   /// `acct_...`. Lo restituisce il PSP: nessun essere umano lo digita.
-  external_account_id     String?
+  external_account_id        String?
   /// `standard` o `express`. Scelta **irreversibile** per account: vedi ADR-0051.
-  account_type            String    @default("standard")
+  account_type               String    @default("standard")
   /// Vedi `CONNECT_ACCOUNT_STATES` in `src/lib/payments/connect-account.ts`.
-  status                  String    @default("not_configured")
-  charges_enabled         Boolean   @default(false)
-  payouts_enabled         Boolean   @default(false)
+  status                     String    @default("not_configured")
+  charges_enabled            Boolean   @default(false)
+  payouts_enabled            Boolean   @default(false)
   /// Cosa manca perche l'account diventi operativo, in parole di Stripe.
-  requirements            Json?
-  disabled_reason         String?
+  requirements               Json?
+  disabled_reason            String?
   /// L'interruttore della piattaforma. Il club non lo tocca.
-  online_payments_enabled Boolean   @default(false)
+  online_payments_enabled    Boolean   @default(false)
   /// **Quando l'interruttore e stato deciso davvero.** `null` significa che
   /// nessuno lo ha mai mosso: il `false` accanto e il default della colonna,
   /// non una scelta. Senza questa distinzione un club con l'account Stripe
@@ -1240,11 +1265,11 @@ model ClubPaymentAccount {
   /// indiscriminato avrebbe riacceso gli incassi di una societa sospesa di
   /// proposito. Vedi `resolvePlatformEnablement` e ADR-0064.
   online_payments_decided_at DateTime?
-  last_synced_at          DateTime?
-  last_error              String?
-  created_at              DateTime  @default(now())
-  updated_at              DateTime  @updatedAt
-  organization            Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  last_synced_at             DateTime?
+  last_error                 String?
+  created_at                 DateTime  @default(now())
+  updated_at                 DateTime  @updatedAt
+  organization               Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 
   @@index([external_account_id])
   @@map("club_payment_accounts")
@@ -1603,30 +1628,30 @@ model SportWorkCompensationPlan {
 /// L'anno fiscale che conta e quello della data di pagamento, e sta sulla riga
 /// del registro in uscita.
 model SportWorkInstallment {
-  id                   String                        @id @default(uuid()) @db.Uuid
-  organization_id      String                        @db.Uuid
-  plan_id              String                        @db.Uuid
-  relationship_id      String                        @db.Uuid
+  id                   String                         @id @default(uuid()) @db.Uuid
+  organization_id      String                         @db.Uuid
+  plan_id              String                         @db.Uuid
+  relationship_id      String                         @db.Uuid
   sequence             Int
   label                String
   accrual_period_start DateTime
   accrual_period_end   DateTime
   due_date             DateTime
   gross_amount         Float
-  accrued_amount       Float                         @default(0)
-  paid_amount          Float                         @default(0)
-  remaining_amount     Float                         @default(0)
+  accrued_amount       Float                          @default(0)
+  paid_amount          Float                          @default(0)
+  remaining_amount     Float                          @default(0)
   /// SCHEDULED | ACCRUED | PARTIALLY_PAID | PAID | OVERDUE | CANCELLED
-  status               String                        @default("SCHEDULED")
+  status               String                         @default("SCHEDULED")
   /// Anno solare della scadenza programmata. Non l'anno fiscale dell'erogazione.
   fiscal_year          Int
-  cancelled            Boolean                       @default(false)
+  cancelled            Boolean                        @default(false)
   notes                String?
-  created_at           DateTime                      @default(now())
-  updated_at           DateTime                      @updatedAt
-  organization         Club                          @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  plan                 SportWorkCompensationPlan     @relation(fields: [plan_id], references: [id], onDelete: Cascade)
-  relationship         SportWorkRelationship         @relation(fields: [relationship_id], references: [id], onDelete: Cascade)
+  created_at           DateTime                       @default(now())
+  updated_at           DateTime                       @updatedAt
+  organization         Club                           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  plan                 SportWorkCompensationPlan      @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+  relationship         SportWorkRelationship          @relation(fields: [relationship_id], references: [id], onDelete: Cascade)
   transactions         SportWorkOutboundTransaction[]
 
   @@unique([plan_id, sequence])
@@ -1915,4 +1940,94 @@ model SportWorkObligation {
   @@unique([organization_id, reference_key])
   @@index([organization_id, status, due_date])
   @@map("sport_work_obligations")
+}
+
+/// Il **registro delle consegne**: l'unica fonte di verita su cosa e uscito
+/// dal gestionale verso una persona (Wave 2, ADR-0084).
+///
+/// **Perche una tabella sola per quattro sorgenti.** Prima della Wave 2
+/// convivevano tre dialetti di deduplica — `data.sportWorkKey` (per sempre),
+/// `data.key` con finestra di sette giorni, e una rivendicazione dentro
+/// `athletes.data.paymentReminders` con finestra di sei ore — e nessuno di
+/// loro sapeva rispondere a «chi ha ricevuto cosa». Sono la stessa domanda
+/// posta due volte: «gli ho gia scritto?» e «cosa gli ho scritto?» si
+/// rispondono con la stessa riga.
+///
+/// **`recipient_key` e l'indirizzo, non l'account.** Un tutore senza account
+/// non ha un id, e la stessa email puo rappresentare due atleti: la chiave e
+/// cio che il messaggio raggiunge davvero. Le persone rappresentate restano
+/// tracciate in `athlete_ids`, cosi un messaggio unico non perde per chi era.
+///
+/// **L'indice unico e la difesa contro il doppione**, non un controllo
+/// applicativo: regge anche con due cron in parallelo, che e esattamente il
+/// caso in cui un controllo in memoria non regge.
+model CommunicationDelivery {
+  id                String    @id @default(uuid()) @db.Uuid
+  organization_id   String    @db.Uuid
+  /// `automation` | `bulk` | `board` | `reminder`
+  source_kind       String
+  /// La regola, la comunicazione o l'annuncio che l'ha prodotta.
+  source_id         String
+  /// Deterministica: chi, per cosa, per quale occorrenza.
+  dedup_key         String
+  /// Email normalizzata in minuscolo, oppure `user:<id>` per il solo in-app.
+  recipient_key     String
+  recipient_user_id String?   @db.Uuid
+  recipient_name    String?
+  recipient_email   String?
+  /// Le persone a cui il messaggio si riferisce. Un solo messaggio, N posizioni.
+  athlete_ids       String[]  @default([])
+  /// `email` | `in_app` | `board`
+  channel           String
+  /// `sent` | `skipped` | `failed`
+  status            String
+  /// Il motivo, dall'enum chiusa di `src/lib/audience/recipients.ts`.
+  reason            String?
+  subject           String?
+  read_at           DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  organization      Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, dedup_key, recipient_key, channel])
+  @@index([organization_id, source_kind, source_id])
+  @@index([organization_id, recipient_user_id, read_at])
+  @@index([organization_id, created_at])
+  @@map("communication_deliveries")
+}
+
+/// Un **link di pagamento**: il modo in cui una famiglia paga una rata senza
+/// avere un account (Wave 2, G-06, ADR-0085).
+///
+/// **Il token non e qui.** Qui c'e il suo SHA-256: chi legge il database non
+/// ottiene link funzionanti, esattamente come per `code_hash` delle sfide OTP.
+/// Il token in chiaro esiste solo nel messaggio alla famiglia.
+///
+/// **Il token non porta claim.** Trentadue byte casuali non dicono ne il club
+/// ne la rata: non c'e niente da manomettere e nessun identificativo interno
+/// esposto. L'ambito lo dice questa riga, che e anche cio che rende possibile
+/// revocare e tracciare — le due cose per cui un token senza stato avrebbe
+/// comunque avuto bisogno di una riga.
+///
+/// **Non congela nessun importo.** Il residuo si ricalcola al riscatto da
+/// `buildInstallmentLedgers`: una famiglia che paga allo sportello e poi apre
+/// il link non deve pagare due volte.
+model PaymentLink {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  payment_id      String    @db.Uuid
+  athlete_id      String?   @db.Uuid
+  token_hash      String    @unique
+  expires_at      DateTime
+  revoked_at      DateTime?
+  created_by      String?   @db.Uuid
+  last_used_at    DateTime?
+  use_count       Int       @default(0)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, payment_id])
+  @@index([expires_at])
+  @@map("payment_links")
 }
