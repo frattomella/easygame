@@ -196,3 +196,71 @@ meta — e resta fra le voci aperte di [16](16-technical-debt.md).
 `tests/lib/sport-work-permissions.test.mjs` e
 `tests/server/sport-work-routes.test.mjs` coprono la matrice, ruolo per ruolo,
 sul dominio e sulle rotte.
+
+---
+
+## Comunicazioni: otto permessi, nessun ruolo nuovo (2026-08-29)
+
+La Wave 2 apre sei superfici che parlano con le famiglie — comunicazione
+massiva, automazioni, bacheca, RSVP, link di pagamento, solleciti — e sono
+superfici diverse dello stesso fatto: **il gestionale che manda un messaggio a
+nome della societa**.
+
+Se ogni lane si fosse scritta la propria matrice, la Wave avrebbe lasciato
+quattro copie della stessa decisione, e la prima volta che una si allarga le
+altre restano indietro **in silenzio**. E l'errore che l'audit di fine Wave 1
+aveva trovato in `seasons/permissions.ts`, e che non e stato ripetuto.
+
+Da qui otto permessi di dominio in `src/lib/communications/permissions.ts`, e
+nessun ottavo ruolo.
+
+| Permesso | Cosa consente |
+|----------|---------------|
+| `communications.send` | creare e inviare una comunicazione alle famiglie |
+| `communications.read_recipients` | vedere l'elenco **nominativo** dei destinatari e degli esclusi |
+| `communications.audience_economic` | selezionare un pubblico in base alla posizione economica |
+| `automations.manage` | creare, modificare, accendere e spegnere un'automazione |
+| `board.publish` | pubblicare un avviso in bacheca |
+| `board.read` | leggere gli avvisi destinati a se |
+| `rsvp.read` | leggere le risposte di partecipazione |
+| `rsvp.answer` | rispondere all'invito per il proprio atleta |
+
+| Ruolo | Permessi |
+|-------|----------|
+| `owner` | tutti tranne `rsvp.answer` |
+| `club_manager` | tutti tranne `rsvp.answer` |
+| `collaborator` | `board.read`, `rsvp.read` |
+| `staff` | `board.read`, `rsvp.read` |
+| `trainer` | `board.read`, `rsvp.read` (limitato ai propri gruppi operativi) |
+| `parent` | `board.read`, `rsvp.answer` |
+| `athlete` | `board.read`, `rsvp.answer` |
+
+**Il perimetro si delega, non si ricopia.** `listCommunicationPermissions`
+chiede a `canManageClubConfiguration` invece di elencare a mano proprietario e
+gestore: il giorno in cui quel perimetro si allarga, questa matrice si allarga
+con lui. Un test strutturale verifica che la delega ci sia.
+
+**`communications.audience_economic` protegge un criterio, non una pagina.**
+«Manda a chi non ha pagato» non mostra nessun importo a schermo, eppure produce
+**l'elenco delle famiglie in arretrato**, che e un dato economico a tutti gli
+effetti. Se il permesso proteggesse solo la pagina dei movimenti, un allenatore
+otterrebbe lo stesso elenco passando dal motore del pubblico. La porta da
+chiudere e il criterio, ed e per questo che ha una chiave propria separata da
+`communications.send`: oggi hanno lo stesso perimetro, domani potrebbero non
+averlo.
+
+**Perche `owner` e `club_manager` non hanno `rsvp.answer`.** Non e una
+restrizione: rispondere all'invito e un atto della famiglia, e chi risponde al
+posto suo produrrebbe un dato che l'allenatore leggerebbe come una conferma
+ricevuta. Il gate vero e comunque il **legame con l'atleta**, non il ruolo.
+
+**Perche segreteria e collaboratori leggono ma non mandano.** Mandare un
+messaggio a nome della societa ha lo stesso perimetro che gia protegge il
+sollecito degli insoluti (Wave 1). Allargarlo e una decisione di prodotto, da
+prendere esplicitamente e non per omissione — la stessa regola gia applicata al
+lavoro sportivo.
+
+`tests/lib/communication-permissions.test.mjs` copre la matrice ruolo per ruolo,
+e la maggioranza dei suoi controlli prova **il diniego**: un test che provasse
+solo cio che un proprietario puo fare passerebbe anche se la matrice desse tutto
+a tutti.
