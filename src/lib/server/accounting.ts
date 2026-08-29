@@ -624,6 +624,24 @@ const counterpartyColumns = (input: {
 export const createAccountingEntry = async (
   input: CreateAccountingEntryInput,
   scope: AccountingScope,
+  options?: {
+    /**
+     * **La chiave dell'evento che ha prodotto questa riga.**
+     *
+     * Serve a chi registra un movimento **a partire da un fatto di un altro
+     * dominio** — l'esempio e il versamento F24, che nasce quando un
+     * adempimento viene assolto. Due clic sul pulsante, o due richieste
+     * simultanee, portano la stessa chiave, e la seconda si infrange
+     * sull'indice unico parziale invece di far uscire il denaro due volte.
+     *
+     * Non e un campo dell'API: nessuna rotta HTTP lo imposta, e le rotte
+     * costruiscono il loro input campo per campo proprio perche un corpo di
+     * richiesta non possa portarlo. Un client che potesse sceglierlo potrebbe
+     * anche **impedire** la registrazione di un movimento legittimo,
+     * occupandone la chiave.
+     */
+    sourceEventKey?: string | null;
+  },
 ) => {
   const organizationId = resolveOrganizationId(scope, input.organizationId);
   const entryDate = toDateOrNull(input.entryDate);
@@ -664,6 +682,7 @@ export const createAccountingEntry = async (
         payment_method: asText(input.paymentMethod) || null,
         ...counterpartyColumns(input),
         source_domain: "MANUAL",
+        source_event_key: asText(options?.sourceEventKey) || null,
         document_kind: asText(input.documentKind) || null,
         document_id: asText(input.documentId) || null,
         site_id: asText(input.siteId) || null,

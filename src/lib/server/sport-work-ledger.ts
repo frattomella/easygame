@@ -296,7 +296,23 @@ export type RecordPayoutInput = {
   paidAt?: unknown;
   paymentMethod?: unknown;
   reference?: unknown;
+  /**
+   * L'id del conto nel vecchio blob `clubs.bank_accounts`. Resta per
+   * compatibilita con chi lo passava gia.
+   */
   bankAccountId?: unknown;
+  /**
+   * **Il conto da cui il denaro esce.**
+   *
+   * La colonna `bank_account_id` esisteva gia e il servizio la scriveva:
+   * **nessuna superficie la compilava**, e i tre metodi dell'agenda non
+   * l'accettavano nemmeno nella firma. Il risultato era che il denaro usciva
+   * dal club senza che nessun conto se ne accorgesse.
+   *
+   * Questo ha una foreign key vera verso `financial_accounts`, e il saldo del
+   * conto lo legge.
+   */
+  financialAccountId?: unknown;
   notes?: unknown;
   /**
    * Consente di erogare piu del residuo della scadenza. Lo decide chi chiama,
@@ -511,6 +527,7 @@ export const recordCompensationPayout = async (
           payment_method: asText(input.paymentMethod) || null,
           reference: asText(input.reference) || null,
           bank_account_id: asText(input.bankAccountId) || null,
+          financial_account_id: asText(input.financialAccountId) || null,
           rules_version: computation.rulesVersion,
           social_rate: computation.socialRate,
           reduction_factor: computation.reductionFactor,
@@ -706,6 +723,17 @@ export const reverseCompensationPayout = async (
         currency: locked.currency,
         payment_method: locked.payment_method,
         reference: locked.reference,
+        /*
+          **Lo storno rientra sul conto da cui il denaro era uscito.**
+
+          Prima non portava nessun conto — nemmeno il vecchio `bank_account_id`
+          — e non si notava, perche nessuna superficie compilava il conto
+          nemmeno sull'erogazione. Ora che il saldo e derivato, uno storno
+          senza conto lascerebbe quel saldo piu basso del vero: cioe l'errore
+          che lo storno esisteva per correggere.
+        */
+        bank_account_id: locked.bank_account_id,
+        financial_account_id: locked.financial_account_id,
         rules_version: locked.rules_version,
         social_rate: locked.social_rate,
         reduction_factor: locked.reduction_factor,
@@ -816,6 +844,8 @@ export const recordSupportingOutbound = async (
     paymentMethod?: unknown;
     reference?: unknown;
     bankAccountId?: unknown;
+    /** Il conto da cui il denaro esce. Vedi `RecordPayoutInput`. */
+    financialAccountId?: unknown;
     notes?: unknown;
     idempotencyKey?: unknown;
   },
@@ -852,6 +882,7 @@ export const recordSupportingOutbound = async (
       payment_method: asText(input.paymentMethod) || null,
       reference: asText(input.reference) || null,
       bank_account_id: asText(input.bankAccountId) || null,
+      financial_account_id: asText(input.financialAccountId) || null,
       rules_version: null,
       net_amount: amount,
       club_cost: amount,

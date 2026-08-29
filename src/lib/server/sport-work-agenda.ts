@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { createAccountingEntry } from "./accounting";
 import {
   audit,
   ensureOrganizationAccess,
@@ -746,9 +747,160 @@ export const syncObligations = async (
   return { created, updated, closed, total: derived.length };
 };
 
+/**
+ * I tipi di adempimento che **fanno uscire denaro dal club**.
+ *
+ * Sono gli unici per cui assolvere significa anche pagare qualcosa. Gli altri
+ * — un contratto in scadenza, una CU da preparare — sono scadenze di
+ * documenti, e non muovono un euro.
+ */
+const ADEMPIMENTI_CHE_PAGANO = new Set(["CONTRIBUTION", "F24"]);
+
+/**
+ * **Il versamento dei contributi lascia una riga di registro.**
+ *
+ * **Il buco che chiude.** Un adempimento assolto aggiornava solo il proprio
+ * stato: il denaro dei contributi usciva dal club **senza lasciare traccia in
+ * nessun registro**. Il costo del lavoro sportivo in prima nota risultava
+ * quindi sistematicamente inferiore al vero, esattamente della parte
+ * contributiva — che su un compenso non e una briciola.
+ *
+ * **Perche non una riga del registro delle uscite del lavoro sportivo.**
+ * Perche quel registro e per persona: `person_id` e obbligatorio, e ogni riga
+ * consuma o compensa le franchigie annue di **qualcuno**. Un F24 e pagato
+ * all'erario, non a un lavoratore, e attribuirlo a una persona qualsiasi
+ * falserebbe il suo progressivo — cioe il numero piu delicato di tutto il
+ * dominio. I tipi `CONTRIBUTION_PAYMENT` ed `EXTERNAL_PAYROLL_COST` esistono
+ * dichiarati in quel registro e nessun codice li produce: e questa la ragione.
+ *
+ * Il versamento e un **fatto di cassa** come l'affitto della palestra, e vive
+ * dove vivono i fatti di cassa: in prima nota.
+ *
+ * **L'idempotenza.** `reference_key` e gia unica per club sull'adempimento, e
+ * diventa la chiave dell'evento finanziario. Due clic sul pulsante «assolto»,
+ * o due richieste simultanee, producono **una** riga: la seconda si infrange
+ * sull'indice unico parziale, non su un controllo scritto come «leggi, poi
+ * scrivi».
+ *
+ * **Cosa succede se non si dice conto e causale.** L'adempimento si chiude lo
+ * stesso — non si blocca il lavoro della segreteria per un dato che puo
+ * arrivare dopo — ma la risposta **lo dichiara**: `financialEntry` resta nullo
+ * e `financialEntrySkipped` spiega perche. Un versamento silenziosamente non
+ * registrato e un buco che nessuno vede, ed e il difetto che stiamo chiudendo.
+ */
+const registraVersamento = async (
+  obligation: any,
+  payment: {
+    financialAccountId?: unknown;
+    operationTypeCode?: unknown;
+    amount?: unknown;
+    paidAt?: unknown;
+    paymentMethod?: unknown;
+    reference?: unknown;
+  } | undefined,
+  scope: SportWorkScope | undefined,
+) => {
+  if (!ADEMPIMENTI_CHE_PAGANO.has(String(obligation.kind || "").toUpperCase())) {
+    return { entry: null, skipped: null };
+  }
+
+  const accountId = asText(payment?.financialAccountId);
+  const code = asText(payment?.operationTypeCode);
+
+  if (!accountId || !code) {
+    return {
+      entry: null,
+      skipped:
+        "Il versamento non e stato registrato in prima nota: mancano il conto e la causale. " +
+        "Finche non vengono indicati, l'uscita dei contributi non compare fra le uscite del club.",
+    };
+  }
+
+  const importo = payment?.amount ?? obligation.amount;
+  if (importo === null || importo === undefined || Number(importo) <= 0) {
+    return {
+      entry: null,
+      skipped:
+        "Il versamento non e stato registrato in prima nota: l'adempimento non porta un importo.",
+    };
+  }
+
+  const chiave = `sport_work_obligation:${obligation.reference_key}`;
+
+  const gia = await (prisma as any).accountingEntry.findFirst({
+    where: {
+      organization_id: obligation.organization_id,
+      source_domain: "MANUAL",
+      source_event_key: chiave,
+    },
+  });
+  if (gia) return { entry: gia, skipped: null };
+
+  try {
+    const entry = await createAccountingEntry(
+      {
+        organizationId: obligation.organization_id,
+        entryDate: payment?.paidAt || new Date(),
+        direction: "OUT",
+        amount: importo,
+        financialAccountId: accountId,
+        operationTypeCode: code,
+        description: `Versamento - ${obligation.title}`,
+        paymentMethod: asText(payment?.paymentMethod) || "F24",
+        counterpartyKind: "ENTITY",
+        counterpartyLabel: "Erario / Enti previdenziali",
+        notes: asText(payment?.reference) || null,
+      },
+      {
+        userId: scope?.userId,
+        activeOrganizationId: obligation.organization_id,
+        activeRole: (scope as any)?.activeRole,
+        allowedOrganizationIds: scope?.allowedOrganizationIds || [
+          obligation.organization_id,
+        ],
+      },
+      { sourceEventKey: chiave },
+    );
+    return { entry, skipped: null };
+  } catch (error: any) {
+    /*
+      Due richieste simultanee: la seconda si infrange sull'indice unico
+      parziale. Non e un errore da propagare — l'adempimento **e** assolto e il
+      versamento **e** registrato, da chi e arrivato primo.
+    */
+    if (String(error?.message || "").includes("Unique constraint")) {
+      const esistente = await (prisma as any).accountingEntry.findFirst({
+        where: {
+          organization_id: obligation.organization_id,
+          source_domain: "MANUAL",
+          source_event_key: chiave,
+        },
+      });
+      if (esistente) return { entry: esistente, skipped: null };
+    }
+    throw error;
+  }
+};
+
 export const completeObligation = async (
   obligationId: string,
-  input: { evidenceAttachmentId?: unknown; notes?: unknown } = {},
+  input: {
+    evidenceAttachmentId?: unknown;
+    notes?: unknown;
+    /**
+     * Il versamento, quando l'adempimento ne comporta uno. Vedi
+     * `registraVersamento`: senza conto e causale l'adempimento si chiude
+     * comunque, e la risposta dice che il denaro non e stato registrato.
+     */
+    payment?: {
+      financialAccountId?: unknown;
+      operationTypeCode?: unknown;
+      amount?: unknown;
+      paidAt?: unknown;
+      paymentMethod?: unknown;
+      reference?: unknown;
+    };
+  } = {},
   scope?: SportWorkScope,
 ) => {
   const row = await obligationClient().findUnique({
@@ -757,7 +909,19 @@ export const completeObligation = async (
   if (!row) throw new Error("Adempimento non trovato");
   ensureOrganizationAccess(scope, row.organization_id);
 
-  if (row.status === "COMPLETED") return row;
+  if (row.status === "COMPLETED") {
+    /*
+      Gia assolto, ma il versamento puo non essere ancora stato registrato:
+      chiudere due volte non deve impedire di aggiungere il movimento che
+      mancava.
+    */
+    const recupero = await registraVersamento(row, input.payment, scope);
+    return {
+      ...row,
+      financialEntry: recupero.entry,
+      financialEntrySkipped: recupero.skipped,
+    };
+  }
 
   const updated = await obligationClient().update({
     where: { id: row.id },
@@ -779,7 +943,15 @@ export const completeObligation = async (
     { kind: row.kind, referenceKey: row.reference_key, period: row.period },
   );
 
-  return updated;
+  const versamento = await registraVersamento(updated, input.payment, scope);
+
+  return {
+    ...updated,
+    /** La riga di prima nota del versamento, quando e stata registrata. */
+    financialEntry: versamento.entry,
+    /** Il motivo per cui non lo e stata. Nullo quando il denaro ha lasciato una riga. */
+    financialEntrySkipped: versamento.skipped,
+  };
 };
 
 export const createManualObligation = async (
