@@ -1298,6 +1298,262 @@ const run = async () => {
       `status ${cronConSegretoSbagliato}`,
     );
 
+
+    /* ========================================== 8 — LE AUTOMAZIONI ====== */
+
+    group("8 — Le automazioni");
+
+    const cron = (path) =>
+      fetch(`${BASE}${path}`, {
+        headers: { authorization: `Bearer ${CRON_SECRET}` },
+      }).then(async (response) => ({
+        status: response.status,
+        body: await response.json().catch(() => ({})),
+      }));
+
+    /*
+      Una rata che scade fra **sette** giorni: e il primo anticipo di AUT-01, e
+      la corrispondenza deve essere esatta.
+    */
+    const fraSetteGiorni = new Date();
+    fraSetteGiorni.setHours(0, 0, 0, 0);
+    fraSetteGiorni.setDate(fraSetteGiorni.getDate() + 7);
+
+    const rataInScadenza = await prisma.athletePayment.create({
+      data: {
+        organization_id: clubA.id,
+        athlete_id: a2.id,
+        description: "Quota in scadenza",
+        amount: 90,
+        due_date: fraSetteGiorni,
+        status: "pending",
+        data: {},
+      },
+    });
+
+    const accensione = await A("/api/v1/automations", {
+      method: "POST",
+      body: {
+        rule: {
+          trigger: "installment_due",
+          enabled: true,
+          offsetDays: [7, 3],
+          audience: "family",
+          delivery: "immediate",
+        },
+      },
+    });
+    check(
+      "una regola si accende dalla schermata",
+      accensione.status === 200,
+      `status ${accensione.status} ${accensione.error?.message || ""}`,
+    );
+
+    const messaggiPrima = sink.messaggi.length;
+    const primoGiro = await A("/api/v1/automations/run", { method: "POST" });
+    await attendi(300);
+
+    check(
+      "il giro parte e riferisce",
+      primoGiro.status === 200,
+      `status ${primoGiro.status} ${primoGiro.error?.message || ""}`,
+    );
+    check(
+      "la rata in scadenza fra sette giorni produce un messaggio",
+      sink.messaggi.length === messaggiPrima + 1,
+      `${sink.messaggi.length - messaggiPrima} messaggi nuovi`,
+    );
+
+    const secondoGiro = await A("/api/v1/automations/run", { method: "POST" });
+    await attendi(300);
+    check(
+      "la seconda esecuzione dello stesso giorno non manda niente",
+      sink.messaggi.length === messaggiPrima + 1,
+      `${sink.messaggi.length - messaggiPrima} messaggi in tutto`,
+    );
+
+    /* Due giri **in parallelo**: e il caso in cui un controllo in memoria cede. */
+    const messaggiPrimaDellaCorsa = sink.messaggi.length;
+    const rataGemella = await prisma.athletePayment.create({
+      data: {
+        organization_id: clubA.id,
+        athlete_id: a1.id,
+        description: "Quota in scadenza gemella",
+        amount: 50,
+        due_date: fraSetteGiorni,
+        status: "pending",
+        data: {},
+      },
+    });
+
+    await Promise.all([
+      A("/api/v1/automations/run", { method: "POST" }),
+      A("/api/v1/automations/run", { method: "POST" }),
+    ]);
+    await attendi(500);
+
+    check(
+      "due giri in parallelo producono un messaggio solo",
+      sink.messaggi.length === messaggiPrimaDellaCorsa + 1,
+      `${sink.messaggi.length - messaggiPrimaDellaCorsa} messaggi nuovi per una rata sola`,
+    );
+
+    /* Un anticipo gia trascorso non recupera all'indietro. */
+    const ieri = new Date();
+    ieri.setHours(0, 0, 0, 0);
+    ieri.setDate(ieri.getDate() - 1);
+    const messaggiPrimaDelRecupero = sink.messaggi.length;
+
+    await prisma.athletePayment.create({
+      data: {
+        organization_id: clubA.id,
+        athlete_id: a2.id,
+        description: "Quota con anticipo gia trascorso",
+        amount: 40,
+        /* Scade fra due giorni: nessuno dei due anticipi (7 e 3) corrisponde. */
+        due_date: new Date(Date.now() + 2 * 24 * 3600_000),
+        status: "pending",
+        data: {},
+      },
+    });
+
+    await A("/api/v1/automations/run", { method: "POST" });
+    await attendi(300);
+    check(
+      "un anticipo gia trascorso non recupera all'indietro",
+      sink.messaggi.length === messaggiPrimaDelRecupero,
+      `${sink.messaggi.length - messaggiPrimaDelRecupero} messaggi (attesi 0)`,
+    );
+
+    /* Regola spenta. */
+    await A("/api/v1/automations", {
+      method: "POST",
+      body: { rule: { trigger: "installment_due", enabled: false } },
+    });
+    const messaggiPrimaDelloSpegnimento = sink.messaggi.length;
+    await prisma.athletePayment.create({
+      data: {
+        organization_id: clubA.id,
+        athlete_id: a5.id,
+        description: "Quota a regola spenta",
+        amount: 30,
+        due_date: fraSetteGiorni,
+        status: "pending",
+        data: {},
+      },
+    });
+    await A("/api/v1/automations/run", { method: "POST" });
+    await attendi(300);
+    check(
+      "una regola spenta non manda niente",
+      sink.messaggi.length === messaggiPrimaDelloSpegnimento,
+      `${sink.messaggi.length - messaggiPrimaDelloSpegnimento} messaggi (attesi 0)`,
+    );
+
+    /* Il giro da cron, su tutti i club, con un club che ha dati incoerenti. */
+    await A("/api/v1/automations", {
+      method: "POST",
+      body: {
+        rule: {
+          trigger: "installment_due",
+          enabled: true,
+          offsetDays: [7],
+          audience: "family",
+          delivery: "immediate",
+        },
+      },
+    });
+    /*
+      Il club B ha una rata che punta a un atleta **inesistente**: il giro deve
+      passarci sopra senza fermarsi, e il club A deve ricevere lo stesso.
+    */
+    await B("/api/v1/automations", {
+      method: "POST",
+      body: {
+        rule: {
+          trigger: "installment_due",
+          enabled: true,
+          offsetDays: [7],
+          audience: "family",
+          delivery: "immediate",
+        },
+      },
+    });
+    await prisma.athletePayment.create({
+      data: {
+        organization_id: clubB.id,
+        athlete_id: null,
+        description: "Rata orfana",
+        amount: 10,
+        due_date: fraSetteGiorni,
+        status: "pending",
+        data: {},
+      },
+    });
+
+    const giroCron = await cron("/api/v1/automations/run");
+    await attendi(500);
+
+    check(
+      "il giro da cron risponde con il segreto giusto",
+      giroCron.status === 200,
+      `status ${giroCron.status}`,
+    );
+    check(
+      "il giro attraversa piu club e li conta",
+      Number(giroCron.body?.data?.processedClubs || 0) >= 2,
+      `${giroCron.body?.data?.processedClubs} club elaborati, ${giroCron.body?.data?.failed} falliti`,
+    );
+
+    const consegneAutomazioni = await prisma.communicationDelivery.findMany({
+      where: { organization_id: clubA.id, source_kind: "automation" },
+    });
+    check(
+      "ogni messaggio automatico lascia una riga nel registro",
+      consegneAutomazioni.length > 0 &&
+        consegneAutomazioni.every((riga) => riga.dedup_key.startsWith("automation")),
+      `${consegneAutomazioni.length} righe`,
+    );
+
+    const consegneAltroClub = await prisma.communicationDelivery.findMany({
+      where: { organization_id: clubB.id },
+    });
+    check(
+      "le consegne di un club non finiscono nell'altro",
+      consegneAltroClub.every((riga) => riga.organization_id === clubB.id),
+      `${consegneAltroClub.length} righe nel club B`,
+    );
+
+    /* L'automazione non tocca il dominio. */
+    const rateDopo = await prisma.athletePayment.findMany({
+      where: { organization_id: clubA.id },
+      orderBy: { id: "asc" },
+    });
+    check(
+      "nessuna rata e stata modificata dal giro",
+      rateDopo.every((riga) => riga.status === "pending" && !riga.paid_at),
+      `${rateDopo.length} rate, tutte intatte`,
+    );
+
+    const presenzeDopo = await prisma.trainingAttendance.count({
+      where: { organization_id: clubA.id },
+    });
+    check(
+      "nessuna presenza e stata creata dal giro",
+      presenzeDopo === 2,
+      `${presenzeDopo} righe di presenza (attese 2, quelle dell'RSVP)`,
+    );
+
+    const permessoAutomazioni = await Atrainer("/api/v1/automations", {
+      method: "POST",
+      body: { rule: { trigger: "installment_due", enabled: false } },
+    });
+    check(
+      "l'allenatore non configura le automazioni",
+      permessoAutomazioni.status === 403,
+      `status ${permessoAutomazioni.status}`,
+    );
+
     /* ---------------------------------------------------------- il verdetto */
 
     const passati = results.filter((row) => row.ok).length;
