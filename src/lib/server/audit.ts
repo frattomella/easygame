@@ -124,6 +124,43 @@ export const AUDIT_ACTIONS = {
     cui l'allenatore decide se convocare qualcun altro.
   */
   rsvpAnswered: "rsvp.answered",
+  /*
+    Documenti (Wave 3). Un documento generato porta il nome della societa e,
+    spesso, quanto ha versato una famiglia: chi lo ha prodotto e con quale
+    versione del modello e una domanda che va poter avere risposta un anno
+    dopo.
+
+    **Un lotto e un evento solo.** Cento attestazioni generate insieme
+    scriverebbero cento righe che dicono la stessa cosa, e il registro
+    diventerebbe illeggibile proprio nel giorno in cui serve di piu.
+  */
+  documentTemplateCreated: "document.template.created",
+  documentTemplatePublished: "document.template.published",
+  documentTemplateStatusChanged: "document.template.status_changed",
+  documentTemplateDeleted: "document.template.deleted",
+  documentGenerated: "document.generated",
+  documentBatchGenerated: "document.batch.generated",
+  documentStatusChanged: "document.status_changed",
+  /*
+    Consensi (Wave 3). Sono quattro azioni e non una perche rispondono a quattro
+    domande diverse, e sono proprio quelle che arrivano quando qualcuno contesta
+    una foto pubblicata:
+
+      * `definition.changed` — chi ha deciso che questo consenso si chiede, e
+        chi lo ha ritirato;
+      * `version.published` — **quale testo** e stato messo in circolazione, e
+        da quando. Senza, «a cosa ha detto di si» resta senza risposta il giorno
+        in cui l'informativa viene corretta;
+      * `decision.recorded` — la decisione registrata per conto di qualcuno. La
+        riga del registro dice **cosa** e stato deciso; questa dice **chi lo ha
+        scritto**, che e un fatto diverso e che il registro non porta;
+      * `revoked` — la revoca ha una riga sua perche e quella che si va a
+        cercare, e cercarla fra tutte le decisioni non la trova.
+  */
+  consentDefinitionChanged: "consent.definition.changed",
+  consentVersionPublished: "consent.version.published",
+  consentDecisionRecorded: "consent.decision.recorded",
+  consentRevoked: "consent.revoked",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

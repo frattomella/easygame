@@ -119,6 +119,35 @@ Fonte ufficiale da mantenere aggiornata:
   solo per i propri gruppi operativi (ADR-0055)
 - `GET /api/v1/rsvp?athlete_id=` — gli inviti di un atleta per l'area
   genitore: comprende anche quelli gia risposti e quelli chiusi, con il motivo
+- `GET|POST /api/v1/consents` — le **definizioni di consenso** del club
+  (privacy, immagini, trasferte), con lo stato pubblicato.
+  `?include_retired=1` mostra anche le ritirate. `POST` crea una definizione
+  **in bozza**: la creazione non pubblica, perche una definizione senza testo
+  raccoglierebbe accettazioni che non citano niente. Definire e configurazione
+  societaria (`canManageConsentDefinitions`)
+- `GET|PATCH /api/v1/consents/:id` — una definizione e le sue versioni.
+  `PATCH` cambia titolo, descrizione, obbligatorieta e stato (`draft` |
+  `active` | `retired`). **La chiave non e modificabile**: moduli e modelli la
+  citano per nome, e rinominarla spezzerebbe in silenzio ogni riferimento gia
+  scritto. Una definizione non si cancella: si ritira, e continua a spiegare i
+  consensi gia raccolti
+- `POST /api/v1/consents/:id/versions` — pubblica il testo: crea una versione
+  **immutabile** e la fa diventare quella corrente. Non esiste un `PATCH` su
+  una versione e non deve esistere — correggere l'informativa significa
+  pubblicarne un'altra, e i consensi gia raccolti restano validi
+- `GET|POST /api/v1/consents/:id/records` — le decisioni. Il registro e
+  **append-only**: revocare e un `POST` con `status: "revoked"` che **aggiunge
+  una riga**, e non ci sono `PATCH` ne `DELETE`. Rifiuta una decisione su una
+  definizione non attiva, su un soggetto fuori elenco (`athlete` | `person` |
+  `member` | `guardian`) e su una versione di un altro club. Non si revoca un
+  consenso che non risulta dato. Registrare e un gesto di segreteria
+  (`canRecordConsentDecision`)
+- `GET /api/v1/consents/states` — lo stato dei consensi, **derivato** dallo
+  storico e mai letto da una colonna. Con `?subject_kind=&subject_id=` una riga
+  per ogni consenso, comprese quelle mai decise con stato `missing`: e quello
+  l'elenco di **cio che manca**. Senza soggetto, chi ha deciso e cosa. Il flag
+  `onOutdatedVersion` dice che la decisione valida cita una versione precedente
+  a quella pubblicata: non invalida niente, e il club a decidere
 - `GET /api/v1/funding/programs/:id/reconciliation` — la riconciliazione di un
   bando: una riga per atleta e per periodo, con la misura grezza accanto al
   requisito e il non maturato accanto al maturato. `?format=csv` la scarica in

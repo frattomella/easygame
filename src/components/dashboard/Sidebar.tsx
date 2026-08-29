@@ -31,6 +31,7 @@ import {
   Send,
   Settings,
   Shield,
+  ShieldCheck,
   Shirt,
   Sparkles,
   Stethoscope,
@@ -120,6 +121,18 @@ const sidebarGroups: SidebarGroup[] = [
         label: "Modulistica",
         href: "/modulistica",
         icon: FileUp,
+      },
+      /*
+        I consensi stanno accanto alla Modulistica e non dentro: un modulo si
+        compila una volta, un consenso e uno stato della persona che nasce,
+        vale e finisce. Sono due domande diverse, e cercare «chi ha revocato»
+        dentro le compilazioni e esattamente il problema che G-17 chiude.
+      */
+      {
+        id: "consents",
+        label: "Consensi",
+        href: "/consensi",
+        icon: ShieldCheck,
       },
       {
         id: "secretariat",

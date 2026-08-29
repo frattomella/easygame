@@ -231,6 +231,51 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
       "Il giro notturno su tutti i club. Richiede `CRON_SECRET` come Bearer: `503` se il segreto non e configurato, `401` se non corrisponde",
     mobile_ready: false,
   },
+  /*
+    Wave 3 — consensi (G-17). Nessuna e `mobile_ready`: lo sviluppo mobile e
+    differito (ADR-0025), e dichiararle pronte sarebbe una promessa che nessuno
+    ha verificato.
+  */
+  {
+    name: "consents.definitions",
+    method: "GET|POST",
+    path: "/api/v1/consents",
+    description:
+      "Le definizioni di consenso del club, con lo stato pubblicato. `?include_retired=1` mostra anche le ritirate. `POST` crea una definizione **in bozza**: la creazione non pubblica",
+    mobile_ready: false,
+  },
+  {
+    name: "consents.definition",
+    method: "GET|PATCH",
+    path: "/api/v1/consents/:id",
+    description:
+      "Una definizione e le sue versioni. `PATCH` cambia titolo, descrizione, obbligatorieta e stato (`draft` | `active` | `retired`); la chiave non e modificabile, perche moduli e modelli la citano per nome",
+    mobile_ready: false,
+  },
+  {
+    name: "consents.publish_version",
+    method: "POST",
+    path: "/api/v1/consents/:id/versions",
+    description:
+      "Pubblica il testo di un consenso: crea una versione **immutabile** e la fa diventare quella corrente. Non esiste un `PATCH` su una versione — correggere significa pubblicarne un'altra",
+    mobile_ready: false,
+  },
+  {
+    name: "consents.records",
+    method: "GET|POST",
+    path: "/api/v1/consents/:id/records",
+    description:
+      "Le decisioni su un consenso. Il registro e **append-only**: revocare e un `POST` con `status: \"revoked\"` che aggiunge una riga, e non esistono `PATCH` ne `DELETE`",
+    mobile_ready: false,
+  },
+  {
+    name: "consents.states",
+    method: "GET",
+    path: "/api/v1/consents/states",
+    description:
+      "Lo stato dei consensi, **derivato** dallo storico. Con `?subject_kind=&subject_id=` una riga per ogni consenso — comprese quelle mai decise, con stato `missing`: e quello l'elenco di cio che manca. Senza soggetto, chi ha deciso e cosa",
+    mobile_ready: false,
+  },
   {
     name: "rsvp.answer",
     method: "GET|POST",

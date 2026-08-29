@@ -76,6 +76,14 @@ const MANAGEMENT_PATH_PREFIXES = [
     chiedere dei soldi.
   */
   "/communications",
+  /*
+    Consensi. Sta fra i percorsi gestionali e **non** fra quelli riservati alla
+    direzione: definire un consenso e configurazione societaria, ma registrare
+    che una famiglia lo ha dato — o revocato — e un gesto che la segreteria fa
+    tutti i giorni con un foglio in mano (§13 del documento 35). Il permesso
+    fine lo applica `src/lib/documents/permissions.ts`.
+  */
+  "/consensi",
   "/hub",
   "/matches",
   "/medical",
