@@ -776,6 +776,82 @@ zero**. `compare_from` / `compare_to` / `compare_fiscal_year` aggiungono un
 confronto, e confronta **solo cassa con cassa**: la differenza fra incassato e
 crediti non e una variazione.
 
+### L'export contabile: una risposta che non e JSON (Wave 4, W4-G)
+
+`GET /api/v1/accounting/export`, sullo stesso involucro `accountingRoute` e con
+il permesso **`accounting.export`**, che la segreteria non ha. Il servizio e
+`src/lib/server/accounting-export.ts`; le colonne e il testo li produce il
+modulo puro `src/lib/accounting/export.ts`, che sta **sopra** `src/lib/csv.ts`
+— il proprietario del tracciato — e non ne scrive un quarto.
+
+Cinque cose sono proprie di questa rotta:
+
+- **risponde un file, non una busta.** `Content-Type: text/csv; charset=utf-8`,
+  `Content-Disposition: attachment` con un nome parlante (`prima-nota-2026-…`),
+  `Cache-Control: private, no-store`. Il corpo porta il **BOM**: e cio che fa
+  aprire il file all'Excel italiano senza chiedere niente, e senza il quale
+  «Nicolò» diventa «NicolÃ²». La riconciliazione dei bandi resta senza BOM, e
+  per la ragione opposta: quel CSV lo consuma un programma;
+- **i filtri sono quelli della prima nota** — `from`, `to`, `fiscal_year`,
+  `season_id`, `financial_account_id`, `operation_type_code`, `direction`,
+  `source_domain`, `site_id`, `activity_scope`, `reconciliation_status`, `q` —
+  e l'anno passa da `toFiscalYearFilter`, sempre. Le proiezioni e i movimenti
+  storici **non** si possono escludere: un export della contabilita che
+  mostrasse solo le righe scritte a mano nasconderebbe incassi, compensi e
+  contributi;
+- **l'export sfoglia.** `listAccountingEntries` serve al massimo 500 righe per
+  chiamata, e l'export le raccoglie tutte. Oltre le 40.000 righe **non consegna
+  un file corto**: risponde un errore che dice quante righe ha trovato e cosa
+  restringere. Un riepilogo troncato puo dichiararsi tale e restare utile; un
+  CSV a cui mancano righe, aperto in un foglio di calcolo, non si distingue da
+  uno completo;
+- **entrata e uscita sono due colonne**, e nessun importo porta il segno; gli
+  importi escono con la **virgola decimale**, cosi in un foglio italiano sono
+  numeri e si sommano. Cio che era congelato sulla riga — classificazione,
+  etichetta della causale, etichetta della controparte — esce come stava sul
+  movimento: il modulo puro non riceve nessun catalogo e non puo consultarlo.
+  Numero del documento, imponibile e imposta li aggiunge il servizio leggendo
+  la fattura o la ricevuta **nel club del movimento**;
+- **non e un documento**, e nessuna intestazione, nome di file o etichetta usa
+  «ufficiale», «conforme», «a norma» o «per il deposito»: `assertNoOfficialClaim`
+  lo verifica sul nome del file e su ogni colonna. Nessuno standard di
+  interscambio verso un gestionale di studio esiste (§32 del piano della Wave
+  4): proprio per questo il file e leggibile da chiunque.
+
+L'export **si traccia** (`accounting.export.generated`): e l'unica operazione
+della contabilita che porta tutti i movimenti fuori dall'applicazione, e «chi
+ha scaricato i conti della societa, quando e con quale filtro» non e scritto in
+nessuna tabella.
+
+### Le previsioni: sotto `accounting/`, ma non in prima nota (Wave 4, W4-B1)
+
+`GET|POST /api/v1/accounting/expected` e
+`DELETE /api/v1/accounting/expected/:id?direction=income|expense`, sullo stesso
+involucro `accountingRoute`. Il servizio e
+`src/lib/server/expected-entries.ts`.
+
+Quattro cose sono proprie di queste rotte:
+
+- **stanno sotto `accounting/` per il perimetro, non per la tabella.** Chi puo
+  vedere e scrivere una previsione e chi puo vedere e scrivere la prima nota —
+  `accounting.read` e `accounting.manage`, dalla stessa matrice — ma le righe
+  vivono in `expected_income` e `expected_expenses` e **non** in
+  `accounting_entries`, che ospita solo fatti finanziari avvenuti. Un impegno
+  futuro non lo e;
+- **nessun totale di cassa esce da qui**, e lo dicono i nomi:
+  `expectedIncomeCents`, `expectedExpenseCents`, `expectedNetCents`. E la stessa
+  forma con cui il riepilogo tiene separati `cash` e `accrual` — il numero
+  sbagliato non si puo produrre perche non c'e;
+- **la scrittura e del server.** La scheda «Previsti» scriveva con `addClubData`:
+  leggeva la colonna JSON intera, faceva `append` e la risalvava **dal browser**,
+  e due segreterie nello stesso minuto perdevano la prima scrittura. Ora passa da
+  `appendClubResourceItem` / `removeClubResourceItem` — una riga in
+  `club_resource_items` sotto `FOR UPDATE`, aggregato ricalcolato dalla tabella;
+- **qui il `DELETE` esiste, e sulla prima nota no.** Non e un'incoerenza: un
+  fatto di cassa e accaduto e si storna, perche cancellarlo cancellerebbe la
+  storia. Una previsione non e accaduta — e un promemoria — e stornarla vorrebbe
+  dire scrivere una previsione negativa, che non significa niente.
+
 ### Il libro soci: un registro, non una risorsa (Wave 4)
 
 `GET|POST /api/v1/membership/events`, `GET /api/v1/membership/register` e

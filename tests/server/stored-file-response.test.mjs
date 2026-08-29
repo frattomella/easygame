@@ -160,11 +160,20 @@ const ROUTES = walk(API).map((file) => ({
 }));
 
 test("nessuna rotta costruisce a mano un Content-Disposition per un file salvato", () => {
+  /*
+    Le due rotte esentate producono un **CSV generato al momento** e non
+    restituiscono un file salvato da qualcuno: il nome lo costruisce il
+    prodotto (`csvFileName` lo riduce a minuscole, cifre e trattini), quindi
+    non c'e nessun nome scelto da chi carica da cui difendersi — che e cio da
+    cui `buildStoredFileResponse` difende.
+  */
+  const CSV_GENERATI = [
+    "funding/programs/[id]/reconciliation/route.ts",
+    "accounting/export/route.ts",
+  ];
+
   const offenders = ROUTES.filter(({ file, source }) => {
-    if (file.endsWith("funding/programs/[id]/reconciliation/route.ts")) {
-      // Un CSV generato al momento, non un file salvato da un utente.
-      return false;
-    }
+    if (CSV_GENERATI.some((esente) => file.endsWith(esente))) return false;
     return /"[Cc]ontent-[Dd]isposition"\s*:/.test(source);
   }).map(({ file }) => file);
 

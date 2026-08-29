@@ -937,6 +937,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "accounting.export",
+    method: "GET",
+    path: "/api/v1/accounting/export",
+    description:
+      "L'export della contabilita in CSV (`;`, CRLF, BOM), con gli stessi filtri della prima nota. Colonne dichiarate: data, documento, causale, descrizione, entrata e uscita in due colonne, conto, metodo, controparte, classificazione congelata, IVA, origine, anno fiscale e riconciliazione. Richiede accounting.export, che la segreteria non ha",
+    mobile_ready: false,
+  },
+  {
     name: "documents.cancel",
     method: "POST",
     path: "/api/v1/documents/:kind/:id/cancel",

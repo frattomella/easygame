@@ -11,7 +11,7 @@
  * capo sono liberi. Cioe proverebbe l'opposto di cio che deve provare.
  */
 
-export const CSV_BOM = "﻿";
+export const CSV_BOM = "\uFEFF";
 
 /** Toglie il BOM, se c'e. Il file dell'export lo porta sempre. */
 export const stripBom = (text) =>

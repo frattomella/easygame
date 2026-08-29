@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test, { before, beforeEach } from "node:test";
 
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
+import { CSV_BOM, parseCsv, readCsvRows } from "../helpers/read-csv.mjs";
 
 /**
  * **W4-G — l'export contabile, dalla sessione al file.**
@@ -220,22 +221,28 @@ const comeStaff = (extra = {}) => ({
   ...extra,
 });
 
+/**
+ * Il corpo si legge dai **byte**, non da `response.text()`.
+ *
+ * `text()` decodifica in UTF-8 secondo la specifica, e la specifica **toglie
+ * il BOM iniziale**: un test scritto su `text()` direbbe che il BOM non c'e
+ * anche quando il file lo porta, ed e proprio il BOM la cosa che fa aprire il
+ * file all'Excel italiano senza chiedere niente.
+ */
 const esporta = async (query = "", chi = comeGestore()) => {
-  const risposta = await rotta.GET(
-    richiesta(`${URL_EXPORT}${query}`, chi),
+  const risposta = await rotta.GET(richiesta(`${URL_EXPORT}${query}`, chi));
+  const testo = new TextDecoder("utf-8", { ignoreBOM: true }).decode(
+    await risposta.arrayBuffer(),
   );
-  const testo = await risposta.text();
   return { risposta, testo };
 };
 
-/* Le righe del CSV, tolti il BOM e l'intestazione. Le celle non contengono
-   ritorni a capo nei casi in cui questo aiutante viene usato. */
-const righeDati = (testo) =>
-  testo
-    .replace(/^﻿/, "")
-    .split("\r\n")
-    .slice(1)
-    .filter(Boolean);
+/*
+  Le righe di dati, **lette** e non divise: una cella con un ritorno a capo
+  dentro — la nota di `m-2` — farebbe contare a uno `split` una riga in piu, e
+  il test direbbe rotto un file corretto.
+*/
+const righeDati = (testo) => readCsvRows(testo);
 
 /* ================================================== sessione e permessi === */
 
@@ -301,9 +308,12 @@ test("il gestore riceve un CSV, con un nome parlante e senza cache condivisa", a
   );
   assert.match(risposta.headers.get("cache-control") || "", /no-store/);
 
-  assert.ok(testo.startsWith("﻿"), "il corpo deve portare il BOM");
+  assert.ok(testo.startsWith(CSV_BOM), "il corpo deve portare il BOM");
   assert.ok(testo.includes("\r\n"), "la fine riga deve essere CRLF");
-  assert.ok(testo.split("\r\n")[0].includes(";"), "il separatore deve essere il punto e virgola");
+  assert.ok(
+    testo.slice(CSV_BOM.length).startsWith("Data;Numero documento;"),
+    "il separatore deve essere il punto e virgola, e l'intestazione la prima riga",
+  );
 });
 
 test("il file non promette di essere un documento", async () => {
@@ -388,35 +398,35 @@ test("oltre il tetto non esce un file corto: esce un errore che dice cosa restri
 
 test("entrata e uscita restano in due colonne, e la classificazione e quella congelata", async () => {
   const { testo } = await esporta();
-  const [intestazione] = testo.replace(/^﻿/, "").split("\r\n");
-  const colonne = intestazione.split(";");
+  const colonne = parseCsv(testo)[0];
 
-  const iEntrata = colonne.indexOf("Entrata");
-  const iUscita = colonne.indexOf("Uscita");
-  const iClasse = colonne.indexOf("Classificazione");
-  assert.ok(iEntrata >= 0 && iUscita >= 0 && iEntrata !== iUscita);
+  assert.ok(colonne.includes("Entrata"));
+  assert.ok(colonne.includes("Uscita"));
 
-  const entrata = righeDati(testo)
-    .map((riga) => riga.split(";"))
-    .find((celle) => celle[iEntrata] === "123,45");
+  const entrata = righeDati(testo).find((riga) => riga.Entrata === "123,45");
 
   assert.ok(entrata, "il movimento in entrata non ha la sua colonna valorizzata");
-  assert.equal(entrata[iUscita], "", "l'uscita di una riga di entrata non esiste");
+  assert.equal(entrata.Uscita, "", "l'uscita di una riga di entrata non esiste");
   assert.equal(
-    entrata[iClasse],
+    entrata.Classificazione,
     "Istituzionale",
     "la causale oggi e commerciale: il file deve riportare cio che era congelato sulla riga",
   );
+
+  const uscita = righeDati(testo).find((riga) => riga.Uscita === "45,5");
+  assert.ok(uscita, "il movimento in uscita non ha la sua colonna valorizzata");
+  assert.equal(uscita.Entrata, "");
 });
 
 test("anno fiscale e stato di riconciliazione sono nel file", async () => {
   const { testo } = await esporta();
-  const colonne = testo.replace(/^﻿/, "").split("\r\n")[0].split(";");
+  const colonne = parseCsv(testo)[0];
+  const [prima] = righeDati(testo);
 
   assert.ok(colonne.includes("Anno fiscale"));
   assert.ok(colonne.includes("Riconciliazione"));
-  assert.ok(testo.includes("Da riconciliare"));
-  assert.ok(testo.includes("2026"));
+  assert.equal(prima["Anno fiscale"], "2026");
+  assert.equal(prima.Riconciliazione, "Da riconciliare");
 });
 
 test("una nota con un ritorno a capo non aggiunge una riga al file", async () => {
@@ -452,16 +462,15 @@ test("numero e IVA arrivano dal documento collegato", async () => {
   );
 
   const { testo } = await esporta();
-  const colonne = testo.replace(/^﻿/, "").split("\r\n")[0].split(";");
-  const riga = righeDati(testo)
-    .map((r) => r.split(";"))
-    .find((celle) => celle[colonne.indexOf("Descrizione")] === "Sponsorizzazione");
+  const riga = righeDati(testo).find(
+    (r) => r.Descrizione === "Sponsorizzazione",
+  );
 
   assert.ok(riga, "la riga con la fattura non e nel file");
-  assert.equal(riga[colonne.indexOf("Numero documento")], "2026/12");
-  assert.equal(riga[colonne.indexOf("Documento")], "Fattura");
-  assert.equal(riga[colonne.indexOf("Imponibile IVA")], "1000");
-  assert.equal(riga[colonne.indexOf("IVA")], "220");
+  assert.equal(riga["Numero documento"], "2026/12");
+  assert.equal(riga.Documento, "Fattura");
+  assert.equal(riga["Imponibile IVA"], "1000");
+  assert.equal(riga.IVA, "220");
 });
 
 test("il documento di un altro club non entra nel file, nemmeno come numero", async () => {

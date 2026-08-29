@@ -10,6 +10,7 @@ import {
 } from "../../src/lib/accounting/export.ts";
 import { CSV_BOM, CSV_DELIMITER, CSV_EOL } from "../../src/lib/csv.ts";
 import { PAROLE_VIETATE } from "../../src/lib/accounting/reporting.ts";
+import { parseCsv } from "../helpers/read-csv.mjs";
 
 /**
  * **W4-G — l'export per il commercialista.**
@@ -32,64 +33,12 @@ import { PAROLE_VIETATE } from "../../src/lib/accounting/reporting.ts";
  * verificato.
  */
 
-/* ========================================================================== */
-/* Un lettore di CSV, perche uno `split` non e una lettura                     */
-/* ========================================================================== */
-
-/**
- * Il parser esiste per lo scenario 42: dividere il testo su `\r\n` e su `;`
- * darebbe **per costruzione** il risultato sbagliato proprio nel caso che il
- * test deve provare — una cella virgolettata che contiene un ritorno a capo.
- * Un test che dividesse a mano fallirebbe su un file corretto.
- */
-const parseCsv = (text) => {
-  const senzaBom = text.startsWith(CSV_BOM) ? text.slice(CSV_BOM.length) : text;
-  const righe = [];
-  let cella = "";
-  let riga = [];
-  let dentroVirgolette = false;
-
-  for (let i = 0; i < senzaBom.length; i += 1) {
-    const c = senzaBom[i];
-
-    if (dentroVirgolette) {
-      if (c === '"') {
-        if (senzaBom[i + 1] === '"') {
-          cella += '"';
-          i += 1;
-        } else {
-          dentroVirgolette = false;
-        }
-      } else {
-        cella += c;
-      }
-      continue;
-    }
-
-    if (c === '"') {
-      dentroVirgolette = true;
-      continue;
-    }
-    if (c === CSV_DELIMITER) {
-      riga.push(cella);
-      cella = "";
-      continue;
-    }
-    if (c === "\r" && senzaBom[i + 1] === "\n") {
-      riga.push(cella);
-      righe.push(riga);
-      riga = [];
-      cella = "";
-      i += 1;
-      continue;
-    }
-    cella += c;
-  }
-
-  riga.push(cella);
-  righe.push(riga);
-  return righe;
-};
+/*
+  Il CSV si **legge** con `tests/helpers/read-csv.mjs`, e non si divide su
+  `\r\n` e `;`: un test che dividesse a mano fallirebbe proprio sul caso che
+  lo scenario 42 deve provare — una cella virgolettata che contiene un ritorno
+  a capo — e passerebbe su un file rotto.
+*/
 
 /* ========================================================================== */
 /* Le righe di prova                                                           */

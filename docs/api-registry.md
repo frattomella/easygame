@@ -312,6 +312,20 @@ Fonte ufficiale da mantenere aggiornata:
   una previsione (`accounting.manage`). Qui il `DELETE` esiste e sulla prima
   nota no, e non e un'incoerenza: un fatto di cassa e accaduto e si storna, una
   previsione e un promemoria e un promemoria sbagliato si toglie
+- `GET /api/v1/accounting/export` — l'**export della contabilita**
+  (`accounting.export`, che la segreteria **non** ha: e la fotografia completa
+  dei conti della societa e lascia l'applicazione dentro un file). Risponde un
+  **CSV**, non JSON: `;`, CRLF e BOM, cioe cio che l'Excel italiano apre senza
+  chiedere niente. Filtri identici a quelli della prima nota. Colonne
+  dichiarate: data, numero del documento, codice ed etichetta della causale,
+  descrizione, **entrata e uscita in due colonne** (nessun importo con il
+  segno), conto, metodo, controparte con il suo tipo, documento,
+  classificazione **congelata sulla riga**, imponibile e imposta quando ci
+  sono, origine, anno fiscale, stato di riconciliazione, data di storno e
+  note. Oltre le 40.000 righe **non consegna un file parziale**: risponde un
+  errore che dice cosa restringere. **Non e un documento**: nessuna
+  intestazione e nessun nome di file usa «ufficiale», «conforme», «a norma» o
+  «per il deposito»
 - `POST /api/v1/documents/:kind/:id/cancel` — annullamento di un documento
   emesso, con motivo obbligatorio. Il numero non si libera
 - `GET|POST /api/v1/einvoice/:invoiceId` — stato e preparazione del tracciato
