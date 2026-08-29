@@ -197,6 +197,7 @@ club, e sarebbe rientrato dalla finestra.
 | 3 | **Una rotta Next non puo esportare costanti proprie**: `MAX_GENERATION_BATCH` faceva fallire la generazione dei tipi, quindi la build | `npx tsc` sul progetto intero | La costante e scesa nel dominio, dove serve anche al client |
 | 4 | **Ricorsione infinita** in `buildCommonValues` durante l'estrazione delle chiavi comuni del risolutore | I 31 test esistenti sul risolutore, diventati rossi | Corretto prima del commit; i 31 tornano verdi senza modifiche al test |
 | 5 | **Un commento troppo lungo** ha spinto `/onboarding` oltre la finestra di 400 caratteri che un test presidia | `npm test` | Commento accorciato. Il test presidia la cosa giusta con un mezzo fragile: debito `W3-07` |
+| 6 | **`/consensi` chiedeva la sessione al server ma non al middleware**: rispondeva `200` senza cookie, mentre `/modulistica` rispondeva `307`. Il percorso era stato aggiunto ai prefissi di gestione e dimenticato nell'elenco del filtro edge | Smoke su **staging**, interrogando il server vero | Corretto. Non era una fuga — ogni rotta risponde 401 e la pagina si difende da sola — ma nessuna delle sei revisioni poteva vederlo leggendo il codice |
 
 **Tre controlli del collaudo erano scritti male**, e sono stati corretti nel
 collaudo e non nel prodotto: il giro delle automazioni si aziona da una
