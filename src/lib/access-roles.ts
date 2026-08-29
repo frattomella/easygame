@@ -169,6 +169,36 @@ const MANAGEMENT_ADMIN_ONLY_RESOURCES = new Set([
   "users",
 ]);
 
+/**
+ * Le risorse la cui **cancellazione** e riservata a proprietario e gestore,
+ * anche quando lettura e scrittura restano aperte alla segreteria.
+ *
+ * **Il difetto che chiude (D-1).** `payments` e il suo alias
+ * `simplified_payments` non erano fra le risorse riservate, e non dovevano
+ * esserlo: la segreteria le rate le vede e le registra tutti i giorni. Ma
+ * `payment_transactions.payment_id -> payments.id` e `ON DELETE CASCADE`,
+ * quindi `DELETE /api/v1/simplified_payments/:id` cancellava la rata **e a
+ * cascata tutti i suoi incassi, storni e rimborsi** — da un ruolo che non ha
+ * il permesso di registrarne uno.
+ *
+ * Chiudere l'intera risorsa avrebbe spostato il difetto invece di risolverlo:
+ * avrebbe tolto alla segreteria il lavoro che le compete. La distinzione che
+ * serve e fra i **verbi**, ed e la stessa che il lavoro sportivo fa gia fra
+ * `sport_work.manage` e `sport_work.pay`: registrare non e distruggere.
+ *
+ * La guardia di dominio in `resources.ts` e l'altra meta, e non e ridondante:
+ * questa dice **chi**, quella dice **cosa** — una rata con storia economica
+ * non si cancella nemmeno per il proprietario.
+ */
+const MANAGEMENT_ADMIN_ONLY_DELETE_RESOURCES = new Set([
+  "athlete_payments",
+  "invoices",
+  "payment_transactions",
+  "payments",
+  "receipts",
+  "simplified_payments",
+]);
+
 const TRAINER_READ_RESOURCES = new Set([
   "athlete_category_memberships",
   "athletes",
@@ -373,7 +403,14 @@ export const canAccessClubResource = (
   }
 
   if (normalizedRole === "collaborator" || normalizedRole === "staff") {
-    return !MANAGEMENT_ADMIN_ONLY_RESOURCES.has(normalizedResource);
+    if (MANAGEMENT_ADMIN_ONLY_RESOURCES.has(normalizedResource)) return false;
+    if (
+      action === "delete" &&
+      MANAGEMENT_ADMIN_ONLY_DELETE_RESOURCES.has(normalizedResource)
+    ) {
+      return false;
+    }
+    return true;
   }
 
   if (normalizedRole === "trainer") {

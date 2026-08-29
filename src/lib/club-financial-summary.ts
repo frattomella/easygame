@@ -47,6 +47,32 @@ export type ClubMovementSource =
   | "sport_work"
   | "other";
 
+/**
+ * **Quanta prova c'e che il denaro si sia davvero mosso.** (D-2)
+ *
+ * E la distinzione che il numero «Entrate» non faceva: sommava la cassa vera
+ * delle rate e il **dovuto dedotto dallo stato** di tutto il resto. Un movimento
+ * entra nei totali di cassa solo se porta una di queste due prove.
+ *
+ * - `ledger` — la fotografia del registro degli incassi (ADR-0036) o una riga
+ *   del registro delle uscite del lavoro sportivo (ADR-0074). E la fonte
+ *   canonica: risponde lei, e nessuno la ricalcola;
+ * - `declared` — non c'e un registro, ma la riga **e** il fatto finanziario:
+ *   un movimento di cassa registrato a mano, un pagamento sponsor segnato come
+ *   versato, una ricevuta che attesta un incasso. Chi l'ha scritta stava
+ *   dichiarando che il denaro si e mosso;
+ * - `none` — nessuna prova, e non ce ne puo essere: una **previsione** vive
+ *   nella tabella delle cose che non sono ancora accadute, e una **fattura**
+ *   documenta un credito. Nessuna delle due diventa cassa perche il suo stato
+ *   dice «pagata».
+ *
+ * La compatibilita che resta, e che non e una svista: una **rata** senza
+ * fotografia del registro e anteriore al registro stesso, ed e stata saldata
+ * davvero. Vale `declared`, altrimenti il passaggio cancellerebbe denaro
+ * gia incassato (RC FIX 3).
+ */
+export type ClubMovementCashEvidence = "ledger" | "declared" | "none";
+
 export type ClubMovementDirection = "income" | "expense" | "transfer";
 
 export type NormalizedClubMovement = {
@@ -68,7 +94,14 @@ export type NormalizedClubMovement = {
    * e stato incassato. I totali di cassa leggono questo campo.
    */
   collectedAmount: number;
-  status: "paid" | "pending" | "overdue" | "cancelled" | string;
+  /**
+   * La prova su cui `collectedAmount` si regge. Vedi `ClubMovementCashEvidence`.
+   *
+   * E dichiarata sulla riga e non dedotta da chi legge, perche il difetto D-2
+   * nasceva proprio dal fatto che ogni consumatore la deduceva per conto suo.
+   */
+  cashEvidence: ClubMovementCashEvidence;
+  status: "paid" | "pending" | "overdue" | "issued" | "cancelled" | string;
   date?: string;
   dueDate?: string;
   paidAt?: string;
@@ -178,11 +211,24 @@ const toNumber = (value: unknown) => {
 const normalizeStatus = (value: unknown) => {
   const status = String(value || "").trim().toLowerCase();
   if (
-    ["paid", "completed", "complete", "saldato", "pagato", "issued"].includes(
-      status,
-    )
+    ["paid", "completed", "complete", "saldato", "pagato"].includes(status)
   ) {
     return "paid";
+  }
+  /*
+    **«Emessa» non e «pagata».** (D-2)
+
+    Questo elenco conteneva `"issued"`, ed e la meta piu visibile del difetto:
+    una fattura emessa e non incassata veniva riscritta in `"paid"`, compariva
+    fra i movimenti come denaro entrato e finiva nel totale «Entrate». Un
+    documento dice che un credito e nato, non che e stato pagato.
+
+    Resta uno stato a se, e non ricade in `pending`, perche una fattura emessa
+    e cosa diversa da una fattura da emettere: chi legge la riga deve vedere
+    quale delle due.
+  */
+  if (["issued", "emessa", "emesso"].includes(status)) {
+    return "issued";
   }
   if (
     ["cancelled", "canceled", "voided", "deleted", "annullato", "annullata"].includes(
@@ -238,14 +284,57 @@ const parseDataObject = (item: any) => {
  * come `value`, `total` o `price`, e rileggerlo dal solo campo `amount`
  * azzererebbe movimenti realmente pagati.
  */
-const collectedAmountFor = (item: any, amount: number, status: string) => {
+const hasLedgerSnapshot = (item: any) => {
+  const stored = parseDataObject(item)?.ledger?.paidAmount;
+  return stored !== undefined && stored !== null && stored !== "";
+};
+
+/**
+ * La prova di cassa di una riga, decisa **dalla tabella da cui viene**.
+ *
+ * Non dallo stato: lo stato e cio di cui D-2 dimostra che non ci si puo
+ * fidare. Una previsione con `status: "paid"` resta una previsione, e una
+ * fattura `issued` resta un credito, per quanto lo stato somigli a un incasso.
+ */
+const cashEvidenceFor = (
+  item: any,
+  origin: ClubMovementCashEvidence,
+): ClubMovementCashEvidence =>
+  hasLedgerSnapshot(item) ? "ledger" : origin;
+
+/**
+ * Il denaro realmente entrato o uscito per questa riga.
+ *
+ * Quando la riga porta la fotografia del registro risponde il registro, che e
+ * la fonte autorevole: una rata incassata a meta vale quanto ne e stato
+ * incassato.
+ *
+ * Senza quella fotografia risponde la **prova di origine** (`evidence`), e qui
+ * sta la correzione di D-2: prima si arrivava sempre a `status === "paid"`, e
+ * cosi previsioni e fatture emesse entravano nel totale di cassa. Ora una riga
+ * senza prova possibile vale zero, quale che sia il suo stato — e il suo
+ * dovuto resta intero in `amount`, cioe fra i crediti.
+ *
+ * La lettura dell'importo passa da `readChargeCollectedAmount` perche queste
+ * tabelle scrivono l'importo anche come `value`, `total` o `price`, e
+ * rileggerlo dal solo campo `amount` azzererebbe movimenti realmente pagati.
+ */
+const collectedAmountFor = (
+  item: any,
+  amount: number,
+  status: string,
+  evidence: ClubMovementCashEvidence,
+) => {
   if (status === "cancelled") {
     return 0;
   }
 
-  const stored = parseDataObject(item)?.ledger?.paidAmount;
-  if (stored !== undefined && stored !== null && stored !== "") {
+  if (evidence === "ledger") {
     return readChargeCollectedAmount(item);
+  }
+
+  if (evidence === "none") {
+    return 0;
   }
 
   return status === "paid" ? amount : 0;
@@ -670,6 +759,12 @@ const normalizePayment = (
         status: item?.status || item?.paymentStatus || data?.status || item?._defaultStatus,
       });
   const paymentId = paymentIdFor(item) || undefined;
+  /*
+    Una rata porta il registro quando esiste; una rata anteriore al registro,
+    e un pagamento sponsor/socio/fornitore segnato come versato, sono una
+    **dichiarazione** di chi l'ha scritto. Restano cassa, e devono restarlo.
+  */
+  const evidence = cashEvidenceFor(item, "declared");
   const direction = inferDirection(item, sourceDefaultDirection(source));
   const subjectName = paymentSubject(item, fallbackSubject);
   const originEntityId = firstString(
@@ -709,7 +804,8 @@ const normalizePayment = (
         source === "structure" ? "Fitto struttura" : "Pagamento",
       ),
       amount,
-      collectedAmount: collectedAmountFor(item, amount, status),
+      collectedAmount: collectedAmountFor(item, amount, status, evidence),
+      cashEvidence: evidence,
       status,
       date:
         firstString(item?.date, item?.created_at, item?.createdAt) ||
@@ -788,6 +884,12 @@ const normalizeManualTransaction = (
     rawSource === "manual_athlete_payment" || rawOriginType === "athlete";
   const source: ClubMovementSource = isAthleteMovement ? "athlete" : "manual";
   const status = normalizeStatus(item?.status || "paid");
+  /*
+    Un movimento di cassa registrato a mano non ha un registro a monte: **e
+    lui** il fatto finanziario. Chi lo scrive sta dichiarando che il denaro si
+    e mosso, ed e la stessa qualita di prova di una quietanza.
+  */
+  const evidence = cashEvidenceFor(item, "declared");
 
   const movement = attachDocumentsAndAccount(
     {
@@ -801,7 +903,8 @@ const normalizeManualTransaction = (
         "Movimento",
       ),
       amount,
-      collectedAmount: collectedAmountFor(item, amount, status),
+      collectedAmount: collectedAmountFor(item, amount, status, evidence),
+      cashEvidence: evidence,
       status,
       date: firstString(item?.date, item?.created_at) || undefined,
       subjectName:
@@ -856,6 +959,13 @@ const normalizeExpected = (
   ) as NormalizedClubMovement["originEntityType"];
   const isAthleteMovement = originEntityType === "athlete";
   const status = normalizeStatus(item?.status || "pending");
+  /*
+    **Una previsione non e mai cassa**, nemmeno quando si dichiara pagata.
+    `expected_income` e `expected_expenses` sono le tabelle delle cose che non
+    sono ancora accadute: una riga che ci sta dentro e un'attesa. Quando il
+    denaro arriva davvero nasce un movimento, e il movimento e quello a contare.
+  */
+  const evidence: ClubMovementCashEvidence = "none";
 
   const movement = attachDocumentsAndAccount(
     {
@@ -864,7 +974,8 @@ const normalizeExpected = (
       direction,
       description: firstString(item?.description, item?.title, "Previsto"),
       amount,
-      collectedAmount: collectedAmountFor(item, amount, status),
+      collectedAmount: collectedAmountFor(item, amount, status, evidence),
+      cashEvidence: evidence,
       status,
       date: firstString(item?.date, item?.created_at) || undefined,
       dueDate: firstString(item?.dueDate, item?.due_date, item?.date) || undefined,
@@ -935,6 +1046,7 @@ const normalizeTransfer = (
     amount,
     /* Un giroconto non e denaro entrato: sposta soltanto un saldo fra conti. */
     collectedAmount: 0,
+    cashEvidence: "none",
     status: normalizeStatus(item?.status || "completed"),
     date: firstString(item?.date, item?.created_at) || undefined,
     subjectName: firstString(transferReference, "Giroconto"),
@@ -975,6 +1087,20 @@ const normalizeDocumentMovement = (
   const number = isReceipt ? receiptNumberFor(item) : invoiceNumberFor(item);
   const date = firstString(item?.issue_date, item?.date, item?.created_at);
   const status = normalizeStatus(item?.status || (isReceipt ? "paid" : "pending"));
+  /*
+    **I due documenti non sono la stessa cosa.** (D-2)
+
+    Una **ricevuta** si emette a fronte di un incasso: e una quietanza, e
+    attesta che il denaro e entrato. Una **fattura** si emette per far nascere
+    un credito, e puo restare non pagata per mesi. Prima valevano uguale,
+    perche entrambe passavano dalla deduzione sullo stato — e `"issued"` era
+    scritto fra gli stati «pagato».
+
+    Qui compaiono solo i documenti **non collegati a una rata**: quelli
+    collegati sono gia contati dal registro degli incassi, e riemetterli
+    sarebbe un doppio conteggio.
+  */
+  const evidence: ClubMovementCashEvidence = isReceipt ? "declared" : "none";
 
   return attachDocumentsAndAccount(
     {
@@ -986,7 +1112,8 @@ const normalizeDocumentMovement = (
         isReceipt ? "Ricevuta non collegata" : "Fattura non collegata",
       ),
       amount,
-      collectedAmount: collectedAmountFor(item, amount, status),
+      collectedAmount: collectedAmountFor(item, amount, status, evidence),
+      cashEvidence: evidence,
       status,
       date: date || undefined,
       subjectName: paymentSubject(item) || undefined,
@@ -1144,7 +1271,13 @@ const normalizeSportWorkPayout = (
     direction: "expense",
     description: `${kindLabel} - ${subjectName}`,
     amount,
+    /*
+      Il registro delle uscite del lavoro sportivo e la fonte canonica di
+      questo numero (ADR-0074): la riga esiste **perche** il denaro e uscito.
+      Qui non si ricalcola niente, si legge.
+    */
     collectedAmount: amount,
+    cashEvidence: "ledger",
     status: "paid",
     date: paidAt,
     paidAt,

@@ -234,15 +234,19 @@ const normalizeStatusToken = (status?: string) =>
     .toLowerCase()
     .replace(/\s+/g, "_");
 
+/**
+ * **«Emessa» non e «pagata».** (D-2)
+ *
+ * Questo elenco conteneva `"issued"`, la stessa svista del proiettore: una
+ * fattura emessa e non incassata finiva nella scheda «Incassati», accanto al
+ * denaro vero. E il documento che fa nascere un credito, non la prova che sia
+ * stato pagato — e ora vive fra le righe da incassare, dove chi legge la puo
+ * sollecitare invece di darla per chiusa.
+ */
 const isPaidStatus = (status?: string) =>
-  [
-    "paid",
-    "pagato",
-    "completed",
-    "completato",
-    "saldato",
-    "issued",
-  ].includes(normalizeStatusToken(status));
+  ["paid", "pagato", "completed", "completato", "saldato"].includes(
+    normalizeStatusToken(status),
+  );
 
 const isOverdueStatus = (status?: string) =>
   ["overdue", "scaduto"].includes(normalizeStatusToken(status));
@@ -255,6 +259,13 @@ const isPendingStatus = (status?: string) =>
     "scaduto",
     "unpaid",
     "non_pagato",
+    /*
+      Una fattura emessa e aperta: e denaro che il club aspetta. Senza questa
+      voce sarebbe sparita da entrambe le schede, perche non e piu «pagata».
+    */
+    "issued",
+    "emessa",
+    "emesso",
   ].includes(normalizeStatusToken(status));
 
 /**

@@ -3316,6 +3316,57 @@ export const updateResource = async (
   return serializeRecord(resource, record);
 };
 
+/**
+ * **Una rata con storia economica non si cancella.** (D-1)
+ *
+ * La regola del dominio e scritta da tempo — *«un incasso non si cancella: si
+ * storna»* — e tre vincoli di database la difendono sulla tabella degli
+ * incassi. Ma la rata a monte era cancellabile, e il vincolo che collega le
+ * due tabelle e `ON DELETE CASCADE`: cancellare il debito portava via con se
+ * **tutti i movimenti di denaro che lo avevano saldato**, storni e rimborsi
+ * compresi, senza lasciare traccia di cosa fosse sparito.
+ *
+ * Il rimedio non e un soft-delete nuovo: e riconoscere che una rata toccata
+ * dal denaro **non e piu una riga di piano**, e un fatto contabile. Se va
+ * annullata, si annulla — `status = "cancelled"` resta scrivibile, ed e la
+ * strada che la sostituzione del piano di pagamento usa gia. Se un incasso e
+ * sbagliato, si storna nel suo dominio.
+ *
+ * Una rata **mai incassata e senza documenti** resta cancellabile: correggere
+ * un piano compilato male non e cancellare denaro, ed e un'operazione che la
+ * segreteria fa legittimamente.
+ *
+ * Il conteggio guarda **tutti** gli incassi, storni inclusi: una rata incassata
+ * e poi stornata ha saldo zero e una storia che deve restare leggibile.
+ */
+const assertPaymentHasNoEconomicHistory = async (
+  resource: string,
+  paymentId: string,
+) => {
+  if (resource !== "payments" && resource !== "simplified_payments") return;
+  if (!paymentId) return;
+
+  const [incassi, ricevute, fatture] = await Promise.all([
+    (prisma as any).paymentTransaction.count({ where: { payment_id: paymentId } }),
+    (prisma as any).receipt.count({ where: { payment_id: paymentId } }),
+    (prisma as any).invoice.count({ where: { payment_id: paymentId } }),
+  ]);
+
+  if (incassi > 0) {
+    throw new Error(
+      "Questa rata ha una storia economica: e stata toccata dal denaro e non si cancella. " +
+        "Per correggere un incasso si storna; per chiudere il debito si annulla la rata.",
+    );
+  }
+
+  if (ricevute > 0 || fatture > 0) {
+    throw new Error(
+      "Questa rata ha un documento fiscale collegato e non si cancella. " +
+        "Un documento emesso si annulla nel suo dominio, non sparisce con la rata.",
+    );
+  }
+};
+
 export const deleteResource = async (
   resource: string,
   id: string,
@@ -3358,6 +3409,12 @@ export const deleteResource = async (
     `resource_type` da controllare.
   */
   assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
+  /*
+    Prima il confine del club, poi la regola del denaro: chiedere «questa rata
+    ha incassi?» su una riga di un altro club sarebbe gia una risposta di
+    troppo.
+  */
+  await assertPaymentHasNoEconomicHistory(resource, existing?.id);
 
   const record = await delegate.delete({
     where: { id },
