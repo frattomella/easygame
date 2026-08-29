@@ -3,37 +3,33 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { canManageClubConfiguration } from "@/lib/access-roles";
-import { getResourceById } from "@/lib/server/resources";
-import { resolveDocumentPlaceholders } from "@/lib/server/document-placeholders";
-import { getDocumentTemplatesFromClub } from "@/lib/document-templates";
+import { canReadDocumentTemplates } from "@/lib/documents/permissions";
+import { resolveDocumentForSubject } from "@/lib/server/document-placeholders";
+import { loadPublishableVersion } from "@/lib/server/document-templates";
 import { renderFilledDocumentHtml } from "@/lib/documents/document-view";
 
 /**
- * Il modello di modulistica **gia compilato**.
+ * L'**anteprima** di un modello compilato.
  *
  *   GET /api/v1/documents/filled?templateId=…&athleteId=…&seasonId=…
  *   GET /api/v1/documents/filled?…&format=html
  *
+ * **Questa rotta non scrive niente, ed e il suo scopo.** Fino alla Wave 3 era
+ * anche l'unico modo di ottenere un documento compilato, e quel documento non
+ * lasciava traccia: nasceva nel browser e moriva alla chiusura della scheda.
+ * Adesso il documento che **conta** lo produce
+ * `POST /api/v1/documents/generated`, che scrive una riga con la versione, i
+ * valori e la resa. Qui resta cio che serve prima di premere: vedere il foglio,
+ * e soprattutto vedere **cosa non e riuscito a scriverci dentro**.
+ *
+ * Il §5 del planning lo chiede esplicitamente: generare da una bozza non
+ * pubblicata e possibile solo in anteprima, e l'anteprima non scrive nessuna
+ * riga in `generated_documents`.
+ *
  * **Perche una rotta e non una funzione nel browser.** Perche il risolutore
  * legge il registro incassi e le presenze, e quei dati non vanno spediti al
- * client per essere sommati li: `/modulistica` riceverebbe l'intero ledger di
- * un atleta per stampare una riga. E perche la firma del presidente e un
- * allegato del club, che esce da Attachment Core con lo scope applicato.
- *
- * **Perche non e sotto `/documents/:kind/:id`.** Quella rotta stampa una
- * **riga gia emessa** — una ricevuta, una fattura — identificata dal suo id.
- * Qui non c'e nessuna riga: c'e un modello, un atleta e una stagione, e il
- * documento nasce dalla loro combinazione. Un segmento statico accanto a
- * `[kind]` tiene separate le due cose senza inventare un secondo spazio dei
- * nomi.
- *
- * **Le due forme della risposta.** `format=json` (predefinita) restituisce il
- * documento **insieme** ai segnaposto non risolti: e cio che l'anteprima
- * mostra prima di stampare, perche §5.5.24 chiede che il documento non menta.
- * `format=html` restituisce la sola pagina, per chi la vuole aprire diretta.
- *
- * **Un documento, un atleta.** Nessuna stampa massiva: e G-43, ed e Wave 3.
+ * client per essere sommati li. E perche la firma del presidente e un allegato
+ * del club, che esce da Attachment Core con lo scope applicato.
  *
  * **Il confine.** Il club non arriva dall'indirizzo: arriva dallo scope della
  * sessione. Un atleta di un'altra societa risponde «Accesso negato», e il
@@ -54,7 +50,13 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const templateId = String(url.searchParams.get("templateId") || "").trim();
-    const athleteId = String(url.searchParams.get("athleteId") || "").trim();
+    /*
+      `athleteId` resta il nome del parametro storico: la schermata di Wave 1 lo
+      manda cosi, e cambiarlo avrebbe rotto un indirizzo che qualcuno puo aver
+      salvato. `subjectKind`/`subjectId` sono la forma generale.
+    */
+    const subjectKind = (String(url.searchParams.get("subjectKind") || "athlete").trim().toLowerCase()) || "athlete";
+    const athleteId = String(url.searchParams.get("subjectId") || url.searchParams.get("athleteId") || "").trim();
     const seasonId = String(url.searchParams.get("seasonId") || "").trim();
     const format =
       String(url.searchParams.get("format") || "json").trim().toLowerCase() ===
@@ -63,7 +65,7 @@ export async function GET(request: Request) {
         : "json";
 
     if (!templateId || !athleteId) {
-      return denied(400, "Indicare il modello e l'atleta");
+      return denied(400, "Indicare il modello e il soggetto");
     }
 
     const scope = await resolveOrganizationScopeForUser(
@@ -79,50 +81,40 @@ export async function GET(request: Request) {
     }
 
     /*
-      **Il documento compilato dice quanto ha pagato una famiglia.**
-
-      Fino all'audit di fine Wave questa rotta chiedeva solo una sessione e
-      l'appartenenza al club: un genitore o un allenatore poteva scorrere gli
-      identificativi degli atleti e scaricare l'attestazione di chiunque —
-      codice fiscale, indirizzo, telefono dei tutori, versato, dovuto e
-      residuo. La schermata che la usa, `/modulistica`, e riservata alla
-      direzione del club (`MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES` in
-      `access-roles.ts`); la rotta deve dire la stessa cosa, o il gate della
-      pagina e una tenda davanti a una porta aperta.
+      **Il permesso vero non e questo.** Chi puo vedere l'anteprima di *quale*
+      modello dipende da cosa il modello dice: un'attestazione con gli importi
+      la vede la direzione, una dichiarazione di iscrizione anche la segreteria.
+      La decisione sta in `loadPublishableVersion`, che conosce la sensibilita
+      **della versione**; qui si tiene fuori soltanto chi non ha niente a che
+      fare con i documenti.
     */
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canReadDocumentTemplates(scope.activeRole)) {
       return denied(
         403,
-        "Accesso negato: i documenti con i dati di una famiglia li genera la direzione del club",
+        "Accesso negato: i documenti li genera chi lavora nella segreteria del club",
       );
     }
 
-    const club = await getResourceById("clubs", organizationId, scope);
-    if (!club) {
-      return denied(404, "Club non trovato");
-    }
+    const templateScope = {
+      userId: session.db.user_id,
+      activeOrganizationId: organizationId,
+      allowedOrganizationIds: scope.allowedOrganizationIds,
+      role: scope.activeRole,
+    };
 
-    /*
-      Il modello si cerca fra quelli **di questo club**: e la stessa lettura
-      della pagina Modulistica, filtro dei moduli online compreso, cosi non
-      esiste un modello raggiungibile dall'API che la pagina non mostri.
-    */
-    const template = getDocumentTemplatesFromClub(
-      (club as Record<string, any>).document_templates,
-    ).find((item: any) => String(item?.id || "") === templateId);
+    const { version } = await loadPublishableVersion(templateScope, templateId);
 
-    if (!template) {
-      return denied(404, "Modello non trovato");
-    }
-
-    const resolved = await resolveDocumentPlaceholders({
+    const resolved = await resolveDocumentForSubject({
       template: {
-        id: String((template as any).id || ""),
-        title: String((template as any).title || (template as any).name || ""),
-        content: String((template as any).content || ""),
+        id: String(version.template_id || ""),
+        title: String(version.title || ""),
+        content: String(version.content_html || ""),
       },
       organizationId,
-      athleteId,
+      subject:
+        subjectKind === "club"
+          ? { kind: "club" }
+          : ({ kind: subjectKind, id: athleteId } as any),
       seasonId: seasonId || null,
       scope,
     });
@@ -149,6 +141,10 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         data: {
+          templateId: version.template_id,
+          versionId: version.id,
+          version: Number(version.version || 0),
+          sensitivity: version.sensitivity || [],
           title: resolved.title,
           html: page,
           values: resolved.values,
@@ -164,6 +160,19 @@ export async function GET(request: Request) {
     const message = String(error?.message || "");
     if (message.includes("Accesso negato")) {
       return denied(403, message);
+    }
+
+    /*
+      Un modello che non esiste, che non e mai stato pubblicato o che e stato
+      ritirato sono tre cose che chi genera deve poter leggere: sono sue
+      decisioni, non difetti del server.
+    */
+    if (
+      message.includes("non e mai stato pubblicato") ||
+      message.includes("ritirato") ||
+      message.includes("Nessun atleta")
+    ) {
+      return denied(400, message);
     }
 
     /*

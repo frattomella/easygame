@@ -1,0 +1,12 @@
+-- Wave 3 / W3-A — La bozza di un modello.
+--
+-- La barriera aveva dato al modello il titolo, il soggetto e le sue versioni,
+-- e si era dimenticata del contenuto **in lavorazione**. Senza, l'editor
+-- avrebbe avuto due sole strade: pubblicare a ogni salvataggio — e allora il
+-- numero di versione non direbbe piu «revisione» ma «battitura» — oppure
+-- tenere il testo nel browser, cioe perderlo.
+--
+-- E la stessa forma di `form_templates.draft` (ADR-0040), e per la stessa
+-- ragione: la bozza si modifica quanto si vuole, la pubblicazione e l'atto che
+-- la congela.
+ALTER TABLE "document_templates_v2" ADD COLUMN "draft_content" TEXT NOT NULL DEFAULT '';

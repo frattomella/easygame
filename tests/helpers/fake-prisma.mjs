@@ -287,6 +287,30 @@ const UNIQUE_CONSTRAINTS = {
   ],
   trainingAttendance: [["organization_id", "training_id", "athlete_id"]],
   paymentLink: [["token_hash"]],
+  /*
+    Wave 3. I tre vincoli su cui poggia il motore documentale:
+
+      * `document_template_versions_template_id_version_key` — due righe con lo
+        stesso numero di versione renderebbero ambigua la citazione di un
+        documento, che e l'unica cosa che la versione deve garantire;
+      * `generated_documents_..._batch_subject` — dentro un lotto lo stesso
+        soggetto produce **un** documento. E cio che rende un nuovo tentativo
+        capace di rigenerare solo i falliti, e in PostgreSQL vale solo quando
+        `batch_id` non e nullo: una generazione singola resta libera di
+        ripetersi, perche due attestazioni chieste due volte sono due
+        documenti;
+      * `consent_definitions_organization_id_key_key` — la chiave con cui un
+        modulo o un modello nomina un consenso deve identificarne uno solo.
+  */
+  documentTemplateVersion: [["template_id", "version"]],
+  generatedDocument: [
+    {
+      fields: ["organization_id", "batch_id", "subject_kind", "subject_id"],
+      quando: (row) => row.batch_id !== null && row.batch_id !== undefined,
+    },
+  ],
+  consentDefinition: [["organization_id", "key"]],
+  consentVersion: [["definition_id", "version"]],
 };
 
 /** L'errore che Prisma lancia su una chiave duplicata. */

@@ -2097,6 +2097,18 @@ model DocumentTemplate {
   /// atleta e uno che parla di un allenatore non hanno gli stessi dati
   /// disponibili, e fingere di si produce campi bianchi (debito `DOC-04`).
   subject_kind      String                    @default("athlete")
+  /// Il contenuto **in lavorazione**, che non e ancora un documento per
+  /// nessuno.
+  ///
+  /// Sta sulla riga del modello e non in una versione perche una versione e
+  /// immutabile: se ogni salvataggio dell'editor ne creasse una, il numero di
+  /// versione smetterebbe di dire qualcosa — «la sedicesima» non sarebbe una
+  /// revisione, sarebbe una battitura. Pubblicare e l'atto che congela questa
+  /// stringa in `document_template_versions`.
+  ///
+  /// E la stessa forma dei moduli online (`form_templates.draft`, ADR-0040),
+  /// e per la stessa ragione.
+  draft_content     String                    @default("")
   /// `draft` | `active` | `retired`.
   ///
   /// `retired` non e `deleted`: un modello ritirato non si propone piu per
