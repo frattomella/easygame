@@ -22,11 +22,141 @@
  * DOM. Si prova senza database.
  */
 
+/**
+ * Di chi parla un segnaposto.
+ *
+ * **Perche il catalogo smette di essere piatto** (Wave 3, barriera). Fino alla
+ * Wave 2 il catalogo era un elenco: l'editor proponeva ottantatre chiavi e il
+ * risolutore ne sapeva produrre una cinquantina, perche le altre — staff,
+ * allenatori, soci, sponsor — in un documento intestato a un **atleta** non
+ * hanno un soggetto a cui riferirsi. Chi le usava otteneva un campo bianco
+ * dichiarato: corretto, ma l'editor continuava a proporre una promessa che
+ * non c'era (debito `DOC-04`).
+ *
+ * Con il soggetto, l'editor propone **solo** cio che il modello sapra
+ * riempire, e la promessa sparisce alla radice invece di essere corretta a
+ * valle.
+ *
+ * - `club` — la societa: c'e sempre, qualunque sia il soggetto del modello;
+ * - `athlete` — l'atleta e chi gli ruota attorno (tutori, intestatario
+ *   fiscale, iscrizione, rate, frequenza, certificato);
+ * - `person` — una persona del lavoro sportivo: allenatore, staff, il suo
+ *   rapporto e il suo compenso;
+ * - `member` — un socio;
+ * - `document` — il documento stesso: titolo, data, protocollo;
+ * - `system` — data corrente, stagione, destinatario: non dipendono da nessun
+ *   soggetto dichiarabile;
+ * - `sponsor`, `supplier`, `event` — **non sono soggetti di un documento**.
+ *   Un modello non puo dichiararli (`TEMPLATE_SUBJECT_KINDS` non li contiene),
+ *   quindi l'editor non li propone mai e chi li scrive in un modello se lo
+ *   sente dire alla pubblicazione. Restano in catalogo perche i messaggi di
+ *   Wave 2 li usano, ed e li che hanno un senso.
+ */
+export const PLACEHOLDER_SUBJECTS = [
+  "club",
+  "athlete",
+  "person",
+  "member",
+  "document",
+  "system",
+  "sponsor",
+  "supplier",
+  "event",
+] as const;
+
+export type PlaceholderSubject = (typeof PLACEHOLDER_SUBJECTS)[number];
+
+/** `{{ athlete.first_name }}` → `athlete.first_name`. */
+export const normalizePlaceholderKey = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[{}]/g, "")
+    .trim();
+
+/**
+ * I soggetti che un **modello** puo dichiarare.
+ *
+ * Sono meno di quelli di un segnaposto: `document` e `system` non sono
+ * soggetti di cui un documento parli, sono cose che qualunque documento ha.
+ */
+export const TEMPLATE_SUBJECT_KINDS = [
+  "club",
+  "athlete",
+  "person",
+  "member",
+] as const;
+
+export type TemplateSubjectKind = (typeof TEMPLATE_SUBJECT_KINDS)[number];
+
+export const isTemplateSubjectKind = (
+  value: unknown,
+): value is TemplateSubjectKind =>
+  (TEMPLATE_SUBJECT_KINDS as readonly string[]).includes(
+    String(value || "").trim().toLowerCase(),
+  );
+
+/**
+ * Quanto e delicato il dato che il segnaposto porta.
+ *
+ * `economic` esisteva gia (`ECONOMIC_PLACEHOLDER_KEYS`) ed era usato dai
+ * messaggi di Wave 2: qui viene **generalizzato**, non duplicato — la funzione
+ * `isEconomicPlaceholderKey` continua a rispondere esattamente come prima,
+ * perche legge questa stessa proprieta.
+ *
+ * Il criterio resta quello di Wave 2: **quanto**, non **quando**. Una data di
+ * scadenza dice a una famiglia una cosa che gia sa; un residuo dice la
+ * posizione debitoria.
+ *
+ * `health` e nuovo e vale per il dato clinico. Non e G-33 — il permesso
+ * separato sul dato clinico resta un gap aperto — ma serve gia oggi a
+ * impedire che un certificato finisca dentro un documento generato da chi non
+ * puo vederlo.
+ */
+export const PLACEHOLDER_SENSITIVITIES = [
+  "plain",
+  "economic",
+  "health",
+] as const;
+
+export type PlaceholderSensitivity = (typeof PLACEHOLDER_SENSITIVITIES)[number];
+
+/**
+ * Cosa fare quando il dato non c'e.
+ *
+ * - `blank` — resta un campo da compilare a mano, ed e elencato in `missing`.
+ *   E il comportamento di sempre, e resta il predefinito;
+ * - `warn` — come `blank`, ma chi genera lo legge come avviso prima di
+ *   stampare;
+ * - `block` — la generazione si rifiuta. Serve al giorno in cui un modello
+ *   dira un compenso: un contratto senza importo non deve uscire.
+ */
+export const PLACEHOLDER_NULLABLE_BEHAVIOURS = [
+  "blank",
+  "warn",
+  "block",
+] as const;
+
+export type PlaceholderNullableBehaviour =
+  (typeof PLACEHOLDER_NULLABLE_BEHAVIOURS)[number];
+
 export type DocumentTemplateToken = {
   label: string;
   value: string;
   group: string;
   description?: string;
+  /**
+   * Il soggetto che deve esistere perche la chiave abbia un valore.
+   *
+   * Lo assegna `PLACEHOLDER_CONTRACT`, piu sotto, e un test verifica che non
+   * ne resti fuori nessuna chiave. Assente = `club`, che e il soggetto sempre
+   * disponibile.
+   */
+  subject?: PlaceholderSubject;
+  /** Chi produce il dato: `installment-ledger`, `attendance-measure`, … */
+  owner?: string;
+  /** Assente = `plain`. */
+  sensitivity?: PlaceholderSensitivity;
+  /** Assente = `blank`. */
+  nullable?: PlaceholderNullableBehaviour;
 };
 
 export type DocumentSignatureToken = {
@@ -40,7 +170,7 @@ export type DocumentSignatureToken = {
  * L'ordine e quello dei gruppi mostrati nell'editor: chi scrive un modello
  * cerca «Atleta» o «Iscrizione/Pagamenti», non una chiave alfabetica.
  */
-export const DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] = [
+const RAW_DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] = [
   { label: "Nome club", value: "{{club.name}}", group: "Club" },
   { label: "Indirizzo club", value: "{{club.address}}", group: "Club" },
   { label: "Citta club", value: "{{club.city}}", group: "Club" },
@@ -190,6 +320,193 @@ export const DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] = [
 ];
 
 /**
+ * **Il contratto di ogni chiave**: di chi parla, chi la produce, quanto e
+ * delicata (Wave 3, barriera).
+ *
+ * **Perche una tabella e non un attributo su ogni voce.** Le voci qui sopra
+ * sono ottantatre e si leggono per gruppo — «Atleta», «Iscrizione/Pagamenti» —
+ * perche cosi le cerca chi scrive un modello. Il contratto si legge invece per
+ * **colonna**: «quali chiavi sono economiche?», «quali hanno senso in un
+ * documento che parla di un allenatore?». Due domande diverse, due letture
+ * diverse, e mescolarle avrebbe reso illeggibili entrambe. Un test verifica
+ * che nessuna chiave resti fuori da questa tabella.
+ *
+ * **I tre soggetti che nessun modello puo dichiarare.** `sponsor`, `supplier`
+ * ed `event` non sono soggetti di un documento: sono cose che vivono altrove —
+ * i primi due in `clubs.sponsors`, il terzo in un invito. Marcandoli cosi,
+ * `listPlaceholderTokensForSubject` **non li propone mai** e
+ * `validateTemplateDraft` rifiuta un modello che li nomina. E la chiusura del
+ * debito `DOC-04` senza togliere niente dal catalogo: le chiavi restano, per i
+ * messaggi che le usano, e smettono di promettere qualcosa a chi scrive un
+ * documento.
+ */
+const PLACEHOLDER_CONTRACT: Record<
+  string,
+  {
+    subject: PlaceholderSubject;
+    owner?: string;
+    sensitivity?: PlaceholderSensitivity;
+    nullable?: PlaceholderNullableBehaviour;
+  }
+> = {
+  /* Il club: c'e sempre, qualunque sia il soggetto del modello. */
+  "club.name": { subject: "club", owner: "resources:clubs" },
+  "club.address": { subject: "club", owner: "resources:clubs" },
+  "club.city": { subject: "club", owner: "resources:clubs" },
+  "club.email": { subject: "club", owner: "resources:clubs" },
+  "club.phone": { subject: "club", owner: "resources:clubs" },
+  "club.fiscal_code": { subject: "club", owner: "resources:clubs" },
+  "club.vat_number": { subject: "club", owner: "resources:clubs" },
+  "club.website": { subject: "club", owner: "resources:clubs" },
+
+  /* L'atleta e cio che gli ruota attorno. */
+  "athlete.first_name": { subject: "athlete", owner: "athletes" },
+  "athlete.last_name": { subject: "athlete", owner: "athletes" },
+  "athlete.birth_date": { subject: "athlete", owner: "athletes" },
+  "athlete.category_name": { subject: "athlete", owner: "athletes" },
+  "athlete.fiscal_code": { subject: "athlete", owner: "athletes" },
+  "athlete.address": { subject: "athlete", owner: "athletes" },
+  "athlete.email": { subject: "athlete", owner: "athletes" },
+  "athlete.phone": { subject: "athlete", owner: "athletes" },
+  "athlete.jersey_number": { subject: "athlete", owner: "athletes" },
+  "parent.1.first_name": { subject: "athlete", owner: "athlete-guardians" },
+  "parent.1.last_name": { subject: "athlete", owner: "athlete-guardians" },
+  "parent.1.email": { subject: "athlete", owner: "athlete-guardians" },
+  "parent.1.phone": { subject: "athlete", owner: "athlete-guardians" },
+  "parent.2.first_name": { subject: "athlete", owner: "athlete-guardians" },
+  "parent.2.last_name": { subject: "athlete", owner: "athlete-guardians" },
+  "parent.2.email": { subject: "athlete", owner: "athlete-guardians" },
+  "parent.2.phone": { subject: "athlete", owner: "athlete-guardians" },
+  "guardian.name": { subject: "athlete", owner: "athlete-guardians" },
+  "fiscal_recipient.name": { subject: "athlete", owner: "fiscal-recipient" },
+  "fiscal_recipient.fiscal_code": {
+    subject: "athlete",
+    owner: "fiscal-recipient",
+  },
+  "fiscal_recipient.address": { subject: "athlete", owner: "fiscal-recipient" },
+  "category.name": { subject: "athlete", owner: "athletes" },
+  "team.name": { subject: "athlete", owner: "athletes" },
+  "registration.status": { subject: "athlete", owner: "athletes" },
+
+  /* Il dato clinico. Non e G-33 — il permesso separato resta un gap — ma un
+     certificato non deve finire in un documento generato da chi non lo vede. */
+  "medical_certificate.status": {
+    subject: "athlete",
+    owner: "medical-certificates",
+    sensitivity: "health",
+  },
+  "medical_certificate.expiry_date": {
+    subject: "athlete",
+    owner: "medical-certificates",
+    sensitivity: "health",
+  },
+
+  /* Il denaro. `payment.plan` e il **nome** di un piano, non un importo: dice
+     quale listino, non quanto. */
+  "payment.plan": { subject: "athlete", owner: "payment-plans" },
+  "payment.total_due": {
+    subject: "athlete",
+    owner: "installment-ledger",
+    sensitivity: "economic",
+  },
+  "payment.total_paid": {
+    subject: "athlete",
+    owner: "installment-ledger",
+    sensitivity: "economic",
+  },
+  "payment.remaining": {
+    subject: "athlete",
+    owner: "installment-ledger",
+    sensitivity: "economic",
+  },
+  "installment.due_date": { subject: "athlete", owner: "installment-ledger" },
+  "installment.description": {
+    subject: "athlete",
+    owner: "installment-ledger",
+  },
+  "installment.residual_amount": {
+    subject: "athlete",
+    owner: "installment-ledger",
+    sensitivity: "economic",
+  },
+  "installment.overdue_count": {
+    subject: "athlete",
+    owner: "installment-ledger",
+    sensitivity: "economic",
+  },
+  "payment.next_due_date": { subject: "athlete", owner: "installment-ledger" },
+  "payment.link": {
+    subject: "athlete",
+    owner: "payment-links",
+    sensitivity: "economic",
+  },
+  "attendance.sessions": { subject: "athlete", owner: "attendance-measure" },
+  "attendance.hours": { subject: "athlete", owner: "attendance-measure" },
+
+  /* Le persone del lavoro sportivo: allenatori e staff sono lo stesso
+     soggetto, perche il documento parla di **una persona con un ruolo**. */
+  "staff.first_name": { subject: "person", owner: "sport-work" },
+  "staff.last_name": { subject: "person", owner: "sport-work" },
+  "staff.role": { subject: "person", owner: "sport-work" },
+  "staff.email": { subject: "person", owner: "sport-work" },
+  "staff.phone": { subject: "person", owner: "sport-work" },
+  "trainer.first_name": { subject: "person", owner: "sport-work" },
+  "trainer.last_name": { subject: "person", owner: "sport-work" },
+  "trainer.role": { subject: "person", owner: "sport-work" },
+  "trainer.email": { subject: "person", owner: "sport-work" },
+  "trainer.phone": { subject: "person", owner: "sport-work" },
+
+  /* I soci. */
+  "member.first_name": { subject: "member", owner: "resources:members" },
+  "member.last_name": { subject: "member", owner: "resources:members" },
+  "member.email": { subject: "member", owner: "resources:members" },
+  "member.phone": { subject: "member", owner: "resources:members" },
+
+  /*
+    Il destinatario. In un **messaggio** e la persona a cui il messaggio arriva
+    e lo risolve chi manda; in un **documento** e il soggetto stesso, e lo
+    risolve il generatore. Vale quindi per qualunque modello: `system`.
+  */
+  "recipient.name": { subject: "system", owner: "generated-document" },
+  "recipient.first_name": { subject: "system", owner: "generated-document" },
+
+  /*
+    Sponsor, fornitori ed eventi: **nessun modello puo dichiararli come
+    soggetto**, quindi l'editor non li propone mai e un modello che li nomina
+    non si pubblica. Restano in catalogo per i messaggi.
+  */
+  "sponsor.name": { subject: "sponsor", owner: "resources:sponsors" },
+  "sponsor.contact_name": { subject: "sponsor", owner: "resources:sponsors" },
+  "sponsor.email": { subject: "sponsor", owner: "resources:sponsors" },
+  "sponsor.phone": { subject: "sponsor", owner: "resources:sponsors" },
+  "supplier.name": { subject: "supplier", owner: "resources:sponsors" },
+  "event.title": { subject: "event", owner: "trainings" },
+  "event.date": { subject: "event", owner: "trainings" },
+  "event.time": { subject: "event", owner: "trainings" },
+
+  /* Il documento stesso, e cio che non dipende da nessun soggetto. */
+  "document.title": { subject: "document", owner: "generated-document" },
+  "document.date": { subject: "document", owner: "generated-document" },
+  "current_date": { subject: "system", owner: "generated-document" },
+  "season.year": { subject: "system", owner: "club-seasons" },
+  "season.start_date": { subject: "system", owner: "club-seasons" },
+  "season.end_date": { subject: "system", owner: "club-seasons" },
+};
+
+/**
+ * I segnaposto, con il loro contratto applicato.
+ *
+ * E questa la lista che editor, risolutore e validatore leggono: la forma
+ * grezza qui sopra esiste solo perche si legga per gruppo.
+ */
+export const DOCUMENT_TEMPLATE_TOKENS: DocumentTemplateToken[] =
+  RAW_DOCUMENT_TEMPLATE_TOKENS.map((token) => {
+    const key = normalizePlaceholderKey(token.value);
+    const contract = PLACEHOLDER_CONTRACT[key];
+    return contract ? { ...token, ...contract } : token;
+  });
+
+/**
  * I blocchi firma: non sono un dato, sono uno spazio.
  *
  * `{{signature.club_representative}}` e `{{stamp.club}}` fanno eccezione, ed e
@@ -208,12 +525,6 @@ export const DOCUMENT_SIGNATURE_TOKENS: DocumentSignatureToken[] = [
   { label: "Timbro del club", value: "{{stamp.club}}" },
 ];
 
-/** `{{ athlete.first_name }}` → `athlete.first_name`. */
-export const normalizePlaceholderKey = (value: unknown) =>
-  String(value ?? "")
-    .replace(/[{}]/g, "")
-    .trim();
-
 /** Le chiavi del catalogo, senza parentesi: e l'elenco chiuso. */
 export const DOCUMENT_PLACEHOLDER_KEYS: string[] = [
   ...DOCUMENT_TEMPLATE_TOKENS,
@@ -224,6 +535,76 @@ const PLACEHOLDER_KEY_SET = new Set(DOCUMENT_PLACEHOLDER_KEYS);
 
 export const isKnownPlaceholderKey = (key: unknown) =>
   PLACEHOLDER_KEY_SET.has(normalizePlaceholderKey(key));
+
+const TOKEN_BY_KEY = new Map(
+  DOCUMENT_TEMPLATE_TOKENS.map((token) => [
+    normalizePlaceholderKey(token.value),
+    token,
+  ]),
+);
+
+/** La voce di catalogo di una chiave, se e in catalogo. */
+export const getPlaceholderToken = (
+  key: unknown,
+): DocumentTemplateToken | undefined =>
+  TOKEN_BY_KEY.get(normalizePlaceholderKey(key));
+
+/**
+ * Il soggetto di una chiave. Predefinito `club`, che c'e sempre.
+ *
+ * I blocchi firma non sono nel catalogo dei token e non hanno soggetto: sono
+ * uno spazio, non un dato. Rispondono `club` e vanno bene per qualunque
+ * modello.
+ */
+export const getPlaceholderSubject = (key: unknown): PlaceholderSubject =>
+  getPlaceholderToken(key)?.subject ?? "club";
+
+export const getPlaceholderSensitivity = (
+  key: unknown,
+): PlaceholderSensitivity => getPlaceholderToken(key)?.sensitivity ?? "plain";
+
+export const getPlaceholderNullableBehaviour = (
+  key: unknown,
+): PlaceholderNullableBehaviour =>
+  getPlaceholderToken(key)?.nullable ?? "blank";
+
+/**
+ * Le chiavi che un modello con quel soggetto puo davvero riempire.
+ *
+ * `club`, `document` e `system` valgono sempre: sono cio che qualunque
+ * documento ha. Il soggetto dichiarato dal modello aggiunge le sue.
+ */
+export const listPlaceholderTokensForSubject = (
+  subject: TemplateSubjectKind,
+): DocumentTemplateToken[] =>
+  DOCUMENT_TEMPLATE_TOKENS.filter((token) => {
+    const tokenSubject = token.subject ?? "club";
+    if (
+      tokenSubject === "club" ||
+      tokenSubject === "document" ||
+      tokenSubject === "system"
+    ) {
+      return true;
+    }
+    return tokenSubject === subject;
+  });
+
+/**
+ * Le classi sensibili presenti in un insieme di chiavi, senza `plain`.
+ *
+ * E cio che una versione di modello congela alla pubblicazione, e cio su cui
+ * si decide chi puo generare quel documento.
+ */
+export const collectPlaceholderSensitivities = (
+  keys: Iterable<string>,
+): PlaceholderSensitivity[] => {
+  const found = new Set<PlaceholderSensitivity>();
+  for (const key of keys) {
+    const sensitivity = getPlaceholderSensitivity(key);
+    if (sensitivity !== "plain") found.add(sensitivity);
+  }
+  return [...found].sort();
+};
 
 /**
  * I segnaposto che portano un dato **economico**.
@@ -239,15 +620,17 @@ export const isKnownPlaceholderKey = (key: unknown) =>
  * famiglia una cosa che gia sa; un residuo, un numero di rate scadute o un
  * link che apre un pagamento dicono la posizione debitoria — ed e quella che
  * §11 del planning di Wave 2 chiude dietro `canManageClubConfiguration`.
+ *
+ * **Perche adesso e derivato e non piu scritto a mano** (Wave 3, barriera).
+ * Era un secondo elenco accanto al catalogo, e il commento qui sopra gia
+ * spiegava il rischio: una chiave di importo aggiunta nel catalogo e
+ * dimenticata qui sarebbe finita in un messaggio a chi non puo vederla. Ora la
+ * sensibilita e una proprieta della **voce di catalogo** e questo elenco la
+ * legge. Le sei chiavi sono le stesse di prima, e un test lo verifica.
  */
-export const ECONOMIC_PLACEHOLDER_KEYS: string[] = [
-  "payment.total_due",
-  "payment.total_paid",
-  "payment.remaining",
-  "installment.residual_amount",
-  "installment.overdue_count",
-  "payment.link",
-];
+export const ECONOMIC_PLACEHOLDER_KEYS: string[] = DOCUMENT_TEMPLATE_TOKENS
+  .filter((token) => token.sensitivity === "economic")
+  .map((token) => normalizePlaceholderKey(token.value));
 
 const ECONOMIC_KEY_SET = new Set(ECONOMIC_PLACEHOLDER_KEYS);
 

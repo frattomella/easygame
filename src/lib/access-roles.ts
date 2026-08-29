@@ -104,6 +104,8 @@ const MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES = [
   "/communications",
   "/create-club",
   "/dashboard/access-management",
+  // I modelli sono configurazione societaria: W3-14, §13 del documento 35.
+  "/modulistica",
   // La configurazione iniziale scrive dati societari: stesso perimetro di
   // /organization, quindi proprietario e club manager.
   "/onboarding",
@@ -124,6 +126,19 @@ const MANAGEMENT_ADMIN_ONLY_RESOURCES = new Set([
   "access_tokens",
   "bank_accounts",
   "clubs",
+  /*
+    L'altra meta di W3-14. Chiudere la **pagina** senza chiudere la **rotta**
+    avrebbe spostato il difetto invece di risolverlo: il CRUD generico e
+    raggiungibile senza passare da nessuna schermata, ed e da li che la sonda
+    a runtime ha ottenuto i suoi `200` su creazione, modifica e cancellazione.
+
+    Le due porte rispondevano anche diversamente in lettura —
+    `GET /api/v1/document_templates` dava `200` a un collaboratore,
+    `GET /api/v1/clubs?fields=…` dava `403` allo stesso — e due porte che
+    rispondono diversamente sulla stessa cosa sono un difetto anche quando
+    nessuna delle due e sbagliata da sola.
+  */
+  "document_templates",
   "organizations",
   "organization_users",
   "payment_methods",

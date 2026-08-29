@@ -261,6 +261,10 @@ model Club {
   sport_work_obligations       SportWorkObligation[]
   communication_deliveries     CommunicationDelivery[]
   payment_links                PaymentLink[]
+  document_template_records    DocumentTemplate[]
+  generated_documents          GeneratedDocument[]
+  consent_definitions          ConsentDefinition[]
+  consent_records              ConsentRecord[]
 
   @@map("clubs")
 }
@@ -992,6 +996,26 @@ model Attachment {
   checksum        String
   storage_driver  String          @default("database")
   storage_key     String?
+  /// Da quando il documento vale. Quasi sempre la data di rilascio.
+  ///
+  /// **Perche la validita sta qui e non in un archivio nuovo** (Wave 3, W3-G).
+  /// La scadenza di un documento e una proprieta **del documento**, e il
+  /// documento e questa riga. Prima della Wave 3 viveva in campi JSON liberi
+  /// (`staffMemberData.documentExpiry`) che nessuno leggeva: un documento
+  /// d'identita scaduto lo scopriva chi lo cercava.
+  ///
+  /// Il **certificato medico non passa di qui**: ha `medical_certificates`
+  /// con una semantica propria (mancante / in scadenza / scaduto) e la sua
+  /// automazione `AUT-03`. Due fonti per la stessa scadenza vorrebbero dire
+  /// due promemoria per lo stesso fatto.
+  valid_from      DateTime?
+  /// Fino a quando il documento vale. `null` = non scade.
+  ///
+  /// Lo **stato** (valido / in scadenza / scaduto) non e una colonna: si
+  /// ricava da questa data e da oggi, come lo stato di una rata e quello di
+  /// una scadenza del lavoro sportivo. Scriverlo vorrebbe dire tenerlo
+  /// aggiornato, e nessun giro notturno puo garantirlo per ogni riga.
+  valid_until     DateTime?
   created_by      String?         @db.Uuid
   created_at      DateTime        @default(now())
   updated_at      DateTime        @updatedAt
@@ -1001,6 +1025,9 @@ model Attachment {
   @@index([organization_id])
   @@index([organization_id, owner_type, owner_id])
   @@index([organization_id, checksum])
+  /// Il giro notturno delle scadenze cerca «cosa scade fra N giorni in questo
+  /// club»: senza questo indice sarebbe una scansione di tutti gli allegati.
+  @@index([organization_id, valid_until])
   @@map("attachments")
 }
 
@@ -2034,4 +2061,286 @@ model PaymentLink {
   @@index([organization_id, payment_id])
   @@index([expires_at])
   @@map("payment_links")
+}
+
+/**
+ * ==========================================================================
+ * Wave 3 — Documenti intelligenti, consensi e scadenze documentali.
+ * Vedi docs/knowledge-base/35-wave-3-planning.md e ADR-0088…ADR-0092.
+ * ==========================================================================
+ */
+
+/// Un **modello di documento** del club.
+///
+/// **Perche una tabella e non piu l'array JSON** (ADR-0088). Fino alla Wave 3
+/// un modello era un oggetto dentro `clubs.document_templates`, scritto in
+/// place: nessuna versione, nessun autore attendibile, e due forme diverse
+/// nella stessa colonna a seconda che lo scrivesse `/modulistica` o il CRUD
+/// generico. Correggere un modello riscriveva **anche** i documenti gia
+/// consegnati, perche non ne esisteva una copia.
+///
+/// E lo stesso problema da cui i moduli online sono usciti con ADR-0039 e
+/// ADR-0040, e la forma e la stessa: modello, versioni immutabili, e chi le
+/// cita.
+///
+/// **`clubs.document_templates` non viene svuotata**: la migrazione e una
+/// copia, come per i moduli. Vedi il debito `D28`.
+model DocumentTemplate {
+  id                String                    @id @default(uuid()) @db.Uuid
+  organization_id   String                    @db.Uuid
+  title             String
+  description       String?
+  /// Di chi parla il documento: `club` | `athlete` | `person` | `member`.
+  ///
+  /// Non e una decorazione: e cio che decide quali segnaposto l'editor propone
+  /// e quale soggetto il risolutore va a leggere. Un modello che parla di un
+  /// atleta e uno che parla di un allenatore non hanno gli stessi dati
+  /// disponibili, e fingere di si produce campi bianchi (debito `DOC-04`).
+  subject_kind      String                    @default("athlete")
+  /// `draft` | `active` | `retired`.
+  ///
+  /// `retired` non e `deleted`: un modello ritirato non si propone piu per
+  /// documenti nuovi, ma **continua a spiegare** quelli gia generati con le
+  /// sue versioni. Un modello con documenti generati non si cancella mai.
+  status            String                    @default("draft")
+  /// Numero dell'ultima versione pubblicata. Zero se non lo e mai stato.
+  published_version Int                       @default(0)
+  published_at      DateTime?
+  /// Da quale voce del catalogo di piattaforma deriva, se deriva da una.
+  ///
+  /// Serve a due cose: non riproporre al club un modello che ha gia adottato,
+  /// e sapere quali copie andrebbero riviste quando la voce di catalogo cambia.
+  /// Una copia adottata **e del club**: cambiarla non tocca il catalogo.
+  catalog_key       String?
+  /// La classe redazionale della voce di catalogo da cui nasce: `A` generic,
+  /// `B` federazione/regione, `C` legale/fiscale (ADR-0092).
+  ///
+  /// Sta sulla riga e non solo nel catalogo perche chi apre il modello fra un
+  /// anno deve poter sapere **cosa ha adottato**, anche se la voce di catalogo
+  /// nel frattempo e stata ritirata.
+  catalog_class     String?
+  /// Chi risponde del testo. Per una copia del club e il club stesso.
+  editorial_owner   String?
+  /// Quando il testo e stato riletto l'ultima volta. Un modello senza questa
+  /// data e un modello che nessuno controlla.
+  last_reviewed_at  DateTime?
+  editorial_notes   String?
+  created_by        String?                   @db.Uuid
+  created_at        DateTime                  @default(now())
+  updated_at        DateTime                  @updatedAt
+  organization      Club                      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  versions          DocumentTemplateVersion[]
+  generated         GeneratedDocument[]
+
+  @@index([organization_id, status])
+  @@index([organization_id, catalog_key])
+  @@map("document_templates_v2")
+}
+
+/// Una versione pubblicata di un modello: **immutabile**.
+///
+/// Non si aggiorna mai. E l'unica risposta possibile a «con quale testo e stato
+/// rilasciato questo documento?» che resti vera dopo che il modello e stato
+/// corretto — e i modelli si correggono, tutti gli anni.
+model DocumentTemplateVersion {
+  id               String              @id @default(uuid()) @db.Uuid
+  organization_id  String              @db.Uuid
+  template_id      String              @db.Uuid
+  version          Int
+  title            String
+  content_html     String
+  /// I segnaposto che il testo nomina, letti dal testo e non dal catalogo.
+  ///
+  /// Precalcolati alla pubblicazione perche servono **prima** di generare: a
+  /// dire quali dati il modello chiedera, e a decidere se chi genera puo
+  /// vederli. Rileggerli dall'HTML a ogni generazione vorrebbe dire analizzare
+  /// cento volte lo stesso testo dentro un lotto da cento.
+  placeholder_keys String[]            @default([])
+  /// Le classi sensibili presenti fra quei segnaposto: `economic`, `health`.
+  ///
+  /// E la chiave del controllo di permesso, e sta qui perche e una proprieta
+  /// **della versione**: una correzione che aggiunge un importo cambia chi puo
+  /// generare quel modello, e deve farlo dal momento della pubblicazione.
+  sensitivity      String[]            @default([])
+  subject_kind     String
+  published_at     DateTime            @default(now())
+  published_by     String?             @db.Uuid
+  template         DocumentTemplate    @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  generated        GeneratedDocument[]
+
+  @@unique([template_id, version])
+  @@index([organization_id])
+  @@map("document_template_versions")
+}
+
+/// Un **documento generato**: il fatto, non il file.
+///
+/// **Perche non e un allegato** (ADR-0089). `GET /api/v1/attachments/:id`
+/// autorizza la lettura a chiunque appartenga al club — verificato a runtime
+/// prima di scrivere questa riga. Un'attestazione che dice quanto ha versato
+/// una famiglia dentro quell'endpoint sarebbe leggibile da ogni allenatore,
+/// scavalcando qualunque permesso mettessimo sulla generazione. Un documento
+/// generato ha quindi la sua rotta e il suo controllo.
+///
+/// **Perche conserva la propria resa.** Congelare versione e valori basterebbe
+/// solo se il risolutore non cambiasse mai. Cambiera. Una colonna di testo
+/// costa poco e toglie di mezzo un'intera classe di dubbi: un documento
+/// rilasciato a marzo si rilegge a novembre identico.
+///
+/// **Il file firmato, quello si, e un allegato**: e un file caricato da una
+/// persona, ed e esattamente cio per cui Attachment Core esiste.
+model GeneratedDocument {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  organization_id      String                  @db.Uuid
+  template_id          String                  @db.Uuid
+  version_id           String                  @db.Uuid
+  subject_kind         String
+  /// Identificativo del soggetto. Testo e non UUID perche un soggetto puo
+  /// vivere in una collezione JSON (allenatori, staff, soci) e non solo in una
+  /// tabella.
+  subject_id           String
+  /// Come si chiamava il soggetto quando il documento e stato rilasciato. Un
+  /// documento storico deve restare leggibile anche se la persona viene
+  /// rinominata o rimossa.
+  subject_label        String?
+  season_id            String?
+  /// Cio che il risolutore ha scritto, chiave per chiave, in chiaro.
+  values_snapshot      Json
+  /// Il documento come e stato consegnato.
+  content_html         String
+  /// Segnaposto che il modello nomina e il risolutore non conosce.
+  unresolved           String[]                @default([])
+  /// Segnaposto conosciuti il cui dato mancava: sono rimasti bianchi.
+  missing              String[]                @default([])
+  /// Cose dette a chi ha generato **prima** di generare (firma assente…).
+  warnings             String[]                @default([])
+  /// Le classi sensibili che il documento contiene: decide chi puo rileggerlo.
+  sensitivity          String[]                @default([])
+  protocol_number      String?
+  /// `generated` | `issued` | `awaiting_signature` | `signed` | `rejected` |
+  /// `archived`.
+  ///
+  /// «Firmato» significa **una cosa sola**: e rientrata una copia firmata,
+  /// caricata come allegato e citata qui sotto. Non e una firma digitale, e la
+  /// schermata non la chiama cosi (ADR-0091).
+  status               String                  @default("generated")
+  /// L'allegato con la copia firmata, quando rientra.
+  signed_attachment_id String?                 @db.Uuid
+  signed_at            DateTime?
+  /// Il lotto che lo ha prodotto, quando nasce da una generazione massiva.
+  batch_id             String?
+  generated_by         String?                 @db.Uuid
+  generated_at         DateTime                @default(now())
+  updated_at           DateTime                @updatedAt
+  organization         Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  template             DocumentTemplate        @relation(fields: [template_id], references: [id], onDelete: Restrict)
+  version              DocumentTemplateVersion @relation(fields: [version_id], references: [id], onDelete: Restrict)
+
+  /// L'idempotenza del lotto, e la ragione per cui un nuovo tentativo rigenera
+  /// **solo** i falliti: dentro lo stesso `batch_id` un soggetto compare una
+  /// volta sola.
+  @@unique([organization_id, batch_id, subject_kind, subject_id], name: "generated_documents_batch_subject")
+  @@index([organization_id, subject_kind, subject_id])
+  @@index([organization_id, template_id])
+  @@index([organization_id, generated_at])
+  @@index([organization_id, batch_id])
+  @@map("generated_documents")
+}
+
+/// Cosa il club chiede di acconsentire: privacy, immagini, trasferte.
+///
+/// **Perche un dominio e non una casella dentro un modulo** (ADR-0090). Un
+/// consenso non e la risposta a una domanda: e uno **stato di una persona** che
+/// nasce, vale e finisce. Una compilazione e immutabile per costruzione e non
+/// puo rappresentare una revoca — e la revoca e meta del problema.
+///
+/// E la stessa distinzione gia fatta fra presenza e intenzione su
+/// `training_attendance` (ADR-0086): due fatti diversi non stanno sulla stessa
+/// riga.
+model ConsentDefinition {
+  id                String           @id @default(uuid()) @db.Uuid
+  organization_id   String           @db.Uuid
+  /// `privacy` | `images` | `travel` | … — la chiave con cui un modulo o un
+  /// modello lo nomina.
+  key               String
+  title             String
+  description       String?
+  /// Se la sua assenza va segnalata. Non blocca niente da sola: dice al club
+  /// chi manca.
+  required          Boolean          @default(false)
+  /// `draft` | `active` | `retired`.
+  status            String           @default("draft")
+  published_version Int              @default(0)
+  created_by        String?          @db.Uuid
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+  organization      Club             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  versions          ConsentVersion[]
+  records           ConsentRecord[]
+
+  @@unique([organization_id, key])
+  @@index([organization_id, status])
+  @@map("consent_definitions")
+}
+
+/// Il testo esatto che qualcuno ha accettato: **immutabile**.
+///
+/// Senza questa riga, «a cosa ha detto di si» diventa una domanda senza
+/// risposta il giorno in cui il club corregge l'informativa.
+model ConsentVersion {
+  id              String            @id @default(uuid()) @db.Uuid
+  organization_id String            @db.Uuid
+  definition_id   String            @db.Uuid
+  version         Int
+  title           String
+  body_text       String
+  published_at    DateTime          @default(now())
+  published_by    String?           @db.Uuid
+  definition      ConsentDefinition @relation(fields: [definition_id], references: [id], onDelete: Cascade)
+  records         ConsentRecord[]
+
+  @@unique([definition_id, version])
+  @@index([organization_id])
+  @@map("consent_versions")
+}
+
+/// Una decisione: accettato, rifiutato, revocato.
+///
+/// **Append-only.** Una revoca non cancella l'accettazione: aggiunge una riga.
+/// Il consenso dato a settembre resta dimostrabile anche dopo la revoca di
+/// gennaio, ed e esattamente cio che serve se qualcuno contesta una foto
+/// pubblicata a ottobre.
+///
+/// **Lo stato attuale non e una colonna**: e l'ultima riga per (definizione,
+/// soggetto). Come per le rate e per le scadenze del lavoro sportivo, lo stato
+/// si ricava e non si scrive.
+model ConsentRecord {
+  id              String            @id @default(uuid()) @db.Uuid
+  organization_id String            @db.Uuid
+  definition_id   String            @db.Uuid
+  version_id      String            @db.Uuid
+  /// `athlete` | `person` | `member` | `guardian`.
+  subject_kind    String
+  subject_id      String
+  subject_label   String?
+  /// `accepted` | `rejected` | `revoked`.
+  status          String
+  decided_at      DateTime          @default(now())
+  decided_by      String?           @db.Uuid
+  /// Da dove arriva: `public_form` | `internal_form` | `manual` | `import`.
+  source          String            @default("manual")
+  /// L'evidenza e un **puntatore**, non una copia: la compilazione o il
+  /// documento generato restano dove sono.
+  evidence_kind   String?
+  evidence_id     String?
+  note            String?
+  created_at      DateTime          @default(now())
+  organization    Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  definition      ConsentDefinition @relation(fields: [definition_id], references: [id], onDelete: Cascade)
+  version         ConsentVersion    @relation(fields: [version_id], references: [id], onDelete: Restrict)
+
+  @@index([organization_id, definition_id, subject_kind, subject_id, decided_at])
+  @@index([organization_id, subject_kind, subject_id])
+  @@index([organization_id, evidence_kind, evidence_id])
+  @@map("consent_records")
 }
