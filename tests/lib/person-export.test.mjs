@@ -223,6 +223,13 @@ test("esiste un solo generatore di PDF per gli elenchi di persone", () => {
           "app/movements/page.tsx",
           "app/private/api-docs/api-docs-client.tsx",
           "components/forms/FormShareDialog.tsx",
+          /*
+            Il fascicolo della generazione massiva (Wave 3): N documenti gia
+            **generati**, uno per pagina, aperti insieme per una stampa sola.
+            Non e un elenco di persone e non lo diventera: quello che stampa e
+            la resa conservata di ogni documento, non una tabella composta qui.
+          */
+          "components/documents/document-bundle.ts",
           "lib/clothing-supplier-order-pdf.ts",
         ].includes(file),
     );

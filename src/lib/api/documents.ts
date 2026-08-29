@@ -227,6 +227,33 @@ export const generateDocuments = async (input: {
   return { outcome: response.data || null, error: response.error?.message || null };
 };
 
+export type GeneratedDocumentDetail = GeneratedDocumentSummary & {
+  contentHtml: string;
+  valuesSnapshot: Record<string, string>;
+};
+
+/**
+ * Un documento gia generato, **com'era**.
+ *
+ * **Perche e una chiamata a se e non un campo dell'elenco.** `contentHtml` e il
+ * campo piu grande della riga, e nessuna lista lo mostra: portarlo dentro
+ * `listGeneratedDocuments` costerebbe megabyte per dire trenta titoli — lo
+ * stesso difetto per cui i modelli sono usciti dalla riga del club. Si legge
+ * quando qualcuno vuole davvero **quel** documento: aprirlo, o metterlo in un
+ * fascicolo.
+ *
+ * Non rigenera niente: restituisce la resa conservata (ADR-0089).
+ */
+export const getGeneratedDocument = async (id: string) => {
+  const response = await apiRequest<GeneratedDocumentDetail>(
+    `${GENERATED}/${encodeURIComponent(id)}`,
+  );
+  return {
+    document: response.data || null,
+    error: response.error?.message || null,
+  };
+};
+
 export const listGeneratedDocuments = async (
   options: {
     templateId?: string;

@@ -19,6 +19,7 @@ import {
   RotateCcw,
   Trash2,
   Upload,
+  Users,
 } from "lucide-react";
 import DocumentEditor from "@/components/forms/DocumentEditor";
 import Sidebar from "@/components/dashboard/Sidebar";
@@ -80,6 +81,12 @@ import {
   canManageDocumentTemplates,
   canReadDocumentTemplates,
 } from "@/lib/documents/permissions";
+import { BulkGenerationDialog } from "@/components/documents/BulkGenerationDialog";
+import {
+  clearStoredBatch,
+  readStoredBatch,
+  type BulkBatchState,
+} from "@/components/documents/bulk-generation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/use-toast";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
@@ -321,6 +328,17 @@ function ModulisticaPage() {
     useState<DocumentTemplateSummary | null>(null);
 
   /*
+    La generazione massiva (W3-E). Il lotto vive in `sessionStorage`, non qui:
+    `interruptedBatch` e solo cio che questa pagina ha trovato li dentro al
+    montaggio, cioe un lotto che qualcuno ha lasciato a meta ricaricando.
+  */
+  const [bulkTarget, setBulkTarget] =
+    useState<DocumentTemplateSummary | null>(null);
+  const [bulkResume, setBulkResume] = useState<BulkBatchState | null>(null);
+  const [interruptedBatch, setInterruptedBatch] =
+    useState<BulkBatchState | null>(null);
+
+  /*
     L'anteprima del documento compilato. Non e un dettaglio di comodo: §5.5.24
     chiede che i segnaposto che il risolutore non ha saputo riempire siano
     **elencati prima di produrre**. Un'attestazione con tre righe bianche che
@@ -395,6 +413,27 @@ function ModulisticaPage() {
       : window.location.pathname;
     window.history.replaceState(window.history.state, "", nextUrl);
   }, []);
+
+  /*
+    Il lotto lasciato a meta si scopre al montaggio, e non e un dettaglio: e
+    **questo** che rende ripartibile la generazione massiva dopo un F5. Senza,
+    l'identificativo del lotto resterebbe in `sessionStorage` senza che nessuno
+    lo proponga, e chi ha ricaricato ricomincerebbe da capo.
+  */
+  useEffect(() => {
+    setInterruptedBatch(readStoredBatch());
+  }, []);
+
+  const bulkAthletes = useMemo(
+    () =>
+      athletes.map((athlete) => ({
+        id: athlete.id,
+        label:
+          `${athlete.first_name} ${athlete.last_name}`.trim() ||
+          "Atleta senza nome",
+      })),
+    [athletes],
+  );
 
   const filteredAthletes = useMemo(() => {
     const term = athleteSearchTerm.trim().toLowerCase();
@@ -751,6 +790,65 @@ function ModulisticaPage() {
     showToast("success", "Documento prodotto: lo trovi in «Documenti generati»");
   };
 
+  /* --------------------------------------------- la generazione massiva */
+
+  const openBulkDialog = (template: DocumentTemplateSummary) => {
+    setBulkResume(null);
+    setBulkTarget(template);
+  };
+
+  const resumeBulkBatch = () => {
+    if (!interruptedBatch) return;
+
+    const template = templates.find(
+      (item) => item.id === interruptedBatch.templateId,
+    );
+
+    /*
+      Il modello e stato cancellato o ritirato mentre il lotto era in sospeso:
+      quel lotto non puo piu andare avanti, e tenerlo li vorrebbe dire
+      riproporre per sempre un pulsante che non fa niente.
+    */
+    if (!template) {
+      clearStoredBatch();
+      setInterruptedBatch(null);
+      showToast(
+        "error",
+        "Il modello di quel lotto non c'e piu: il lotto e stato scartato",
+      );
+      return;
+    }
+
+    setBulkResume(interruptedBatch);
+    setBulkTarget(template);
+  };
+
+  const discardBulkBatch = () => {
+    clearStoredBatch();
+    setInterruptedBatch(null);
+  };
+
+  const closeBulkDialog = () => {
+    setBulkTarget(null);
+    setBulkResume(null);
+    setInterruptedBatch(readStoredBatch());
+  };
+
+  /*
+    A lotto finito si rileggono modelli e documenti, non tutta la pagina:
+    `loadAll` rimette `loading` a vero, e la schermata di caricamento
+    smonterebbe il dialogo con l'esito ancora aperto.
+  */
+  const refreshAfterBulk = async () => {
+    const [templatesResult, generatedResult] = await Promise.all([
+      listDocumentTemplates({ includeRetired: true }),
+      listGeneratedDocuments({ limit: 100 }),
+    ]);
+
+    setTemplates(templatesResult.templates);
+    setGeneratedDocuments(generatedResult.documents);
+  };
+
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl space-y-6 py-6">
@@ -850,6 +948,20 @@ function ModulisticaPage() {
           >
             <Download className="mr-2 h-4 w-4" /> Genera documento
           </Button>
+          {/*
+            Il lotto parte solo da un modello **pubblicato** che parla di un
+            atleta: su una bozza il server rifiuterebbe cinquanta volte, e su un
+            altro soggetto produrrebbe cinquanta fogli con i campi bianchi.
+          */}
+          {template.status === "active" && template.subjectKind === "athlete" ? (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => openBulkDialog(template)}
+            >
+              <Users className="mr-2 h-4 w-4" /> Genera per piu atleti
+            </Button>
+          ) : null}
           {canManage ? (
             <Button
               variant="outline"
@@ -920,6 +1032,43 @@ function ModulisticaPage() {
           </TabsList>
 
           <TabsContent value="documents" className="space-y-4">
+            {/*
+              Il lotto interrotto si propone qui, non dentro il dialogo: chi ha
+              ricaricato la pagina non sa piu da quale modello era partito, e
+              cercarlo a memoria fra venti schede e il modo per rigenerare tutto
+              da capo.
+            */}
+            {interruptedBatch && !bulkTarget ? (
+              <Card className="border-amber-200 bg-amber-50">
+                <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 text-sm text-amber-900">
+                    <p className="font-medium">
+                      Un lotto di «{interruptedBatch.templateTitle}» e rimasto a
+                      meta
+                    </p>
+                    <p className="break-words">
+                      {interruptedBatch.servedSubjectIds.length} di{" "}
+                      {interruptedBatch.subjects.length} serviti. Riprendendolo
+                      si generano solo i mancanti: i documenti gia prodotti non
+                      si duplicano.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={resumeBulkBatch}>
+                      Riprendi
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={discardBulkBatch}
+                    >
+                      Scarta
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
             {listedTemplates.length > 0 ? (
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {listedTemplates.map(renderTemplateCard)}
@@ -1257,6 +1406,22 @@ function ModulisticaPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/*
+        Il lotto: montato solo quando serve, cosi che ogni lotto parta da uno
+        stato pulito senza che il dialogo debba azzerarsi da solo.
+      */}
+      {bulkTarget ? (
+        <BulkGenerationDialog
+          key={`${bulkTarget.id}-${bulkResume?.batchId || "nuovo"}`}
+          template={bulkTarget}
+          athletes={bulkAthletes}
+          seasonId={activeSeasonId}
+          resume={bulkResume}
+          onClose={closeBulkDialog}
+          onCompleted={() => void refreshAfterBulk()}
+        />
+      ) : null}
 
       {/* L'anteprima: cosa c'e dentro, e cosa non ci e entrato */}
       <Dialog
