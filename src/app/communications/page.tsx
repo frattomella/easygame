@@ -29,6 +29,9 @@ import { AlertTriangle, Eye, Mail, Send, Users } from "lucide-react";
  * **una** posizione, e un messaggio a una famiglia con due figli ne ha due.
  * Questo e testo dell'interfaccia, e resta qui.
  */
+/** Dove vive l'identificativo della comunicazione in corso, per questa scheda. */
+const COMMUNICATION_ID_KEY = "easygame_communication_id";
+
 const TESTO_DI_PARTENZA = {
   subject: "Comunicazione da {{club.name}}",
   body: [
@@ -138,12 +141,42 @@ export default function CommunicationsPage() {
   const [communicationId, setCommunicationId] = useState("");
 
   useEffect(() => {
-    setCommunicationId(
+    /*
+      **L'identificativo sopravvive al ricaricamento della pagina.**
+
+      Nasceva a ogni montaggio, quindi viveva dentro uno stato di React: chi
+      ricaricava a meta di un invio a lotti — «Continua: restano N» — ripartiva
+      con un identificativo nuovo, cioe con una **comunicazione nuova**, e i
+      primi duecento destinatari ricevevano il messaggio una seconda volta. La
+      difesa contro il doppio invio non puo dipendere da uno stato che un F5
+      cancella.
+
+      `sessionStorage` e la durata giusta: la comunicazione che sto scrivendo
+      appartiene a questa scheda, e chiuderla significa davvero ricominciare.
+    */
+    setClubName(readStoredActiveClub()?.name || "");
+
+    try {
+      const conservato = window.sessionStorage.getItem(COMMUNICATION_ID_KEY);
+      if (conservato) {
+        setCommunicationId(conservato);
+        return;
+      }
+    } catch {
+      /* Sessione senza storage: si ripiega su un identificativo volatile. */
+    }
+
+    const nuovo =
       typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
-        : String(Date.now()),
-    );
-    setClubName(readStoredActiveClub()?.name || "");
+        : String(Date.now());
+
+    setCommunicationId(nuovo);
+    try {
+      window.sessionStorage.setItem(COMMUNICATION_ID_KEY, nuovo);
+    } catch {
+      /* Come sopra: la protezione degrada, non sparisce. */
+    }
   }, []);
 
   useEffect(() => {
@@ -249,11 +282,22 @@ export default function CommunicationsPage() {
     setSubject("");
     setBody("");
     setSelected([]);
-    setCommunicationId(
+
+    /*
+      **Questo** e il gesto che dichiara una comunicazione nuova, ed e l'unico:
+      il ricaricamento della pagina non lo e.
+    */
+    const nuovo =
       typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
-        : String(Date.now()),
-    );
+        : String(Date.now());
+
+    setCommunicationId(nuovo);
+    try {
+      window.sessionStorage.setItem(COMMUNICATION_ID_KEY, nuovo);
+    } catch {
+      /* La protezione degrada, non sparisce. */
+    }
   };
 
   return (
