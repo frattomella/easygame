@@ -192,13 +192,37 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/documents/:kind/:id` — il documento stampabile di una ricevuta
   (`receipt`) o di una fattura (`invoice`), con il branding della societa.
   Restituisce **HTML**, non JSON: chi apre questo indirizzo vuole stampare
-- `GET /api/v1/documents/filled` — un modello di modulistica **compilato** per
-  un atleta e una stagione (`templateId`, `athleteId`, `seasonId`). Restituisce
-  la pagina stampabile **insieme** ai segnaposto non risolti e a quelli senza
-  dato, perche l'anteprima li mostri prima di stampare; `?format=html`
-  restituisce la sola pagina. Gli importi vengono dal registro incassi
-  ([ADR-0068](knowledge-base/18-decision-log.md)), la frequenza dal dominio
-  contributi. **Un documento, un atleta**: nessuna stampa massiva
+- `GET|POST /api/v1/documents/templates` — i modelli di documento del club.
+  `?include_retired=1` mostra anche i ritirati. `POST` crea **in bozza**:
+  creare non pubblica. Legge la segreteria, scrive la direzione
+- `GET|PATCH|DELETE /api/v1/documents/templates/:id` — un modello con la sua
+  bozza e le sue versioni. `PATCH` scrive la **bozza**, mai una versione;
+  `DELETE` riesce solo se il modello non ha mai prodotto niente — altrimenti si
+  ritira ([ADR-0088](knowledge-base/18-decision-log.md))
+- `POST /api/v1/documents/templates/:id/publish` — congela la bozza in una
+  versione **immutabile**. Se non si puo, la risposta porta `issues` con la
+  chiave del segnaposto che lo impedisce: mai un rifiuto muto
+- `GET|POST /api/v1/documents/catalog` — le voci di catalogo adottabili, e
+  l'adozione. Escono **solo** le voci di classe A e attive: quelle legali o
+  fiscali non validate non vengono nemmeno nominate
+  ([ADR-0092](knowledge-base/18-decision-log.md))
+- `GET /api/v1/documents/filled` — l'**anteprima** di un modello compilato
+  (`templateId`, `subjectKind`, `subjectId`; `athleteId` resta accettato per
+  compatibilita). Restituisce la pagina stampabile **insieme** ai segnaposto non
+  risolti e a quelli senza dato, perche si vedano prima di stampare;
+  `?format=html` restituisce la sola pagina. **Non scrive niente**: il documento
+  che conta lo produce la rotta qui sotto. Gli importi vengono dal registro
+  incassi ([ADR-0068](knowledge-base/18-decision-log.md)), la frequenza dal
+  dominio contributi
+- `GET|POST /api/v1/documents/generated` — i documenti generati, e la loro
+  produzione. `POST { template_id, subjects[], batch_id? }` vale per uno come
+  per cinquanta: dentro lo stesso lotto un soggetto produce **un** documento, e
+  chi fallisce compare in `failed` con il motivo mentre il lotto continua
+- `GET|PATCH /api/v1/documents/generated/:id` — un documento **com'era**:
+  `?format=html` restituisce la resa conservata, non una rigenerazione. `PATCH`
+  porta avanti lo stato, e «firmato» pretende la copia firmata
+  ([ADR-0091](knowledge-base/18-decision-log.md)). **Non** si legge
+  dall'endpoint degli allegati ([ADR-0089](knowledge-base/18-decision-log.md))
 - `GET /api/v1/entitlements` — cosa un club puo usare, funzione per funzione,
   con il **motivo** di ogni esito. Non e un campo salvato: e un calcolo su
   piano, servizi attivi ed eccezioni

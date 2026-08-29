@@ -4714,3 +4714,216 @@ passando di qui invece che dai movimenti.
   e le due politiche divergenti sono la prova di dove porta.
 
 **Stato:** ATTIVA.
+
+---
+
+## ADR-0088 — I modelli di documento escono da `clubs.document_templates`
+
+**Contesto.** Fino alla Wave 3 un modello di documento era un oggetto dentro
+`clubs.document_templates`, un array JSON sulla riga del club, scritto in place.
+Quattro conseguenze, tutte misurate leggendo il codice:
+
+- **nessuna versione.** Correggere un modello riscriveva anche i documenti gia
+  consegnati, perche non ne esisteva una copia. Chi avesse corretto un refuso a
+  marzo avrebbe cambiato l'attestazione consegnata a gennaio, e nessuno se ne
+  sarebbe accorto;
+- **due forme nella stessa colonna.** `/modulistica` scriveva
+  `{ id, title, description, content }`; il CRUD generico su
+  `document_templates` scriveva `{ id, name, payload: { … } }`. Un modello
+  creato dall'API compariva nella pagina **senza titolo e senza testo**;
+- **nessun autore attendibile.** `createdAt` lo metteva il client;
+- **cresceva dentro la riga del club.** Ogni lettura del club trascinava l'HTML
+  di tutti i modelli.
+
+**Decisione.** Tre tabelle: `document_templates_v2` (il modello con la sua
+bozza), `document_template_versions` (**immutabili**), `generated_documents`
+(chi le cita). E la stessa forma da cui i moduli online sono usciti con
+ADR-0039 e ADR-0040, e per le stesse ragioni: una strada gia percorsa, non una
+nuova.
+
+Il nome della tabella porta il suffisso `_v2` perche `document_templates` e gia
+il nome di una **colonna** di `clubs` e della risorsa che la espone: due nomi
+identici per due cose diverse, nel periodo in cui convivono, sono un errore che
+si paga a ogni lettura.
+
+**La colonna JSON non viene svuotata.** Il travaso
+(`scripts/migrate-document-templates.mjs`) e una copia, come per i moduli: se
+avesse un difetto, l'originale e ancora li. Il debito `D28` resta aperto e
+copre entrambe.
+
+**Conseguenze.** Cancellare un modello o una versione che un documento cita e
+impedito dal **database** (`ON DELETE RESTRICT`), non da una funzione che
+qualcuno puo dimenticare di chiamare. Un modello con documenti generati si
+ritira; `retired` non e `deleted`, perche un modello ritirato continua a
+spiegare cio che ha prodotto.
+
+**Alternative scartate.**
+
+- *Aggiungere le versioni dentro il JSON.* Avrebbe reso la riga del club ancora
+  piu pesante senza dare nessuna garanzia di integrita: la citazione di una
+  versione da parte di un documento sarebbe rimasta una convenzione.
+- *Riusare `club_resource_items`.* E il registro generico, e la Wave 2 ha gia
+  dovuto chiudere una porta aperta li sopra
+  (`DOMAIN_OWNED_RESOURCE_ITEM_TYPES`). Un dominio con versioni immutabili e
+  permessi propri non e una riga generica.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0089 — Un documento generato conserva la propria resa, e non e un allegato
+
+**Contesto.** Un documento generato — un'attestazione, una dichiarazione —
+contiene il codice fiscale di una persona e, spesso, quanto ha versato una
+famiglia. La strada naturale sarebbe stata metterlo in Attachment Core, che e
+il sistema unico dei file.
+
+Due misure lo impediscono, ed entrambe sono state verificate prima di decidere:
+
+1. **`GET /api/v1/attachments/:id` autorizza la lettura a chiunque appartenga al
+   club.** L'unica eccezione e `announcement`, che passa dal pubblico
+   dell'annuncio; `club` e ristretto in scrittura ma non in lettura. Un
+   allenatore che conoscesse un identificativo leggerebbe l'attestazione di
+   chiunque;
+2. **`text/html` e fuori dall'elenco chiuso dei tipi accettati**, e ci sta
+   apposta: `attachments` serve file **caricati dagli utenti**, e ammettere
+   l'HTML per un documento generato dal server lo ammetterebbe anche per un
+   file che arriva da un modulo pubblico.
+
+**Decisione.** Il documento generato e una riga di `generated_documents`, con la
+sua rotta e il suo controllo di accesso. Conserva `content_html`, cioe **il
+documento come e stato consegnato**.
+
+Il permesso di rilettura non guarda il ruolo soltanto: guarda **cosa il
+documento contiene** (`sensitivity`, congelata dalla versione) e **chi lo ha
+prodotto**. Chi poteva generarlo lo rilegge; chi non poteva rilegge solo cio che
+ha prodotto lui.
+
+**Perche conserva la resa invece di rigenerarla.** Congelare versione e valori
+basterebbe **solo se il risolutore non cambiasse mai**. Cambiera: e cambiato in
+questa stessa Wave, quando ha imparato i soggetti. Una colonna di testo costa
+poco e toglie di mezzo un'intera classe di dubbi.
+
+**Il file firmato, quello si, e un allegato**: e un file caricato da una
+persona, ed e esattamente cio per cui Attachment Core esiste.
+
+**Conseguenze.** Il debito `D38` — la ricevuta non archiviata — **non viene
+riaperto**: quella resta una proiezione della sua riga, e la decisione
+sull'archiviazione dei documenti fiscali resta aperta e separata.
+
+**Alternative scartate.**
+
+- *Allargare il permesso di lettura degli allegati.* Avrebbe toccato un dominio
+  che funziona per risolvere il problema di un altro.
+- *Ammettere `text/html` fra i tipi accettati.* Lo avrebbe ammesso anche per i
+  file caricati da un modulo pubblico. Non si fa senza separare i due percorsi.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0090 — Il consenso e uno stato della persona, non una risposta
+
+**Contesto.** Prima della Wave 3 un consenso era una casella spuntata dentro
+`form_submissions.answers`. Tre domande che una segreteria si fa davvero non
+avevano risposta: chi ha dato il consenso immagini, chi lo ha **revocato**, e
+quale testo aveva accettato.
+
+Una compilazione e **immutabile per costruzione** (ADR-0040) e non puo
+rappresentare una revoca — e la revoca e meta del problema.
+
+**Decisione.** Un dominio: `consent_definitions` (cosa si chiede),
+`consent_versions` (il testo esatto, immutabile), `consent_records` (le
+decisioni, **append-only**).
+
+Tre regole:
+
+1. **Una revoca non cancella niente**: aggiunge una riga. Il consenso dato a
+   settembre resta dimostrabile anche dopo la revoca di gennaio, ed e
+   esattamente cio che serve se qualcuno contesta una foto pubblicata a ottobre;
+2. **lo stato attuale si deriva**, non si scrive: e l'ultima decisione per
+   (definizione, soggetto), con uno spareggio deterministico a parita di
+   istante. E la stessa regola che governa lo stato di una rata e quello di una
+   scadenza del lavoro sportivo;
+3. **l'evidenza e un puntatore**, non una copia: la compilazione o il documento
+   generato restano dove sono.
+
+E la stessa distinzione gia fatta fra **presenza** e **intenzione** su
+`training_attendance` (ADR-0086): due fatti diversi non stanno sulla stessa
+riga.
+
+**Conseguenze.** Il consenso non ha bisogno di un PDF per esistere. Se un PDF
+serve, e un documento generato che **cita** il record — non il contrario. E la
+ragione per cui la differenza C-126 del gap audit resta respinta.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0091 — «Firma» significa quattro cose, e ne implementiamo tre
+
+**Contesto.** Chiamare «firma digitale» una casella spuntata o un'immagine
+incollata e il modo piu rapido di promettere un valore legale che non si ha.
+
+**Decisione.** Le quattro cose restano distinte, e il prodotto le chiama con il
+loro nome:
+
+| # | Cosa | Cosa vale | Stato |
+|---|---|---|---|
+| 1 | **Firma e timbro del presidente**: immagine caricata dal club | Quanto una firma su carta intestata: identifica l'emittente | **ESISTE** (G-51, Wave 1) |
+| 2 | **Firma grafica**: tratto disegnato con dito o mouse | Un'immagine; prova poco da sola, molto con data e testo firmato | **ESISTE** (campo `signature` della modulistica) |
+| 3 | **Accettazione elettronica**: chi, quando, quale testo esatto | La forma piu solida che possiamo produrre onestamente: un fatto tracciato | **FATTA** (ADR-0090) |
+| 4 | **Firma elettronica qualificata** (FEA/FEQ, `.p7m`) | Valore legale pieno | **NO**: richiede un prestatore di servizi fiduciari |
+
+Sul **documento generato**, «firmato» significa **una cosa sola**: e rientrata
+una copia firmata, caricata come allegato e citata dalla riga. Lo stato non si
+puo raggiungere senza quell'allegato — non e una spunta, e
+`requiresSignedAttachment` lo impedisce.
+
+**Conseguenze.** Golee arriva al `.p7m` e noi no, e il confronto lo dice. In
+cambio, nessuna schermata di EasyGame chiama «firma digitale» qualcosa che non
+lo e.
+
+**Stato:** ATTIVA.
+
+---
+
+## ADR-0092 — Il catalogo si classifica per ownership redazionale
+
+**Contesto.** Golee distribuisce **77 modelli**, di cui 33 di richiesta visita
+medica e 30 differenziati fino alla singola ASL. E un vantaggio reale, e non e
+tecnico: e una persona che ogni anno controlla se il modulo di una azienda
+sanitaria e cambiato.
+
+Se EasyGame distribuisce un modello, EasyGame **risponde di cosa c'e scritto
+dentro**: quel foglio esce con il logo del club, ma lo ha scritto il fornitore.
+
+**Decisione.** Ogni voce di catalogo dichiara la sua **classe redazionale**, e
+solo una delle tre si distribuisce:
+
+- **A — GENERIC**: dice fatti del gestionale. Il testo cambia solo se cambia il
+  prodotto, quindi lo manteniamo. **Si distribuisce.**
+- **B — FEDERATION / REGION**: moduli federali, regionali, della ASL. Cambiano
+  per decisione di terzi e sono diversi in ogni provincia. **Non se ne
+  distribuisce nessuno**: il club carica il suo e lo compila con i segnaposto —
+  il 90% del valore all'1% del costo.
+- **C — LEGAL / FISCAL**: contiene dichiarazioni di responsabilita o riferimenti
+  normativi. **Non si distribuisce** finche un professionista non lo valida; il
+  testo esiste come scheletro dichiarato tale, cosi chi deve validarlo ha
+  qualcosa da leggere.
+
+Ogni voce porta **chi risponde del testo** e **quando e stato riletto**, e le
+due informazioni viaggiano fino alla riga del club che la adotta. Un modello
+senza data di rilettura e un modello che nessuno controlla.
+
+**Il catalogo iniziale e dieci voci, di cui sei distribuite.** Le altre quattro
+— informativa privacy, consenso immagini, autorizzazione alla trasferta, delega
+al ritiro del minore — sono scritte e ferme.
+
+**Conseguenze.** Il catalogo non cresce senza che qualcuno accetti di
+mantenerlo: aggiungere l'undicesima voce e una decisione con un costo
+ricorrente, non una riga di contenuto. Se un giorno il presidio redazionale
+venisse a mancare, la cosa giusta e **smettere di distribuire**, non lasciare
+invecchiare.
+
+**Stato:** ATTIVA.

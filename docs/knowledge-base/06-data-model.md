@@ -553,3 +553,95 @@ Nessuna colonna JSON nuova su `clubs` — il club ne ha gia trentadue ed e un
 debito noto. Nessun secondo archivio di allegati: i documenti sono righe di
 `attachments` con `owner_type` `sport_work_relationship` o `sport_work_person`.
 Nessun secondo canale di notifica: il giro notturno scrive in `notifications`.
+
+---
+
+## Wave 2 — comunicazioni (2026-08-29)
+
+Due tabelle, gia descritte in [33](33-wave-2-planning.md) e
+[34](34-wave-2-implementation-uat.md): `communication_deliveries` (il registro
+unico di cosa e uscito, con l'indice unico che regge la deduplica anche con due
+cron in parallelo) e `payment_links` (il token opaco di cui l'archivio conserva
+solo l'impronta).
+
+---
+
+## Wave 3 — documenti, consensi, scadenze (2026-08-29)
+
+Sei tabelle e due colonne, scritte in **una migrazione sola prima di aprire le
+lane**: `20260829100000_wave3_documents`. La settima colonna — la bozza di un
+modello — e arrivata subito dopo con
+`20260829110000_wave3_template_draft`, perche la barriera se l'era dimenticata.
+
+### Il motore documentale (ADR-0088)
+
+| Tabella | Cosa contiene | L'invariante che porta |
+|---|---|---|
+| `document_templates_v2` | Il modello: titolo, soggetto, **bozza** (`draft_content`), stato `draft`/`active`/`retired`, e i quattro campi redazionali di ADR-0092 (`catalog_key`, `catalog_class`, `editorial_owner`, `last_reviewed_at`) | Un modello con documenti generati si **ritira**, non si cancella |
+| `document_template_versions` | La versione **immutabile**: titolo, `content_html`, `placeholder_keys[]`, `sensitivity[]`, soggetto, chi e quando | Non si aggiorna mai. Non ha `updated_at`, ed e voluto: una riga che non si aggiorna non deve dire quando e stata aggiornata |
+| `generated_documents` | Il documento: versione citata, soggetto, `values_snapshot`, **`content_html`**, `unresolved[]`, `missing[]`, `warnings[]`, `sensitivity[]`, stato, lotto | Dentro un lotto uno stesso soggetto produce **un** documento |
+
+**Perche il suffisso `_v2`.** `document_templates` e gia il nome di una colonna
+JSON di `clubs` e della risorsa che la espone. Nel periodo in cui le due cose
+convivono, due nomi identici si pagano a ogni lettura.
+
+**Cosa fa rispettare il database, e non una funzione.**
+
+- `generated_documents.template_id` e `version_id` hanno `ON DELETE RESTRICT`:
+  cancellare cio che un documento cita non e possibile nemmeno da una query
+  scritta a mano;
+- l'indice unico
+  `(organization_id, batch_id, subject_kind, subject_id)` e l'idempotenza del
+  lotto. In PostgreSQL un indice unico **non vincola le righe con un `NULL`**:
+  una generazione singola (`batch_id IS NULL`) resta quindi libera di ripetersi
+  — due attestazioni chieste due volte sono due documenti — mentre dentro un
+  lotto lo stesso soggetto compare una volta sola. E cio che rende un nuovo
+  tentativo capace di rigenerare **solo** i falliti;
+- `document_template_versions(template_id, version)` e unico: due righe con lo
+  stesso numero renderebbero ambigua la citazione di un documento.
+
+**`content_html` sta nella riga, non in Attachment Core** (ADR-0089). Le
+ragioni, in ordine di forza: l'endpoint degli allegati autorizza la lettura a
+chiunque appartenga al club; `text/html` e fuori dall'elenco chiuso dei tipi
+accettati, e ci sta apposta; e un documento generato non e un file dell'utente,
+e un **fatto** del gestionale.
+
+### I consensi (ADR-0090)
+
+| Tabella | Cosa contiene | L'invariante |
+|---|---|---|
+| `consent_definitions` | Cosa si chiede: `key` unica per club, titolo, obbligatorieta, stato | La chiave e cio con cui un modulo o un modello lo nomina |
+| `consent_versions` | Il testo esatto accettato, **immutabile** | Senza, «a cosa ha detto di si» resta senza risposta il giorno in cui l'informativa viene corretta |
+| `consent_records` | La decisione: `accepted` \| `rejected` \| `revoked`, chi, quando, da dove, con quale evidenza | **Append-only**: nessuna `updated_at`, perche nessuna riga si aggiorna |
+
+`consent_records.version_id` ha `ON DELETE RESTRICT`: la versione che qualcuno
+ha accettato non si cancella.
+
+**Lo stato attuale non e una colonna.** Si deriva: e l'ultima decisione per
+(definizione, soggetto), con `created_at` e poi `id` come spareggio
+deterministico a parita di `decided_at`. E la stessa regola dello stato di una
+rata e di una scadenza del lavoro sportivo.
+
+### La validita di un allegato (W3-G)
+
+Due colonne su `attachments`: `valid_from` e `valid_until`, piu l'indice
+`(organization_id, valid_until)` che serve al giro notturno per chiedere «cosa
+scade fra N giorni in questo club» senza scandire tutti gli allegati.
+
+Lo **stato** (valido / in scadenza / scaduto / non ancora valido) **non e una
+colonna**: si ricava dalla data e da oggi. Scriverlo vorrebbe dire tenerlo
+aggiornato, e nessun giro notturno puo garantirlo per ogni riga.
+
+**Il certificato medico non passa di qui.** Ha `medical_certificates` con una
+semantica propria e la sua automazione `AUT-03`; le categorie del certificato
+sono escluse dalla lettura delle scadenze, dal filtro configurabile e dal
+valutatore — tre volte, perche un doppio promemoria per la stessa scadenza e
+esattamente il difetto che si stava evitando.
+
+### Cosa non e stato creato
+
+Nessuna colonna JSON nuova su `clubs`. **Nessun secondo archivio di file**: la
+copia firmata di un documento e una riga di `attachments`, come tutto il resto.
+Nessun secondo scheduler: le scadenze documentali sono il quinto innesco del
+motore di Wave 2. Nessuna libreria PDF, e la decisione e scritta in
+[35](35-wave-3-planning.md) §3.4.

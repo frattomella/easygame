@@ -237,6 +237,62 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     ha verificato.
   */
   {
+    name: "documents.templates",
+    method: "GET|POST",
+    path: "/api/v1/documents/templates",
+    description:
+      "I modelli di documento del club. `?include_retired=1` mostra anche i ritirati, `?subject_kind=` filtra per soggetto. `POST` crea un modello **in bozza**: creare non pubblica. Legge la segreteria, scrive la direzione",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.template",
+    method: "GET|PATCH|DELETE",
+    path: "/api/v1/documents/templates/:id",
+    description:
+      "Un modello con la sua bozza e le sue versioni. `PATCH` scrive la **bozza** — mai una versione — e puo cambiare lo stato. `DELETE` riesce solo se il modello non ha mai prodotto niente: altrimenti si ritira, o i documenti gia rilasciati non saprebbero piu spiegarsi",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.template_publish",
+    method: "POST",
+    path: "/api/v1/documents/templates/:id/publish",
+    description:
+      "Pubblica la bozza: crea una versione **immutabile** che i documenti citeranno per sempre. Se non si puo, la risposta porta `issues` con la chiave del segnaposto che lo impedisce. Ripubblicare senza modifiche non crea una versione nuova",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.catalog",
+    method: "GET|POST",
+    path: "/api/v1/documents/catalog",
+    description:
+      "Le voci di catalogo che il club puo adottare, con l'indicazione di quelle gia adottate. `POST { key }` crea la copia del club e la pubblica. Escono **solo** le voci di classe A e attive: quelle legali o fiscali non validate non vengono nemmeno nominate (ADR-0092)",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.filled",
+    method: "GET",
+    path: "/api/v1/documents/filled",
+    description:
+      "L'**anteprima** di un modello compilato: `?templateId=&subjectKind=&subjectId=` (`athleteId` resta accettato per compatibilita), `&format=html` per la sola pagina. Non scrive nessuna riga — il documento che conta lo produce `documents.generated`. Restituisce anche cosa non e riuscito a scrivere: `unresolved`, `missing`, `warnings`",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.generated",
+    method: "GET|POST",
+    path: "/api/v1/documents/generated",
+    description:
+      "I documenti generati, e la loro produzione. `POST { template_id, subjects[], batch_id? }` vale per uno come per cinquanta: dentro lo stesso `batch_id` un soggetto produce **un** documento, e chi fallisce compare in `failed` con il motivo mentre il lotto continua",
+    mobile_ready: false,
+  },
+  {
+    name: "documents.generated_document",
+    method: "GET|PATCH",
+    path: "/api/v1/documents/generated/:id",
+    description:
+      "Un documento gia generato, **com'era**: `?format=html` restituisce la resa conservata, non una rigenerazione. `PATCH { status }` porta avanti lo stato; «firmato» pretende `signed_attachment_id`, perche non e una spunta (ADR-0091). Non si legge dall'endpoint degli allegati (ADR-0089)",
+    mobile_ready: false,
+  },
+  {
     name: "consents.definitions",
     method: "GET|POST",
     path: "/api/v1/consents",
