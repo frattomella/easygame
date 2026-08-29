@@ -262,9 +262,33 @@ export const buildEInvoiceXml = (input: {
   const issues = validateEInvoice(input);
   const { profile, document, recipient } = input;
 
-  const totalCents =
-    document.lines.reduce((sum, line) => sum + lineTotalCents(line), 0) +
-    Math.max(0, Math.round(Number(document.stampDutyCents) || 0));
+  /*
+    **Il totale del documento comprende l'imposta.** (difetto latente chiuso
+    dalla Wave 4)
+
+    Prima era la somma delle righe piu il bollo, e basta: con una riga da
+    1.000 EUR al 22% il tracciato dichiarava `<ImportoTotaleDocumento>1000.00`
+    mentre il `<DatiRiepilogo>` accanto esponeva 220 EUR di imposta. Il
+    documento contraddiceva se stesso.
+
+    Non si manifestava **solo perche** l'unica classificazione raggiungibile
+    aveva `vat_rate = null`, trattato come zero: ogni documento nasceva senza
+    IVA. Nel momento in cui la Wave 4 rende raggiungibile una causale con
+    un'aliquota, il difetto diventa attivo — e un file sbagliato scaricato e
+    dato al commercialista e un danno reale, anche senza trasmissione.
+
+    L'imposta si calcola **per riepilogo** e non riga per riga, con lo stesso
+    arrotondamento del `<DatiRiepilogo>`: sommare imposte arrotondate riga per
+    riga darebbe un totale diverso da quello che il documento stesso dichiara.
+  */
+  const taxableCents = document.lines.reduce(
+    (sum, line) => sum + lineTotalCents(line),
+    0,
+  );
+  const stampDutyCents = Math.max(
+    0,
+    Math.round(Number(document.stampDutyCents) || 0),
+  );
 
   const transmitterIdentifier = profile.vatNumber || profile.fiscalCode;
   const fileName = buildEInvoiceFileName({
@@ -285,6 +309,17 @@ export const buildEInvoiceXml = (input: {
     current.taxableCents += lineTotalCents(line);
     summaries.set(key, current);
   }
+
+  /* L'imposta di ogni riepilogo, arrotondata una volta sola. */
+  const vatOf = (summary: { rate: number; taxableCents: number }) =>
+    Math.round((summary.taxableCents * summary.rate) / 100);
+
+  const vatCents = Array.from(summaries.values()).reduce(
+    (sum, summary) => sum + vatOf(summary),
+    0,
+  );
+
+  const totalCents = taxableCents + vatCents + stampDutyCents;
 
   const header = compact([
     "<FatturaElettronicaHeader>",
@@ -405,7 +440,7 @@ export const buildEInvoiceXml = (input: {
         el("AliquotaIVA", summary.rate.toFixed(2)),
         summary.nature ? el("Natura", summary.nature) : "",
         el("ImponibileImporto", money(summary.taxableCents)),
-        el("Imposta", money(Math.round((summary.taxableCents * summary.rate) / 100))),
+        el("Imposta", money(vatOf(summary))),
         "</DatiRiepilogo>",
       ]),
     ),

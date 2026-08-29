@@ -223,21 +223,59 @@ export const describeDocumentRoute = (route: DocumentRoute) =>
 export const resolveStampDuty = (input: {
   profile: FiscalProfile;
   amountCents: number;
-  /** Vero se l'operazione e imponibile IVA: il bollo non si applica. */
+  /**
+   * L'aliquota **dichiarata** dell'operazione.
+   *
+   * **Tre stati, non due** — ed e il difetto che questo campo chiude. Il
+   * chiamante passava `vatApplied: Boolean(operationType?.vatRate)`, e
+   * `Boolean(0)` e falso: un'operazione dichiarata **ad aliquota zero** —
+   * che il codice stesso definisce «una dichiarazione fiscale precisa» diversa
+   * da `null` — finiva nello stesso ramo di un'operazione **non
+   * classificata**. Due cose diverse, una risposta sola.
+   *
+   * - `> 0` — operazione imponibile: il bollo **non** si applica;
+   * - `0` — aliquota dichiarata zero (esente, non imponibile, fuori campo):
+   *   il bollo si applica sopra la soglia;
+   * - `null` / assente — **nessuno l'ha dichiarata**. Il motore non decide:
+   *   risponde `undetermined` e spiega, come impone ADR-0073. Un bollo
+   *   silenziosamente omesso o silenziosamente applicato sono due errori, e
+   *   nessuno dei due si vede.
+   */
+  vatRate?: number | null;
+  /** @deprecated Usa `vatRate`: non sa distinguere «zero» da «non dichiarata». */
   vatApplied?: boolean;
 }) => {
   const settings = input.profile.stampDuty;
   const amountCents = Math.max(0, Math.round(Number(input.amountCents) || 0));
+  const base = { chargedTo: settings.chargedTo, undetermined: false, reason: "" };
 
-  if (!settings.enabled || input.vatApplied) {
-    return { applies: false, amountCents: 0, chargedTo: settings.chargedTo };
+  if (!settings.enabled) {
+    return { ...base, applies: false, amountCents: 0 };
+  }
+
+  const declaredRate =
+    input.vatRate === undefined ? null : input.vatRate === null ? null : Number(input.vatRate);
+
+  if (input.vatApplied === true || (declaredRate !== null && declaredRate > 0)) {
+    return { ...base, applies: false, amountCents: 0 };
+  }
+
+  if (declaredRate === null && input.vatApplied === undefined) {
+    return {
+      ...base,
+      applies: false,
+      amountCents: 0,
+      undetermined: true,
+      reason:
+        "L'aliquota IVA dell'operazione non e dichiarata: non si puo stabilire se il bollo si applichi. Configurare la causale.",
+    };
   }
 
   const applies = amountCents > settings.thresholdCents;
 
   return {
+    ...base,
     applies,
     amountCents: applies ? settings.amountCents : 0,
-    chargedTo: settings.chargedTo,
   };
 };

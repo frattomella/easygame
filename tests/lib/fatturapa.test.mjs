@@ -178,8 +178,61 @@ test("il tracciato porta emittente, intestatario e importi", () => {
   assert.match(costruito.xml, /<IdCodice>12345678903<\/IdCodice>/);
   assert.match(costruito.xml, /<RegimeFiscale>RF01<\/RegimeFiscale>/);
   assert.match(costruito.xml, /<Numero>FT-2026-0007<\/Numero>/);
-  assert.match(costruito.xml, /<ImportoTotaleDocumento>1000.00</);
+  /*
+    **1.220,00 e non 1.000,00.** Questo test asseriva il difetto: una riga da
+    1.000 EUR al 22% dichiarava come totale del documento l'imponibile netto,
+    mentre il <DatiRiepilogo> accanto esponeva 220 EUR di imposta. Il documento
+    contraddiceva se stesso.
+
+    Non si manifestava solo perche l'unica classificazione raggiungibile aveva
+    aliquota nulla: ogni documento nasceva senza IVA. La Wave 4 rende
+    raggiungibile una causale con un'aliquota, e il difetto sarebbe diventato
+    attivo.
+  */
+  assert.match(costruito.xml, /<ImportoTotaleDocumento>1220.00</);
+  assert.match(costruito.xml, /<ImponibileImporto>1000.00</);
+  assert.match(costruito.xml, /<Imposta>220.00</);
+  assert.equal(costruito.totalCents, 122000);
   assert.equal(costruito.formallyValid, true);
+});
+
+test("senza imposta il totale resta l'imponibile, e con il bollo lo comprende", () => {
+  const esente = costruisci({
+    document: {
+      ...DOCUMENTO,
+      lines: [{ ...DOCUMENTO.lines[0], vatRate: 0, vatNature: "N2.2" }],
+    },
+  });
+  assert.equal(esente.totalCents, 100000);
+
+  const conBollo = costruisci({
+    document: {
+      ...DOCUMENTO,
+      stampDutyCents: 200,
+      lines: [{ ...DOCUMENTO.lines[0], vatRate: 0, vatNature: "N2.2" }],
+    },
+  });
+  assert.equal(conBollo.totalCents, 100200);
+});
+
+test("con due aliquote l'imposta si arrotonda per riepilogo, non per riga", () => {
+  /*
+    Sommare imposte arrotondate riga per riga darebbe un totale diverso da
+    quello che il documento stesso dichiara nei suoi riepiloghi.
+  */
+  const costruito = costruisci({
+    document: {
+      ...DOCUMENTO,
+      lines: [
+        { description: "A", quantity: 1, unitPriceCents: 3333, vatRate: 22, vatNature: null },
+        { description: "B", quantity: 1, unitPriceCents: 3333, vatRate: 22, vatNature: null },
+        { description: "C", quantity: 1, unitPriceCents: 5000, vatRate: 10, vatNature: null },
+      ],
+    },
+  });
+
+  /* 6.666 al 22% = 1.466,52 -> 1.467 centesimi; 5.000 al 10% = 500. */
+  assert.equal(costruito.totalCents, 6666 + 5000 + 1467 + 500);
 });
 
 test("il nome file segue la convenzione dello SdI", () => {

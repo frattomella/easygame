@@ -228,14 +228,57 @@ test("configurato, il bollo si applica sopra la soglia", () => {
     stampDuty: { enabled: true, thresholdCents: 7745, amountCents: 200 },
   });
 
+  /*
+    **L'aliquota si dichiara.** Il campo `vatRate` ha tre stati e non due:
+    `0` e un'aliquota dichiarata — esente, non imponibile, fuori campo — ed e
+    cosa diversa da `null`, che vuol dire «nessuno l'ha classificata». Prima
+    il chiamante passava `Boolean(vatRate)`, e `Boolean(0)` e falso: le due
+    cose finivano nello stesso ramo.
+  */
   assert.equal(
-    engine.resolveStampDuty({ profile: profilo, amountCents: 5000 }).applies,
+    engine.resolveStampDuty({ profile: profilo, amountCents: 5000, vatRate: 0 }).applies,
     false,
   );
   assert.equal(
-    engine.resolveStampDuty({ profile: profilo, amountCents: 20000 }).amountCents,
+    engine.resolveStampDuty({ profile: profilo, amountCents: 20000, vatRate: 0 })
+      .amountCents,
     200,
   );
+});
+
+test("senza aliquota dichiarata il motore non decide: lo dice", () => {
+  /*
+    Un bollo silenziosamente omesso e un bollo silenziosamente applicato sono
+    due errori, e nessuno dei due si vede. ADR-0073: il motore propone e
+    spiega; cio che non e classificato non produce un numero definitivo.
+  */
+  const profilo = profileLib.normalizeFiscalProfile({
+    ...PROFILO_COMPLETO(),
+    stampDuty: { enabled: true, thresholdCents: 7745, amountCents: 200 },
+  });
+
+  const esito = engine.resolveStampDuty({ profile: profilo, amountCents: 20000 });
+
+  assert.equal(esito.applies, false);
+  assert.equal(esito.amountCents, 0);
+  assert.equal(esito.undetermined, true, "e una domanda senza risposta, non un no");
+  assert.match(esito.reason, /non e dichiarata|Configurare la causale/i);
+});
+
+test("un'aliquota positiva esclude il bollo, e non e indeterminata", () => {
+  const profilo = profileLib.normalizeFiscalProfile({
+    ...PROFILO_COMPLETO(),
+    stampDuty: { enabled: true, thresholdCents: 7745, amountCents: 200 },
+  });
+
+  const esito = engine.resolveStampDuty({
+    profile: profilo,
+    amountCents: 20000,
+    vatRate: 22,
+  });
+
+  assert.equal(esito.applies, false);
+  assert.equal(esito.undetermined, false);
 });
 
 test("il bollo non si applica su un'operazione imponibile IVA", () => {
