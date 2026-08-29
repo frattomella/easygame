@@ -60,18 +60,16 @@ export async function GET(request: Request) {
 
     /*
       Gli allegati di un annuncio seguono il **pubblico dell'annuncio**, non la
-      sola appartenenza al club. Senza questa riga
-      `?owner_type=announcement` — anche **senza** `owner_id` — restituiva a
-      qualunque membro i metadati di ogni allegato di ogni annuncio, bozze
-      comprese, e da li si scaricava per identificativo.
-
-      L'elenco si concede solo a chi governa la bacheca; un destinatario chiede
-      il singolo allegato, e li il pubblico viene verificato.
+      sola appartenenza al club: `?owner_type=announcement` — anche **senza**
+      `owner_id` — restituiva a qualunque membro i metadati di ogni allegato di
+      ogni annuncio, bozze comprese, e da li si scaricava per identificativo.
     */
-    if (
-      ownerType === "announcement" &&
-      !hasCommunicationPermission(scope.activeRole, "board.publish")
-    ) {
+    const governaLaBacheca = hasCommunicationPermission(
+      scope.activeRole,
+      "board.publish",
+    );
+
+    if (ownerType === "announcement" && !governaLaBacheca) {
       return NextResponse.json(
         {
           data: null,
@@ -94,7 +92,21 @@ export async function GET(request: Request) {
       scope,
     );
 
-    return NextResponse.json({ data: attachments, error: null });
+    /*
+      **E l'elenco senza filtro non e una scorciatoia.** Rifiutare solo
+      `owner_type=announcement` lasciava aperta la porta piu larga: `GET
+      /api/v1/attachments` **senza** parametri restituiva tutto il club,
+      annunci compresi, e da quegli identificativi si arrivava ai byte. Chi non
+      governa la bacheca non li vede, punto.
+    */
+    const visibili = governaLaBacheca
+      ? attachments
+      : attachments.filter(
+          (allegato: { ownerType?: string }) =>
+            String(allegato?.ownerType || "").toLowerCase() !== "announcement",
+        );
+
+    return NextResponse.json({ data: visibili, error: null });
   } catch (error: any) {
     return failure(error, "Errore nella lettura degli allegati");
   }

@@ -79,6 +79,31 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+      **L'origine si verifica prima di emettere**, non dopo.
+
+      Emettendo per primo si scriveva una riga `payment_links` valida trenta
+      giorni e si restituiva `url: "/pay/<token>"`, cioe un percorso relativo
+      che la segreteria incolla in un messaggio e che non apre niente. Un token
+      valido che nessuno potra usare e peggio di un rifiuto: il rifiuto si legge
+      e si risolve configurando l'ambiente.
+    */
+    const origin = resolvePaymentLinkOrigin(request);
+
+    if (!origin) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Indirizzo pubblico dell'applicazione non configurato: il link di pagamento non si puo emettere.",
+            code: "ORIGIN_NOT_CONFIGURED",
+          },
+        },
+        { status: 503 },
+      );
+    }
+
     const result = await issuePaymentLink({
       /*
         Il club **non** arriva dal corpo: lo dice la sessione, ed e la stessa
@@ -102,8 +127,6 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-
-    const origin = resolvePaymentLinkOrigin(request);
 
     return NextResponse.json({
       data: {

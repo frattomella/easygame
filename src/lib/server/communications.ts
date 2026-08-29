@@ -343,6 +343,7 @@ const collect = async ({
     id,
     dedupKey,
     retryAfterMs,
+    derived,
     audience,
     club,
     clubValues: buildClubValues(club),
@@ -463,7 +464,15 @@ export const sendCommunication = async (
   const batchSize = Math.max(1, input.batchSize || BULK_BATCH_SIZE);
 
   const [
-    { id, dedupKey, retryAfterMs, audience, clubValues, invalidPlaceholders },
+    {
+      id,
+      dedupKey,
+      retryAfterMs,
+      derived,
+      audience,
+      clubValues,
+      invalidPlaceholders,
+    },
     emailConfigured,
   ] =
     await Promise.all([collect({ ...input, now }), mailer.isConfigured()]);
@@ -525,6 +534,28 @@ export const sendCommunication = async (
 
   const batch = audience.recipients.slice(0, batchSize);
   const remaining = Math.max(0, audience.recipients.length - batch.length);
+
+  /*
+    **Un invio a lotti pretende un identificativo dichiarato.**
+
+    Un identificativo derivato dal contenuto vale per una finestra scorrevole
+    (`BULK_FALLBACK_WINDOW_MS`): passata quella, chi e gia stato servito torna
+    fra i raggiungibili, rientra nel lotto successivo e riceve una seconda
+    volta — e siccome torna **in testa**, il ciclo non arriva mai ai
+    destinatari che restano. Un invio a quattrocento famiglie contro un SMTP
+    lento supera un'ora senza sforzo, cioe proprio il caso per cui il lotto
+    esiste.
+
+    Invece di stringere la finestra — che sposterebbe il problema — si chiede
+    quello che serve davvero: chi manda a piu di un lotto deve dire **quale
+    invio e**. La schermata lo fa gia; un chiamante dell'API riceve un errore
+    che spiega cosa aggiungere.
+  */
+  if (derived && remaining > 0) {
+    throw new Error(
+      "Un invio a piu lotti richiede `communication_id`: senza, il secondo lotto non saprebbe chi e gia stato servito",
+    );
+  }
 
   for (const recipient of batch) {
     const athleteNames = recipient.positions.map(

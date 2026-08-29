@@ -310,10 +310,25 @@ export const resolvePaymentLinkOrigin = (_request?: {
  * ricalcolato invece di dichiarare un esito che solo il webhook conosce.
  */
 export const buildPaymentLinkReturnUrls = (origin: string, token: string) => {
-  const base = `${asText(origin).replace(/\/+$/, "")}${buildPaymentLinkPath(token)}`;
+  /*
+    **Un'origine vuota non produce URL relativi.**
+
+    Il commento di `resolvePaymentLinkOrigin` prometteva che senza ambiente
+    configurato «il link non si emette»; qui pero un'origine vuota produceva
+    `"/pay/<token>?esito=inviato"`, che **supera** la guardia
+    `if (!successUrl || !cancelUrl)` di `openPaymentLinkCheckout` e arriva al
+    gateway come percorso relativo. Un URL di ritorno relativo mandato a un PSP
+    non riporta da nessuna parte: meglio fermarsi e dirlo.
+  */
+  const base = asText(origin).replace(/\/+$/, "");
+  if (!base) {
+    return { successUrl: "", cancelUrl: "" };
+  }
+
+  const target = `${base}${buildPaymentLinkPath(token)}`;
   return {
-    successUrl: `${base}?esito=inviato`,
-    cancelUrl: `${base}?esito=annullato`,
+    successUrl: `${target}?esito=inviato`,
+    cancelUrl: `${target}?esito=annullato`,
   };
 };
 

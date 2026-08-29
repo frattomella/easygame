@@ -110,7 +110,13 @@ type ClaimInput = {
    * l'occorrenza capita una volta sola.
    */
   retryAfterMs?: number | null;
+  /** Il tempo **di dominio**: che giorno e, per la finestra di ripetizione. */
   now: Date;
+  /**
+   * L'istante in cui la riga viene scritta. Vale l'orologio; il parametro
+   * esiste perche i test possano governare la scadenza della rivendicazione.
+   */
+  stampedAt?: Date;
 };
 
 /**
@@ -142,6 +148,24 @@ export const claimDelivery = async (
   const reclaimableBefore =
     retryAfterMs === null ? null : new Date(now.getTime() - retryAfterMs);
 
+  /*
+    **Quando la riga viene scritta, non quando il giro e cominciato.**
+
+    `now` e il tempo **di dominio**: dice che giorno e, e lo stesso valore
+    attraversa tutti i club di un giro notturno perche le scadenze vanno
+    misurate sullo stesso istante. Timbrare `updated_at` con quel valore era
+    pero sbagliato per la scadenza della rivendicazione: su un giro che dura
+    venti minuti ogni riga risultava scritta a T0, quindi una seconda
+    esecuzione partita al minuto sedici le trovava **tutte** «abbandonate» e le
+    riprendeva — mandando due volte proprio mentre la prima stava ancora
+    mandando.
+
+    La rivendicazione e un fatto che accade **adesso**, e si timbra con
+    l'orologio. Il parametro esiste perche i test possano governarlo.
+  */
+  const stampedAt = input.stampedAt || new Date();
+  const staleBefore = new Date(stampedAt.getTime() - PENDING_STALE_MS);
+
   const identity = {
     organization_id: organizationId,
     dedup_key: dedupKey,
@@ -159,7 +183,7 @@ export const claimDelivery = async (
     subject: input.subject || null,
     status: "pending" as DeliveryStatus,
     reason: null,
-    updated_at: now,
+    updated_at: stampedAt,
   };
 
   /*
@@ -179,8 +203,6 @@ export const claimDelivery = async (
     Una riga `pending` **recente** resta invece intoccata: quello e il doppio
     clic, ed e un invio davvero in volo.
   */
-  const staleBefore = new Date(now.getTime() - PENDING_STALE_MS);
-
   const reclaimed = await deliveryClient().updateMany({
     where: {
       ...identity,
@@ -211,7 +233,7 @@ export const claimDelivery = async (
         riprendere una consegna fallita non deve cancellare il fatto che
         qualcuno l'avesse gia letta su un altro canale.
       */
-      data: { ...identity, ...payload, read_at: null, created_at: now },
+      data: { ...identity, ...payload, read_at: null, created_at: stampedAt },
     });
     return {
       id: asText(created?.id),

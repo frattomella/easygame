@@ -120,6 +120,7 @@ const assertAnnouncementAttachmentReadable = async (
 
   const consentito = await canReadAnnouncementAttachment({
     organizationId: String(metadata?.organizationId || ""),
+    activeOrganizationId: scope?.activeOrganizationId,
     announcementId: String(metadata?.ownerId || ""),
     userId,
     activeRole: scope?.activeRole,

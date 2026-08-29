@@ -94,6 +94,7 @@ const rivendica = (overrides = {}) =>
     recipientEmail: "maria@example.com",
     retryAfterMs: null,
     now: NOW,
+    stampedAt: NOW,
     ...overrides,
   });
 
@@ -113,7 +114,7 @@ test("una rivendicazione abbandonata si riprende, invece di bloccare per sempre"
   assert.equal(fake.rows("communicationDelivery")[0].status, "pending");
 
   const subito = await rivendica({
-    now: new Date(NOW.getTime() + 60 * 1000),
+    stampedAt: new Date(NOW.getTime() + 60 * 1000),
   });
   assert.equal(
     subito.claimed,
@@ -122,7 +123,7 @@ test("una rivendicazione abbandonata si riprende, invece di bloccare per sempre"
   );
 
   const dopoLaSoglia = await rivendica({
-    now: new Date(NOW.getTime() + registro.PENDING_STALE_MS + 1000),
+    stampedAt: new Date(NOW.getTime() + registro.PENDING_STALE_MS + 1000),
   });
   assert.equal(
     dopoLaSoglia.claimed,
@@ -130,7 +131,7 @@ test("una rivendicazione abbandonata si riprende, invece di bloccare per sempre"
     "oltre la soglia la rivendicazione e abbandonata e si riprende",
   );
 
-  const dopoUnAnno = await rivendica({ now: UN_ANNO_DOPO });
+  const dopoUnAnno = await rivendica({ stampedAt: UN_ANNO_DOPO });
   assert.equal(dopoUnAnno.claimed, true);
   assert.equal(
     fake.rows("communicationDelivery").length,
@@ -253,6 +254,13 @@ test("una pubblicazione interrotta si ripara alla ripubblicazione", async () => 
     recipientEmail: "maria@example.com",
     retryAfterMs: null,
     now: NOW,
+    /*
+      Timbrata **due volte la soglia nel passato reale**: la scadenza di una
+      rivendicazione si misura sull'orologio e non sul tempo di dominio, perche
+      un giro notturno lungo congela `now` e altrimenti dichiarerebbe
+      abbandonate le righe che sta ancora servendo.
+    */
+    stampedAt: new Date(Date.now() - 2 * registro.PENDING_STALE_MS),
   });
   assert.equal(inVolo.claimed, true);
 
@@ -319,6 +327,7 @@ test("l'allegato di un annuncio segue il pubblico dell'annuncio", async () => {
   assert.equal(
     await bacheca.canReadAnnouncementAttachment({
       organizationId: CLUB,
+      activeOrganizationId: CLUB,
       announcementId: annuncio.id,
       userId: UTENTE,
       activeRole: "parent",
@@ -330,12 +339,31 @@ test("l'allegato di un annuncio segue il pubblico dell'annuncio", async () => {
   assert.equal(
     await bacheca.canReadAnnouncementAttachment({
       organizationId: CLUB,
+      activeOrganizationId: CLUB,
       announcementId: annuncio.id,
       userId: UTENTE,
       activeRole: "owner",
     }),
     true,
     "chi governa la bacheca legge sempre",
+  );
+
+  /*
+    **Ma solo la bacheca del club attivo.** E lo stesso schema chiuso
+    sull'RSVP: chi e proprietario del proprio club e genitore in quello del
+    figlio presentava il cappello di proprietario del primo e scaricava gli
+    allegati del secondo.
+  */
+  assert.equal(
+    await bacheca.canReadAnnouncementAttachment({
+      organizationId: CLUB,
+      activeOrganizationId: ALTRO_CLUB,
+      announcementId: annuncio.id,
+      userId: "utente-estraneo",
+      activeRole: "owner",
+    }),
+    false,
+    "il ruolo vale sul club attivo, non su quello dell'allegato",
   );
 
   await bacheca.publishAnnouncement({
@@ -347,6 +375,7 @@ test("l'allegato di un annuncio segue il pubblico dell'annuncio", async () => {
   assert.equal(
     await bacheca.canReadAnnouncementAttachment({
       organizationId: CLUB,
+      activeOrganizationId: CLUB,
       announcementId: annuncio.id,
       userId: UTENTE,
       activeRole: "parent",

@@ -558,7 +558,18 @@ const evaluateCertificates = ({
       della scadenza, quindi non ne e un doppione, e resta **una sola** perche
       la data non cambia piu.
     */
-    const scaduto = distanza < 0;
+    /*
+      **Il giorno della scadenza conta gia come scaduto**, e non e un dettaglio.
+
+      La scadenza e mezzanotte UTC e il giro gira alle sei del mattino: quel
+      giorno `getMedicalCertificateAvailability` dice gia «scaduto», e il
+      messaggio lo scrive. Con `distanza < 0` il giorno 0 produceva pero
+      l'occorrenza `<data>` e il giorno dopo l'occorrenza `expired:<data>` —
+      **due chiavi per lo stesso fatto**, cioe due messaggi in due notti
+      consecutive alla stessa famiglia, con gli anticipi predefiniti `[30, 7, 0]`
+      che sono la configurazione normale.
+    */
+    const scaduto = distanza <= 0;
     if (scaduto && !rule.offsetDays.includes(0)) continue;
 
     const offsetDays = scaduto
@@ -800,7 +811,7 @@ const resolveClubNotificationRecipients = async (clubId: string) => {
     select: { user_id: true, role: true },
   });
 
-  return Array.from(
+  const destinatari = Array.from(
     new Set(
       memberships
         .filter((row: any) =>
@@ -810,6 +821,26 @@ const resolveClubNotificationRecipients = async (clubId: string) => {
         .filter(Boolean),
     ),
   ) as string[];
+
+  if (destinatari.length > 0) return destinatari;
+
+  /*
+    **Un club il cui proprietario esiste solo in `clubs.creator_id`.**
+
+    Non e un caso di scuola: `resolveOrganizationScopeForUser` riconosce
+    l'`owner` anche da li, e la creazione di un club valorizza `creator_id`
+    **senza** scrivere una riga di appartenenza. Senza questo ripiego la
+    notifica di societa non arriverebbe a nessuno e il giro la chiuderebbe
+    `no_club_recipient` ogni notte, in silenzio: prima della correzione almeno
+    compariva.
+  */
+  const club = await (prisma as any).club.findUnique({
+    where: { id: clubId },
+    select: { creator_id: true },
+  });
+  const creatore = String(club?.creator_id || "").trim();
+
+  return creatore ? [creatore] : [];
 };
 
 /**

@@ -484,11 +484,28 @@ export const readAnnouncementsForUser = async ({
 
   return sortAnnouncements(rows.map(readAnnouncement))
     .filter((announcement) => isAnnouncementVisible(announcement, now))
-    .map((announcement) => ({
-      ...announcement,
-      deliveryId: deliveryIdById.get(announcement.id) || "",
-      readAt: readAtById.get(announcement.id) || null,
-    }));
+    .map((announcement) => {
+      /*
+        **I criteri non escono verso il destinatario.**
+
+        `listAnnouncements` chiede `board.publish` proprio perche restituisce
+        «il corpo, i criteri e i conteggi». Questa lettura la chiama un
+        genitore, e restituiva lo stesso oggetto per intero: un annuncio con
+        criterio `athlete_ids` gli consegnava gli **identificativi interni** di
+        tutti gli altri atleti destinatari, e uno con `overdue_payments` gli
+        diceva che era stato scelto perche in arretrato.
+
+        Al destinatario serve l'avviso, non il modo in cui e stato scelto.
+      */
+      const { criteria: _criteri, authorUserId: _autore, ...leggibile } =
+        announcement;
+
+      return {
+        ...leggibile,
+        deliveryId: deliveryIdById.get(announcement.id) || "",
+        readAt: readAtById.get(announcement.id) || null,
+      };
+    });
 };
 
 /**
@@ -507,16 +524,35 @@ export const readAnnouncementsForUser = async ({
  */
 export const canReadAnnouncementAttachment = async ({
   organizationId,
+  activeOrganizationId,
   announcementId,
   userId,
   activeRole,
 }: {
   organizationId: string;
+  /** Il club dell'intestazione, cioe quello su cui vale `activeRole`. */
+  activeOrganizationId?: string | null;
   announcementId: string;
   userId: string;
   activeRole?: string | null;
 }) => {
-  if (hasCommunicationPermission(activeRole, "board.publish")) return true;
+  /*
+    **Il ruolo e l'allegato devono parlare dello stesso club.**
+
+    E lo stesso schema chiuso su `readEventRsvpSummary`, e qui era rimasto
+    aperto: `activeRole` vale sul club dell'intestazione, l'allegato appartiene
+    al club della sua riga, e `readAttachment` autorizza su «i club a cui hai
+    accesso». Chi e proprietario del proprio club **e genitore in quello del
+    figlio** presentava il cappello di proprietario del primo e scaricava gli
+    allegati degli annunci del secondo, bozze comprese.
+  */
+  const attivo = asText(activeOrganizationId);
+  const proprietario = asText(organizationId);
+  const stessoClub = Boolean(attivo) && attivo === proprietario;
+
+  if (stessoClub && hasCommunicationPermission(activeRole, "board.publish")) {
+    return true;
+  }
   if (!asText(userId) || !asText(announcementId)) return false;
 
   const deliveries = await listDeliveriesForRecipient({

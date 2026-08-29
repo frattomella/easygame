@@ -1318,6 +1318,78 @@ export const DOMAIN_OWNED_RESOURCE_ITEM_TYPES = [
   "automation_rules",
 ] as const;
 
+/**
+ * Le notifiche si leggono **per destinatario**, non per club.
+ *
+ * **Il difetto che questa funzione chiude, e perche era il piu grave.** La
+ * Wave 2 aveva indirizzato le notifiche economiche di societa a chi puo vedere
+ * quel dato, togliendo il `user_id: null` che il prodotto interpreta come «di
+ * tutti». Ma `notifications` e una risorsa di modello, sta fra quelle che un
+ * **allenatore** puo elencare (`TRAINER_READ_RESOURCES`), e il registro
+ * generico non ha mai filtrato per destinatario: `GET /api/v1/notifications`
+ * restituiva a chiunque le notifiche indirizzate a qualcun altro, riepilogo
+ * delle famiglie in arretrato compreso. Il permesso era stato spostato dal
+ * canale al criterio, e la porta accanto era rimasta aperta.
+ *
+ * La regola e quella che **tutte** le schermate applicano gia da sole — la
+ * propria piu quelle di club — solo che adesso la applica il server, che e il
+ * posto in cui una regola di visibilita conta.
+ */
+const RECIPIENT_SCOPED_RESOURCES = new Set([
+  "notifications",
+  "simplified_notifications",
+]);
+
+const applyRecipientScope = (
+  resource: string,
+  where: Record<string, any>,
+  scope?: ResourceAccessScope,
+) => {
+  if (!RECIPIENT_SCOPED_RESOURCES.has(resource) || !scope?.userId) return;
+
+  /*
+    Un `user_id` chiesto esplicitamente resta, ma solo se e il proprio: chi
+    domanda le notifiche di un altro non deve ottenerle scrivendo il suo
+    identificativo nella query string.
+  */
+  if (typeof where.user_id === "string" && where.user_id !== scope.userId) {
+    throw new Error(
+      "Accesso negato: le notifiche si leggono per il proprio destinatario",
+    );
+  }
+
+  delete where.user_id;
+  where.AND = [
+    ...(where.AND || []),
+    { OR: [{ user_id: scope.userId }, { user_id: null }] },
+  ];
+};
+
+/**
+ * Solleva se qualcuno prova a scrivere una riga di un dominio che ha gia il suo
+ * proprietario, passando dal registro generico.
+ *
+ * **Perche la lettura non bastava.** La prima versione della guardia copriva
+ * l'elenco e il dettaglio, e lasciava scoperti creazione, modifica e
+ * cancellazione — che sono i tre verbi che contano di piu, e che
+ * `canAccessClubResource` concede a collaboratori e segreteria su
+ * `club_resource_items`. Un collaboratore poteva quindi creare un annuncio
+ * senza `board.publish`, **accendere un'automazione** e riscriverne il testo
+ * senza `automations.manage`, e cancellare entrambi. E il `PATCH` restituiva
+ * il record, cioe era anche la scorciatoia di lettura che il dettaglio negava.
+ */
+const assertNotDomainOwnedResourceItem = (
+  resource: string,
+  value: unknown,
+) => {
+  if (resource !== "club_resource_items") return;
+  if (!isDomainOwnedResourceItemType(value)) return;
+
+  throw new Error(
+    `Accesso negato: ${String(value).trim()} si scrive dalla sua rotta, non dal registro generico`,
+  );
+};
+
 const isDomainOwnedResourceItemType = (value: unknown) =>
   (DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
     String(value || "").trim(),
@@ -2383,6 +2455,8 @@ export const listResourcePage = async (
     delete where.club_id;
   }
 
+  applyRecipientScope(resource, where, scope);
+
   // La stagione si risolve in parallelo alla lettura principale: e una lettura
   // indipendente e in serie aggiungerebbe un round trip a ogni lista.
   const clubProjection = resolveClubProjection(resource, searchParams);
@@ -2606,6 +2680,8 @@ export const createResource = async (
 ) => {
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
+
+  assertNotDomainOwnedResourceItem(resource, input?.resource_type);
 
   if (config.kind === "club_resource") {
     const data = normalizeClubResourceInput(resource, input);
@@ -3071,6 +3147,8 @@ export const updateResource = async (
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 
+  assertNotDomainOwnedResourceItem(resource, input?.resource_type);
+
   if (config.kind === "club_resource") {
     const existing = await findClubResourceRecord(resource, id, scope);
     if (!existing) {
@@ -3148,6 +3226,13 @@ export const updateResource = async (
     include: getModelInclude(resource),
   });
   assertRecordAccess(resource, existing, scope);
+  /*
+    Il tipo lo dice la **riga**, non chi chiede: `club_resource_items` e una
+    risorsa di **modello**, quindi passa di qui e non dal ramo delle risorse di
+    club, e un `PATCH` che cambia solo il payload non porterebbe nessun
+    `resource_type` da controllare.
+  */
+  assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
 
   /*
     La modifica parziale delle impostazioni si applica per conto suo, con il
@@ -3225,6 +3310,12 @@ export const deleteResource = async (
       throw new Error("Risorsa del club non trovata");
     }
     assertRecordAccess(resource, existing, scope);
+    /*
+      Il tipo lo dice la **riga**, non chi chiede: una cancellazione non porta
+      un corpo, quindi la guardia si applica dopo aver letto cosa si sta per
+      cancellare.
+    */
+    assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
     const record = await delegate.delete({
       where: { id: existing.id },
     });
@@ -3240,6 +3331,13 @@ export const deleteResource = async (
     include: getModelInclude(resource),
   });
   assertRecordAccess(resource, existing, scope);
+  /*
+    Il tipo lo dice la **riga**, non chi chiede: `club_resource_items` e una
+    risorsa di **modello**, quindi passa di qui e non dal ramo delle risorse di
+    club, e un `PATCH` che cambia solo il payload non porterebbe nessun
+    `resource_type` da controllare.
+  */
+  assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
 
   const record = await delegate.delete({
     where: { id },

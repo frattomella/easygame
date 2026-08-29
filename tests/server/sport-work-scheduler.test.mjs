@@ -58,8 +58,23 @@ const rata = (id, overrides = {}) => ({
   ...overrides,
 });
 
+const PROPRIETARIO = "eeeeeeee-0000-4000-8000-00000000000a";
+const GENITORE = "eeeeeeee-0000-4000-8000-00000000000b";
+
 const seed = () => ({
-  club: [{ id: CLUB, name: "ASD Alfa" }],
+  club: [{ id: CLUB, name: "ASD Alfa", creator_id: PROPRIETARIO }],
+  /*
+    Il club ha un proprietario e un genitore, e non e un dettaglio del banco di
+    prova: le notifiche di questo giro parlano di **compensi**, e dalla Wave 2
+    sono indirizzate a chi ha `sport_work.read` invece di essere «di club».
+    Prima erano `user_id: null`, che il prodotto interpreta come «di tutti»:
+    `parent-dashboard.ts` legge `user_id: null`, quindi ogni genitore leggeva
+    quanto la societa deve erogare ai suoi collaboratori.
+  */
+  organizationUser: [
+    { id: "ou-owner", organization_id: CLUB, user_id: PROPRIETARIO, role: "owner" },
+    { id: "ou-parent", organization_id: CLUB, user_id: GENITORE, role: "parent" },
+  ],
   sportWorkPerson: [
     {
       id: PERSONA,
@@ -182,6 +197,24 @@ test("una rata scaduta e non erogata produce un avviso", async () => {
   assert.match(avvisi[0].message, /Rata 1 di 10/);
   assert.match(avvisi[0].message, /1200,00 euro/);
   assert.equal(avvisi[0].data.sportWorkKey, "installment-overdue:rata-1");
+
+  /*
+    **E arriva a chi puo vederlo, non a tutto il club.** Le notifiche di questo
+    giro nascevano con `user_id: null`, che il prodotto interpreta come «di
+    tutti»: `parent-dashboard.ts` legge `OR: [{ user_id }, { user_id: null }]`,
+    quindi ogni genitore leggeva nella propria area quanto la societa deve
+    erogare ai suoi collaboratori. La stessa falla e stata trovata sulle
+    automazioni della Wave 2; correggerne una e lasciare l'altra sarebbe stato
+    peggio che non accorgersene.
+  */
+  assert.equal(avvisi[0].user_id, PROPRIETARIO);
+  assert.equal(
+    notificheDi("sport_work_payout_overdue").some(
+      (riga) => riga.user_id === null || riga.user_id === GENITORE,
+    ),
+    false,
+    "nessuna notifica di compenso e «di club», e nessuna arriva a un genitore",
+  );
 });
 
 test("una rata che scade entro sette giorni produce un preavviso", async () => {

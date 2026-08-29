@@ -7,6 +7,7 @@ import {
 } from "./sport-work";
 import { syncObligations } from "./sport-work-agenda";
 import { SPORT_WORK_AUDIT_ACTIONS } from "@/lib/sport-work/audit-actions";
+import { hasSportWorkPermission } from "@/lib/sport-work/permissions";
 import { startOfDay, toDateOrNull } from "@/lib/sport-work/model";
 
 /**
@@ -48,6 +49,53 @@ const obligationClient = () => (prisma as any).sportWorkObligation;
  * notifiche e condiviso con mezzo prodotto, e aggiungergli una colonna per un
  * dominio solo sarebbe la prima di sette.
  */
+/**
+ * Gli account che possono ricevere una notifica del lavoro sportivo.
+ *
+ * **Il difetto che questa funzione chiude.** Le notifiche di questo giro
+ * nascevano con `user_id: null`, che nel modello significa «di club» e che il
+ * prodotto interpreta come **di tutti**: `parent-dashboard.ts` legge
+ * `OR: [{ user_id }, { user_id: null }]`. Il contenuto pero e
+ * «Compenso scaduto: Mario Rossi — 1.200,00 euro da erogare», cioe il dato
+ * economico piu riservato che una societa possiede, ed e la ragione per cui i
+ * cinque permessi di `sport-work/permissions.ts` esistono. Ogni genitore del
+ * club lo leggeva nella propria area famiglia.
+ *
+ * La stessa falla e stata trovata e chiusa sulle automazioni della Wave 2
+ * (ADR-0084 e il commit di correzione); qui era rimasta, e il commento delle
+ * automazioni citava proprio questo giro come il modello da cui aveva copiato.
+ * Correggerne uno e lasciare l'altro sarebbe stato peggio che non accorgersene.
+ */
+const resolveSportWorkNotificationRecipients = async (
+  organizationId: string,
+) => {
+  const memberships = await (prisma as any).organizationUser.findMany({
+    where: { organization_id: organizationId },
+    select: { user_id: true, role: true },
+  });
+
+  const destinatari = memberships
+    .filter((row: any) => hasSportWorkPermission(row?.role, "sport_work.read"))
+    .map((row: any) => String(row?.user_id || "").trim())
+    .filter(Boolean);
+
+  if (destinatari.length > 0) return Array.from(new Set(destinatari)) as string[];
+
+  /*
+    Un club creato senza riga di appartenenza per il proprietario esiste:
+    `resolveOrganizationScopeForUser` riconosce l'`owner` anche da
+    `clubs.creator_id`. Senza questo ripiego la notifica non arriverebbe a
+    nessuno, in silenzio.
+  */
+  const club = await (prisma as any).club.findUnique({
+    where: { id: organizationId },
+    select: { creator_id: true },
+  });
+  const creatore = String(club?.creator_id || "").trim();
+
+  return creatore ? [creatore] : [];
+};
+
 const notifyOnce = async (
   organizationId: string,
   key: string,
@@ -62,16 +110,20 @@ const notifyOnce = async (
 
   if (existing) return false;
 
-  await notificationClient().create({
-    data: {
+  const destinatari =
+    await resolveSportWorkNotificationRecipients(organizationId);
+  if (destinatari.length === 0) return false;
+
+  await notificationClient().createMany({
+    data: destinatari.map((userId) => ({
       organization_id: organizationId,
-      user_id: null,
+      user_id: userId,
       title: notification.title,
       message: notification.message,
       type: notification.type,
       read: false,
       data: { sportWorkKey: key, domain: "sport_work" },
-    },
+    })),
   });
 
   return true;
