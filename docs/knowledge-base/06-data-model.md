@@ -670,3 +670,126 @@ copia firmata di un documento e una riga di `attachments`, come tutto il resto.
 Nessun secondo scheduler: le scadenze documentali sono il quinto innesco del
 motore di Wave 2. Nessuna libreria PDF, e la decisione e scritta in
 [35](35-wave-3-planning.md) §3.4.
+
+---
+
+## Wave 4 — contabilita e prima nota (2026-08-29)
+
+Tre tabelle nuove, dieci estensioni, e un principio che spiega il rapporto fra
+i due numeri:
+
+> Un movimento di prima nota **non e mai la fonte** di un numero che un altro
+> dominio possiede. E la sua **proiezione datata e classificata**. Se i due
+> divergono, ha ragione il dominio.
+
+### `financial_accounts` — i conti, e il saldo che non e una colonna
+
+Prima erano `clubs.bank_accounts`, un blob JSON con un `current_balance`
+**mutato a mano dal browser** con una seconda chiamata HTTP non transazionale.
+Se la scrittura del movimento riusciva e quella del saldo no, restavano
+disallineati per sempre; due utenti in contemporanea, e il saldo di uno spariva.
+Nessuna funzione era in grado di ricostruirlo.
+
+Qui **il saldo non e una colonna**: e la somma dei movimenti, come lo stato di
+una rata e la somma dei suoi incassi (ADR-0036). Cio che si conserva del vecchio
+numero e `opening_balance_cents` con la sua data — l'unico modo onesto di
+tenerlo, perche i movimenti che l'hanno prodotto nessuno puo ricostruirli.
+
+Serviva una tabella vera perche e il **bersaglio di una foreign key** da tre
+tabelle: incassi, uscite del lavoro sportivo, liquidazioni dei bandi. Un blob
+JSON non puo esserlo.
+
+I tre tipi sono `CASH`, `BANK` e `CLEARING`. Il transito non e un vezzo: il
+denaro incassato online non e in banca il giorno dell'incasso, e il versamento
+arriva dopo al netto delle commissioni.
+
+### `accounting_entries` — la prima nota
+
+Ospita **solo** cio che prima viveva in `clubs.transactions` e
+`clubs.transfers`: il movimento di cassa registrato a mano, le due gambe di un
+giroconto, e i loro storni. Incassi, compensi, contributi e pagamenti sponsor
+restano ai loro proprietari e vengono **proiettati**.
+
+Un vincolo di database lo difende, e non e ridondante con il codice:
+`accounting_entries_origine_check` ammette in scrittura **solo** `MANUAL`,
+`INTERNAL_TRANSFER` e `REVERSAL`. Una riga `ATHLETE_PAYMENT` in tabella sarebbe
+lo stesso incasso rappresentato due volte, e i totali lo conterebbero due volte.
+Il vincolo e nato **stretto dopo**: la prima versione ammetteva tutto il
+catalogo, e una sonda lo ha dimostrato in un minuto.
+
+Gli altri invarianti, tutti nel database:
+
+| Vincolo | Cosa impedisce |
+|---|---|
+| `amount_cents > 0` | Il segno lo dice il verso, non l'importo |
+| `direction IN ('IN','OUT')` | Il giroconto non e un terzo verso: sono due movimenti |
+| `fiscal_year = EXTRACT(YEAR FROM entry_date)` | L'anno fiscale non si digita |
+| indice unico parziale su `reversal_of_id` | Niente doppio storno |
+| indice unico parziale su `(organization_id, source_domain, source_event_key)` | Lo stesso fatto, una sola rappresentazione finanziaria |
+| `INTERNAL_TRANSFER` ⇒ `transfer_group_id NOT NULL` | Un giroconto ha due gambe, sempre |
+| `REVERSAL` ⇒ `reversal_of_id NOT NULL` | Uno storno deve dire cosa compensa |
+
+`activity_scope_snapshot` e **congelato**: la causale e configurazione mutabile,
+e senza congelamento la correzione di una voce cambierebbe la natura di tutti i
+movimenti passati, retroattivamente.
+
+### `membership_events` — il libro soci
+
+Append-only, e lo stato **si deriva**. L'anagrafica del socio resta in
+`clubs.members`: questo le nasce accanto.
+
+Non e estetica. La decommercializzazione di un'entrata dipende dalla qualifica
+della controparte **al momento dell'operazione**, e un'anagrafica mutabile non
+sa dire chi era socio il 12 marzo 2026. Due indici unici parziali difendono
+«un socio si ammette una volta sola» e «il numero di tessera non si ripete».
+
+### Le colonne aggiunte, e perche
+
+| Tabella | Colonne | Perche |
+|---|---|---|
+| `fiscal_operation_types` | `direction_hint`, `reporting_bucket`, `default_description`, `deductible`, `is_membership_fee`, `classified_by`, `classified_at` | I due flag che il documento 30 chiama «il perno». Nascono `NULL` e **non** `false`: un valore non dichiarato si vede che manca, uno sbagliato sembra compilato |
+| `payment_transactions` | `financial_account_id`, `counterparty_*`, `activity_scope_snapshot` | Su quale conto e entrato il denaro, da chi quando non e un atleta, e la classificazione congelata |
+| `payments` | `counterparty_*` | Un socio o uno sponsor possono dovere una rata. `athlete_id` resta |
+| `sport_work_outbound_transactions` | `financial_account_id` | `bank_account_id` esisteva, il servizio lo scriveva, e **nessuna superficie lo compilava** |
+| `funding_settlements` | `financial_account_id`, `reversal_*` | Un bonifico dell'ente era invisibile nel saldo, e una liquidazione sbagliata non aveva rimedio |
+| `invoices`, `receipts` | `taxable_amount_cents`, `vat_amount_cents` | Il **dato**, non il motore: EasyGame li conserva e li espone, non ne ricava liquidazioni |
+
+Piu un indice unico parziale su `invoices.transaction_id`: le ricevute lo
+avevano gia, le fatture no, e due richieste simultanee producevano **due
+documenti fiscali con due numeri** per lo stesso incasso.
+
+### Cosa il database ha insegnato che i test non potevano
+
+Due difetti trovati eseguendo, non leggendo, e nessuno dei due sarebbe emerso
+dai test: girano su un doppio di Prisma, che i vincoli `CHECK` non li applica.
+
+1. **Il vincolo delle origini era troppo largo** — una sonda ha inserito una
+   riga per invariante e ha guardato quali il database rifiutasse davvero. Otto
+   su nove tenevano; il nono lasciava scrivere in tabella un incasso proiettato;
+2. **lo storno di una liquidazione non poteva funzionare.**
+   `funding_settlements_amount_check` imponeva `amount > 0`, e uno storno e
+   negativo per costruzione. Tredici test verdi su una funzione che in
+   produzione avrebbe risposto un errore del driver a ogni chiamata. Il vincolo
+   ora fa dipendere il segno dal tipo di riga, come gia fa il lavoro sportivo;
+   un livello sotto, dove il segno dipende dalla **riga padre** e un `CHECK` non
+   vede altre tabelle, lo difende un trigger — l'unico della Wave.
+
+### Il taglio storico, e perche non c'e doppio conteggio
+
+I movimenti scritti prima della Wave **non** sono stati travasati in tabella:
+travasarli avrebbe richiesto di **inventare** per ognuno un conto e una causale
+che nessuno ha mai dichiarato.
+
+Compaiono nella prima nota, in sola lettura, marcati non classificati — che e la
+verita — e **non toccano nessun saldo**: il loro effetto e gia dentro
+`opening_balance_cents`, che di quei movimenti e la somma.
+
+### Cosa non e stato creato
+
+**Nessun piano dei conti e nessuna partita doppia**: una ASD non la tiene e
+nessuna norma gliela chiede. **Nessuna tabella `counterparties`**: duplicherebbe
+atleti, soci, persone del lavoro sportivo e sponsor, che esistono gia — al loro
+posto una coppia polimorfa con l'etichetta congelata. **Nessuna tabella che
+materializzi incassi, compensi o contributi**: sarebbe la seconda contabilita.
+**Nessun ruolo `treasurer`**: la separazione «registra / storna» ottiene lo
+stesso con i permessi.
