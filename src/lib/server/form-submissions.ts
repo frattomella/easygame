@@ -1251,7 +1251,7 @@ const generateSubmissionDocument = async ({
       versionId: asText(version.id),
       subjectKind: wanted,
       subjectId: subject.recordId,
-      subjectLabel: resolved.values["recipient.name"] || subject.label || null,
+      subjectLabel: resolved.recipientName || subject.label || null,
       seasonId: null,
       valuesSnapshot: resolved.values,
       contentHtml: renderFilledDocumentHtml({

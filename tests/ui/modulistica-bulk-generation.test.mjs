@@ -191,6 +191,120 @@ test("i soggetti ripetuti non diventano due documenti", () => {
   );
 });
 
+
+/* --------------------------------- quanti ce n'erano gia, e quanti no */
+
+/*
+  `reusedCount` esiste perche una ripresa non sembri un lavoro fatto due volte:
+  «cinquanta prodotti» e «cinquanta ce n'erano gia» sono due frasi diverse, e
+  chi ha premuto il pulsante una volta ha diritto alla seconda.
+
+  Il campo era nato senza un test, e il valore che produceva prima era
+  sbagliato — si deduceva confrontando due orologi diversi. Ora il server lo
+  dichiara e la schermata lo somma: questi tre controlli provano la somma.
+*/
+
+test("il lotto distingue i documenti nuovi da quelli che c'erano gia", () => {
+  const lotto = startBatch({
+    templateId: "t1",
+    templateTitle: "Attestazione",
+    subjectKind: "athlete",
+    seasonId: null,
+    subjects: soggetti(3),
+  });
+
+  assert.equal(lotto.reusedCount, 0, "un lotto che nasce non ha riusato niente");
+
+  const dopo = applySliceOutcome(lotto, {
+    produced: [
+      { id: "d0", subjectId: "a0", label: "Atleta 0", missing: [], reused: false },
+      { id: "d1", subjectId: "a1", label: "Atleta 1", missing: [], reused: true },
+      { id: "d2", subjectId: "a2", label: "Atleta 2", missing: [], reused: true },
+    ],
+    failed: [],
+  });
+
+  assert.equal(dopo.producedIds.length, 3);
+  assert.equal(dopo.reusedCount, 2, "due erano gia li, e vanno detti");
+});
+
+test("lo stesso documento contato due volte non alza il conto dei riusati", () => {
+  const lotto = startBatch({
+    templateId: "t1",
+    templateTitle: "Attestazione",
+    subjectKind: "athlete",
+    seasonId: null,
+    subjects: soggetti(1),
+  });
+
+  const esito = {
+    produced: [
+      { id: "d0", subjectId: "a0", label: "Atleta 0", missing: [], reused: true },
+    ],
+    failed: [],
+  };
+
+  const dopo = applySliceOutcome(applySliceOutcome(lotto, esito), esito);
+
+  assert.deepEqual(dopo.producedIds, ["d0"]);
+  assert.equal(
+    dopo.reusedCount,
+    1,
+    "un numero di riusati piu grande del numero di prodotti non e un numero",
+  );
+  assert.ok(
+    dopo.reusedCount <= dopo.producedIds.length,
+    "e l'invariante che rende leggibile la riga di conclusione",
+  );
+});
+
+test("il conto dei riusati sopravvive a un ricaricamento", () => {
+  const scaffale = new Map();
+  const finestra = globalThis.window;
+
+  globalThis.window = {
+    sessionStorage: {
+      getItem: (chiave) => (scaffale.has(chiave) ? scaffale.get(chiave) : null),
+      setItem: (chiave, valore) => scaffale.set(chiave, String(valore)),
+      removeItem: (chiave) => scaffale.delete(chiave),
+    },
+  };
+
+  try {
+    const lotto = applySliceOutcome(
+      startBatch({
+        templateId: "t1",
+        templateTitle: "Attestazione",
+        subjectKind: "athlete",
+        seasonId: null,
+        subjects: soggetti(2),
+      }),
+      {
+        produced: [
+          { id: "d0", subjectId: "a0", label: "Atleta 0", missing: [], reused: true },
+        ],
+        failed: [],
+      },
+    );
+
+    writeStoredBatch(lotto);
+    assert.equal(readStoredBatch().reusedCount, 1);
+
+    /* Uno stato scritto da una versione che il campo non lo aveva. */
+    const senzaCampo = { ...lotto };
+    delete senzaCampo.reusedCount;
+    writeStoredBatch(senzaCampo);
+    assert.equal(
+      readStoredBatch().reusedCount,
+      0,
+      "una ripresa non deve rompersi su uno stato piu vecchio del campo",
+    );
+  } finally {
+    if (finestra === undefined) delete globalThis.window;
+    else globalThis.window = finestra;
+  }
+});
+
 /* ------------------------------------------------ la ripresa dopo un F5 */
 
 test("il lotto sopravvive a un ricaricamento e riprende da dove era", () => {

@@ -207,7 +207,14 @@ export const applySliceOutcome = (
   const served = new Set(state.servedSubjectIds);
 
   for (const document of outcome.produced) {
-    if (!producedIds.includes(document.id)) producedIds.push(document.id);
+    // Un documento gia contato non si conta due volte, e questo vale anche
+    // per quanti ne erano gia li: un numero di riusati piu grande del numero
+    // di prodotti non e un numero, e un errore di lettura di chi lo guarda.
+    if (producedIds.includes(document.id)) {
+      served.add(document.subjectId);
+      continue;
+    }
+    producedIds.push(document.id);
     if (document.reused) reusedCount += 1;
     served.add(document.subjectId);
 

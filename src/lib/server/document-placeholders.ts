@@ -813,10 +813,14 @@ export type DocumentSubjectRef =
  * Si cerca in due giri, e il secondo esiste perche le collezioni sono state
  * scritte da schermate diverse in anni diversi:
  *
- * 1. `id`, che e la grafia di oggi. Se corrisponde a una riga sola, e quella;
+ * 1. `id`, che e la grafia di oggi;
  * 2. le grafie storiche, per le schede che un `id` non ce l'hanno.
  *
- * In entrambi i giri, **due** corrispondenze non si scelgono: si rifiuta.
+ * I due giri si fanno **tutti e due**, e le righe trovate si sommano: se ne
+ * resta una sola e quella, se ne restano due si rifiuta. Fermarsi al primo
+ * giro riuscito sarebbe stato piu breve e avrebbe riaperto meta del difetto:
+ * una scheda con `id: "x"` e un'altra con `user_id: "x"` sono due persone
+ * diverse, e chi ha chiesto `"x"` non ha detto quale delle due intendeva.
  */
 const findInClubCollections = (
   club: Record<string, any>,
@@ -840,14 +844,19 @@ const findInClubCollections = (
       fields.some((field) => asText(entry[field]) === wanted),
     );
 
+  const found: Record<string, any>[] = [];
   for (const fields of [["id"], historicKeys]) {
-    const found = matchOn(fields);
-    if (found.length === 1) return found[0];
-    if (found.length > 1) {
-      throw new Error(
-        "L'identificativo corrisponde a piu di una scheda: correggila prima di generare il documento",
-      );
+    for (const entry of matchOn(fields)) {
+      // Per identita: la stessa riga puo rispondere a `id` e a `uuid`.
+      if (!found.includes(entry)) found.push(entry);
     }
+  }
+
+  if (found.length === 1) return found[0];
+  if (found.length > 1) {
+    throw new Error(
+      "L'identificativo corrisponde a piu di una scheda: correggila prima di generare il documento",
+    );
   }
 
   return null;

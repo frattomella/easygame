@@ -54,14 +54,11 @@ commit a se davanti a tutte.
 | **W3-C** — consensi | `4737653` | Definizione, versione immutabile, decisioni append-only, stato derivato, schermata `/consensi` |
 | **W3-B** — soggetti | `7995534` | Il risolutore impara club, persona e socio oltre all'atleta; sponsor, fornitori ed eventi smettono di essere proposti |
 | **W3-A** — schermata | `fab5cd9` | `/modulistica` sopra il motore nuovo, e **cinquecento righe** di implementazioni doppie rimosse |
-| **UAT** | `34a06d0` | I 38 scenari del §19, decisi prima del codice: 56 controlli su 56 |
+| **UAT** | `34a06d0` | I 38 scenari del §19, decisi prima del codice: 56 controlli su 56, diventati 68 con gli scenari aggiunti dall'audit |
 | **W3-D** — catalogo | `ae8cdd6` | Dieci voci scritte, sei distribuite, quattro ferme e dichiarate |
 | **W3-F** — moduli | `797f76c` | Un campo puo dichiarare un consenso, un modulo un modello: all'approvazione nascono la decisione e il documento, con due idempotenze diverse e la ragione di entrambe |
 | **W3-E** — massiva | `ea27d01` | Fette da cinquanta, lotto ripartibile dopo un ricaricamento, fascicolo stampabile, «riprova i falliti» |
 | **audit** | `41404ee` | Le ventuno correzioni delle quattro revisioni ostili, la porta del catalogo, e sette scenari di collaudo che le provano |
-| **W3-F** — moduli | `797f76c` | Un campo puo dichiarare un consenso, un modulo un modello: all'approvazione nascono la decisione e il documento, con due idempotenze diverse e la ragione di entrambe |
-| **W3-E** — massiva | `ea27d01` | Fette da cinquanta, lotto ripartibile dopo un ricaricamento, fascicolo stampabile, «riprova i falliti» |
-| **audit** | `41404ee` | Le ventuno correzioni delle quattro revisioni ostili, piu sette scenari di collaudo che le provano |
 
 ---
 
@@ -112,7 +109,7 @@ una pagina HTML stampabile. La scelta e difendibile — e la stessa decisione de
 `scripts/wave-3-documents-uat.mjs`, contro un'applicazione vera con un
 database vero, due club veri e cinque ruoli veri.
 
-**67 controlli su 67.**
+**68 controlli su 68.**
 
 Cosa dimostra, in ordine di importanza:
 
@@ -155,7 +152,7 @@ vede i modelli.
 
 ## 5 — Prestazioni
 
-Misurate durante il collaudo, sulla stessa esecuzione dei 56 controlli.
+Misurate durante il collaudo, sulla stessa esecuzione dei 68 controlli.
 
 | Misura | Soglia (§20 del planning) | Misurato | Margine |
 |---|---|---|---|
@@ -315,26 +312,104 @@ rispondeva `307`. Non era una fuga — la pagina si difende da sola e ogni rotta
 rifiuta con 401 — ma e esattamente il tipo di disallineamento che un elenco
 scritto a mano produce, e che si vede solo interrogando il server vero.
 
+### La terza lettura, sulle correzioni della seconda
+
+Le cinque correzioni della seconda revisione sono state a loro volta rilette da
+una revisione **indipendente**, con due domande secche: la lettura in piu che
+`reused` ora costa e sostenibile, e la nota sulla deriva fra schema e base dati
+descrive davvero cio che il database ha.
+
+**Il gate «zero Critical, zero High» passa.** Nessuna correzione ha riaperto il
+difetto che chiudeva. Sono emerse **due MEDIUM e quattro LOW**, corrette tutte
+prima di chiudere la Wave:
+
+- una correzione **incompleta**, non sbagliata: `recordGeneratedDocument` ha due
+  chiamanti, e la rotta era stata corretta ma la funzione dei moduli no. Non e
+  cosmetica: un modulo pubblico che raccoglie il solo consenso non porta nome e
+  cognome, e li `subject_label` tornava `null`, cioe il difetto originale;
+- e una correzione che chiudeva **meta** del difetto: il primo giro riuscito
+  vinceva sul secondo, quindi una scheda con `id: "x"` batteva in silenzio
+  un'altra con `user_id: "x"`. Sono due persone diverse. Ora i due giri si
+  fanno tutti e due e le righe si sommano: se ne restano due, si rifiuta;
+- il conteggio dei riusati poteva superare quello dei prodotti applicando due
+  volte lo stesso esito — un varco tenuto chiuso solo dalla disciplina del
+  chiamante — e **non aveva un test**: `grep -rn "reused" tests/` rispondeva
+  zero. Ora ne ha cinque, tre nel modulo del lotto e due nel servizio;
+- il §2 di questo documento aveva tre righe duplicate e due conteggi rimasti
+  indietro (56 e 67, quando i controlli sono 68);
+- la nota sulla deriva diceva che `prisma migrate dev` avrebbe creato l'indice
+  pieno **accanto** al parziale: in realta fallirebbe, perche il nome e lo
+  stesso. E il §«Drift noto e benigno» elencava meno righe di quante il comando
+  ne emetta davvero — verificato eseguendolo: quattro in piu.
+
+**Le due domande.** La lettura in piu costa **0,67 ms per documento** contro il
+DB di sviluppo (33,5 ms mediani per un lotto da cinquanta), su un indice che la
+copre esattamente; su Neon da Vercel vale qualche millisecondo per lettura,
+quindi 0,1–0,5 s per lotto. La soglia del §20 e 15 s: il margine resta di oltre
+un ordine di grandezza, e i lotti misurati dopo la correzione stanno a 1.077 e
+1.160 ms. **La si puo pagare.** La nota sulla deriva descrive davvero cio che
+c'e: l'indice in base dati e parziale, `WHERE catalog_key IS NOT NULL`, con il
+nome che Prisma genererebbe.
+
+Tre revisioni in fila hanno quindi trovato, in ordine: ventuno difetti nel
+codice, due nelle correzioni, sei nelle correzioni delle correzioni — e ogni
+giro ha trovato **meno** e **piu piccolo** del precedente. E il solo andamento
+che permette di dire che si e finito.
 ---
 
 ## 9 — Verdetto
 
-_Da compilare._
+**DONE.**
+
+I criteri erano scritti prima di cominciare, nel §24 del
+[planning](35-wave-3-planning.md). Uno per uno:
+
+| Criterio | Esito |
+|---|---|
+| Il motore esiste e regge la modellistica | Si — modelli, versioni immutabili, segnaposto, documenti generati. Il catalogo e nato **dopo**, e ne e un utente come un altro |
+| Un documento rilasciato non cambia mai | Si — verificato elencando **ogni** scrittura su `generated_documents`: nessun percorso tocca contenuto, valori o versione dopo la creazione |
+| Un documento generato non e un allegato | Si — tabella propria, autorizzazione propria, e il controllo 27 dell'UAT prova che `GET /api/v1/attachments/:id` di un documento risponde 404 |
+| I permessi si decidono in un posto solo | Si — `src/lib/documents/permissions.ts`, che compone quelli che c'erano. Nessun permesso ad hoc in una pagina |
+| I dati economici vengono dagli owner canonici | Si — nessun ricalcolo. E dopo l'audit **escono solo** dai documenti che li nominano, con il permesso richiesto |
+| Nessun motore PDF nuovo | Si — nessun Puppeteer, pdfkit, jsPDF, Playwright. La stampa e quella del browser |
+| Consensi come registro, stato derivato | Si — append-only, `deriveConsentState` decide, nessuna colonna di stato |
+| Generazione massiva idempotente | Si — indice unico parziale su `(club, lotto, modello, soggetto)`, lotto ripartibile dopo un ricaricamento |
+| Scadenze governate | Si — `valid_from`/`valid_until` sugli allegati, valutate dal motore notturno della Wave 2, senza un secondo motore |
+| Gate verdi | Si — 2.927 test, typecheck pulito, 0 errori di lint, build completata, CI verde |
+| UAT a runtime | Si — 68 controlli su 68, contro un'applicazione vera e un database vero |
+| Zero Critical e zero High residui | Si — dopo tre revisioni in fila e le loro correzioni |
+| Staging | Si — deploy, tre migrazioni applicate, smoke 12/12 piu le sei superfici nuove |
+
+**Cosa questo verdetto non dice.** Non dice che la modulistica di un'ASD sia
+risolta: dice che il motore c'e, che regge dieci modelli, e che sei di essi
+sono distribuibili oggi. Le quattro voci ferme non sono un ritardo, sono una
+decisione: contengono affermazioni che nessuno ha ancora validato, e ADR-0092
+dice che si distribuisce cio che qualcuno ha firmato. Non dice nemmeno che il
+protocollo dei documenti sia risolto (`W3-01`), ne che il presidio redazionale
+esista davvero (`W3-09`, `W3-10`): quelli restano scritti in chiaro fra i venti
+residui del §10, che e il posto dove un debito si puo ritrovare.
 
 ---
 
 ## 10 — Residui dichiarati
 
-Dieci voci, tutte in [16 — Debito tecnico](16-technical-debt.md), sezione
-«Debito aperto dalla Wave 3». Le tre che pesano davvero:
+Venti voci aperte piu una chiusa, tutte in
+[16 — Debito tecnico](16-technical-debt.md), sezione «Debito aperto dalla
+Wave 3». Le tre che pesano davvero:
 
 - **`W3-01`** — il protocollo di un documento generato resta nullo. E una
   decisione rimandata, non una dimenticanza: darglielo significa estendere la
   numerazione fiscale o aprirne una seconda;
-- **`W3-02`** — il permesso di generare concesso a collaboratore e staff non ha
-  una schermata da cui esercitarlo. Il server lo consente, provato a runtime;
-  manca la porta;
 - **`W3-09`/`W3-10`** — il presidio redazionale. Le sei voci distribuite hanno
   un proprietario **nominale**, e le quattro ferme aspettano una validazione
   che nessuno ha ancora preso in carico. ADR-0092 dice cosa fare se non arriva:
-  smettere di distribuire, non lasciare invecchiare.
+  smettere di distribuire, non lasciare invecchiare;
+- **`W3-15`** — a parita di istante, lo spareggio fra due decisioni di
+  consenso decide in ordine alfabetico di identificativo. E deterministico, e
+  non e sensato: gli stessi due fatti danno «accettato» o «revocato» a seconda
+  di quale riga ha ricevuto l'UUID piu alto.
+
+`W3-02` invece **si e chiusa durante la Wave**: diceva che il permesso di
+generare concesso a collaboratore e staff non aveva una schermata da cui
+esercitarlo, e l'audit ha scoperto che la schermata c'era — era la matrice dei
+percorsi a tenerli fuori.

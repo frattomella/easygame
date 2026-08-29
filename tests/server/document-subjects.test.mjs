@@ -333,3 +333,43 @@ test("un identificativo che corrisponde a due schede non si indovina", async () 
     /piu di una scheda/i,
   );
 });
+
+test("l'ambiguita si rifiuta anche fra la grafia di oggi e quella di ieri", async () => {
+  /*
+    La prima correzione si fermava al primo giro riuscito: `id` batteva le
+    grafie storiche, e una scheda con `id: "x"` vinceva su un'altra con
+    `user_id: "x"` senza dire niente. Ma sono **due persone diverse**, e chi ha
+    chiesto `"x"` non ha detto quale delle due intendeva — che e esattamente il
+    caso per cui questa funzione rifiuta invece di scegliere.
+  */
+  fake.rows("club")[0].trainers = [
+    { id: "x", firstName: "Giulia", lastName: "Bianchi" },
+  ];
+  fake.rows("club")[0].staff_members = [
+    { user_id: "x", firstName: "Luca", lastName: "Verdi" },
+  ];
+
+  await assert.rejects(
+    () => risolvi("<p>{{trainer.first_name}}</p>", { kind: "person", id: "x" }),
+    /piu di una scheda/i,
+  );
+});
+
+test("una scheda che risponde a due grafie resta una scheda sola", async () => {
+  /*
+    Il rovescio del controllo di sopra: sommare i due giri non deve
+    trasformare `id` e `uuid` della **stessa** riga in un'ambiguita, o non si
+    genererebbe piu niente per chi ha entrambe le colonne valorizzate.
+  */
+  fake.rows("club")[0].trainers = [
+    { id: "x", uuid: "x", firstName: "Giulia", lastName: "Bianchi" },
+  ];
+  fake.rows("club")[0].staff_members = [];
+
+  const esito = await risolvi("<p>{{trainer.first_name}}</p>", {
+    kind: "person",
+    id: "x",
+  });
+
+  assert.match(esito.html, /Giulia/);
+});

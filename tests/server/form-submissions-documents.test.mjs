@@ -799,3 +799,45 @@ test("il ruolo di un altro club non genera documenti sensibili", async () => {
     0,
   );
 });
+
+test("il documento nato da un modulo porta il nome di chi lo riceve", async () => {
+  /*
+    L'intestazione si leggeva da `values["recipient.name"]`, cioe da una chiave
+    della mappa dei segnaposto. Da quando la mappa esce filtrata alle sole
+    chiavi **nominate dal modello** — perche gli importi di una famiglia non
+    devono uscire da un documento che non li chiede — quella chiave in un
+    modello che non la nomina non c'e piu, e l'intestazione cadeva sul ripiego.
+
+    Il ripiego di solito e giusto. Ma non sempre: una compilazione che non
+    porta nome e cognome — un modulo che raccoglie il solo consenso, o
+    aggiorna un recapito — fa cadere l'etichetta del soggetto su un generico
+    «Nuovo …» o sul vuoto, e `subject_label` tornava **null**. Il nome del
+    destinatario esce quindi come campo proprio del risolutore, non come
+    effetto collaterale della mappa.
+  */
+  await consensoAttivo();
+  const modello = await modelloDocumento({
+    content: "<p>{{athlete.first_name}} {{athlete.last_name}}</p>",
+  });
+  const template = await moduloPubblicato({ documentTemplateId: modello.id });
+
+  const row = await invia(template, {
+    f_nome: "Mario",
+    f_cognome: "Rossi",
+    f_consenso: true,
+  });
+
+  await submissions.decideFormSubmission(scopeA(), row.id, {
+    decision: "approve",
+  });
+
+  const documento = fake.rows("generatedDocument")[0];
+
+  /* La chiave non c'e — e va bene cosi: il modello non la nomina. */
+  assert.equal(documento.values_snapshot["recipient.name"], undefined);
+  assert.equal(
+    documento.subject_label,
+    "Mario Rossi",
+    "l'intestazione non puo dipendere da una chiave che il modello non nomina",
+  );
+});

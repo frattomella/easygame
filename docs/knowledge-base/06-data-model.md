@@ -353,6 +353,14 @@ l'applicazione rispetta.
   Prisma usa default applicativi (`@default(uuid())`, `@updatedAt`);
 - due indici hanno nome troncato diversamente dal nome che Prisma genererebbe.
 
+Lo stesso vale, per la stessa ragione, su altre quattro righe che il diff emette
+e che questo elenco per un po' non ha nominato: i `DROP DEFAULT` su
+`document_number_sequences` e `payment_webhook_events`, e i `RenameIndex` su
+`communication_deliveries`, `training_attendance` e `generated_documents`. Sono
+state trovate rileggendo l'elenco contro l'uscita vera del comando: chi lo usa
+come lista di controllo deve trovarci **tutto** cio che il diff dice, altrimenti
+una riga in piu sembra una novita da applicare.
+
 Sono differenze cosmetiche introdotte dalla migrazione SQL scritta a mano.
 **Non generare una migrazione correttiva** senza una ragione funzionale: il
 comportamento applicativo e identico.
@@ -647,10 +655,13 @@ come vuole. Prisma non sa modellare un indice parziale, quindi nello schema
 compare **pieno**.
 
 Semanticamente i due coincidono: PostgreSQL tratta i `NULL` come distinti in un
-indice unico. Ma `prisma migrate diff` segnala la differenza, e un
-`prisma migrate dev` proverebbe a creare l indice pieno accanto al parziale: chi
-genera la prossima migrazione deve scartare quella riga. E lo stesso genere di
-deriva gia registrata al §«Drift noto e benigno».
+indice unico. Ma `prisma migrate diff` segnala la differenza ed emette un
+`CREATE UNIQUE INDEX` **senza** la clausola `WHERE`: applicata, quella riga non
+creerebbe un secondo indice, **fallirebbe**, perche il nome che Prisma genera e
+gia quello dell'indice parziale in base dati
+(`document_templates_v2_organization_id_catalog_key_key`). Chi genera la
+prossima migrazione deve scartarla. E lo stesso genere di deriva gia registrata
+al §«Drift noto e benigno».
 
 ### Cosa non e stato creato
 

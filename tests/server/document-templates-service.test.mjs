@@ -286,6 +286,18 @@ test("dentro un lotto lo stesso soggetto produce un documento solo", async () =>
   // E cio che rende un nuovo tentativo capace di rigenerare **solo** i falliti.
   assert.equal(secondo.id, primo.id);
   assert.equal(fake.rows("generatedDocument").length, 1);
+
+  /*
+    E il chiamante deve poter distinguere i due casi: «cinquanta prodotti» e
+    «cinquanta ce n'erano gia» sono due frasi diverse, e chi riprende un lotto
+    dopo un ricaricamento ha diritto alla seconda. Il dato si **chiede** alla
+    base dati prima di scrivere: la prima versione lo deduceva confrontando la
+    data della riga con l'orologio dell'applicazione, e su due macchine
+    diverse — Postgres e il processo Node — una riga appena creata poteva
+    risultare riusata.
+  */
+  assert.equal(primo.reused, false);
+  assert.equal(secondo.reused, true);
 });
 
 test("fuori da un lotto, due richieste sono due documenti", async () => {
