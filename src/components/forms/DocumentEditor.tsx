@@ -6,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
   DOCUMENT_SIGNATURE_TOKENS as SIGNATURE_TOKENS,
-  DOCUMENT_TEMPLATE_TOKENS,
+  listPlaceholderTokensForSubject,
   type DocumentSignatureToken as SignatureToken,
   type DocumentTemplateToken,
+  type TemplateSubjectKind,
 } from "@/lib/documents/placeholders";
 import {
   AlignCenter,
@@ -37,17 +38,25 @@ import {
   `src/lib/documents/placeholders.ts`, perche da W1-G lo consuma anche il
   risolutore lato server. Due elenchi che divergono sarebbero peggio di nessun
   elenco — l'editor proporrebbe un dato che il documento non sa scrivere.
-  L'esportazione resta per i chiamanti storici (`/modulistica`).
 */
 export type { DocumentTemplateToken, SignatureToken };
-export { DOCUMENT_TEMPLATE_TOKENS };
 
 interface DocumentEditorProps {
   initialContent?: string;
   onSave?: (content: string) => void;
   onCancel?: () => void;
   readOnly?: boolean;
-  tokens?: DocumentTemplateToken[];
+  /**
+   * Di chi parla il modello che si sta scrivendo.
+   *
+   * **Perche l'editor deve saperlo** (debito `DOC-04`). Fino alla Wave 3 la
+   * barra laterale proponeva il catalogo intero: dentro un modello che parla
+   * di un atleta compariva `{{trainer.first_name}}`, che non ha nessun
+   * allenatore a cui riferirsi e sarebbe rimasto bianco per sempre. Con il
+   * soggetto si propone **solo cio che il modello sapra riempire**, e la
+   * promessa sparisce alla radice invece di essere corretta a valle.
+   */
+  subject?: TemplateSubjectKind;
 }
 
 type ToolbarButtonProps = {
@@ -431,7 +440,7 @@ export default function DocumentEditor({
   onSave,
   onCancel,
   readOnly = false,
-  tokens = DOCUMENT_TEMPLATE_TOKENS,
+  subject = "athlete",
 }: DocumentEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -442,22 +451,31 @@ export default function DocumentEditor({
   const [hasContent, setHasContent] = useState(false);
   const [hasSelectedImage, setHasSelectedImage] = useState(false);
 
+  /* L'elenco proposto: solo cio che il soggetto del modello sa riempire. */
+  const availableTokens = useMemo(
+    () => listPlaceholderTokensForSubject(subject),
+    [subject],
+  );
+
   const tokenLookup = useMemo(
-    () => buildTokenLookup(tokens, SIGNATURE_TOKENS),
-    [tokens],
+    () => buildTokenLookup(availableTokens, SIGNATURE_TOKENS),
+    [availableTokens],
   );
   const tokenLookupRef = useRef(tokenLookup);
   const tokensByGroup = useMemo(
     () =>
-      tokens.reduce<Record<string, DocumentTemplateToken[]>>((groups, token) => {
-        if (!groups[token.group]) {
-          groups[token.group] = [];
-        }
+      availableTokens.reduce<Record<string, DocumentTemplateToken[]>>(
+        (groups, token) => {
+          if (!groups[token.group]) {
+            groups[token.group] = [];
+          }
 
-        groups[token.group].push(token);
-        return groups;
-      }, {}),
-    [tokens],
+          groups[token.group].push(token);
+          return groups;
+        },
+        {},
+      ),
+    [availableTokens],
   );
 
   const syncContentState = () => {
@@ -680,7 +698,7 @@ export default function DocumentEditor({
       return;
     }
 
-    const token = tokens.find((item) => item.value === droppedValue);
+    const token = availableTokens.find((item) => item.value === droppedValue);
     if (token) {
       insertToken(token);
     }

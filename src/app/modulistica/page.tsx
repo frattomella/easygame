@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Archive,
   Download,
   Edit,
   Plus,
@@ -19,10 +18,9 @@ import {
   MoreVertical,
   RotateCcw,
   Trash2,
+  Upload,
 } from "lucide-react";
-import DocumentEditor, {
-  DOCUMENT_TEMPLATE_TOKENS,
-} from "@/components/forms/DocumentEditor";
+import DocumentEditor from "@/components/forms/DocumentEditor";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { MobileTopBar } from "@/components/layout/MobileTopBar";
@@ -55,148 +53,121 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FormsDashboard } from "@/components/forms/forms-dashboard";
-import {
-  getClubAthletes,
-  getClub,
-  saveDocumentTemplate,
-  getDocumentTemplates,
-  updateDocumentTemplate,
-  deleteDocumentTemplate,
-} from "@/lib/simplified-db";
-import { getDocumentTemplatesFromClub } from "@/lib/document-templates";
+import { getClubAthletes } from "@/lib/simplified-db";
 import {
   ATTESTATION_TEMPLATE_ID,
   ATTESTATION_TEMPLATE_TITLE,
   buildAttestationTemplate,
 } from "@/lib/documents/attestation-template";
-import { apiRequest } from "@/lib/api/client";
+import {
+  createDocumentTemplate,
+  deleteDocumentTemplate,
+  generateDocuments,
+  getDocumentTemplate,
+  listDocumentTemplates,
+  listGeneratedDocuments,
+  previewFilledDocument,
+  publishDocumentTemplate,
+  saveDocumentTemplateDraft,
+  type DocumentTemplateDetail,
+  type DocumentTemplateSummary,
+  type GeneratedDocumentSummary,
+  type TemplateIssue,
+  type TemplateStatus,
+  type TemplateSubject,
+} from "@/lib/api/documents";
+import {
+  canManageDocumentTemplates,
+  canReadDocumentTemplates,
+} from "@/lib/documents/permissions";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/use-toast";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 
-type DocumentTemplate = {
-  id: string;
-  title: string;
-  description: string;
-  content: string;
-  archived?: boolean;
-  archivedAt?: string | null;
-};
+/**
+ * Modulistica: i modelli del club, le loro versioni, i documenti che hanno
+ * prodotto.
+ *
+ * **Cosa e cambiato, e perche.** Fino alla Wave 3 questa pagina leggeva e
+ * scriveva `clubs.document_templates`, cioe una colonna JSON della riga del
+ * club: due schede aperte insieme si sovrascrivevano, e un modello non aveva
+ * ne stato ne versioni. Adesso ogni gesto passa da `src/lib/api/documents.ts`,
+ * e un modello ha un ciclo di vita dichiarato — bozza, pubblicato, ritirato.
+ *
+ * **Tre cose che qui non esistono piu**, e non e una potatura estetica:
+ *
+ * - i **quattro modelli predefiniti** generati nel browser (`DOC-02`): non li
+ *   chiamava nessuno, e scrivevano segnaposto fuori catalogo;
+ * - la **compilazione nel browser** (`DOC-03`): era una terza interpretazione
+ *   della sostituzione dei segnaposto, con una mappa propria di chiavi
+ *   storiche e l'anno sportivo letto da `localStorage`. Sullo stesso modello e
+ *   sullo stesso atleta produceva un documento diverso da quello del server;
+ * - il **«generatore IA»**: non chiamava nessuna intelligenza artificiale —
+ *   componeva una stringa fissa — e ci scriveva dentro `{{first_name}}` e
+ *   `{{fiscalCode}}`, che non sono nel catalogo e sarebbero rimasti bianchi
+ *   per sempre (§17.3 del planning di Wave 3).
+ *
+ * Il gesto che resta e uno solo, ed e quello vero: **anteprima** dal
+ * risolutore lato server (`/api/v1/documents/filled`, che la pagina non
+ * reimplementa), e poi la **produzione** del documento, che scrive una riga
+ * con la versione citata.
+ */
 
 type Athlete = {
   id: string;
   first_name: string;
   last_name: string;
-  birth_date: string;
-  category_name?: string;
   data?: {
     [key: string]: any;
     category?: string;
-    categoryName?: string;
-    category_name?: string;
-    fiscalCode?: string;
-    fiscal_code?: string;
-    address?: string;
-    email?: string;
-    phone?: string;
-    medicalCertExpiry?: string;
-    parentName?: string;
-    guardianName?: string;
-    parent_name?: string;
-    guardian_name?: string;
-    accessCode?: string;
-    avatar?: string;
-    status?: string;
   };
 };
 
-type ClubData = {
-  id: string;
-  name: string;
-  logo_url?: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  postal_code?: string;
-  vat_number?: string;
-  fiscal_code?: string;
-  website?: string;
-  contact_email?: string;
-  contact_phone?: string;
+type PageTab = "documents" | "online-forms" | "retired" | "generated";
+
+const STATUS_LABELS: Record<TemplateStatus, string> = {
+  draft: "Bozza",
+  active: "Attivo",
+  retired: "Ritirato",
 };
 
-type StoredActiveClub = Partial<ClubData> & {
-  id?: string;
-  activeSeasonId?: string | null;
-  activeSeasonLabel?: string | null;
+const STATUS_CLASSES: Record<TemplateStatus, string> = {
+  draft: "border-slate-200 bg-slate-100 text-slate-700",
+  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  retired: "border-amber-200 bg-amber-50 text-amber-800",
 };
 
-const readStoredActiveClub = (): StoredActiveClub | null => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const candidateKeys = ["activeClub"];
-
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index);
-    if (key && key.startsWith("activeClub_")) {
-      candidateKeys.push(key);
-    }
-  }
-
-  for (const key of candidateKeys) {
-    const rawValue = window.localStorage.getItem(key);
-    if (!rawValue) {
-      continue;
-    }
-
-    try {
-      const parsedValue = JSON.parse(rawValue);
-      if (parsedValue?.id) {
-        return parsedValue as StoredActiveClub;
-      }
-    } catch {
-      window.localStorage.removeItem(key);
-    }
-  }
-
-  return null;
+/**
+ * I quattro soggetti che un modello puo dichiarare.
+ *
+ * Non e una preferenza di catalogazione: il soggetto decide quali segnaposto
+ * l'editor propone, e quindi quali dati il modello sapra scrivere.
+ */
+const SUBJECT_LABELS: Record<TemplateSubject, string> = {
+  club: "La societa",
+  athlete: "Un atleta",
+  person: "Una persona dello staff",
+  member: "Un socio",
 };
 
-const normalizeClubData = (
-  club: Partial<ClubData> | null | undefined,
-  fallbackClub?: StoredActiveClub | null,
-): ClubData => {
-  const source = club || fallbackClub || {};
+const SUBJECT_HINT =
+  "Il soggetto decide quali dati il modello sapra scrivere: un modello che parla di un atleta non ha un allenatore a cui riferirsi, e quei campi resterebbero bianchi.";
 
-  return {
-    id: String(source.id || fallbackClub?.id || ""),
-    name: String(source.name || fallbackClub?.name || "EasyGame Club"),
-    logo_url: source.logo_url || fallbackClub?.logo_url || "",
-    email:
-      source.email ||
-      source.contact_email ||
-      fallbackClub?.email ||
-      fallbackClub?.contact_email ||
-      "",
-    phone:
-      source.phone ||
-      source.contact_phone ||
-      fallbackClub?.phone ||
-      fallbackClub?.contact_phone ||
-      "",
-    address: source.address || fallbackClub?.address || "",
-    city: source.city || fallbackClub?.city || "",
-    postal_code: source.postal_code || fallbackClub?.postal_code || "",
-    vat_number: source.vat_number || fallbackClub?.vat_number || "",
-    fiscal_code: source.fiscal_code || fallbackClub?.fiscal_code || "",
-    website: source.website || fallbackClub?.website || "",
-    contact_email:
-      source.contact_email || fallbackClub?.contact_email || source.email || "",
-    contact_phone:
-      source.contact_phone || fallbackClub?.contact_phone || source.phone || "",
-  };
+const GENERATED_STATUS_LABELS: Record<string, string> = {
+  generated: "Generato",
+  issued: "Consegnato",
+  awaiting_signature: "In attesa di firma",
+  signed: "Copia firmata rientrata",
+  rejected: "Respinto",
+  archived: "Archiviato",
+};
+
+const formatDate = (value?: string | null) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleDateString("it-IT");
 };
 
 const normalizeAthletes = (athletesData: any[]): Athlete[] =>
@@ -221,7 +192,6 @@ const normalizeAthletes = (athletesData: any[]): Athlete[] =>
         ...athlete,
         first_name: String(firstName || "").trim(),
         last_name: String(lastName || "").trim(),
-        birth_date: String(athlete?.birth_date || athlete?.birthDate || ""),
         data,
       } as Athlete;
     })
@@ -231,18 +201,6 @@ const normalizeAthletes = (athletesData: any[]): Athlete[] =>
         athlete.id &&
         (athlete.first_name || athlete.last_name || athlete.data?.category),
     );
-
-const normalizeTemplates = (value: any): DocumentTemplate[] =>
-  getDocumentTemplatesFromClub(value)
-    .map((item) => ({
-      id: String(item?.id || item?.template_id || `template-${Date.now()}`),
-      title: String(item?.title || item?.name || "Documento"),
-      description: String(item?.description || item?.summary || ""),
-      content: String(item?.content || item?.html || "<p></p>"),
-      archived: Boolean(item?.archived || item?.status === "archived"),
-      archivedAt: item?.archivedAt || item?.archived_at || null,
-    }))
-    .filter((template) => template.id && template.title);
 
 const escapeHtmlText = (value: string) =>
   value
@@ -255,6 +213,11 @@ const escapeHtmlText = (value: string) =>
 const signatureBlockHtml = (label: string) =>
   `<div style="margin: 28px 0 18px; padding: 18px; border: 1px dashed #94a3b8; border-radius: 8px; color: #475569; background-color: #f8fafc;"><strong>${label}</strong></div>`;
 
+/*
+  Il modulo da compilare a mano: i segnaposto diventano righe da riempire a
+  penna. Non e la strada vecchia della compilazione — e un'altra cosa, ed e
+  quella giusta per una liberatoria che si firma in segreteria.
+*/
 const renderBlankTemplateForPdf = (content: string) =>
   String(content || "")
     .replace(
@@ -268,67 +231,147 @@ const renderBlankTemplateForPdf = (content: string) =>
     .replace(/{{\s*signature\.[^}]+}}/g, signatureBlockHtml("Firma"))
     .replace(/{{\s*[^}]+}}/g, '<span class="blank-field"></span>');
 
+const TemplateStatusBadge = ({ status }: { status: TemplateStatus }) => (
+  <span
+    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[status]}`}
+  >
+    {STATUS_LABELS[status]}
+  </span>
+);
+
+/** Lo stato di un modello, detto per intero: versione, e cosa non e uscito. */
+const TemplateStateLine = ({
+  template,
+}: {
+  template: DocumentTemplateSummary;
+}) => (
+  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+    <TemplateStatusBadge status={template.status} />
+    <span>
+      {template.publishedVersion > 0
+        ? `Versione ${template.publishedVersion} del ${formatDate(template.publishedAt)}`
+        : "Mai pubblicato"}
+    </span>
+    {template.hasUnpublishedChanges ? (
+      <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
+        Modifiche non pubblicate
+      </span>
+    ) : null}
+    {template.generatedCount > 0 ? (
+      <span>
+        {template.generatedCount}{" "}
+        {template.generatedCount === 1 ? "documento" : "documenti"} prodotti
+      </span>
+    ) : null}
+  </div>
+);
+
 function ModulisticaPage() {
-  const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
-  const [athletes, setAthletes] = useState<Athlete[]>([]);
-  const [filteredAthletes, setFilteredAthletes] = useState<Athlete[]>([]);
-  const [clubData, setClubData] = useState<ClubData | null>(null);
-  const [athleteSearchTerm, setAthleteSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
+  const { activeClub } = useAuth();
+  const clubId = activeClub?.id ? String(activeClub.id) : "";
+  const activeRole = activeClub?.role ? String(activeClub.role) : "";
+  const activeSeasonId = activeClub?.activeSeasonId
+    ? String(activeClub.activeSeasonId)
+    : null;
+
+  /*
+    Il server decide comunque: qui il permesso serve solo a non mostrare un
+    pulsante che risponderebbe «Accesso negato», che e un difetto quanto una
+    porta aperta.
+  */
+  const canManage = canManageDocumentTemplates(activeRole);
+  const canRead = canReadDocumentTemplates(activeRole);
+
   const { showToast } = useToast();
 
-  const [activeView, setActiveView] = useState<"list" | "editor">(
-    "list",
-  );
-  const [activeTab, setActiveTab] = useState<
-    "documents" | "online-forms" | "archive"
-  >("documents");
-  const [activeTemplate, setActiveTemplate] = useState<DocumentTemplate | null>(
+  const [templates, setTemplates] = useState<DocumentTemplateSummary[]>([]);
+  const [generatedDocuments, setGeneratedDocuments] = useState<
+    GeneratedDocumentSummary[]
+  >([]);
+  const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [athleteSearchTerm, setAthleteSearchTerm] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const [activeView, setActiveView] = useState<"list" | "editor">("list");
+  const [activeTab, setActiveTab] = useState<PageTab>("documents");
+
+  const [editorTemplate, setEditorTemplate] =
+    useState<DocumentTemplateDetail | null>(null);
+  const [editorSubject, setEditorSubject] = useState<TemplateSubject>("athlete");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishIssues, setPublishIssues] = useState<TemplateIssue[] | null>(
     null,
   );
-  const [selectedAthlete, setSelectedAthlete] = useState<string>("");
-  const [showPdfDialog, setShowPdfDialog] = useState<boolean>(false);
-  const [showCompileDialog, setShowCompileDialog] = useState<boolean>(false);
-  const [newDocumentDialog, setNewDocumentDialog] = useState<boolean>(false);
-  const [newDocumentTitle, setNewDocumentTitle] = useState<string>("");
-  const [newDocumentDescription, setNewDocumentDescription] =
-    useState<string>("");
-  const [aiDescription, setAiDescription] = useState<string>("");
+
+  const [newDocumentDialog, setNewDocumentDialog] = useState(false);
+  const [newDocumentTitle, setNewDocumentTitle] = useState("");
+  const [newDocumentDescription, setNewDocumentDescription] = useState("");
+  const [newDocumentSubject, setNewDocumentSubject] =
+    useState<TemplateSubject>("athlete");
+  const [creating, setCreating] = useState(false);
+  const [addingAttestation, setAddingAttestation] = useState(false);
+
+  const [generateTarget, setGenerateTarget] =
+    useState<DocumentTemplateSummary | null>(null);
+  const [selectedAthlete, setSelectedAthlete] = useState("");
+  const [generatingFilled, setGeneratingFilled] = useState(false);
+  const [producing, setProducing] = useState(false);
+  const [deleteTarget, setDeleteTarget] =
+    useState<DocumentTemplateSummary | null>(null);
+
   /*
     L'anteprima del documento compilato. Non e un dettaglio di comodo: §5.5.24
     chiede che i segnaposto che il risolutore non ha saputo riempire siano
-    **elencati prima di stampare**. Un'attestazione con tre righe bianche che
+    **elencati prima di produrre**. Un'attestazione con tre righe bianche che
     nessuno ha notato e peggio di un modulo vuoto, perche sembra completa.
   */
   const [filledPreview, setFilledPreview] = useState<{
+    templateId: string;
+    athleteId: string;
     title: string;
     html: string;
     unresolved: string[];
     missing: string[];
     warnings: string[];
   } | null>(null);
-  const [generatingFilled, setGeneratingFilled] = useState<boolean>(false);
-  const [addingAttestation, setAddingAttestation] = useState<boolean>(false);
-  const [, setAiGeneratorDialog] = useState<boolean>(false);
-  const [, setAiGenerating] = useState<boolean>(false);
-  const [clubId, setClubId] = useState<string>("");
 
-  const resolveCurrentClub = () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const storedActiveClub = readStoredActiveClub();
-    const resolvedClubId =
-      urlParams.get("clubId") || storedActiveClub?.id || clubId || "";
+  const loadAll = useCallback(async () => {
+    if (!clubId) {
+      setLoading(false);
+      return;
+    }
 
-    return {
-      storedActiveClub,
-      resolvedClubId,
-    };
-  };
+    setLoading(true);
 
-  // Load data on component mount
+    try {
+      const [templatesResult, generatedResult, athletesData] =
+        await Promise.all([
+          listDocumentTemplates({ includeRetired: true }),
+          listGeneratedDocuments({ limit: 100 }),
+          getClubAthletes(clubId).catch(() => []),
+        ]);
+
+      if (templatesResult.error) {
+        showToast("error", templatesResult.error);
+      }
+
+      setTemplates(templatesResult.templates);
+      setGeneratedDocuments(generatedResult.documents);
+      setAthletes(normalizeAthletes((athletesData as any[]) || []));
+    } catch {
+      showToast("error", "Errore nel caricamento dei modelli");
+    } finally {
+      setLoading(false);
+    }
+    // `showToast` cambia identita a ogni render: includerlo qui rifarebbe
+    // partire il caricamento a ogni render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clubId]);
+
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadAll();
+  }, [loadAll]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -353,426 +396,289 @@ function ModulisticaPage() {
     window.history.replaceState(window.history.state, "", nextUrl);
   }, []);
 
-  // Initialize club ID immediately when component mounts
-  useEffect(() => {
-    const initializeClubId = () => {
-      try {
-        const { resolvedClubId } = resolveCurrentClub();
-        if (resolvedClubId) {
-          setClubId(resolvedClubId);
-          return;
-        }
+  const filteredAthletes = useMemo(() => {
+    const term = athleteSearchTerm.trim().toLowerCase();
+    if (!term) return athletes;
 
-        console.warn(
-          "No active club data found - some features may be limited",
-        );
-      } catch (error) {
-        console.warn("Error initializing club ID:", error);
-      }
-    };
-
-    initializeClubId();
-  }, []);
-
-  // Filter athletes based on search term
-  useEffect(() => {
-    if (athleteSearchTerm.trim() === "") {
-      setFilteredAthletes(athletes);
-    } else {
-      const filtered = athletes.filter((athlete) => {
-        const firstName = athlete.first_name || "";
-        const lastName = athlete.last_name || "";
-        const searchTerm = athleteSearchTerm.toLowerCase();
-
-        return (
-          firstName.toLowerCase().includes(searchTerm) ||
-          lastName.toLowerCase().includes(searchTerm)
-        );
-      });
-      setFilteredAthletes(filtered);
-    }
+    return athletes.filter((athlete) =>
+      `${athlete.first_name} ${athlete.last_name}`.toLowerCase().includes(term),
+    );
   }, [athleteSearchTerm, athletes]);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const { storedActiveClub, resolvedClubId } = resolveCurrentClub();
-      if (!resolvedClubId) {
-        showToast("error", "Nessun club attivo trovato");
-        return;
-      }
+  const listedTemplates = useMemo(
+    () => templates.filter((template) => template.status !== "retired"),
+    [templates],
+  );
+  const retiredTemplates = useMemo(
+    () => templates.filter((template) => template.status === "retired"),
+    [templates],
+  );
+  const hasAttestationTemplate = templates.some(
+    (template) => template.catalogKey === ATTESTATION_TEMPLATE_ID,
+  );
 
-      setClubId(resolvedClubId);
+  /* ------------------------------------------------------------- l'editor */
 
-      const club = await getClub(resolvedClubId);
-      const normalizedClub = normalizeClubData(
-        (club as Partial<ClubData> | null) || null,
-        storedActiveClub,
-      );
-      setClubData(normalizedClub);
-
-      const athletesData = await getClubAthletes(resolvedClubId);
-      const validAthletes = normalizeAthletes(athletesData || []);
-      setAthletes(validAthletes);
-      setFilteredAthletes(validAthletes);
-
-      const existingTemplates = normalizeTemplates(
-        await getDocumentTemplates(resolvedClubId),
-      );
-
-      setTemplates(existingTemplates);
-    } catch (error) {
-      console.error("Error loading data:", error);
-      showToast("error", "Errore nel caricamento dei dati");
-    } finally {
-      setLoading(false);
+  const openEditor = async (template: DocumentTemplateSummary) => {
+    const { template: detail, error } = await getDocumentTemplate(template.id);
+    if (error || !detail) {
+      showToast("error", error || "Modello non trovato");
+      return;
     }
-  };
 
-  const generateDocumentTemplates = (clubInput: ClubData | null) => {
-    const club = normalizeClubData(clubInput);
-    const logoHtml = club.logo_url
-      ? `<div style="text-align: center; margin-bottom: 20px;"><img src="${club.logo_url}" alt="Logo ${club.name}" style="max-height: 100px; max-width: 200px;"/></div>`
-      : "";
-
-    const clubInfo = `
-      <div style="margin-bottom: 20px;">
-        <strong>${club.name}</strong><br/>
-        ${club.address ? `${club.address}<br/>` : ""}
-        ${club.city && club.postal_code ? `${club.postal_code} ${club.city}<br/>` : ""}
-        ${club.email ? `Email: ${club.email}<br/>` : ""}
-        ${club.phone ? `Tel: ${club.phone}<br/>` : ""}
-        ${club.vat_number ? `P.IVA: ${club.vat_number}<br/>` : ""}
-        ${club.fiscal_code ? `C.F.: ${club.fiscal_code}` : ""}
-      </div>
-    `;
-
-    const generatedTemplates: DocumentTemplate[] = [
-      {
-        id: "1",
-        title: "Modulo di iscrizione",
-        description: "Modulo per nuovi atleti",
-        content: `
-          ${logoHtml}
-          ${clubInfo}
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Modulistica</h1><p class="text-gray-600 mt-2">Gestisci documenti, moduli e file condivisi del club.</p>
-          <p><strong>Il/La sottoscritto/a:</strong></p>
-          <p>Nome: <strong>{{first_name}}</strong></p>
-          <p>Cognome: <strong>{{last_name}}</strong></p>
-          <p>Data di nascita: <strong>{{birth_date}}</strong></p>
-          <p>Codice Fiscale: <strong>{{fiscalCode}}</strong></p>
-          <p>Indirizzo: <strong>{{address}}</strong></p>
-          <p>Email: <strong>{{email}}</strong></p>
-          <p>Telefono: <strong>{{phone}}</strong></p>
-          <br/>
-          <p><strong>CHIEDE</strong></p>
-          <p>di essere iscritto/a alla società sportiva <strong>${club.name}</strong> per la stagione sportiva in corso.</p>
-          <br/>
-          <p>Data: _______________</p>
-          <p>Firma: _______________</p>
-        `,
-      },
-      {
-        id: "2",
-        title: "Liberatoria privacy",
-        description: "Informativa sulla privacy",
-        content: `
-          ${logoHtml}
-          ${clubInfo}
-          <h1 style="text-align: center; color: #1e40af;">LIBERATORIA PRIVACY</h1>
-          <p>Il/La sottoscritto/a <strong>{{first_name}} {{last_name}}</strong>, nato/a il <strong>{{birth_date}}</strong>, residente in <strong>{{address}}</strong>,</p>
-          <br/>
-          <p><strong>DICHIARA</strong></p>
-          <p>di aver preso visione dell'informativa sul trattamento dei dati personali ai sensi del Regolamento UE 2016/679 (GDPR) e di prestare il proprio consenso al trattamento dei dati personali per le finalità indicate nell'informativa stessa.</p>
-          <br/>
-          <p><strong>AUTORIZZA</strong></p>
-          <p>la società <strong>${club.name}</strong> al trattamento dei propri dati personali per:</p>
-          <ul>
-            <li>Gestione dell'attività sportiva</li>
-            <li>Adempimenti fiscali e contabili</li>
-            <li>Comunicazioni relative all'attività sportiva</li>
-            <li>Pubblicazione di foto e video per scopi promozionali (previo consenso specifico)</li>
-          </ul>
-          <br/>
-          <p>Data: _______________</p>
-          <p>Firma: _______________</p>
-        `,
-      },
-      {
-        id: "3",
-        title: "Autorizzazione trasferte",
-        description: "Permesso per trasferte",
-        content: `
-          ${logoHtml}
-          ${clubInfo}
-          <h1 style="text-align: center; color: #1e40af;">AUTORIZZAZIONE TRASFERTE</h1>
-          <p>Il/La sottoscritto/a <strong>{{first_name}} {{last_name}}</strong>, nato/a il <strong>{{birth_date}}</strong>,</p>
-          <br/>
-          <p><strong>AUTORIZZA</strong></p>
-          <p>la società <strong>${club.name}</strong> ad organizzare trasferte e gare fuori sede per l'atleta sopra indicato.</p>
-          <br/>
-          <p><strong>DICHIARA</strong></p>
-          <p>di sollevare la società da ogni responsabilità per eventuali danni che potrebbero verificarsi durante le trasferte, fatta eccezione per i casi di dolo o colpa grave.</p>
-          <br/>
-          <p><strong>SI IMPEGNA</strong></p>
-          <p>a rispettare il regolamento interno della società e le disposizioni degli accompagnatori durante le trasferte.</p>
-          <br/>
-          <p>Data: _______________</p>
-          <p>Firma dell'atleta: _______________</p>
-          <p>Firma del genitore/tutore (se minorenne): _______________</p>
-        `,
-      },
-      {
-        id: "4",
-        title: "Modulo rimborso",
-        description: "Richiesta rimborsi",
-        content: `
-          ${logoHtml}
-          ${clubInfo}
-          <h1 style="text-align: center; color: #1e40af;">MODULO RIMBORSO</h1>
-          <p>Il/La sottoscritto/a <strong>{{first_name}} {{last_name}}</strong>,</p>
-          <p>Email: <strong>{{email}}</strong></p>
-          <p>Telefono: <strong>{{phone}}</strong></p>
-          <br/>
-          <p><strong>CHIEDE</strong></p>
-          <p>il rimborso delle seguenti spese sostenute per conto della società <strong>${club.name}</strong>:</p>
-          <br/>
-          <table border="1" style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <th style="padding: 8px;">Data</th>
-              <th style="padding: 8px;">Descrizione</th>
-              <th style="padding: 8px;">Importo</th>
-            </tr>
-            <tr>
-              <td style="padding: 8px;">___________</td>
-              <td style="padding: 8px;">_________________________</td>
-              <td style="padding: 8px;">€ _______</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px;">___________</td>
-              <td style="padding: 8px;">_________________________</td>
-              <td style="padding: 8px;">€ _______</td>
-            </tr>
-          </table>
-          <br/>
-          <p><strong>Totale richiesto: € ___________</strong></p>
-          <br/>
-          <p>Allega le ricevute/fatture originali.</p>
-          <br/>
-          <p>Data: _______________</p>
-          <p>Firma: _______________</p>
-        `,
-      },
-      {
-        id: "5",
-        title: "Regolamento interno",
-        description: "Regole della società sportiva",
-        content: `
-          ${logoHtml}
-          ${clubInfo}
-          <h1 style="text-align: center; color: #1e40af;">REGOLAMENTO INTERNO</h1>
-          <h2>Art. 1 - Finalità</h2>
-          <p>La società <strong>${club.name}</strong> ha come finalità la promozione e la pratica dell'attività sportiva.</p>
-          
-          <h2>Art. 2 - Doveri degli atleti</h2>
-          <ul>
-            <li>Rispettare gli orari di allenamento e gara</li>
-            <li>Mantenere un comportamento corretto e rispettoso</li>
-            <li>Utilizzare l'abbigliamento ufficiale della società</li>
-            <li>Rispettare le strutture e le attrezzature</li>
-            <li>Seguire le indicazioni degli allenatori</li>
-          </ul>
-          
-          <h2>Art. 3 - Sanzioni disciplinari</h2>
-          <p>In caso di violazione del presente regolamento, potranno essere applicate le seguenti sanzioni:</p>
-          <ul>
-            <li>Richiamo verbale</li>
-            <li>Richiamo scritto</li>
-            <li>Sospensione temporanea</li>
-            <li>Esclusione dalla società</li>
-          </ul>
-          
-          <h2>Art. 4 - Disposizioni finali</h2>
-          <p>Il presente regolamento entra in vigore dalla data di approvazione e può essere modificato dal Consiglio Direttivo.</p>
-          <br/>
-          <p>Data di approvazione: _______________</p>
-          <p>Il Presidente: _______________</p>
-        `,
-      },
-    ];
-
-    return generatedTemplates;
-  };
-
-  const handleEditTemplate = (template: DocumentTemplate) => {
-    setActiveTemplate(template);
+    setEditorTemplate(detail);
+    setEditorSubject(detail.subjectKind);
     setActiveView("editor");
-  };
-
-  const handleSaveTemplate = async (content: string) => {
-    if (activeTemplate && clubId) {
-      try {
-        // Update template in database
-        await updateDocumentTemplate(clubId, activeTemplate.id, { content });
-
-        // Update local state
-        const updatedTemplates = templates.map((template) =>
-          template.id === activeTemplate.id
-            ? { ...template, content }
-            : template,
-        );
-        setTemplates(updatedTemplates);
-        setActiveView("list");
-        setActiveTemplate(null);
-
-        showToast("success", "Documento salvato con successo");
-      } catch (error) {
-        console.error("Error saving template:", error);
-        showToast("error", "Errore nel salvataggio del documento");
-      }
-    }
-  };
-
-  const handleCreateNew = () => {
-    setNewDocumentTitle("");
-    setNewDocumentDescription("");
-    setNewDocumentDialog(true);
-  };
-
-  const handleCreateNewConfirm = async () => {
-    if (!newDocumentTitle.trim() || !newDocumentDescription.trim()) {
-      showToast("error", "Inserisci titolo e descrizione del documento");
-      return;
-    }
-
-    let currentClubId = clubId;
-    if (!currentClubId) {
-      const { resolvedClubId } = resolveCurrentClub();
-      currentClubId = resolvedClubId;
-      if (resolvedClubId) {
-        setClubId(resolvedClubId);
-      }
-    }
-
-    if (!currentClubId) {
-      showToast("error", "ID club non disponibile. Ricarica la pagina e riprova.");
-      return;
-    }
-
-    const newTemplate: DocumentTemplate = {
-      id:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `template-${Date.now()}`,
-      title: newDocumentTitle.trim(),
-      description: newDocumentDescription.trim(),
-      content:
-        "<h1>" +
-        escapeHtmlText(newDocumentTitle.trim()) +
-        "</h1><p>Inserisci il contenuto qui.</p>",
-    };
-
-    try {
-      console.log("Creating template with club ID:", currentClubId);
-      console.log("New template data:", newTemplate);
-      // Save to database
-      await saveDocumentTemplate(currentClubId, newTemplate);
-
-      setTemplates([...templates, newTemplate]);
-      setActiveTemplate(newTemplate);
-      setActiveView("editor");
-      setNewDocumentDialog(false);
-      setNewDocumentTitle("");
-      setNewDocumentDescription("");
-
-      showToast("success", "Nuovo documento creato con successo");
-    } catch (error) {
-      console.error("Error creating template:", error);
-      showToast("error", "Errore nella creazione del documento");
-    }
   };
 
   const handleBackToList = () => {
     setActiveView("list");
-    setActiveTemplate(null);
+    setEditorTemplate(null);
   };
 
-  const handleExportPdf = (template: DocumentTemplate) => {
-    setActiveTemplate(template);
-    setShowPdfDialog(true);
-  };
+  const handleSaveDraft = async (content: string) => {
+    if (!editorTemplate) return;
 
-  const handleCompileDocument = (template: DocumentTemplate) => {
-    setActiveTemplate(template);
-    setShowCompileDialog(true);
-  };
+    setSavingDraft(true);
 
-  /*
-    Qui viveva `compileDocument`: una **terza** interpretazione della
-    sostituzione dei segnaposto, fatta nel browser con una mappa propria di
-    chiavi storiche (`{{first_name}}`, `{{fiscalCode}}`) e l'anno sportivo
-    letto da `localStorage`.
+    const { template, error } = await saveDocumentTemplateDraft(
+      editorTemplate.id,
+      { content, subjectKind: editorSubject },
+    );
 
-    Finche era l'unica strada si poteva discutere. Da quando esiste il
-    risolutore lato server erano due pulsanti nella stessa schermata che, sullo
-    stesso modello e sullo stesso atleta, producevano due documenti diversi:
-    uno con gli importi giusti e le chiavi storiche in chiaro, l'altro il
-    contrario. Il §6.1 del planning chiedeva un catalogo chiuso perche «due
-    elenchi che divergono sarebbero peggio di nessun elenco» — e vale anche per
-    i consumatori.
+    setSavingDraft(false);
 
-    Il pulsante «Compila» ora chiama `generateFilledPdf`, cioe il catalogo
-    unico e la cassa canonica (ADR-0068, ADR-0079). `renderBlankTemplateForPdf`
-    resta dov'e: quella e la strada del modulo da compilare a mano, ed e
-    un'altra cosa.
-  */
-
-  const generatePdf = () => {
-    if (!activeTemplate) return;
-
-    const pdfContent = renderBlankTemplateForPdf(activeTemplate.content);
-    const printWindow = window.open("", "_blank");
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>${activeTemplate.title}</title>
-            <style>
-              @page { size: A4; margin: 18mm; }
-              body { font-family: Arial, sans-serif; background: #fff; color: #111827; }
-              .pdf-container { max-width: 794px; margin: 0 auto; font-size: 14px; line-height: 1.65; }
-              .blank-field { display: inline-block; min-width: 160px; height: 1.2em; border-bottom: 1px solid #94a3b8; vertical-align: baseline; }
-              .easygame-page-break { break-before: page; page-break-before: always; height: 0; overflow: hidden; }
-              img { max-width: 100%; height: auto; }
-            </style>
-          </head>
-          <body>
-            <div class="pdf-container">
-              ${pdfContent}
-            </div>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
+    if (error || !template) {
+      showToast("error", error || "Errore nel salvataggio del modello");
+      return;
     }
 
-    setShowPdfDialog(false);
+    setEditorTemplate(template);
+    setTemplates((current) =>
+      current.map((item) => (item.id === template.id ? template : item)),
+    );
+    showToast(
+      "success",
+      "Bozza salvata. I documenti gia prodotti non cambiano: per farla valere, pubblicala",
+    );
   };
 
   /**
-   * Il documento compilato: lo costruisce il server, qui si stampa e basta.
+   * Pubblicare non e salvare.
+   *
+   * Salvare corregge la bozza; pubblicare crea una **versione**, e i documenti
+   * prodotti da quel momento la citeranno per sempre. Quando non si puo, le
+   * `issues` dicono **quale** parola e sbagliata: «non si puo pubblicare» e
+   * basta manda una segreteria a chiamare l'assistenza.
+   */
+  const handlePublish = async (templateId: string) => {
+    setPublishing(true);
+
+    const { template, error, issues } = await publishDocumentTemplate(
+      templateId,
+    );
+
+    setPublishing(false);
+
+    if (error || !template) {
+      if (issues.length) {
+        setPublishIssues(issues);
+      } else {
+        showToast("error", error || "Errore nella pubblicazione del modello");
+      }
+      return;
+    }
+
+    setTemplates((current) =>
+      current.map((item) => (item.id === template.id ? template : item)),
+    );
+    if (editorTemplate?.id === template.id) {
+      setEditorTemplate(template);
+    }
+    showToast("success", `Pubblicata la versione ${template.publishedVersion}`);
+  };
+
+  /* ------------------------------------------------------- il ciclo di vita */
+
+  const handleCreateNew = () => {
+    setNewDocumentTitle("");
+    setNewDocumentDescription("");
+    setNewDocumentSubject("athlete");
+    setNewDocumentDialog(true);
+  };
+
+  const handleCreateNewConfirm = async () => {
+    if (!newDocumentTitle.trim()) {
+      showToast("error", "Inserisci il titolo del documento");
+      return;
+    }
+
+    setCreating(true);
+
+    const { template, error } = await createDocumentTemplate({
+      title: newDocumentTitle.trim(),
+      description: newDocumentDescription.trim(),
+      subjectKind: newDocumentSubject,
+      content: `<h1>${escapeHtmlText(newDocumentTitle.trim())}</h1><p>Inserisci il contenuto qui.</p>`,
+    });
+
+    setCreating(false);
+
+    if (error || !template) {
+      showToast("error", error || "Errore nella creazione del documento");
+      return;
+    }
+
+    setTemplates((current) => [...current, template]);
+    setEditorTemplate(template);
+    setEditorSubject(template.subjectKind);
+    setActiveView("editor");
+    setNewDocumentDialog(false);
+    setNewDocumentTitle("");
+    setNewDocumentDescription("");
+    showToast("success", "Nuovo modello creato: e una bozza, finche non lo pubblichi");
+  };
+
+  /**
+   * Semina il modello «Attestazione di pagamento e frequenza».
+   *
+   * Nasce bozza come qualunque altro modello: si apre, si corregge, e vale
+   * dal momento in cui qualcuno lo pubblica.
+   */
+  const handleAddAttestationTemplate = async () => {
+    const seed = buildAttestationTemplate();
+
+    setAddingAttestation(true);
+
+    const { template, error } = await createDocumentTemplate({
+      title: seed.title,
+      description: seed.description,
+      subjectKind: "athlete",
+      content: seed.content,
+      catalogKey: ATTESTATION_TEMPLATE_ID,
+    });
+
+    setAddingAttestation(false);
+
+    if (error || !template) {
+      showToast("error", error || "Errore nella creazione del modello");
+      return;
+    }
+
+    setTemplates((current) => [...current, template]);
+    showToast("success", `Modello «${ATTESTATION_TEMPLATE_TITLE}» aggiunto`);
+  };
+
+  const handleChangeStatus = async (
+    template: DocumentTemplateSummary,
+    status: TemplateStatus,
+  ) => {
+    const { template: updated, error } = await saveDocumentTemplateDraft(
+      template.id,
+      { status },
+    );
+
+    if (error || !updated) {
+      showToast("error", error || "Errore nel cambio di stato del modello");
+      return;
+    }
+
+    setTemplates((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    showToast(
+      "success",
+      status === "retired"
+        ? "Modello ritirato: non produce documenti nuovi, e continua a spiegare quelli gia prodotti"
+        : "Modello riattivato",
+    );
+  };
+
+  /*
+    Cancellare e ammesso solo per un modello che non ha prodotto niente. Il
+    server lo rifiuta comunque, con un messaggio scritto per chi lo legge: qui
+    si mostra quello, senza riscriverlo.
+  */
+  const handleDeleteTemplate = async (template: DocumentTemplateSummary) => {
+    const { ok, error } = await deleteDocumentTemplate(template.id);
+
+    setDeleteTarget(null);
+
+    if (!ok) {
+      showToast("error", error || "Errore nell'eliminazione del modello");
+      return;
+    }
+
+    setTemplates((current) =>
+      current.filter((item) => item.id !== template.id),
+    );
+    showToast("success", "Modello eliminato");
+  };
+
+  /* -------------------------------------------------------- la generazione */
+
+  const openGenerateDialog = (template: DocumentTemplateSummary) => {
+    setGenerateTarget(template);
+    setSelectedAthlete("");
+    setAthleteSearchTerm("");
+  };
+
+  const printHtmlPage = (html: string) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  };
+
+  /** Il modulo vuoto: si stampa e si compila a penna. */
+  const generateBlankPdf = async () => {
+    if (!generateTarget) return;
+
+    const { template, error } = await getDocumentTemplate(generateTarget.id);
+    if (error || !template) {
+      showToast("error", error || "Modello non trovato");
+      return;
+    }
+
+    printHtmlPage(`
+      <html>
+        <head>
+          <title>${escapeHtmlText(template.title)}</title>
+          <style>
+            @page { size: A4; margin: 18mm; }
+            body { font-family: Arial, sans-serif; background: #fff; color: #111827; }
+            .pdf-container { max-width: 794px; margin: 0 auto; font-size: 14px; line-height: 1.65; }
+            .blank-field { display: inline-block; min-width: 160px; height: 1.2em; border-bottom: 1px solid #94a3b8; vertical-align: baseline; }
+            .easygame-page-break { break-before: page; page-break-before: always; height: 0; overflow: hidden; }
+            img { max-width: 100%; height: auto; }
+          </style>
+        </head>
+        <body>
+          <div class="pdf-container">
+            ${renderBlankTemplateForPdf(template.draftContent)}
+          </div>
+        </body>
+      </html>
+    `);
+
+    setGenerateTarget(null);
+  };
+
+  /**
+   * L'anteprima del compilato: la costruisce il server, qui si guarda.
    *
    * Il risolutore vive in `src/lib/server/document-placeholders.ts` perche
    * legge il registro incassi e le presenze: farlo qui vorrebbe dire spedire
    * al browser l'intero storico economico di un atleta per stampare una riga,
-   * e riscrivere nel client la formula della cassa (ADR-0068). Torna una
-   * pagina gia impaginata **piu** l'elenco di cio che non e stato riempito.
+   * e riscrivere nel client la formula della cassa (ADR-0068). L'anteprima
+   * **non scrive niente**: e la differenza con la produzione qui sotto.
    */
-  const generateFilledPdf = async () => {
-    if (!activeTemplate) return;
+  const previewFilled = async () => {
+    if (!generateTarget) return;
     if (!selectedAthlete || selectedAthlete === "no-athletes") {
       showToast("error", "Seleziona prima un atleta");
       return;
@@ -780,290 +686,182 @@ function ModulisticaPage() {
 
     setGeneratingFilled(true);
 
-    try {
-      const params = new URLSearchParams({
-        templateId: activeTemplate.id,
-        athleteId: selectedAthlete,
-      });
+    const { preview, error } = await previewFilledDocument({
+      templateId: generateTarget.id,
+      athleteId: selectedAthlete,
+      seasonId: activeSeasonId,
+    });
 
-      const storedActiveClub = readStoredActiveClub();
-      if (storedActiveClub?.activeSeasonId) {
-        params.set("seasonId", String(storedActiveClub.activeSeasonId));
-      }
-      if (clubId) {
-        params.set("clubId", clubId);
-      }
+    setGeneratingFilled(false);
 
-      const { data, error } = await apiRequest<{
-        title: string;
-        html: string;
-        unresolved: string[];
-        missing: string[];
-        warnings: string[];
-      }>(`/api/v1/documents/filled?${params.toString()}`);
-
-      if (error || !data) {
-        showToast(
-          "error",
-          error?.message || "Errore nella generazione del documento",
-        );
-        return;
-      }
-
-      // Le due porte che arrivano qui sono «Esporta PDF → Genera compilato» e
-      // «Compila»: si chiudono entrambe, o l'anteprima si apre sopra un dialogo
-      // che e ancora li.
-      setShowPdfDialog(false);
-      setShowCompileDialog(false);
-      setFilledPreview({
-        title: data.title,
-        html: data.html,
-        unresolved: Array.isArray(data.unresolved) ? data.unresolved : [],
-        missing: Array.isArray(data.missing) ? data.missing : [],
-        warnings: Array.isArray(data.warnings) ? data.warnings : [],
-      });
-    } catch (error) {
-      console.error("Error generating filled document:", error);
-      showToast("error", "Errore nella generazione del documento");
-    } finally {
-      setGeneratingFilled(false);
-    }
-  };
-
-  const printFilledDocument = () => {
-    if (!filledPreview) return;
-
-    const printWindow = window.open("", "_blank");
-    if (printWindow) {
-      // La pagina arriva gia autonoma dal server — stile dentro, nessuna
-      // richiesta verso l'esterno — quindi qui non si reimpagina niente.
-      printWindow.document.write(filledPreview.html);
-      printWindow.document.close();
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
+    if (error || !preview) {
+      showToast("error", error || "Errore nella generazione del documento");
+      return;
     }
 
-    setFilledPreview(null);
+    setFilledPreview({
+      templateId: generateTarget.id,
+      athleteId: selectedAthlete,
+      title: preview.title,
+      html: preview.html,
+      unresolved: Array.isArray(preview.unresolved) ? preview.unresolved : [],
+      missing: Array.isArray(preview.missing) ? preview.missing : [],
+      warnings: Array.isArray(preview.warnings) ? preview.warnings : [],
+    });
+    setGenerateTarget(null);
   };
 
   /**
-   * Semina il modello «Attestazione di pagamento e frequenza».
+   * Produrre il documento: questo scrive una riga.
    *
-   * Passa dalla creazione di sempre (`saveDocumentTemplate`): appena creato e
-   * una bozza come le altre, modificabile e cancellabile. **Non** apre la
-   * libreria dei modelli, che e lavoro editoriale e sta in Wave 3: qui ce n'e
-   * uno, quello che ogni famiglia chiede.
+   * Da qui in poi il documento esiste, cita la versione con cui e stato
+   * prodotto e conserva la propria resa. E il gesto che l'anteprima non fa, ed
+   * e per questo che sono due pulsanti e non uno.
    */
-  const handleAddAttestationTemplate = async () => {
-    if (!clubId) {
-      showToast("error", "ID club non disponibile");
+  const produceDocument = async () => {
+    if (!filledPreview) return;
+
+    setProducing(true);
+
+    const { outcome, error } = await generateDocuments({
+      templateId: filledPreview.templateId,
+      subjects: [{ kind: "athlete", id: filledPreview.athleteId }],
+      seasonId: activeSeasonId,
+    });
+
+    setProducing(false);
+
+    if (error || !outcome) {
+      showToast("error", error || "Errore nella produzione del documento");
       return;
     }
 
-    setAddingAttestation(true);
-
-    try {
-      await saveDocumentTemplate(clubId, buildAttestationTemplate());
-      await loadData();
-      showToast("success", `Modello «${ATTESTATION_TEMPLATE_TITLE}» aggiunto`);
-    } catch (error) {
-      console.error("Error seeding attestation template:", error);
-      showToast("error", "Errore nella creazione del modello");
-    } finally {
-      setAddingAttestation(false);
-    }
-  };
-
-  const handleDeleteTemplate = async (templateId: string) => {
-    try {
-      await deleteDocumentTemplate(clubId, templateId);
-      const updatedTemplates = templates.filter((t) => t.id !== templateId);
-      setTemplates(updatedTemplates);
-
-      showToast("success", "Documento eliminato con successo");
-    } catch (error) {
-      console.error("Error deleting template:", error);
-      showToast("error", "Errore nell'eliminazione del documento");
-    }
-  };
-
-  const handleArchiveTemplate = async (template: DocumentTemplate) => {
-    if (!clubId) {
-      showToast("error", "ID club non disponibile");
+    const failure = outcome.failed[0];
+    if (failure) {
+      showToast("error", failure.reason);
       return;
     }
 
-    const archivedAt = new Date().toISOString();
+    setFilledPreview(null);
+    setActiveTab("generated");
 
-    try {
-      await updateDocumentTemplate(clubId, template.id, {
-        archived: true,
-        archivedAt,
-      });
-      setTemplates((currentTemplates) =>
-        currentTemplates.map((currentTemplate) =>
-          currentTemplate.id === template.id
-            ? { ...currentTemplate, archived: true, archivedAt }
-            : currentTemplate,
-        ),
-      );
-      showToast("success", "Documento archiviato");
-    } catch (error) {
-      console.error("Error archiving template:", error);
-      showToast("error", "Errore nell'archiviazione del documento");
-    }
-  };
+    const { documents } = await listGeneratedDocuments({ limit: 100 });
+    setGeneratedDocuments(documents);
 
-  const handleRestoreTemplate = async (template: DocumentTemplate) => {
-    if (!clubId) {
-      showToast("error", "ID club non disponibile");
-      return;
-    }
-
-    try {
-      await updateDocumentTemplate(clubId, template.id, {
-        archived: false,
-        archivedAt: null,
-      });
-      setTemplates((currentTemplates) =>
-        currentTemplates.map((currentTemplate) =>
-          currentTemplate.id === template.id
-            ? { ...currentTemplate, archived: false, archivedAt: null }
-            : currentTemplate,
-        ),
-      );
-      showToast("success", "Documento ripristinato");
-    } catch (error) {
-      console.error("Error restoring template:", error);
-      showToast("error", "Errore nel ripristino del documento");
-    }
-  };
-
-  const generateAIDocument = async () => {
-    if (!aiDescription.trim()) {
-      showToast("error", "Inserisci una descrizione per il documento");
-      return;
-    }
-
-    let currentClubId = clubId;
-    const { storedActiveClub, resolvedClubId } = resolveCurrentClub();
-    if (!currentClubId) {
-      currentClubId = resolvedClubId;
-      if (resolvedClubId) {
-        setClubId(resolvedClubId);
-      }
-    }
-
-    if (!currentClubId) {
-      showToast("error", "ID club non disponibile. Ricarica la pagina e riprova.");
-      return;
-    }
-
-    setAiGenerating(true);
-    try {
-      console.log("Generating AI document with club ID:", currentClubId);
-
-      const club = normalizeClubData(
-        (await getClub(currentClubId)) as Partial<ClubData> | null,
-        storedActiveClub,
-      );
-      const logoHtml = club.logo_url
-        ? `<div style="text-align: center; margin-bottom: 20px;"><img src="${club.logo_url}" alt="Logo ${club.name}" style="max-height: 100px; max-width: 200px;"/></div>`
-        : "";
-
-      const clubInfo = `
-        <div style="margin-bottom: 20px;">
-          <strong>${club.name || "Club"}</strong><br/>
-          ${club.address ? `${club.address}<br/>` : ""}
-          ${club.city && club.postal_code ? `${club.postal_code} ${club.city}<br/>` : ""}
-          ${club.email ? `Email: ${club.email}<br/>` : ""}
-          ${club.phone ? `Tel: ${club.phone}<br/>` : ""}
-        </div>
-      `;
-
-      // Enhanced AI generation with club context and better content based on description
-      const aiGeneratedContent = `
-        ${logoHtml}
-        ${clubInfo}
-        <h1 style="text-align: center; color: #1e40af;">DOCUMENTO GENERATO DALL'IA</h1>
-        <h2>Richiesta: ${aiDescription}</h2>
-        <br/>
-        <p>Questo documento è stato generato automaticamente per <strong>${club?.name || "il club"}</strong> in base alla descrizione fornita.</p>
-        <br/>
-        <div style="border: 1px solid #e2e8f0; padding: 15px; margin: 20px 0; background-color: #f8fafc;">
-          <h3>Contenuto del documento:</h3>
-          <p>${aiDescription}</p>
-        </div>
-        <br/>
-        <p><strong>Dati dell'interessato:</strong></p>
-        <p>Nome: <strong>{{first_name}}</strong></p>
-        <p>Cognome: <strong>{{last_name}}</strong></p>
-        <p>Data di nascita: <strong>{{birth_date}}</strong></p>
-        <p>Codice Fiscale: <strong>{{fiscalCode}}</strong></p>
-        <p>Indirizzo: <strong>{{address}}</strong></p>
-        <p>Email: <strong>{{email}}</strong></p>
-        <p>Telefono: <strong>{{phone}}</strong></p>
-        <p>Categoria: <strong>{{category}}</strong></p>
-        <br/>
-        <p><strong>DICHIARA/AUTORIZZA/RICHIEDE</strong></p>
-        <p>Il contenuto specifico del documento in base alla richiesta: "${aiDescription}"</p>
-        <br/>
-        <p>Data: _______________</p>
-        <p>Firma: _______________</p>
-        <br/>
-        <p style="font-size: 12px; color: #64748b;">Documento generato automaticamente il ${new Date().toLocaleDateString()} - Modificabile tramite editor</p>
-      `;
-
-      const aiTemplate: DocumentTemplate = {
-        id: `ai-${Date.now()}`,
-        title: `Documento IA - ${aiDescription.substring(0, 30)}${aiDescription.length > 30 ? "..." : ""}`,
-        description: `Generato dall'IA: ${aiDescription.substring(0, 100)}${aiDescription.length > 100 ? "..." : ""}`,
-        content: aiGeneratedContent,
-      };
-
-      console.log("Saving AI template to database...");
-      // Save to database
-      await saveDocumentTemplate(currentClubId, aiTemplate);
-      console.log("AI template saved successfully");
-
-      setTemplates([...templates, aiTemplate]);
-      setActiveTemplate(aiTemplate);
-      setActiveView("editor");
-      setAiGeneratorDialog(false);
-      setAiDescription("");
-
-      showToast("success", "Documento generato dall'IA con successo");
-    } catch (error) {
-      console.error("Error generating AI document:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : String(error || "");
-      showToast(
-        "error",
-        `Errore nella generazione del documento IA: ${errorMessage}`,
-      );
-    } finally {
-      setAiGenerating(false);
-    }
+    showToast("success", "Documento prodotto: lo trovi in «Documenti generati»");
   };
 
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl space-y-6 py-6">
-        <div className="flex justify-center items-center min-h-[50vh]">
+        <div className="flex min-h-[50vh] items-center justify-center">
           <AppLoadingScreen subtitle="Caricamento documenti del club..." />
         </div>
       </div>
     );
   }
 
-  const activeTemplates = templates.filter((template) => !template.archived);
-  const archivedTemplates = templates.filter((template) => template.archived);
-  // Il modello dell'attestazione si propone finche il club non ce l'ha, in
-  // archivio compreso: riproporlo a chi lo ha archiviato di proposito
-  // significherebbe non aver capito la risposta.
-  const hasAttestationTemplate = templates.some(
-    (template) => template.id === ATTESTATION_TEMPLATE_ID,
+  /*
+    Senza club attivo non c'e niente da dire sui permessi: e un'altra cosa, e
+    dirla come un diniego manderebbe a chiamare l'assistenza chi doveva solo
+    scegliere una societa.
+  */
+  if (!clubId || !canRead) {
+    return (
+      <DashboardPageContainer>
+        <SharedPageHeader
+          title="Modulistica"
+          subtitle="Gestisci documenti, moduli e file condivisi del club."
+        />
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-slate-500">
+            {clubId
+              ? "I modelli di documento li vede chi lavora nella segreteria del club."
+              : "Nessun club attivo: scegline uno dal menu in alto."}
+          </CardContent>
+        </Card>
+      </DashboardPageContainer>
+    );
+  }
+
+  const renderTemplateCard = (template: DocumentTemplateSummary) => (
+    <Card key={template.id} className="h-fit">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <CardTitle className="break-words">{template.title}</CardTitle>
+            <CardDescription className="break-words">
+              {template.description ||
+                `Parla di: ${SUBJECT_LABELS[template.subjectKind].toLowerCase()}`}
+            </CardDescription>
+          </div>
+          {canManage ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => void openEditor(template)}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Modifica
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => void handlePublish(template.id)}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Pubblica
+                </DropdownMenuItem>
+                {template.status === "retired" ? (
+                  <DropdownMenuItem
+                    onClick={() => void handleChangeStatus(template, "active")}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Riattiva
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={() => void handleChangeStatus(template, "retired")}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Ritira
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onClick={() => setDeleteTarget(template)}
+                  className="text-red-600"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Elimina
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
+        <TemplateStateLine template={template} />
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => openGenerateDialog(template)}
+          >
+            <Download className="mr-2 h-4 w-4" /> Genera documento
+          </Button>
+          {canManage ? (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => void openEditor(template)}
+            >
+              <Edit className="mr-2 h-4 w-4" /> Modifica il testo
+            </Button>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
   );
 
   return (
@@ -1072,7 +870,7 @@ function ModulisticaPage() {
         title="Modulistica"
         subtitle="Gestisci documenti, moduli e file condivisi del club."
         actions={
-          activeView === "list" && activeTab === "documents" ? (
+          activeView === "list" && activeTab === "documents" && canManage ? (
             /*
               In colonna sotto i 640 px: due azioni affiancate a 375 px
               tagliavano la seconda.
@@ -1095,9 +893,9 @@ function ModulisticaPage() {
               </Button>
             </div>
           ) : activeView === "list" ? null : (
-          <Button variant="outline" onClick={handleBackToList}>
-            Torna alla lista
-          </Button>
+            <Button variant="outline" onClick={handleBackToList}>
+              Torna alla lista
+            </Button>
           )
         }
       />
@@ -1105,9 +903,7 @@ function ModulisticaPage() {
       {activeView === "list" ? (
         <Tabs
           value={activeTab}
-          onValueChange={(value) =>
-            setActiveTab(value as "documents" | "online-forms" | "archive")
-          }
+          onValueChange={(value) => setActiveTab(value as PageTab)}
           className="space-y-5"
         >
           {/*
@@ -1119,75 +915,14 @@ function ModulisticaPage() {
           <TabsList className="h-auto w-full flex-wrap justify-start">
             <TabsTrigger value="documents">Documenti / Template</TabsTrigger>
             <TabsTrigger value="online-forms">Moduli online</TabsTrigger>
-            <TabsTrigger value="archive">Archivio</TabsTrigger>
+            <TabsTrigger value="retired">Ritirati</TabsTrigger>
+            <TabsTrigger value="generated">Documenti generati</TabsTrigger>
           </TabsList>
 
           <TabsContent value="documents" className="space-y-4">
-            {activeTemplates.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {activeTemplates.map((template) => (
-                  <Card key={template.id} className="h-fit">
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle>{template.title}</CardTitle>
-                        <CardDescription>{template.description}</CardDescription>
-                      </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => handleEditTemplate(template)}
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            Modifica
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleArchiveTemplate(template)}
-                          >
-                            <Archive className="mr-2 h-4 w-4" />
-                            Archivia
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDeleteTemplate(template.id)}
-                            className="text-red-600"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Elimina
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="mb-4">
-                      Documento {template.title.toLowerCase()}.
-                    </p>
-                    <div className="flex flex-col space-y-2">
-                      <div className="flex space-x-2">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => handleCompileDocument(template)}
-                        >
-                          <FileText className="mr-2 h-4 w-4" /> Compila
-                        </Button>
-                      </div>
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={() => handleExportPdf(template)}
-                      >
-                        <Download className="mr-2 h-4 w-4" /> Esporta PDF
-                      </Button>
-                    </div>
-                  </CardContent>
-                  </Card>
-                ))}
+            {listedTemplates.length > 0 ? (
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {listedTemplates.map(renderTemplateCard)}
               </div>
             ) : (
               <Card className="border-dashed">
@@ -1200,9 +935,11 @@ function ModulisticaPage() {
                     Crea un nuovo documento e modificalo direttamente nel foglio
                     visuale, senza scrivere HTML.
                   </p>
-                  <Button className="mt-5" onClick={handleCreateNew}>
-                    <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
-                  </Button>
+                  {canManage ? (
+                    <Button className="mt-5" onClick={handleCreateNew}>
+                      <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
+                    </Button>
+                  ) : null}
                 </CardContent>
               </Card>
             )}
@@ -1212,112 +949,255 @@ function ModulisticaPage() {
             <FormsDashboard />
           </TabsContent>
 
-          <TabsContent value="archive" className="space-y-6">
+          <TabsContent value="retired" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Documenti e template archiviati</CardTitle>
+                <CardTitle>Modelli ritirati</CardTitle>
                 <CardDescription>
-                  Documenti nascosti dalla lista attiva ma ancora ripristinabili.
+                  Un modello ritirato non produce documenti nuovi, e continua a
+                  spiegare quelli che ha gia prodotto. Per questo si ritira
+                  invece di cancellarlo.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {archivedTemplates.length > 0 ? (
+                {retiredTemplates.length > 0 ? (
                   <div className="space-y-3">
-                    {archivedTemplates.map((template) => (
+                    {retiredTemplates.map((template) => (
                       <div
                         key={template.id}
                         className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        <div>
-                          <p className="font-semibold text-slate-900">
+                        <div className="min-w-0">
+                          <p className="break-words font-semibold text-slate-900">
                             {template.title}
                           </p>
-                          <p className="text-sm text-slate-500">
-                            Documento/template
-                            {template.archivedAt
-                              ? ` - archiviato il ${new Date(
-                                  template.archivedAt,
-                                ).toLocaleDateString("it-IT")}`
-                              : ""}
-                          </p>
+                          <TemplateStateLine template={template} />
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRestoreTemplate(template)}
-                          >
-                            <RotateCcw className="mr-2 h-4 w-4" />
-                            Ripristina
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700"
-                            onClick={() => handleDeleteTemplate(template.id)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Elimina
-                          </Button>
-                        </div>
+                        {canManage ? (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                void handleChangeStatus(template, "active")
+                              }
+                            >
+                              <RotateCcw className="mr-2 h-4 w-4" />
+                              Riattiva
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => setDeleteTarget(template)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Elimina
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>
                 ) : (
                   <p className="text-sm text-slate-500">
-                    Nessun documento archiviato.
+                    Nessun modello ritirato.
                   </p>
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
 
-            {/*
-              I moduli archiviati stanno nella scheda «Moduli online», con il
-              loro interruttore: erano qui perche la prima versione teneva
-              moduli e modelli di stampa nello stesso archivio JSON, non
-              perche fosse il posto giusto per cercarli.
-            */}
+          <TabsContent value="generated" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Documenti generati</CardTitle>
+                <CardDescription>
+                  Cio che il club ha prodotto. Aprirne uno lo mostra
+                  <strong> com&apos;era</strong>: non viene rigenerato, perche
+                  modificare un modello non cambia un documento gia consegnato.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {generatedDocuments.length > 0 ? (
+                  /*
+                    Una `<table>` non si restringe: senza contenitore
+                    scrollabile allargherebbe il documento e a 375 px
+                    scorrerebbe tutta la pagina.
+                  */
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b text-xs uppercase text-slate-500">
+                          <th className="px-2 py-2">Modello</th>
+                          <th className="px-2 py-2">Versione</th>
+                          <th className="px-2 py-2">Soggetto</th>
+                          <th className="px-2 py-2">Data</th>
+                          <th className="px-2 py-2">Stato</th>
+                          <th className="px-2 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {generatedDocuments.map((document) => (
+                          <tr key={document.id} className="border-b last:border-0">
+                            <td className="px-2 py-2 font-medium text-slate-900">
+                              {document.templateTitle}
+                            </td>
+                            <td className="px-2 py-2 text-slate-600">
+                              v{document.version}
+                            </td>
+                            <td className="px-2 py-2 text-slate-600">
+                              {document.subjectLabel || document.subjectKind}
+                            </td>
+                            <td className="px-2 py-2 text-slate-600">
+                              {formatDate(document.generatedAt)}
+                            </td>
+                            <td className="px-2 py-2 text-slate-600">
+                              {GENERATED_STATUS_LABELS[document.status] ||
+                                document.status}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              <a
+                                className="text-sm font-medium text-blue-700 hover:underline"
+                                href={`/api/v1/documents/generated/${document.id}?format=html`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Apri
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Nessun documento generato: parti da un modello pubblicato e
+                    usa «Genera compilato».
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
-      ) : activeView === "editor" ? (
-        activeTemplate && (
-          <div>
-            <div className="mb-4">
-              <h2 className="text-2xl font-semibold">{activeTemplate.title}</h2>
-              <p className="text-muted-foreground">
-                {activeTemplate.description}
+      ) : editorTemplate ? (
+        <div>
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <h2 className="break-words text-2xl font-semibold">
+                {editorTemplate.title}
+              </h2>
+              <p className="break-words text-muted-foreground">
+                {editorTemplate.description}
               </p>
+              <TemplateStateLine template={editorTemplate} />
             </div>
-            <DocumentEditor
-              initialContent={activeTemplate.content}
-              onSave={handleSaveTemplate}
-              onCancel={handleBackToList}
-              tokens={DOCUMENT_TEMPLATE_TOKENS}
-            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="w-full sm:w-56">
+                <Label htmlFor="editor-subject" className="text-xs text-slate-500">
+                  Di chi parla
+                </Label>
+                <Select
+                  value={editorSubject}
+                  onValueChange={(value) =>
+                    setEditorSubject(value as TemplateSubject)
+                  }
+                >
+                  <SelectTrigger id="editor-subject">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(SUBJECT_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => void handlePublish(editorTemplate.id)}
+                disabled={publishing || savingDraft}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {publishing ? "Pubblicazione..." : "Pubblica"}
+              </Button>
+            </div>
           </div>
-        )
+
+          <p className="mb-4 text-sm text-muted-foreground">
+            <strong>Salva</strong> scrive la bozza e non cambia nessun documento
+            gia prodotto. <strong>Pubblica</strong> crea una versione, e i
+            documenti generati da quel momento la citeranno per sempre: pubblica
+            dopo aver salvato.
+          </p>
+
+          {editorTemplate.versions.length > 0 ? (
+            <Card className="mb-4">
+              <CardHeader>
+                <CardTitle className="text-base">Versioni pubblicate</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1 text-sm text-slate-600">
+                  {editorTemplate.versions.map((version) => (
+                    <li key={version.id}>
+                      <span className="font-medium text-slate-900">
+                        Versione {version.version}
+                      </span>{" "}
+                      — {formatDate(version.publishedAt)} — {version.title}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <DocumentEditor
+            initialContent={editorTemplate.draftContent}
+            onSave={handleSaveDraft}
+            onCancel={handleBackToList}
+            readOnly={!canManage}
+            subject={editorSubject}
+          />
+        </div>
       ) : null}
 
-      {/* PDF Export Dialog — le due strade: modulo vuoto o documento compilato */}
-      <Dialog open={showPdfDialog} onOpenChange={setShowPdfDialog}>
+      {/* Genera: le due strade, modulo vuoto o documento compilato */}
+      <Dialog
+        open={Boolean(generateTarget)}
+        onOpenChange={(open) => {
+          if (!open) setGenerateTarget(null);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Esporta come PDF</DialogTitle>
+            <DialogTitle>Genera documento</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <p className="font-medium">{activeTemplate?.title}</p>
+            <p className="font-medium">{generateTarget?.title}</p>
             <p className="text-sm text-muted-foreground">
               <strong>Genera vuoto</strong> stampa il modulo da compilare a
               mano. <strong>Genera compilato</strong> scrive dentro i dati
-              dell&apos;atleta, del club e della cassa: serve un atleta.
+              dell&apos;atleta, del club e della cassa: serve un atleta, e serve
+              un modello pubblicato.
             </p>
+
+            {generateTarget && generateTarget.subjectKind !== "athlete" ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Questo modello parla di{" "}
+                {SUBJECT_LABELS[generateTarget.subjectKind].toLowerCase()}: da
+                qui si stampa vuoto. Il compilato parte da un atleta.
+              </p>
+            ) : null}
 
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
               <Input
                 placeholder="Cerca per nome o cognome..."
                 value={athleteSearchTerm}
-                onChange={(e) => setAthleteSearchTerm(e.target.value)}
+                onChange={(event) => setAthleteSearchTerm(event.target.value)}
                 className="pl-10"
               />
             </div>
@@ -1351,24 +1231,25 @@ function ModulisticaPage() {
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={() => setShowPdfDialog(false)}
+              onClick={() => setGenerateTarget(null)}
             >
               Annulla
             </Button>
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={generatePdf}
+              onClick={() => void generateBlankPdf()}
             >
               Genera vuoto
             </Button>
             <Button
               className="w-full sm:w-auto"
-              onClick={generateFilledPdf}
+              onClick={() => void previewFilled()}
               disabled={
                 generatingFilled ||
                 !selectedAthlete ||
-                selectedAthlete === "no-athletes"
+                selectedAthlete === "no-athletes" ||
+                generateTarget?.subjectKind !== "athlete"
               }
             >
               {generatingFilled ? "Generazione..." : "Genera compilato"}
@@ -1377,7 +1258,7 @@ function ModulisticaPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Anteprima del documento compilato: cosa c'e dentro, e cosa manca */}
+      {/* L'anteprima: cosa c'e dentro, e cosa non ci e entrato */}
       <Dialog
         open={Boolean(filledPreview)}
         onOpenChange={(open) => {
@@ -1428,6 +1309,15 @@ function ModulisticaPage() {
                 Tutti i segnaposto del modello sono stati compilati.
               </p>
             ) : null}
+
+            {filledPreview ? (
+              <iframe
+                title="Anteprima del documento"
+                srcDoc={filledPreview.html}
+                sandbox=""
+                className="h-64 w-full rounded-md border border-slate-200 bg-white"
+              />
+            ) : null}
           </div>
           <DialogFooter className="flex-col gap-2 sm:flex-row">
             <Button
@@ -1437,100 +1327,77 @@ function ModulisticaPage() {
             >
               Annulla
             </Button>
-            <Button className="w-full sm:w-auto" onClick={printFilledDocument}>
-              Stampa
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Compile Document Dialog */}
-      <Dialog open={showCompileDialog} onOpenChange={setShowCompileDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Compila Documento</DialogTitle>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Seleziona un atleta per compilare automaticamente il documento:
-            </p>
-
-            {/* Search bar */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Cerca per nome o cognome..."
-                value={athleteSearchTerm}
-                onChange={(e) => setAthleteSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-
-            {/* Athletes selection */}
-            <Select value={selectedAthlete} onValueChange={setSelectedAthlete}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleziona un atleta" />
-              </SelectTrigger>
-              <SelectContent>
-                {filteredAthletes.length === 0 ? (
-                  <SelectItem value="no-athletes" disabled>
-                    {athleteSearchTerm
-                      ? "Nessun atleta trovato"
-                      : "Nessun atleta disponibile"}
-                  </SelectItem>
-                ) : (
-                  filteredAthletes.map((athlete) => (
-                    <SelectItem key={athlete.id} value={athlete.id}>
-                      {athlete.first_name} {athlete.last_name}
-                      {athlete.data?.category && (
-                        <span className="text-muted-foreground ml-2">
-                          ({athlete.data.category})
-                        </span>
-                      )}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => {
-                setShowCompileDialog(false);
-                setAthleteSearchTerm("");
-                setSelectedAthlete("");
-              }}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={() => void generateFilledPdf()}
-              disabled={
-                generatingFilled ||
-                !selectedAthlete ||
-                selectedAthlete === "no-athletes"
+              className="w-full sm:w-auto"
+              onClick={() =>
+                filledPreview ? printHtmlPage(filledPreview.html) : undefined
               }
             >
-              {generatingFilled ? "Compilo…" : "Compila"}
+              Stampa l&apos;anteprima
+            </Button>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => void produceDocument()}
+              disabled={producing}
+            >
+              {producing ? "Produzione..." : "Produci il documento"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* New Document Dialog */}
+      {/* Perche non si puo pubblicare: chiave per chiave */}
+      <Dialog
+        open={Boolean(publishIssues)}
+        onOpenChange={(open) => {
+          if (!open) setPublishIssues(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Questo modello non si puo pubblicare</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-3 overflow-y-auto py-2 text-sm">
+            <p className="text-muted-foreground">
+              Correggi il testo del modello e riprova. Ogni riga dice la parola
+              che lo impedisce.
+            </p>
+            <ul className="space-y-2">
+              {(publishIssues || []).map((issue, index) => (
+                <li
+                  key={`${issue.field}-${issue.key || index}`}
+                  className="rounded-md border border-red-200 bg-red-50 p-3 text-red-900"
+                >
+                  {issue.key ? (
+                    <p className="font-mono text-xs font-semibold">
+                      {issue.key}
+                    </p>
+                  ) : null}
+                  <p className="break-words">{issue.message}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setPublishIssues(null)}>Ho capito</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Nuovo modello */}
       <Dialog open={newDocumentDialog} onOpenChange={setNewDocumentDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Nuovo Documento</DialogTitle>
           </DialogHeader>
-          <div className="py-4 space-y-4">
+          <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="title">Titolo</Label>
               <Input
                 id="title"
                 value={newDocumentTitle}
-                onChange={(e) => setNewDocumentTitle(e.target.value)}
+                onChange={(event) => setNewDocumentTitle(event.target.value)}
                 placeholder="Inserisci il titolo del documento"
               />
             </div>
@@ -1539,25 +1406,95 @@ function ModulisticaPage() {
               <Input
                 id="description"
                 value={newDocumentDescription}
-                onChange={(e) => setNewDocumentDescription(e.target.value)}
+                onChange={(event) =>
+                  setNewDocumentDescription(event.target.value)
+                }
                 placeholder="Inserisci una breve descrizione"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="subject">Di chi parla</Label>
+              <Select
+                value={newDocumentSubject}
+                onValueChange={(value) =>
+                  setNewDocumentSubject(value as TemplateSubject)
+                }
+              >
+                <SelectTrigger id="subject">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SUBJECT_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{SUBJECT_HINT}</p>
+            </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
             <Button
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => setNewDocumentDialog(false)}
             >
               Annulla
             </Button>
             <Button
-              onClick={handleCreateNewConfirm}
-              disabled={
-                !newDocumentTitle.trim() || !newDocumentDescription.trim()
-              }
+              className="w-full sm:w-auto"
+              onClick={() => void handleCreateNewConfirm()}
+              disabled={creating || !newDocumentTitle.trim()}
             >
-              Crea
+              {creating ? "Creazione..." : "Crea"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancellare un modello */}
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Eliminare «{deleteTarget?.title}»?</DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-sm text-muted-foreground">
+            {deleteTarget && deleteTarget.generatedCount > 0 ? (
+              <p>
+                Questo modello ha gia prodotto {deleteTarget.generatedCount}{" "}
+                {deleteTarget.generatedCount === 1 ? "documento" : "documenti"}:
+                si ritira, non si cancella, o quei documenti non saprebbero piu
+                spiegarsi.
+              </p>
+            ) : (
+              <p>
+                Il modello non ha prodotto nessun documento: si puo eliminare.
+                L&apos;operazione non si annulla.
+              </p>
+            )}
+          </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Annulla
+            </Button>
+            <Button
+              className="w-full bg-red-600 hover:bg-red-700 sm:w-auto"
+              onClick={() =>
+                deleteTarget ? void handleDeleteTemplate(deleteTarget) : undefined
+              }
+              disabled={Boolean(deleteTarget && deleteTarget.generatedCount > 0)}
+            >
+              Elimina
             </Button>
           </DialogFooter>
         </DialogContent>
