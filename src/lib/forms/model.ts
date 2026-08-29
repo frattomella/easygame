@@ -21,6 +21,10 @@
 
 import { buildAttachmentUrl, parseAttachmentReference } from "@/lib/attachments";
 import {
+  isValidConsentKey,
+  normalizeConsentKey,
+} from "@/lib/consents/model";
+import {
   collectSubjectsFromBindings,
   getDynamicField,
   type FormSubjectKey,
@@ -155,6 +159,21 @@ export type FormField = {
    * soggetto, precompilabile e riversabile in anagrafica.
    */
   binding: string;
+  /**
+   * La chiave della `consent_definition` che questa spunta esprime, oppure
+   * stringa vuota.
+   *
+   * **Perche non basta la casella obbligatoria.** Una spunta resta dentro
+   * `form_submissions.answers`: e la risposta a una domanda di marzo, non uno
+   * stato della persona che si possa interrogare o revocare. Dichiarando la
+   * chiave, all'approvazione la spunta diventa un `consent_record` che cita il
+   * testo pubblicato — che e l'unica forma in cui un consenso si dimostra
+   * (ADR-0090).
+   *
+   * Solo una `checkbox` la porta: «spuntato / non spuntato» e l'unica risposta
+   * che si traduce in «accettato / rifiutato» senza interpretare niente.
+   */
+  consentKey: string;
 };
 
 export type FormSettings = {
@@ -166,6 +185,15 @@ export type FormSettings = {
   collectRespondentEmail: boolean;
   /** Notificare la segreteria a ogni invio. */
   notifyOnSubmit: boolean;
+  /**
+   * Il modello di documento che l'approvazione rende, oppure stringa vuota.
+   *
+   * Sta nelle impostazioni — cioe **dentro la versione** — e non in una
+   * colonna del modulo: quale foglio esce da una compilazione fa parte di cio
+   * che quella compilazione significava, come le domande. Cambiare modello
+   * domani non deve riscrivere la storia di cio che e uscito ieri.
+   */
+  documentTemplateId: string;
 };
 
 /**
@@ -212,6 +240,7 @@ export const DEFAULT_FORM_SETTINGS: FormSettings = {
   closeAt: "",
   collectRespondentEmail: true,
   notifyOnSubmit: true,
+  documentTemplateId: "",
 };
 
 export const normalizeFormField = (value: unknown): FormField => {
@@ -227,6 +256,18 @@ export const normalizeFormField = (value: unknown): FormField => {
   */
   const binding = getDynamicField(record.binding)?.key || "";
 
+  /*
+    Stessa politica del binding: una chiave che non e una chiave valida si
+    scarta invece di conservarla. Qui in piu si scarta anche quando il tipo di
+    campo non e una casella — cambiare il tipo di un campo che dichiarava un
+    consenso deve togliere la dichiarazione, non lasciarla appesa a un campo
+    di testo dove «spuntato» non vuol dire niente.
+  */
+  const consentKey =
+    type === "checkbox" && isValidConsentKey(record.consentKey)
+      ? normalizeConsentKey(record.consentKey)
+      : "";
+
   return {
     id: firstText(record.id) || createFieldId(),
     type,
@@ -240,6 +281,7 @@ export const normalizeFormField = (value: unknown): FormField => {
       ? asArray(record.options).map(asText).filter(Boolean)
       : [],
     binding,
+    consentKey,
   };
 };
 
@@ -258,6 +300,7 @@ export const normalizeFormSettings = (value: unknown): FormSettings => {
       record.notifyOnSubmit === undefined
         ? DEFAULT_FORM_SETTINGS.notifyOnSubmit
         : Boolean(record.notifyOnSubmit),
+    documentTemplateId: asText(record.documentTemplateId).slice(0, 120),
   };
 };
 
@@ -491,12 +534,14 @@ const serializeSchemaForComparison = (schema: FormSchema) =>
       field.placeholder,
       field.options,
       field.binding,
+      field.consentKey,
     ]),
     [
       schema.settings.successMessage,
       schema.settings.closeAt,
       schema.settings.collectRespondentEmail,
       schema.settings.notifyOnSubmit,
+      schema.settings.documentTemplateId,
     ],
   ]);
 

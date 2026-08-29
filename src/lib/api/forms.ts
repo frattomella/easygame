@@ -34,6 +34,10 @@ export type SubmissionReviewPayload = {
 export type ReviewOutcomePayload = {
   submission: FormSubmissionRecord;
   applied: string[];
+  /** Cio che l'approvazione non ha potuto fare, e perche (W3-F). */
+  issues?: string[];
+  /** Il documento nato dall'approvazione, quando il modulo ne dichiara uno. */
+  generatedDocumentId?: string | null;
 };
 
 /* -------------------------------------------------------------- moduli */

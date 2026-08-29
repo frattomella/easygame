@@ -254,6 +254,29 @@ export function FormFieldCard({
             </div>
           ) : null}
 
+          {field.type === "checkbox" ? (
+            <div className="space-y-2">
+              <Label htmlFor={`consent-${field.id}`}>
+                Chiave del consenso
+              </Label>
+              <Input
+                id={`consent-${field.id}`}
+                value={field.consentKey}
+                onChange={(event) =>
+                  onChange({ consentKey: event.target.value })
+                }
+                placeholder="privacy, immagini, sanitari…"
+              />
+              <p className="text-xs text-slate-500">
+                Con una chiave, la spunta non resta dentro la compilazione:
+                all&apos;approvazione diventa un consenso della persona, che si
+                puo dimostrare e revocare. La chiave e quella del consenso
+                definito in Organizzazione: se non corrisponde a nessuno, la
+                segreteria lo legge nell&apos;esito dell&apos;approvazione.
+              </p>
+            </div>
+          ) : null}
+
           {!isSection ? (
             <div className="space-y-2">
               <Label>Dato EasyGame</Label>

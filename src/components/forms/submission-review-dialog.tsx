@@ -139,6 +139,16 @@ export function SubmissionReviewDialog({
           ? outcome.applied.join(" · ") || "Compilazione approvata"
           : "Compilazione rifiutata",
       );
+
+      /*
+        Cio che non e riuscito si dice **a parte** e non si mescola con cio che
+        e riuscito: l'anagrafica e stata scritta, ma un consenso che non e
+        diventato un consenso e una cosa che la segreteria deve rifare a mano,
+        e non deve scoprirlo fra sei mesi.
+      */
+      for (const issue of outcome.issues || []) {
+        showToast("error", issue);
+      }
       onReviewed();
       onClose();
     } catch (error: any) {

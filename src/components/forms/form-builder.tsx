@@ -22,6 +22,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SaveStatus, type SaveState } from "@/components/ui/save-status";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,6 +56,7 @@ import {
 import { FORM_SUBJECTS } from "@/lib/forms/dynamic-fields";
 import { createCoalescingSaver } from "@/lib/performance";
 import * as formsApi from "@/lib/api/forms";
+import * as documentsApi from "@/lib/api/documents";
 
 /**
  * Il builder.
@@ -83,6 +91,7 @@ const newField = (type: FormFieldType): FormField => ({
       ? ["Opzione 1", "Opzione 2"]
       : [],
   binding: "",
+  consentKey: "",
 });
 
 export function FormBuilder({
@@ -518,7 +527,89 @@ function FormSettingsPanel({
             </label>
           </div>
         </div>
+
+        <DocumentTemplateSetting
+          value={schema.settings.documentTemplateId}
+          onChange={(documentTemplateId) => onChange({ documentTemplateId })}
+        />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Il modello di documento che l'approvazione rende.
+ *
+ * **Perche una tendina e non una casella di testo.** Un modello si cita per
+ * identificativo, e un identificativo non si ricorda a memoria: scriverlo a
+ * mano vorrebbe dire scoprire il refuso dall'esito di un'approvazione, cioe
+ * quando la famiglia ha gia compilato. I modelli si leggono dalla stessa rotta
+ * che serve la modulistica, non da una lettura nuova.
+ */
+function DocumentTemplateSetting({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (documentTemplateId: string) => void;
+}) {
+  const [templates, setTemplates] = useState<
+    Array<{ id: string; title: string; publishedVersion: number }>
+  >([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    documentsApi
+      .listDocumentTemplates()
+      .then((result) => {
+        if (cancelled) return;
+        setTemplates(
+          result.templates.map((entry) => ({
+            id: entry.id,
+            title: entry.title,
+            publishedVersion: entry.publishedVersion,
+          })),
+        );
+        setError(result.error);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Non riesco a leggere i modelli di documento");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const NESSUNO = "__nessuno__";
+
+  return (
+    <div className="space-y-2 border-t border-slate-100 pt-5">
+      <Label htmlFor="document-template">Documento da generare</Label>
+      <Select
+        value={value || NESSUNO}
+        onValueChange={(next) => onChange(next === NESSUNO ? "" : next)}
+      >
+        <SelectTrigger id="document-template">
+          <SelectValue placeholder="Nessuno" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NESSUNO}>Nessuno</SelectItem>
+          {templates.map((entry) => (
+            <SelectItem key={entry.id} value={entry.id}>
+              {entry.title}
+              {entry.publishedVersion ? "" : " (non pubblicato)"}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-slate-500">
+        {error
+          ? error
+          : "All'approvazione, il modello viene riempito con i dati della persona e il documento resta collegato alla sua scheda. Il modello dev'essere pubblicato e parlare dello stesso soggetto del modulo."}
+      </p>
+    </div>
   );
 }

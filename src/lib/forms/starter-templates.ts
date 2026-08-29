@@ -61,6 +61,7 @@ const field = (
   placeholder: "",
   options: [],
   binding: "",
+  consentKey: "",
   ...extra,
 });
 

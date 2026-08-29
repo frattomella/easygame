@@ -57,6 +57,18 @@ export type FormsAccessScope = {
   userId: string;
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
+  /**
+   * Il ruolo attivo, quando la sessione ce l'ha.
+   *
+   * Nessuna funzione di questo file lo guarda: un modulo lo gestisce chi
+   * appartiene al club, e il confine e `organization_id`. Serve
+   * all'approvazione (W3-F), che dopo aver scritto in anagrafica chiede a due
+   * domini vicini di registrare un consenso e di generare un documento — e
+   * quei due domini decidono **loro** chi puo, con la matrice del §13. Farlo
+   * arrivare fin li richiede solo che il tipo lo dichiari: le rotte passano
+   * gia lo scope della sessione, che lo contiene.
+   */
+  activeRole?: string | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);

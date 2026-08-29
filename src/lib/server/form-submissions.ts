@@ -11,6 +11,17 @@ import {
   type FormsAccessScope,
   type PublicFormMatch,
 } from "./forms";
+import {
+  listConsentDefinitions,
+  listConsentRecords,
+  recordConsentDecision,
+} from "./consents";
+import {
+  loadPublishableVersion,
+  recordGeneratedDocument,
+} from "./document-templates";
+import { resolveDocumentForSubject } from "./document-placeholders";
+import { renderFilledDocumentHtml } from "@/lib/documents/document-view";
 import { buildSiteIndex } from "@/lib/club-sites";
 import {
   buildAttachmentReference,
@@ -41,6 +52,16 @@ import {
   type FormChangeSet,
 } from "@/lib/forms/changes";
 import { buildPrefilledAnswers } from "@/lib/forms/prefill";
+import {
+  buildSubmissionDocumentBatchId,
+  collectConsentDeclarations,
+  consentSubjectKindForFormSubject,
+  describeFormSubject,
+  documentSubjectKindForFormSubject,
+  FORM_SUBMISSION_EVIDENCE_KIND,
+  pickApprovedSubject,
+  type ApprovedSubject,
+} from "@/lib/forms/outcomes";
 import {
   FORM_LIMITS,
   isPublicFormUploadMimeType,
@@ -941,6 +962,310 @@ const buildResourcePatch = (
   return payload;
 };
 
+/* ------------------------------------ cio che l'approvazione produce oltre */
+
+/**
+ * Consensi e documento: le due cose che l'approvazione fa **dopo** aver
+ * scritto in anagrafica (W3-F).
+ *
+ * ## Perche non fanno fallire l'approvazione
+ *
+ * L'anagrafica e il fatto principale, e il consenso e il documento ne sono la
+ * conseguenza. Una definizione ritirata ieri, un modello mai pubblicato, un
+ * codice fiscale che il risolutore non trova: sono tutte cose che si
+ * correggono e si rifanno, mentre un'approvazione persa costringe la famiglia
+ * a ricompilare. Quindi ogni intoppo diventa una riga di `issues`, che la
+ * segreteria legge subito dopo aver approvato, e l'approvazione riesce.
+ *
+ * ## Perche l'idempotenza si ottiene in due modi diversi
+ *
+ * **Il documento e un indice.** `generated_documents` ha il vincolo unico
+ * `(organization_id, batch_id, subject_kind, subject_id)`, e la compilazione
+ * gli fornisce un `batch_id` deterministico (`form:<id>`): riapprovare,
+ * ricaricare o ritentare dopo un errore a meta finisce sullo stesso `upsert`,
+ * e la seconda volta non scrive niente. La difesa e **nel database**, che e
+ * l'unico posto dove regge anche a due richieste concorrenti.
+ *
+ * **Il consenso e un controllo applicativo, e non puo essere altro.** Il
+ * registro dei consensi e **append-only per scelta di dominio** (ADR-0090):
+ * un'accettazione ripetuta e legittima e non e un doppione — e cio che accade
+ * ogni volta che il club ripubblica l'informativa e ricontatta le famiglie.
+ * Un indice unico su (definizione, soggetto, stato) vieterebbe proprio quel
+ * caso vero. Cio che va evitato e piu ristretto: **due decisioni che citano la
+ * stessa evidenza**, cioe la stessa compilazione contata due volte. Per questo
+ * si guarda lo storico gia derivato per quella (definizione, soggetto) e si
+ * cerca l'evidenza prima di scrivere. E un controllo piu debole di un indice —
+ * due approvazioni davvero simultanee della stessa compilazione potrebbero
+ * passarci in mezzo — ma quel caso e gia impedito a monte: la seconda trova la
+ * compilazione in stato `approved` e si ferma.
+ */
+type ApprovalExtras = {
+  applied: string[];
+  issues: string[];
+  generatedDocumentId: string | null;
+};
+
+const consentScopeOf = (
+  scope: FormsAccessScope,
+  organizationId: string,
+) => ({
+  userId: scope.userId,
+  activeOrganizationId: organizationId,
+  activeRole: scope.activeRole ?? null,
+  allowedOrganizationIds: scope.allowedOrganizationIds,
+});
+
+/**
+ * Registra i consensi dichiarati dai campi della compilazione.
+ *
+ * La definizione si cerca **fra quelle di questo club**: una chiave che nomina
+ * la definizione di un'altra societa non si trova, e la spunta non diventa
+ * niente. Non e una svista che si compensa altrove — e il confine, e passa da
+ * `listConsentDefinitions`, che e il proprietario.
+ */
+const applyConsentDeclarations = async ({
+  scope,
+  organizationId,
+  submission,
+  subject,
+}: {
+  scope: FormsAccessScope;
+  organizationId: string;
+  submission: FormSubmissionRecord;
+  subject: ApprovedSubject;
+}): Promise<{ applied: string[]; issues: string[] }> => {
+  const applied: string[] = [];
+  const issues: string[] = [];
+
+  const declarations = collectConsentDeclarations(
+    submission.schema,
+    submission.answers,
+  );
+  if (!declarations.length) return { applied, issues };
+
+  const subjectKind = consentSubjectKindForFormSubject(subject.subject);
+  if (!subjectKind) {
+    issues.push(
+      `I consensi del modulo non sono stati registrati: un «${describeFormSubject(
+        subject.subject,
+      )}» non e un soggetto a cui si intesta un consenso.`,
+    );
+    return { applied, issues };
+  }
+
+  const consentScope = consentScopeOf(scope, organizationId);
+
+  let definitions;
+  try {
+    definitions = await listConsentDefinitions(consentScope, {
+      organizationId,
+    });
+  } catch (error: any) {
+    issues.push(
+      `I consensi del modulo non sono stati registrati: ${asText(error?.message) || "errore sconosciuto"}`,
+    );
+    return { applied, issues };
+  }
+
+  /*
+    Una `source` che dice il vero. Il dominio dei consensi distingue la spunta
+    della famiglia sul link pubblico da quella che la segreteria registra
+    compilando lei il modulo, e la distinzione non e decorazione: chi rilegge
+    il registro fra un anno deve poter pesare l'evidenza senza aprirla.
+  */
+  const source =
+    submission.source === "internal" ? "internal_form" : "public_form";
+
+  for (const declaration of declarations) {
+    const definition = definitions.find(
+      (entry) => entry.key === declaration.consentKey,
+    );
+
+    if (!definition) {
+      issues.push(
+        `«${declaration.fieldLabel}»: nessun consenso con chiave «${declaration.consentKey}» in questo club. La spunta resta nella compilazione e non e diventata un consenso.`,
+      );
+      continue;
+    }
+
+    if (definition.status !== "active") {
+      issues.push(
+        `«${declaration.fieldLabel}»: il consenso «${definition.title}» non e attivo. La spunta non e stata registrata.`,
+      );
+      continue;
+    }
+
+    try {
+      /*
+        L'idempotenza applicativa: si cerca **questa** compilazione fra le
+        evidenze gia registrate per questa definizione e questo soggetto. Vedi
+        il commento in testa alla sezione per il perche qui non ci sia un
+        indice.
+      */
+      const history = await listConsentRecords(consentScope, definition.id, {
+        organizationId,
+        subjectKind,
+        subjectId: subject.recordId,
+      });
+
+      const alreadyRecorded = history.some(
+        (record) =>
+          record.evidenceKind === FORM_SUBMISSION_EVIDENCE_KIND &&
+          record.evidenceId === submission.id,
+      );
+      if (alreadyRecorded) continue;
+
+      await recordConsentDecision(consentScope, {
+        organizationId,
+        definitionId: definition.id,
+        /*
+          La versione **pubblicata al momento dell'approvazione**, non quella
+          in vigore quando il modulo e stato compilato: e il testo che il club
+          dichiara valido adesso, ed e l'unico che sappia rispondere a «cosa ha
+          accettato». Se manca, `recordConsentDecision` rifiuta, ed e giusto:
+          non c'e niente da accettare.
+        */
+        versionId: definition.publishedVersionId,
+        subjectKind,
+        subjectId: subject.recordId,
+        subjectLabel: subject.label || null,
+        status: declaration.accepted ? "accepted" : "rejected",
+        source,
+        evidenceKind: FORM_SUBMISSION_EVIDENCE_KIND,
+        evidenceId: submission.id,
+        note: `Modulo «${submission.templateTitle}» — ${declaration.fieldLabel}`,
+      });
+
+      applied.push(
+        declaration.accepted
+          ? `Consenso registrato: ${definition.title}`
+          : `Consenso rifiutato, e registrato come tale: ${definition.title}`,
+      );
+    } catch (error: any) {
+      issues.push(
+        `«${declaration.fieldLabel}»: ${asText(error?.message) || "consenso non registrato"}`,
+      );
+    }
+  }
+
+  return { applied, issues };
+};
+
+/**
+ * Genera il documento che il modulo dichiara, se lo dichiara.
+ *
+ * Il modello arriva dalle impostazioni della **versione compilata**, non dalla
+ * bozza del modulo: cio che esce da una compilazione di marzo lo ha deciso il
+ * modulo di marzo.
+ */
+const generateSubmissionDocument = async ({
+  scope,
+  organizationId,
+  submission,
+  subject,
+}: {
+  scope: FormsAccessScope;
+  organizationId: string;
+  submission: FormSubmissionRecord;
+  subject: ApprovedSubject;
+}): Promise<{ documentId: string | null; applied: string[]; issues: string[] }> => {
+  const templateId = asText(submission.schema.settings.documentTemplateId);
+  if (!templateId) return { documentId: null, applied: [], issues: [] };
+
+  const documentScope = {
+    userId: scope.userId,
+    activeOrganizationId: organizationId,
+    allowedOrganizationIds: scope.allowedOrganizationIds,
+    role: scope.activeRole ?? null,
+  };
+
+  try {
+    /*
+      Il modello si carica passando dal suo proprietario: un identificativo di
+      un'altra societa risponde «Accesso negato», e un modello mai pubblicato
+      dice che non e mai stato pubblicato. Nessuna delle due cose la decide
+      questo file.
+    */
+    const { version } = await loadPublishableVersion(documentScope, templateId);
+
+    const declared = asText(version.subject_kind) || "athlete";
+    const wanted = documentSubjectKindForFormSubject(subject.subject);
+
+    /*
+      Il soggetto del documento deve essere quello che il **modello** dichiara,
+      con la stessa regola della generazione singola: un modello da atleta su
+      un socio produrrebbe un foglio con tutti i campi della persona bianchi, e
+      nessuno saprebbe perche.
+    */
+    if (!wanted || wanted !== declared) {
+      throw new Error(
+        `Questo modello parla di «${declared}»: la compilazione ha approvato un «${describeFormSubject(
+          subject.subject,
+        )}»`,
+      );
+    }
+
+    const resolved = await resolveDocumentForSubject({
+      template: {
+        id: asText(version.template_id),
+        title: asText(version.title),
+        content: String(version.content_html || ""),
+      },
+      organizationId,
+      subject: { kind: wanted, id: subject.recordId },
+      seasonId: null,
+      scope: {
+        userId: scope.userId,
+        activeOrganizationId: organizationId,
+        allowedOrganizationIds: scope.allowedOrganizationIds,
+      },
+    });
+
+    const document = await recordGeneratedDocument(documentScope, {
+      organizationId,
+      templateId: asText(version.template_id),
+      versionId: asText(version.id),
+      subjectKind: wanted,
+      subjectId: subject.recordId,
+      subjectLabel: resolved.values["recipient.name"] || subject.label || null,
+      seasonId: null,
+      valuesSnapshot: resolved.values,
+      contentHtml: renderFilledDocumentHtml({
+        title: resolved.title,
+        bodyHtml: resolved.html,
+        issuer: resolved.issuer,
+      }),
+      unresolved: resolved.unresolved,
+      missing: resolved.missing,
+      warnings: resolved.warnings,
+      sensitivity: version.sensitivity || [],
+      /* Vedi `buildSubmissionDocumentBatchId`: e qui che vive l'idempotenza. */
+      batchId: buildSubmissionDocumentBatchId(submission.id),
+    });
+
+    return {
+      documentId: document.id,
+      applied: [`Documento generato: ${document.templateTitle || resolved.title}`],
+      issues: [],
+    };
+  } catch (error: any) {
+    /*
+      Nessuna entita orfana: o si arriva a `recordGeneratedDocument` con tutto
+      risolto, o non si e scritta nessuna riga. Cio che fallisce prima —
+      modello di un altro club, modello non pubblicato, soggetto che il
+      risolutore non trova — lascia il database com'era e diventa una riga di
+      esito.
+    */
+    return {
+      documentId: null,
+      applied: [],
+      issues: [
+        `Documento non generato: ${asText(error?.message) || "errore sconosciuto"}`,
+      ],
+    };
+  }
+};
+
 export type ReviewDecision = {
   decision: "approve" | "reject";
   note?: string;
@@ -952,6 +1277,22 @@ export type ReviewOutcome = {
   submission: FormSubmissionRecord;
   /** Cosa e stato scritto, in parole: si mostra dopo l'approvazione. */
   applied: string[];
+  /**
+   * Cosa **non** e stato scritto, e perche.
+   *
+   * Un consenso non registrato o un documento non generato non fanno fallire
+   * l'approvazione (vedi la sezione precedente), ma tacerli sarebbe peggio: la
+   * segreteria crederebbe di aver raccolto un consenso che non ha.
+   */
+  issues: string[];
+  /**
+   * Il documento nato da questa approvazione, quando il modulo ne dichiara uno.
+   *
+   * Non c'e una colonna che lo colleghi alla compilazione, e non serve: il
+   * documento porta `batch_id = form:<id della compilazione>`, che e il
+   * riferimento — deterministico, e con un vincolo unico sopra.
+   */
+  generatedDocumentId: string | null;
 };
 
 /**
@@ -986,7 +1327,12 @@ export const decideFormSubmission = async (
       include: SUBMISSION_INCLUDE,
     });
 
-    return { submission: serializeSubmission(updated), applied: [] };
+    return {
+      submission: serializeSubmission(updated),
+      applied: [],
+      issues: [],
+      generatedDocumentId: null,
+    };
   }
 
   const review = await reviewFormSubmission(scope, row.id, decision.subjects);
@@ -1129,6 +1475,15 @@ export const decideFormSubmission = async (
     athleteRecord = updated as any;
   }
 
+  /*
+    Chi e stato creato o aggiornato, per soggetto. Serve a consenso e documento
+    (W3-F): entrambi si intestano a una persona, e la persona e quella che
+    questa approvazione ha scritto — non quella che il corpo della richiesta
+    dice, che qui non arriva mai.
+  */
+  const writtenRecordIds: Partial<Record<FormSubjectKey, string>> = {};
+  if (athleteId) writtenRecordIds.athlete = athleteId;
+
   for (const subject of ["trainer", "staff", "member"] as const) {
     const change = review.changeSet.subjects.find(
       (entry) => entry.subject === subject,
@@ -1145,14 +1500,17 @@ export const decideFormSubmission = async (
 
     if (change.recordId) {
       await updateResource(resource, change.recordId, { ...payload, name }, scope);
+      writtenRecordIds[subject] = change.recordId;
       applied.push(`${change.subjectLabel} aggiornato: ${change.recordLabel}`);
     } else {
-      await createResource(
+      const created = await createResource(
         resource,
         { organization_id: organizationId, ...payload, name },
         "create",
         scope,
       );
+      const createdId = asText((created as any)?.id);
+      if (createdId) writtenRecordIds[subject] = createdId;
       applied.push(`${change.subjectLabel} creato: ${change.recordLabel}`);
     }
   }
@@ -1190,11 +1548,91 @@ export const decideFormSubmission = async (
     );
   }
 
-  const nextSubjects = review.submission.subjects.map((selection) =>
-    selection.subject === "athlete" && athleteId
-      ? { ...selection, recordId: athleteId }
-      : selection,
+  /*
+    La compilazione conserva **chi e diventata**: ogni soggetto che
+    l'approvazione ha scritto entra nei `subjects`, anche quando non c'era
+    nessuna selezione — che e il caso normale di una compilazione pubblica,
+    dove la persona non esisteva ancora.
+
+    Non e cosmetica per la coda: e cio che rende ripetibile un'approvazione
+    interrotta a meta. Senza, un nuovo tentativo ripartirebbe da «nessun
+    atleta scelto» e ne creerebbe un secondo — e con lui un secondo consenso e
+    un secondo documento, perche entrambi si intestano al soggetto.
+  */
+  const nextSubjects: FormSubjectSelection[] = review.submission.subjects.map(
+    (selection) => {
+      const written = writtenRecordIds[selection.subject];
+      return written ? { ...selection, recordId: written } : selection;
+    },
   );
+
+  for (const [subject, recordId] of Object.entries(writtenRecordIds) as Array<
+    [FormSubjectKey, string]
+  >) {
+    if (nextSubjects.some((selection) => selection.subject === subject)) continue;
+    nextSubjects.push({
+      subject,
+      recordId,
+      label:
+        review.changeSet.subjects.find((entry) => entry.subject === subject)
+          ?.recordLabel || "",
+    });
+  }
+
+  /*
+    Consenso e documento vengono **prima** del passaggio a `approved`, e non
+    dopo. Se il processo si interrompe qui in mezzo la compilazione resta
+    `pending`, quindi riapprovabile — e riapprovare non duplica niente, perche
+    l'idempotenza delle due scritture e gia stata risolta a monte. Nell'ordine
+    opposto, un'interruzione lascerebbe una compilazione approvata che non si
+    puo piu riprovare, cioe un consenso perso in silenzio.
+  */
+  const extras: ApprovalExtras = {
+    applied: [],
+    issues: [],
+    generatedDocumentId: null,
+  };
+
+  const approvedSubject = pickApprovedSubject(
+    (Object.entries(writtenRecordIds) as Array<[FormSubjectKey, string]>).map(
+      ([subject, recordId]) => ({
+        subject,
+        recordId,
+        label:
+          review.changeSet.subjects.find((entry) => entry.subject === subject)
+            ?.recordLabel || "",
+      }),
+    ),
+  );
+
+  if (approvedSubject) {
+    const consents = await applyConsentDeclarations({
+      scope,
+      organizationId,
+      submission: review.submission,
+      subject: approvedSubject,
+    });
+    extras.applied.push(...consents.applied);
+    extras.issues.push(...consents.issues);
+
+    const document = await generateSubmissionDocument({
+      scope,
+      organizationId,
+      submission: review.submission,
+      subject: approvedSubject,
+    });
+    extras.applied.push(...document.applied);
+    extras.issues.push(...document.issues);
+    extras.generatedDocumentId = document.documentId;
+  } else if (
+    collectConsentDeclarations(review.submission.schema, review.submission.answers)
+      .length ||
+    asText(review.submission.schema.settings.documentTemplateId)
+  ) {
+    extras.issues.push(
+      "Nessuna persona creata o aggiornata da questa compilazione: non c'e nessuno a cui intestare il consenso o il documento.",
+    );
+  }
 
   const updated = await (prisma as any).formSubmission.update({
     where: { id: row.id },
@@ -1208,7 +1646,12 @@ export const decideFormSubmission = async (
     include: SUBMISSION_INCLUDE,
   });
 
-  return { submission: serializeSubmission(updated), applied };
+  return {
+    submission: serializeSubmission(updated),
+    applied: [...applied, ...extras.applied],
+    issues: extras.issues,
+    generatedDocumentId: extras.generatedDocumentId,
+  };
 };
 
 /** Un riepilogo di una riga di elenco: chi ha compilato, in due parole. */
