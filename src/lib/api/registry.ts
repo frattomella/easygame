@@ -913,6 +913,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "accounting.expected.read",
+    method: "GET",
+    path: "/api/v1/accounting/expected",
+    description:
+      "Le previsioni del club: entrate e uscite attese e non ancora accadute, con i loro totali. Non sono prima nota, non entrano in accounting_entries e nessuno di questi numeri e un saldo. Richiede accounting.read",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.expected.create",
+    method: "POST",
+    path: "/api/v1/accounting/expected",
+    description:
+      "Registra una previsione in expected_income o expected_expenses. La scrittura e del server: una riga in club_resource_items sotto lock, mai la riscrittura della colonna JSON dal browser. Richiede accounting.manage",
+    mobile_ready: false,
+  },
+  {
+    name: "accounting.expected.delete",
+    method: "DELETE",
+    path: "/api/v1/accounting/expected/:id?direction=income|expense",
+    description:
+      "Toglie una previsione. Qui il DELETE esiste, e sulla prima nota no: una previsione non e accaduta, e un promemoria sbagliato si toglie invece di stornarlo. Richiede accounting.manage",
+    mobile_ready: false,
+  },
+  {
     name: "documents.cancel",
     method: "POST",
     path: "/api/v1/documents/:kind/:id/cancel",

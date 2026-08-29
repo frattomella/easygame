@@ -127,6 +127,19 @@ export const toCsv = (
 };
 
 /**
+ * Il testo con il BOM in testa, **una volta sola**.
+ *
+ * L'idempotenza non e eleganza: il CSV della contabilita nasce sul server gia
+ * completo di BOM — la risposta HTTP viene salvata da chi la riceve, e senza
+ * BOM in quel corpo un doppio clic su Excel mostrerebbe «NicolÃ²» — e poi
+ * passa comunque da `downloadCsv` nel browser. Senza questo controllo il file
+ * porterebbe **due** BOM, e il secondo si vedrebbe dentro la prima cella
+ * dell'intestazione.
+ */
+export const withCsvBom = (text: string): string =>
+  text.startsWith(CSV_BOM) ? text : `${CSV_BOM}${text}`;
+
+/**
  * Il testo CSV pronto da scaricare, **con il BOM in testa**.
  *
  * Il BOM e cio che dice a Excel «questo file e UTF-8». Senza, Excel su
@@ -140,7 +153,7 @@ export const toCsv = (
  * download del browser, non al trasporto.
  */
 export const buildCsvBlob = (text: string): Blob =>
-  new Blob([`${CSV_BOM}${text}`], { type: "text/csv;charset=utf-8;" });
+  new Blob([withCsvBom(text)], { type: "text/csv;charset=utf-8;" });
 
 /**
  * Fa scaricare il CSV al browser.

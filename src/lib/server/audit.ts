@@ -102,6 +102,14 @@ export const AUDIT_ACTIONS = {
   accountingEntryUpdated: "accounting.entry.updated",
   accountingTransferRecorded: "accounting.transfer.recorded",
   /*
+    L'export contabile. Non e una scrittura, ed e tracciato lo stesso: e
+    l'unica operazione della contabilita che porta **tutti** i movimenti fuori
+    dall'applicazione dentro un file. «Chi ha scaricato i conti della societa,
+    quando, e con quale filtro» e una domanda che arriva dopo, e nessuna riga
+    di nessuna tabella la risponde.
+  */
+  accountingExported: "accounting.export.generated",
+  /*
     Commerciale della piattaforma. Il club non le puo compiere: se compaiono
     con un attore che non e `platform_admin`, e successo qualcosa.
   */

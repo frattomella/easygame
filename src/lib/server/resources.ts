@@ -1257,6 +1257,76 @@ export const appendClubResourceItem = async (
 };
 
 /**
+ * Toglie **un** elemento da una collezione di club, dentro una transazione gia
+ * aperta.
+ *
+ * E la gemella di `appendClubResourceItem` e chiude lo stesso difetto dall'altro
+ * lato: cancellare una voce leggendo la colonna JSON intera, togliendo un
+ * elemento dall'array e risalvandolo **dal browser** cancellava anche tutto cio
+ * che qualcun altro aveva scritto nel frattempo. Qui si cancella **una riga** di
+ * `club_resource_items` e si ricalcola l'aggregato dalla tabella, sotto lo
+ * stesso `FOR UPDATE` sul club.
+ *
+ * **Il confine di club sta nella ricerca, non nella cancellazione.** Le righe si
+ * cercano gia filtrate per `organization_id`: un identificativo di un altro club
+ * non trova niente, e la funzione restituisce `null` senza dire che quella riga
+ * esiste altrove.
+ *
+ * Accetta sia l'identificativo della riga sia quello scritto nel payload perche
+ * le collezioni storiche portano il proprio `id` dentro il JSON, e la
+ * serializzazione lo lascia vincere su quello della riga.
+ */
+export const removeClubResourceItem = async (
+  tx: Prisma.TransactionClient,
+  organization_id: string,
+  resource_type: string,
+  id: string,
+) => {
+  assertKnownClubResourceType(resource_type);
+
+  const wanted = String(id || "").trim();
+  if (!wanted) {
+    throw new Error(`Elemento non indicato per ${resource_type}`);
+  }
+
+  await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${organization_id}::uuid FOR UPDATE`;
+
+  const rows = await tx.clubResourceItem.findMany({
+    where: { organization_id, resource_type },
+    orderBy: { created_at: "asc" },
+  });
+
+  const target = rows.find(
+    (row) =>
+      String(row.id) === wanted ||
+      String((row.payload as any)?.id || "") === wanted,
+  );
+
+  if (!target) {
+    return null;
+  }
+
+  await tx.clubResourceItem.delete({ where: { id: target.id } });
+
+  if (CLUB_JSON_FIELDS.includes(resource_type)) {
+    /*
+      L'aggregato si ricompone dalle righe **gia lette**, meno quella tolta: e
+      la stessa fonte, e risparmia una seconda lettura dentro il lock.
+    */
+    await tx.club.update({
+      where: { id: organization_id },
+      data: {
+        [resource_type]: rows
+          .filter((row) => row.id !== target.id)
+          .map((row) => serializeClubResourceItem(row)),
+      },
+    });
+  }
+
+  return serializeClubResourceItem(target);
+};
+
+/**
  * Riscrive una collezione di club mantenendo allineati `club_resource_items` e
  * il campo JSON aggregato. Gli elementi gia esistenti conservano riga e
  * `created_at`: senza, un riporto rigenererebbe l'identita di tutte le

@@ -50,6 +50,7 @@ import type { AccountingLine } from "@/lib/accounting/model";
 import { AccountingSummary } from "@/components/accounting/AccountingSummary";
 import { AccountingFilters } from "@/components/accounting/AccountingFilters";
 import { AccountingEntries } from "@/components/accounting/AccountingEntries";
+import { ExpectedEntries } from "@/components/accounting/ExpectedEntries";
 import {
   ReconcileEntryDialog,
   RecordEntryDialog,
@@ -625,9 +626,10 @@ export default function MovementsPage() {
       />
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:flex sm:w-fit">
+        <TabsList className="grid w-full grid-cols-3 sm:flex sm:w-fit">
           <TabsTrigger value="prima-nota">Prima nota</TabsTrigger>
           <TabsTrigger value="rate">Rate e solleciti</TabsTrigger>
+          <TabsTrigger value="previsti">Previsti</TabsTrigger>
         </TabsList>
 
         <TabsContent value="prima-nota" className="m-0 space-y-6 pt-6">
@@ -828,6 +830,20 @@ export default function MovementsPage() {
                   </div>
                 ))
             : null}
+        </TabsContent>
+
+        {/*
+          I **previsti** sono impegni futuri: non sono cassa, non sono prima
+          nota e non toccano nessun saldo. Stanno in una scheda a parte per la
+          stessa ragione per cui ci stanno le rate — «Entrate» con sotto
+          «Previste» era il numero che nessuno sapeva piu leggere.
+
+          La scheda si carica da sola e scrive dalle sue rotte: il
+          read-modify-write della colonna JSON dal browser, che era il difetto,
+          non torna qui dentro.
+        */}
+        <TabsContent value="previsti" className="m-0 pt-6">
+          {tab === "previsti" ? <ExpectedEntries clubId={activeClubId} /> : null}
         </TabsContent>
       </Tabs>
 

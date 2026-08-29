@@ -297,6 +297,21 @@ Fonte ufficiale da mantenere aggiornata:
   arrivano solo a chi ha `accounting.accounts_read`, e per gli altri valgono
   `null` e non zero. **Non e un documento ufficiale**: la risposta porta il suo
   `disclaimer`, e nessuna etichetta usa «ufficiale», «conforme» o «a norma»
+- `GET|POST /api/v1/accounting/expected` — le **previsioni** del club: entrate
+  e uscite attese e non ancora accadute, con i loro totali
+  (`expectedIncomeCents`, `expectedExpenseCents`, `expectedNetCents`). Il nome
+  dei campi e la garanzia: **nessuno di questi numeri e un saldo**, e nessuno
+  entra in un totale di cassa. Vivono in `expected_income` e
+  `expected_expenses`, **non** in `accounting_entries`, che ospita solo fatti
+  avvenuti. La `GET` chiede `accounting.read` e filtra sulla stagione attiva
+  (`season_id` o l'header `x-active-season-id`); la `POST`
+  (`accounting.manage`) scrive **dal server** una riga in
+  `club_resource_items` sotto lock — mai la riscrittura della colonna JSON dal
+  browser, che era il difetto per cui due segreterie si cancellavano a vicenda
+- `DELETE /api/v1/accounting/expected/:id?direction=income|expense` — toglie
+  una previsione (`accounting.manage`). Qui il `DELETE` esiste e sulla prima
+  nota no, e non e un'incoerenza: un fatto di cassa e accaduto e si storna, una
+  previsione e un promemoria e un promemoria sbagliato si toglie
 - `POST /api/v1/documents/:kind/:id/cancel` — annullamento di un documento
   emesso, con motivo obbligatorio. Il numero non si libera
 - `GET|POST /api/v1/einvoice/:invoiceId` — stato e preparazione del tracciato

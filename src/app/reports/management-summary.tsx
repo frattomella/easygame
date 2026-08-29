@@ -34,6 +34,7 @@ import {
   type ClubSite,
 } from "@/lib/club-sites";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
+import AccountingExportButton from "./accounting-export-button";
 
 /**
  * Il **Riepilogo gestionale** dentro `/reports`.
@@ -674,6 +675,16 @@ export default function ManagementSummary({
               <RefreshCw className="mr-2 h-4 w-4" />
               Azzera i filtri
             </Button>
+            {/*
+              L'export esce con **gli stessi filtri** che stanno sopra, meno il
+              confronto: un secondo periodo e una domanda del riepilogo, non
+              una riga in piu nel file.
+            */}
+            <AccountingExportButton
+              clubId={clubId}
+              role={role}
+              query={costruisciQuery({ ...filtri, compareFiscalYear: "" }, clubId)}
+            />
             {loading ? (
               <span className="text-xs text-slate-500">
                 Ricalcolo del riepilogo...

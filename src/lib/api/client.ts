@@ -186,12 +186,42 @@ export const rememberActiveSeason = (
   }
 };
 
+/**
+ * Gli header di contesto: club attivo, ruolo attivo, stagione attiva.
+ *
+ * Estratti in una funzione perche il trasporto ha **due** porte — `apiRequest`
+ * per il JSON e `apiDownload` per un file — e il contesto deve viaggiare
+ * uguale su entrambe. Copiarlo nella seconda sarebbe il modo in cui, il giorno
+ * in cui se ne aggiunge uno, una delle due resta indietro: e esattamente cio
+ * che e successo alle due implementazioni del CSV.
+ */
+const withContextHeaders = (init?: HeadersInit) => {
+  const headers = new Headers(init || {});
+
+  if (typeof window !== "undefined" && !headers.has("x-active-club-id")) {
+    const activeClub = readStoredActiveClub();
+    if (activeClub?.id) {
+      headers.set("x-active-club-id", String(activeClub.id));
+    }
+
+    if (activeClub?.role && !headers.has("x-active-access-role")) {
+      headers.set("x-active-access-role", String(activeClub.role));
+    }
+
+    if (activeClub?.activeSeasonId && !headers.has("x-active-season-id")) {
+      headers.set("x-active-season-id", String(activeClub.activeSeasonId));
+    }
+  }
+
+  return headers;
+};
+
 export async function apiRequest<T = any>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<ApiEnvelope<T>> {
   try {
-    const headers = new Headers(options.headers || {});
+    const headers = withContextHeaders(options.headers);
     const hasJsonBody =
       options.body !== undefined &&
       options.body !== null &&
@@ -199,21 +229,6 @@ export async function apiRequest<T = any>(
 
     if (hasJsonBody && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
-    }
-
-    if (typeof window !== "undefined" && !headers.has("x-active-club-id")) {
-      const activeClub = readStoredActiveClub();
-      if (activeClub?.id) {
-        headers.set("x-active-club-id", String(activeClub.id));
-      }
-
-      if (activeClub?.role && !headers.has("x-active-access-role")) {
-        headers.set("x-active-access-role", String(activeClub.role));
-      }
-
-      if (activeClub?.activeSeasonId && !headers.has("x-active-season-id")) {
-        headers.set("x-active-season-id", String(activeClub.activeSeasonId));
-      }
     }
 
     const response = await fetch(path, {
@@ -264,6 +279,88 @@ export async function apiRequest<T = any>(
     // Errore di trasporto: non possiamo dedurre nulla sulla sessione.
     return {
       data: null as T,
+      error: {
+        message: error?.message || "Errore di rete",
+        code: "NETWORK_ERROR",
+      },
+    };
+  }
+}
+
+/**
+ * Il nome del file proposto dal server, letto da `Content-Disposition`.
+ *
+ * Torna `null` se l'header non c'e o non porta un nome: chi chiama ne ha
+ * comunque uno proprio, e un nome inventato dal server e sempre preferibile a
+ * uno costruito nel browser, che non sa quali filtri il server ha applicato
+ * davvero.
+ */
+const readAttachmentName = (disposition: string | null): string | null => {
+  if (!disposition) return null;
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  const name = match?.[1]?.trim();
+  if (!name) return null;
+  /*
+    Il nome arriva da fuori e finisce in un attributo `download`: si tiene solo
+    l'ultimo segmento, cosi nessun `../` puo suggerire un percorso.
+  */
+  return decodeURIComponent(name).split(/[\\/]/).pop() || null;
+};
+
+/**
+ * Una richiesta che risponde **un file di testo** invece di una busta JSON.
+ *
+ * Esiste per l'export contabile, e sta qui e non nella pagina per la regola
+ * del repository: nessun `fetch` diretto verso `/api` da un componente. Il
+ * contesto (club attivo, ruolo, stagione), le credenziali e la gestione del
+ * 401 sono gli stessi di `apiRequest` — che e il punto: due porte con due
+ * comportamenti diversi sulla sessione sono due comportamenti da tenere
+ * allineati a mano.
+ *
+ * **L'errore resta JSON.** Quando il server nega o fallisce non risponde un
+ * file: risponde la busta di sempre, e questa funzione ne restituisce il
+ * messaggio invece di far scaricare un file che conterrebbe l'errore.
+ */
+export async function apiDownload(
+  path: string,
+  options: Omit<RequestInit, "body"> = {},
+): Promise<ApiEnvelope<{ text: string; fileName: string | null }>> {
+  try {
+    const response = await fetch(path, {
+      ...options,
+      credentials: "include",
+      headers: withContextHeaders(options.headers),
+    });
+
+    if (response.status === 401 && !isSessionLifecyclePath(path)) {
+      notifyUnauthorized();
+    }
+
+    if (!response.ok) {
+      const payload = await response
+        .json()
+        .catch(() => ({ error: { message: response.statusText } }));
+
+      return {
+        data: null as any,
+        error: {
+          message:
+            payload?.error?.message || response.statusText || "Richiesta non riuscita",
+          status: response.status,
+        },
+      };
+    }
+
+    return {
+      data: {
+        text: await response.text(),
+        fileName: readAttachmentName(response.headers.get("content-disposition")),
+      },
+      error: null,
+    };
+  } catch (error: any) {
+    return {
+      data: null as any,
       error: {
         message: error?.message || "Errore di rete",
         code: "NETWORK_ERROR",
