@@ -41,6 +41,16 @@ const failure = (error: any, fallback: string) => {
   return NextResponse.json({ data: null, error: { message } }, { status });
 };
 
+/**
+ * Il testo di una parte del form, oppure `null` se non c'e.
+ *
+ * Un `File` in un campo che deve essere una data non e testo: trattarlo come
+ * tale scriverebbe «[object File]» dentro un campo data e lo farebbe rifiutare
+ * con un messaggio che non aiuta nessuno.
+ */
+const formText = (value: FormDataEntryValue | null) =>
+  typeof value === "string" ? value : null;
+
 export async function GET(request: Request) {
   try {
     const session = await requireAuthenticatedUser(request);
@@ -199,6 +209,15 @@ export async function POST(request: Request) {
         fileName: String(form.get("file_name") || file.name || "documento"),
         mimeType: String(form.get("mime_type") || file.type || ""),
         content,
+        /*
+          La validita del documento (Wave 3, W3-G). Due parti facoltative del
+          form: chi non le manda carica un allegato senza scadenza, che e come
+          si e sempre comportato ogni caricamento fino a qui. Le valida
+          Attachment Core, che e anche l'unico posto in cui l'intervallo
+          rovesciato viene rifiutato.
+        */
+        validFrom: formText(form.get("valid_from")),
+        validUntil: formText(form.get("valid_until")),
       },
       scope,
     );

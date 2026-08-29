@@ -22,10 +22,17 @@ before(async () => {
 
 /* ----------------------------------------------------------- il catalogo */
 
-test("i trigger sono quattro e il catalogo e chiuso", () => {
+test("i trigger sono cinque e il catalogo e chiuso", () => {
   assert.deepEqual(
     [...catalogo.AUTOMATION_TRIGGER_KINDS],
-    ["installment_due", "installment_overdue", "certificate", "event_rsvp"],
+    [
+      "installment_due",
+      "installment_overdue",
+      "certificate",
+      "event_rsvp",
+      /* Il quinto, aperto per domanda dalla Wave 3 (W3-G, §11.2). */
+      "document_expiry",
+    ],
   );
 
   assert.throws(
@@ -41,6 +48,7 @@ test("gli anticipi predefiniti sono quelli del planning", () => {
     installment_overdue: [1, 15],
     certificate: [30, 7, 0],
     event_rsvp: [2],
+    document_expiry: [30, 7],
   };
 
   for (const [kind, giorni] of Object.entries(attesi)) {
@@ -111,12 +119,12 @@ test("il riepilogo non si applica alla famiglia", () => {
   );
 });
 
-test("le quattro regole ci sono sempre tutte, anche se in archivio ce n'e una", () => {
+test("le regole ci sono sempre tutte, anche se in archivio ce n'e una", () => {
   const lette = regole.normalizeAutomationRules([
     { trigger: "certificate", enabled: true },
   ]);
 
-  assert.equal(lette.length, 4);
+  assert.equal(lette.length, 5);
   assert.equal(lette.find((r) => r.trigger === "certificate").enabled, true);
   assert.equal(lette.find((r) => r.trigger === "event_rsvp").enabled, false);
 });

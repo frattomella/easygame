@@ -276,12 +276,14 @@ test("nessun modello predefinito usa un segnaposto fuori catalogo", () => {
   }
 });
 
-test("i modelli predefiniti sono quattro, e sono dati", () => {
+test("i modelli predefiniti sono uno per regola, e sono dati", () => {
   assert.deepEqual(DEFAULT_MESSAGE_TEMPLATE_KEYS, [
     "installment_due",
     "installment_overdue",
     "certificate_expiring",
     "event_invitation",
+    /* AUT-05, aperto dalla Wave 3 (W3-G). */
+    "document_expiring",
   ]);
 
   for (const key of DEFAULT_MESSAGE_TEMPLATE_KEYS) {

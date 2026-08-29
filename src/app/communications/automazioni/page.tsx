@@ -27,6 +27,7 @@ import {
   type AutomationAudience,
   type AutomationDelivery,
 } from "@/lib/automations/catalog";
+import { SUGGESTED_ATTACHMENT_CATEGORIES } from "@/lib/attachments";
 import { AlertTriangle, Eye, Play, Save, Timer } from "lucide-react";
 
 /**
@@ -56,11 +57,13 @@ type RuleView = {
   audience: AutomationAudience;
   delivery: AutomationDelivery;
   template: { subject: string; body: string };
+  categories: string[];
   updatedAt: string | null;
   label: string;
   description: string;
   direction: "before" | "after";
   defaultOffsetDays: number[];
+  supportsCategoryFilter: boolean;
   sample: { subject: string; text: string; unresolved: string[] };
 };
 
@@ -84,12 +87,26 @@ const parseOffsets = (text: string) =>
     .map((part) => Number(part))
     .filter((value) => Number.isFinite(value));
 
+/**
+ * «BLSD, primo soccorso» diventa `["blsd", "primo-soccorso"]`.
+ *
+ * La riduzione vera la fa il dominio, che e anche l'unico posto in cui le
+ * categorie del certificato medico vengono scartate: qui si separa e basta,
+ * cosi il campo resta scrivibile come si scriverebbe a mano.
+ */
+const parseCategories = (text: string) =>
+  text
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
 export default function AutomazioniPage() {
   const { showToast } = useToast();
 
   const [clubName, setClubName] = useState("");
   const [rules, setRules] = useState<RuleView[]>([]);
   const [offsetText, setOffsetText] = useState<Record<string, string>>({});
+  const [categoryText, setCategoryText] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
   const [caricamento, setCaricamento] = useState(true);
   const [errore, setErrore] = useState("");
@@ -111,6 +128,14 @@ export default function AutomazioniPage() {
     setOffsetText(
       Object.fromEntries(
         caricate.map((rule) => [rule.trigger, offsetsToText(rule.offsetDays)]),
+      ),
+    );
+    setCategoryText(
+      Object.fromEntries(
+        caricate.map((rule) => [
+          rule.trigger,
+          asArray(rule.categories).join(", "),
+        ]),
       ),
     );
   }, []);
@@ -139,6 +164,9 @@ export default function AutomazioniPage() {
           audience: rule.audience,
           delivery: rule.delivery,
           template: rule.template,
+          categories: rule.supportsCategoryFilter
+            ? parseCategories(categoryText[rule.trigger] ?? "")
+            : [],
         },
       },
     });
@@ -319,6 +347,38 @@ export default function AutomazioniPage() {
                         il messaggio che la riguarda.
                       </p>
                     </div>
+
+                    {rule.supportsCategoryFilter ? (
+                      <div className="space-y-2">
+                        <Label htmlFor={`categorie-${rule.trigger}`}>
+                          Documenti da sorvegliare
+                        </Label>
+                        <Input
+                          id={`categorie-${rule.trigger}`}
+                          list={`categorie-note-${rule.trigger}`}
+                          placeholder="blsd, documento-identita"
+                          value={categoryText[rule.trigger] ?? ""}
+                          onChange={(event) =>
+                            setCategoryText((current) => ({
+                              ...current,
+                              [rule.trigger]: event.target.value,
+                            }))
+                          }
+                        />
+                        <datalist id={`categorie-note-${rule.trigger}`}>
+                          {SUGGESTED_ATTACHMENT_CATEGORIES.map((categoria) => (
+                            <option key={categoria} value={categoria} />
+                          ))}
+                        </datalist>
+                        <p className="text-xs text-slate-500">
+                          Separa le categorie con una virgola. Lascia vuoto per
+                          sorvegliare tutti i documenti con una scadenza. Il
+                          certificato medico resta fuori: lo governa la regola
+                          «Certificato medico», e due regole sulla stessa data
+                          sarebbero due promemoria.
+                        </p>
+                      </div>
+                    ) : null}
 
                     <div className="space-y-2">
                       <Label htmlFor={`oggetto-${rule.trigger}`}>Oggetto</Label>

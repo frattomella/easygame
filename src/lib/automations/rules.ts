@@ -35,6 +35,7 @@ import {
   AUTOMATION_AUDIENCES,
   AUTOMATION_DELIVERIES,
   AUTOMATION_TRIGGER_KINDS,
+  MAX_AUTOMATION_CATEGORIES,
   MAX_AUTOMATION_OFFSETS,
   MAX_AUTOMATION_OFFSET_DAYS,
   getAutomationTrigger,
@@ -43,6 +44,10 @@ import {
   type AutomationOffsetDirection,
   type AutomationTriggerKind,
 } from "./catalog";
+import {
+  isMedicalCertificateAttachmentCategory,
+  normalizeAttachmentCategory,
+} from "@/lib/attachments";
 import { DEFAULT_MESSAGE_TEMPLATES } from "@/lib/messages/defaults";
 import type { MessageTemplate } from "@/lib/messages/templates";
 
@@ -64,6 +69,18 @@ export type AutomationRule = {
   audience: AutomationAudience;
   delivery: AutomationDelivery;
   template: MessageTemplate;
+  /**
+   * Le categorie di documento su cui la regola si innesca (AUT-05).
+   *
+   * **Vuoto significa «tutte»**, e non «nessuna»: e la lettura che non lascia
+   * una regola accesa e muta. La usa solo un trigger che dichiara
+   * `supportsCategoryFilter`; sugli altri e sempre vuoto, perche un filtro che
+   * non filtra niente sarebbe una configurazione che mente a chi l'ha scritta.
+   *
+   * Retrocompatibile: una regola salvata prima della Wave 3 non ha il campo, e
+   * lo legge come «tutte».
+   */
+  categories: string[];
   /** Quando qualcuno l'ha toccata l'ultima volta. `null` se mai. */
   updatedAt: string | null;
 };
@@ -141,6 +158,41 @@ export const normalizeAutomationOffsets = (
   return sortOffsets(values, direction);
 };
 
+/**
+ * Le categorie del filtro, normalizzate.
+ *
+ * Accetta sia l'elenco sia la riga scritta a mano («BLSD, primo soccorso»),
+ * perche la schermata offre un campo di testo e chi lo compila non deve
+ * indovinare come e scritto il trattino: la riduzione e la stessa che
+ * Attachment Core applica in caricamento.
+ *
+ * **Le categorie mediche cadono, in silenzio.** La scadenza del certificato
+ * medico la governa `AUT-03`, e sceglierla anche qui produrrebbe due
+ * promemoria per la stessa data. Non si solleva un errore perche questa stessa
+ * funzione normalizza cio che si **legge** dall'archivio: un errore renderebbe
+ * illeggibile l'intera configurazione di un club per una riga scritta prima —
+ * e la regola resterebbe accesa senza che nessuno possa spegnerla.
+ */
+export const normalizeAutomationCategories = (input: unknown): string[] => {
+  const raw = Array.isArray(input)
+    ? input
+    : String(input ?? "")
+        .split(/[,;\n]+/)
+        .filter(Boolean);
+
+  const values: string[] = [];
+
+  for (const entry of raw) {
+    const value = normalizeAttachmentCategory(entry).slice(0, 120);
+    if (!value) continue;
+    if (isMedicalCertificateAttachmentCategory(value)) continue;
+    if (values.includes(value)) continue;
+    values.push(value);
+  }
+
+  return values.slice(0, MAX_AUTOMATION_CATEGORIES).sort();
+};
+
 const normalizeTemplate = (
   input: unknown,
   fallback: MessageTemplate,
@@ -171,6 +223,8 @@ export const buildDefaultAutomationRule = (
     audience: trigger.defaultAudience,
     delivery: "immediate",
     template: { ...DEFAULT_MESSAGE_TEMPLATES[trigger.templateKey] },
+    /* Vuoto = tutte le categorie: una regola nuova non nasconde niente. */
+    categories: [],
     updatedAt: null,
   };
 };
@@ -223,12 +277,21 @@ export const normalizeAutomationRule = (input: unknown): AutomationRule => {
     */
     delivery: audience === "family" ? "immediate" : declaredDelivery,
     template: normalizeTemplate(record.template, fallback.template),
+    /*
+      Il filtro esiste solo per i trigger che lo dichiarano. Su una «rata in
+      scadenza» un elenco di categorie non ha significato, e conservarlo
+      vorrebbe dire che un giorno qualcuno lo leggera credendo che filtri
+      qualcosa.
+    */
+    categories: trigger.supportsCategoryFilter
+      ? normalizeAutomationCategories(record.categories ?? record.categorie)
+      : [],
     updatedAt: asText(record.updatedAt ?? record.updated_at) || null,
   };
 };
 
 /**
- * Le quattro regole del club, sempre tutte e quattro.
+ * Le regole del club, sempre tutte quelle del catalogo.
  *
  * Cio che non e in archivio ricade sul predefinito **spento**: la schermata
  * mostra sempre l'elenco completo, e «non configurata» e «spenta» sono la

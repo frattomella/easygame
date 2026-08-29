@@ -33,12 +33,21 @@
 
 import type { DefaultMessageTemplateKey } from "@/lib/messages/defaults";
 
-/** I quattro fatti su cui una regola si puo innescare. */
+/**
+ * I fatti su cui una regola si puo innescare.
+ *
+ * Il quinto — `document_expiry` — e arrivato con la Wave 3 e non contraddice
+ * il «quattro e non trentaquattro» qui sopra: e stato aperto **per domanda**,
+ * che e esattamente il modo dichiarato. Ed e l'unico innesco possibile su una
+ * scadenza documentale, perche fino a Wave 3 non esisteva niente su cui
+ * innescarsi: `attachments` non aveva ne `valid_from` ne `valid_until`.
+ */
 export const AUTOMATION_TRIGGER_KINDS = [
   "installment_due",
   "installment_overdue",
   "certificate",
   "event_rsvp",
+  "document_expiry",
 ] as const;
 
 export type AutomationTriggerKind = (typeof AUTOMATION_TRIGGER_KINDS)[number];
@@ -100,6 +109,15 @@ export type AutomationTriggerDefinition = {
    * sarebbe falso per almeno uno dei due.
    */
   allowEconomic: boolean;
+  /**
+   * Se la regola si restringe a certe **categorie di documento**.
+   *
+   * Lo dichiara il trigger e non la schermata: «avvisami per i BLSD» e
+   * «avvisami per i documenti d'identita» sono due domande diverse, ma «rata in
+   * scadenza» non ha categorie e un campo vuoto accanto le suggerirebbe che
+   * esistano. Assente vale `false`.
+   */
+  supportsCategoryFilter?: boolean;
 };
 
 /** Al piu tre anticipi per regola (G-04). */
@@ -112,6 +130,15 @@ export const MAX_AUTOMATION_OFFSETS = 3;
  * costruirebbe una finestra di ricerca inutilmente larga sul giro notturno.
  */
 export const MAX_AUTOMATION_OFFSET_DAYS = 120;
+
+/**
+ * Quante categorie di documento puo nominare una regola.
+ *
+ * Non e un limite tecnico: venti categorie in un filtro sono un filtro che non
+ * filtra, e chi le ha scritte voleva quasi sempre «tutte» — che si ottiene
+ * lasciando il campo vuoto.
+ */
+export const MAX_AUTOMATION_CATEGORIES = 20;
 
 export const AUTOMATION_TRIGGERS: Readonly<
   Record<AutomationTriggerKind, AutomationTriggerDefinition>
@@ -164,6 +191,25 @@ export const AUTOMATION_TRIGGERS: Readonly<
     defaultAudience: "family",
     templateKey: "event_invitation",
     allowEconomic: false,
+  },
+  document_expiry: {
+    kind: "document_expiry",
+    id: "AUT-05",
+    label: "Documento in scadenza",
+    description:
+      "Un documento allegato con una scadenza dichiarata sta per scadere. Il certificato medico non passa di qui: lo governa la regola dedicata, e due regole sullo stesso fatto sono due promemoria.",
+    direction: "before",
+    /* §11.2 del planning di Wave 3: un mese per rinnovare, una settimana per ricordarsene. */
+    defaultOffsetDays: [30, 7],
+    /*
+      **`both` e non `family`**, al contrario delle rate. Un documento scaduto e
+      prima di tutto un problema della segreteria — e lei che non puo tesserare
+      o convocare — e la famiglia da sola non basta a chiudere il cerchio.
+    */
+    defaultAudience: "both",
+    templateKey: "document_expiring",
+    allowEconomic: false,
+    supportsCategoryFilter: true,
   },
 };
 

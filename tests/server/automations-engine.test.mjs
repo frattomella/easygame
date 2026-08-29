@@ -289,7 +289,7 @@ test("A6: una regola spenta non manda niente, e il rapporto lo dice", async () =
     esito.rules.find((rule) => rule.trigger === "installment_due").enabled,
     false,
   );
-  assert.equal(esito.rules.length, 4, "le quattro regole si dichiarano sempre");
+  assert.equal(esito.rules.length, 5, "le regole si dichiarano sempre tutte");
 });
 
 /* --------------------------------------------- A7 - un club rotto, uno sano */

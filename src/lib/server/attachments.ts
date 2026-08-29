@@ -5,7 +5,11 @@ import {
   buildAttachmentReference,
   buildAttachmentUrl,
   isAttachmentOwnerType,
+  isMedicalCertificateAttachmentCategory,
+  normalizeAttachmentCategory,
+  toAttachmentDayKey,
   validateAttachmentInput,
+  validateAttachmentValidity,
   type AttachmentMetadata,
 } from "@/lib/attachments";
 
@@ -180,6 +184,18 @@ const driverFor = (storageDriver?: string | null): StorageDriver => {
 const toIso = (value: unknown) =>
   value instanceof Date ? value.toISOString() : String(value || "");
 
+/**
+ * Una data di validita esce come **giorno**, non come istante.
+ *
+ * `valid_until` e una data: restituirla come `2026-11-30T00:00:00.000Z`
+ * inviterebbe chi la legge a confrontarla con un orario, che e esattamente il
+ * modo in cui una scadenza si sposta di un giorno cambiando fuso.
+ */
+const toDayOrNull = (value: unknown) =>
+  value instanceof Date && !Number.isNaN(value.getTime())
+    ? toAttachmentDayKey(value)
+    : null;
+
 export const serializeAttachment = (
   row: Record<string, any>,
 ): AttachmentMetadata => ({
@@ -195,6 +211,8 @@ export const serializeAttachment = (
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
   createdBy: row.created_by || null,
+  validFrom: toDayOrNull(row.valid_from),
+  validUntil: toDayOrNull(row.valid_until),
   reference: buildAttachmentReference(row.id),
   url: buildAttachmentUrl(row.id),
 });
@@ -212,6 +230,8 @@ const METADATA_SELECT = {
   checksum: true,
   storage_driver: true,
   storage_key: true,
+  valid_from: true,
+  valid_until: true,
   created_by: true,
   created_at: true,
   updated_at: true,
@@ -246,6 +266,12 @@ export type CreateAttachmentInput = {
   fileName: string;
   mimeType: string;
   content: Buffer;
+  /**
+   * Da quando il documento vale, e fino a quando. Entrambe **facoltative**: un
+   * allegato senza date continua a funzionare identico a prima (Wave 3, W3-G).
+   */
+  validFrom?: string | Date | null;
+  validUntil?: string | Date | null;
 };
 
 /**
@@ -284,6 +310,14 @@ export const createAttachment = async (
     throw new Error(validation.message);
   }
 
+  const validity = validateAttachmentValidity({
+    validFrom: input.validFrom,
+    validUntil: input.validUntil,
+  });
+  if (!validity.ok) {
+    throw new Error(validity.message);
+  }
+
   const driver = getActiveStorageDriver();
 
   /*
@@ -303,6 +337,8 @@ export const createAttachment = async (
       size_bytes: content.length,
       checksum: checksumOf(content),
       storage_driver: driver.name,
+      valid_from: validity.validFrom,
+      valid_until: validity.validUntil,
       created_by: scope?.userId || null,
     },
     select: METADATA_SELECT,
@@ -336,7 +372,21 @@ export const createAttachment = async (
  */
 export const replaceAttachmentContent = async (
   id: string,
-  input: { fileName: string; mimeType: string; content: Buffer },
+  input: {
+    fileName: string;
+    mimeType: string;
+    content: Buffer;
+    /**
+     * Le date di validita del file **nuovo**.
+     *
+     * `undefined` significa «non le tocco», e non «cancellale»: sostituire il
+     * PDF di un documento senza ripetere le date non deve far sparire la
+     * scadenza. Una stringa vuota, invece, e una cancellazione voluta — e il
+     * modo in cui si toglie una scadenza messa per sbaglio.
+     */
+    validFrom?: string | Date | null;
+    validUntil?: string | Date | null;
+  },
   scope?: AttachmentAccessScope,
 ): Promise<AttachmentMetadata> => {
   const existing = await (prisma as any).attachment.findUnique({
@@ -364,6 +414,22 @@ export const replaceAttachmentContent = async (
     throw new Error(validation.message);
   }
 
+  /*
+    Le date si validano **insieme a quelle gia in archivio**: chi manda solo la
+    nuova scadenza deve comunque scontrarsi con l'inizio di validita che c'e
+    gia, o si potrebbe costruire un intervallo rovesciato in due passi.
+  */
+  const toccaValidFrom = input.validFrom !== undefined;
+  const toccaValidUntil = input.validUntil !== undefined;
+
+  const validity = validateAttachmentValidity({
+    validFrom: toccaValidFrom ? input.validFrom : existing.valid_from,
+    validUntil: toccaValidUntil ? input.validUntil : existing.valid_until,
+  });
+  if (!validity.ok) {
+    throw new Error(validity.message);
+  }
+
   // Si riscrive con il driver **attivo**: e il modo in cui un allegato
   // migra da un driver all'altro senza una campagna di migrazione.
   const driver = getActiveStorageDriver();
@@ -384,6 +450,8 @@ export const replaceAttachmentContent = async (
       checksum: checksumOf(content),
       storage_driver: driver.name,
       storage_key: storageKey,
+      ...(toccaValidFrom ? { valid_from: validity.validFrom } : {}),
+      ...(toccaValidUntil ? { valid_until: validity.validUntil } : {}),
     },
     select: METADATA_SELECT,
   });
@@ -456,6 +524,76 @@ export const listAttachments = async (
   });
 
   return rows.map((row: Record<string, any>) => serializeAttachment(row));
+};
+
+/**
+ * Gli allegati che scadono dentro una finestra di giorni.
+ *
+ * **Perche vive qui e non nel motore delle automazioni.** Attachment Core e
+ * l'unico posto che interroga la tabella `attachments` (CLAUDE.md §2): una
+ * query scritta dentro il valutatore notturno sarebbe la seconda, e la prima a
+ * dimenticare l'esclusione del certificato medico.
+ *
+ * L'esclusione delle categorie mediche e **incondizionata** e non un
+ * parametro: chi chiama non deve poter chiedere «anche quelle». La scadenza del
+ * certificato la governa `AUT-03`, e due sorgenti per lo stesso fatto sono due
+ * promemoria alla stessa famiglia.
+ *
+ * La finestra si appoggia all'indice `(organization_id, valid_until)`: chi
+ * chiama filtra poi per anticipo esatto, che e una decisione delle regole e non
+ * di questa query.
+ */
+export const listExpiringAttachments = async (
+  filter: {
+    organizationId: string;
+    /** Dal giorno incluso. */
+    from: Date;
+    /** Al giorno incluso. */
+    to: Date;
+    ownerType?: string | null;
+    ownerIds?: string[] | null;
+    /** Le categorie scelte. Vuoto o assente = **tutte** quelle ammesse. */
+    categories?: string[] | null;
+  },
+  scope?: AttachmentAccessScope,
+): Promise<AttachmentMetadata[]> => {
+  const organizationId = resolveOrganizationId(scope, filter.organizationId);
+
+  const ownerIds = (filter.ownerIds || []).map((id) => String(id || "").trim()).filter(Boolean);
+  if (filter.ownerIds && ownerIds.length === 0) return [];
+
+  const where: Record<string, any> = {
+    organization_id: organizationId,
+    valid_until: { gte: filter.from, lte: filter.to },
+  };
+
+  if (filter.ownerType) {
+    where.owner_type = String(filter.ownerType).trim().toLowerCase();
+  }
+  if (ownerIds.length > 0) {
+    where.owner_id = { in: ownerIds };
+  }
+
+  const rows = await (prisma as any).attachment.findMany({
+    where,
+    select: METADATA_SELECT,
+    orderBy: { valid_until: "asc" },
+  });
+
+  const scelte = new Set(
+    (filter.categories || [])
+      .map((value) => normalizeAttachmentCategory(value))
+      .filter(Boolean),
+  );
+
+  return rows
+    .filter(
+      (row: Record<string, any>) =>
+        !isMedicalCertificateAttachmentCategory(row.category) &&
+        (scelte.size === 0 ||
+          scelte.has(normalizeAttachmentCategory(row.category))),
+    )
+    .map((row: Record<string, any>) => serializeAttachment(row));
 };
 
 /* ------------------------------------------------------------- eliminazione */

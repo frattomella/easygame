@@ -137,6 +137,20 @@ export type AttachmentMetadata = {
   createdAt: string;
   updatedAt: string;
   createdBy?: string | null;
+  /**
+   * Da quando il documento vale, come giorno `AAAA-MM-GG`. `null` = non
+   * dichiarata.
+   */
+  validFrom: string | null;
+  /**
+   * Fino a quando il documento vale. `null` = **non scade**, e non e un
+   * errore: la maggior parte degli allegati di una segreteria non ha una
+   * scadenza e non deve averla.
+   *
+   * Lo **stato** (valido / in scadenza / scaduto) non e qui e non e una
+   * colonna: si ricava con `deriveAttachmentValidity`.
+   */
+  validUntil: string | null;
   /** Riferimento da salvare nel record di dominio. */
   reference: string;
   /** URL da cui il browser puo leggerlo. */
@@ -307,3 +321,307 @@ export const validateAttachmentInput = (input: {
 /** L'elenco dei tipi, nella forma che vuole l'attributo `accept`. */
 export const ATTACHMENT_ACCEPT_ATTRIBUTE =
   ALLOWED_ATTACHMENT_MIME_TYPES.join(",");
+
+/* ---------------------------------------------------------- la validita */
+
+/**
+ * La validita di un documento (Wave 3, W3-G).
+ *
+ * **Perche lo stato non e una colonna.** Un documento e valido, in scadenza o
+ * scaduto a seconda di **oggi**: scriverlo vorrebbe dire tenerlo aggiornato, e
+ * nessun giro notturno puo garantirlo per ogni riga di ogni club. E la stessa
+ * regola che governa lo stato di una rata e quello di una scadenza del lavoro
+ * sportivo — si ricava, non si imposta (ADR-0036). Qui ci sono solo le **due
+ * date**; lo stato lo produce `deriveAttachmentValidity` quando serve.
+ *
+ * **Perche l'aritmetica dei giorni e scritta qui e non importata.** La gemella
+ * canonica e `daysBetween` in `src/lib/automations/rules.ts`, ancorata a
+ * mezzanotte UTC per la stessa ragione e con la stessa dimostrazione. Non la si
+ * importa perche quel modulo tira dentro il catalogo dei segnaposto e i modelli
+ * di messaggio, e questo file lo importa **ogni** schermata con un campo di
+ * caricamento: la validita di un documento non deve costare al browser il
+ * motore delle automazioni. Le due funzioni sono confrontate da un test.
+ */
+
+/** Mezzanotte **UTC**: due istanti dello stesso giorno sono lo stesso giorno. */
+const attachmentStartOfDay = (value: Date) =>
+  new Date(
+    Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
+  );
+
+/**
+ * Giorni interi fra due giorni di calendario, positivo se `to` e nel futuro.
+ *
+ * Ancorata a UTC: una scadenza in EasyGame e una **data**, non un istante, e
+ * misurarla con la mezzanotte locale del processo darebbe un giorno di
+ * differenza a New York — cioe un promemoria che non parte mai, perche
+ * l'occorrenza non si recupera all'indietro.
+ */
+export const attachmentDaysBetween = (from: Date, to: Date) =>
+  Math.round(
+    (attachmentStartOfDay(to).getTime() - attachmentStartOfDay(from).getTime()) /
+      86400000,
+  );
+
+/** `2026-11-30`: il giorno, in una forma che ordina e si legge. */
+export const toAttachmentDayKey = (value: Date) =>
+  attachmentStartOfDay(value).toISOString().slice(0, 10);
+
+/**
+ * Una data di validita, letta da cio che arriva dal form o dall'archivio.
+ *
+ * Restituisce `null` sia per «assente» sia per «illeggibile»: chi deve
+ * distinguere i due casi usa `validateAttachmentValidity`, che dice **quale**
+ * valore non e una data. Un giorno puro (`2026-11-30`) resta quel giorno,
+ * perche JavaScript lo legge gia come mezzanotte UTC.
+ */
+export const parseAttachmentValidityDate = (
+  value?: string | Date | null,
+): Date | null => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : attachmentStartOfDay(value);
+  }
+
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : attachmentStartOfDay(parsed);
+};
+
+/**
+ * Entro quanti giorni una scadenza si considera imminente, quando chi chiede
+ * non lo dichiara.
+ *
+ * E la soglia con cui l'anagrafica colora una riga, non una regola di
+ * prodotto: un'automazione porta la **sua** — quella che il club ha
+ * configurato — e non deve poter essere annullata da una costante scritta qui.
+ */
+export const ATTACHMENT_EXPIRY_WARNING_DAYS = 30;
+
+/**
+ * Gli stati in cui un documento puo trovarsi.
+ *
+ * `unknown` non e un errore: e un allegato **senza scadenza dichiarata**, che
+ * e la condizione normale della maggior parte dei file di una segreteria.
+ * Chiamarlo «valido» sarebbe una promessa che nessuno ha fatto.
+ */
+export const ATTACHMENT_VALIDITY_STATES = [
+  "valid",
+  "expiring",
+  "expired",
+  "not_yet_valid",
+  "unknown",
+] as const;
+
+export type AttachmentValidityState =
+  (typeof ATTACHMENT_VALIDITY_STATES)[number];
+
+export const ATTACHMENT_VALIDITY_LABELS: Record<
+  AttachmentValidityState,
+  string
+> = {
+  valid: "Valido",
+  expiring: "In scadenza",
+  expired: "Scaduto",
+  not_yet_valid: "Non ancora valido",
+  unknown: "Senza scadenza",
+};
+
+export type AttachmentValidity = {
+  state: AttachmentValidityState;
+  /** Il giorno da cui vale, `AAAA-MM-GG`, oppure `null`. */
+  validFrom: string | null;
+  /** Il giorno fino a cui vale, `AAAA-MM-GG`, oppure `null`. */
+  validUntil: string | null;
+  /**
+   * Giorni da oggi alla scadenza. Negativo se e passata, `null` se non c'e.
+   * Zero e l'**ultimo giorno buono**, non il primo giorno scaduto.
+   */
+  daysToExpiry: number | null;
+};
+
+export type AttachmentValidityInput = {
+  validFrom?: string | Date | null;
+  validUntil?: string | Date | null;
+};
+
+/**
+ * Lo stato di validita, ricavato dalle due date e da oggi.
+ *
+ * **`valid_until` e inclusiva**: e «fino a quando il documento vale», quindi il
+ * giorno stesso della scadenza il documento vale ancora ed e «in scadenza»; e
+ * scaduto dal giorno dopo. E la lettura opposta a quella del certificato
+ * medico, dove il giorno della scadenza conta gia come scaduto — li la
+ * differenza e voluta e documentata in `automations.ts`, perche un atleta con
+ * il certificato in scadenza quel giorno **non puo scendere in campo**, mentre
+ * un attestato BLSD vale fino a sera.
+ *
+ * L'ordine dei controlli non e casuale: «non ancora valido» viene prima di
+ * tutto perche e un fatto piu forte — un documento che entra in vigore fra un
+ * mese non e «valido», qualunque cosa dica la sua scadenza.
+ */
+export const deriveAttachmentValidity = (
+  input: AttachmentValidityInput,
+  now: Date = new Date(),
+  options: { expiringWithinDays?: number } = {},
+): AttachmentValidity => {
+  const from = parseAttachmentValidityDate(input.validFrom);
+  const until = parseAttachmentValidityDate(input.validUntil);
+
+  const soglia = Number.isFinite(Number(options.expiringWithinDays))
+    ? Math.max(0, Math.trunc(Number(options.expiringWithinDays)))
+    : ATTACHMENT_EXPIRY_WARNING_DAYS;
+
+  const base = {
+    validFrom: from ? toAttachmentDayKey(from) : null,
+    validUntil: until ? toAttachmentDayKey(until) : null,
+  };
+
+  if (from && attachmentDaysBetween(now, from) > 0) {
+    return {
+      ...base,
+      state: "not_yet_valid",
+      daysToExpiry: until ? attachmentDaysBetween(now, until) : null,
+    };
+  }
+
+  if (!until) {
+    return { ...base, state: "unknown", daysToExpiry: null };
+  }
+
+  const daysToExpiry = attachmentDaysBetween(now, until);
+
+  if (daysToExpiry < 0) {
+    return { ...base, state: "expired", daysToExpiry };
+  }
+
+  return {
+    ...base,
+    state: daysToExpiry <= soglia ? "expiring" : "valid",
+    daysToExpiry,
+  };
+};
+
+export type AttachmentValidityValidation =
+  | { ok: true; validFrom: Date | null; validUntil: Date | null }
+  | { ok: false; message: string };
+
+const dayForHumans = (value: Date) => {
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${value.getUTCFullYear()}`;
+};
+
+/**
+ * Le due date sono scrivibili?
+ *
+ * Un intervallo rovesciato non e un dato da normalizzare in silenzio: «vale dal
+ * 1 dicembre fino al 30 novembre» e quasi sempre un mese digitato al posto di
+ * un altro, e accettarlo produrrebbe un documento **sempre scaduto** che
+ * nessuno capisce perche lo sia. Il messaggio dice cosa fare, non solo cosa e
+ * andato storto.
+ */
+export const validateAttachmentValidity = (
+  input: AttachmentValidityInput,
+): AttachmentValidityValidation => {
+  const rawFrom = input.validFrom instanceof Date ? "" : String(input.validFrom ?? "").trim();
+  const rawUntil =
+    input.validUntil instanceof Date ? "" : String(input.validUntil ?? "").trim();
+
+  const validFrom = parseAttachmentValidityDate(input.validFrom);
+  const validUntil = parseAttachmentValidityDate(input.validUntil);
+
+  if (rawFrom && !validFrom) {
+    return {
+      ok: false,
+      message: `Inizio validita non valido: «${rawFrom}». Indica un giorno nel formato AAAA-MM-GG.`,
+    };
+  }
+
+  if (rawUntil && !validUntil) {
+    return {
+      ok: false,
+      message: `Scadenza non valida: «${rawUntil}». Indica un giorno nel formato AAAA-MM-GG.`,
+    };
+  }
+
+  if (validFrom && validUntil && validUntil.getTime() < validFrom.getTime()) {
+    return {
+      ok: false,
+      message: `La scadenza (${dayForHumans(validUntil)}) e precedente all'inizio della validita (${dayForHumans(validFrom)}). Correggi una delle due date.`,
+    };
+  }
+
+  return { ok: true, validFrom, validUntil };
+};
+
+/* ------------------------------------------------------- le categorie */
+
+/**
+ * La `category` di un allegato, ridotta a un identificativo confrontabile.
+ *
+ * E la stessa riduzione che `certificate-attachment-field.tsx` applica al tipo
+ * di documento prima di caricarlo («Primo soccorso» -> `primo-soccorso`):
+ * senza, un filtro configurato scrivendo «BLSD» non troverebbe gli allegati
+ * salvati come `blsd`.
+ */
+export const normalizeAttachmentCategory = (value?: string | null) =>
+  String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+/**
+ * Le categorie la cui scadenza e **gia governata dal certificato medico**.
+ *
+ * Il certificato medico ha la sua fonte (`medical_certificates.expiry_date`),
+ * la sua semantica (mancante / in scadenza / scaduto) e la sua automazione,
+ * `AUT-03`, che gira ogni notte da Wave 2. Se l'innesco documentale guardasse
+ * anche questi allegati, la stessa scadenza avrebbe **due sorgenti** e la
+ * famiglia riceverebbe due promemoria per lo stesso fatto — con due testi
+ * diversi, perche i due modelli sono diversi.
+ *
+ * La difesa e strutturale e sta qui, in un modulo puro, invece che in una
+ * condizione dentro il valutatore: la stessa lista esclude le categorie dalla
+ * configurazione (non si possono scegliere) **e** dalla valutazione (non
+ * producono occorrenze anche se una regola vecchia le nominasse).
+ *
+ * I nomi sono quelli che il prodotto scrive davvero: `certificato-medico` dal
+ * caricamento della scheda atleta, `visita-medica` dalle visite mediche, e la
+ * forma inglese che compare negli archivi piu vecchi.
+ */
+export const MEDICAL_CERTIFICATE_ATTACHMENT_CATEGORIES = [
+  "certificato-medico",
+  "visita-medica",
+  "medical-certificate",
+] as const;
+
+const MEDICAL_CATEGORY_SET = new Set<string>(
+  MEDICAL_CERTIFICATE_ATTACHMENT_CATEGORIES,
+);
+
+/** Vero quando la scadenza di quell'allegato la governa gia `AUT-03`. */
+export const isMedicalCertificateAttachmentCategory = (
+  value?: string | null,
+) => MEDICAL_CATEGORY_SET.has(normalizeAttachmentCategory(value));
+
+/**
+ * Le categorie che il prodotto genera oggi per un atleta, come suggerimento.
+ *
+ * **Non e un elenco chiuso.** La `category` resta una stringa libera — la
+ * scrive chi carica — e un filtro puo nominarne una che non e qui. Serve solo
+ * a far scegliere invece che ricordare: chi configura la regola dei BLSD non
+ * deve indovinare come e scritto il trattino.
+ */
+export const SUGGESTED_ATTACHMENT_CATEGORIES = [
+  "blsd",
+  "primo-soccorso",
+  "antincendio",
+  "tesseramento",
+  "documento-identita",
+  "assicurazione",
+  "compilazione-modulo",
+] as const;

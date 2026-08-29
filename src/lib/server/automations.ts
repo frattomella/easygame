@@ -25,6 +25,7 @@ import {
   normalizeAutomationRule,
   normalizeAutomationRules,
   selectFiringOffset,
+  startOfDay,
   toDayKey,
   type AutomationRule,
 } from "@/lib/automations/rules";
@@ -50,6 +51,11 @@ import {
   getMedicalCertificateAvailabilityLabel,
 } from "@/lib/medical-certificates";
 import { readEventRsvpConfig } from "@/lib/rsvp/model";
+import { listExpiringAttachments } from "./attachments";
+import {
+  isMedicalCertificateAttachmentCategory,
+  type AttachmentMetadata,
+} from "@/lib/attachments";
 import {
   assertCommunicationPermission,
   hasCommunicationPermission,
@@ -124,7 +130,7 @@ const asRecord = (value: unknown): Record<string, any> =>
     ? (value as Record<string, any>)
     : {};
 
-/** Le quattro regole del club, sempre tutte e quattro. */
+/** Le regole del club, sempre tutte quelle del catalogo. */
 export const readAutomationRules = async (
   organizationId: string,
 ): Promise<AutomationRule[]> => {
@@ -198,6 +204,7 @@ export const saveAutomationRule = async ({
     audience: normalized.audience,
     delivery: normalized.delivery,
     template: normalized.template,
+    categories: normalized.categories,
   };
 
   const existing = await resourceClient().findFirst({
@@ -239,6 +246,7 @@ export const saveAutomationRule = async ({
       offsetDays: normalized.offsetDays,
       audience: normalized.audience,
       delivery: normalized.delivery,
+      categories: normalized.categories,
     },
   });
 
@@ -689,6 +697,150 @@ const evaluateRsvp = async ({
   return hits;
 };
 
+/**
+ * Il nome del documento, come lo legge una famiglia.
+ *
+ * La `category` e un identificativo tecnico (`primo-soccorso`), non una
+ * etichetta: metterlo dentro una email costringerebbe chi legge a decifrarlo.
+ * Le sigle restano sigle — un gruppo di lettere senza vocali e un acronimo, e
+ * «Blsd» sarebbe una parola che non esiste.
+ */
+const documentTitle = (attachment: AttachmentMetadata) => {
+  const category = asText(attachment.category);
+  if (!category) return asText(attachment.fileName) || "Documento";
+
+  const parole = category
+    .replace(/[-_]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((parola) =>
+      /[aeiou]/i.test(parola) ? parola : parola.toUpperCase(),
+    );
+
+  const testo = parole.join(" ");
+  return testo ? testo.charAt(0).toUpperCase() + testo.slice(1) : "Documento";
+};
+
+/**
+ * I documenti in scadenza: **AUT-05** (Wave 3, W3-G).
+ *
+ * ## Perche non e un secondo scheduler
+ *
+ * Non c'e niente di nuovo qui dentro: stessa finestra costruita dagli anticipi,
+ * stessa corrispondenza esatta di `selectFiringOffset`, stessa deduplica per
+ * occorrenza, stesso registro delle consegne, stesso pubblico, stesso
+ * riepilogo. Fino alla Wave 3 mancava soltanto **il fatto su cui innescarsi**:
+ * `attachments` non aveva una validita. Ora ce l'ha, e questo e tutto il
+ * codice che serviva.
+ *
+ * ## Perche l'occorrenza porta anche la data di scadenza
+ *
+ * La chiave e `<id allegato>:<giorno di scadenza>`. Un documento **rinnovato**
+ * ha lo stesso identificativo — si sostituisce il contenuto, non si crea una
+ * riga nuova, proprio perche il riferimento nel record di dominio resti valido
+ * — ma una scadenza diversa: senza la data in chiave il promemoria del rinnovo
+ * dell'anno dopo risulterebbe «gia mandato» e non partirebbe mai piu.
+ *
+ * ## Perche solo gli allegati di un atleta
+ *
+ * Il motore risolve il pubblico **per atleta** (`resolveAudience` con
+ * `athlete_ids`): un documento d'identita di un allenatore non ha una famiglia
+ * a cui scrivere, e infilarne l'identificativo fra gli `athlete_ids` di una
+ * consegna scriverebbe nel registro una riga che dice il falso. E un confine
+ * dichiarato, non una dimenticanza: il giorno in cui serve, va aggiunto un
+ * soggetto al motore, non un caso particolare qui.
+ */
+const evaluateDocumentExpiry = async ({
+  organizationId,
+  athletes,
+  rules,
+  now,
+}: {
+  organizationId: string;
+  athletes: any[];
+  rules: AutomationRule[];
+  now: Date;
+}): Promise<AutomationHit[]> => {
+  const rule = rules.find(
+    (candidate) => candidate.enabled && candidate.trigger === "document_expiry",
+  );
+  if (!rule || athletes.length === 0) return [];
+
+  const perId = new Map<string, any>();
+  for (const athlete of athletes) {
+    const id = asText(athlete?.id);
+    if (id) perId.set(id, athlete);
+  }
+  if (perId.size === 0) return [];
+
+  /*
+    La finestra e **una sola interrogazione**, larga quanto l'anticipo piu
+    lontano: senza, il giro notturno chiederebbe alla tabella degli allegati una
+    volta per atleta. Il filtro per anticipo esatto resta alle regole, che sono
+    l'unico posto in cui «non si recupera all'indietro» e scritto.
+  */
+  const oggi = startOfDay(now);
+  const orizzonte = Math.max(...rule.offsetDays);
+
+  const attachments = await listExpiringAttachments({
+    organizationId,
+    from: oggi,
+    to: new Date(oggi.getTime() + orizzonte * 86400000),
+    ownerType: "athlete",
+    ownerIds: [...perId.keys()],
+    categories: rule.categories,
+  });
+
+  const hits: AutomationHit[] = [];
+
+  for (const attachment of attachments) {
+    /*
+      **La seconda barriera contro il doppione del certificato medico.**
+
+      La prima e in `listExpiringAttachments`, che quelle categorie non le
+      restituisce affatto. Questa e qui lo stesso perche la promessa — «il
+      certificato medico non produce mai due promemoria» — e di questo motore,
+      e una promessa che dipende da come qualcun altro scrive una query e una
+      promessa che un giorno non sara mantenuta.
+    */
+    if (isMedicalCertificateAttachmentCategory(attachment.category)) continue;
+
+    const athlete = perId.get(asText(attachment.ownerId));
+    if (!athlete) continue;
+
+    if (!attachment.validUntil) continue;
+    const scadenza = new Date(`${attachment.validUntil}T00:00:00.000Z`);
+    if (Number.isNaN(scadenza.getTime())) continue;
+
+    const offsetDays = selectFiringOffset({
+      offsetDays: rule.offsetDays,
+      direction: "before",
+      daysToDate: daysBetween(now, scadenza),
+    });
+    if (offsetDays === null) continue;
+
+    const titolo = documentTitle(attachment);
+
+    hits.push({
+      trigger: rule.trigger,
+      athleteId: asText(athlete.id),
+      athleteFirstName: asText(athlete.first_name),
+      athleteLastName: asText(athlete.last_name),
+      occurrenceId: `${attachment.id}:${attachment.validUntil}`,
+      offsetDays,
+      values: {
+        "document.title": titolo,
+        "document.date": formatDate(scadenza),
+      },
+      detail: `${titolo}: scade il ${formatDate(scadenza)}`,
+      when: formatDate(scadenza),
+      paymentId: null,
+    });
+  }
+
+  return hits;
+};
+
 /* --------------------------------------------------------------- l'invio */
 
 export type AutomationMailer = {
@@ -950,6 +1102,12 @@ export const runAutomationsForClub = async ({
     })),
     ...evaluateCertificates({ athletes, rules: enabled, now }),
     ...(await evaluateRsvp({
+      organizationId: clubId,
+      athletes,
+      rules: enabled,
+      now,
+    })),
+    ...(await evaluateDocumentExpiry({
       organizationId: clubId,
       athletes,
       rules: enabled,
@@ -1782,6 +1940,8 @@ export type AutomationRuleView = AutomationRule & {
   description: string;
   direction: "before" | "after";
   defaultOffsetDays: number[];
+  /** Se la schermata deve offrire il filtro per categoria di documento. */
+  supportsCategoryFilter: boolean;
   /** Il messaggio come lo leggerebbe una famiglia, con dati di esempio. */
   sample: { subject: string; text: string; unresolved: string[] };
 };
@@ -1841,6 +2001,7 @@ export const listAutomationRulesForClub = async ({
         description: definition.description,
         direction: definition.direction,
         defaultOffsetDays: [...definition.defaultOffsetDays],
+        supportsCategoryFilter: definition.supportsCategoryFilter === true,
         sample: {
           subject: rendered.subject,
           text: rendered.text,
@@ -1874,4 +2035,6 @@ const SAMPLE_VALUES: Record<string, string> = {
   "event.title": "Allenamento Under 14",
   "event.date": "12/11/2026",
   "event.time": "18:30",
+  "document.title": "BLSD",
+  "document.date": "20/12/2026",
 };

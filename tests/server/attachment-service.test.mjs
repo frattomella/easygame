@@ -392,6 +392,127 @@ test("un allegato scritto con il driver database resta leggibile dopo il cambio"
   }
 });
 
+/* -------------------------------- La validita del documento (W3-G) ------- */
+
+/**
+ * Le due date sono **facoltative** e retrocompatibili.
+ *
+ * Un allegato caricato prima della Wave 3 non ha validita e deve continuare a
+ * funzionare identico: non e «scaduto», non e «senza scadenza per errore», e
+ * nessuna schermata deve accorgersene.
+ */
+test("un allegato senza validita si carica come prima", async () => {
+  const metadata = await service.createAttachment(
+    {
+      ownerType: "athlete",
+      ownerId: "atleta-1",
+      category: "blsd",
+      fileName: "blsd.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("blsd"),
+    },
+    scopeA(),
+  );
+
+  assert.equal(metadata.validFrom, null);
+  assert.equal(metadata.validUntil, null);
+});
+
+test("la validita si conserva e torna come giorno, non come istante", async () => {
+  const metadata = await service.createAttachment(
+    {
+      ownerType: "athlete",
+      ownerId: "atleta-1",
+      category: "blsd",
+      fileName: "blsd.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("blsd"),
+      validFrom: "2024-12-23",
+      validUntil: "2026-12-23",
+    },
+    scopeA(),
+  );
+
+  assert.equal(metadata.validFrom, "2024-12-23");
+  assert.equal(metadata.validUntil, "2026-12-23");
+
+  const riga = fake.rows("attachment").find((r) => r.id === metadata.id);
+  assert.equal(
+    riga.valid_until.toISOString(),
+    "2026-12-23T00:00:00.000Z",
+    "in archivio ci va una data, ancorata a mezzanotte UTC",
+  );
+});
+
+test("un intervallo rovesciato non si scrive, e il file non resta orfano", async () => {
+  await rejects(
+    service.createAttachment(
+      {
+        ownerType: "athlete",
+        ownerId: "atleta-1",
+        category: "blsd",
+        fileName: "blsd.pdf",
+        mimeType: "application/pdf",
+        content: Buffer.from("blsd"),
+        validFrom: "2026-12-23",
+        validUntil: "2026-11-23",
+      },
+      scopeA(),
+    ),
+    /precedente all'inizio della validita/,
+  );
+
+  assert.equal(
+    fake.rows("attachment").length,
+    2,
+    "le due righe del seed e nient'altro: la validita si controlla prima di scrivere",
+  );
+});
+
+test("sostituire il file senza ripetere le date non cancella la scadenza", async () => {
+  const creato = await service.createAttachment(
+    {
+      ownerType: "athlete",
+      ownerId: "atleta-1",
+      category: "blsd",
+      fileName: "blsd.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("blsd"),
+      validUntil: "2026-12-23",
+    },
+    scopeA(),
+  );
+
+  const sostituito = await service.replaceAttachmentContent(
+    creato.id,
+    {
+      fileName: "blsd-2.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("blsd aggiornato"),
+    },
+    scopeA(),
+  );
+
+  assert.equal(sostituito.validUntil, "2026-12-23");
+
+  const rinnovato = await service.replaceAttachmentContent(
+    creato.id,
+    {
+      fileName: "blsd-3.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("blsd rinnovato"),
+      validUntil: "2027-12-23",
+    },
+    scopeA(),
+  );
+
+  assert.equal(
+    rinnovato.validUntil,
+    "2027-12-23",
+    "chi la manda la cambia: e il rinnovo, e produce un'occorrenza nuova per AUT-05",
+  );
+});
+
 /* ------------- La migrazione dei file legacy (§7, Blocco Finale C) -------- */
 
 /**

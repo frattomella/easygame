@@ -64,6 +64,15 @@ const failure = (error: any, fallback: string) => {
   return NextResponse.json({ data: null, error: { message } }, { status });
 };
 
+/**
+ * Il testo di una parte del form, `null` quando e vuota.
+ *
+ * `null` qui significa **cancella la data**, e non «non l'ho mandata»: la
+ * differenza fra i due casi la fa `form.has`, prima di arrivare qui.
+ */
+const formPart = (value: FormDataEntryValue | null) =>
+  typeof value === "string" && value.trim() ? value : null;
+
 const scopeFor = async (request: Request, session: any) =>
   resolveOrganizationScopeForUser(
     session.db.user_id,
@@ -279,6 +288,19 @@ export async function PUT(request: Request, context: Context) {
         fileName: String(form.get("file_name") || file.name || "documento"),
         mimeType: String(form.get("mime_type") || file.type || ""),
         content: Buffer.from(await file.arrayBuffer()),
+        /*
+          La validita si tocca **solo se la parte c'e** (Wave 3, W3-G). Un
+          client che sostituisce il file senza ripetere le date non deve far
+          sparire la scadenza gia dichiarata; una parte presente e vuota, al
+          contrario, la cancella — ed e il modo in cui si toglie una data messa
+          per sbaglio.
+        */
+        ...(form.has("valid_from")
+          ? { validFrom: formPart(form.get("valid_from")) }
+          : {}),
+        ...(form.has("valid_until")
+          ? { validUntil: formPart(form.get("valid_until")) }
+          : {}),
       },
       scope,
     );
