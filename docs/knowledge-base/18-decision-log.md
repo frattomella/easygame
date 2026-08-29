@@ -4604,8 +4604,17 @@ verificato.
 **Decisione.** Sulla stessa riga, due colonne separate. `status` resta la
 presenza registrata dall'allenatore; `rsvp_status`, `rsvp_note`, `rsvp_at` e
 `rsvp_by_user_id` sono l'intenzione dichiarata dalla famiglia. **Non si scrivono
-mai a vicenda**: l'upsert della risposta nomina solo i campi `rsvp_*`, e
-l'appello non tocca l'RSVP.
+mai a vicenda**: l'`update` dell'upsert nomina solo i campi `rsvp_*`, e
+l'appello non tocca nessun campo `rsvp_*`.
+
+**La sola eccezione, ed e obbligata.** Il ramo `create` dell'upsert deve dare
+un valore a `status`, perche la colonna non ammette il vuoto: usa
+`RSVP_NEUTRAL_ATTENDANCE_STATUS = "pending"`, scelto leggendo chi quella colonna
+la consuma. `isPresentAttendance` — la funzione con cui si misurano le presenze
+dei bandi — non lo conta, e l'area genitore lo classifica «appello non ancora
+fatto». Non e una presenza scritta dalla famiglia: e l'assenza di un appello,
+detta in modo che nessun lettore la scambi per altro. Lo dichiara anche il
+commento della colonna in `prisma/schema.prisma`.
 
 `no_response` **si deriva** dall'assenza di risposta, non si scrive: e lo stato
 che serve all'allenatore, ed e l'unico che non ha bisogno di una riga.
@@ -4673,9 +4682,23 @@ arretrato: senza `communications.audience_economic` un allenatore lo otterrebbe
 passando di qui invece che dai movimenti.
 
 **Conseguenze.**
-- Il sollecito di Wave 1 e stato **portato sopra** questo motore, non affiancato:
-  legge i contatti da `buildAudienceContacts` e non risolve piu gli account per
-  conto proprio.
+- Il sollecito di Wave 1 e stato portato sopra questo motore **per la parte che
+  era duplicata**: legge i contatti da `buildAudienceContacts`, non risolve piu
+  gli account per conto proprio, rivendica sul registro delle consegne e applica
+  lo stesso filtro sulle anagrafiche archiviate.
+
+  **Non** produce pero l'insieme canonico, e non e una migrazione lasciata a
+  meta: il suo messaggio e **per atleta**, non per famiglia, perche parla di una
+  posizione economica — residuo, rate scadute, prossima scadenza — e fondere due
+  figli in un messaggio solo direbbe un residuo che non e quello di nessuno dei
+  due. La regola «una email, un messaggio» vale quindi per comunicazione
+  massiva, bacheca e automazioni; il sollecito manda **una email per posizione**,
+  ed e una differenza di prodotto, non un residuo tecnico. Il §3.4 del documento
+  [34](34-wave-2-implementation-uat.md) la dichiara.
+
+  Di conseguenza il sollecito conserva la propria enum dei motivi di
+  esclusione, piu stretta di quella dell'audience engine: e debito dichiarato,
+  non una seconda politica.
 - `tests/ui/communications-ownership.test.mjs` vieta strutturalmente un secondo
   risolutore, un secondo punto di invio e una seconda matrice di permessi.
 - Il conteggio di chi non ha email o non ha account arriva come effetto

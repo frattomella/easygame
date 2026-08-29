@@ -599,6 +599,42 @@ chiude.
 
 ---
 
+---
+
+### 4.6 Stato dopo la Wave 2
+
+> Aggiornato il 2026-08-29, dopo l'esecuzione della
+> [Wave 2](34-wave-2-implementation-uat.md). Vale la stessa regola del §4.5:
+> **`CLOSED` significa che esiste una prova a runtime**, non che esiste il
+> codice. Le prove sono i 67 controlli di
+> `scripts/wave-2-communications-uat.mjs`, eseguiti contro un'applicazione vera
+> con una consegna email vera.
+
+| Gap | Prima | Dopo | Prova |
+|---|---|---|---|
+| **G-03** — motore di automazioni | OPEN | **CLOSED** (quattro regole) | Quattordici controlli a runtime: la rata a sette giorni produce **un** messaggio, la seconda esecuzione dello stesso giorno zero, **due giri in parallelo un messaggio solo**, l'anticipo trascorso non recupera, la regola spenta tace, quattro club attraversati senza fermarsi su quello con la rata orfana. Sono le quattro regole del §4.1 del planning, non di piu |
+| **G-04** — anticipi configurabili | OPEN | **CLOSED** | Fino a tre anticipi per regola, corrispondenza esatta, nessun recupero all'indietro. Verificato a runtime |
+| **G-05** — contenuto con segnaposto | OPEN | **PARTIAL** | Chiuso per automazioni, comunicazione massiva e bacheca: il club scrive con le sue parole e vede l'anteprima sul primo destinatario vero. **Resta il sollecito a mano**, che passa ancora da `buildPaymentReminderLines` — cioe proprio il messaggio che una segreteria manda piu spesso (debito `W2-19`) |
+| **G-06** — link di pagamento nel sollecito | OPEN | **PARTIAL** | Il link c'e, e nel sollecito **e** nelle automazioni: token opaco, solo l'impronta in archivio, scadenza, revoca, quattro esiti negativi indistinguibili byte per byte, nessun identificativo interno nella pagina pubblica. Non e `CLOSED` perche **nessun pagamento e mai passato da Stripe**: manca il giro sandbox (`R-16`, debito `W2-06`) |
+| **G-07** — comunicazione massiva segmentata | PARTIAL | **CLOSED** | Ventiquattro controlli a runtime: la famiglia con due figli riceve **un** messaggio, l'atleta senza recapito compare fra gli esclusi con il motivo, due destinatari su tre ricevono davvero e il terzo risulta fallito, il doppio clic non manda niente, il registro dice chi ha ricevuto cosa |
+| **G-08** — bacheca | OPEN | **CLOSED** | Dieci controlli: un annuncio nasce bozza e non lo legge nessuno, pubblicare raggiunge **solo** il pubblico scelto, pubblicare due volte non consegna due volte, segnare letto funziona una volta sola, ritirare non cancella le consegne, un annuncio di un altro club risponde 404 |
+| **G-20** — RSVP | OPEN | **PARTIAL** | Chiuso sugli **allenamenti**: sette controlli, fra cui due risposte simultanee che producono una riga sola e l'appello che scrive la presenza senza toccare l'intenzione. **Partite e convocazioni no**: la convocazione vive sotto nove grafie dentro `matches` e non ha una forma su cui innescare (debito `W2-08`) |
+| **G-58** — riepilogo giornaliero | OPEN | **CLOSED** | Modalita di consegna per club, indirizzata a chi puo vedere quel dato |
+| **G-18** — account famiglia | OPEN | **OPEN** | Fuori perimetro per scelta dichiarata (§1.3 del planning). Arriva pero la sua meta misurabile: ogni anteprima dice quante famiglie non hanno email e quante non hanno account, **con il motivo** |
+| **G-35**, **G-53** | OPEN | **OPEN** | POST-V1 come dichiarato: il primo diventa un criterio in piu ora che audience e RSVP esistono, il secondo resta bloccato da G-30 |
+
+**Effetto sui totali del §3.** `EG-` da 44 a **39**, `EG~` da 40 a **38**. Le
+voci totali restano **189**: una Wave non aggiunge capability al confronto, ne
+chiude.
+
+**Perche due `PARTIAL` invece di due `CLOSED`.** G-05 e G-06 sono chiusi dove il
+codice gira e non dove il gap era nato: il primo lascia fuori il sollecito a
+mano, il secondo non ha mai visto un pagamento vero. Dichiararli chiusi
+costerebbe poco oggi e mentirebbe alla prima persona che li legge per decidere
+cosa fare dopo.
+
+---
+
 ## 5 — Le 6 differenze respinte (non sono gap)
 
 Golee e avanti, ma la differenza **non supera il test del §1.4** e **non genera

@@ -3,7 +3,7 @@
 **Data:** 2026-08-29
 **Baseline:** `integration/web-v1` @ `790c7d4`
 **Contratto:** [33 — Wave 2: planning esecutivo](33-wave-2-planning.md)
-**Stato:** in corso di verdetto — vedi [§9](#9--verdetto)
+**Stato:** **WAVE 2 = DONE** — vedi [§9](#9--verdetto)
 
 > Il documento [33](33-wave-2-planning.md) dice **cosa** si sarebbe fatto e
 > **perche**. Questo dice **cosa e stato fatto davvero**, con la prova, e dove
@@ -188,7 +188,7 @@ nella testata dello script, e vale per un processo che viene spento al termine.
 |---|---|---|
 | **1 — Il pubblico** | 12/12 | La famiglia con due figli e **un** destinatario con due posizioni; l'atleta senza recapito compare fra gli esclusi con il motivo; categoria, sede e selezione restringono; un criterio inventato risponde **400** invece di allargare il pubblico; l'allenatore riceve **403** sia sugli insoluti sia sull'invio; il club B non vede le famiglie del club A |
 | **2 — La comunicazione massiva** | 12/12 | L'anteprima mostra il messaggio vero e **non scrive niente**; due destinatari su tre ricevono davvero e il terzo risulta `failed`; il doppio clic non manda un secondo messaggio; **chi aveva fallito riparte e solo lui**; il registro conserva le due persone rappresentate; un segnaposto inventato blocca l'invio |
-| **3 — Il link di pagamento** | 7/7 | Senza il piano il link **non si emette e lo dice**; la pagina pubblica non espone ne club ne rata ne atleta; **token manomesso e token sconosciuto rispondono la stessa cosa**, byte per byte; una rata gia saldata lo dice invece di dare errore; in archivio c'e solo l'impronta; un link revocato risponde come uno sconosciuto |
+| **3 — Il link di pagamento** | 8/8 | Senza il piano il link **non si emette e lo dice**; la pagina pubblica non espone ne club ne rata ne atleta; **token manomesso e token sconosciuto rispondono la stessa cosa**, byte per byte; una rata gia saldata lo dice invece di dare errore; in archivio c'e solo l'impronta; un link revocato risponde come uno sconosciuto |
 | **4 — La bacheca** | 10/10 | Un annuncio nasce bozza e non lo legge nessuno; pubblicare raggiunge **solo** il pubblico scelto; pubblicare due volte non consegna due volte; segnare letto funziona una volta sola; la societa vede quanti lo hanno aperto; un annuncio di un altro club risponde **404**; ritirare non cancella le consegne |
 | **5 — L'RSVP** | 7/7 | La risposta **non scrive una presenza**; si puo cambiare e resta una riga sola; **due risposte simultanee producono una riga sola**; il club B non risponde per un atleta del club A; l'appello scrive la presenza senza toccare l'intenzione |
 | **6 — La scala** | 2/2 | 125 atleti, 123 destinatari risolti in **66-89 ms** |
@@ -263,22 +263,159 @@ collaudo crea e distrugge.
 
 ## 7 — I bug trovati durante la Wave
 
-*(compilato al termine dell'audit)*
+Trentuno, contando solo quelli con una prova. Sedici li hanno trovati le
+revisioni indipendenti; gli altri sono emersi costruendo. Qui i nove che
+contano, perche dicono qualcosa su come si sbaglia.
+
+| # | Bug | Come si e visto | Perche vale la pena raccontarlo |
+|---|---|---|---|
+| 1 | **La notifica economica di societa la leggeva ogni genitore** | Revisione di sicurezza, con il testo trascritto: «Rata scaduta: Sofia Rossi — 480,00 € da versare» nella bacheca notifiche di un'altra famiglia | Il permesso `communications.audience_economic` era stato messo sul **criterio**, e aggirato dal **canale di uscita**. Una difesa messa nel punto giusto non basta se il dato esce da un'altra porta |
+| 2 | **La stessa cosa, di nuovo, dal registro generico** | Seconda revisione | Corretto il canale, restava che `GET /api/v1/notifications` non filtrava per destinatario. **Due tornate di revisione per la stessa falla**: la prima ha chiuso la porta, la seconda ha trovato la finestra |
+| 3 | **Una rivendicazione abbandonata bloccava il destinatario per sempre** | Revisione di correttezza, con un test che ritenta **un anno dopo** | Non era una corsa: era l'assenza di un'uscita da uno stato. Le corse le avevamo cercate; lo stato senza uscita no |
+| 4 | **La correzione del punto 3 ha introdotto il problema opposto** | Seconda revisione | La soglia misurava dal tempo **di dominio**, che un giro notturno congela: una seconda esecuzione dichiarava abbandonate le righe che la prima stava ancora servendo. Correggere in fretta e il posto piu probabile in cui nasce il difetto successivo |
+| 5 | **`board.read` ce l'hanno tutti** | Revisione di sicurezza | Il permesso esisteva, il nome era giusto, la matrice era giusta — ed era stato messo sulla funzione sbagliata. Un genitore leggeva la bacheca intera, bozze comprese |
+| 6 | **Il ruolo di un club, le righe di un altro** | Revisione di sicurezza sull'RSVP, poi ancora sugli allegati | Chi e proprietario del proprio club **e genitore in quello del figlio** — la situazione piu ordinaria che ci sia — attraversava il confine. Trovato due volte, in due moduli, dopo che quattro moduli lo applicavano correttamente |
+| 7 | **Le date erano ancorate al fuso del processo** | Revisione di correttezza, misurando `daysBetween` con quattro `TZ` | A ovest di UTC il promemoria dei sette giorni **non partiva mai**, perche l'occorrenza non si recupera all'indietro. Latente su Vercel, attivo ovunque altro. E il collaudo aveva lo **stesso** difetto: costruiva le scadenze a mezzanotte locale |
+| 8 | **Quattro copie del nome di una persona, in due ordini** | Revisione di architettura | Lo stesso atleta compariva come «Mario Rossi» in un'email e «Rossi Mario» nell'elenco dell'allenatore. Consolidandole e emerso un difetto che nessuno cercava: la comunicazione massiva ricavava nome e cognome **spezzando** una stringa gia formattata |
+| 9 | **Il gemello nel lavoro sportivo** | Seconda revisione | `sport-work-scheduler` scriveva ancora `user_id: null` su «1.200,00 euro da erogare». Fuori dal perimetro della Wave, ma della stessa classe appena corretta — e il commento delle automazioni citava proprio quel giro come modello |
+
+**Il difetto trovato dal prodotto, non da una revisione.** Una sonda a runtime
+sul database di sviluppo ha mostrato che un allenatore leggeva le **bozze** degli
+annunci e i modelli di messaggio delle automazioni passando dall'endpoint
+generico `club_resource_items`. La lezione e la stessa del punto 2: mettere un
+dominio in una tabella condivisa significa ereditarne tutte le porte.
 
 ---
 
 ## 8 — Audit e seconda revisione
 
-*(compilato al termine dell'audit)*
+### 8.1 Come e stato fatto
+
+Quattro assi, come previsto dal §16 del planning. Tre revisioni indipendenti in
+parallelo — correttezza e concorrenza, sicurezza e multi-tenant, ownership e
+architettura — piu la responsivita e le prestazioni verificate direttamente sul
+prodotto in esecuzione. Poi, dopo la prima correzione, **due seconde revisioni
+indipendenti** con il mandato esplicito di cercare cio che la correzione aveva
+mancato o introdotto.
+
+A ogni revisore e stato chiesto di **provare** ogni rilievo con un test
+eseguibile e di lasciarlo fallire. Quei file erano prove, non una suite: al
+termine sono stati **convertiti** in ventiquattro test di regressione scritti nel
+verso giusto — che diventano rossi il giorno in cui una correzione viene disfatta
+— e i file di audit rimossi.
+
+### 8.2 Cosa hanno trovato
+
+| Tornata | CRITICAL | HIGH | MEDIUM | LOW |
+|---|---|---|---|---|
+| Prima (tre revisioni) | 2 | 7 | 12 | 9 |
+| Seconda (due revisioni) | 1 | 7 | 11 | 6 |
+| **Totale** | **3** | **14** | **23** | **15** |
+
+Tutti i CRITICAL e tutti gli HIGH sono chiusi, con un test di regressione
+ciascuno. I MEDIUM e i LOW chiusi sono quelli con un effetto reale sull'utente o
+un costo di correzione trascurabile; gli altri sono **dichiarati** in
+[16 — Debito tecnico](16-technical-debt.md), sezione Wave 2, dove le voci
+`W2-11`..`W2-21` nascono da queste revisioni.
+
+### 8.3 I tre rilievi che hanno cambiato il codice piu di quanto sembri
+
+- **«Il permesso e sul criterio, ma il dato esce dal canale.»** Ha spostato
+  l'idea stessa di dove si difende un dato economico: non dove si sceglie, ma
+  dovunque quel dato passi.
+- **«Non e una corsa, e uno stato senza uscita.»** Le corse le avevamo cercate e
+  provate; questo era il caso opposto, e non lo avremmo trovato con piu test
+  sulla concorrenza.
+- **«Un EXTEND che produce una terza copia non e un EXTEND.»** Il conteggio
+  EXTEND/NEW del planning va letto come una promessa sul **riuso**, non come una
+  contabilita: tre copie della stessa funzione contano come tre, anche se
+  nessuna e una capability nuova.
+
+### 8.4 Cosa i revisori hanno provato a rompere **senza** riuscirci
+
+Vale quanto i rilievi, ed e la parte che dice quanto e stato cercato.
+
+- La superficie pubblica del link di pagamento ha retto a **tutti** e cinque
+  gli assi tentati: enumerazione (i quattro esiti negativi hanno lo stesso corpo
+  byte per byte), oracolo temporale, fuga di identificativi, redirector aperto,
+  forza bruta con rotazione di token e di indirizzo.
+- Nessuno e riuscito a far partire **due** email dalla stessa chiave per corsa:
+  la rivendicazione condizionata rivaluta il predicato sotto blocco, e chi perde
+  se ne accorge dal conteggio delle righe.
+- L'invariante presenza/intenzione regge su **tutti e tre** i lettori della
+  colonna, compresa la misura con cui si rendicontano i contributi pubblici.
+- Nessun `updateMany` della Wave puo colpire la riga di un altro club.
+- Nessuna iniezione arriva a una email: modello e valori sono neutralizzati
+  nella stessa passata, e il catalogo dei segnaposto e chiuso.
+- Nessun secondo `PrismaClient`, nessun residuo calcolato fuori
+  dall'`installment-ledger`, nessun secondo punto di invio, nessun componente
+  client che importi `src/lib/server/**`.
 
 ---
 
 ## 9 — Verdetto
 
-*(compilato al termine dell'audit)*
+**WAVE 2 = DONE.**
+
+| Criterio | Esito |
+|---|---|
+| Lane approvate completate | **6/6** |
+| UAT a runtime | **67/67**, con consegna SMTP vera |
+| Sicurezza del link di pagamento | **PASS** — quattro esiti negativi indistinguibili, nessun identificativo interno, rate limit doppio consumato prima del database |
+| Multi-tenant | **PASS** — due attraversamenti trovati e chiusi, nessuno residuo |
+| Idempotenza delle automazioni | **PASS** — due giri in parallelo, un messaggio solo, verificato a runtime |
+| Audit | **PASS** — quattro assi, tutti con rilievi trovati e provati |
+| Seconda revisione | **PASS** — Critical residui **0**, High residui **0** |
+| Test | **2.714/2.714** |
+| CI | Web, Mobile e Guardrail **verdi** in locale |
+| Cleanup QA | **PASS** — club, utenti, sessioni, consegne, link e presenze QA residui: zero |
+| KB aggiornata | ADR-0083..0087, registro API, permessi, debito, gap matrix |
+
+**Cosa questo verdetto non dice.** Non dice che il percorso del denaro
+funziona: nessun checkout, nessun webhook e nessun rimborso e mai passato da un
+account Stripe vero, ed e la voce `R-16` che questa Wave non chiude e non
+poteva chiudere. Non dice che l'invio a quattrocento famiglie contro un SMTP
+lento regge: e stato misurato a 125 destinatari. E non dice che il giro notturno
+regge su cento club dentro una sola richiesta HTTP — anzi, il §10 dichiara il
+contrario.
 
 ---
 
 ## 10 — Residui dichiarati
 
-*(compilato al termine dell'audit)*
+Undici voci in [16 — Debito tecnico](16-technical-debt.md) (`W2-01`..`W2-10`,
+scritte durante la Wave) piu altre undici (`W2-11`..`W2-21`, nate dalle
+revisioni). I cinque che pesano davvero:
+
+1. **Il percorso reale del denaro non e mai stato provato** (`W2-06`, `R-16`).
+   Il link di pagamento e coperto da 39 test con iniezione e da 8 controlli a
+   runtime, ma `resolveClubGatewayContext`, il congelamento della commissione e
+   soprattutto **il webhook che registra l'incasso sulla rata citata dal link**
+   non hanno mai parlato con Stripe. Si chiude con credenziali sandbox e un giro
+   vero, non con altro codice.
+2. **Il giro notturno attraversa tutti i club in una richiesta HTTP** (`W2-12`).
+   Su molti club il timeout e l'esito atteso: e la ragione per cui esiste la
+   ripresa delle rivendicazioni abbandonate, ed e anche il motivo per cui quella
+   ripresa rende la consegna «almeno una volta» invece che «esattamente una
+   volta» (`W2-11`). Sono due facce dello stesso lavoro non fatto: un giro
+   paginato con ripresa.
+3. **I promemoria sui certificati non sono migrati sull'audience engine**
+   (`W2-01`). Sono l'ultimo consumatore con una politica di raggiungibilita
+   propria — raggiungono **solo** chi ha un account nel club — e ADR-0087
+   dichiara la politica unica. Il giro gira ogni mattina su tutti i club: la
+   migrazione va fatta con il suo collaudo, non in coda a una Wave.
+4. **Il testo del sollecito a mano e ancora codice** (`W2-19`). G-05 e chiuso per
+   automazioni e comunicazione massiva; il messaggio che una segreteria manda
+   piu spesso resta quello che il club non puo riscrivere.
+5. **La bacheca raggiunge solo chi ha un account** (`W2-07`). E corretto, ed e
+   dichiarato nell'esito — ma per una parte delle famiglie la bacheca oggi non
+   esiste. La chiusura vera e G-18, il ciclo di vita dell'account, che questa
+   Wave ha deliberatamente lasciato fuori.
+
+**Due cose che sono state fatte e vanno dette qui**, perche non erano nel
+perimetro: la correzione della fuga di notifiche del **lavoro sportivo**
+(`user_id: null` su importi di compenso, leggibile da ogni genitore) e il
+`DELETE` dei duplicati in `saveTrainingAttendance`, che con la chiave unica era
+diventato pericoloso invece che difensivo. Nessuna delle due bloccava la Wave;
+entrambe erano della stessa classe di cio che la Wave stava correggendo, e
+lasciarle sarebbe stato indifendibile.

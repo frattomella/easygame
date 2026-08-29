@@ -836,9 +836,17 @@ const run = async () => {
       method: "POST",
       body: { payment_id: rata.id },
     });
+    /*
+      Un club di prova nasce senza il piano che comprende i pagamenti online,
+      quindi l'emissione **deve** essere rifiutata con `409` e un codice
+      riconoscibile. La prima versione di questo controllo accettava
+      `409 || 200`, cioe passava comunque: era un controllo che non
+      controllava, ed e stato la revisione a trovarlo.
+    */
     check(
       "senza il piano che comprende i pagamenti online il link non si emette, e lo dice",
-      emissione.status === 409 || emissione.status === 200,
+      emissione.status === 409 &&
+        String(emissione.error?.code || "") === "ENTITLEMENT_MISSING",
       `status ${emissione.status} ${emissione.error?.message || ""}`,
     );
 

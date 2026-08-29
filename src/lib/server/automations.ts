@@ -1444,9 +1444,13 @@ const writeInAppCopy = async ({
 /**
  * L'avviso alla societa, uno per occorrenza.
  *
- * La notifica e **di club** (`user_id: null`), come gia fa il giro del lavoro
- * sportivo: la scadenza di un tesserato riguarda chi e in segreteria quel
- * giorno, non una persona in particolare.
+ * **La notifica e indirizzata, non «di club».** Questo commento diceva il
+ * contrario, e il codice lo seguiva: `user_id: null` nel modello significa «di
+ * club» e il prodotto lo interpreta come **di tutti** — l'area genitore legge
+ * `user_id: null`. Il contenuto pero e economico e nominativo, quindi il giorno
+ * dopo ogni famiglia leggeva la posizione delle altre. Il destinatario lo
+ * sceglie `createClubNotifications`, e sono quelli che quel dato potrebbero gia
+ * vederlo.
  */
 const notifyClub = async ({
   clubId,
