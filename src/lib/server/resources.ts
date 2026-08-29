@@ -1293,6 +1293,36 @@ const findClubResourceRecord = async (
  * Esportata perche il caso dell'id logico si collauda qui e non montando una
  * rotta: e una funzione pura che decide un `where`.
  */
+/**
+ * I tipi di riga in `club_resource_items` che hanno un **proprietario di
+ * dominio** e non passano da questo registro generico.
+ *
+ * **Perche un elenco e non una convenzione.** La Wave 2 ha messo annunci della
+ * bacheca e regole di automazione in `club_resource_items` — la tabella e la
+ * loro, e non serviva altro — ma **senza** aggiungerli a `CLUB_RESOURCE_TYPES`,
+ * cioe senza aprire loro il CRUD generico. Il difetto e che leggere
+ * `club_resource_items` **e comunque possibile**: e una risorsa di modello, e
+ * sta fra quelle che un allenatore puo leggere (`TRAINER_READ_RESOURCES`).
+ *
+ * Il risultato, verificato a runtime prima di questa riga: un allenatore
+ * chiamava `GET /api/v1/club_resource_items?resource_type=announcements` e
+ * leggeva le **bozze** degli annunci e i modelli di messaggio delle
+ * automazioni, scavalcando sia il pubblico della bacheca sia
+ * `automations.manage`, che non ha.
+ *
+ * Chi vuole questi dati passa dalle loro rotte, dove il permesso e il pubblico
+ * vengono applicati.
+ */
+export const DOMAIN_OWNED_RESOURCE_ITEM_TYPES = [
+  "announcements",
+  "automation_rules",
+] as const;
+
+const isDomainOwnedResourceItemType = (value: unknown) =>
+  (DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
+    String(value || "").trim(),
+  );
+
 export const buildWhereFromSearchParams = (
   resource: string,
   searchParams: URLSearchParams,
@@ -1324,6 +1354,24 @@ export const buildWhereFromSearchParams = (
   const club_id = searchParams.get("club_id");
   if (club_id && !where.organization_id) {
     where.organization_id = club_id;
+  }
+
+  /*
+    Il registro generico non consegna le righe di un dominio che ha gia il suo
+    proprietario. Chiederle esplicitamente e «Accesso negato» invece di un
+    elenco vuoto: un elenco vuoto direbbe «non ce ne sono», che e falso, e chi
+    integra continuerebbe a chiamare la rotta sbagliata.
+  */
+  if (resource === "club_resource_items") {
+    if (isDomainOwnedResourceItemType(where.resource_type)) {
+      throw new Error(
+        `Accesso negato: ${where.resource_type} si legge dalla sua rotta, non dal registro generico`,
+      );
+    }
+    where.resource_type = {
+      ...(where.resource_type ? { equals: where.resource_type } : {}),
+      notIn: [...DOMAIN_OWNED_RESOURCE_ITEM_TYPES],
+    };
   }
 
   if (RESOURCE_CONFIG[resource]?.kind === "club_resource") {
@@ -2479,6 +2527,20 @@ export const getResourceById = async (
   }
 
   assertRecordAccess(resource, record || null, scope);
+
+  /*
+    Anche la lettura per identificativo: senza questa riga il filtro
+    dell'elenco si aggirerebbe passando l'id, che e proprio come si aggira un
+    filtro di elenco. Vedi `DOMAIN_OWNED_RESOURCE_ITEM_TYPES`.
+  */
+  if (
+    resource === "club_resource_items" &&
+    isDomainOwnedResourceItemType(record?.resource_type)
+  ) {
+    throw new Error(
+      `Accesso negato: ${record?.resource_type} si legge dalla sua rotta, non dal registro generico`,
+    );
+  }
 
   return record ? serializeRecord(resource, record) : null;
 };

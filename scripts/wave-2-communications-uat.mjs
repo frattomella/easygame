@@ -1315,9 +1315,23 @@ const run = async () => {
       Una rata che scade fra **sette** giorni: e il primo anticipo di AUT-01, e
       la corrispondenza deve essere esatta.
     */
-    const fraSetteGiorni = new Date();
-    fraSetteGiorni.setHours(0, 0, 0, 0);
-    fraSetteGiorni.setDate(fraSetteGiorni.getDate() + 7);
+    /*
+      La scadenza si costruisce a **mezzanotte UTC**, che e come il prodotto la
+      scrive: `toIsoDateOnly` produce un giorno puro e Prisma lo rilegge cosi.
+      Costruirla a mezzanotte **locale** — come faceva la prima versione di
+      questo collaudo — la sposta di un giorno a ovest di UTC, e con la
+      corrispondenza esatta degli anticipi il promemoria non parte affatto. E
+      lo stesso difetto che la revisione ha trovato nel prodotto, e il collaudo
+      lo aveva anche lui.
+    */
+    const oggiUtc = new Date();
+    const fraSetteGiorni = new Date(
+      Date.UTC(
+        oggiUtc.getUTCFullYear(),
+        oggiUtc.getUTCMonth(),
+        oggiUtc.getUTCDate() + 7,
+      ),
+    );
 
     const rataInScadenza = await prisma.athletePayment.create({
       data: {
@@ -1399,9 +1413,6 @@ const run = async () => {
     );
 
     /* Un anticipo gia trascorso non recupera all'indietro. */
-    const ieri = new Date();
-    ieri.setHours(0, 0, 0, 0);
-    ieri.setDate(ieri.getDate() - 1);
     const messaggiPrimaDelRecupero = sink.messaggi.length;
 
     await prisma.athletePayment.create({
@@ -1411,7 +1422,13 @@ const run = async () => {
         description: "Quota con anticipo gia trascorso",
         amount: 40,
         /* Scade fra due giorni: nessuno dei due anticipi (7 e 3) corrisponde. */
-        due_date: new Date(Date.now() + 2 * 24 * 3600_000),
+        due_date: new Date(
+          Date.UTC(
+            oggiUtc.getUTCFullYear(),
+            oggiUtc.getUTCMonth(),
+            oggiUtc.getUTCDate() + 2,
+          ),
+        ),
         status: "pending",
         data: {},
       },

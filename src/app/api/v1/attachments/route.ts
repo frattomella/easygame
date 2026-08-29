@@ -10,6 +10,7 @@ import {
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { hasCommunicationPermission } from "@/lib/communications/permissions";
 
 /**
  * Allegati: elenco e caricamento.
@@ -52,6 +53,36 @@ export async function GET(request: Request) {
         request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
+
+    const ownerType = String(url.searchParams.get("owner_type") || "")
+      .trim()
+      .toLowerCase();
+
+    /*
+      Gli allegati di un annuncio seguono il **pubblico dell'annuncio**, non la
+      sola appartenenza al club. Senza questa riga
+      `?owner_type=announcement` — anche **senza** `owner_id` — restituiva a
+      qualunque membro i metadati di ogni allegato di ogni annuncio, bozze
+      comprese, e da li si scaricava per identificativo.
+
+      L'elenco si concede solo a chi governa la bacheca; un destinatario chiede
+      il singolo allegato, e li il pubblico viene verificato.
+    */
+    if (
+      ownerType === "announcement" &&
+      !hasCommunicationPermission(scope.activeRole, "board.publish")
+    ) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: gli allegati della bacheca si elencano da chi la pubblica",
+          },
+        },
+        { status: 403 },
+      );
+    }
 
     const attachments = await listAttachments(
       {

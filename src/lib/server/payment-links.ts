@@ -282,25 +282,26 @@ export const buildPaymentLinkPath = (token: string) =>
  * redirector aperto: chiunque avesse un token potrebbe far tornare il browser
  * di chi paga su un indirizzo scelto da lui, con l'aria di venire da EasyGame.
  * Gli URL li costruisce sempre il server.
+ *
+ * **Perche `x-forwarded-host` non e piu un ripiego.** Lo era, e la revisione di
+ * sicurezza ha avuto ragione: era una garanzia promessa dal commento e non data
+ * dal codice. Un header e comunque una cosa che arriva **con la richiesta**, e
+ * il ripiego si apriva esattamente quando qualcuno dimenticava una variabile
+ * d'ambiente — cioe nel momento in cui un difetto latente diventa attivo e
+ * nessuno se ne accorge. Restano due sole fonti, entrambe **configurate**:
+ * `AUTH_BASE_URL` e `NEXT_PUBLIC_APP_URL`. Senza nessuna delle due, l'origine
+ * e vuota e il link non si emette: meglio nessun link che un link che riporta
+ * altrove dopo un pagamento.
  */
-export const resolvePaymentLinkOrigin = (request: {
+export const resolvePaymentLinkOrigin = (_request?: {
   url: string;
   headers: { get: (name: string) => string | null };
 }) => {
   const configured = asText(
     process.env.AUTH_BASE_URL || process.env.NEXT_PUBLIC_APP_URL,
   );
-  if (configured) return configured.replace(/\/+$/, "");
 
-  const host = asText(request.headers.get("x-forwarded-host"));
-  const proto = asText(request.headers.get("x-forwarded-proto")) || "https";
-  if (host) return `${proto}://${host}`;
-
-  try {
-    return new URL(request.url).origin;
-  } catch {
-    return "";
-  }
+  return configured ? configured.replace(/\/+$/, "") : "";
 };
 
 /**
@@ -834,4 +835,56 @@ export const revokePaymentLink = async (input: {
   });
 
   return { linkId, revokedAt: now.toISOString(), alreadyRevoked: false };
+};
+
+/**
+ * Il link **assoluto** da incollare dentro un messaggio.
+ *
+ * **Perche sta qui e non nei due chiamanti.** Lo usano il motore di automazioni
+ * e il sollecito a mano: sono due gesti diversi ma la domanda e la stessa —
+ * «qual e l'indirizzo che questa famiglia deve aprire». Scritta due volte, la
+ * prima divergenza sarebbe stata su cosa fare quando l'origine non e
+ * configurata, che e proprio il caso in cui un errore non si vede.
+ *
+ * **Si chiama dopo la rivendicazione**, non prima: un token emesso e poi
+ * scartato perche il messaggio era gia partito resterebbe valido per settimane
+ * senza che nessuno lo abbia mai ricevuto.
+ *
+ * **Restituisce la stringa vuota, non solleva.** Un club senza l'entitlement
+ * `online_payments`, o un ambiente senza origine configurata, non sono un
+ * errore del sollecito: il segnaposto resta irrisolto e il messaggio parte lo
+ * stesso. Meglio un sollecito senza link che nessun sollecito.
+ */
+export const resolveAbsolutePaymentLink = async ({
+  organizationId,
+  paymentId,
+  now,
+  issueLink = issuePaymentLink,
+}: {
+  organizationId: string;
+  paymentId: string;
+  now: Date;
+  issueLink?: (input: {
+    organizationId: string;
+    paymentId: string;
+    now: Date;
+  }) => Promise<IssuePaymentLinkResult>;
+}): Promise<string> => {
+  const origin = asText(
+    process.env.AUTH_BASE_URL || process.env.NEXT_PUBLIC_APP_URL,
+  ).replace(/\/+$/, "");
+
+  /*
+    Senza un'origine configurata si otterrebbe un percorso relativo dentro una
+    email, cioe un link che non apre niente.
+  */
+  if (!origin || !asText(paymentId)) return "";
+
+  try {
+    const issued = await issueLink({ organizationId, paymentId, now });
+    if (issued.outcome !== "issued") return "";
+    return `${origin}${issued.path}`;
+  } catch {
+    return "";
+  }
 };

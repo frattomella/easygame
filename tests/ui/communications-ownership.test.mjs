@@ -188,6 +188,78 @@ test("i permessi delle comunicazioni si dichiarano in un posto solo", () => {
   }
 });
 
+// --- i moduli dichiarati puri lo sono davvero -----------------------------
+
+test("i moduli puri non conoscono il database, la rete o il server", () => {
+  /*
+    La purezza e promessa in cinque docstring e, fino alla revisione di
+    architettura, non era presidiata da nessun test: oggi e rispettata, domani
+    non lo saprebbe nessuno. Un modulo «puro» che importasse Prisma smetterebbe
+    di essere provabile senza database, che e l'unica ragione per cui e stato
+    separato.
+  */
+  const puri = FILES.filter(
+    (file) =>
+      file.rel.startsWith("lib/audience/") ||
+      file.rel.startsWith("lib/messages/") ||
+      file.rel.startsWith("lib/automations/") ||
+      file.rel === "lib/rsvp/model.ts" ||
+      file.rel === "lib/announcements/model.ts" ||
+      file.rel === "lib/communications/permissions.ts",
+  );
+
+  assert.ok(puri.length >= 8, `attesi almeno 8 moduli puri, trovati ${puri.length}`);
+
+  for (const file of puri) {
+    for (const proibito of [
+      'from "./prisma"',
+      "@/lib/server/",
+      '@prisma/client',
+      "PrismaClient",
+      "next/server",
+    ]) {
+      assert.equal(
+        file.content.includes(proibito),
+        false,
+        `${file.rel} importa ${proibito}: non e piu un modulo puro`,
+      );
+    }
+  }
+});
+
+// --- il registro API resta allineato alle rotte ---------------------------
+
+test("ogni rotta della Wave 2 e nel registro API", () => {
+  /*
+    La revisione di architettura ha trovato le due rotte del motore di
+    automazioni **fuori** dal registro, mentre le altre otto c'erano: CLAUDE.md
+    §5 lo pretende, e nessun test verificava la parita. Mancavano proprio quelle
+    del motore che manda email senza che nessuno prema un pulsante.
+  */
+  const registro = FILES.find((file) => file.rel === "lib/api/registry.ts");
+
+  const rotteAttese = [
+    "/api/v1/communications",
+    "/api/v1/announcements",
+    "/api/v1/announcements/:id",
+    "/api/v1/payment-links",
+    "/api/v1/payment-links/:id",
+    "/api/public/payment-links/:token",
+    "/api/public/payment-links/:token/checkout",
+    "/api/v1/rsvp",
+    "/api/v1/automations",
+    "/api/v1/automations/run",
+  ];
+
+  for (const rotta of rotteAttese) {
+    assert.equal(
+      registro.content.includes(`"${rotta}"`),
+      true,
+      `${rotta} non e dichiarata in src/lib/api/registry.ts`,
+    );
+  }
+});
+
 test("il perimetro gestionale si delega, non si ricopia", () => {
   const modulo = FILES.find(
     (file) => file.rel === "lib/communications/permissions.ts",

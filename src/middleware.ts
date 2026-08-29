@@ -29,6 +29,7 @@ const PROTECTED_PREFIXES = [
   "/athletes",
   "/categories",
   "/clothing",
+  "/communications",
   "/create-club",
   "/dashboard",
   "/hub",

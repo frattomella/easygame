@@ -94,6 +94,19 @@ Fonte ufficiale da mantenere aggiornata:
   `openGatewayCheckout` del canale autenticato. `successUrl` e `cancelUrl` li
   costruisce il server: accettarli dal client renderebbe il link un redirector
   aperto
+- `GET|POST|PATCH /api/v1/automations` — le **quattro** regole di automazione
+  del club: interruttore, fino a tre anticipi, pubblico (famiglia / societa /
+  entrambe), modalita di consegna (notifica singola o riepilogo giornaliero) e
+  testo con i segnaposto del catalogo unico. Permesso `automations.manage`;
+  tutte nascono **spente**
+- `POST /api/v1/automations/run` — esegue il giro sul **club attivo**, per
+  vedere subito l'effetto di una regola senza aspettare la notte. Stesso
+  permesso
+- `GET /api/v1/automations/run` — il giro notturno su **tutti** i club, quello
+  che invoca il cron. Richiede `CRON_SECRET` come `Bearer`: **503** se il
+  segreto non e configurato in ambiente, **401** se non corrisponde, mai `200`
+  a vuoto. Un club che fallisce non ferma gli altri e compare nel rapporto con
+  il suo nome
 - `POST /api/v1/rsvp` — la conferma di partecipazione della famiglia. Corpo:
   `training_id`, `athlete_id`, `status` (`yes` | `no`), `note` facoltativa.
   Registra **e** cambia la risposta finche la scadenza non e passata: e un

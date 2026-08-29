@@ -39,6 +39,25 @@ export type DeliveryStatus = "pending" | "sent" | "skipped" | "failed";
 /** La finestra di riguardo del sollecito a mano: la stessa di Wave 1. */
 export const MANUAL_REMINDER_WINDOW_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * Dopo quanto una rivendicazione **in volo** si considera abbandonata.
+ *
+ * **Il difetto che questa costante chiude, e perche era grave.** Una
+ * rivendicazione si scrive `pending`, poi parte l'invio, poi si chiude. Se il
+ * processo muore nel mezzo — e su un giro notturno che attraversa tutti i club
+ * dentro una sola richiesta HTTP il timeout della funzione e l'esito atteso,
+ * non l'eccezione — la riga resta `pending`. Con `retryAfterMs: null`, cioe per
+ * automazioni, comunicazioni massive e bacheca, l'unico ramo riprendibile era
+ * `status: "failed"`: quella riga **non era riprendibile da nessun percorso**,
+ * e il destinatario restava bloccato per sempre. Nessun messaggio, nessun
+ * errore, nessuno spazzino che la ripulisse.
+ *
+ * Quindici minuti sono larghi rispetto a un dialogo SMTP, che dura secondi, e
+ * stretti rispetto a una notte: un invio davvero in corso non viene mai
+ * scavalcato, uno abbandonato si riprende al giro dopo.
+ */
+export const PENDING_STALE_MS = 15 * 60 * 1000;
+
 const asText = (value: unknown) => String(value ?? "").trim();
 
 const deliveryClient = () => (prisma as any).communicationDelivery;
@@ -59,6 +78,14 @@ export const buildDedupKey = (...parts: Array<string | number | null | undefined
 
 export type DeliveryClaim = {
   id: string;
+  /**
+   * Il club della riga.
+   *
+   * Viaggia insieme all'identificativo perche `settleDelivery` lo pretende: e
+   * il modo per non far ricordare a ogni chiamante di ripescarlo, che e come si
+   * finisce per scrivere una volta la query senza perimetro.
+   */
+  organizationId: string;
   recipientKey: string;
   claimed: boolean;
   /** Perche non e stato rivendicato: `already_sent` oppure `in_flight`. */
@@ -136,21 +163,30 @@ export const claimDelivery = async (
   };
 
   /*
-    Una riga esistente si riprende in due casi soli:
+    Una riga esistente si riprende in tre casi:
 
       * ha **fallito** — un guasto SMTP non deve rendere una famiglia
         irraggiungibile: la finestra di riguardo esiste per non ripetersi, non
         per punire un guasto;
-      * e **piu vecchia della finestra**, quando una finestra c'e.
+      * e **piu vecchia della finestra**, quando una finestra c'e;
+      * e rimasta **`pending` oltre il tempo che un invio puo durare**, cioe e
+        una rivendicazione abbandonata da un processo morto.
 
-    Una riga `pending` dentro la finestra e un invio **in volo**: e il doppio
-    clic, e va lasciato in pace.
+    Il terzo caso vale **sempre**, anche senza finestra: senza, una riga
+    `pending` orfana bloccava il destinatario per sempre, e non c'era nessun
+    percorso che la sbloccasse.
+
+    Una riga `pending` **recente** resta invece intoccata: quello e il doppio
+    clic, ed e un invio davvero in volo.
   */
+  const staleBefore = new Date(now.getTime() - PENDING_STALE_MS);
+
   const reclaimed = await deliveryClient().updateMany({
     where: {
       ...identity,
       OR: [
         { status: "failed" },
+        { AND: [{ status: "pending" }, { updated_at: { lt: staleBefore } }] },
         ...(reclaimableBefore ? [{ updated_at: { lt: reclaimableBefore } }] : []),
       ],
     },
@@ -161,6 +197,7 @@ export const claimDelivery = async (
     const row = await deliveryClient().findFirst({ where: identity });
     return {
       id: asText(row?.id),
+      organizationId,
       recipientKey,
       claimed: true,
       reason: null,
@@ -178,6 +215,7 @@ export const claimDelivery = async (
     });
     return {
       id: asText(created?.id),
+      organizationId,
       recipientKey,
       claimed: true,
       reason: null,
@@ -194,6 +232,7 @@ export const claimDelivery = async (
 
     return {
       id: asText(row?.id),
+      organizationId,
       recipientKey,
       claimed: false,
       reason: row?.status === "pending" ? "in_flight" : "already_sent",
@@ -201,22 +240,35 @@ export const claimDelivery = async (
   }
 };
 
-/** Chiude una rivendicazione con l'esito vero. */
+/**
+ * Chiude una rivendicazione con l'esito vero.
+ *
+ * **Perche `updateMany` con il club e non `update` per chiave primaria.**
+ * L'identificativo arriva sempre da una rivendicazione dello stesso club,
+ * quindi oggi non e sfruttabile — ma era l'unica scrittura del registro senza
+ * il perimetro, e CLAUDE.md §8 non fa eccezioni: «mai una query Prisma
+ * club-scoped senza filtro `organization_id`». E il tipo di riga che questo
+ * repository ha gia pagato (errore tipico n. 3): costa una condizione, e il
+ * giorno in cui l'identificativo arrivasse da altrove nessuno rileggerebbe
+ * questa funzione.
+ */
 export const settleDelivery = async ({
   id,
+  organizationId,
   status,
   reason,
   now = new Date(),
 }: {
   id: string;
+  organizationId: string;
   status: Exclude<DeliveryStatus, "pending">;
   reason?: string | null;
   now?: Date;
 }) => {
   if (!asText(id)) return;
 
-  await deliveryClient().update({
-    where: { id },
+  await deliveryClient().updateMany({
+    where: { id, organization_id: organizationId },
     data: { status, reason: reason || null, updated_at: now },
   });
 };
@@ -274,10 +326,19 @@ export const readAlreadyReached = async ({
       dedup_key: { in: keys },
       channel,
       /*
-        Una riga fallita non conta come «gia raggiunto»: il messaggio non e
-        arrivato, e l'anteprima non deve dire il contrario.
+        **Solo `sent` conta come «gia raggiunto».**
+
+        La prima versione escludeva `failed` e includeva quindi `pending`, che
+        e il contrario di cio che il commento prometteva: una rivendicazione
+        rimasta in volo dal giro morto della settimana prima faceva dire
+        all'anteprima «questa famiglia l'hai gia avvisata», con un motivo che
+        invita a non riprovare, per un messaggio che nessun server ha mai
+        accettato.
+
+        Un invio davvero in corso non ha bisogno di comparire qui: a impedire
+        il doppione ci pensa la rivendicazione, non l'anteprima.
       */
-      status: { not: "failed" },
+      status: "sent",
       ...(reclaimableBefore ? { updated_at: { gte: reclaimableBefore } } : {}),
     },
     select: { recipient_key: true, dedup_key: true },

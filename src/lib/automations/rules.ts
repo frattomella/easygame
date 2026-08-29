@@ -250,20 +250,42 @@ export const normalizeAutomationRules = (input: unknown): AutomationRule[] => {
 
 /* ------------------------------------------------------------- le date */
 
-/** Mezzanotte locale: due istanti dello stesso giorno sono lo stesso giorno. */
-export const startOfDay = (value: Date) => {
-  const copy = new Date(value.getTime());
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-};
+/**
+ * Mezzanotte **UTC**: due istanti dello stesso giorno sono lo stesso giorno.
+ *
+ * **Perche UTC e non l'ora locale del processo.** Una scadenza in EasyGame e
+ * una **data**, non un istante: `due_date` si scrive come giorno puro e Prisma
+ * la rilegge come mezzanotte UTC. Confrontarla con una mezzanotte **locale**
+ * lega il risultato al fuso di chi esegue, che e la cosa che non c'entra
+ * niente con il club: misurato, `daysBetween(23 novembre, 30 novembre)` vale
+ * 7 in UTC e a Roma, e **6** a New York — e con la corrispondenza esatta degli
+ * anticipi un 6 non e «un giorno di ritardo», e un promemoria che **non parte
+ * mai**, perche l'occorrenza non si recupera all'indietro.
+ *
+ * Oggi il giro gira su Vercel in UTC, quindi il difetto era latente; era pero
+ * attivo su qualunque esecuzione locale e su un `TZ` messo per sbaglio fra le
+ * variabili d'ambiente. Ancorare a UTC lo toglie del tutto, e non cambia il
+ * risultato per il fuso in cui il prodotto vive.
+ */
+export const startOfDay = (value: Date) =>
+  new Date(
+    Date.UTC(
+      value.getUTCFullYear(),
+      value.getUTCMonth(),
+      value.getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+    ),
+  );
 
 /**
  * Giorni interi fra due date, contati sui giorni di calendario.
  *
- * Positivo se `to` e nel futuro. `Math.round` e non `Math.floor` perche fra
- * due mezzanotti locali puo esserci un cambio d'ora: 23 o 25 ore restano un
- * giorno, e senza l'arrotondamento due volte l'anno un promemoria partirebbe
- * con un giorno di scarto.
+ * Positivo se `to` e nel futuro. `Math.round` resta anche con le mezzanotti
+ * UTC, dove i giorni sono tutti di 24 ore: costa niente ed e la difesa se un
+ * giorno qualcuno cambiasse l'ancoraggio.
  */
 export const daysBetween = (from: Date, to: Date) =>
   Math.round(
@@ -356,8 +378,13 @@ export const buildAutomationDigestDedupKey = (dayKey: string) =>
 
 /** `2026-11-30`: il giorno, in una forma che ordina e si legge. */
 export const toDayKey = (value: Date) => {
+  /*
+    Letta in UTC come `startOfDay`, per la stessa ragione: la chiave del
+    riepilogo giornaliero non deve cambiare a seconda del fuso del processo che
+    lo compone, o due esecuzioni della stessa notte scriverebbero due riepiloghi.
+  */
   const day = startOfDay(value);
-  const month = String(day.getMonth() + 1).padStart(2, "0");
-  const date = String(day.getDate()).padStart(2, "0");
-  return `${day.getFullYear()}-${month}-${date}`;
+  const month = String(day.getUTCMonth() + 1).padStart(2, "0");
+  const date = String(day.getUTCDate()).padStart(2, "0");
+  return `${day.getUTCFullYear()}-${month}-${date}`;
 };

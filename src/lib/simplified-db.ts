@@ -3417,7 +3417,7 @@ export async function saveTrainingAttendance(
       };
 
       if (Array.isArray(existingRows) && existingRows.length > 0) {
-        const [primaryRow, ...duplicateRows] = existingRows;
+        const [primaryRow] = existingRows;
         const { error: updateAttendanceError } = await supabase
           .from("training_attendance")
           .update(rowPayload)
@@ -3427,19 +3427,59 @@ export async function saveTrainingAttendance(
           throw updateAttendanceError;
         }
 
-        for (const duplicateRow of duplicateRows) {
-          await supabase
-            .from("training_attendance")
-            .delete()
-            .eq("id", duplicateRow.id);
-        }
+        /*
+          **Le righe duplicate non si cancellano piu.**
+
+          Erano la compensazione a un difetto che adesso non esiste: dalla Wave
+          2 la chiave unica `(organization_id, training_id, athlete_id)` le
+          impedisce a monte. Continuare a cancellarle sarebbe un `DELETE` su
+          righe che oggi portano anche la **risposta della famiglia**, e la
+          prossima persona che tocca questo blocco non avrebbe modo di sapere
+          perche c'era.
+        */
       } else {
         const { error: insertAttendanceError } = await supabase
           .from("training_attendance")
           .insert(rowPayload);
 
+        /*
+          **Una chiave duplicata qui non e un errore dell'appello.**
+
+          Fra la lettura qui sopra e questo inserimento puo essersi infilata
+          un'altra scrittura sulla stessa terna: un secondo clic su «Salva
+          presenze», un altro allenatore, una richiesta ritentata dalla rete, o
+          la risposta RSVP di una famiglia che fa `upsert` sulla stessa riga.
+          Prima della chiave unica quella corsa produceva un doppione silenzioso;
+          adesso produrrebbe un `23505` che, risalendo, farebbe fallire **tutto
+          l'appello** invece della singola riga — si perderebbe il lavoro
+          dell'allenatore per una riga che nel frattempo qualcun altro ha gia
+          scritto.
+
+          Si riprova quindi come aggiornamento: e la stessa cosa che il ramo
+          sopra avrebbe fatto se la riga fosse esistita un istante prima.
+        */
         if (insertAttendanceError) {
-          throw insertAttendanceError;
+          const codice = String((insertAttendanceError as any)?.code || "");
+          const messaggio = String((insertAttendanceError as any)?.message || "");
+          const duplicata =
+            codice === "23505" ||
+            codice === "P2002" ||
+            /duplicate key|unique constraint/i.test(messaggio);
+
+          if (!duplicata) {
+            throw insertAttendanceError;
+          }
+
+          const { error: retryError } = await supabase
+            .from("training_attendance")
+            .update(rowPayload)
+            .eq("organization_id", clubId)
+            .eq("training_id", trainingId)
+            .eq("athlete_id", entry.athleteId);
+
+          if (retryError) {
+            throw retryError;
+          }
         }
       }
     }

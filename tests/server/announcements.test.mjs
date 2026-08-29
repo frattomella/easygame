@@ -355,17 +355,66 @@ test("un annuncio di un altro club non si legge e non si pubblica", async () => 
   );
 });
 
-test("l'allenatore legge la bacheca ma non pubblica", async () => {
+test("l'allenatore non pubblica e non legge la bacheca della societa", async () => {
   await assert.rejects(() => crea({}, "trainer"), /Accesso negato/);
 
-  const annuncio = await crea();
-  const elenco = await modulo.listAnnouncements({
-    scope: scope(CLUB, "trainer"),
+  await crea();
+
+  /*
+    La revisione di sicurezza ha trovato che `listAnnouncements` chiedeva
+    `board.read`, che **tutti** i ruoli possiedono, mentre restituisce ogni
+    annuncio del club — bozze comprese, con il corpo intero e i criteri scelti.
+    Un genitore che chiamava la rotta senza `?mine=1` leggeva la bacheca intera
+    della societa, e quando il criterio era «chi non ha pagato» sapeva anche
+    che la segreteria aveva scritto alle famiglie in arretrato.
+
+    La vista di governo chiede ora `board.publish`; chi ha solo `board.read`
+    legge la **sua** bacheca, che filtra sulle consegne.
+  */
+  await assert.rejects(
+    () => modulo.listAnnouncements({ scope: scope(CLUB, "trainer"), now: NOW }),
+    /Accesso negato/,
+  );
+
+  for (const ruolo of ["parent", "athlete", "staff", "collaborator"]) {
+    await assert.rejects(
+      () => modulo.listAnnouncements({ scope: scope(CLUB, ruolo), now: NOW }),
+      /Accesso negato/,
+      `${ruolo} non deve leggere la bacheca di governo`,
+    );
+  }
+});
+
+test("un genitore non legge per identificativo un annuncio che non e suo", async () => {
+  const perU16 = await crea({
+    title: "Solo Under 16",
+    criteria: [{ kind: "category_ids", values: ["u16"] }],
+  });
+  await modulo.publishAnnouncement({
+    announcementId: perU16.id,
+    scope: scope(),
     now: NOW,
   });
 
-  assert.equal(elenco.length, 1);
-  assert.equal(elenco[0].id, annuncio.id);
+  await assert.rejects(
+    () =>
+      modulo.readAnnouncementById({
+        announcementId: perU16.id,
+        scope: scope(CLUB, "parent"),
+      }),
+    /Accesso negato/,
+  );
+
+  const bachecaU14 = await modulo.readAnnouncementsForUser({
+    organizationId: CLUB,
+    userId: UTENTE_U14,
+    now: NOW,
+  });
+  assert.equal(
+    bachecaU14.length,
+    0,
+    "e nemmeno dalla sua bacheca, che filtra sulle consegne",
+  );
 });
 
 test("solo chi puo vedere i destinatari legge chi ha ricevuto cosa", async () => {

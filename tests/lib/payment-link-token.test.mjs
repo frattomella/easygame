@@ -221,7 +221,14 @@ test("gli URL di ritorno puntano sempre alla pagina del link", () => {
   }
 });
 
-test("l'origine la decide il server: ambiente, poi proxy, poi la richiesta", () => {
+test("l'origine la decide l'ambiente, e nient'altro", () => {
+  /*
+    La revisione di sicurezza ha trovato che il ripiego costruiva l'origine da
+    `x-forwarded-host`, cioe da un'intestazione **della richiesta**: era una
+    garanzia promessa dal commento e non data dal codice, e si apriva
+    esattamente quando qualcuno dimenticava una variabile d'ambiente. Restano
+    due sole fonti, entrambe configurate.
+  */
   process.env.AUTH_BASE_URL = "https://configurata.easygame.test/";
   assert.equal(
     modulo.resolvePaymentLinkOrigin(
@@ -237,24 +244,20 @@ test("l'origine la decide il server: ambiente, poi proxy, poi la richiesta", () 
     assert.equal(
       modulo.resolvePaymentLinkOrigin(
         richiestaFinta("http://interno:3000/api/x", {
-          "x-forwarded-host": "app.easygame.test",
+          "x-forwarded-host": "attaccante.example",
           "x-forwarded-proto": "https",
         }),
       ),
-      "https://app.easygame.test",
+      "",
+      "senza ambiente configurato non si costruisce nessuna origine da un'intestazione",
     );
 
     assert.equal(
       modulo.resolvePaymentLinkOrigin(
         richiestaFinta("https://app.easygame.test/api/x"),
       ),
-      "https://app.easygame.test",
-    );
-
-    assert.equal(
-      modulo.resolvePaymentLinkOrigin(richiestaFinta("non-un-url")),
       "",
-      "un'origine che non si sa costruire resta vuota invece di inventarsi un host",
+      "e nemmeno dall'URL della richiesta: meglio nessun link che un link che riporta altrove",
     );
   });
 });

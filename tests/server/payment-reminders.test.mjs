@@ -339,7 +339,15 @@ test("il messaggio porta residuo, rate scadute e prossima scadenza", async () =>
   assert.equal(inviate[0].residualAmount, 120, "50 di residuo piu 70 ancora dovuti");
   assert.equal(inviate[0].overdueCount, 1);
   assert.equal(inviate[0].nextDueDate, "2026-11-30T00:00:00.000Z");
-  assert.equal(inviate[0].athleteName, "Luca Bianchi");
+  /*
+    «Cognome Nome» e l'ordine del prodotto: lo compone
+    `formatAthleteNameLastFirst`, che e il proprietario del nome di una persona
+    ed e gia usato da dieci schermate. La revisione di architettura ha trovato
+    che la Wave 2 ne aveva scritte **quattro copie private**, tre in un ordine e
+    una nell'altro: lo stesso atleta compariva in due modi fra un'email e
+    l'elenco dell'allenatore.
+  */
+  assert.equal(inviate[0].athleteName, "Bianchi Luca");
 });
 
 // --- doppio clic ----------------------------------------------------------

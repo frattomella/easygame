@@ -924,7 +924,11 @@ model TrainingAttendance {
   organization_id String    @db.Uuid
   training_id     String
   athlete_id      String
-  /// La presenza: `present` | `absent`. La scrive l'appello dell'allenatore.
+  /// La presenza: `present` | `absent`, scritta dall'appello dell'allenatore,
+  /// piu `pending` sulle righe **nate da una risposta** e mai passate
+  /// dall'appello (`RSVP_NEUTRAL_ATTENDANCE_STATUS`). `pending` non e una
+  /// presenza: `isPresentAttendance` lo rifiuta, quindi non entra in nessuna
+  /// rendicontazione di contributi.
   status          String
   notes           String?
   /// L'intenzione dichiarata dalla famiglia: `yes` | `no`. Mai scritta dall'appello.

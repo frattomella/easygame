@@ -82,7 +82,7 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/public/payment-links/${token}`);
+      const response = await fetch(`/api/public/payment-links/${encodeURIComponent(token)}`);
       const body = await response.json().catch(() => null);
 
       if (!response.ok || body?.error) {
@@ -130,7 +130,7 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
         server. Mandarli da qui renderebbe il link un redirector aperto.
       */
       const response = await fetch(
-        `/api/public/payment-links/${token}/checkout`,
+        `/api/public/payment-links/${encodeURIComponent(token)}/checkout`,
         { method: "POST" },
       );
       const body = await response.json().catch(() => null);

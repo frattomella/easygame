@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import {
   readAthleteGuardianContacts,
   type AthleteGuardianContact,
@@ -105,11 +106,19 @@ export const resolveAudienceOrganizationId = (
   return scope.activeOrganizationId;
 };
 
+/*
+  **Il nome di una persona ha gia un proprietario.**
+
+  Qui c'era una copia privata, e ce n'erano quattro in tutta la Wave: tre
+  scrivevano «Nome Cognome», una «Cognome Nome», e nessuna leggeva le grafie
+  alternative (`nome`, `cognome`, `fullName`) che il proprietario canonico
+  gestisce. Lo stesso atleta compariva quindi in due ordini diversi fra
+  l'email di un'automazione e l'elenco RSVP dell'allenatore, e un'anagrafica
+  con i soli campi alternativi diventava «Atleta» in un messaggio e aveva il
+  nome giusto ovunque altrove.
+*/
 const athleteDisplayName = (athlete: any) =>
-  [athlete?.first_name, athlete?.last_name]
-    .map((value) => asText(value))
-    .filter(Boolean)
-    .join(" ") || "Atleta";
+  formatAthleteNameLastFirst(athlete);
 
 /**
  * Vero se l'anagrafica e attiva.
@@ -201,11 +210,20 @@ export const buildAudienceContacts = (
 /**
  * Costruisce i soggetti a partire da atleti gia caricati.
  *
- * Esiste separata da `resolveAudience` perche il sollecito degli insoluti
- * parte da una **selezione di rate**, non da un criterio: ha gia i suoi atleti
- * e deve comunque risolvere i destinatari con **queste** regole e non con le
- * sue. E il punto in cui la migrazione del sollecito su questo motore si
- * aggancia senza duplicare nulla.
+ * **Chi la usa, e chi no.** La usa `resolveAudience`, che e il percorso per
+ * criteri. **Non** la usa il sollecito degli insoluti, e la revisione di
+ * architettura ha avuto ragione a segnalarlo: il commento diceva che sarebbe
+ * stato «il punto in cui la migrazione del sollecito si aggancia», e quel
+ * punto non e stato usato.
+ *
+ * La ragione e che il sollecito **non produce l'insieme canonico**: il suo
+ * messaggio e per **atleta**, non per famiglia, perche parla di una posizione
+ * economica e fondere due figli direbbe un residuo che non e quello di nessuno
+ * dei due. Quello che condivide con il motore — e che adesso condivide davvero
+ * — e la risoluzione dei **contatti** (`buildAudienceContacts`,
+ * `resolveGuardianAccounts`), che era la duplicazione vera.
+ *
+ * La differenza e dichiarata al §3.4 del documento 34 e in ADR-0087.
  */
 export const buildAudienceSubjects = async ({
   organizationId,
@@ -228,6 +246,8 @@ export const buildAudienceSubjects = async ({
     return {
       athleteId,
       athleteName: athleteDisplayName(athlete),
+      athleteFirstName: asText(athlete.first_name),
+      athleteLastName: asText(athlete.last_name),
       active: athleteIsActive(athlete),
       contacts: buildAudienceContacts(athlete, accounts),
       ...(context ? { context } : {}),

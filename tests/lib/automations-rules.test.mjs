@@ -153,9 +153,58 @@ test("su una rata scaduta gli anticipi si contano dopo la data", () => {
 });
 
 test("i giorni si contano sul calendario, non sulle ore", () => {
-  const from = new Date("2026-11-23T23:30:00");
-  const to = new Date("2026-11-30T00:10:00");
+  /*
+    Le date sono dichiarate in UTC perche e cosi che arrivano: una scadenza e
+    un **giorno**, `due_date` si scrive come giorno puro e Prisma la rilegge
+    come mezzanotte UTC. Il giro notturno gira alle 6 del mattino.
+  */
+  const from = new Date("2026-11-23T06:00:00Z");
+  const to = new Date("2026-11-30T00:00:00Z");
   assert.equal(regole.daysBetween(from, to), 7);
+
+  assert.equal(
+    regole.daysBetween(
+      new Date("2026-11-23T23:30:00Z"),
+      new Date("2026-11-30T00:10:00Z"),
+    ),
+    7,
+    "l'ora dentro la giornata non sposta il conteggio",
+  );
+});
+
+test("il conteggio non dipende dal fuso del processo", () => {
+  /*
+    Il difetto che questa asserzione chiude, trovato dalla revisione: con
+    `startOfDay` ancorato all'**ora locale**, `daysBetween(23 novembre, 30
+    novembre)` valeva 7 in UTC e a Roma e **6** a New York. Con la
+    corrispondenza esatta degli anticipi un 6 non e un giorno di ritardo: e un
+    promemoria che **non parte mai**, perche l'occorrenza non si recupera
+    all'indietro.
+
+    Si prova cambiando `TZ` e rileggendo lo stesso istante: se il conteggio
+    fosse legato al fuso, i due valori divergerebbero.
+  */
+  const fusoOriginale = process.env.TZ;
+  const from = new Date("2026-11-23T06:00:00Z");
+  const to = new Date("2026-11-30T00:00:00Z");
+
+  try {
+    const misure = ["UTC", "Europe/Rome", "America/New_York", "Pacific/Auckland"].map(
+      (fuso) => {
+        process.env.TZ = fuso;
+        return regole.daysBetween(from, to);
+      },
+    );
+
+    assert.deepEqual(
+      misure,
+      [7, 7, 7, 7],
+      "lo stesso istante deve dare lo stesso anticipo in ogni fuso",
+    );
+  } finally {
+    if (fusoOriginale === undefined) delete process.env.TZ;
+    else process.env.TZ = fusoOriginale;
+  }
 });
 
 /* --------------------------------------------------------- la deduplica */

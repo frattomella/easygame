@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import {
   isEmailDeliveryConfigured,
   sendTransactionalEmail,
@@ -6,7 +7,10 @@ import {
 import { claimDelivery, settleDelivery } from "./communication-deliveries";
 import { resolveAudience, type AudienceScope } from "./audience";
 import { listPendingRsvpForAthlete } from "./rsvp";
-import { issuePaymentLink } from "./payment-links";
+import {
+  issuePaymentLink,
+  resolveAbsolutePaymentLink,
+} from "./payment-links";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   AUTOMATION_TRIGGERS,
@@ -46,7 +50,10 @@ import {
   getMedicalCertificateAvailabilityLabel,
 } from "@/lib/medical-certificates";
 import { readEventRsvpConfig } from "@/lib/rsvp/model";
-import { assertCommunicationPermission } from "@/lib/communications/permissions";
+import {
+  assertCommunicationPermission,
+  hasCommunicationPermission,
+} from "@/lib/communications/permissions";
 
 /**
  * Il **motore di automazioni** (Wave 2, W2-A, G-03/G-04/G-58).
@@ -533,11 +540,34 @@ const evaluateCertificates = ({
     const expiryDate = new Date(expiry);
     if (Number.isNaN(expiryDate.getTime())) continue;
 
-    const offsetDays = selectFiringOffset({
-      offsetDays: rule.offsetDays,
-      direction: "before",
-      daysToDate: daysBetween(now, expiryDate),
-    });
+    const distanza = daysBetween(now, expiryDate);
+
+    /*
+      **Il certificato gia scaduto e un'occorrenza a se, e deve partire.**
+
+      Il catalogo promette a chi configura la regola «manca, sta per scadere o
+      **e scaduto**». Con la sola corrispondenza esatta sugli anticipi quella
+      terza meta non si verificava mai: gli anticipi guardano avanti
+      (`direction: "before"` scarta ogni distanza negativa), quindi bastava che
+      il giro notturno saltasse il giorno esatto della scadenza — una notte
+      sola, un guasto, un deploy — perche quel certificato non producesse mai
+      piu niente. Ed e proprio il caso che conta: un atleta con il certificato
+      scaduto **non puo scendere in campo**.
+
+      L'occorrenza si chiama `expired:<data>`: e distinta da quella del giorno
+      della scadenza, quindi non ne e un doppione, e resta **una sola** perche
+      la data non cambia piu.
+    */
+    const scaduto = distanza < 0;
+    if (scaduto && !rule.offsetDays.includes(0)) continue;
+
+    const offsetDays = scaduto
+      ? 0
+      : selectFiringOffset({
+          offsetDays: rule.offsetDays,
+          direction: "before",
+          daysToDate: distanza,
+        });
     if (offsetDays === null) continue;
 
     hits.push({
@@ -545,7 +575,9 @@ const evaluateCertificates = ({
       athleteId: asText(athlete.id),
       athleteFirstName: asText(athlete.first_name),
       athleteLastName: asText(athlete.last_name),
-      occurrenceId: formatDate(expiryDate) || asText(expiry),
+      occurrenceId: scaduto
+        ? `expired:${formatDate(expiryDate) || asText(expiry)}`
+        : formatDate(expiryDate) || asText(expiry),
       offsetDays,
       values: {
         "medical_certificate.status": label,
@@ -743,6 +775,81 @@ const clubDigestAddress = (club: any) =>
  */
 const CLUB_RECIPIENT_KEY = "club";
 
+/**
+ * Gli account che possono ricevere una notifica **di societa**.
+ *
+ * **Il difetto che questa funzione chiude.** Le notifiche verso la societa
+ * nascevano con `user_id: null`, che nel modello `Notification` significa «di
+ * club» e che il prodotto interpreta come «di tutti»: `parent-dashboard.ts`
+ * legge `OR: [{ user_id: userId }, { user_id: null }]`, e `notifications` sta
+ * fra le risorse che un allenatore puo elencare. Il contenuto pero e economico
+ * e **nominativo** — «Rata scaduta: Mario Rossi — 130,00 € da versare» — e il
+ * riepilogo giornaliero e l'elenco completo delle famiglie in arretrato.
+ *
+ * Il risultato era che `communications.audience_economic`, il permesso che
+ * esiste perche un allenatore non ottenga quell'elenco passando dal motore del
+ * pubblico, veniva aggirato dal **canale di uscita** invece che dal criterio: il
+ * giorno dopo ogni genitore lo leggeva nella propria area famiglia.
+ *
+ * La notifica di societa e quindi indirizzata, una per destinatario, e i
+ * destinatari sono quelli che quel dato potrebbero gia vederlo.
+ */
+const resolveClubNotificationRecipients = async (clubId: string) => {
+  const memberships = await (prisma as any).organizationUser.findMany({
+    where: { organization_id: clubId },
+    select: { user_id: true, role: true },
+  });
+
+  return Array.from(
+    new Set(
+      memberships
+        .filter((row: any) =>
+          hasCommunicationPermission(row?.role, "communications.audience_economic"),
+        )
+        .map((row: any) => String(row?.user_id || "").trim())
+        .filter(Boolean),
+    ),
+  ) as string[];
+};
+
+/**
+ * Scrive la notifica di societa **a ciascun destinatario**.
+ *
+ * Restituisce quanti ne ha raggiunti: zero significa che il club non ha nessun
+ * account che possa vedere quel dato, e chi chiama deve poterlo dire invece di
+ * dichiarare un successo.
+ */
+const createClubNotifications = async ({
+  clubId,
+  title,
+  message,
+  type,
+  data,
+}: {
+  clubId: string;
+  title: string;
+  message: string;
+  type: string;
+  data: Record<string, unknown>;
+}) => {
+  const recipients = await resolveClubNotificationRecipients(clubId);
+  if (recipients.length === 0) return 0;
+
+  await (prisma as any).notification.createMany({
+    data: recipients.map((userId) => ({
+      organization_id: clubId,
+      user_id: userId,
+      title,
+      message,
+      type,
+      read: false,
+      data,
+    })),
+  });
+
+  return recipients.length;
+};
+
 /* -------------------------------------------------------------- il giro */
 
 export const runAutomationsForClub = async ({
@@ -849,9 +956,15 @@ export const runAutomationsForClub = async ({
       for (const hit of ruleHits) {
         const entry: DigestEntry = {
           triggerKind: hit.trigger,
-          subjectName: [hit.athleteFirstName, hit.athleteLastName]
-            .filter(Boolean)
-            .join(" "),
+          /*
+            Il nome lo compone il proprietario canonico, non questo modulo:
+            era la quarta copia privata della Wave, e le quattro non erano
+            nemmeno d'accordo sull'ordine.
+          */
+          subjectName: formatAthleteNameLastFirst({
+            first_name: hit.athleteFirstName,
+            last_name: hit.athleteLastName,
+          }),
           detail: hit.detail,
           when: hit.when,
         };
@@ -1103,6 +1216,7 @@ const deliverToFamilies = async ({
           if (result.status !== "sent") {
             await settleDelivery({
               id: claim.id,
+              organizationId: claim.organizationId,
               status: "failed",
               reason: result.reason || "delivery_failed",
               now,
@@ -1118,7 +1232,7 @@ const deliverToFamilies = async ({
             continue;
           }
 
-          await settleDelivery({ id: claim.id, status: "sent", now });
+          await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
           deliveries.push({
             trigger: rule.trigger,
             channel: "email",
@@ -1148,6 +1262,7 @@ const deliverToFamilies = async ({
         } catch {
           await settleDelivery({
             id: claim.id,
+            organizationId: claim.organizationId,
             status: "failed",
             reason: "delivery_failed",
             now,
@@ -1177,7 +1292,7 @@ const deliverToFamilies = async ({
  * si emette, il segnaposto resta irrisolto e il messaggio parte lo stesso —
  * meglio un sollecito senza link che nessun sollecito.
  */
-const resolvePaymentLinkValue = async ({
+const resolvePaymentLinkValue = ({
   clubId,
   paymentId,
   now,
@@ -1187,29 +1302,18 @@ const resolvePaymentLinkValue = async ({
   paymentId: string;
   now: Date;
   issueLink: AutomationLinkIssuer;
-}): Promise<string> => {
-  const origin = asText(
-    process.env.AUTH_BASE_URL || process.env.NEXT_PUBLIC_APP_URL,
-  ).replace(/\/+$/, "");
-
+}): Promise<string> =>
   /*
-    Senza un'origine configurata si otterrebbe un percorso relativo dentro una
-    email, cioe un link che non apre niente. Meglio nessun link.
+    La costruzione dell'indirizzo assoluto sta nel proprietario del link, non
+    qui: la usa anche il sollecito a mano, e scritta due volte la prima
+    divergenza sarebbe stata su cosa fare quando l'origine non e configurata.
   */
-  if (!origin) return "";
-
-  try {
-    const issued = await issueLink({
-      organizationId: clubId,
-      paymentId,
-      now,
-    });
-    if (issued.outcome !== "issued") return "";
-    return `${origin}${issued.path}`;
-  } catch {
-    return "";
-  }
-};
+  resolveAbsolutePaymentLink({
+    organizationId: clubId,
+    paymentId,
+    now,
+    issueLink,
+  });
 
 /**
  * La copia in applicazione.
@@ -1278,7 +1382,7 @@ const writeInAppCopy = async ({
         data: { source: "automation", trigger: rule.trigger, dedupKey },
       },
     });
-    await settleDelivery({ id: claim.id, status: "sent", now });
+    await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
     deliveries.push({
       trigger: rule.trigger,
       channel: "in_app",
@@ -1290,6 +1394,7 @@ const writeInAppCopy = async ({
   } catch {
     await settleDelivery({
       id: claim.id,
+      organizationId: claim.organizationId,
       status: "failed",
       reason: "in_app_failed",
       now,
@@ -1364,18 +1469,39 @@ const notifyClub = async ({
   }
 
   try {
-    await (prisma as any).notification.create({
-      data: {
-        organization_id: clubId,
-        user_id: null,
-        title,
-        message,
-        type: `automation_${rule.trigger}`,
-        read: false,
-        data: { source: "automation", trigger: rule.trigger, dedupKey },
-      },
+    const raggiunti = await createClubNotifications({
+      clubId,
+      title,
+      message,
+      type: `automation_${rule.trigger}`,
+      data: { source: "automation", trigger: rule.trigger, dedupKey },
     });
-    await settleDelivery({ id: claim.id, status: "sent", now });
+
+    if (raggiunti === 0) {
+      /*
+        Nessun account del club puo vedere questo dato. Non e un successo:
+        dirlo `sent` significherebbe che la societa e stata avvisata quando non
+        lo e stata.
+      */
+      await settleDelivery({
+        id: claim.id,
+        organizationId: claim.organizationId,
+        status: "failed",
+        reason: "no_club_recipient",
+        now,
+      });
+      deliveries.push({
+        trigger: rule.trigger,
+        channel: "in_app",
+        recipient: CLUB_RECIPIENT_KEY,
+        athleteName: entry.subjectName,
+        status: "failed",
+        reason: "no_club_recipient",
+      });
+      return;
+    }
+
+    await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
     deliveries.push({
       trigger: rule.trigger,
       channel: "in_app",
@@ -1387,6 +1513,7 @@ const notifyClub = async ({
   } catch {
     await settleDelivery({
       id: claim.id,
+      organizationId: claim.organizationId,
       status: "failed",
       reason: "in_app_failed",
       now,
@@ -1455,18 +1582,22 @@ const deliverDigest = async ({
 
   if (inApp.claimed) {
     try {
-      await (prisma as any).notification.create({
-        data: {
-          organization_id: clubId,
-          user_id: null,
-          title: digest.subject,
-          message: digest.text,
-          type: "automation_digest",
-          read: false,
-          data: { source: "automation", digest: true, dedupKey },
-        },
+      /*
+        Il riepilogo e l'elenco completo delle famiglie in arretrato, ordinato
+        per cognome: e il contenuto piu sensibile che questa Wave produca.
+        Indirizzato, mai «di club».
+      */
+      const raggiunti = await createClubNotifications({
+        clubId,
+        title: digest.subject,
+        message: digest.text,
+        type: "automation_digest",
+        data: { source: "automation", digest: true, dedupKey },
       });
-      await settleDelivery({ id: inApp.id, status: "sent", now });
+
+      if (raggiunti === 0) throw new Error("nessun destinatario di societa");
+
+      await settleDelivery({ id: inApp.id, organizationId: inApp.organizationId, status: "sent", now });
       sent = true;
       deliveries.push({
         trigger: "digest",
@@ -1479,6 +1610,7 @@ const deliverDigest = async ({
     } catch {
       await settleDelivery({
         id: inApp.id,
+        organizationId: inApp.organizationId,
         status: "failed",
         reason: "in_app_failed",
         now,
@@ -1513,7 +1645,7 @@ const deliverDigest = async ({
         });
 
         if (result.status === "sent") {
-          await settleDelivery({ id: claim.id, status: "sent", now });
+          await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
           sent = true;
           deliveries.push({
             trigger: "digest",
@@ -1526,6 +1658,7 @@ const deliverDigest = async ({
         } else {
           await settleDelivery({
             id: claim.id,
+            organizationId: claim.organizationId,
             status: "failed",
             reason: result.reason || "delivery_failed",
             now,
@@ -1542,6 +1675,7 @@ const deliverDigest = async ({
       } catch {
         await settleDelivery({
           id: claim.id,
+          organizationId: claim.organizationId,
           status: "failed",
           reason: "delivery_failed",
           now,

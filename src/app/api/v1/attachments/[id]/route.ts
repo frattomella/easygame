@@ -10,6 +10,7 @@ import {
   replaceAttachmentContent,
 } from "@/lib/server/attachments";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canReadAnnouncementAttachment } from "@/lib/server/announcements";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
 import {
@@ -89,8 +90,52 @@ const scopeFor = async (request: Request, session: any) =>
  * La **lettura** resta a chi appartiene al club: serve all'anteprima e ai
  * documenti che stampa anche la segreteria.
  */
+/**
+ * I proprietari il cui allegato **e** configurazione del club.
+ *
+ * `announcement` e stato aggiunto dalla Wave 2 e all'inizio la guardia lo
+ * copriva **solo in caricamento**: sostituzione e cancellazione uscivano al
+ * primo `if` perche confrontavano con la sola stringa `"club"`. Il risultato
+ * era che un membro qualunque del club poteva sostituire il PDF allegato a un
+ * annuncio pubblicato dalla societa — stesso identificativo, stesso
+ * riferimento, contenuto suo — o cancellarlo.
+ */
+const CLUB_OWNED_ATTACHMENT_TYPES = new Set(["club", "announcement"]);
+
+/**
+ * La lettura dell'allegato di un annuncio passa dal pubblico dell'annuncio.
+ *
+ * Solleva un errore che la rotta mappa su **404** e non su 403: chi non e
+ * destinatario non deve nemmeno sapere che quell'allegato esiste.
+ */
+const assertAnnouncementAttachmentReadable = async (
+  metadata: any,
+  scope: any,
+  userId: string,
+) => {
+  const ownerType = String(metadata?.ownerType || metadata?.owner_type || "")
+    .trim()
+    .toLowerCase();
+  if (ownerType !== "announcement") return;
+
+  const consentito = await canReadAnnouncementAttachment({
+    organizationId: String(metadata?.organizationId || ""),
+    announcementId: String(metadata?.ownerId || ""),
+    userId,
+    activeRole: scope?.activeRole,
+  });
+
+  if (!consentito) {
+    throw new Error("Allegato non trovato");
+  }
+};
+
 const assertClubAttachmentWritable = (metadata: any, scope: any) => {
-  if (String(metadata?.ownerType || metadata?.owner_type || "") !== "club") {
+  const ownerType = String(metadata?.ownerType || metadata?.owner_type || "")
+    .trim()
+    .toLowerCase();
+
+  if (!CLUB_OWNED_ATTACHMENT_TYPES.has(ownerType)) {
     return;
   }
 
@@ -154,6 +199,19 @@ export async function GET(request: Request, context: Context) {
     const scope = await scopeFor(request, session);
     const attachment = await readAttachment(context.params.id, scope);
     if (!attachment) return notFound();
+
+    /*
+      L'allegato di un annuncio segue il **pubblico dell'annuncio**, non la sola
+      appartenenza al club: senza questa riga un genitore dell'Under 16 che
+      conoscesse l'identificativo scaricava il modulo allegato all'avviso
+      dell'Under 14. Chi non ha diritto riceve **404**, come per un allegato
+      che non esiste: un 403 direbbe che esiste.
+    */
+    await assertAnnouncementAttachmentReadable(
+      attachment.metadata,
+      scope,
+      session.db.user_id,
+    );
 
     const url = new URL(request.url);
     const wantsDownload = url.searchParams.has("download");

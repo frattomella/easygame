@@ -19,7 +19,10 @@ import {
   sortAnnouncements,
   type Announcement,
 } from "@/lib/announcements/model";
-import { assertCommunicationPermission } from "@/lib/communications/permissions";
+import {
+  assertCommunicationPermission,
+  hasCommunicationPermission,
+} from "@/lib/communications/permissions";
 
 /**
  * La bacheca del club (W2-D, gap G-08).
@@ -161,7 +164,23 @@ export type AnnouncementView = Announcement & {
   readCount: number;
 };
 
-/** Gli annunci del club, per chi li governa. */
+/**
+ * Gli annunci del club, **per chi li governa**.
+ *
+ * **Perche `board.publish` e non `board.read`.** Questa lettura non rispetta il
+ * pubblico: restituisce ogni annuncio del club, bozze comprese, con il corpo
+ * intero, i criteri scelti e i conteggi di lettura. `board.read` ce l'hanno
+ * tutti i ruoli — e definito «leggere gli avvisi **destinati a se**» — quindi
+ * proteggerla con quello significava che un genitore, chiamando la rotta senza
+ * `?mine=1`, leggeva la bacheca intera della societa: le bozze mai pubblicate,
+ * gli avvisi di altre categorie, e — quando il criterio scelto era «chi non ha
+ * pagato» — il fatto che la segreteria avesse scritto alle famiglie in
+ * arretrato, con quante fossero.
+ *
+ * Chi ha `board.read` e basta legge la **sua** bacheca, da
+ * `readAnnouncementsForUser`, che filtra sulle consegne. Sono due domande
+ * diverse e adesso hanno due permessi diversi.
+ */
 export const listAnnouncements = async ({
   organizationId,
   scope,
@@ -172,7 +191,7 @@ export const listAnnouncements = async ({
   now?: Date;
 }): Promise<AnnouncementView[]> => {
   const clubId = resolveOrganizationId(scope, organizationId);
-  assertCommunicationPermission(scope?.activeRole, "board.read");
+  assertCommunicationPermission(scope?.activeRole, "board.publish");
 
   const rows = await itemClient().findMany({
     where: {
@@ -358,7 +377,8 @@ export const publishAnnouncement = async ({
       continue;
     }
 
-    await settleDelivery({ id: claim.id, status: "sent", now });
+    await settleDelivery({ id: claim.id,
+      organizationId: claim.organizationId, status: "sent", now });
     delivered += 1;
   }
 
@@ -471,6 +491,46 @@ export const readAnnouncementsForUser = async ({
     }));
 };
 
+/**
+ * Puo, questa persona, vedere l'allegato di questo annuncio?
+ *
+ * **Perche non basta appartenere al club.** Un allegato di annuncio vive su
+ * Attachment Core, che autorizza sull'appartenenza: senza questa domanda, un
+ * genitore dell'Under 16 che conoscesse l'identificativo scaricherebbe il
+ * modulo allegato all'avviso dell'Under 14. Il pubblico e parte dell'annuncio,
+ * e vale anche per i suoi allegati.
+ *
+ * Due sole risposte affermative: chi **governa** la bacheca, e chi ha una
+ * consegna per quell'annuncio. La seconda e la stessa riga che decide se
+ * l'annuncio compare nella sua bacheca, quindi non c'e modo che le due
+ * risposte divergano.
+ */
+export const canReadAnnouncementAttachment = async ({
+  organizationId,
+  announcementId,
+  userId,
+  activeRole,
+}: {
+  organizationId: string;
+  announcementId: string;
+  userId: string;
+  activeRole?: string | null;
+}) => {
+  if (hasCommunicationPermission(activeRole, "board.publish")) return true;
+  if (!asText(userId) || !asText(announcementId)) return false;
+
+  const deliveries = await listDeliveriesForRecipient({
+    organizationId,
+    sourceKind: "board",
+    channel: "board",
+    userId,
+  });
+
+  return deliveries.some(
+    (row: any) => asText(row.source_id) === asText(announcementId),
+  );
+};
+
 /** Segna letto. La regola «una volta sola» vive nel registro, non qui. */
 export const markAnnouncementRead = async ({
   organizationId,
@@ -544,6 +604,14 @@ export const withdrawAnnouncement = async ({
   });
 };
 
+/**
+ * Un annuncio, **per chi lo governa**.
+ *
+ * Stesso permesso di `listAnnouncements` e per la stessa ragione: questa
+ * lettura ignora il pubblico dell'annuncio, quindi con `board.read` un
+ * destinatario dell'Under 14 poteva leggere per identificativo l'avviso
+ * destinato all'Under 16, e una bozza mai pubblicata.
+ */
 export const readAnnouncementById = async ({
   organizationId,
   announcementId,
@@ -554,7 +622,7 @@ export const readAnnouncementById = async ({
   scope?: AudienceScope;
 }) => {
   const clubId = resolveOrganizationId(scope, organizationId);
-  assertCommunicationPermission(scope?.activeRole, "board.read");
+  assertCommunicationPermission(scope?.activeRole, "board.publish");
 
   return readAnnouncement(await requireAnnouncementRow(clubId, announcementId));
 };

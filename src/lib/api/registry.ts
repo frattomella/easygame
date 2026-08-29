@@ -208,6 +208,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "automations.rules",
+    method: "GET|POST|PATCH",
+    path: "/api/v1/automations",
+    description:
+      "Le quattro regole di automazione del club: interruttore, fino a tre anticipi, pubblico, modalita di consegna e testo. Permesso `automations.manage`",
+    mobile_ready: false,
+  },
+  {
+    name: "automations.run",
+    method: "POST",
+    path: "/api/v1/automations/run",
+    description:
+      "Esegue il giro sul club attivo, per vedere subito l'effetto di una regola senza aspettare la notte",
+    mobile_ready: false,
+  },
+  {
+    name: "automations.run.cron",
+    method: "GET",
+    path: "/api/v1/automations/run",
+    description:
+      "Il giro notturno su tutti i club. Richiede `CRON_SECRET` come Bearer: `503` se il segreto non e configurato, `401` se non corrisponde",
+    mobile_ready: false,
+  },
+  {
     name: "rsvp.answer",
     method: "GET|POST",
     path: "/api/v1/rsvp",

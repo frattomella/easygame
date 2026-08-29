@@ -123,9 +123,17 @@ const joinAthleteNames = (values: string[]) => {
 const buildRecipientValues = (
   recipient: AudienceRecipient,
 ): Record<string, string> => {
-  const fullNames = recipient.positions.map((position) => position.athleteName);
-  const firstNames = fullNames.map((name) => name.split(" ")[0] || name);
-  const lastNames = fullNames.map((name) => name.split(" ").slice(1).join(" "));
+  /*
+    Nome e cognome arrivano **separati** dalla posizione, non da uno `split`
+    del nome formattato: spezzare «Bianchi Luca» dava il cognome dove il
+    modello chiedeva il nome, e sbagliava comunque su ogni cognome composto.
+  */
+  const firstNames = recipient.positions.map(
+    (position) => position.athleteFirstName || position.athleteName,
+  );
+  const lastNames = recipient.positions.map(
+    (position) => position.athleteLastName,
+  );
 
   return {
     "recipient.name": recipient.name,
@@ -144,38 +152,54 @@ const buildRecipientValues = (
  * chi preme sa distinguerli, e il modo piu semplice per dirlo e un
  * identificativo generato quando si apre la finestra di composizione.
  *
- * **Perche c'e comunque un ripiego.** Un chiamante che non lo manda non deve
- * perdere la protezione: si deriva allora dal contenuto e dall'ora, cosi due
- * invii identici a distanza di secondi restano uno.
+ * **Perche c'e comunque un ripiego, e perche non contiene l'ora.** Un chiamante
+ * che non lo manda non deve perdere la protezione. La prima versione metteva
+ * nella chiave il **numero d'ora** — `floor(now / 1h)` — e cosi due invii a un
+ * secondo di distanza a cavallo delle 11:00 producevano due chiavi diverse:
+ * nessuna esclusione, e tutti ricevevano una seconda volta. Un contatore a
+ * scatti non e una finestra.
+ *
+ * Il ripiego deriva quindi dal **solo contenuto**, e la protezione temporale la
+ * da la finestra scorrevole della rivendicazione
+ * (`BULK_FALLBACK_WINDOW_MS`), che non ha confini da attraversare.
  */
 export const resolveCommunicationId = ({
   declared,
   criteria,
   template,
-  now,
 }: {
   declared?: string | null;
   criteria: unknown;
   template: MessageTemplate;
-  now: Date;
-}) => {
+}): { id: string; derived: boolean } => {
   const wanted = asText(declared);
-  if (wanted) return wanted;
+  if (wanted) return { id: wanted, derived: false };
 
-  const hourBucket = Math.floor(now.getTime() / (60 * 60 * 1000));
-
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        criteria,
-        subject: template.subject,
-        body: template.body,
-        hourBucket,
-      }),
-    )
-    .digest("hex")
-    .slice(0, 32);
+  return {
+    id: createHash("sha256")
+      .update(
+        JSON.stringify({
+          criteria,
+          subject: template.subject,
+          body: template.body,
+        }),
+      )
+      .digest("hex")
+      .slice(0, 32),
+    derived: true,
+  };
 };
+
+/**
+ * Per quanto un invio **senza identificativo dichiarato** resta lo stesso invio.
+ *
+ * Un identificativo dichiarato descrive un gesto: l'occorrenza capita una volta
+ * sola e non si ripete mai. Uno derivato dal contenuto non sa distinguere «ho
+ * premuto due volte» da «rimando lo stesso testo la settimana prossima»: si
+ * sceglie allora una finestra, larga abbastanza da coprire un doppio invio e un
+ * ciclo a lotti, stretta abbastanza da non impedire un rinvio deliberato.
+ */
+export const BULK_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
 
 export type CommunicationDeliveryOutcome = {
   email: string;
@@ -253,14 +277,31 @@ const collect = async ({
   const role = actorRole ?? scope?.activeRole ?? null;
   assertCommunicationPermission(role, "communications.send");
 
-  const id = resolveCommunicationId({
+  /*
+    **L'anteprima restituisce nome ed email di ogni destinatario e di ogni
+    escluso**: e il posto in cui l'elenco nominativo si vede davvero, e finora
+    era l'unico che non chiedeva il permesso che lo governa. I due permessi
+    coincidono oggi, quindi non cambia niente per nessuno — ma il giorno in cui
+    si separassero questa riga sarebbe mancata **in silenzio**, che e la forma
+    dell'errore trovato in Wave 1 su `seasons/permissions.ts` e che questo
+    modulo dichiara di non ripetere.
+  */
+  assertCommunicationPermission(role, "communications.read_recipients");
+
+  const { id, derived } = resolveCommunicationId({
     declared: communicationId,
     criteria,
     template,
-    now,
   });
 
   const dedupKey = buildDedupKey("bulk", id);
+
+  /*
+    Un identificativo dichiarato descrive un gesto e non si ripete mai; uno
+    derivato dal contenuto vale per una finestra scorrevole. Vedi
+    `resolveCommunicationId`.
+  */
+  const retryAfterMs = derived ? BULK_FALLBACK_WINDOW_MS : null;
 
   const clubId = scope?.activeOrganizationId || asText(organizationId);
 
@@ -273,6 +314,7 @@ const collect = async ({
         organizationId: clubId,
         dedupKeys: [dedupKey],
         channel: "email",
+        retryAfterMs,
         now,
       })
     : new Set<string>();
@@ -300,6 +342,7 @@ const collect = async ({
   return {
     id,
     dedupKey,
+    retryAfterMs,
     audience,
     club,
     clubValues: buildClubValues(club),
@@ -419,7 +462,10 @@ export const sendCommunication = async (
   const now = input.now || new Date();
   const batchSize = Math.max(1, input.batchSize || BULK_BATCH_SIZE);
 
-  const [{ id, dedupKey, audience, clubValues, invalidPlaceholders }, emailConfigured] =
+  const [
+    { id, dedupKey, retryAfterMs, audience, clubValues, invalidPlaceholders },
+    emailConfigured,
+  ] =
     await Promise.all([collect({ ...input, now }), mailer.isConfigured()]);
 
   if (invalidPlaceholders.length > 0) {
@@ -503,8 +549,11 @@ export const sendCommunication = async (
       recipientEmail: recipient.email,
       athleteIds,
       subject: rendered.subject,
-      /* Una comunicazione e un'occorrenza: non si ripete mai da sola. */
-      retryAfterMs: null,
+      /*
+        Un'occorrenza dichiarata non si ripete mai; una derivata dal contenuto
+        vale per la finestra scorrevole.
+      */
+      retryAfterMs,
       now,
     });
 
@@ -531,6 +580,7 @@ export const sendCommunication = async (
       if (result.status !== "sent") {
         await settleDelivery({
           id: claim.id,
+          organizationId: claim.organizationId,
           status: "failed",
           reason: result.reason || "delivery_failed",
           now,
@@ -546,7 +596,7 @@ export const sendCommunication = async (
         continue;
       }
 
-      await settleDelivery({ id: claim.id, status: "sent", now });
+      await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
       deliveries.push({
         email: recipient.email,
         name: recipient.name,
@@ -575,6 +625,7 @@ export const sendCommunication = async (
     } catch (error: any) {
       await settleDelivery({
         id: claim.id,
+        organizationId: claim.organizationId,
         status: "failed",
         reason: "delivery_failed",
         now,
@@ -661,10 +712,11 @@ const writeInAppCopy = async ({
         data: { source: "communication", communicationId: sourceId },
       },
     });
-    await settleDelivery({ id: claim.id, status: "sent", now });
+    await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
   } catch {
     await settleDelivery({
       id: claim.id,
+      organizationId: claim.organizationId,
       status: "failed",
       reason: "in_app_failed",
       now,

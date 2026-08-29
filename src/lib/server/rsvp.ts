@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import { canParentAccessAthlete } from "./parent-dashboard";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import type { OrganizationAccessScope } from "./auth";
@@ -258,11 +259,19 @@ const loadClubAthletes = async (organizationId: string) => {
   }));
 };
 
+/*
+  **Il nome di una persona ha gia un proprietario.**
+
+  Qui c'era una copia privata, e ce n'erano quattro in tutta la Wave: tre
+  scrivevano «Nome Cognome», una «Cognome Nome», e nessuna leggeva le grafie
+  alternative (`nome`, `cognome`, `fullName`) che il proprietario canonico
+  gestisce. Lo stesso atleta compariva quindi in due ordini diversi fra
+  l'email di un'automazione e l'elenco RSVP dell'allenatore, e un'anagrafica
+  con i soli campi alternativi diventava «Atleta» in un messaggio e aveva il
+  nome giusto ovunque altrove.
+*/
 const athleteDisplayName = (athlete: Record<string, any>) =>
-  [asText(athlete.last_name), asText(athlete.first_name)]
-    .filter(Boolean)
-    .join(" ")
-    .trim() || "Atleta";
+  formatAthleteNameLastFirst(athlete);
 
 const eventStartsAt = (training: unknown) => {
   const date = getTrainingDate(training);
@@ -582,11 +591,37 @@ export const readEventRsvpSummary = async ({
 }): Promise<EventRsvpSummary> => {
   assertCommunicationPermission(scope?.activeRole, "rsvp.read");
 
-  const wanted = asText(organizationId) || asText(scope?.activeOrganizationId);
-  if (!wanted) throw accessDenied("nessun club attivo per questa sessione");
-  if (!scope.allowedOrganizationIds.includes(wanted)) {
+  /*
+    **Il ruolo e il club devono parlare dello stesso club.**
+
+    `activeRole` viene risolto sul club dell'intestazione `x-active-club-id`;
+    le righe si sceglievano invece su `organizationId`, che arriva dalla query
+    string, con il solo controllo «e fra quelli a cui hai accesso». Fra i due
+    c'e un buco che una persona qualunque puo attraversare: chi e proprietario
+    del proprio club **e genitore nel club del figlio** — la situazione piu
+    ordinaria che ci sia — passava il permesso come proprietario del primo e
+    leggeva il riepilogo del secondo: nomi di tutti gli atleti attesi, chi ha
+    risposto, e le **note libere delle famiglie**. Come genitore, in quel club,
+    non avrebbe `rsvp.read` affatto.
+
+    E la stessa regola gia scritta in `audience.ts`, `announcements.ts`,
+    `payment-links.ts` e `payment-reminders.ts`: si opera sul club **attivo**,
+    e un club dichiarato che diverge e un rifiuto, non una scelta.
+  */
+  const declared = asText(organizationId);
+  const active = asText(scope?.activeOrganizationId);
+
+  if (!active) throw accessDenied("nessun club attivo per questa sessione");
+  if (declared && declared !== active) {
+    throw accessDenied(
+      "si legge il club attivo, non un altro fra quelli a cui hai accesso",
+    );
+  }
+  if (!scope.allowedOrganizationIds.includes(active)) {
     throw accessDenied("il club richiesto non e fra quelli a cui hai accesso");
   }
+
+  const wanted = active;
 
   const wantedTrainingId = asText(trainingId);
   if (!wantedTrainingId) throw new Error("Allenamento mancante");

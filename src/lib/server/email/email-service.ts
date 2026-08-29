@@ -210,10 +210,12 @@ export const testSmtpDelivery = async (to: string) => {
  * scoprire una cosa che si scrive in una riga, e chi non ha un account non
  * puo nemmeno farlo.
  *
- * **Cosa non contiene, di proposito.** Nessun link di pagamento: richiede un
- * link firmato a scadenza, che e un pezzo di sicurezza a se ed e Wave 2
- * (PP-4). Nessun dato oltre al minimo che serve a riconoscere la posizione:
- * nome dell'atleta, residuo, rate scadute, prossima scadenza.
+ * **Cosa contiene, e cosa no.** Il minimo che serve a riconoscere la posizione
+ * — nome dell'atleta, residuo, rate scadute, prossima scadenza — piu, dalla
+ * Wave 2, **il link per pagare**: sollecitare senza dare il modo di pagare
+ * produce un secondo sollecito, ed e la ragione per cui G-06 esiste. Il link e
+ * facoltativo: un club che non incassa online riceve lo stesso messaggio senza
+ * quella riga, perche meglio un sollecito senza link che nessun sollecito.
  */
 export type PaymentReminderEmailContent = {
   to: string;
@@ -225,6 +227,8 @@ export type PaymentReminderEmailContent = {
   overdueCount: number;
   /** ISO, oppure `null` quando tutte le rate sollecitate sono gia scadute. */
   nextDueDate: string | null;
+  /** L'indirizzo per pagare, oppure vuoto quando il club non incassa online. */
+  paymentLink?: string;
 };
 
 const euroFormatter = new Intl.NumberFormat("it-IT", {
@@ -292,6 +296,17 @@ export const sendPaymentReminderEmail = async (
     ? `Gentile ${content.guardianName},`
     : "Gentile famiglia,";
 
+  /*
+    Il link, quando c'e, sta **dopo** i dati della posizione e prima della
+    chiusura: chi apre il messaggio deve prima riconoscere di cosa si parla e
+    poi trovare il gesto da fare. Un club che non incassa online riceve
+    esattamente il messaggio di prima, senza righe vuote.
+  */
+  const paymentLink = String(content.paymentLink || "").trim();
+  const linkLines = paymentLink
+    ? ["", "Puoi pagare da qui:", paymentLink]
+    : [];
+
   return sendTransactionalEmail({
     to: content.to,
     subject: `${content.clubName}: quote da regolarizzare per ${content.athleteName}`,
@@ -301,6 +316,7 @@ export const sendPaymentReminderEmail = async (
       `${content.clubName} ricorda che risultano quote ancora da versare.`,
       "",
       ...lines,
+      ...linkLines,
       "",
       "Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.",
       "",
@@ -310,6 +326,9 @@ export const sendPaymentReminderEmail = async (
       `<p>${escapeHtml(greeting)}</p>`,
       `<p>${escapeHtml(content.clubName)} ricorda che risultano quote ancora da versare.</p>`,
       `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`,
+      paymentLink
+        ? `<p><a href="${escapeHtml(paymentLink)}">Paga la quota</a></p>`
+        : "",
       "<p>Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.</p>",
       `<p>${escapeHtml(content.clubName)}</p>`,
     ].join(""),

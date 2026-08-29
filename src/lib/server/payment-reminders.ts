@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import { lockInstallmentAndTransaction } from "./payment-transactions";
 import {
   isEmailDeliveryConfigured,
@@ -6,6 +7,7 @@ import {
   type PaymentReminderEmailContent,
 } from "./email/email-service";
 import { readAthleteGuardianContacts } from "@/lib/athlete-guardians";
+import { resolveAbsolutePaymentLink } from "./payment-links";
 import {
   buildAudienceContacts,
   resolveGuardianAccounts,
@@ -56,10 +58,20 @@ import {
  *    archivio sotto blocco di riga, con la stessa finestra di riguardo di sei
  *    ore gia adottata dal sollecito sui documenti.
  *
- * **Cosa questo modulo non e.** Non e un motore di automazioni: il sollecito
- * di Wave 1 lo lancia una persona. Non e un secondo canale di notifica: si
- * scrive in `notifications` e si manda da `src/lib/server/email/`, punto.
- * Niente SMS, e nessun link di pagamento dentro il messaggio (Wave 2).
+ * **Cosa questo modulo non e.** Non e un motore di automazioni: questo sollecito
+ * lo lancia una persona. Non e un secondo canale di notifica: si scrive in
+ * `notifications` e si manda da `src/lib/server/email/`, punto. Niente SMS.
+ *
+ * **Cosa e cambiato con la Wave 2.** I contatti li risolve l'audience engine
+ * (ADR-0087), la rivendicazione e una riga del registro delle consegne
+ * (ADR-0084), e nel messaggio c'e **il link per pagare** (ADR-0085): il gap
+ * G-06 nasce da questo sollecito, e lasciarlo senza link avrebbe chiuso il gap
+ * ovunque tranne dove era stato aperto.
+ *
+ * Resta una differenza voluta dalla comunicazione massiva: il sollecito e **per
+ * atleta**, non per famiglia. Parla di una posizione economica — residuo, rate
+ * scadute, prossima scadenza — e fondere due figli in un messaggio solo direbbe
+ * un residuo che non e quello di nessuno dei due.
  */
 
 /** La finestra di riguardo: la stessa del sollecito sui documenti. */
@@ -77,12 +89,17 @@ export const PAYMENT_REMINDER_NOTIFICATION_TYPE = "payment_reminder";
  * - `no_account` — il tutore dichiara un account collegato che in questo club
  *   non esiste (o non e piu iscritto), e non c'e nessun indirizzo da cui
  *   recuperarlo;
- * - `already_reminded` — gia sollecitato entro la finestra di riguardo.
+ * - `already_reminded` — gia sollecitato entro la finestra di riguardo;
+ * - `not_active` — l'anagrafica e archiviata. La revisione di architettura ha
+ *   trovato che il sollecito non lo controllava, mentre l'audience engine si:
+ *   una famiglia che aveva lasciato il club veniva inseguita per una rata che
+ *   nessuno le avrebbe piu chiesto di persona.
  */
 export type PaymentReminderBlockReason =
   | "no_guardian"
   | "no_email"
   | "no_account"
+  | "not_active"
   | "already_reminded";
 
 /** Perche un invio **partito** non e arrivato. */
@@ -201,6 +218,19 @@ const defaultMailer: PaymentReminderMailer = {
 
 const asText = (value: unknown) => String(value ?? "").trim();
 
+/**
+ * Vero se l'anagrafica e attiva.
+ *
+ * Legge le due grafie che convivono — la colonna e il campo dentro `data` — con
+ * la stessa regola di `audience.ts` e della dashboard: due letture divergenti
+ * dello stesso stato solleciterebbero chi e stato archiviato in una schermata e
+ * non nell'altra.
+ */
+const athleteIsActive = (athlete: any) =>
+  String(asRecord(athlete?.data).status || athlete?.status || "active")
+    .trim()
+    .toLowerCase() === "active";
+
 const asRecord = (value: unknown): Record<string, any> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
@@ -262,11 +292,19 @@ const transactionClient = () => (prisma as any).paymentTransaction;
 const athleteClient = () => (prisma as any).athlete;
 const notificationClient = () => (prisma as any).notification;
 
+/*
+  **Il nome di una persona ha gia un proprietario.**
+
+  Qui c'era una copia privata, e ce n'erano quattro in tutta la Wave: tre
+  scrivevano «Nome Cognome», una «Cognome Nome», e nessuna leggeva le grafie
+  alternative (`nome`, `cognome`, `fullName`) che il proprietario canonico
+  gestisce. Lo stesso atleta compariva quindi in due ordini diversi fra
+  l'email di un'automazione e l'elenco RSVP dell'allenatore, e un'anagrafica
+  con i soli campi alternativi diventava «Atleta» in un messaggio e aveva il
+  nome giusto ovunque altrove.
+*/
 const athleteDisplayName = (athlete: any) =>
-  [athlete?.first_name, athlete?.last_name]
-    .map((value) => asText(value))
-    .filter(Boolean)
-    .join(" ") || "Atleta";
+  formatAthleteNameLastFirst(athlete);
 
 const toIsoOrNull = (value: unknown) => {
   if (!value) return null;
@@ -522,6 +560,45 @@ const collect = async ({
 
     const totals = summarizeLedgers(open);
     const athleteName = athleteDisplayName(athlete);
+
+    /*
+      **Un'anagrafica archiviata non si sollecita.** E la stessa regola che
+      l'audience engine applica gia (`not_active`), e che qui mancava: chi ha
+      lasciato il club restava nel pubblico del sollecito, e riceveva una
+      richiesta di pagamento per una rata che nessuno gli avrebbe piu chiesto
+      di persona. Compare fra i non raggiungibili con il motivo, perche chi ha
+      selezionato quella rata deve capire perche non produce niente.
+    */
+    if (!athleteIsActive(athlete)) {
+      work.push({
+        athlete,
+        athleteId,
+        athleteName,
+        ledgers: open,
+        position: {
+          athleteId,
+          athleteName,
+          chargeIds: open
+            .map((ledger) => asText(ledger.installmentId))
+            .filter(Boolean),
+          residualAmount: totals.residualAmount,
+          overdueCount: totals.overdueCount,
+          nextDueDate: nextFutureDueDate(open, now),
+        },
+        reachable: [],
+        unreachable: [
+          {
+            athleteId,
+            athleteName,
+            guardianId: null,
+            guardianName: null,
+            email: null,
+            reason: "not_active",
+          },
+        ],
+      });
+      continue;
+    }
     const position: PaymentReminderPosition = {
       athleteId,
       athleteName,
@@ -780,6 +857,7 @@ const claimRecipients = async (
  */
 const releaseClaim = async (
   deliveryId: string,
+  organizationId: string,
   reason: PaymentReminderFailureReason,
   now: Date,
 ) => {
@@ -789,7 +867,13 @@ const releaseClaim = async (
     di non aver ricevuto niente. E una riga fallita e comunque riprendibile
     subito, che e cio che «rilasciare» significava prima.
   */
-  await settleDelivery({ id: deliveryId, status: "failed", reason, now });
+  await settleDelivery({
+    id: deliveryId,
+    organizationId,
+    status: "failed",
+    reason,
+    now,
+  });
 };
 
 /**
@@ -917,6 +1001,29 @@ export const sendPaymentReminders = async ({
       }
 
       try {
+        /*
+          **Il link per pagare, dentro il sollecito** (G-06).
+
+          Si emette **dopo** la rivendicazione: un token emesso e poi scartato
+          perche il messaggio non e partito resterebbe valido trenta giorni
+          senza che nessuno lo abbia mai ricevuto.
+
+          Punta alla **prima rata ancora scoperta** fra quelle sollecitate:
+          e quella che la famiglia deve saldare per prima, e un link per
+          posizione — invece che uno per rata — costringerebbe a scegliere un
+          importo che nel frattempo puo essere cambiato. Il residuo lo
+          ricalcola comunque la pagina pubblica al riscatto.
+
+          Un club senza l'entitlement `online_payments` riceve la stringa
+          vuota, e il messaggio parte lo stesso: meglio un sollecito senza link
+          che nessun sollecito.
+        */
+        const paymentLink = await resolveAbsolutePaymentLink({
+          organizationId: clubId,
+          paymentId: entry.position.chargeIds[0] || "",
+          now,
+        });
+
         const result = await mailer.send({
           to: recipient.email,
           clubName,
@@ -925,11 +1032,13 @@ export const sendPaymentReminders = async ({
           residualAmount: entry.position.residualAmount,
           overdueCount: entry.position.overdueCount,
           nextDueDate: entry.position.nextDueDate,
+          paymentLink,
         });
 
         if (result.status !== "sent") {
           await releaseClaim(
             deliveryId,
+            clubId,
             result.reason === "email_not_configured"
               ? "email_not_configured"
               : "delivery_failed",
@@ -963,7 +1072,12 @@ export const sendPaymentReminders = async ({
           prima: fra la rivendicazione e questa riga la consegna puo fallire, e
           una riga gia marcata `sent` direbbe una cosa che non e successa.
         */
-        await settleDelivery({ id: deliveryId, status: "sent", now });
+        await settleDelivery({
+          id: deliveryId,
+          organizationId: clubId,
+          status: "sent",
+          now,
+        });
         deliveries.push({
           athleteId: recipient.athleteId,
           athleteName: recipient.athleteName,
@@ -1005,7 +1119,7 @@ export const sendPaymentReminders = async ({
           Un destinatario che fallisce non ferma gli altri: la segreteria deve
           poter vedere che tre su quattro sono partiti, e riprovare sul quarto.
         */
-        await releaseClaim(deliveryId, "delivery_failed", now);
+        await releaseClaim(deliveryId, clubId, "delivery_failed", now);
         deliveries.push({
           athleteId: recipient.athleteId,
           athleteName: recipient.athleteName,

@@ -71,7 +71,17 @@ export type AudienceContact = {
 /** La persona a cui il messaggio si riferisce. */
 export type AudienceSubject = {
   athleteId: string;
+  /** Il nome composto dal proprietario canonico, per mostrarlo. */
   athleteName: string;
+  /**
+   * Nome e cognome **separati**, perche un segnaposto ne chiede uno solo.
+   *
+   * Non si ricavano spezzando `athleteName`: quello e un nome **formattato**,
+   * e ricavarne i pezzi con uno `split(" ")` restituiva il cognome dove il
+   * modello chiedeva il nome — e sbagliava comunque su ogni cognome composto.
+   */
+  athleteFirstName?: string;
+  athleteLastName?: string;
   active?: boolean;
   contacts: AudienceContact[];
   /** Dati liberi che il chiamante vuole ritrovare accanto alla posizione. */
@@ -81,6 +91,8 @@ export type AudienceSubject = {
 export type AudiencePosition = {
   athleteId: string;
   athleteName: string;
+  athleteFirstName: string;
+  athleteLastName: string;
   guardianId: string;
   guardianName: string;
   context?: Record<string, unknown>;
@@ -229,6 +241,8 @@ export const buildAudienceSet = ({
       const position: AudiencePosition = {
         athleteId,
         athleteName,
+        athleteFirstName: String(subject.athleteFirstName || ""),
+        athleteLastName: String(subject.athleteLastName || ""),
         guardianId: contact.guardianId || "",
         guardianName: contact.guardianName || "",
         ...(subject.context ? { context: subject.context } : {}),
