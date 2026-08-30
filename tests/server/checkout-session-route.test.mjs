@@ -287,3 +287,53 @@ test("una rata di un'altra societa non si incassa sul club attivo", async () => 
     "nessun checkout deve partire su una rata di un'altra societa",
   );
 });
+
+/* ------------- 5. il club della sessione e quello su cui si agisce */
+
+/**
+ * **Lo scope si risolveva da una parte e il club si sceglieva dall'altra.**
+ *
+ * Lo scope veniva risolto da `x-active-club-id || clubId` — cioe preferendo
+ * l'**intestazione** — e il club su cui agire da `clubId || activeOrganizationId`
+ * — cioe preferendo il **corpo**. I due controlli sotto erano poi eseguiti sul
+ * valore del corpo, contro se stesso: `allowedOrganizationIds.includes(B)` e
+ * vero per chiunque appartenga a B, e non dice niente su quale club la
+ * sessione abbia dichiarato attivo.
+ *
+ * Mandando l'intestazione di A e il corpo di B, il calcolo degli entitlement,
+ * la verifica sulla rata e l'apertura del checkout lavoravano tutti su B
+ * mentre la sessione parlava di A.
+ */
+test("intestazione di un club e corpo di un altro: si rifiuta", async () => {
+  const response = await route.POST(
+    richiesta({ body: { clubId: ALTRO_CLUB }, clubHeader: CLUB }),
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.match(payload.error.message, /Accesso negato/);
+  assert.equal(
+    chiamate.filter((c) => c.url.includes("/checkout/sessions")).length,
+    0,
+  );
+});
+
+/**
+ * E il permesso, che non c'era affatto: un checkout impegna il club con il suo
+ * fornitore di pagamenti, e qualunque membro poteva aprirne uno su qualunque
+ * rata del club.
+ */
+test("un genitore non apre un checkout a nome del club", async () => {
+  const tessera = fake.rows("organizationUser").find((r) => r.id === "ou-1");
+  tessera.role = "parent";
+
+  const response = await route.POST(richiesta());
+  const payload = await response.json();
+
+  assert.equal(response.status, 403, JSON.stringify(payload));
+  assert.match(payload.error.message, /Accesso negato/);
+  assert.equal(
+    chiamate.filter((c) => c.url.includes("/checkout/sessions")).length,
+    0,
+  );
+});

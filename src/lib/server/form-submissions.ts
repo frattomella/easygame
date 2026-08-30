@@ -117,12 +117,23 @@ const resolveOrganizationId = (
   requested?: string | null,
 ) => {
   const wanted = asText(requested);
-  if (wanted) {
-    ensureOrganizationAccess(scope, wanted);
-    return wanted;
-  }
-  if (scope.activeOrganizationId) return scope.activeOrganizationId;
-  throw new Error("Nessun club attivo selezionato");
+  /*
+    **Il permesso non dipende da come la richiesta e scritta.**
+
+    Il controllo di ruolo viveva dentro `ensureOrganizationAccess`, ma questa
+    funzione la chiamava **solo** sul ramo in cui il chiamante nominava un
+    club. Il percorso ordinario del client non lo nomina — manda solo
+    l'intestazione del club attivo — e prendeva quindi il ramo sotto, dove non
+    c'era nessun controllo: la porta era chiusa a chi bussava e aperta a chi
+    entrava dal lato.
+
+    Ora il club si **risolve** prima, e si giudica sempre lo stesso: quello su
+    cui si sta per lavorare.
+  */
+  const risolto = wanted || asText(scope.activeOrganizationId);
+  if (!risolto) throw new Error("Nessun club attivo selezionato");
+  ensureOrganizationAccess(scope, risolto);
+  return risolto;
 };
 
 /* ------------------------------------------------------------ soggetti */

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import type { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
 import {
@@ -233,6 +234,14 @@ type ResourceAccessScope = {
   userId: string;
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
+  /*
+    **Il ruolo nel club attivo** (ADR-0094). Il tipo non lo dichiarava, quindi
+    qui dentro non esisteva: le rotte lo risolvevano e lo passavano, e questo
+    modulo non poteva leggerlo nemmeno volendo. Il confine dice su quale club;
+    il ruolo dice cosa ci si puo fare, e i due controlli sono entrambi
+    obbligatori.
+  */
+  activeRole?: string | null;
 };
 
 /**
@@ -452,10 +461,27 @@ const assertRecordAccess = (
     return;
   }
 
-  ensureOrganizationAccess(
-    scope,
-    resolveRecordOrganizationId(resource, record),
-  );
+  const suoClub = resolveRecordOrganizationId(resource, record);
+
+  /*
+    **Una riga di club senza club non e di nessuno, e non e di chi la chiede.**
+
+    `ensureOrganizationAccess` esce senza negare quando il club e `null`, ed e
+    giusto nel suo altro mestiere — guardare un club **richiesto**, dove
+    `null` vuol dire «non ne hai chiesto uno». Qui `null` vuol dire un'altra
+    cosa: che questa riga non dichiara a chi appartiene.
+
+    E la stessa forma del difetto di `users`, una colonna piu stretta:
+    `Notification.organization_id` e nullabile, quindi
+    `GET/PATCH/DELETE /api/v1/notifications/&lt;id&gt;` raggiungeva una notifica
+    senza club da qualunque club. `assertOgniRisorsaDichiaraIlConfine`
+    verifica che l'etichetta ci sia, non che lo schema la sappia sostenere.
+  */
+  if (!suoClub) {
+    throw new Error("Accesso negato alla risorsa del club");
+  }
+
+  ensureOrganizationAccess(scope, suoClub);
 };
 
 export const API_REGISTRY = [
@@ -1138,7 +1164,94 @@ const normalizeModelInput = async (
   return stripUndefined(next);
 };
 
-const syncUserClubAccess = async (user_id: string, club_access: any) => {
+/**
+ * **Una tessera non si firma da soli.**
+ *
+ * `organization_users` non e una tabella qualunque: e cio che decide, per
+ * ogni richiesta successiva, quali club un utente puo dichiarare attivi e con
+ * che ruolo. Scriverci una riga non aggiunge un dato — aggiunge un
+ * **permesso**, e lo aggiunge a monte di ogni confine che questa Wave ha
+ * costruito.
+ *
+ * Il difetto che questa funzione chiude aveva esattamente questa forma. La
+ * riga modificata era quella dell'attaccante — quindi `assertRecordAccess`
+ * passava, correttamente: e davvero sua — ma il corpo della richiesta portava
+ * un `club_access` che nominava **un club qualsiasi** con ruolo `owner`, e
+ * nessuno lo leggeva. Da li in poi l'attaccante era owner di quel club per
+ * davvero: `resolveOrganizationScopeForUser` gli risolveva `activeRole =
+ * "owner"`, e `belongsToActiveClub` gli dava ragione, perche a quel punto
+ * **aveva ragione**. Il confine multi-tenant non veniva aggirato: veniva
+ * spostato.
+ *
+ * ## Le tre sole ragioni per cui una tessera puo nascere
+ *
+ * 1. **Chi ha creato il club.** E il solo caso in cui una tessera nasce senza
+ *    che nessuno l'abbia gia: la registrazione con club proprio.
+ * 2. **La tessera c'e gia con quel ruolo.** Riscriverla non concede niente —
+ *    e cio che serve ai flussi che rimandano l'elenco intero per cambiare
+ *    `is_primary`.
+ * 3. **Un amministratore del club attivo** che ne tessera un altro. Qui il
+ *    club dev'essere quello **attivo**, non uno qualsiasi fra quelli
+ *    dell'utente: il ruolo con cui si giudica e `activeRole` (ADR-0094).
+ *
+ * Tutto il resto e negato. In particolare lo e la pagina di verifica del
+ * token, che si tesserava da sola dopo aver chiesto a `validateUserToken` un
+ * parere che quella funzione non da: legge la **lunghezza** della stringa e
+ * risponde `valid: true`. Non era un invito redento, era un invito
+ * dichiarato dal browser; negarlo non toglie una funzione, toglie una porta.
+ */
+const assertConcessioneDiAccessoLecita = async (
+  organization_id: string,
+  user_id: string,
+  role: string,
+  scope?: ResourceAccessScope,
+) => {
+  /*
+    Senza sessione siamo in un percorso interno (registrazione, seed, script):
+    li il confine lo garantisce il chiamante, che non prende niente dalla rete.
+  */
+  if (!scope) {
+    return;
+  }
+
+  const chiamante = String(scope.userId ?? "").trim();
+  const bersaglio = String(user_id ?? "").trim();
+
+  if (chiamante && bersaglio === chiamante) {
+    const club = await prisma.club.findUnique({
+      where: { id: organization_id },
+      select: { creator_id: true },
+    });
+    if (club?.creator_id && String(club.creator_id) === chiamante) {
+      return;
+    }
+  }
+
+  const gia = await prisma.organizationUser.findFirst({
+    where: { organization_id, user_id: bersaglio, role },
+    select: { id: true },
+  });
+  if (gia) {
+    return;
+  }
+
+  if (
+    belongsToActiveClub(scope, organization_id) &&
+    canManageClubConfiguration(scope.activeRole)
+  ) {
+    return;
+  }
+
+  throw new Error(
+    "Accesso negato: l'accesso a un club non si concede da soli",
+  );
+};
+
+const syncUserClubAccess = async (
+  user_id: string,
+  club_access: any,
+  scope?: ResourceAccessScope,
+) => {
   if (!Array.isArray(club_access)) {
     return;
   }
@@ -1150,6 +1263,12 @@ const syncUserClubAccess = async (user_id: string, club_access: any) => {
     }
 
     const role = access?.role || "member";
+    await assertConcessioneDiAccessoLecita(
+      String(organization_id),
+      user_id,
+      String(role),
+      scope,
+    );
     const existingAccess = await prisma.organizationUser.findFirst({
       where: {
         organization_id,
@@ -3484,6 +3603,17 @@ export const createResource = async (
       role: String(role),
       is_primary: Boolean(normalized.is_primary),
     };
+    /*
+      La stessa concessione, dalla porta principale: `POST
+      /api/v1/organization_users` in `upsert` scriveva la tessera senza che
+      `assertRecordAccess` la vedesse mai, perche il ramo esce prima.
+    */
+    await assertConcessioneDiAccessoLecita(
+      String(normalized.organization_id),
+      String(normalized.user_id),
+      String(role),
+      scope,
+    );
     const existingAccess = await prisma.organizationUser.findFirst({
       where: {
         organization_id: normalized.organization_id,
@@ -3504,9 +3634,45 @@ export const createResource = async (
     return serializeRecord(resource, record);
   }
 
+  /*
+    **Un `upsert` che trova la riga la sta modificando.**
+
+    `assertRecordAccess` era chiamata in `getResourceById`, `updateResource`
+    e `deleteResource` — cioe su tutte le porte tranne una. `createResource`
+    non la eseguiva **mai**, e in modo `upsert` non crea affatto: aggiorna
+    per chiave, e la chiave la sceglie chi chiama.
+
+    Su `users` la chiave e l'email (`resolveUpsertWhere`), e
+    `normalizeModelInput` trasforma diligentemente `password` in
+    `password_hash`. Bastava quindi
+
+        POST /api/v1/users  {"mode":"upsert","data":{"email":"&lt;vittima&gt;","password":"..."}}
+
+    da un account appena registrato per riscrivere la password di chiunque —
+    compreso un indirizzo in `EASYGAME_PLATFORM_ADMIN_EMAILS`. Il divieto di
+    scrivere `users.role` restava intatto e del tutto inutile: non serviva
+    diventare amministratore, bastava entrare nel suo account.
+
+    La riga esistente si legge **prima**, e si giudica con lo stesso metro di
+    ogni altra porta.
+  */
   if (mode === "upsert") {
     const where = resolveUpsertWhere(resource, normalized);
     if (where) {
+      if (scope) {
+        const esistente = await delegate.findUnique({ where });
+        if (esistente) {
+          assertRecordAccess(resource, esistente, scope);
+        } else if (isPersonalResource(resource)) {
+          /*
+            Una risorsa personale che **non** esiste ancora: crearla per conto
+            di un altro significherebbe fabbricare l'identita di qualcuno. La
+            registrazione passa da `auth/register`, che non ha scope.
+          */
+          throw new Error("Accesso negato alla risorsa del club");
+        }
+      }
+
       const record = await delegate.upsert({
         where,
         update: normalized,
@@ -3515,7 +3681,7 @@ export const createResource = async (
       });
 
       if (resource === "users") {
-        await syncUserClubAccess(record.id, input.club_access);
+        await syncUserClubAccess(record.id, input.club_access, scope);
       }
 
       if (resource === "clubs" || resource === "organizations") {
@@ -3556,13 +3722,23 @@ export const createResource = async (
     }
   }
 
+  /*
+    E la creazione vera: una riga personale nasce solo per chi la chiede.
+  */
+  if (scope && isPersonalResource(resource)) {
+    const nascente = String(normalized.id ?? "").trim();
+    if (!nascente || nascente !== String(scope.userId ?? "").trim()) {
+      throw new Error("Accesso negato alla risorsa del club");
+    }
+  }
+
   const record = await delegate.create({
     data: normalized,
     include: getModelInclude(resource),
   });
 
   if (resource === "users") {
-    await syncUserClubAccess(record.id, input.club_access);
+    await syncUserClubAccess(record.id, input.club_access, scope);
   }
 
   if (resource === "clubs" || resource === "organizations") {
@@ -4012,7 +4188,7 @@ export const updateResource = async (
   });
 
   if (resource === "users") {
-    await syncUserClubAccess(record.id, input.club_access);
+    await syncUserClubAccess(record.id, input.club_access, scope);
   }
 
   if (resource === "clubs" || resource === "organizations") {

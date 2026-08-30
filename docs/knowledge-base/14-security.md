@@ -849,3 +849,69 @@ sono andate le cose.
 rispetto a incassi e contributi. Un audit dimenticato in una delle rotte
 sarebbe un audit che manca proprio nel caso in cui serve.
 
+
+## Wave 4 — la terza tornata di revisione ostile (2026-08-30)
+
+Tre revisioni indipendenti di conferma — sicurezza, contabilita/concorrenza,
+fiscale/interfaccia — su codice gia corretto e gia verde. Hanno trovato **due
+Critical di sicurezza**, **due Critical di contabilita**, **due Critical di
+prodotto** e undici fra High e Medium. Nessuno era visibile ai 3.529 test che
+passavano.
+
+### I due Critical di sicurezza, e perche i confini non li vedevano
+
+| | Difetto | Perche il confine non bastava |
+|---|---|---|
+| **C1** | `createResource` non chiamava **mai** `assertRecordAccess`. In modo `upsert` la chiave la sceglie chi chiama: su `users` e l'email, e `password` diventa `password_hash` per strada. Un account appena registrato riscriveva la password di chiunque, compreso un indirizzo in `EASYGAME_PLATFORM_ADMIN_EMAILS` | Il confine c'era su tre porte di quattro. La quarta non aveva un controllo **sbagliato**: non ne aveva affatto — la stessa forma dei difetti di `users` e `assets` |
+| **C2** | `club_access` nel corpo di una richiesta scriveva `organization_users` senza controlli. La riga modificata era la **propria**, quindi `assertRecordAccess` passava correttamente; il corpo nominava un club qualsiasi con ruolo `owner` | Il confine non veniva aggirato: veniva **spostato**. Dopo la scrittura l'attaccante era owner davvero, e ogni controllo successivo gli dava ragione a buon diritto |
+
+Chiusi da `assertRecordAccess` in `createResource` (piu il divieto di creare
+una risorsa personale per conto di un altro) e da
+`assertConcessioneDiAccessoLecita`, che ammette una tessera nuova solo per il
+fondatore del club, per una tessera che esiste gia con quel ruolo, o da un
+amministratore del club **attivo**. Vedi ADR-0097.
+
+### Le altre porte chiuse nella stessa tornata
+
+- **il permesso saltato dal percorso ordinario.** Contributi, moduli e
+  compilazioni: il controllo di ruolo era dentro `ensureOrganizationAccess`,
+  chiamata solo quando il chiamante nominava un club. Il client non lo nomina.
+  Restavano aperti a un genitore o a un atleta: quali famiglie sono a voucher e
+  per quanto, le compilazioni con codice fiscale e tutori, e la **creazione** di
+  un modulo a nome della societa;
+- **una riga di club senza club.** `Notification.organization_id` e nullabile;
+  `ensureOrganizationAccess` con `null` usciva **senza negare**. Ora
+  `assertRecordAccess` nega: una riga che non dichiara a chi appartiene non e
+  di chi la chiede. `assertOgniRisorsaDichiaraIlConfine` verifica che
+  l'etichetta ci sia, **non** che lo schema la sappia sostenere;
+- **il checkout, risolto da una parte e agito dall'altra.** Lo scope veniva
+  risolto preferendo l'intestazione, il club su cui agire preferendo il corpo, e
+  i due controlli erano poi eseguiti sul valore del corpo contro se stesso.
+  Intestazione di A e corpo di B facevano lavorare entitlement, verifica della
+  rata e apertura del checkout su B mentre la sessione parlava di A. La rotta
+  non aveva **nessun** controllo di ruolo;
+- **`GET /api/v1/auth/memberships`**, che sceglie le colonne a mano e percio
+  non passa da `serializeRecord`: mandava l'intero `clubs.settings` — piano e
+  stato dell'abbonamento, `paymentSettings`, riferimento della firma, campi
+  fiscali storici — di **ogni** club dell'utente, attivo o no. Ne esce ora la
+  sola parte che il client legge: le stagioni.
+
+### Cosa presidia
+
+- `tests/server/concessione-accesso.test.mjs` — le due porte di scrittura;
+- `tests/server/permesso-senza-club-esplicito.test.mjs` — ogni lettura provata
+  **due volte**, nominando il club e tacendolo: sono le due scritture della
+  stessa richiesta e devono ricevere la stessa risposta;
+- `tests/server/confine-righe-senza-club.test.mjs` — la riga senza club;
+- `tests/server/memberships-configurazione-club.test.mjs` — la configurazione
+  che non esce;
+- `tests/server/checkout-session-route.test.mjs` — intestazione e corpo
+  discordi, e il ruolo.
+
+### Un rischio che resta, e non e un difetto di questo codice
+
+`validateUserToken` (`src/lib/auth.ts`) **non valida niente**: controlla la
+lunghezza della stringa e risponde `valid: true`. La pagina di verifica del
+token se ne serviva per tesserare l'utente nel club, e quella strada e ora
+chiusa dal lato della scrittura. La funzione resta, e finche resta e una
+promessa non mantenuta: vedi il debito **W4-R6**.

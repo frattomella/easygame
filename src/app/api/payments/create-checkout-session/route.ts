@@ -3,6 +3,8 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
+import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
+import { canAccessClubResource } from "@/lib/access-roles";
 import { openGatewayCheckout } from "@/lib/server/payment-gateway";
 import { requireClubEntitlement } from "@/lib/server/entitlements";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
@@ -106,17 +108,33 @@ export async function POST(request: Request) {
       nessun test se n'era accorto perche nessuno chiamava la rotta come la
       chiama l'interfaccia.
 
-      Quando il corpo lo porta comunque — un chiamante piu vecchio — vince
-      quello: e un vincolo in piu, non uno in meno, e resta soggetto ai due
-      controlli qui sotto.
+      Quando il corpo ne porta uno **diverso** da quello della sessione, non
+      vince: si rifiuta. Prima vinceva, e i due controlli qui sotto erano
+      eseguiti sul valore del corpo — cioe esattamente sul valore di cui non ci
+      si fida — mentre la sessione ne aveva risolto un altro. Bastava mandare
+      l'intestazione di un club e il corpo di un altro perche il calcolo degli
+      entitlement, la verifica sulla rata e l'apertura del checkout lavorassero
+      tutti su un club che la sessione non aveva mai nominato.
     */
-    const organizationId = clubId || String(scope.activeOrganizationId || "");
+    const organizationId = String(scope.activeOrganizationId || "");
 
     if (!organizationId) {
       return jsonError("Club non disponibile");
     }
 
-    if (!scope.allowedOrganizationIds.includes(organizationId)) {
+    if (clubId && clubId !== organizationId) {
+      return jsonError("Accesso negato al club", 403);
+    }
+
+    if (!belongsToActiveClub(scope, organizationId)) {
+      return jsonError("Accesso negato al club", 403);
+    }
+
+    /*
+      **E il permesso, che non c'era affatto.** Un checkout impegna il club con
+      il suo fornitore di pagamenti: non lo apre chiunque appartenga al club.
+    */
+    if (!canAccessClubResource(scope.activeRole, "payments", "read")) {
       return jsonError("Accesso negato al club", 403);
     }
 

@@ -28,6 +28,25 @@ export async function GET(request: Request) {
       settings: true,
     } as const;
 
+    /**
+     * **Di `settings` esce la sola parte che il client legge.**
+     *
+     * Questa rotta sceglie le colonne a mano, quindi non passa da
+     * `serializeRecord` e non conosce `CLUB_CAMPI_DI_IDENTITA`: mandava
+     * l'intero `clubs.settings` — piano e stato dell'abbonamento, riferimento
+     * della firma, `paymentSettings`, campi fiscali storici — di **ogni**
+     * club dell'utente, attivo o no. E la colonna JSON piu grande della riga,
+     * e contraddiceva l'invariante che il resto della Wave ha costruito: del
+     * club non attivo escono le sole colonne che servono a sceglierlo.
+     *
+     * Il client ne legge una cosa sola: le stagioni
+     * (`AuthProvider.buildActiveClubFromMembership`).
+     */
+    const soloStagioni = (settings: unknown) => {
+      const valore = settings && typeof settings === "object" ? (settings as any) : {};
+      return { seasons: valore.seasons ?? null };
+    };
+
     // Letture indipendenti, eseguite in parallelo: questa rotta e sul percorso
     // critico di ogni caricamento di pagina (AuthProvider).
     const [memberships, ownedClubs] = await Promise.all([
@@ -51,11 +70,15 @@ export async function GET(request: Request) {
       }),
     ]);
 
+    const ridotto = (club: any) =>
+      club ? { ...club, settings: soloStagioni(club.settings) } : club;
+
     const membershipRows = memberships.map((membership) => ({
       ...membership,
       access_kind: "membership",
       is_ownership_record: false,
-      organizations: membership.organization,
+      organization: ridotto(membership.organization),
+      organizations: ridotto(membership.organization),
     }));
 
     const ownershipRows = ownedClubs.map((club) => {
@@ -76,8 +99,8 @@ export async function GET(request: Request) {
         is_ownership_record: true,
         created_at: club.created_at,
         updated_at: club.created_at,
-        organization: club,
-        organizations: club,
+        organization: ridotto(club),
+        organizations: ridotto(club),
       };
     });
 
