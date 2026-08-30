@@ -729,6 +729,23 @@ const resolveAmountCents = (input: {
  * scrive. Il confine lo mette questa lettura, e il messaggio non dice se quel
  * conto esista altrove.
  */
+/**
+ * Lo spazio dei nomi di una chiave di idempotenza mandata dal client.
+ *
+ * Il prefisso e cio che la rende innocua: un client puo collidere con le
+ * proprie richieste e con nessun'altra, e non puo occupare la chiave di un
+ * evento di dominio.
+ */
+const chiaveIdempotenteDelClient = (
+  chiave: unknown,
+  scope?: AccountingScope,
+) => {
+  const testo = asText(chiave);
+  if (!testo) return null;
+  const utente = asText(scope?.userId) || "anonimo";
+  return `client:${utente}:${testo.slice(0, 120)}`;
+};
+
 const ensureAccountBelongsToClub = async (
   client: any,
   organizationId: string,
@@ -809,9 +826,48 @@ export const createAccountingEntry = async (
      * occupandone la chiave.
      */
     sourceEventKey?: string | null;
+    /**
+     * **La chiave che un client puo mandare, e che non puo occupare.**
+     *
+     * L'obiezione qui sopra e giusta: se il client scegliesse
+     * `sourceEventKey` potrebbe **impedire** la registrazione di un movimento
+     * legittimo, prendendone la chiave. Ma senza nessuna chiave un tentativo
+     * ripetuto — una richiesta andata in timeout e rimandata — scrive il
+     * movimento due volte, e sono soldi contati due volte.
+     *
+     * Misurato da un audit indipendente: cinque chiamate identiche
+     * simultanee, cinque righe, **10.000 euro duplicati** su un affitto da
+     * 2.500.
+     *
+     * La chiave del client vive percio in uno spazio dei nomi **suo**:
+     * `client:<utente>:<chiave>`. Puo collidere solo con se stessa — che e
+     * esattamente cio che serve — e non puo toccare le chiavi degli eventi di
+     * dominio, che quel prefisso non ce l'hanno.
+     */
+    clientRequestKey?: unknown;
   },
 ) => {
   const organizationId = resolveOrganizationId(scope, input.organizationId);
+
+  /*
+    Se il tentativo e gia stato scritto, si restituisce quello: un secondo
+    invio della stessa richiesta non e un secondo movimento.
+  */
+  const chiaveDelClient = chiaveIdempotenteDelClient(
+    options?.clientRequestKey,
+    scope,
+  );
+  if (chiaveDelClient) {
+    const gia = await (prisma as any).accountingEntry.findFirst({
+      where: {
+        organization_id: organizationId,
+        source_event_key: chiaveDelClient,
+        reversed_at: null,
+      },
+    });
+    if (gia) return gia;
+  }
+
   const entryDate = toDateOrNull(input.entryDate);
   const direction = normalizeDirection(input.direction);
   const amountCents = resolveAmountCents(input);
@@ -850,7 +906,8 @@ export const createAccountingEntry = async (
         payment_method: asText(input.paymentMethod) || null,
         ...counterpartyColumns(input),
         source_domain: "MANUAL",
-        source_event_key: asText(options?.sourceEventKey) || null,
+        source_event_key:
+          asText(options?.sourceEventKey) || chiaveDelClient || null,
         document_kind: asText(input.documentKind) || null,
         document_id: asText(input.documentId) || null,
         site_id: asText(input.siteId) || null,

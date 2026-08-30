@@ -967,21 +967,6 @@ const normalizeCommonAliases = (input: Record<string, any>) => {
     next.organization_id = next.club_id;
   }
 
-  /*
-    **`birthDate` e un alias, e da quando il corpo viene filtrato sullo schema
-    va tradotto qui.**
-
-    Prima arrivava fino a Prisma e faceva fallire la scrittura con un messaggio
-    che diceva anche come correggerlo (`Did you mean \`birth_date\`?`); adesso
-    verrebbe tolto **in silenzio**, e la validazione della data di nascita —
-    che lo cerca ancora — non lo vedrebbe piu. Una data impossibile passerebbe
-    senza errore e senza essere scritta.
-  */
-  if (next.birthDate !== undefined && next.birth_date === undefined) {
-    next.birth_date = next.birthDate;
-  }
-  delete next.birthDate;
-
   delete next.club_id;
   delete next.organizations;
   delete next.athletes;
@@ -1071,6 +1056,25 @@ const normalizeModelInput = async (
     ...normalizeCommonAliases(input),
     ...preservedClubJsonFields,
   };
+
+  /*
+    **`birthDate` e un alias di colonna, e vale solo dove ci sono colonne.**
+
+    Da quando il corpo viene filtrato sullo schema, la chiave in camelCase
+    verrebbe tolta **in silenzio** — e con lei la validazione della data di
+    nascita, che la cerca ancora: una data impossibile passerebbe senza errore
+    e senza essere scritta. Prima almeno Prisma rifiutava, suggerendo il nome
+    giusto.
+
+    Sta qui e non in `normalizeCommonAliases` perche quella funzione la
+    chiamano anche le risorse di **club**, dove non esiste nessuna colonna
+    `birth_date` e la chiave finisce dentro un `payload` JSON: li rinominarla
+    cambierebbe il dato di sponsor e staff senza che nessuno lo abbia chiesto.
+  */
+  if (next.birthDate !== undefined && next.birth_date === undefined) {
+    next.birth_date = next.birthDate;
+  }
+  delete next.birthDate;
 
   if (resource === "payments" || resource === "simplified_payments") {
     next = normalizeAthletePaymentInput(next);

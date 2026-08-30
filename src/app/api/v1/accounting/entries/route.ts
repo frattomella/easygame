@@ -135,6 +135,18 @@ export const POST = accountingRoute(
         bankReference: body.bank_reference ?? body.bankReference,
       },
       scope,
+      {
+        /*
+          **La chiave di idempotenza del client.**
+
+          Senza, una richiesta andata in timeout e rimandata scrive il
+          movimento due volte: misurato, cinque invii identici hanno prodotto
+          cinque righe e diecimila euro duplicati su un affitto da 2.500. La
+          chiave vive in uno spazio dei nomi intestato al chiamante, quindi puo
+          collidere solo con le proprie richieste.
+        */
+        clientRequestKey: body.client_request_key ?? body.clientRequestKey,
+      },
     );
 
     return ok(entry, 201);

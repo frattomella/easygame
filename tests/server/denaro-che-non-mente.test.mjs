@@ -241,3 +241,66 @@ test("annullato il documento, lo storno passa", async () => {
     .find((riga) => riga.id === esito.transaction.id);
   assert.ok(originale.reversed_at);
 });
+
+/* ================================ 4. il tentativo ripetuto === */
+
+/**
+ * **Un secondo invio della stessa richiesta non e un secondo movimento.**
+ *
+ * Senza una chiave, cinque chiamate identiche producevano cinque righe:
+ * diecimila euro duplicati su un affitto da 2.500. Il campo interno
+ * `sourceEventKey` esisteva ma nessuna rotta lo imposta, e per una ragione
+ * buona — un client che potesse sceglierlo potrebbe **impedire** la
+ * registrazione di un movimento legittimo occupandone la chiave.
+ *
+ * La chiave del client vive percio in uno spazio dei nomi intestato a lui:
+ * puo collidere solo con se stessa.
+ */
+test("due invii della stessa richiesta scrivono un movimento solo", async () => {
+  const corpo = {
+    entryDate: "2026-11-02T00:00:00.000Z",
+    direction: "OUT",
+    amount: 2500,
+    financialAccountId: CONTO,
+    operationTypeCode: "quota_attivita",
+    description: "Affitto impianto",
+  };
+  const chiave = { clientRequestKey: "richiesta-1" };
+
+  const primo = await registro.createAccountingEntry(corpo, scope(), chiave);
+  const secondo = await registro.createAccountingEntry(corpo, scope(), chiave);
+
+  assert.equal(secondo.id, primo.id, "il secondo invio restituisce il primo");
+  assert.equal(
+    fake.rows("accountingEntry").filter((r) => r.description === "Affitto impianto")
+      .length,
+    1,
+  );
+});
+
+test("la chiave di un client non tocca quella di un altro", async () => {
+  const corpo = {
+    entryDate: "2026-11-02T00:00:00.000Z",
+    direction: "OUT",
+    amount: 2500,
+    financialAccountId: CONTO,
+    operationTypeCode: "quota_attivita",
+    description: "Affitto impianto",
+  };
+
+  await registro.createAccountingEntry(corpo, scope(), {
+    clientRequestKey: "stessa-chiave",
+  });
+  await registro.createAccountingEntry(
+    corpo,
+    { ...scope(), userId: "utente-8" },
+    { clientRequestKey: "stessa-chiave" },
+  );
+
+  assert.equal(
+    fake.rows("accountingEntry").filter((r) => r.description === "Affitto impianto")
+      .length,
+    2,
+    "due segretarie diverse registrano due movimenti, e devono",
+  );
+});

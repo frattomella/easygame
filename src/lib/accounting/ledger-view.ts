@@ -306,6 +306,23 @@ const dataStorica = (value: unknown): string | null => {
   if (Number(anno) < 1) return null;
 
   /*
+    **Postgres rifiuta una data che non entra nel buffer del suo parser.**
+
+    Oltre una certa lunghezza `ParseDateTime` alza `22007` e la stringa viene
+    scartata per intero, mentre JavaScript la legge senza battere ciglio. Le
+    due soglie sono state **misurate**, non dedotte: 130 cifre di frazione
+    senza fuso, 123 con — il fuso occupa un campo in piu.
+
+    La soglia e sulla **lunghezza complessiva**, non sulle cifre della
+    frazione: 150 caratteri senza fuso e 149 con, perche il fuso occupa un
+    campo in piu del buffer. Misurate, non dedotte.
+
+    Non e una perdita: oltre il microsecondo nessuna delle due letture
+    conserva altra precisione.
+  */
+  if (testo.length > (fuso ? 149 : 150)) return null;
+
+  /*
     **L'orologio da muro, letto come UTC.**
 
     E cio che fa `valore::timestamp` in Postgres, e non e cio che faceva
