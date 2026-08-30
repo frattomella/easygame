@@ -1491,6 +1491,35 @@ const findClubResourceRecord = async (
 export const DOMAIN_OWNED_RESOURCE_ITEM_TYPES = [
   "announcements",
   "automation_rules",
+  /*
+    **La terza porta della prima nota, che la Wave 4 credeva chiusa.**
+
+    Il commento in `src/lib/accounting/permissions.ts` la descriveva **al
+    passato** — «il CRUD generico su `transactions` e `transfers` *rispondeva*
+    200 e permetteva di cancellare» — e l'audit ha dimostrato che era ancora
+    aperta, e a **staff e collaboratori**.
+
+    Perche conta: quelle righe non sono denaro inerte. `projectLegacyClubMovements`
+    le proietta **nella prima nota**, e cancellarne una faceva sparire una riga
+    dal registro senza storno, senza autore e senza una traccia con l'id del
+    movimento. Cioe annullava D-3, che e l'invariante centrale di questa Wave:
+    il denaro non si cancella.
+
+    Il registro nuovo chiede `accounting.manage` per scrivere e
+    `accounting.reverse` per stornare, e un `DELETE` non ce l'ha affatto. La
+    porta accanto lo concedeva a chi non ha nessuno dei due.
+  */
+  "transactions",
+  "transfers",
+  /*
+    Le previsioni hanno un proprietario dalla Wave 4
+    (`src/lib/server/expected-entries.ts`), che scrive **una riga** sotto un
+    lock invece di riscrivere l'intera collezione dal browser. La vecchia porta
+    resterebbe l'unico modo di perdere una previsione scritta da qualcun altro
+    nello stesso minuto.
+  */
+  "expected_income",
+  "expected_expenses",
 ] as const;
 
 /**
@@ -1557,11 +1586,21 @@ const assertNotDomainOwnedResourceItem = (
   resource: string,
   value: unknown,
 ) => {
-  if (resource !== "club_resource_items") return;
-  if (!isDomainOwnedResourceItemType(value)) return;
+  /*
+    **Due modi di arrivare alla stessa riga, e la guardia deve coprirli
+    entrambi.**
+
+    `club_resource_items` e la risorsa di modello, e il tipo arriva nel
+    payload; ma ogni voce di `CLUB_RESOURCE_TYPES` ha **anche** una rotta
+    propria — `/api/v1/transactions` — dove il tipo **e** il nome della
+    risorsa. La prima versione della guardia guardava solo la prima porta, e
+    l'audit e entrato dalla seconda.
+  */
+  const tipo = resource === "club_resource_items" ? value : resource;
+  if (!isDomainOwnedResourceItemType(tipo)) return;
 
   throw new Error(
-    `Accesso negato: ${String(value).trim()} si scrive dalla sua rotta, non dal registro generico`,
+    `Accesso negato: ${String(tipo).trim()} si scrive dalla sua rotta, non dal registro generico`,
   );
 };
 
@@ -3627,6 +3666,17 @@ export const deleteResource = async (
   const config = RESOURCE_CONFIG[resource];
 
   if (config.kind === "club_resource") {
+    /*
+      **La guardia di dominio viene prima della lettura.**
+
+      Quando e il **nome della risorsa** a dire che il dominio ha un
+      proprietario — `/api/v1/transactions` — non serve leggere la riga per
+      saperlo, e leggerla prima significherebbe rispondere «non trovata» a chi
+      indovina un identificativo e «Accesso negato» a chi lo azzecca: cioe dire
+      a un estraneo quali righe esistono.
+    */
+    assertNotDomainOwnedResourceItem(resource, resource);
+
     const existing = await findClubResourceRecord(resource, id, scope);
     if (!existing) {
       throw new Error("Risorsa del club non trovata");
