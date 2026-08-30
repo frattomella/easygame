@@ -915,3 +915,40 @@ lunghezza della stringa e risponde `valid: true`. La pagina di verifica del
 token se ne serviva per tesserare l'utente nel club, e quella strada e ora
 chiusa dal lato della scrittura. La funzione resta, e finche resta e una
 promessa non mantenuta: vedi il debito **W4-R6**.
+
+### La quarta tornata: cio che una revisione trova solo dopo la correzione (2026-08-30)
+
+Due revisioni di conferma sulle correzioni della terza tornata. Hanno trovato
+**un High di sicurezza** e **un Critical di prodotto**, entrambi *creati* dalle
+correzioni precedenti — che e la ragione per cui la conferma si fa.
+
+**Una relazione annidata scavalcava il confine.** Il corpo di una richiesta
+passava da un **elenco di negazione**: otto nomi di relazione cancellati a
+mano. Un elenco di negazione dice cio che non passa, quindi tutto il resto
+passa — e quando lo schema cambia, l'elenco resta indietro **in silenzio**.
+
+E successo esattamente cosi. Togliendo l'unicita da `Invoice.payment_id` la
+relazione inversa e diventata `invoices` al plurale, e l'elenco continuava a
+negare `invoice` al singolare, che da quel momento non esisteva piu:
+
+    POST /api/v1/payments
+    {"organization_id":"<mio>","invoices":{"create":{"organization_id":"<altrui>", ...}}}
+
+Prisma eseguiva una **scrittura annidata**: la riga figlia porta il club che il
+chiamante ha scritto, e il confine vincola solo quello di primo livello. Una
+fattura nasceva nel club di un altro, scavalcando `guardFiscalDocumentIntegrity`
+— senza numero della sequenza, senza fotografia, senza classificazione.
+
+La correzione non e stata aggiungere `invoices` all'elenco: e stato smettere di
+tenerne uno. `togliRelazioni` chiede le relazioni di un modello allo schema,
+attraverso il DMMF di Prisma. Un modello nuovo, o un nome che cambia, non ha
+piu bisogno che qualcuno se ne ricordi.
+
+**E lo scrittore di `organization_users` rimasto senza guardia.**
+`syncClubMembers` era il gemello non sorvegliato di `syncUserClubAccess`:
+stessa tabella, stessa superficie di scalata. Non era sfruttabile — tutti e tre
+i chiamanti sono preceduti da un controllo — ma una tabella che decide i
+permessi non deve avere uno scrittore sorvegliato e uno no. Ora ne ha due
+sorvegliati, e la chiave che legge si chiama `memberships`: sotto `members` si
+scontrava con il **libro soci**, e la creazione di un club rispondeva «Accesso
+negato» dopo aver scritto il club.

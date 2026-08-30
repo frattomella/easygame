@@ -103,11 +103,17 @@ const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 const CENTESIMI_MASSIMI = 2147483647;
 
 const centesimiStorici = (value: unknown): number | null => {
+  /*
+    `Number("0b101")` vale 5 e `Number("0o17")` vale 15; `'0b101'::float8`
+    fallisce. Si accetta quindi la sola forma decimale, che e cio che Postgres
+    sa leggere — e con lo stesso `btrim` dei soli spazi.
+  */
+  const DECIMALE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
   const numero =
     typeof value === "number"
       ? value
-      : typeof value === "string" && value.trim()
-        ? Number(value.trim())
+      : typeof value === "string" && DECIMALE.test(value.replace(/^ +| +$/g, ""))
+        ? Number(value.replace(/^ +| +$/g, ""))
         : NaN;
   if (!Number.isFinite(numero)) return null;
   const centesimi = Math.abs(Math.floor(numero * 100 + 0.5));
@@ -125,21 +131,34 @@ const centesimiStorici = (value: unknown): number | null => {
  * Una data impossibile non e una data. Qui si rifiuta, e la riga esce dal
  * registro come esce dalla vista.
  */
+/**
+ * La forma ISO che le due letture del registro sanno leggere **uguale**.
+ *
+ * L'ora e vincolata a 00–23 e i secondi a 00–59 di proposito: Postgres accetta
+ * `T24:00` e `T23:59:60` e li fa scorrere al momento dopo, JavaScript li
+ * rifiuta. E l'anno zero non esiste per Postgres e vale 1 a.C. per JavaScript.
+ */
 const ISO_STORICA =
-  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T ]([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
 const dataStorica = (value: unknown): string | null => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value.toISOString();
   }
-  const testo = String(value ?? "").trim();
+
+  /*
+    Si tolgono i **soli spazi**, come fa `btrim` di Postgres: una tabulazione
+    in coda la toglie `String.prototype.trim` e non la toglie `btrim`, e le due
+    letture si trovavano in disaccordo su una riga per un carattere invisibile.
+  */
+  const testo = String(value ?? "").replace(/^ +| +$/g, "");
   if (!testo) return null;
 
   /*
     **Si accetta la sola forma su cui le due letture possono essere d'accordo.**
 
-    Oltre alla forma ISO le due divergevano su tutto cio che ognuna delle due
-    interpreta a modo suo, e nessuna delle due sbagliava per conto proprio:
+    Oltre alla forma ISO le due divergevano su tutto cio che ognuna interpreta
+    a modo suo, e nessuna delle due sbagliava per conto proprio:
 
       "now" / "today" / "epoch"   Postgres li risolve, JavaScript no
       "09/03/2026"                Postgres 3 settembre, JavaScript 9 marzo
@@ -150,28 +169,55 @@ const dataStorica = (value: unknown): string | null => {
     giusta da scegliere: c'e una forma sola che non ha bisogno di essere
     interpretata, e il resto non e una data.
   */
-  if (!ISO_STORICA.test(testo)) return null;
+  const pezzi = ISO_STORICA.exec(testo);
+  if (!pezzi) return null;
 
-  const date = new Date(testo);
-  if (Number.isNaN(date.getTime())) return null;
+  const [, anno, mese, giorno, ore, minuti, secondi, frazione, fuso] = pezzi;
+  if (Number(anno) < 1) return null;
 
   /*
-    Il giorno scritto deve essere il giorno letto. Se scivola, la data non
-    esisteva.
+    **L'orologio da muro, letto come UTC.**
+
+    E cio che fa `valore::timestamp` in Postgres, e non e cio che faceva
+    `new Date("2026-03-09T12:00")`: senza fuso JavaScript legge **l'ora
+    locale**, quindi le due letture divergevano di un'ora su ogni macchina
+    che non sta a Greenwich — e la sonda di riconciliazione dava un verdetto
+    diverso a seconda di dove la si eseguiva.
   */
-  const giorno = testo.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (giorno) {
-    const [, anno, mese, quanti] = giorno;
-    if (
-      date.getUTCFullYear() !== Number(anno) ||
-      date.getUTCMonth() + 1 !== Number(mese) ||
-      date.getUTCDate() !== Number(quanti)
-    ) {
-      return null;
-    }
+  const muro = new Date(
+    `${anno}-${mese}-${giorno}T${ore || "00"}:${minuti || "00"}:${secondi || "00"}${frazione || ""}Z`,
+  );
+  if (Number.isNaN(muro.getTime())) return null;
+
+  /*
+    Il giorno **scritto** dev'essere il giorno **letto**: il 31 febbraio non e
+    una data, e JavaScript lo fa scivolare al 3 marzo mentre Postgres lo
+    rifiuta.
+
+    Il confronto va fatto qui, sull'orologio da muro, e non dopo aver applicato
+    il fuso: fatto dopo rifiutava ogni data con offset che attraversa la
+    mezzanotte — `2026-01-01T00:30:00+02:00` e il 31 dicembre in UTC, ed e
+    una data perfettamente valida che spariva da una lettura sola. E finiva in
+    un **anno fiscale** diverso, che e esattamente il guasto da cui si stava
+    scappando.
+  */
+  if (
+    muro.getUTCFullYear() !== Number(anno) ||
+    muro.getUTCMonth() + 1 !== Number(mese) ||
+    muro.getUTCDate() !== Number(giorno)
+  ) {
+    return null;
   }
 
-  return date.toISOString();
+  if (!fuso || fuso === "Z") {
+    return muro.toISOString();
+  }
+
+  /* L'offset sposta l'istante, non il giorno scritto. */
+  const cifre = fuso.slice(1).replace(":", "");
+  const minutiDiFuso = Number(cifre.slice(0, 2)) * 60 + Number(cifre.slice(2));
+  const verso = fuso[0] === "-" ? 1 : -1;
+  return new Date(muro.getTime() + verso * minutiDiFuso * 60000).toISOString();
 };
 
 /**

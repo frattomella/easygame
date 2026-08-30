@@ -171,6 +171,45 @@ const semina = async () => {
         /* Un booleano vale 1 per JavaScript e non e un numero per Postgres. */
         { id: "sc-14", date: "2026-03-09T00:00:00.000Z", amount: true, description: "Importo booleano" },
         { id: "sc-15", date: "2026-03-09T00:00:00.000Z", amount: [5], description: "Importo in lista" },
+        /*
+          **Le date che le due letture leggevano ancora diverse**, trovate da
+          una revisione di conferma con centodieci valori ostili invece dei
+          ventidue di prima.
+
+          *Gli offset che attraversano la mezzanotte.* Il controllo «il giorno
+          scritto dev'essere il giorno letto» — che esiste per il 31 febbraio —
+          veniva fatto **dopo** aver applicato il fuso, e rifiutava quindi ogni
+          data valida che in UTC cade il giorno prima o dopo. La prima di
+          queste finisce per giunta in un **anno fiscale** diverso.
+        */
+        { id: "fz-1", date: "2026-01-01T00:30:00+02:00", amount: 31, description: "Offset oltre la mezzanotte" },
+        { id: "fz-2", date: "2026-12-31T23:00:00-05:00", amount: 32, description: "Offset a fine anno" },
+        { id: "fz-3", date: "2026-03-09T12:00:00+14:00", amount: 33, description: "Offset estremo avanti" },
+        { id: "fz-4", date: "2026-03-09T12:00:00-12:00", amount: 34, description: "Offset estremo indietro" },
+        /*
+          *L'ora da muro senza fuso.* Postgres la legge com'e scritta;
+          `new Date("2026-03-09T12:00")` la legge **in ora locale**. Le due
+          letture divergevano di un'ora su ogni macchina che non sta a
+          Greenwich, e la sonda dava percio un verdetto diverso a seconda di
+          dove la si eseguiva.
+        */
+        { id: "fz-5", date: "2026-03-09T12:00", amount: 35, description: "Ora da muro senza fuso" },
+        { id: "fz-6", date: "2026-03-09 12:00:00", amount: 36, description: "Ora da muro con lo spazio" },
+        { id: "fz-7", date: "2026-12-31T23:30:00", amount: 37, description: "Ora da muro a fine anno" },
+        { id: "fz-8", date: "2026-03-09T00:00", amount: 38, description: "Mezzanotte da muro" },
+        /*
+          *Cio che una sola delle due sa leggere.* L'ora 24 e il secondo 60
+          Postgres li fa scorrere al momento dopo e JavaScript li rifiuta;
+          l'anno zero non esiste per Postgres e vale 1 a.C. per JavaScript; una
+          tabulazione in coda la toglie `trim` e non la toglie `btrim`.
+        */
+        { id: "fz-9", date: "2026-03-09T24:00", amount: 39, description: "L'ora ventiquattro" },
+        { id: "fz-10", date: "2026-03-09T23:59:60", amount: 40, description: "Il secondo sessanta" },
+        { id: "fz-11", date: "0000-01-01", amount: 41, description: "L'anno zero" },
+        { id: "fz-12", date: "2026-03-09	", amount: 42, description: "Tabulazione in coda" },
+        /* E i numeri che JavaScript legge in binario e in ottale, e Postgres no. */
+        { id: "fz-13", date: "2026-03-09", amount: "0b101", description: "Importo binario" },
+        { id: "fz-14", date: "2026-03-09", amount: "0o17", description: "Importo ottale" },
       ],
       transfers: [
         {

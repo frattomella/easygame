@@ -63,6 +63,7 @@ RETURNS int
 LANGUAGE plpgsql
 IMMUTABLE
 PARALLEL SAFE
+SET search_path = pg_catalog
 AS $$
 DECLARE
   centesimi double precision;
@@ -105,6 +106,7 @@ RETURNS timestamp(3)
 LANGUAGE plpgsql
 IMMUTABLE
 PARALLEL SAFE
+SET search_path = pg_catalog
 AS $$
 DECLARE
   ripulito text;
@@ -122,7 +124,12 @@ BEGIN
     Solo ISO 8601. Fuori di qui le due letture non divergono per un difetto
     dell'una: divergono perche stanno interpretando, e interpretano diverso.
   */
-  IF ripulito !~ '^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$' THEN
+  /* L'anno zero non esiste qui e vale 1 a.C. in JavaScript: fuori da entrambe. */
+  IF left(ripulito, 4) = '0000' THEN
+    RETURN NULL;
+  END IF;
+
+  IF ripulito !~ '^\d{4}-\d{2}-\d{2}([T ]([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$' THEN
     RETURN NULL;
   END IF;
 
@@ -161,7 +168,7 @@ ALTER TABLE "payment_transactions"
   DROP CONSTRAINT IF EXISTS "payment_transactions_amount_scala_check";
 ALTER TABLE "payment_transactions"
   ADD CONSTRAINT "payment_transactions_amount_scala_check"
-  CHECK (abs("amount") <= 21474836.47);
+  CHECK (abs("amount") <= 21474836.47) NOT VALID;
 
 ALTER TABLE "sport_work_outbound_transactions"
   DROP CONSTRAINT IF EXISTS "sport_work_outbound_scala_check";
@@ -170,13 +177,55 @@ ALTER TABLE "sport_work_outbound_transactions"
   CHECK (
     abs(COALESCE("net_amount", 0)) <= 21474836.47
     AND abs(COALESCE("gross_amount", 0)) <= 21474836.47
-  );
+  ) NOT VALID;
 
 ALTER TABLE "funding_settlements"
   DROP CONSTRAINT IF EXISTS "funding_settlements_scala_check";
 ALTER TABLE "funding_settlements"
   ADD CONSTRAINT "funding_settlements_scala_check"
-  CHECK (abs("amount") <= 21474836.47);
+  CHECK (abs("amount") <= 21474836.47) NOT VALID;
+
+/*
+  **`NOT VALID` protegge il futuro senza scommettere il deploy sul passato.**
+
+  Un `ADD CONSTRAINT` che valida prende `ACCESS EXCLUSIVE` e legge ogni riga
+  gia scritta. La premessa di questa migrazione e che un importo fuori scala
+  **possa gia esserci**: se c'e, la validazione fallisce, la migrazione
+  fallisce, e — dato che ogni deploy esegue `prisma migrate deploy` — fallisce
+  il deploy intero. Il rimedio sarebbe allora peggiore del guasto, perche il
+  guasto toglie la contabilita a un club e questo la toglierebbe a tutti.
+
+  Con `NOT VALID` il vincolo vale da subito su ogni scrittura nuova, e le
+  righe vecchie restano dove sono — visibili, e non piu riproducibili. La
+  validazione si tenta qui sotto, e se non passa lo **dice** invece di
+  interrompere: chi legge i log sa che c'e una riga da correggere, e la vista
+  intanto la tollera perche `easygame_centesimi` non alza mai.
+*/
+DO $$
+DECLARE
+  vincolo record;
+BEGIN
+  FOR vincolo IN
+    SELECT unnest(ARRAY[
+      'payment_transactions|payment_transactions_amount_scala_check',
+      'sport_work_outbound_transactions|sport_work_outbound_scala_check',
+      'funding_settlements|funding_settlements_scala_check'
+    ]) AS riga
+  LOOP
+    BEGIN
+      EXECUTE format(
+        'ALTER TABLE %I VALIDATE CONSTRAINT %I',
+        split_part(vincolo.riga, '|', 1),
+        split_part(vincolo.riga, '|', 2)
+      );
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE
+        'Il vincolo % non e stato validato: esiste gia una riga fuori scala. Il vincolo vale comunque sulle scritture nuove. Dettaglio: %',
+        split_part(vincolo.riga, '|', 2), SQLERRM;
+    END;
+  END LOOP;
+END;
+$$;
 
 
 -- ---------------------------------------------------------------------------
@@ -368,8 +417,7 @@ LEFT JOIN LATERAL (
       WHERE r.transaction_id = pt.id AND r.cancelled_at IS NULL
       ORDER BY r.issue_date DESC LIMIT 1) AS receipt_number
 ) d ON TRUE
-WHERE easygame_centesimi(pt.amount) IS NOT NULL
-  AND easygame_centesimi(pt.amount) <> 0
+WHERE easygame_centesimi(pt.amount) <> 0
 
 UNION ALL
 
@@ -454,8 +502,7 @@ LEFT JOIN "sport_work_people" p
   ON p.id = sw.person_id
 LEFT JOIN "financial_accounts" fa
   ON fa.id = sw.financial_account_id
-WHERE easygame_centesimi(sw.net_amount) IS NOT NULL
-  AND easygame_centesimi(sw.net_amount) <> 0
+WHERE easygame_centesimi(sw.net_amount) <> 0
 
 UNION ALL
 
@@ -509,8 +556,7 @@ LEFT JOIN "funding_programs" fp
   ON fp.id = fs.program_id
 LEFT JOIN "financial_accounts" fa
   ON fa.id = fs.financial_account_id
-WHERE easygame_centesimi(fs.amount) IS NOT NULL
-  AND easygame_centesimi(fs.amount) <> 0
+WHERE easygame_centesimi(fs.amount) <> 0
 
 UNION ALL
 
@@ -574,7 +620,7 @@ CROSS JOIN LATERAL jsonb_array_elements(
 WHERE COALESCE(
         easygame_blob_timestamp(t.value ->> 'date'),
         easygame_blob_timestamp(t.value ->> 'created_at')) IS NOT NULL
-  AND COALESCE(easygame_centesimi(easygame_blob_number(t.value ->> 'amount')), 0) <> 0
+  AND easygame_centesimi(easygame_blob_number(t.value ->> 'amount')) <> 0
 
 UNION ALL
 
@@ -631,7 +677,7 @@ CROSS JOIN LATERAL jsonb_array_elements(
 WHERE COALESCE(
         easygame_blob_timestamp(t.value ->> 'date'),
         easygame_blob_timestamp(t.value ->> 'created_at')) IS NOT NULL
-  AND COALESCE(easygame_centesimi(easygame_blob_number(t.value ->> 'amount')), 0) <> 0;
+  AND easygame_centesimi(easygame_blob_number(t.value ->> 'amount')) <> 0;
 
 
 COMMENT ON VIEW "accounting_ledger_lines" IS

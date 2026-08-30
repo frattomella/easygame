@@ -907,6 +907,10 @@ const refundsOfTransaction = (original: any) => ({
 
     E il consiglio del messaggio — «storna prima il rimborso» — non era quindi
     solo inefficace dopo: era irrealizzabile.
+
+    Oggi quel caso non arriva piu fin qui, perche la guardia dello storno esce
+    prima quando la riga e negativa. La condizione resta lo stesso: un filtro
+    non deve dipendere da chi lo chiama per essere corretto.
   */
   id: { not: original.id },
   ...(original.external_payment_id

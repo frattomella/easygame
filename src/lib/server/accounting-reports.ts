@@ -205,6 +205,8 @@ export type AccountingReportResult = ManagementReport & {
   lineCount: number;
   /** Le righe lette, comprese quelle che non sono cassa. */
   lineCountRaw: number;
+  /** Vero quando a fermarsi e stato **solo** il periodo di confronto. */
+  truncatedConfronto?: boolean;
   truncated: boolean;
   /**
    * I saldi dei conti, oppure `null` per chi non ha `accounting.accounts_read`.
@@ -360,6 +362,13 @@ export const buildAccountingReport = async (
       questa riga si presentava senza avvisi.
     */
     truncated: Boolean(truncated || precedenti?.truncated),
+    /*
+      **Quale delle due letture si e fermata.** L'avviso stampa il numero di
+      righe raccolte dalla lettura **principale**: se a fermarsi e stato solo
+      il periodo di confronto, quel numero non e dove si e fermato niente, e
+      dirlo confonderebbe piu del silenzio.
+    */
+    truncatedConfronto: Boolean(precedenti?.truncated && !truncated),
     /*
       Quante righe la lettura ha davvero raccolto: e il numero che l'avviso
       deve dire. `lineCount` esclude le righe neutralizzate, quindi dichiarava

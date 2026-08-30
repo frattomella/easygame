@@ -301,7 +301,14 @@ test("il documento di un club non si annulla da un altro club", async () => {
     /Accesso negato/,
   );
 
-  assert.equal(fake.rows("receipt")[0].cancelled_at, undefined);
+  /*
+    `null`, non `undefined`: una riga letta da Postgres porta sempre la
+    colonna, e da quando l emissione azzera esplicitamente i campi
+    dell annullamento — perche puo riempire una riga orfana che li portava — il
+    doppio dice la stessa cosa che direbbe il database. Il valore atteso qui
+    descriveva la fixture, non la realta.
+  */
+  assert.equal(fake.rows("receipt")[0].cancelled_at, null);
 });
 
 /* --------------------------------------------------------- annullamento */

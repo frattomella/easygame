@@ -130,7 +130,8 @@ export function ClubCreationForm({
             created_at: new Date().toISOString(),
             creator_id: userId,
             slug: `club-${Math.random().toString(36).substring(2, 15)}-${Date.now()}`,
-            members: [
+            /* Le tessere di accesso, non il libro soci. */
+            memberships: [
               {
                 user_id: userId,
                 role: "club_creator",

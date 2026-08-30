@@ -856,6 +856,36 @@ Con `COALESCE` sui grezzi una `date` sporca ma presente vinceva su un
 `created_at` buono, e la riga usciva da una lettura del registro e non
 dall'altra.
 
+#### E tre dettagli che una seconda revisione ha misurato
+
+**I vincoli nascono `NOT VALID`.** Un `ADD CONSTRAINT` che valida legge ogni
+riga gia scritta, e la premessa di questa migrazione e che un importo fuori
+scala **possa gia esserci**. Se c'e, la validazione fallisce, la migrazione
+fallisce, e — dato che ogni deploy esegue `prisma migrate deploy` — fallisce il
+deploy intero: il rimedio sarebbe peggiore del guasto, perche il guasto toglie
+la contabilita a un club e questo la toglierebbe a tutti. La validazione si
+tenta in coda alla migrazione e, se non passa, lo **dice** invece di
+interrompere.
+
+**La forma ISO e piu stretta di quanto sembri.** L'ora e vincolata a 00–23 e i
+secondi a 00–59 perche Postgres accetta `T24:00` e `T23:59:60` e li fa scorrere
+al momento dopo, mentre JavaScript li rifiuta; e l'anno `0000` non esiste per
+Postgres e vale 1 a.C. per JavaScript. Ogni forma che una sola delle due
+letture sa leggere e una riga che compare in una sola delle due.
+
+**Il fuso, e il giorno.** Senza offset, `valore::timestamp` legge l'ora **come
+e scritta** e `new Date("2026-03-09T12:00")` la legge in **ora locale**: le due
+letture divergevano di un'ora su ogni macchina che non sta a Greenwich, e la
+sonda di riconciliazione dava percio un verdetto diverso a seconda di dove la
+si eseguiva. La dichiarazione in TypeScript costruisce ora l'orologio da muro
+in UTC e applica l'offset dopo — e il controllo «il giorno scritto dev'essere
+il giorno letto», che esiste per il 31 febbraio, lo fa **prima** dell'offset:
+fatto dopo rifiutava ogni data valida che in UTC cade il giorno prima o dopo,
+`2026-01-01T00:30:00+02:00` compresa, che per giunta finisce in un anno fiscale
+diverso.
+
+Le tre funzioni fissano `search_path = pg_catalog`.
+
 Vedi ADR-0096.
 
 ### `membership_events` — il libro soci

@@ -1,7 +1,7 @@
 import { prisma } from "./prisma";
 import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfiguration } from "@/lib/access-roles";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
 import {
   getPasswordPolicyMessage,
@@ -972,11 +972,14 @@ const normalizeCommonAliases = (input: Record<string, any>) => {
   delete next.athletes;
   delete next.categories;
   delete next.trainers;
+  /*
+    Questi non sono la difesa — lo e `togliRelazioni`, che chiede l'elenco
+    allo schema. Restano perche sono **alias**: nomi che il client manda al
+    posto di una colonna, e che vanno tolti prima delle normalizzazioni che
+    seguono, non solo prima della scrittura.
+  */
   delete next.organization;
   delete next.athlete;
-  delete next.payment;
-  delete next.invoice;
-  delete next.receipt;
 
   return next;
 };
@@ -1161,7 +1164,68 @@ const normalizeModelInput = async (
     delete next.document_url;
   }
 
-  return stripUndefined(next);
+  return stripUndefined(togliRelazioni(resource, next));
+};
+
+/**
+ * **Le relazioni non si scrivono dal registro generico.**
+ *
+ * Il corpo di una richiesta finiva in `delegate.create({ data })` dopo essere
+ * passato da un **elenco di negazione**: `delete next.invoice`,
+ * `delete next.receipt`, e altri sei nomi scritti a mano. Un elenco di
+ * negazione dice cio che non passa, quindi tutto il resto passa — e quando lo
+ * schema cambia, l'elenco resta indietro in silenzio.
+ *
+ * E successo. Togliendo l'unicita da `Invoice.payment_id` — perche una rata
+ * saldata in due incassi ha due fatture — la relazione inversa e diventata
+ * `invoices` al plurale, e l'elenco continuava a negare `invoice` al
+ * singolare, che da quel momento non esisteva piu. Bastava allora
+ *
+ *     POST /api/v1/payments
+ *     {"organization_id":"<mio>","invoices":{"create":{"organization_id":"<altrui>", ...}}}
+ *
+ * perche Prisma eseguisse una **scrittura annidata**: la riga figlia porta il
+ * club che il chiamante ha scritto, e `resolveScopedOrganizationId` vincola
+ * solo quello di primo livello. Una fattura nasceva nel club di un altro,
+ * scavalcando `guardFiscalDocumentIntegrity` — cioe la guardia che esiste
+ * perche un documento fiscale si emetta dal suo incasso e non dal registro
+ * generico: senza numero della sequenza, senza fotografia, senza
+ * classificazione.
+ *
+ * La correzione non e aggiungere `invoices` all'elenco. E smettere di tenere
+ * un elenco: le relazioni di un modello le dichiara lo schema, e Prisma le
+ * espone. Un modello nuovo, o un nome che cambia, non ha piu bisogno che
+ * qualcuno se ne ricordi.
+ */
+const RELAZIONI_PER_MODELLO = new Map<string, Set<string>>(
+  (Prisma as any).dmmf.datamodel.models.map((modello: any) => [
+    modello.name,
+    new Set(
+      modello.fields
+        .filter((campo: any) => campo.kind === "object")
+        .map((campo: any) => campo.name as string),
+    ),
+  ]),
+);
+
+/** Da `athletePayment` a `AthletePayment`: il delegato e il modello in minuscolo. */
+const modelloDelDelegato = (delegate: string) =>
+  delegate ? delegate.charAt(0).toUpperCase() + delegate.slice(1) : "";
+
+const togliRelazioni = (resource: string, input: Record<string, any>) => {
+  const config = RESOURCE_CONFIG[resource];
+  const relazioni = RELAZIONI_PER_MODELLO.get(
+    modelloDelDelegato(String(config?.delegate || "")),
+  );
+  if (!relazioni) {
+    return input;
+  }
+
+  const next = { ...input };
+  for (const nome of relazioni) {
+    delete next[nome];
+  }
+  return next;
 };
 
 /**
@@ -1297,7 +1361,35 @@ const syncUserClubAccess = async (
   }
 };
 
-const syncClubMembers = async (organization_id: string, members: any) => {
+/**
+ * **Due cose diverse sotto lo stesso nome.**
+ *
+ * `members` in `clubs` e la collezione dei **soci** — un'anagrafica, con
+ * codice fiscale e numero di tessera — ed e chiusa alla riscrittura di massa
+ * perche una sonda di concorrenza le ha fatto perdere un socio appena ammesso.
+ *
+ * `input.members` in questa funzione era invece l'elenco delle **tessere di
+ * accesso**: `user_id`, `role`, `is_primary`, cioe `organization_users`.
+ *
+ * Le due si incontravano nella creazione di un club: `buildClubPayload` manda
+ * la tessera del fondatore sotto `members`, `syncClubMembers` la scriveva, e
+ * subito dopo il ciclo sulle collezioni la rileggeva come **libro soci** e
+ * rifiutava la richiesta. `POST /api/v1/clubs` rispondeva quindi «Accesso
+ * negato» **dopo** aver scritto il club e la tessera: la schermata diceva
+ * «Errore creazione club» e il club esisteva.
+ *
+ * Un nome per cosa: `memberships` sono le tessere, `members` sono i soci.
+ *
+ * E sono sorvegliate come le altre. Era l'unico scrittore di
+ * `organization_users` rimasto senza guardia — non sfruttabile, perche tutti
+ * e tre i chiamanti sono preceduti da `assertRecordAccess` o dalla creazione
+ * del club, ma la tabella non deve avere uno scrittore sorvegliato e uno no.
+ */
+const syncClubMembers = async (
+  organization_id: string,
+  members: any,
+  scope?: ResourceAccessScope,
+) => {
   if (!Array.isArray(members)) {
     return;
   }
@@ -1308,6 +1400,12 @@ const syncClubMembers = async (organization_id: string, members: any) => {
     }
 
     const role = member?.role || "member";
+    await assertConcessioneDiAccessoLecita(
+      organization_id,
+      String(member.user_id),
+      String(role),
+      scope,
+    );
     const existingAccess = await prisma.organizationUser.findFirst({
       where: {
         organization_id,
@@ -3685,7 +3783,7 @@ export const createResource = async (
       }
 
       if (resource === "clubs" || resource === "organizations") {
-        await syncClubMembers(record.id, input.members);
+        await syncClubMembers(record.id, input.memberships, scope);
         await ensureClubDashboard(
           record.id,
           normalized.creator_id,
@@ -3742,7 +3840,7 @@ export const createResource = async (
   }
 
   if (resource === "clubs" || resource === "organizations") {
-    await syncClubMembers(record.id, input.members);
+    await syncClubMembers(record.id, input.memberships, scope);
     await ensureClubDashboard(
       record.id,
       normalized.creator_id,
@@ -4192,7 +4290,7 @@ export const updateResource = async (
   }
 
   if (resource === "clubs" || resource === "organizations") {
-    await syncClubMembers(record.id, input.members);
+    await syncClubMembers(record.id, input.memberships, scope);
     await ensureClubDashboard(
       record.id,
       normalized.creator_id,

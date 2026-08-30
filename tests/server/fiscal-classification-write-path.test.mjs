@@ -664,3 +664,37 @@ test("una causale del proprio club classifica, e il documento la porta", async (
     "una causale che non dichiara un ambito non e una classificazione dichiarata",
   );
 });
+
+/**
+ * **La forma che il client manda davvero, e che nessun test mandava.**
+ *
+ * La finestra «Registra pagamento» emette `operationTypeCode: … || null`
+ * quando nessuna causale e scelta — che e il caso ordinario — e
+ * `use-athlete-payment-ledger` lo passa sulla rete come
+ * `operation_type_code: null`. Lo schema dichiarava `.optional()`, che accetta
+ * `undefined` e **rifiuta** `null`: ogni incasso senza causale tornava 400 con
+ * «Dati non validi», cioe il percorso principale del denaro in entrata.
+ *
+ * Il test che copriva il caso — «un incasso senza causale resta senza» —
+ * **omette la chiave**. E la sola forma che il client non produce mai, ed e
+ * per questo che la suite restava verde mentre la schermata non salvava.
+ */
+test("un incasso con la causale a null passa, ed e la forma che il client manda", async () => {
+  for (const chiave of ["operation_type_code", "operationTypeCode"]) {
+    /* Una rata per giro: due incassi pieni sulla stessa la supererebbero. */
+    fake = createFakePrisma(seed());
+    setPrismaClientForTests(fake.client);
+
+    const risultato = await registraIncasso({ ...CORPO, [chiave]: null });
+
+    const riga = fake
+      .rows("paymentTransaction")
+      .find((row) => row.id === risultato.transaction.id);
+
+    assert.equal(
+      riga.operation_type_code,
+      null,
+      `${chiave}: null vale «nessuna causale», non «dati non validi»`,
+    );
+  }
+});

@@ -583,10 +583,56 @@ export const issueReceiptForTransaction = async (
         transactionId: context.transaction.id,
         issuedBy: scope?.userId || null,
       },
+      /*
+        Le colonne che l'emissione non possiede si azzerano: la riga orfana
+        viene dai dati vecchi o da una scrittura interrotta a meta, e cio che
+        portava non e cio che il documento emesso adesso dichiara.
+      */
+      file_url: null,
+      invoice_id: null,
+      cancelled_at: null,
+      cancelled_by: null,
+      cancellation_reason: null,
+      cancels_document_id: null,
   };
 
   if (orfana) {
-    return receiptClient().update({ where: { id: orfana.id }, data: colonne });
+    /*
+      **Riempire una riga non e crearla, e l'indice non protegge piu.**
+
+      Con la `INSERT` il perdente di una corsa si infrangeva rumorosamente su
+      `receipts_transaction_unico`. Scrivendo invece **dentro** la riga
+      orfana, due emissioni simultanee riuscivano tutte e due: la seconda
+      sovrascriveva la prima, e il primo chiamante riceveva un documento
+      completo — numero, fotografia, importo — che **nessuna riga porta**. La
+      segreteria lo stampava, e nel registro non c'era.
+
+      La condizione `receipt_number: null` nella `where` rimette la corsa dove
+      stava: vince chi arriva primo, e chi perde non scrive niente e riceve il
+      documento del vincitore invece di uno inesistente. Il numero che ha
+      allocato resta bruciato, come per ogni tentativo fallito (ADR-0044).
+    */
+    const preso = await receiptClient().updateMany({
+      where: { id: orfana.id, receipt_number: null, cancelled_at: null },
+      data: colonne,
+    });
+
+    if (preso.count === 0) {
+      const vinta = await receiptClient().findFirst({
+        where: {
+          organization_id: context.organizationId,
+          transaction_id: context.transaction.id,
+          cancelled_at: null,
+          NOT: { receipt_number: null },
+        },
+      });
+      if (vinta) return vinta;
+      throw new Error(
+        "Il documento di questo incasso e stato emesso da un'altra richiesta nello stesso istante: ricarica la pagina.",
+      );
+    }
+
+    return receiptClient().findUnique({ where: { id: orfana.id } });
   }
 
   return receiptClient().create({ data: colonne });
@@ -749,10 +795,51 @@ export const issueInvoiceForTransaction = async (
         recipientSource: recipient.source,
         issuedBy: scope?.userId || null,
       },
+      /* Come per la ricevuta: cio che l'emissione non dichiara non resta. */
+      notes: null,
+      cancelled_at: null,
+      cancelled_by: null,
+      cancellation_reason: null,
+      cancels_document_id: null,
   };
 
   if (orfana) {
-    return invoiceClient().update({ where: { id: orfana.id }, data: colonne });
+    /*
+      **Riempire una riga non e crearla, e l'indice non protegge piu.**
+
+      Con la `INSERT` il perdente di una corsa si infrangeva rumorosamente su
+      `invoices_transaction_unico`. Scrivendo invece **dentro** la riga
+      orfana, due emissioni simultanee riuscivano tutte e due: la seconda
+      sovrascriveva la prima, e il primo chiamante riceveva un documento
+      completo — numero, fotografia, importo — che **nessuna riga porta**. La
+      segreteria lo stampava, e nel registro non c'era.
+
+      La condizione `invoice_number: null` nella `where` rimette la corsa dove
+      stava: vince chi arriva primo, e chi perde non scrive niente e riceve il
+      documento del vincitore invece di uno inesistente. Il numero che ha
+      allocato resta bruciato, come per ogni tentativo fallito (ADR-0044).
+    */
+    const preso = await invoiceClient().updateMany({
+      where: { id: orfana.id, invoice_number: null, cancelled_at: null },
+      data: colonne,
+    });
+
+    if (preso.count === 0) {
+      const vinta = await invoiceClient().findFirst({
+        where: {
+          organization_id: context.organizationId,
+          transaction_id: context.transaction.id,
+          cancelled_at: null,
+          NOT: { invoice_number: null },
+        },
+      });
+      if (vinta) return vinta;
+      throw new Error(
+        "Il documento di questo incasso e stato emesso da un'altra richiesta nello stesso istante: ricarica la pagina.",
+      );
+    }
+
+    return invoiceClient().findUnique({ where: { id: orfana.id } });
   }
 
   return invoiceClient().create({ data: colonne });

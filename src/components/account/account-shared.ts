@@ -367,7 +367,13 @@ export const buildClubPayload = (
   representative_surname: form.representativeSurname.trim() || null,
   representative_fiscal_code: form.representativeFiscalCode.trim() || null,
   settings: buildClubSettings(form),
-  members: [
+  /*
+    **Le tessere di accesso, non il libro soci.** Sotto `members` questa
+    tessera veniva scritta e poi riletta come collezione dei soci, che e chiusa
+    alla riscrittura di massa: la richiesta finiva in «Accesso negato» **dopo**
+    aver creato il club.
+  */
+  memberships: [
     {
       user_id: user.id,
       role: "owner",

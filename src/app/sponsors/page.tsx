@@ -651,19 +651,31 @@ export default function SponsorsPage() {
           ),
         );
 
-        // Also delete all payments associated with this sponsor
-        const currentPayments = Array.isArray(payments) ? payments : [];
-        const remainingPayments = currentPayments.filter(
-          (payment) => payment && payment.sponsorId !== sponsorId,
+        /*
+          **Gli incassi non si riscrivono da qui, e da questa Wave nemmeno si
+          leggono da li.**
+
+          Questo blocco filtrava l elenco mostrato e lo **risalvava** nella
+          vecchia collezione JSON. Finche l elenco veniva da quella collezione
+          era coerente; da quando viene dal registro non lo e piu, e la
+          riscrittura e distruttiva due volte.
+
+          `updateClubData` sostituisce la collezione **intera**: le righe
+          rimesse hanno la forma normalizzata (`amountCents`, senza `amount`),
+          che rileggendola vale **zero centesimi**. Cancellare uno sponsor
+          azzerava quindi lo storico di **tutti gli altri**, e lo faceva dopo
+          che la cancellazione era gia confermata — senza modo di tornare
+          indietro.
+
+          Gli incassi di uno sponsor cancellato restano nel registro, con la
+          loro controparte congelata: e cio che deve succedere, perche il
+          denaro e entrato davvero.
+        */
+        setPayments(
+          (Array.isArray(payments) ? payments : []).filter(
+            (payment) => payment && payment.sponsorId !== sponsorId,
+          ),
         );
-        if (remainingPayments.length !== currentPayments.length) {
-          await updateClubData(
-            currentClubId,
-            "sponsor_payments",
-            remainingPayments,
-          );
-          setPayments(remainingPayments);
-        }
 
         showToast("success", "Sponsor eliminato con successo");
       } catch (error) {

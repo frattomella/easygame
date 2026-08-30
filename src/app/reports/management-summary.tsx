@@ -328,7 +328,12 @@ export default function ManagementSummary({
     debba dichiararla, che e la cosa che non faceva.
   */
   const [report, setReport] = React.useState<
-    (ManagementReport & { truncated?: boolean; lineCountRaw?: number }) | null
+    | (ManagementReport & {
+        truncated?: boolean;
+        lineCountRaw?: number;
+        truncatedConfronto?: boolean;
+      })
+    | null
   >(null);
   const [balances, setBalances] = React.useState<
     Array<{ accountId: string; balanceCents: number }> | null | undefined
@@ -726,11 +731,31 @@ export default function ManagementSummary({
             <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                <strong>Questi totali non coprono tutto il periodo.</strong> La
-                lettura si e fermata a {report?.lineCountRaw ?? cash?.lineCount ?? 0} movimenti, dai piu
-                recenti: cio che viene prima non e in nessuno dei numeri qui
-                sotto. Restringi il periodo o scegli un anno fiscale, e i totali
-                torneranno a coprire l&apos;insieme intero.
+                {report?.truncatedConfronto ? (
+                  <>
+                    {/*
+                      **A fermarsi puo essere il periodo di confronto**, e
+                      allora le variazioni sono calcolate su una parte del
+                      periodo di prima e su tutto quello di adesso. Il numero
+                      di righe raccolte e quello della lettura principale: qui
+                      non dice dove ci si e fermati, e dirlo confonderebbe piu
+                      del silenzio.
+                    */}
+                    <strong>Il confronto non copre tutto il periodo precedente.</strong>{" "}
+                    La lettura del periodo di confronto si e fermata prima
+                    della fine: le variazioni qui sotto sono calcolate su una
+                    parte di quel periodo e su tutto quello corrente. Restringi
+                    il confronto o scegli un anno fiscale.
+                  </>
+                ) : (
+                  <>
+                    <strong>Questi totali non coprono tutto il periodo.</strong> La
+                    lettura si e fermata a {report?.lineCountRaw ?? cash?.lineCount ?? 0} movimenti, dai piu
+                    recenti: cio che viene prima non e in nessuno dei numeri qui
+                    sotto. Restringi il periodo o scegli un anno fiscale, e i totali
+                    torneranno a coprire l&apos;insieme intero.
+                  </>
+                )}
               </span>
             </p>
           ) : null}

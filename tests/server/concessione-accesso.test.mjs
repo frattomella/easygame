@@ -235,3 +235,98 @@ test("un genitore non tessera nessuno, nemmeno nel club attivo", async () => {
     negato,
   );
 });
+
+/* ------------------------ le tessere di un club, e il libro soci */
+
+/**
+ * **Due cose diverse sotto lo stesso nome.**
+ *
+ * `members` in `clubs` e la collezione dei **soci** — un'anagrafica — ed e
+ * chiusa alla riscrittura di massa. Ma `syncClubMembers` leggeva
+ * `input.members` come elenco delle **tessere di accesso**, e le due si
+ * incontravano nella creazione di un club: la tessera del fondatore veniva
+ * scritta, e subito dopo il ciclo sulle collezioni la rileggeva come libro
+ * soci e rifiutava la richiesta.
+ *
+ * `POST /api/v1/clubs` rispondeva quindi «Accesso negato» **dopo** aver
+ * scritto il club e la tessera: la schermata diceva «Errore creazione club» e
+ * il club esisteva.
+ */
+test("creare un club scrive la tessera del fondatore, e non fallisce", async () => {
+  const NUOVO = "44444444-3333-4000-8000-000000000ddd";
+
+  const record = await risorse.createResource(
+    "clubs",
+    {
+      id: NUOVO,
+      name: "Club nuovo",
+      slug: "club-nuovo",
+      creator_id: IO,
+      memberships: [{ user_id: IO, role: "owner", is_primary: true }],
+    },
+    "create",
+    scopeAttaccante(),
+  );
+
+  assert.equal(record.id, NUOVO);
+  const tessera = fake
+    .rows("organizationUser")
+    .find((riga) => riga.organization_id === NUOVO && riga.user_id === IO);
+  assert.ok(tessera, "la tessera del fondatore nasce con il club");
+});
+
+test("il libro soci resta chiuso alla riscrittura di massa", async () => {
+  await assert.rejects(
+    () =>
+      risorse.updateResource(
+        "clubs",
+        MIO,
+        { members: [{ id: "socio-1", fiscal_code: "RSSNNA80A41H501K" }] },
+        scopeAttaccante(),
+      ),
+    /Accesso negato/,
+  );
+});
+
+/**
+ * **Una relazione annidata scavalcava il confine.**
+ *
+ * Il corpo passava da un **elenco di negazione** — otto nomi scritti a mano —
+ * e tutto cio che non era nell'elenco arrivava a Prisma cosi com'era.
+ * Togliendo l'unicita da `Invoice.payment_id`, la relazione inversa e
+ * diventata `invoices` al plurale, e l'elenco continuava a negare `invoice` al
+ * singolare, che da quel momento non esisteva piu.
+ *
+ * La riga figlia porta il club che il chiamante scrive, e il confine vincola
+ * solo quello di primo livello: una fattura nasceva nel club di un altro,
+ * senza numero della sequenza, senza fotografia, senza classificazione.
+ */
+test("una relazione annidata non entra nella scrittura", async () => {
+  await risorse.createResource(
+    "payments",
+    {
+      organization_id: MIO,
+      amount: 10,
+      description: "Rata",
+      invoices: {
+        create: { organization_id: ALTRUI, invoice_number: "X-1", amount: 999 },
+      },
+      receipts: {
+        create: { organization_id: ALTRUI, receipt_number: "Y-1", amount: 999 },
+      },
+      transactions: {
+        create: { organization_id: ALTRUI, amount: 999 },
+      },
+    },
+    "create",
+    scopeAttaccante(),
+  );
+
+  for (const tabella of ["invoice", "receipt", "paymentTransaction"]) {
+    assert.equal(
+      fake.rows(tabella).filter((r) => r.organization_id === ALTRUI).length,
+      0,
+      `nessuna riga ${tabella} nel club altrui`,
+    );
+  }
+});
