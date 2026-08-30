@@ -4027,10 +4027,22 @@ export const createResource = async (
         Due oggetti, quindi: quello che crea porta il fondatore, quello che
         modifica no.
       */
-      const daNonRiscrivere =
-        resource === "clubs" || resource === "organizations"
+      /*
+        **Cio che dice quando e da chi una riga e nata non si riscrive.**
+
+        `creator_id` era il caso trovato; `created_at` e lo stesso in un'altra
+        forma, e vale per **ogni** risorsa che un `upsert` puo raggiungere: un
+        client poteva spostare la data di creazione di un club, di un utente o
+        di un documento fiscale a una data qualsiasi, semplicemente
+        rimandandola. Una data di nascita che si riscrive non e una data di
+        nascita.
+      */
+      const daNonRiscrivere = [
+        "created_at",
+        ...(resource === "clubs" || resource === "organizations"
           ? ["creator_id"]
-          : [];
+          : []),
+      ];
       const perModifica = { ...normalized };
       for (const campo of daNonRiscrivere) delete perModifica[campo];
 

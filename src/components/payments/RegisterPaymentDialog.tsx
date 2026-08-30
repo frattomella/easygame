@@ -167,6 +167,20 @@ export function RegisterPaymentDialog({
     setPaidAt(todayIsoDate());
     setNotes("");
     setOperationTypeCode("");
+    /*
+      **Anche il conto torna alla preselezione a ogni apertura.**
+
+      Il riferimento che impedisce alla preselezione di ripartire vale per la
+      vita del componente, e questa finestra non viene mai smontata: solo
+      `open` cambia. Scegliere «Senza conto» una volta lasciava quindi il
+      campo vuoto per **tutti gli incassi successivi** della sessione, e ognuno
+      nasceva senza conto — cioe fuori da ogni saldo, che e esattamente il
+      guasto che la preselezione esiste per evitare.
+
+      «Una volta sola» vuol dire una volta per apertura, non una per sessione.
+    */
+    contoScelto.current = false;
+    setFinancialAccountId("");
     setTouched(false);
     // `methodChoices` e un array ricostruito a ogni render: dipendere dal suo
     // contenuto rimetterebbe a zero i campi mentre si scrive.

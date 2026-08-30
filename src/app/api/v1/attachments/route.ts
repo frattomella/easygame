@@ -10,6 +10,10 @@ import {
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import {
+  attachmentDenied,
+  canAccessAttachmentOwner,
+} from "@/lib/server/attachment-permissions";
 import { hasCommunicationPermission } from "@/lib/communications/permissions";
 
 /**
@@ -89,6 +93,32 @@ export async function GET(request: Request) {
           },
         },
         { status: 403 },
+      );
+    }
+
+    /*
+      **E il permesso di cio a cui l'allegato appartiene.**
+
+      Fuori dai due casi qui sopra non c'era nessun controllo di ruolo: un
+      genitore elencava e scaricava le carte d'identita e i certificati medici
+      di tutto il club, e senza filtro l'elenco li restituiva tutti insieme.
+      La rotta dedicata degli atleti lo rifiutava gia; questa, che consegna gli
+      stessi file, no.
+
+      Senza `owner_type` l'elenco attraversa **tutti** i tipi: lo puo chiedere
+      solo chi potrebbe chiederli uno per uno.
+    */
+    if (ownerType) {
+      if (!canAccessAttachmentOwner(scope.activeRole, ownerType, "read")) {
+        return failure(attachmentDenied(ownerType), "Accesso negato");
+      }
+    } else if (!canManageClubConfiguration(scope.activeRole)) {
+      return failure(
+        new Error(
+          "Accesso negato: l'elenco di tutti gli allegati del club lo vede chi lo amministra; " +
+            "per gli altri serve «owner_type»",
+        ),
+        "Accesso negato",
       );
     }
 

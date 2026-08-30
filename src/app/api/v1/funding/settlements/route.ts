@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -39,7 +40,13 @@ const unauthorized = () =>
   );
 
 const failure = (error: any, fallback: string) => {
-  const message = String(error?.message || fallback);
+  /*
+    **Il messaggio non esce grezzo.** Queste sette rotte costruivano la
+    risposta da `error.message`, quindi un identificativo malformato faceva
+    uscire il nome del modello, l operazione, lo SQLSTATE e le interiora del
+    driver — l incidente I-03, che era stato chiuso altrove e non qui.
+  */
+  const message = publicErrorMessage(error, fallback);
   const status = message.includes("Accesso negato")
     ? 403
     : message.includes("non trovato")

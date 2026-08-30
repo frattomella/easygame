@@ -430,8 +430,7 @@ export type ActivityScopeBreakdown = {
   classifiedLineCount: number;
   /** Vero quando c'e almeno una riga non classificata: la pagina deve dirlo. */
   hasUnclassified: boolean;
-  /** Quota di righe non classificate, fra 0 e 1. Zero quando non ci sono righe. */
-  /** Quanto **denaro** non e attribuito, sul denaro che si muove. */
+    /** Quanto **denaro** non e attribuito, sul denaro che si muove. */
   unspecifiedShare: number;
   /** La stessa quota misurata sulle **righe**: dice quante correzioni servono. */
   unspecifiedLineShare: number;

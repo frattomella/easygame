@@ -85,6 +85,12 @@ const permesso = async (titolo, sql) => {
   }
 };
 
+/** Una condizione che deve valere, verificata invece che tentata. */
+const esito = (titolo, ok, dettaglio) => {
+  esiti.push({ titolo, atteso: "deve valere", ok, dettaglio });
+  console.log(`  ${ok ? "REGGE " : "CEDE  "} ${titolo.padEnd(58)} ${dettaglio}`);
+};
+
 const q = (value) => (value === null ? "NULL" : `'${String(value)}'`);
 
 const movimento = (overrides = {}) => {
@@ -400,6 +406,42 @@ const prove = async () => {
   );
 
   await prisma.$executeRawUnsafe(`DELETE FROM clubs WHERE id = '${CLUB_VICINO}'`);
+
+  /*
+    **Che il vincolo ci sia, e che sia validato.**
+
+    Provare che una scrittura sbagliata viene rifiutata non basta: un vincolo
+    `NOT VALID` rifiuta le scritture nuove **e** tollera le righe vecchie, e
+    la sua validazione fallita viene annunciata con un `RAISE NOTICE` che
+    `prisma migrate deploy` non mostra. Su un database dove la validazione non
+    e passata, tutte le prove qui sopra risulterebbero verdi mentre righe
+    sbagliate restano dentro.
+
+    E Prisma non conosce questi vincoli: un `migrate dev` li cancellerebbe. Qui
+    la loro assenza fa fallire il gate.
+  */
+  const vincoliAttesi = [
+    "payment_transactions_conto_dello_stesso_club",
+    "accounting_entries_conto_dello_stesso_club",
+    "funding_settlements_conto_dello_stesso_club",
+    "sport_work_outbound_conto_dello_stesso_club",
+  ];
+  const presenti = await prisma.$queryRawUnsafe(
+    `SELECT conname, convalidated FROM pg_constraint WHERE conname = ANY($1::text[])`,
+    vincoliAttesi,
+  );
+  for (const atteso of vincoliAttesi) {
+    const riga = presenti.find((r) => r.conname === atteso);
+    esito(
+      `il vincolo ${atteso} esiste ed e validato`,
+      Boolean(riga?.convalidated),
+      riga
+        ? riga.convalidated
+          ? "presente e validato"
+          : "PRESENTE MA NON VALIDATO: ci sono righe fuori club da correggere"
+        : "ASSENTE: una migrazione lo ha tolto",
+    );
+  }
 
   console.log(`${NL}=== QUANTO PUO VALERE UN IMPORTO ===${NL}`);
 

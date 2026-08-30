@@ -1063,3 +1063,50 @@ intervallo, e infatti nessuno se n'era accorto: F2 l'ha trovato un audit che
 leggeva il database vero. Il doppio valuta ora tutti e quattro i confronti — e
 la prima cosa che ha fatto e stata far fallire un test scritto da noi, che
 contava le righe sbagliate.
+
+### La nona tornata: gli allegati, che nessuna revisione aveva guardato (2026-08-30)
+
+Un audit multi-tenant — quattro club, ruoli incrociati, doppia tessera nello
+stesso club, tessera revocata — ha trovato **il dato piu riservato del prodotto
+aperto a chiunque appartenga al club**.
+
+`/api/v1/attachments` sorvegliava due soli `owner_type`: gli annunci, perche
+seguono il pubblico della bacheca, e i tipi posseduti dal club. Tutto il resto
+non aveva **nessun** controllo di ruolo. Eseguito con un account che nel club
+era soltanto **genitore**:
+
+    GET    /api/v1/attachments        -> l'indice di ogni allegato del club
+    GET    /api/v1/attachments/<id>   -> i byte di una carta d'identita
+    DELETE /api/v1/attachments/<id>   -> distrutta
+    PUT    /api/v1/attachments/<id>   -> i byte di un certificato medico,
+                                         riscritti dal genitore
+
+Nessun filtro serviva: l'elenco senza parametri restituiva il club intero.
+
+**Tre cose lo rendevano peggio di una guardia mancante.** La rotta
+**dedicata** — `GET /api/athletes/:id/documents` — lo rifiutava gia: la
+correzione era stata messa su una porta e non sull'altra, ed e la forma di
+difetto che questa Wave ha incontrato piu volte. Un genitore poteva
+**sostituire i byte** di un certificato medico lasciando intatti nome,
+categoria e validita. E le letture non lasciano traccia — l'audit registra
+creazione, modifica e cancellazione, non la lettura — quindi scaricare i
+documenti d'identita di tutti i tesserati non produceva **nessuna** riga.
+
+Chiuso da `src/lib/server/attachment-permissions.ts`: un allegato non ha
+permessi propri, li **eredita** da cio a cui e attaccato. Un `owner_type` che
+l'elenco non conosce e trattato come il piu riservato che ci sia — aggiungerne
+uno senza dichiararlo lo rende quindi piu chiuso, non piu aperto.
+
+**E gli estremi bancari che una segretaria non doveva vedere.**
+`accounting.accounts_read` era applicato al saldo **calcolato**; l'IBAN e il
+saldo di **apertura** uscivano da chiunque avesse `accounting.read` — gli
+stessi estremi che la stessa persona non puo leggere da `/api/v1/bank_accounts`.
+Il campo `balance: null` accanto era il segnale: la rotta sapeva che quel
+perimetro e riservato e si era fermata una colonna prima.
+
+**Cosa ha tenuto**, e vale dirlo: `activeRole` governa davvero — ogni superficie
+della Wave 4 provata con il club sbagliato attivo ha risposto «Accesso negato»;
+una tessera revocata chiude tutto **senza** rilogin, comprese le url degli
+allegati; l'amministratore di piattaforma e verificato e non dedotto, e non si
+auto-promuove da nessuna delle tre porte; le scritture annidate vengono tolte
+in silenzio e gli operatori di Prisma rifiutati.

@@ -896,11 +896,39 @@ export const createAccountingEntry = async (
     });
     if (!gia) return null;
 
-    const richiesti = resolveAmountCents(input);
-    if (Number(gia.amount_cents) !== richiesti) {
+    /*
+      **Non basta l'importo: si confronta il movimento.**
+
+      Guardare il solo importo lasciava passare tutto il resto. Una richiesta
+      di registrare un'**uscita** di 100 euro riceveva «fatto» insieme a
+      un'entrata di 100 — duecento euro di scarto nel netto, con uno stato di
+      successo. E lo stesso per la data, il conto, la causale e la controparte.
+      La ragione per rifiutare l'importo diverso vale identica per il verso.
+
+      Si confronta quindi cio di cui il movimento e fatto, non un numero solo.
+    */
+    const impronta = (riga: any) =>
+      [
+        Number(riga.amount_cents),
+        String(riga.direction || "").toUpperCase(),
+        new Date(riga.entry_date).toISOString().slice(0, 10),
+        String(riga.financial_account_id || ""),
+        String(riga.operation_type_code || ""),
+      ].join("|");
+
+    const richiesta = [
+      resolveAmountCents(input),
+      normalizeDirection(input.direction),
+      (toDateOrNull(input.entryDate) as Date)?.toISOString().slice(0, 10) || "",
+      asText(input.financialAccountId),
+      asText(input.operationTypeCode),
+    ].join("|");
+
+    if (impronta(gia) !== richiesta) {
       throw new Error(
-        `Questa richiesta e gia stata registrata per ${(Number(gia.amount_cents) / 100).toFixed(2)} EUR: ` +
-          "il movimento **non** e stato modificato. Per correggerlo, storna e registra di nuovo.",
+        `Questa richiesta e gia stata registrata, e per un movimento diverso (${(Number(gia.amount_cents) / 100).toFixed(2)} EUR, ${gia.direction}): ` +
+          "quello scritto **non** e stato modificato. Per correggerlo, storna e registra di nuovo; " +
+          "per registrarne un altro, usa una chiave diversa.",
       );
     }
     return gia;
@@ -975,6 +1003,17 @@ export const createAccountingEntry = async (
     });
 
   let row: any;
+  /*
+    **Chi non ha scritto non compare nel registro di chi ha scritto.**
+
+    L'evento di audit veniva registrato comunque, quindi cinque invii
+    simultanei lasciavano **cinque** righe di audit per **un** movimento: il
+    registro che un revisore legge per sapere chi ha scritto cosa affermava
+    cinque scritture dello stesso attore. E il ramo che restituisce il
+    movimento gia scritto non ne registrava nessuna, quindi i due esiti
+    idempotenti si contraddicevano anche fra loro.
+  */
+  let scrittoDaNoi = true;
   try {
     row = await scrivi();
   } catch (errore: any) {
@@ -984,8 +1023,10 @@ export const createAccountingEntry = async (
     const vinto = conflitto ? await giaScritto() : null;
     if (!vinto) throw errore;
     row = vinto;
+    scrittoDaNoi = false;
   }
 
+  if (scrittoDaNoi) {
   await recordAuditEvent({
     action: AUDIT_ACTIONS.accountingEntryRecorded,
     actorUserId: scope.userId,
@@ -1000,6 +1041,7 @@ export const createAccountingEntry = async (
       operationTypeCode: row.operation_type_code,
     },
   });
+  }
 
   return row;
 };

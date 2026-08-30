@@ -239,9 +239,32 @@ const normalizeKind = (value: unknown): FinancialAccountKind =>
     ? (String(value).trim().toUpperCase() as FinancialAccountKind)
     : "BANK";
 
+/**
+ * **L'IBAN e il saldo di apertura stanno nello stesso perimetro del saldo.**
+ *
+ * `accounting.accounts_read` esisteva ed era applicato al saldo **calcolato**;
+ * l'IBAN e `opening_balance_cents` uscivano invece da chiunque avesse
+ * `accounting.read`. Un audit lo ha misurato con una segretaria
+ * (`collaborator`) che gli stessi estremi bancari non puo vedere da
+ * `/api/v1/bank_accounts`, e che li leggeva qui:
+ *
+ *     GET /api/v1/accounting/accounts                 -> iban, openingBalanceCents
+ *     GET /api/v1/accounting/accounts?with_balances=1 -> 403
+ *
+ * Il campo `balance: null` accanto era il segnale: la rotta sapeva che quel
+ * perimetro e riservato, e si era fermata una colonna prima. Il saldo di
+ * apertura **e** un saldo — lo schema stesso lo chiama «il punto di partenza
+ * della somma» — e l'IBAN e l'estremo bancario che il commento del modulo dice
+ * gia riservato.
+ *
+ * Chi non ha il permesso continua a vedere l'elenco: nome, tipo, sede e stato
+ * bastano a scegliere dove registrare un movimento, che e cio per cui la
+ * segreteria apre questa pagina.
+ */
 const toRecord = (
   row: any,
   balance: FinancialAccountBalance | null = null,
+  vedeGliEstremi = true,
 ): FinancialAccountRecord => {
   const kind = normalizeKind(row.kind);
 
@@ -251,11 +274,13 @@ const toRecord = (
     name: asText(row.name),
     kind,
     kindLabel: FINANCIAL_ACCOUNT_KIND_LABELS[kind],
-    iban: asText(row.iban) || null,
-    bankName: asText(row.bank_name) || null,
+    iban: vedeGliEstremi ? asText(row.iban) || null : null,
+    bankName: vedeGliEstremi ? asText(row.bank_name) || null : null,
     siteId: asText(row.site_id) || null,
-    openingBalanceCents: Number(row.opening_balance_cents) || 0,
-    openingBalanceAt: toIsoOrNull(row.opening_balance_at),
+    openingBalanceCents: vedeGliEstremi
+      ? Number(row.opening_balance_cents) || 0
+      : 0,
+    openingBalanceAt: vedeGliEstremi ? toIsoOrNull(row.opening_balance_at) : null,
     legacyAccountId: asText(row.legacy_account_id) || null,
     isArchived: Boolean(row.is_archived),
     archivedAt: toIsoOrNull(row.archived_at),
@@ -494,8 +519,13 @@ export const listFinancialAccounts = async (
     orderBy: [{ is_archived: "asc" }, { name: "asc" }],
   });
 
+  const vedeGliEstremi = hasAccountingPermission(
+    scope.activeRole,
+    PERMESSO_SALDI,
+  );
+
   if (!options.withBalances || !rows.length) {
-    return rows.map((row: any) => toRecord(row));
+    return rows.map((row: any) => toRecord(row, null, vedeGliEstremi));
   }
 
   const saldi = await listFinancialAccountBalances(scope, {
@@ -504,7 +534,9 @@ export const listFinancialAccounts = async (
   });
   const perConto = new Map(saldi.map((saldo) => [saldo.accountId, saldo]));
 
-  return rows.map((row: any) => toRecord(row, perConto.get(String(row.id)) || null));
+  return rows.map((row: any) =>
+    toRecord(row, perConto.get(String(row.id)) || null, vedeGliEstremi),
+  );
 };
 
 /** Un conto solo, senza saldo. Chi vuole il saldo lo chiede a parte. */
@@ -513,7 +545,11 @@ export const getFinancialAccountById = async (
   scope: FinancialAccountScope,
 ): Promise<FinancialAccountRecord> => {
   assertAccountingPermission(scope.activeRole, PERMESSO_ELENCO);
-  return toRecord(await leggiConto(accountId, scope));
+  return toRecord(
+    await leggiConto(accountId, scope),
+    null,
+    hasAccountingPermission(scope.activeRole, PERMESSO_SALDI),
+  );
 };
 
 /* ========================================================================== */

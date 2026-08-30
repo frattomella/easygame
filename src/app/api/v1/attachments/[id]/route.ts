@@ -10,6 +10,10 @@ import {
   replaceAttachmentContent,
 } from "@/lib/server/attachments";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import {
+  attachmentDenied,
+  canAccessAttachmentOwner,
+} from "@/lib/server/attachment-permissions";
 import { canReadAnnouncementAttachment } from "@/lib/server/announcements";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
@@ -140,6 +144,26 @@ const assertAnnouncementAttachmentReadable = async (
   }
 };
 
+/**
+ * **Il permesso di cio a cui l'allegato appartiene, su ogni verbo.**
+ *
+ * Fuori dai due tipi posseduti dal club non c'era nessun controllo di ruolo:
+ * chiunque appartenesse al club leggeva i byte di una carta d'identita, ne
+ * riscriveva il contenuto e la cancellava. Un audit lo ha eseguito con un
+ * account che nel club era soltanto **genitore**, e ha sostituito i byte di un
+ * certificato medico lasciando intatti nome, categoria e validita.
+ */
+const assertAttachmentPermission = (
+  metadata: any,
+  scope: any,
+  action: "read" | "update" | "delete",
+) => {
+  const ownerType = metadata?.ownerType || metadata?.owner_type;
+  if (!canAccessAttachmentOwner(scope?.activeRole, ownerType, action)) {
+    throw attachmentDenied(ownerType);
+  }
+};
+
 const assertClubAttachmentWritable = (metadata: any, scope: any) => {
   const ownerType = String(metadata?.ownerType || metadata?.owner_type || "")
     .trim()
@@ -222,6 +246,7 @@ export async function GET(request: Request, context: Context) {
       scope,
       session.db.user_id,
     );
+    assertAttachmentPermission(attachment.metadata, scope, "read");
 
     const url = new URL(request.url);
     const wantsDownload = url.searchParams.has("download");
@@ -259,6 +284,7 @@ export async function PUT(request: Request, context: Context) {
     const existing = await getAttachmentMetadata(context.params.id, scope);
     if (!existing) return notFound();
     assertClubAttachmentWritable(existing, scope);
+    assertAttachmentPermission(existing, scope, "update");
 
     const form = await request.formData();
     const file = form.get("file");
@@ -334,6 +360,7 @@ export async function DELETE(request: Request, context: Context) {
     const existing = await getAttachmentMetadata(context.params.id, scope);
     if (!existing) return notFound();
     assertClubAttachmentWritable(existing, scope);
+    assertAttachmentPermission(existing, scope, "delete");
 
     const removed = await deleteAttachment(context.params.id, scope);
     if (!removed) return notFound();

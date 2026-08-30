@@ -152,6 +152,7 @@ const matriceOstile = () => {
   }
 
   /* --- il verso, e i testi --- */
+
   for (const tipo of ["", " ", "income", "expense", "uscita", "out", "IN", "Expense", null, false, 0, {}, []]) {
     aggiungi({ type: tipo, direction: "expense", description: "verso generato" });
   }
@@ -413,8 +414,44 @@ const semina = async () => {
     },
   });
 
+  /*
+    **La controparte decide l'origine di un incasso**, e il confronto e fra
+    `upper(btrim(...))` in SQL e la sua imitazione in TypeScript: uno spazio,
+    una tabulazione o una minuscola cambiano il verdetto in una lettura sola
+    se le due non tagliano lo stesso insieme di caratteri.
+  */
+  const controparti = [
+    "SPONSOR",
+    "sponsor",
+    " SPONSOR",
+    "SPONSOR ",
+    "\tSPONSOR",
+    "SPONSOR\t",
+    "\nSPONSOR",
+    "SUPPLIER",
+    " supplier ",
+    "ATHLETE",
+    "",
+    " ",
+    null,
+  ].map((genere, indice) => ({
+    id: randomUUID(),
+    organization_id: CLUB,
+    athlete_id: ATLETA,
+    amount: 11 + indice,
+    paid_at: d("2026-09-11T00:00:00Z"),
+    payment_method: "Bonifico",
+    financial_account_id: CASSA,
+    counterparty_kind: genere,
+    counterparty_label: "Controparte generata",
+    source: "MANUAL",
+    currency: "EUR",
+    updated_at: new Date(),
+  }));
+
   await prisma.paymentTransaction.createMany({
     data: [
+      ...controparti,
       {
         id: INCASSO,
         organization_id: CLUB,

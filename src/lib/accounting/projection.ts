@@ -296,7 +296,12 @@ export const projectPaymentTransactions = (
           : rimborso
             ? "REFUND"
             : ["SPONSOR", "SUPPLIER"].includes(
-                  String(row.counterparty_kind ?? "").trim().toUpperCase(),
+                  /* `btrim` toglie i soli spazi, come la vista: `trim` toglierebbe anche
+                     tabulazioni e a capo, e le due letture divergerebbero su una
+                     controparte scritta male da un import. */
+                  String(row.counterparty_kind ?? "")
+                    .replace(/^ +| +$/g, "")
+                    .toUpperCase(),
                 )
               ? "SPONSOR_PAYMENT"
               : "ATHLETE_PAYMENT",

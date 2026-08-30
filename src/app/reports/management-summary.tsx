@@ -904,12 +904,25 @@ export default function ManagementSummary({
                 <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
+                    {/*
+                      **Due percentuali, perche sono due domande.**
+
+                      La frase diceva «6 movimenti su 195» e accanto stampava
+                      la quota del **denaro**: chi legge la interpreta come la
+                      frazione di quelle 195 righe, e 6 su 195 non fa 65,6%.
+                      La percentuale delle righe dice quante correzioni
+                      servono; quella del denaro dice quanto bilancio non e
+                      attribuito, ed e la piu importante delle due — ma solo
+                      se e detto che parla di euro.
+                    */}
                     <strong>{scope.unspecifiedLineCount}</strong> movimenti su{" "}
                     {scope.unspecifiedLineCount + scope.classifiedLineCount} (
-                    {percent(scope.unspecifiedShare)}) non hanno una
-                    classificazione. Finche restano cosi, la ripartizione fra
-                    istituzionale e commerciale non descrive l&apos;attivita
-                    della societa.
+                    {percent(scope.unspecifiedLineShare)}) non hanno una
+                    classificazione, e valgono il{" "}
+                    <strong>{percent(scope.unspecifiedShare)} del denaro</strong>{" "}
+                    che si e mosso nel periodo. Finche restano cosi, la
+                    ripartizione fra istituzionale e commerciale non descrive
+                    l&apos;attivita della societa.
                     <br />
                     {/*
                       **Il rimedio non esiste per tutte le righe, e dirlo e piu

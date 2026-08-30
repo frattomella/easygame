@@ -28,6 +28,20 @@
 -- rifiuta da se una riga che li accosta sbagliati, per sempre e per chiunque,
 -- anche per uno script che non passa dall'applicazione.
 --
+-- ## Perche NO ACTION e non SET NULL
+--
+-- `ON DELETE SET NULL` **senza elenco di colonne** azzera tutte le colonne
+-- della chiave: cancellare un conto avrebbe tentato di scrivere
+-- `organization_id = NULL` sulle righe che lo citano. Su queste quattro
+-- tabelle la colonna e NOT NULL, quindi il tentativo fallirebbe rumorosamente;
+-- su una tabella dove non lo fosse, distruggerebbe in silenzio
+-- l appartenenza al club di righe di denaro.
+--
+-- Oggi non succede perche la chiave esterna storica su
+-- `financial_account_id` e RESTRICT e blocca la cancellazione prima. Ma un
+-- vincolo che non fa danno solo grazie a un altro vincolo che non lo nomina e
+-- una trappola per chi verra dopo: qui la porta e chiusa da se.
+--
 -- ## Perche `NOT VALID`
 --
 -- Per la stessa ragione dei vincoli di scala: ogni deploy esegue
@@ -49,7 +63,7 @@ ALTER TABLE "payment_transactions"
   ADD CONSTRAINT "payment_transactions_conto_dello_stesso_club"
   FOREIGN KEY ("organization_id", "financial_account_id")
   REFERENCES "financial_accounts" ("organization_id", "id")
-  ON DELETE SET NULL
+  ON DELETE NO ACTION
   NOT VALID;
 
 ALTER TABLE "accounting_entries"
@@ -58,7 +72,7 @@ ALTER TABLE "accounting_entries"
   ADD CONSTRAINT "accounting_entries_conto_dello_stesso_club"
   FOREIGN KEY ("organization_id", "financial_account_id")
   REFERENCES "financial_accounts" ("organization_id", "id")
-  ON DELETE SET NULL
+  ON DELETE NO ACTION
   NOT VALID;
 
 ALTER TABLE "funding_settlements"
@@ -67,7 +81,7 @@ ALTER TABLE "funding_settlements"
   ADD CONSTRAINT "funding_settlements_conto_dello_stesso_club"
   FOREIGN KEY ("organization_id", "financial_account_id")
   REFERENCES "financial_accounts" ("organization_id", "id")
-  ON DELETE SET NULL
+  ON DELETE NO ACTION
   NOT VALID;
 
 ALTER TABLE "sport_work_outbound_transactions"
@@ -76,7 +90,7 @@ ALTER TABLE "sport_work_outbound_transactions"
   ADD CONSTRAINT "sport_work_outbound_conto_dello_stesso_club"
   FOREIGN KEY ("organization_id", "financial_account_id")
   REFERENCES "financial_accounts" ("organization_id", "id")
-  ON DELETE SET NULL
+  ON DELETE NO ACTION
   NOT VALID;
 
 DO $$

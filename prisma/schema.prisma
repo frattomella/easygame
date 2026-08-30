@@ -2542,6 +2542,21 @@ model FinancialAccount {
   organization            Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   accounting_entries      AccountingEntry[]
   payment_transactions    PaymentTransaction[]
+
+  /// **Attenzione a rigenerare le migrazioni da questo schema.**
+  ///
+  /// `20260830230000_wave4_conto_dello_stesso_club` aggiunge, fuori da
+  /// Prisma, un `UNIQUE (organization_id, id)` qui e quattro chiavi esterne
+  /// composte `(organization_id, financial_account_id)` su
+  /// `payment_transactions`, `accounting_entries`, `funding_settlements` e
+  /// `sport_work_outbound_transactions`. Sono cio che impedisce al denaro di
+  /// un club di posarsi sul conto di un altro — dove non entrerebbe in nessun
+  /// saldo, ne di qua ne di la.
+  ///
+  /// Prisma **non li conosce**, e un `migrate dev` genererebbe la loro
+  /// cancellazione senza dire perche. `scripts/wave-4-db-invariants.mjs`
+  /// verifica che esistano e che siano validati: se una migrazione li togliesse,
+  /// il gate fallisce invece di lasciarli sparire in silenzio.
   sport_work_transactions SportWorkOutboundTransaction[]
   funding_settlements     FundingSettlement[]
 
