@@ -1494,6 +1494,34 @@ calcolo.
 **Effort: L** · **Rischio: LOW** (sono quasi tutte **letture** di dati esistenti:
 il rischio sta in 4A, che tocca una configurazione gia seminata sui club)
 
+#### Esito, misurato (2026-08-30)
+
+Il consuntivo per intero e in
+[38 — Wave 4: implementazione e collaudo](38-wave-4-implementation-uat.md).
+Qui solo lo stato dei gap.
+
+| Gap | Previsto | **Esito** |
+|---|---|---|
+| **G-09** causale con i flag fiscali | chiuso | **CLOSED** — `deductible`, `is_membership_fee`, `reporting_bucket` e l'autore della classificazione, con una schermata che li configura |
+| **G-10** prima nota | chiuso | **CLOSED** — e la vista `accounting_ledger_lines` |
+| **G-11** rendiconto per voce | chiuso | **CLOSED** nel perimetro **gestionale**: il documento porta un disclaimer e il prodotto non lo chiama bilancio |
+| **G-12** estratto conto | chiuso | **CLOSED** — saldo derivato per conto, movimenti filtrabili per conto e periodo |
+| **G-13** dichiarazione 730 | V1.1 | **OPEN** — dipende dalla validazione professionale della detraibilita |
+| **G-23** trasmissione allo SdI | quando l'intermediario esistera | **OPEN** — il tracciato si genera e si valida; l'intermediario non c'e, e la rotta risponde 503 dicendolo |
+| **G-39** fornitori e ciclo passivo | chiuso | **PARTIAL** — la **controparte** generica esiste; fatture ricevute, scadenzario passivo e pagamenti a fornitore no |
+| **G-41** saldo IVA trimestrale | chiuso | **OPEN** — imponibile e imposta si **conservano**, non si liquidano. Serve validazione professionale (§31 del piano) |
+| **G-45** libro soci | chiuso | **PARTIAL** — registro append-only con numerazione, delibera, cessazione e stato derivato. E **bookkeeping**: nessun professionista ha confermato la conformita statutaria, e il prodotto non la dichiara |
+| **G-46** quota associativa in contabilita | chiuso | **CLOSED** |
+| **G-54** export economico | chiuso | **CLOSED** — CSV con venti colonne, sopra `csv.ts`, con anno fiscale, stagione e sede |
+
+**CLOSED 6 · PARTIAL 2 · OPEN 3** (su undici gap del perimetro Wave 4).
+
+**Cosa il piano non prevedeva e la Wave ha dovuto fare:** una barriera di
+sicurezza. Due tornate di revisione ostile hanno trovato una classe di IDOR che
+quattro correzioni successive non erano riuscite a chiudere, e due risorse senza
+**nessun** confine. Vedi [14 — Sicurezza](14-security.md) §6-quinquies e
+§6-octies, e [ADR-0094](18-decision-log.md#adr-0094--il-confine-multi-tenant-e-una-dichiarazione-obbligatoria-non-un-elenco).
+
 ---
 
 ### WAVE 5 — «L'attivita sportiva, e cio che la famiglia fa da sola»
