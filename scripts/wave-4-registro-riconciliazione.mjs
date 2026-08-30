@@ -100,7 +100,8 @@ const matriceOstile = () => {
 
   /* --- le date: giorno × ora × frazione × fuso × epoca --- */
   const giorni = ["2026-03-09", "2026-02-28", "2026-02-29", "2026-12-31", "9999-12-31", "0001-01-01", "1999-12-31", "2000-01-01"];
-  const ore = ["", "T00:00", "T12:00", "T23:59", "T23:59:59", "T24:00", "T23:59:60"];
+  /* Anche il separatore spazio: il buffer di Postgres lo tratta diverso dalla T. */
+  const ore = ["", "T00:00", "T12:00", "T23:59", "T23:59:59", "T24:00", "T23:59:60", " 12:00:00", " 23:59:59"];
   /* Le lunghezze al confine del buffer del parser di Postgres, misurate. */
   const lunghe = [122, 123, 124, 129, 130, 131, 140].map((n) => "." + "1".repeat(n));
   const frazioni = [...lunghe, "", ".5", ".05", ".005", ".0005", ".0015", ".0025", ".9995", ".9996", ".9999", ".0004999", ".1234999", ".99949999"];

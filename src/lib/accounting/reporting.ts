@@ -431,7 +431,10 @@ export type ActivityScopeBreakdown = {
   /** Vero quando c'e almeno una riga non classificata: la pagina deve dirlo. */
   hasUnclassified: boolean;
   /** Quota di righe non classificate, fra 0 e 1. Zero quando non ci sono righe. */
+  /** Quanto **denaro** non e attribuito, sul denaro che si muove. */
   unspecifiedShare: number;
+  /** La stessa quota misurata sulle **righe**: dice quante correzioni servono. */
+  unspecifiedLineShare: number;
 };
 
 export const groupByActivityScope = (
@@ -460,6 +463,24 @@ export const groupByActivityScope = (
   const nonClassificato = groups.find((gruppo) => gruppo.scope === "unspecified")!;
   const totale = groups.reduce((somma, gruppo) => somma + gruppo.lineCount, 0);
 
+  /*
+    **La quota non classificata si misura in denaro, non in righe.**
+
+    Contarla sulle righe la rende irriconoscibile: un audit su una stagione
+    vera ha misurato **il 67% delle uscite** senza classificazione, e il
+    prodotto dichiarava **3,1%** — perche quelle uscite erano sei righe grosse
+    su centonovantacinque. Un presidente legge tre per cento e conclude che il
+    catalogo e configurato.
+
+    Le righe restano, perche dicono quante correzioni servono; ma la
+    percentuale che si mostra accanto al numero e quella del denaro, che e la
+    domanda vera: **quanto** del bilancio non e attribuito.
+  */
+  const denaroDi = (gruppo: (typeof groups)[number]) =>
+    gruppo.inCents + gruppo.outCents;
+  const denaroTotale = groups.reduce((somma, gruppo) => somma + denaroDi(gruppo), 0);
+  const denaroNonClassificato = denaroDi(nonClassificato);
+
   return {
     groups,
     unspecifiedLineCount: nonClassificato.lineCount,
@@ -467,7 +488,11 @@ export const groupByActivityScope = (
     unspecifiedOutCents: nonClassificato.outCents,
     classifiedLineCount: totale - nonClassificato.lineCount,
     hasUnclassified: nonClassificato.lineCount > 0,
-    unspecifiedShare: totale > 0 ? nonClassificato.lineCount / totale : 0,
+    /** Quanto **denaro** non e attribuito, sul denaro che si muove. */
+    unspecifiedShare:
+      denaroTotale > 0 ? denaroNonClassificato / denaroTotale : 0,
+    /** La quota calcolata sulle **righe**: dice quante correzioni servono. */
+    unspecifiedLineShare: totale > 0 ? nonClassificato.lineCount / totale : 0,
   };
 };
 
@@ -553,7 +578,18 @@ export const normalizeReportingFilters = (
       `toLowerCase()` dentro il filtro costerebbe quanto le righe, e su un
       riepilogo di un anno le righe sono migliaia.
     */
-    search: testo(raw.search).toLowerCase() || null,
+    /*
+      **Il testo cercato non si abbassa qui.**
+
+      Il rendiconto legge le stesse righe dell'elenco, e l'elenco lo filtra il
+      database: da quando lo fa con `ILIKE`, abbassare prima con
+      `toLowerCase()` di JavaScript rimetteva in mezzo proprio la differenza
+      che si era tolta. Misurato: cercando `ΟΔΟΣ` l'elenco trovava la riga e
+      il **rendiconto no** — cioe le due superfici raccontavano due insiemi
+      diversi sotto la stessa parola, che e l'invariante dichiarata a monte di
+      `buildAccountingReport`.
+    */
+    search: testo(raw.search) || null,
   };
 };
 
@@ -570,7 +606,15 @@ export const filterLinesForReport = (
   filters: ReportingFilters = {},
 ): AccountingLine[] => {
   const da = filters.from ? Date.parse(filters.from) : null;
-  const a = filters.to ? Date.parse(filters.to) : null;
+  /*
+    Una data nuda in fondo a un intervallo comprende **tutto** quel giorno,
+    come in `normalizzaFiltri`: qui restava mezzanotte, e l'ultimo giorno
+    spariva da ogni superficie che passa di qua.
+  */
+  const a = filters.to
+    ? Date.parse(filters.to) +
+      (/^\d{4}-\d{2}-\d{2}$/.test(filters.to) ? 24 * 60 * 60 * 1000 - 1 : 0)
+    : null;
 
   return lines.filter((line) => {
     const quando = Date.parse(line.entryDate);
@@ -625,9 +669,17 @@ export const filterLinesForReport = (
         line.bankReference,
       ]
         .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      if (!testoRiga.includes(filters.search)) return false;
+        .join(" ");
+      /*
+        Qui il confronto e in memoria e non puo chiedere a Postgres di
+        abbassare: si abbassano **entrambi i lati** con la stessa funzione,
+        che e la sola cosa che rende il confronto simmetrico.
+      */
+      if (
+        !testoRiga.toLowerCase().includes(String(filters.search).toLowerCase())
+      ) {
+        return false;
+      }
     }
     if (filters.direction && line.direction !== filters.direction) return false;
     if (filters.activityScope && line.activityScope !== filters.activityScope) {

@@ -214,7 +214,21 @@ test("il conteggio delle righe non classificate e esposto, non nascosto", () => 
   assert.equal(ripartizione.unspecifiedInCents, 228_00);
   assert.equal(ripartizione.classifiedLineCount, 2);
   assert.equal(ripartizione.hasUnclassified, true);
-  assert.equal(ripartizione.unspecifiedShare, 0.5);
+
+  /*
+    **La quota si misura in denaro, non in righe.**
+
+    Le due meta sono due righe su quattro e 228,00 euro su 383,00: contarle
+    sulle righe dice 50%, contarle sul denaro dice 59,5%. Su una stagione vera
+    lo scarto era molto peggio — 3,1% dichiarato contro il 67% delle uscite
+    davvero non attribuito — perche quelle uscite erano poche righe grosse.
+  */
+  assert.equal(ripartizione.unspecifiedLineShare, 0.5);
+  assert.equal(
+    Math.round(ripartizione.unspecifiedShare * 1000) / 1000,
+    0.595,
+    "quanto **denaro** non e attribuito, che e la domanda vera",
+  );
 });
 
 test("i tre scope ci sono sempre, anche a zero, e sempre nello stesso ordine", () => {
@@ -533,7 +547,15 @@ test("il riepilogo conosce origine, riconciliazione e ricerca", async () => {
 
   assert.equal(filtri.sourceDomain, "MANUAL");
   assert.equal(filtri.reconciliationStatus, "unreconciled");
-  assert.equal(filtri.search, "affitto", "normalizzata una volta sola, non a ogni riga");
+  /*
+    **Il testo si ripulisce, ma non si abbassa qui.**
+
+    Da quando l elenco filtra con `ILIKE`, abbassare prima in JavaScript
+    rimetteva in mezzo la differenza fra `toLowerCase()` e `lower()` di
+    Postgres: cercando `ΟΔΟΣ` l elenco trovava la riga e il rendiconto no.
+    Il confronto in memoria abbassa entrambi i lati al momento del confronto.
+  */
+  assert.equal(filtri.search, "Affitto", "ripulita una volta sola, non abbassata");
 });
 
 test("un valore fuori catalogo non filtra niente invece di filtrare tutto", async () => {

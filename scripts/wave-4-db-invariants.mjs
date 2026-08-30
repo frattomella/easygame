@@ -360,6 +360,47 @@ const prove = async () => {
      VALUES ('${randomUUID()}', '${CLUB}', '${PROGRAMMA}', '2026-10-03', -800, '${liquidazione}', now(), now())`,
   );
 
+  console.log(`${NL}=== IL CONTO E DI CHI LO USA ===${NL}`);
+
+  /*
+    **Un conto di un altro club non e un dato sbagliato: e denaro invisibile.**
+
+    I saldi si sommano per club **e** per elenco dei conti di quel club, quindi
+    una riga che dichiara il club A e un conto di B non viene contata ne di qua
+    ne di la. Un audit indipendente ha misurato un rendiconto da +8.500 euro
+    netti con la somma dei saldi di **entrambi** i club a zero.
+
+    La guardia applicativa chiude i quattro punti di scrittura; questa prova
+    verifica la porta di sotto, che vale anche per uno script.
+  */
+  const CLUB_VICINO = randomUUID();
+  const CONTO_VICINO = randomUUID();
+
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO clubs (id, slug, name, creator_id, created_at, updated_at)
+     VALUES ('${CLUB_VICINO}', 'inv-vicino-${Date.now()}', 'Club vicino',
+             (SELECT creator_id FROM clubs WHERE id = '${CLUB}'), now(), now())`,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO financial_accounts (id, organization_id, name, kind, created_at, updated_at)
+     VALUES ('${CONTO_VICINO}', '${CLUB_VICINO}', 'Banca del vicino', 'BANK', now(), now())`,
+  );
+
+  await vietato(
+    "un movimento sul conto di un altro club",
+    "finirebbe nel registro e in nessun saldo, di nessuno dei due club",
+    `INSERT INTO accounting_entries (id, organization_id, entry_date, fiscal_year, direction, amount_cents, financial_account_id, description, source_domain, created_at, updated_at)
+     VALUES ('${randomUUID()}', '${CLUB}', now(), 2026, 'IN', 10000, '${CONTO_VICINO}', 'Movimento fuori club', 'MANUAL', now(), now())`,
+  );
+  await vietato(
+    "un incasso sul conto di un altro club",
+    "vale per ogni dominio che entra nel registro, non solo per i movimenti manuali",
+    `INSERT INTO payment_transactions (id, organization_id, amount, paid_at, payment_method, source, currency, financial_account_id, created_at, updated_at)
+     VALUES ('${randomUUID()}', '${CLUB}', 100, '2026-10-01', 'Bonifico', 'MANUAL', 'EUR', '${CONTO_VICINO}', now(), now())`,
+  );
+
+  await prisma.$executeRawUnsafe(`DELETE FROM clubs WHERE id = '${CLUB_VICINO}'`);
+
   console.log(`${NL}=== QUANTO PUO VALERE UN IMPORTO ===${NL}`);
 
   /*

@@ -1,257 +1,94 @@
 -- ===========================================================================
--- Un numero fuori scala non deve spegnere la contabilita di un club.
+-- Il conto su cui il denaro si muove appartiene al club che lo muove.
 -- ===========================================================================
 --
--- ## Il difetto, che e lo stesso di due migrazioni fa e non era stato chiuso
+-- ## Il difetto
 --
--- easygame_blob_timestamp ed easygame_blob_number intercettavano il fallimento
--- della **conversione**. Nessuno intercettava il ::int che veniva subito dopo:
--- oltre 21.474.836,47 euro i centesimi non entrano in un intero, e Postgres
--- non tronca -- alza "integer out of range" e **l'intera query cade**. Cioe
--- esattamente il guasto che quella migrazione era stata scritta per finire,
--- riproposto un centesimo piu in la.
+-- Solo il movimento manuale verificava che `financial_account_id` fosse un
+-- conto di quel club. I quattro domini che **proiettano** nel registro —
+-- incassi, sponsorizzazioni, liquidazioni dei bandi, compensi del lavoro
+-- sportivo — scrivevano quello che arrivava dal corpo della richiesta.
 --
--- E non riguardava soltanto il blob storico. Lo stesso cast era applicato a
--- payment_transactions.amount, sport_work_outbound_transactions.net_amount e
--- funding_settlements.amount, e nessun vincolo ne limitava la grandezza:
--- payment_transactions_amount_check vieta lo zero, non l'infinito. Un
--- Date.now() finito nel campo dell'importo -- 1,7 mila miliardi -- e quel club
--- perdeva prima nota, rendiconto, export e saldi. Senza nessun dato storico.
+-- Il risultato non era una lettura sbagliata: era denaro che **non esiste in
+-- nessun saldo**. `listFinancialAccountBalances` filtra per club **e** per
+-- elenco dei conti di quel club, quindi una riga che dichiara il club A e un
+-- conto di B non viene contata ne di qua ne di la. Un audit indipendente ha
+-- misurato un rendiconto da +8.500 euro netti con la somma dei saldi di
+-- **entrambi** i club a zero.
 --
--- ## Le due meta della correzione
+-- La guardia applicativa (`src/lib/server/financial-account-guard.ts`) chiude
+-- i quattro punti di scrittura. Questa migrazione chiude la porta di sotto.
 --
--- *La prevenzione:* i tre importi di dominio dichiarano ora quanto possono
--- valere. Un movimento che il registro non puo rappresentare non deve poter
--- **nascere**; ed e un CHECK, non un controllo applicativo, perche la prima
--- volta e nato da una scrittura che l'applicazione non ha visto.
+-- ## Perche una chiave esterna composta, e non un CHECK
 --
--- *La tolleranza:* easygame_centesimi restituisce NULL invece di alzare -- per
--- il fuori scala, per NaN e per gli infiniti, che Postgres accetta volentieri
--- come double precision e rifiuta come int. Se un giorno un vincolo verra
--- aggirato, si perdera **una riga**, non un anno di contabilita.
+-- Un `CHECK` non puo interrogare un'altra tabella. La coppia
+-- `(organization_id, id)` di `financial_accounts` e gia univoca per
+-- costruzione — `id` e chiave primaria — e dichiararla permette a ognuna delle
+-- quattro tabelle di riferirsi al conto **insieme al suo club**: il database
+-- rifiuta da se una riga che li accosta sbagliati, per sempre e per chiunque,
+-- anche per uno script che non passa dall'applicazione.
 --
--- ## E la data, che le due letture leggevano diversa
+-- ## Perche `NOT VALID`
 --
--- Tre divergenze fra la vista e la sua dichiarazione in TypeScript, tutte
--- sulla stessa colonna:
---
---   1. il **ripiego**. COALESCE(date, created_at) sceglie fra i due valori
---      **grezzi**, quindi una date sporca ma presente vinceva su un created_at
---      buono: SQL scartava la riga, TypeScript la teneva. Ora si sceglie fra i
---      due valori **letti**;
---   2. le parole. Postgres risolve 'now', 'today', 'epoch', 'infinity';
---      JavaScript no. E 'now' rendeva falsa la dichiarazione IMMUTABLE della
---      funzione;
---   3. il **giorno**. '09/03/2026' e il 3 settembre per Postgres e il 9 marzo
---      per JavaScript, e '2026-03-09T12:00:00+02:00' era mezzogiorno per uno e
---      le dieci per l'altro -- due ore che a cavallo di dicembre spostano
---      l'anno fiscale.
---
--- Non c'era un'interpretazione giusta da scegliere fra le due. C'e una forma
--- sola che non ha bisogno di essere interpretata -- ISO 8601 -- e il resto non
--- e una data: ora entrambe le letture accettano quella e rifiutano tutto il
--- resto, e l'offset, quando c'e, lo onorano tutte e due allo stesso modo.
+-- Per la stessa ragione dei vincoli di scala: ogni deploy esegue
+-- `prisma migrate deploy`, e una riga gia scritta male farebbe fallire il
+-- deploy **intero** — cioe toglierebbe il prodotto a tutti per un difetto che
+-- riguarda un club. Il vincolo vale da subito su ogni scrittura nuova; la
+-- validazione si tenta qui sotto e, se non passa, lo **dice**.
 -- ===========================================================================
 
-
--- ---------------------------------------------------------------------------
--- 1. I centesimi che non alzano mai
--- ---------------------------------------------------------------------------
-
-CREATE OR REPLACE FUNCTION easygame_centesimi(valore double precision)
-RETURNS int
-LANGUAGE plpgsql
-IMMUTABLE
-PARALLEL SAFE
-SET search_path = pg_catalog, pg_temp
-AS $$
-DECLARE
-  centesimi double precision;
-BEGIN
-  IF valore IS NULL THEN
-    RETURN NULL;
-  END IF;
-  /* NaN non e uguale a se stesso, ed e il modo portabile di riconoscerlo. */
-  IF valore <> valore THEN
-    RETURN NULL;
-  END IF;
-  IF valore = 'Infinity'::double precision
-     OR valore = '-Infinity'::double precision THEN
-    RETURN NULL;
-  END IF;
-
-  centesimi := abs(floor(valore * 100::double precision + 0.5));
-  IF centesimi > 2147483647::double precision THEN
-    RETURN NULL;
-  END IF;
-
-  RETURN centesimi::int;
-EXCEPTION
-  WHEN others THEN
-    RETURN NULL;
-END;
-$$;
-
-COMMENT ON FUNCTION easygame_centesimi(double precision) IS
-  'I centesimi di un importo, o NULL se non si possono rappresentare. '
-  'Una riga sola fuori scala non deve poter spegnere la prima nota di un club.';
-
-
--- ---------------------------------------------------------------------------
--- 1-bis. E la terza funzione, che era rimasta indietro
--- ---------------------------------------------------------------------------
---
--- easygame_blob_number e chiamata da entrambi i rami storici della vista e non
--- era stata ricreata: restava senza search_path fissato mentre le altre due lo
--- avevano. Nessuna delle tre tocca una tabella, quindi non c e un exploit --
--- ma una correzione a due terzi si legge come una correzione.
-
-CREATE OR REPLACE FUNCTION easygame_blob_number(valore text)
-RETURNS double precision
-LANGUAGE plpgsql
-IMMUTABLE
-PARALLEL SAFE
-SET search_path = pg_catalog, pg_temp
-AS $$
-BEGIN
-  RETURN valore::double precision;
-EXCEPTION
-  WHEN others THEN
-    RETURN NULL;
-END;
-$$;
-
-
--- ---------------------------------------------------------------------------
--- 2. La data storica: la sola forma su cui le due letture concordano
--- ---------------------------------------------------------------------------
-
-CREATE OR REPLACE FUNCTION easygame_blob_timestamp(valore text)
-RETURNS timestamp(3)
-LANGUAGE plpgsql
-IMMUTABLE
-PARALLEL SAFE
-SET search_path = pg_catalog, pg_temp
-AS $$
-DECLARE
-  ripulito text;
-  esito timestamp(3);
-BEGIN
-  IF valore IS NULL THEN
-    RETURN NULL;
-  END IF;
-  ripulito := btrim(valore);
-  IF ripulito = '' THEN
-    RETURN NULL;
-  END IF;
-
-  /*
-    Solo ISO 8601. Fuori di qui le due letture non divergono per un difetto
-    dell'una: divergono perche stanno interpretando, e interpretano diverso.
-  */
-  /* L'anno zero non esiste qui e vale 1 a.C. in JavaScript: fuori da entrambe. */
-  IF left(ripulito, 4) = '0000' THEN
-    RETURN NULL;
-  END IF;
-
-  IF ripulito !~ '^\d{4}-\d{2}-\d{2}([T ]([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$' THEN
-    RETURN NULL;
-  END IF;
-
-  /*
-    Quando l'offset c'e, si onora: e cio che fa JavaScript, e il registro parla
-    in UTC. Il risultato non dipende dal fuso della sessione, perche l'offset e
-    scritto nel dato -- la dichiarazione IMMUTABLE resta vera.
-  */
-  IF ripulito ~ '(Z|[+-]\d{2}:?\d{2})$' THEN
-    esito := (ripulito::timestamptz AT TIME ZONE 'UTC')::timestamp(3);
-  ELSE
-    esito := ripulito::timestamp(3);
-  END IF;
-
-  /*
-    **Non basta `isfinite`: l anno 10000 e finito.**
-
-    `timestamp(3)` arrotonda, e `9999-12-31T23:59:59.9996` diventa
-    `10000-01-01`. Postgres lo conserva volentieri; il convertitore di Prisma
-    poi non lo sa rileggere e alza — quindi una riga sola cosi faceva cadere
-    prima nota, rendiconto, export e saldi di quel club, che e esattamente il
-    guasto che questa migrazione esiste per finire, raggiunto da una data
-    invece che da un importo.
-  */
-  /*
-    Il confronto con due costanti costa una frazione di due `EXTRACT`, e su
-    una vista che valuta questa funzione quattro volte per riga storica la
-    differenza si misura.
-  */
-  IF NOT isfinite(esito)
-     OR esito < timestamp '0001-01-01 00:00:00'
-     OR esito >= timestamp '10000-01-01 00:00:00' THEN
-    RETURN NULL;
-  END IF;
-
-  RETURN esito;
-EXCEPTION
-  WHEN others THEN
-    RETURN NULL;
-END;
-$$;
-
-
--- ---------------------------------------------------------------------------
--- 3. I tre importi di dominio dichiarano quanto possono valere
--- ---------------------------------------------------------------------------
---
--- 21.474.836,47 euro e il piu grande importo che il registro sa mostrare. Non
--- e una scelta di prodotto: e il limite della colonna, e dirlo nel database e
--- il solo modo di impedire che ci arrivi qualcosa che poi non si puo leggere.
+ALTER TABLE "financial_accounts"
+  DROP CONSTRAINT IF EXISTS "financial_accounts_org_id_unique";
+ALTER TABLE "financial_accounts"
+  ADD CONSTRAINT "financial_accounts_org_id_unique"
+  UNIQUE ("organization_id", "id");
 
 ALTER TABLE "payment_transactions"
-  DROP CONSTRAINT IF EXISTS "payment_transactions_amount_scala_check";
+  DROP CONSTRAINT IF EXISTS "payment_transactions_conto_dello_stesso_club";
 ALTER TABLE "payment_transactions"
-  ADD CONSTRAINT "payment_transactions_amount_scala_check"
-  CHECK (abs("amount") <= 21474836.47) NOT VALID;
+  ADD CONSTRAINT "payment_transactions_conto_dello_stesso_club"
+  FOREIGN KEY ("organization_id", "financial_account_id")
+  REFERENCES "financial_accounts" ("organization_id", "id")
+  ON DELETE SET NULL
+  NOT VALID;
 
-ALTER TABLE "sport_work_outbound_transactions"
-  DROP CONSTRAINT IF EXISTS "sport_work_outbound_scala_check";
-ALTER TABLE "sport_work_outbound_transactions"
-  ADD CONSTRAINT "sport_work_outbound_scala_check"
-  CHECK (
-    abs(COALESCE("net_amount", 0)) <= 21474836.47
-    AND abs(COALESCE("gross_amount", 0)) <= 21474836.47
-  ) NOT VALID;
+ALTER TABLE "accounting_entries"
+  DROP CONSTRAINT IF EXISTS "accounting_entries_conto_dello_stesso_club";
+ALTER TABLE "accounting_entries"
+  ADD CONSTRAINT "accounting_entries_conto_dello_stesso_club"
+  FOREIGN KEY ("organization_id", "financial_account_id")
+  REFERENCES "financial_accounts" ("organization_id", "id")
+  ON DELETE SET NULL
+  NOT VALID;
 
 ALTER TABLE "funding_settlements"
-  DROP CONSTRAINT IF EXISTS "funding_settlements_scala_check";
+  DROP CONSTRAINT IF EXISTS "funding_settlements_conto_dello_stesso_club";
 ALTER TABLE "funding_settlements"
-  ADD CONSTRAINT "funding_settlements_scala_check"
-  CHECK (abs("amount") <= 21474836.47) NOT VALID;
+  ADD CONSTRAINT "funding_settlements_conto_dello_stesso_club"
+  FOREIGN KEY ("organization_id", "financial_account_id")
+  REFERENCES "financial_accounts" ("organization_id", "id")
+  ON DELETE SET NULL
+  NOT VALID;
 
-/*
-  **`NOT VALID` protegge il futuro senza scommettere il deploy sul passato.**
+ALTER TABLE "sport_work_outbound_transactions"
+  DROP CONSTRAINT IF EXISTS "sport_work_outbound_conto_dello_stesso_club";
+ALTER TABLE "sport_work_outbound_transactions"
+  ADD CONSTRAINT "sport_work_outbound_conto_dello_stesso_club"
+  FOREIGN KEY ("organization_id", "financial_account_id")
+  REFERENCES "financial_accounts" ("organization_id", "id")
+  ON DELETE SET NULL
+  NOT VALID;
 
-  Un `ADD CONSTRAINT` che valida prende `ACCESS EXCLUSIVE` e legge ogni riga
-  gia scritta. La premessa di questa migrazione e che un importo fuori scala
-  **possa gia esserci**: se c'e, la validazione fallisce, la migrazione
-  fallisce, e — dato che ogni deploy esegue `prisma migrate deploy` — fallisce
-  il deploy intero. Il rimedio sarebbe allora peggiore del guasto, perche il
-  guasto toglie la contabilita a un club e questo la toglierebbe a tutti.
-
-  Con `NOT VALID` il vincolo vale da subito su ogni scrittura nuova, e le
-  righe vecchie restano dove sono — visibili, e non piu riproducibili. La
-  validazione si tenta qui sotto, e se non passa lo **dice** invece di
-  interrompere: chi legge i log sa che c'e una riga da correggere, e la vista
-  intanto la tollera perche `easygame_centesimi` non alza mai.
-*/
 DO $$
 DECLARE
   vincolo record;
 BEGIN
   FOR vincolo IN
     SELECT unnest(ARRAY[
-      'payment_transactions|payment_transactions_amount_scala_check',
-      'sport_work_outbound_transactions|sport_work_outbound_scala_check',
-      'funding_settlements|funding_settlements_scala_check'
+      'payment_transactions|payment_transactions_conto_dello_stesso_club',
+      'accounting_entries|accounting_entries_conto_dello_stesso_club',
+      'funding_settlements|funding_settlements_conto_dello_stesso_club',
+      'sport_work_outbound_transactions|sport_work_outbound_conto_dello_stesso_club'
     ]) AS riga
   LOOP
     BEGIN
@@ -262,7 +99,7 @@ BEGIN
       );
     EXCEPTION WHEN others THEN
       RAISE NOTICE
-        'Il vincolo % non e stato validato, e vale comunque su ogni scrittura nuova. Se il motivo e una riga gia fuori scala va corretta; se e altro, lo dice il dettaglio: %',
+        'Il vincolo % non e stato validato, e vale comunque su ogni scrittura nuova. Se il motivo e una riga che cita il conto di un altro club va corretta; se e altro, lo dice il dettaglio: %',
         split_part(vincolo.riga, '|', 2), SQLERRM;
     END;
   END LOOP;
@@ -271,19 +108,16 @@ $$;
 
 
 -- ---------------------------------------------------------------------------
--- 4. L'indice che il vincolo unico teneva in piedi
+-- E il documento annullato, che nella prima nota non presta piu il suo numero
 -- ---------------------------------------------------------------------------
 --
--- receipts_transaction_id_key faceva due mestieri: l'unicita e la ricerca per
--- incasso. Togliendolo per renderlo parziale e rimasto solo il primo.
-
-CREATE INDEX IF NOT EXISTS "receipts_transaction_id_idx"
-  ON "receipts" ("transaction_id");
-
-
--- ---------------------------------------------------------------------------
--- 5. Il registro, con i cast resi totali e la data di ripiego corretta
--- ---------------------------------------------------------------------------
+-- La correzione era stata scritta **dentro** la migrazione precedente, che era
+-- gia stata applicata: un database che l'aveva eseguita prima non l'avrebbe
+-- mai ricevuta, e `prisma migrate status` non lo avrebbe detto — la vista si
+-- crea una volta sola, e Prisma non rilegge i file gia applicati.
+--
+-- La vista si ridichiara qui, cosi la correzione arriva anche dove la
+-- migrazione precedente e gia passata.
 
 DROP VIEW IF EXISTS "accounting_ledger_lines";
 

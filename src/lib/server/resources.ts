@@ -3873,11 +3873,7 @@ export const createResource = async (
         dichiarare `creator_id`, qui lo scriveva il codice per conto
         dell'attaccante.
       */
-      if (mode !== "upsert" || !String(normalized.id || "").trim()) {
-        normalized.creator_id = scope.userId;
-      } else {
-        delete normalized.creator_id;
-      }
+      normalized.creator_id = scope.userId;
     }
 
     /*
@@ -4018,9 +4014,29 @@ export const createResource = async (
         }
       }
 
+      /*
+        **La meta che crea e la meta che modifica non sono lo stesso oggetto.**
+
+        `creator_id` va scritto quando il club **nasce** e mai quando esiste
+        gia: la riga qui sotto lo scriveva su entrambe le meta, e un
+        `upsert` su un club esistente lo intestava a chi lo mandava.
+        Toglierlo dall'oggetto intero era pero l'errore opposto — la colonna e
+        `NOT NULL`, e la creazione per `upsert` moriva con «Argument
+        `creator` is missing».
+
+        Due oggetti, quindi: quello che crea porta il fondatore, quello che
+        modifica no.
+      */
+      const daNonRiscrivere =
+        resource === "clubs" || resource === "organizations"
+          ? ["creator_id"]
+          : [];
+      const perModifica = { ...normalized };
+      for (const campo of daNonRiscrivere) delete perModifica[campo];
+
       const record = await delegate.upsert({
         where,
-        update: normalized,
+        update: perModifica,
         create: normalized,
         include: getModelInclude(resource),
       });

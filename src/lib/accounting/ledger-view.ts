@@ -313,14 +313,18 @@ const dataStorica = (value: unknown): string | null => {
     due soglie sono state **misurate**, non dedotte: 130 cifre di frazione
     senza fuso, 123 con — il fuso occupa un campo in piu.
 
-    La soglia e sulla **lunghezza complessiva**, non sulle cifre della
-    frazione: 150 caratteri senza fuso e 149 con, perche il fuso occupa un
-    campo in piu del buffer. Misurate, non dedotte.
+    La soglia e sulla **lunghezza complessiva** e dipende da due cose, e
+    tutte e due misurate contro il database invece che dedotte: il separatore
+    — lo spazio concede due caratteri piu della `T` — e la presenza del fuso,
+    che ne toglie uno. Un primo tentativo che guardava le sole cifre della
+    frazione produsse ventotto divergenze; un secondo, tarato sulla sola `T`,
+    ne produsse quattro sulla forma con lo spazio.
 
     Non e una perdita: oltre il microsecondo nessuna delle due letture
     conserva altra precisione.
   */
-  if (testo.length > (fuso ? 149 : 150)) return null;
+  const conSpazio = testo.charAt(10) === " ";
+  if (testo.length > (conSpazio ? 152 : 150) - (fuso ? 1 : 0)) return null;
 
   /*
     **L'orologio da muro, letto come UTC.**

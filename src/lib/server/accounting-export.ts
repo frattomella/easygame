@@ -135,9 +135,31 @@ const leggiEtichette = async (organizationId: string) => {
   });
 
   const stagioni = new Map<string, string>();
+  /*
+    **E il calendario, per le righe che una stagione non la dichiarano.**
+
+    Le righe proiettate — incassi, compensi, liquidazioni — e quelle storiche
+    non portano `season_id`: su una stagione vera la colonna e uscita **vuota
+    su tutte e 203 le righe**, cioe inutile per la cosa per cui esiste, che e
+    permettere al commercialista di rifare da solo il taglio per stagione.
+
+    Il club **ha** un calendario, ed e lo stesso che il prodotto usa per
+    filtrare. Applicarlo non e inventare: e la regola del club, applicata da
+    chi la conosce invece che da chi riceve il file. Cio che va detto e da
+    dove viene il valore, e la cella lo dice.
+  */
+  const calendario: Array<{ label: string; da: Date; a: Date }> = [];
   for (const stagione of normalizeClubSeasons(club?.settings)?.seasons || []) {
     const id = asText((stagione as any)?.id);
-    if (id) stagioni.set(id, asText((stagione as any)?.label) || id);
+    const etichetta = asText((stagione as any)?.label) || id;
+    if (id) stagioni.set(id, etichetta);
+
+    const da = new Date(asText((stagione as any)?.startDate));
+    const a = new Date(asText((stagione as any)?.endDate));
+    if (etichetta && !Number.isNaN(da.getTime()) && !Number.isNaN(a.getTime())) {
+      a.setUTCHours(23, 59, 59, 999);
+      calendario.push({ label: etichetta, da, a });
+    }
   }
 
   const sedi = new Map<string, string>();
@@ -146,7 +168,7 @@ const leggiEtichette = async (organizationId: string) => {
     if (id) sedi.set(id, asText(sede?.name) || id);
   }
 
-  return { stagioni, sedi };
+  return { stagioni, sedi, calendario };
 };
 
 /* ========================================================================== */
@@ -350,11 +372,23 @@ export const buildAccountingExport = async (
     piccole — un club ha una manciata di stagioni e di sedi — e vivono dove
     vivono da sempre, cioe dentro `clubs.settings` e `clubs.club_sites`.
   */
-  const { stagioni, sedi } = await leggiEtichette(organizationId);
+  const { stagioni, sedi, calendario } = await leggiEtichette(organizationId);
+
+  /** La stagione dedotta dalla data, dichiarata come dedotta. */
+  const stagioneDallaData = (quando: unknown) => {
+    const data = quando instanceof Date ? quando : new Date(String(quando ?? ""));
+    if (Number.isNaN(data.getTime())) return null;
+    const trovata = calendario.find(
+      (stagione) => data >= stagione.da && data <= stagione.a,
+    );
+    return trovata ? `${trovata.label} (dalla data)` : null;
+  };
 
   const arricchite: AccountingExportLine[] = lines.map((riga) => {
     const etichette = {
-      seasonLabel: riga.seasonId ? stagioni.get(String(riga.seasonId)) || null : null,
+      seasonLabel: riga.seasonId
+        ? stagioni.get(String(riga.seasonId)) || null
+        : stagioneDallaData(riga.entryDate),
       siteLabel: riga.siteId ? sedi.get(String(riga.siteId)) || null : null,
     };
 

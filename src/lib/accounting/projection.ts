@@ -284,7 +284,22 @@ export const projectPaymentTransactions = (
         */
         direction: verso,
         amountCents: importo,
-        sourceDomain: storno ? "REVERSAL" : rimborso ? "REFUND" : "ATHLETE_PAYMENT",
+        /*
+          Un incasso di sponsorizzazione non e la quota di una famiglia:
+          l origine la dice la controparte congelata sulla riga. Prima
+          uscivano tutti come `ATHLETE_PAYMENT`, e il filtro «Incasso
+          sponsor» — che l interfaccia offre — non poteva mai restituire
+          niente.
+        */
+        sourceDomain: storno
+          ? "REVERSAL"
+          : rimborso
+            ? "REFUND"
+            : ["SPONSOR", "SUPPLIER"].includes(
+                  String(row.counterparty_kind ?? "").trim().toUpperCase(),
+                )
+              ? "SPONSOR_PAYMENT"
+              : "ATHLETE_PAYMENT",
         sourceId: row.id,
         description: descrizione,
         reversedAt: iso(row.reversed_at),

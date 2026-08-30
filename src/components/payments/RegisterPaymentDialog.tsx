@@ -139,11 +139,20 @@ export function RegisterPaymentDialog({
     prima o poi non lo scegliera, e la riga tornera a non entrare in nessun
     saldo. Quasi tutti i club ne hanno uno solo; resta cambiabile.
   */
+  const contoScelto = React.useRef(false);
   React.useEffect(() => {
-    if (!financialAccountId && accountChoices.length) {
-      setFinancialAccountId(accountChoices[0].id);
-    }
-  }, [accountChoices, financialAccountId]);
+    /*
+      **Si preseleziona una volta sola.**
+
+      Con `financialAccountId` fra le dipendenze, scegliere «Senza conto» —
+      che azzera il valore — faceva ripartire subito l effetto e ripristinava
+      il primo conto: l opzione era offerta e inerte. Ora la preselezione vale
+      finche l operatore non ha scelto, e dopo tace.
+    */
+    if (contoScelto.current || !accountChoices.length) return;
+    contoScelto.current = true;
+    setFinancialAccountId(accountChoices[0].id);
+  }, [accountChoices]);
 
   /*
     I campi si ripopolano ogni volta che la finestra si apre su una rata:

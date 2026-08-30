@@ -743,7 +743,26 @@ const chiaveIdempotenteDelClient = (
   const testo = asText(chiave);
   if (!testo) return null;
   const utente = asText(scope?.userId) || "anonimo";
-  return `client:${utente}:${testo.slice(0, 120)}`;
+
+  /*
+    **Non si taglia una chiave.**
+
+    Tagliarla a 120 caratteri faceva collidere due richieste **diverse** che
+    condividevano l'inizio: la seconda riceveva la prima, con 201 e l'importo
+    sbagliato — cioe un movimento che non veniva registrato mentre l'API
+    dichiarava successo. `source_event_key` e `text` e non ha limite, quindi
+    il taglio non comprava niente.
+
+    Una chiave troppo lunga si rifiuta, invece: e un errore del client, e
+    dirlo costa meno che perdere una scrittura.
+  */
+  if (testo.length > 200) {
+    throw new Error(
+      "La chiave di idempotenza supera i 200 caratteri: accorciala, non verra tagliata",
+    );
+  }
+
+  return `client:${utente}:${testo}`;
 };
 
 const ensureAccountBelongsToClub = async (
@@ -857,7 +876,17 @@ export const createAccountingEntry = async (
     options?.clientRequestKey,
     scope,
   );
-  if (chiaveDelClient) {
+  /**
+   * Il movimento gia scritto con questa chiave, se c'e — e il confronto con
+   * cio che si sta chiedendo adesso.
+   *
+   * Rispondere «fatto» a una richiesta **diversa** che riusa la chiave sarebbe
+   * peggio di scriverla due volte: un operatore che corregge un importo e
+   * rimanda si sentirebbe dire che ha funzionato, e il registro terrebbe il
+   * numero sbagliato.
+   */
+  const giaScritto = async () => {
+    if (!chiaveDelClient) return null;
     const gia = await (prisma as any).accountingEntry.findFirst({
       where: {
         organization_id: organizationId,
@@ -865,8 +894,20 @@ export const createAccountingEntry = async (
         reversed_at: null,
       },
     });
-    if (gia) return gia;
-  }
+    if (!gia) return null;
+
+    const richiesti = resolveAmountCents(input);
+    if (Number(gia.amount_cents) !== richiesti) {
+      throw new Error(
+        `Questa richiesta e gia stata registrata per ${(Number(gia.amount_cents) / 100).toFixed(2)} EUR: ` +
+          "il movimento **non** e stato modificato. Per correggerlo, storna e registra di nuovo.",
+      );
+    }
+    return gia;
+  };
+
+  const primaVolta = await giaScritto();
+  if (primaVolta) return primaVolta;
 
   const entryDate = toDateOrNull(input.entryDate);
   const direction = normalizeDirection(input.direction);
@@ -884,7 +925,21 @@ export const createAccountingEntry = async (
     description: asText(input.description) || code,
   });
 
-  const row = await (prisma as any).$transaction(async (client: any) => {
+  /*
+    **Chi perde la corsa riceve il movimento, non un errore.**
+
+    La lettura della chiave sta fuori dalla transazione, quindi cinque invii
+    simultanei la superavano tutti e cinque e si infrangevano poi sull'indice
+    unico. Il denaro restava giusto — una riga sola — ma quattro chiamanti
+    ricevevano un 400 generico per una richiesta **riuscita**, e un client che
+    rimanda su errore ne manderebbe altre.
+
+    L'indice arbitra; qui si traduce il suo verdetto in cio che e successo
+    davvero: il movimento c'e, ed e quello. E la stessa forma di
+    `sport-work-agenda.ts`.
+  */
+  const scrivi = async () =>
+    (prisma as any).$transaction(async (client: any) => {
     await ensureAccountBelongsToClub(client, organizationId, accountId);
     const causale = await resolveOperationType(client, organizationId, code);
 
@@ -917,7 +972,19 @@ export const createAccountingEntry = async (
       },
       include: { financial_account: true, operation_type: true },
     });
-  });
+    });
+
+  let row: any;
+  try {
+    row = await scrivi();
+  } catch (errore: any) {
+    const conflitto =
+      String(errore?.code) === "P2002" ||
+      /Unique constraint failed/i.test(String(errore?.message));
+    const vinto = conflitto ? await giaScritto() : null;
+    if (!vinto) throw errore;
+    row = vinto;
+  }
 
   await recordAuditEvent({
     action: AUDIT_ACTIONS.accountingEntryRecorded,
