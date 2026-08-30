@@ -24,6 +24,7 @@
  */
 
 import { prisma } from "./prisma";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { allocateDocumentNumber, peekDocumentNumber } from "./document-numbering";
 import {
   documentYearOf,
@@ -700,9 +701,13 @@ export const cancelDocument = async (
   const document = await client.findUnique({ where: { id: documentId } });
   if (!document) throw new Error("Documento non trovato");
 
-  if (scope && !scope.allowedOrganizationIds.includes(document.organization_id)) {
-    throw denied("il documento appartiene a un altro club");
-  }
+  /*
+    Il confine e il club **attivo**. Annullare un documento fiscale numerato e
+    una scrittura definitiva, e la rotta che la chiama non aveva nemmeno un
+    controllo di ruolo: il solo elenco dei club dell utente non e un confine.
+    Vedi `src/lib/auth/active-club-boundary.ts`.
+  */
+  if (scope) assertActiveClub(scope, document.organization_id, "il documento");
 
   if (document.cancelled_at) {
     throw new Error("Questo documento e gia stato annullato");

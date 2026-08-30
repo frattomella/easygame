@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -93,6 +94,19 @@ const resolveOrganization = async (
     !scope.allowedOrganizationIds.includes(organizationId)
   ) {
     throw new Error("Accesso negato: il club non e fra quelli accessibili");
+  }
+
+  /*
+    **Il permesso, che in questo file non c'era affatto.** Il conto di incasso
+    e la configurazione commerciale della societa: da qui si legge lo stato del
+    conto Stripe e si genera il link di onboarding. Nessuna riga controllava
+    *cosa* il ruolo attivo puo fare — bastava appartenere al club.
+  */
+  if (
+    !isPlatformAdminUser(session.db.user) &&
+    !canManageClubConfiguration(scope.activeRole)
+  ) {
+    throw new Error("Accesso negato per il ruolo attivo");
   }
 
   return { session, organizationId };

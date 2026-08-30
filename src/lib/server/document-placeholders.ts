@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { buildMemberIdentity, getResourceById } from "./resources";
 import { readClubSignatureImage } from "./club-signature";
 import { loadAttendanceInputs } from "./funding";
@@ -137,9 +138,8 @@ const ensureOrganizationAccess = (
 ) => {
   if (!organizationId) throw new Error("Nessun club indicato");
   if (!scope) return;
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("il club non e fra quelli accessibili");
-  }
+  /* Il confine e il club **attivo**: vedi `src/lib/auth/active-club-boundary.ts`. */
+  assertActiveClub(scope, organizationId, "il club");
 };
 
 /**

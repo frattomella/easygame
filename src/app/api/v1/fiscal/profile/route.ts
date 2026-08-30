@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -91,6 +92,19 @@ const resolveOrganization = async (
 
   if (!isPlatformAdmin && !scope.allowedOrganizationIds.includes(organizationId)) {
     throw new Error("Accesso negato: il club non e fra quelli accessibili");
+  }
+
+
+  /*
+    **Il permesso, che in questo file non c'era affatto.** Il confine c'era —
+    il club dev'essere fra quelli dell'utente, e il ruolo viene risolto per
+    **quello** perche `requested` passa come club preferito — ma nessuno
+    controllava *cosa* quel ruolo puo fare. Il profilo fiscale finisce sulle
+    fatture emesse: partita IVA, forma giuridica, regime. Un genitore poteva
+    riscriverlo.
+  */
+  if (!isPlatformAdmin && !canManageClubConfiguration(scope.activeRole)) {
+    throw new Error("Accesso negato per il ruolo attivo");
   }
 
   return { session, organizationId, isPlatformAdmin };

@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "crypto";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
 import {
   buildPublicFormPath,
@@ -78,10 +79,8 @@ const ensureOrganizationAccess = (
   organizationId: string | null | undefined,
 ) => {
   if (!scope) return;
-  if (!organizationId) throw denied("modulo senza club");
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("il modulo appartiene a un altro club");
-  }
+  /* Il confine e il club **attivo**: vedi `src/lib/auth/active-club-boundary.ts`. */
+  assertActiveClub(scope, organizationId, "il modulo");
 };
 
 const resolveOrganizationId = (

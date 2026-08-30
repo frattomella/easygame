@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -74,6 +75,17 @@ export async function POST(request: Request, context: Context) {
       request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
+
+    /*
+      **Il gate di ruolo che mancava.** Annullare un documento fiscale numerato
+      e definitivo — il numero non torna disponibile (ADR-0044) — e questa
+      rotta chiedeva soltanto una sessione valida: qualunque membro del club,
+      un genitore compreso, poteva ritirare una fattura emessa. Il permesso e
+      lo stesso che governa l'emissione.
+    */
+    if (!canManageClubConfiguration(scope.activeRole)) {
+      throw new Error("Accesso negato per il ruolo attivo");
+    }
 
     const document = await cancelDocument(
       { kind, documentId: context.params.id, reason: body.reason },

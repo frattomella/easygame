@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canManageClubConfiguration } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -66,9 +67,21 @@ const buildScope = async (request: Request, userId: string) => {
     request.headers.get("x-active-access-role"),
   );
 
+  /*
+    **Il ruolo, che questo scope non portava affatto.** Preparare e trasmettere
+    una fattura elettronica e un atto verso l'Agenzia delle Entrate, e il file
+    non aveva un solo controllo di permesso: bastava appartenere al club. Il
+    ruolo entra nello scope perche il confine possa verificarlo, e il permesso
+    si chiede qui sotto.
+  */
+  if (!canManageClubConfiguration(scope.activeRole)) {
+    throw new Error("Accesso negato per il ruolo attivo");
+  }
+
   return {
     userId,
     activeOrganizationId: scope.activeOrganizationId,
+    activeRole: scope.activeRole,
     allowedOrganizationIds: scope.allowedOrganizationIds,
   };
 };

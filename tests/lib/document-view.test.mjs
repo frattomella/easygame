@@ -162,3 +162,61 @@ test("la pagina si adatta e si stampa", () => {
   assert.match(html, /@media \(min-width: 640px\)/);
   assert.match(html, /viewport/);
 });
+
+/* ------------------------------------------------- il documento annullato */
+
+/*
+  H-3 dell'audit della Wave 4: un documento annullato si ristampava **identico**
+  a uno valido. Nessuna filigrana, nessuna riga, nessun rifiuto. Chi lo riceveva
+  non aveva modo di distinguerlo, e un documento fiscale ritirato che circola
+  come valido non e un problema di grafica.
+*/
+
+test("un documento annullato lo dichiara, e non si confonde con uno valido", () => {
+  const html = render({
+    document: {
+      cancelledAt: "2026-08-28T09:00:00.000Z",
+      cancellationReason: "Emesso alla persona sbagliata",
+    },
+  });
+
+  assert.match(html, /DOCUMENTO ANNULLATO/);
+  assert.match(html, /Emesso alla persona sbagliata/);
+  assert.match(html, /non ha valore fiscale/);
+  /* La filigrana, per chi guarda il foglio invece di leggerlo. */
+  assert.match(html, /sheet voided/);
+  assert.match(html, /content: "ANNULLATO"/);
+  /* E anche nella linguetta del browser, che e cio che si vede stampando. */
+  assert.match(html, /<title>ANNULLATO - /);
+  /* Il piede non puo continuare a dire soltanto «documento emesso». */
+  assert.match(html, /Il numero resta assegnato/);
+});
+
+test("un documento valido non porta nessun segno di annullamento", () => {
+  const html = render();
+
+  assert.equal(html.includes("DOCUMENTO ANNULLATO"), false);
+  assert.equal(html.includes("sheet voided"), false);
+  assert.equal(/<title>ANNULLATO/.test(html), false);
+});
+
+test("il motivo dell'annullamento e sfuggito come tutto il resto", () => {
+  const html = render({
+    document: {
+      cancelledAt: "2026-08-28T09:00:00.000Z",
+      cancellationReason: '<img src=x onerror="alert(1)">',
+    },
+  });
+
+  assert.equal(html.includes('onerror="alert(1)"'), false);
+  assert.match(html, /&lt;img/);
+});
+
+test("un annullamento senza motivo dichiara comunque l'annullamento", () => {
+  const html = render({
+    document: { cancelledAt: "2026-08-28T09:00:00.000Z" },
+  });
+
+  assert.match(html, /DOCUMENTO ANNULLATO/);
+  assert.equal(html.includes("Motivo:"), false);
+});

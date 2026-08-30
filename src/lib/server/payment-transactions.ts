@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import type { FrozenSettlement } from "@/lib/payments/commission";
 import { isCounterpartyKind, normalizeActivityScope } from "@/lib/accounting/model";
 import {
@@ -63,17 +64,21 @@ const asRecord = (value: unknown): Record<string, any> =>
     ? (value as Record<string, any>)
     : {};
 
+/**
+ * Il confine, ed e il **club attivo**.
+ *
+ * Le rotte degli incassi verificano il permesso con
+ * `canManageClubConfiguration(scope.activeRole)`, cioe con il ruolo nel club
+ * attivo; questo confine guardava invece l'elenco dei club dell'utente. Chi ha
+ * due societa poteva registrare e stornare incassi nell'altra con il ruolo
+ * della propria. Vedi `src/lib/auth/active-club-boundary.ts`.
+ */
 const ensureOrganizationAccess = (
   scope: PaymentTransactionScope | undefined,
   organizationId: string | null | undefined,
 ) => {
   if (!scope) return;
-  if (!organizationId) {
-    throw denied("incasso senza club");
-  }
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("l'incasso appartiene a un altro club");
-  }
+  assertActiveClub(scope, organizationId, "l'incasso");
 };
 
 const resolveOrganizationId = (

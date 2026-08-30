@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { readDocumentSnapshot } from "@/lib/documents/document-snapshot";
+import { canAccessClubResource } from "@/lib/access-roles";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -65,8 +68,27 @@ export async function GET(request: Request, context: Context) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!scope.allowedOrganizationIds.includes(row.organization_id)) {
-      return denied(403, "Accesso negato: il documento e di un altro club");
+    /*
+      Il confine e il **club attivo**, non l'elenco dei club dell'utente: vedi
+      `src/lib/auth/active-club-boundary.ts`. L'indirizzo del documento arriva
+      qui come club preferito, quindi il ruolo viene risolto per **quello** e i
+      due controlli parlano dello stesso club.
+    */
+    assertActiveClub(scope, row.organization_id, "il documento");
+
+    /*
+      **Il gate di ruolo che mancava.** Il foglio porta il codice fiscale di
+      una persona e l'importo che ha versato: non e una pagina che chiunque
+      appartenga al club debba poter aprire conoscendone l'identificativo.
+    */
+    if (
+      !canAccessClubResource(
+        scope.activeRole,
+        kind === "receipt" ? "receipts" : "invoices",
+        "read",
+      )
+    ) {
+      return denied(403, "Accesso negato per il ruolo attivo");
     }
 
     const [club, athlete] = await Promise.all([
@@ -79,12 +101,38 @@ export async function GET(request: Request, context: Context) {
     ]);
 
     /*
-      L'intestatario di una fattura e gia congelato sulla riga: e stato
-      deciso al momento dell'emissione e non deve cambiare se l'anagrafica
-      cambia dopo. Una ricevuta non lo porta, e li si risolve adesso.
+      **Lo snapshot prima di tutto: era il difetto H-2 dell'audit.**
+
+      Questa rotta ricostruiva il documento dai dati di **adesso** — il club
+      corrente per l'intestazione, l'anagrafica corrente per l'intestatario di
+      una ricevuta. Un documento consegnato a marzo e ristampato a settembre,
+      dopo che la societa aveva cambiato ragione sociale o che qualcuno aveva
+      corretto un codice fiscale, usciva **diverso** dall'originale pur
+      portando lo stesso numero.
+
+      E esattamente cio contro cui `invoices.snapshot` e `receipts.snapshot`
+      esistono, e nessuno li leggeva: `readDocumentSnapshot` aveva due soli
+      chiamanti, tutti e due dentro il tracciato FatturaPA. Il documento di
+      carta — quello che la famiglia riceve davvero — era l'unico a non
+      esserne protetto.
+
+      La ricaduta sui dati correnti resta, e serve: i documenti emessi
+      **prima** che lo snapshot esistesse non ne hanno uno, e per quelli questa
+      e l'unica ricostruzione possibile. Ma e una ricaduta, non piu la regola.
     */
-    const recipient =
-      kind === "invoice"
+    const snapshot = readDocumentSnapshot(row.snapshot);
+
+    const recipient = snapshot
+      ? {
+          name: snapshot.recipient.name,
+          fiscalCode: snapshot.recipient.fiscalCode,
+          vatNumber: snapshot.recipient.vatNumber,
+          address: snapshot.recipient.address,
+          city: snapshot.recipient.city,
+          postalCode: snapshot.recipient.postalCode,
+          province: snapshot.recipient.province,
+        }
+      : kind === "invoice"
         ? {
             name: String(row.data?.recipientName || ""),
             fiscalCode: row.fiscal_code,
@@ -96,6 +144,37 @@ export async function GET(request: Request, context: Context) {
           }
         : resolveFiscalRecipient(athlete);
 
+    /*
+      L'intestazione della societa, congelata allo stesso modo. Il **logo** no,
+      ed e voluto: e un'immagine servita dall'applicazione, non un dato
+      fiscale, e un logo rifatto non cambia cio che il documento dichiara.
+    */
+    const issuer = snapshot
+      ? {
+          name: snapshot.issuer.name,
+          logoUrl: club?.logo_url,
+          address: snapshot.issuer.address,
+          city: snapshot.issuer.city,
+          postalCode: snapshot.issuer.postalCode,
+          province: snapshot.issuer.province,
+          fiscalCode: snapshot.issuer.fiscalCode,
+          vatNumber: snapshot.issuer.vatNumber,
+          contactEmail: club?.contact_email,
+          contactPhone: club?.contact_phone,
+        }
+      : {
+          name: String(club?.business_name || club?.name || ""),
+          logoUrl: club?.logo_url,
+          address: club?.legal_address || club?.address,
+          city: club?.legal_city || club?.city,
+          postalCode: club?.legal_postal_code || club?.postal_code,
+          province: club?.legal_province || club?.province,
+          fiscalCode: club?.fiscal_code,
+          vatNumber: club?.vat_number,
+          contactEmail: club?.contact_email,
+          contactPhone: club?.contact_phone,
+        };
+
     const html = renderDocumentHtml({
       document: {
         kind,
@@ -104,25 +183,21 @@ export async function GET(request: Request, context: Context) {
         ),
         issueDate: row.issue_date,
         amount: row.amount,
-        description: String(row.description || ""),
+        description: String(snapshot?.description || row.description || ""),
         method: kind === "receipt" ? row.method : row.payment_method,
         transactionReference: String(row.data?.transactionId || ""),
         athleteName: athlete
           ? `${athlete.first_name || ""} ${athlete.last_name || ""}`.trim()
           : "",
+        /*
+          L'annullamento si dichiara sul foglio: vedi `renderDocumentHtml`. Un
+          documento ritirato non deve poter essere scambiato per uno valido, e
+          fino a ieri usciva identico.
+        */
+        cancelledAt: row.cancelled_at || null,
+        cancellationReason: row.cancellation_reason || null,
       },
-      issuer: {
-        name: String(club?.business_name || club?.name || ""),
-        logoUrl: club?.logo_url,
-        address: club?.legal_address || club?.address,
-        city: club?.legal_city || club?.city,
-        postalCode: club?.legal_postal_code || club?.postal_code,
-        province: club?.legal_province || club?.province,
-        fiscalCode: club?.fiscal_code,
-        vatNumber: club?.vat_number,
-        contactEmail: club?.contact_email,
-        contactPhone: club?.contact_phone,
-      },
+      issuer,
       recipient,
     });
 

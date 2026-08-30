@@ -125,6 +125,20 @@ export type PrintableDocument = {
   /** L'incasso da cui nasce: e cio che lega il documento al denaro. */
   transactionReference?: string | null;
   athleteName?: string | null;
+  /**
+   * **L'annullamento, quando c'e.**
+   *
+   * Era il difetto H-3 dell'audit: un documento annullato si ristampava
+   * identico a uno valido. Chi lo riceveva non aveva **nessun** modo di
+   * accorgersene — ne una filigrana, ne una riga, ne un rifiuto — e un
+   * documento fiscale ritirato che circola come valido non e un problema di
+   * grafica.
+   *
+   * Il renderer non decide se un documento e annullato: lo riceve. La
+   * decisione sta dove sta il dato, cioe su `cancelled_at`.
+   */
+  cancelledAt?: unknown;
+  cancellationReason?: string | null;
 };
 
 const addressLine = (subject: DocumentIssuer | DocumentRecipient) =>
@@ -158,13 +172,14 @@ export const renderDocumentHtml = (input: {
 }) => {
   const { document: doc, issuer, recipient } = input;
   const title = DOCUMENT_NUMBER_KIND_DEFINITIONS[doc.kind].label;
+  const annullato = Boolean(doc.cancelledAt);
 
   return `<!doctype html>
 <html lang="it">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title)} ${escapeHtml(doc.number)}</title>
+<title>${annullato ? "ANNULLATO - " : ""}${escapeHtml(title)} ${escapeHtml(doc.number)}</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -198,6 +213,26 @@ export const renderDocumentHtml = (input: {
            margin-top: 16px; padding-top: 12px; border-top: 2px solid #0f172a; }
   .total strong { font-size: 22px; }
   footer { margin-top: 24px; font-size: 12px; color: #94a3b8; }
+  /*
+    L'annullamento si vede **prima** di leggere: una fascia in testa al foglio
+    e una filigrana che attraversa il corpo. Solo la fascia sparirebbe dietro
+    una piega o un ritaglio; solo la filigrana passerebbe per decorazione.
+  */
+  .voided-banner {
+    border: 2px solid #b91c1c; background: #fef2f2; color: #7f1d1d;
+    border-radius: 12px; padding: 12px 16px; margin-bottom: 20px;
+  }
+  .voided-banner strong { display: block; font-size: 18px; letter-spacing: .08em; }
+  .voided-banner span { font-size: 13px; }
+  .sheet.voided { position: relative; overflow: hidden; }
+  .sheet.voided::after {
+    content: "ANNULLATO";
+    position: absolute; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+    font-size: 96px; font-weight: 800; letter-spacing: .12em;
+    color: rgba(185, 28, 28, .14); transform: rotate(-24deg);
+    pointer-events: none; white-space: nowrap;
+  }
   @media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
   @media print {
     body { background: #fff; padding: 0; }
@@ -206,7 +241,24 @@ export const renderDocumentHtml = (input: {
 </style>
 </head>
 <body>
-  <div class="sheet">
+  <div class="sheet${annullato ? " voided" : ""}">
+    ${
+      annullato
+        ? `<div class="voided-banner">
+      <strong>DOCUMENTO ANNULLATO</strong>
+      <span>${escapeHtml(
+        [
+          `Annullato il ${formatDate(doc.cancelledAt)}`,
+          asText(doc.cancellationReason)
+            ? `Motivo: ${asText(doc.cancellationReason)}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" - "),
+      )} - non ha valore fiscale e non prova nessun incasso.</span>
+    </div>`
+        : ""
+    }
     <header>
       ${
         asText(issuer.logoUrl)
@@ -271,9 +323,11 @@ export const renderDocumentHtml = (input: {
 
     <footer>
       ${
-        doc.kind === "invoice"
-          ? "Documento emesso da EasyGame. La trasmissione telematica al Sistema di Interscambio non e effettuata da questa applicazione."
-          : "Documento emesso da EasyGame a fronte dell'incasso indicato."
+        annullato
+          ? "Documento ANNULLATO. Il numero resta assegnato e non torna disponibile: un buco nella numerazione e leggibile, lo stesso numero su due documenti no (ADR-0044)."
+          : doc.kind === "invoice"
+            ? "Documento emesso da EasyGame. La trasmissione telematica al Sistema di Interscambio non e effettuata da questa applicazione."
+            : "Documento emesso da EasyGame a fronte dell'incasso indicato."
       }
     </footer>
   </div>

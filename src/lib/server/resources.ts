@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
 import type { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
 import {
@@ -258,6 +259,20 @@ const isOrganizationScopedResource = (resource: string) =>
   RESOURCE_CONFIG[resource]?.kind === "club_resource" ||
   ORGANIZATION_SCOPED_MODEL_RESOURCES.has(resource);
 
+/**
+ * Il confine del CRUD generico, ed e il **club attivo**.
+ *
+ * **Perche qui pesava piu che altrove.** Le rotte generiche verificano il
+ * permesso con `assertClubResourceAccess(scope.activeRole, ...)` — il ruolo
+ * nel club **attivo** — mentre questo confine guardava l'elenco di tutti i club
+ * dell'utente. Chi possiede una societa e in un'altra e soltanto genitore
+ * poteva mandare `x-active-club-id: <la propria>` con l'`organization_id`
+ * dell'altra e scrivere qualunque risorsa generica con il ruolo sbagliato: e
+ * il motore che serve una cinquantina di risorse, quindi era la superficie piu
+ * ampia dell'intera classe di difetto.
+ *
+ * Vedi `src/lib/auth/active-club-boundary.ts` per la storia completa.
+ */
 const ensureOrganizationAccess = (
   scope: ResourceAccessScope | undefined,
   organizationId: string | null | undefined,
@@ -266,7 +281,7 @@ const ensureOrganizationAccess = (
     return;
   }
 
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
+  if (!belongsToActiveClub(scope, organizationId)) {
     throw new Error("Accesso negato alla risorsa del club");
   }
 };
@@ -2655,8 +2670,18 @@ export const listResourcePage = async (
         return { records: [], meta: null };
       }
 
+      /*
+        La scheda di **un** club: e l'unico punto in cui l'elenco dei club resta
+        il criterio giusto, perche qui la risorsa **e** il club e chiederne uno
+        a cui si appartiene non e uno sconfinamento. Il confine del club attivo
+        vale per tutto cio che sta **dentro** un club, non per la scelta di
+        quale club guardare — altrimenti il selettore di societa non potrebbe
+        leggere quella su cui sta per spostarsi.
+      */
       if (typeof where.id === "string") {
-        ensureOrganizationAccess(scope, where.id);
+        if (!scope.allowedOrganizationIds.includes(where.id)) {
+          throw new Error("Accesso negato alla risorsa del club");
+        }
       } else {
         where.id = { in: scope.allowedOrganizationIds };
       }

@@ -22,6 +22,7 @@
  */
 
 import { createHash } from "crypto";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
 import { getFiscalProfile } from "./fiscal-config";
 import {
@@ -102,12 +103,8 @@ const loadInvoice = async (
 
   if (!invoice) throw new Error("Fattura non trovata");
 
-  if (
-    scope &&
-    !scope.allowedOrganizationIds.includes(String(invoice.organization_id))
-  ) {
-    throw denied("la fattura appartiene a un altro club");
-  }
+  /* Il confine e il club **attivo**: vedi `src/lib/auth/active-club-boundary.ts`. */
+  if (scope) assertActiveClub(scope, String(invoice.organization_id), "la fattura");
 
   return invoice;
 };

@@ -757,18 +757,25 @@ test("una chiave di consenso su un campo che non e una casella si scarta", async
   assert.deepEqual(esito.issues, []);
 });
 
-test("il ruolo di un altro club non genera documenti sensibili", async () => {
+test("una compilazione di un altro club non si approva affatto", async () => {
   /*
-    Residuo della stessa classe del difetto trovato dall'audit nel motore
-    documentale. Il confine dei moduli e `allowedOrganizationIds` — tutti i
-    club a cui l'utente appartiene — mentre `activeRole` e il ruolo del club
-    **attivo**: chi ha due societa puo approvare una compilazione della prima
-    tenendo attiva la seconda, e i due valori smettono di parlare della stessa
-    cosa.
+    **La mitigazione precedente era troppo gentile, e questo test la fotografa.**
 
-    Adesso il ruolo si passa ai domini vicini **solo** se i due club
-    coincidono. L'approvazione riesce comunque — l'anagrafica e il fatto
-    principale — e cio che non si e potuto fare compare fra gli avvisi.
+    Il difetto e sempre lo stesso: il confine dei moduli era
+    `allowedOrganizationIds` — tutti i club a cui l'utente appartiene — mentre
+    `activeRole` e il ruolo del club **attivo**. Chi ha due societa poteva
+    approvare una compilazione della prima tenendo attiva la seconda, e i due
+    valori smettevano di parlare della stessa cosa.
+
+    La Wave 3 aveva risposto **restringendo l'effetto**: l'approvazione riusciva
+    lo stesso, e il documento sensibile non veniva generato. Era meglio di
+    niente e non era il confine: una compilazione di un altro club veniva
+    comunque **approvata**, cioe uno stato di quel club cambiava per mano di un
+    ruolo che li non vale.
+
+    Adesso non si entra affatto. Il confine e il club attivo, e sta in un solo
+    posto — `src/lib/auth/active-club-boundary.ts` — per tutti i domini che
+    prima se lo riscrivevano ognuno a modo suo.
   */
   const modello = await modelloDocumento({
     content: "<p>{{athlete.first_name}} — {{payment.total_paid}}</p>",
@@ -783,15 +790,17 @@ test("il ruolo di un altro club non genera documenti sensibili", async () => {
     activeRole: "owner",
   };
 
-  const esito = await submissions.decideFormSubmission(
-    scopeAltroveAttivo,
-    row.id,
-    { decision: "approve" },
+  await assert.rejects(
+    () =>
+      submissions.decideFormSubmission(scopeAltroveAttivo, row.id, {
+        decision: "approve",
+      }),
+    /Accesso negato/,
   );
 
-  assert.equal(esito.submission.status, "approved");
-  assert.equal(esito.generatedDocumentId, null);
-  assert.ok((esito.issues || []).length > 0);
+  /* Niente e cambiato: ne lo stato della compilazione, ne un documento. */
+  const dopo = fake.rows("formSubmission").find((riga) => riga.id === row.id);
+  assert.equal(dopo.status, "pending");
   assert.equal(
     fake
       .rows("generatedDocument")

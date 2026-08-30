@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   canApplyConsentDecision,
@@ -99,10 +100,8 @@ const ensureOrganizationAccess = (
   organizationId: string | null | undefined,
 ) => {
   if (!scope) return;
-  if (!organizationId) throw denied("consenso senza club");
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("il consenso appartiene a un altro club");
-  }
+  /* Il confine e il club **attivo**: vedi `src/lib/auth/active-club-boundary.ts`. */
+  assertActiveClub(scope, organizationId, "il consenso");
 };
 
 const resolveOrganizationId = (

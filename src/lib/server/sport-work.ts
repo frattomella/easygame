@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { recordAuditEvent } from "./audit";
 import { SPORT_WORK_AUDIT_ACTIONS } from "@/lib/sport-work/audit-actions";
 import {
@@ -77,17 +78,21 @@ const asRecord = (value: unknown): Record<string, any> =>
     ? (value as Record<string, any>)
     : {};
 
+/**
+ * Il confine, ed e il **club attivo**.
+ *
+ * Confrontava con `allowedOrganizationIds`, mentre `assertSportWorkPermission`
+ * verifica il permesso con `activeRole` — il ruolo nel club **attivo**. Per chi
+ * ha piu di un club i due insiemi non coincidono, e da questa funzione passa il
+ * denaro in uscita verso le persone. Vedi
+ * `src/lib/auth/active-club-boundary.ts`.
+ */
 export const ensureOrganizationAccess = (
   scope: SportWorkScope | undefined,
   organizationId: string | null | undefined,
 ) => {
   if (!scope) return;
-  if (!organizationId) {
-    throw denied("record senza club");
-  }
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("il record appartiene a un altro club");
-  }
+  assertActiveClub(scope, organizationId, "il record");
 };
 
 export const resolveOrganizationId = (

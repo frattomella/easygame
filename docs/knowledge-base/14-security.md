@@ -316,6 +316,115 @@ Le due funzioni vivono nel modulo puro `src/lib/documents/document-snapshot.ts`
 e sono riesportate da `fiscal-documents.ts`: importarle da li avrebbe chiuso un
 anello `resources → fiscal-documents → sponsors → resources`.
 
+### 6-quinquies. Il confine multi-tenant era `allowedOrganizationIds` in quindici moduli — PRESIDIATO (2026-08-30, Wave 4 remediation)
+
+Il difetto piu grave che le quattro Wave abbiano prodotto, e non e un difetto:
+e una **forma**, copiata quindici volte.
+
+**Come funzionava.** `resolveOrganizationScopeForUser`
+(`src/lib/server/auth.ts`) restituisce due cose diverse:
+
+| Campo | Cosa dice |
+|---|---|
+| `allowedOrganizationIds` | **tutti** i club a cui l'utente appartiene |
+| `activeRole` | il ruolo dell'utente nel club **attivo**, e in nessun altro |
+
+Ogni dominio si era scritto il proprio `ensureOrganizationAccess`, e quasi
+tutti confrontavano l'`organization_id` della riga con il **primo** campo. Il
+permesso pero si verifica sempre con il **secondo**. I due insiemi non
+coincidono mai per chi ha piu di un club — e chiunque puo crearsi una societa
+e diventarne proprietario in un minuto.
+
+**L'attacco, in una riga.** Mandare `x-active-club-id: <la propria societa>`
+insieme all'identificativo di una riga **di un'altra**. Il ruolo viene
+risolto per la propria — `owner` — e il confine risponde «sei membro anche di
+quel club, passa».
+
+**Cosa ha ottenuto l'audit.** Un genitore, proprietario di una societa
+qualunque creata da lui, ha letto l'IBAN e il saldo di un altro club,
+rinominato un conto altrui, registrato un'uscita da 70.000 euro in casa
+d'altri, stornato un movimento, letto il libro soci ed esportato la
+contabilita.
+
+**Perche non bastava correggere le sei rotte trovate.** Non bastava, e si e
+visto: la stessa forma era gia stata trovata e chiusa una volta in
+`document-templates.ts`, con il commento che la raccontava. Sei moduli nuovi
+l'hanno reintrodotta comunque. La seconda lettura ne ha trovati **altri
+dodici**, e fra questi:
+
+| Modulo | Cosa proteggeva male |
+|---|---|
+| `sport-work.ts` (e per suo tramite `sport-work-agenda.ts`) | il denaro in uscita verso le persone |
+| `payment-transactions.ts` | gli incassi delle famiglie, e i loro storni |
+| `resources.ts` | il **motore CRUD generico**: una cinquantina di risorse |
+| `fiscal-documents.ts` | l'annullamento di un documento fiscale numerato |
+| `einvoice.ts` | la preparazione e la trasmissione di una fattura elettronica |
+| `attachments.ts`, `consents.ts`, `forms.ts`, `form-submissions.ts`, `document-placeholders.ts` | allegati, consensi, moduli, compilazioni, segnaposto |
+
+**La correzione.** Il confine adesso e **una funzione sola**, in
+`src/lib/auth/active-club-boundary.ts`, e i moduli la importano:
+
+> La riga deve appartenere al **club attivo**. Per lavorare su un altro club
+> si cambia club, e il ruolo viene risolto di nuovo per quello.
+
+La lezione non stava nel codice, stava in un commento — e i commenti non
+falliscono. Il tredicesimo modulo non nascera perche non c'e piu niente da
+copiare.
+
+**L'unica eccezione, e perche e legittima.** La scheda di **un** club
+(`resources.ts`, ramo `clubs`/`organizations`) resta sull'elenco: li la
+risorsa **e** il club, e il selettore di societa deve poter leggere quella su
+cui sta per spostarsi. Il confine del club attivo vale per tutto cio che sta
+*dentro* un club, non per la scelta di quale club guardare.
+
+**Cinque rotte non avevano alcun controllo di ruolo**, solo la sessione:
+
+| Rotta | Cosa lasciava fare a chiunque appartenesse al club |
+|---|---|
+| `PUT /api/v1/fiscal/profile` | riscrivere partita IVA, forma giuridica e regime fiscale della societa — dati che finiscono sulle fatture emesse |
+| `GET`/`POST /api/v1/einvoice/:id` | preparare e trasmettere una fattura elettronica; lo scope non portava nemmeno `activeRole` |
+| `POST /api/v1/documents/:kind/:id/cancel` | annullare un documento fiscale numerato |
+| `GET /api/v1/documents/:kind/:id` | stampare qualunque fattura o ricevuta, con il codice fiscale dell'intestatario |
+| `POST /api/v1/payments/account` | generare il link di onboarding Stripe della societa |
+
+Tutte e cinque adesso chiedono il permesso oltre alla sessione.
+
+**Le prove.** `tests/auth/active-club-boundary.test.mjs` (la regola),
+`tests/server/active-club-boundary-wide.test.mjs` (l'attacco su incassi,
+documenti, lavoro sportivo e CRUD generico, piu il controllo inverso: con il
+club giusto attivo lo stesso utente lavora), e
+`tests/server/accounting-active-club-boundary.test.mjs` (i sei moduli della
+prima tornata).
+
+### 6-sexies. Un documento annullato si stampava come valido — PRESIDIATO (2026-08-30)
+
+`GET /api/v1/documents/:kind/:id` non leggeva ne `cancelled_at` ne `status`:
+una ricevuta ritirata usciva **identica** a una valida. Nessuna filigrana,
+nessuna riga, nessun rifiuto. Chi la riceveva non aveva modo di distinguerla,
+e il piede del foglio continuava a dire «Documento emesso da EasyGame».
+
+Ora il foglio porta una fascia in testa, una filigrana che attraversa il
+corpo, l'annullamento nel titolo della pagina e un piede che spiega perche il
+numero resta assegnato (ADR-0044).
+
+### 6-septies. La stampa leggeva l'anagrafica di oggi, non lo snapshot — PRESIDIATO (2026-08-30)
+
+`invoices.snapshot` e `receipts.snapshot` esistono per congelare cio che un
+documento diceva il giorno in cui e stato consegnato. `readDocumentSnapshot`
+aveva **due soli chiamanti**, tutti e due dentro il tracciato FatturaPA: il
+documento di carta — quello che la famiglia riceve davvero — era l'unico a non
+esserne protetto.
+
+La rotta di stampa ricostruiva intestazione e intestatario dai dati correnti.
+Un documento consegnato a marzo e ristampato a settembre, dopo un cambio di
+ragione sociale o la correzione di un codice fiscale, usciva **diverso**
+dall'originale pur portando lo stesso numero.
+
+Ora lo snapshot viene prima. La ricaduta sui dati correnti resta e serve — i
+documenti emessi prima che lo snapshot esistesse non ne hanno uno — ma e una
+ricaduta, non piu la regola. Il logo resta corrente per scelta: e
+un'immagine servita dall'applicazione, non un dato fiscale.
+
 ### 7. ~~Nessun audit log~~ — IMPLEMENTATO (2026-08-22)
 
 `src/lib/server/audit.ts` scrive su `audit_logs` chi ha fatto cosa, su quale
