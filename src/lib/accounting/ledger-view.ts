@@ -131,8 +131,7 @@ const dataStorica = (value: unknown): string | null => {
  * permessi, i suoi invarianti e il suo audit; `legacy` e il blob storico, che
  * non ha nemmeno un conto a cui appartenere.
  */
-export const LEDGER_ROW_KINDS = ["entry", "projected", "legacy"] as const;
-export type LedgerRowKind = (typeof LEDGER_ROW_KINDS)[number];
+export type LedgerRowKind = "entry" | "projected" | "legacy";
 
 /**
  * Una riga della vista, con i nomi delle **colonne** e non quelli del dominio.
@@ -594,9 +593,5 @@ export const ledgerRowToLine = (
     canReconcile: propria && can.reconcile && !stornata,
   };
 };
-
-/** L'identificativo della riga propria, senza il prefisso di dominio. */
-export const ownEntryIdOf = (id: string) =>
-  id.startsWith("accounting-entry:") ? id.slice("accounting-entry:".length) : null;
 
 export { sortAccountingLines };

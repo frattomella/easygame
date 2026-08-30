@@ -97,7 +97,7 @@ export async function POST(request: Request, context: Context) {
     );
 
     await recordAuditEvent({
-      action: AUDIT_ACTIONS.documentIssued,
+      action: AUDIT_ACTIONS.documentCancelled,
       actorUserId: session.db.user_id,
       actorEmail: session.db.user.email,
       organizationId: String(document.organization_id),

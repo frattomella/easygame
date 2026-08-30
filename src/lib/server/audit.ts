@@ -72,6 +72,13 @@ export const AUDIT_ACTIONS = {
   paymentRemindersSent: "payment.reminder.sent",
   documentIssued: "document.issued",
   /*
+    L annullamento aveva l azione dell emissione, con `operation: "cancelled"`
+    nel metadata: chi cerca «chi ha ritirato quel documento» filtrando per
+    azione non lo trovava, e chi contava le emissioni contava anche gli
+    annullamenti.
+  */
+  documentCancelled: "document.cancelled",
+  /*
     Contributi da enti: la maturazione e un calcolo e non si traccia, ma
     rendicontare e liquidare sono atti verso un finanziatore.
   */

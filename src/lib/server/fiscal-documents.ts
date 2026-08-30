@@ -742,6 +742,21 @@ export const cancelDocument = async (
     throw new Error("Questo documento e gia stato annullato");
   }
 
+  /*
+    **Una bozza non si annulla: si cancella.**
+
+    Annullare risponde a «questo documento e uscito e non vale piu», e porta
+    con se un numero che non torna disponibile. Una bozza non e uscita da
+    nessuna parte, e annullarla la rendeva immutabile **e** non cancellabile —
+    cioe la trasformava in una riga che nessuno puo piu ne correggere ne
+    togliere, per un gesto che non voleva dire quello.
+  */
+  if (String(document.status ?? "").trim().toLowerCase() === "draft") {
+    throw new Error(
+      "Una bozza non si annulla: si cancella. L'annullamento e per un documento gia uscito, e il suo numero non torna disponibile.",
+    );
+  }
+
   return client.update({
     where: { id: documentId },
     data: {
