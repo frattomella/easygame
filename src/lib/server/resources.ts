@@ -967,6 +967,21 @@ const normalizeCommonAliases = (input: Record<string, any>) => {
     next.organization_id = next.club_id;
   }
 
+  /*
+    **`birthDate` e un alias, e da quando il corpo viene filtrato sullo schema
+    va tradotto qui.**
+
+    Prima arrivava fino a Prisma e faceva fallire la scrittura con un messaggio
+    che diceva anche come correggerlo (`Did you mean \`birth_date\`?`); adesso
+    verrebbe tolto **in silenzio**, e la validazione della data di nascita —
+    che lo cerca ancora — non lo vedrebbe piu. Una data impossibile passerebbe
+    senza errore e senza essere scritta.
+  */
+  if (next.birthDate !== undefined && next.birth_date === undefined) {
+    next.birth_date = next.birthDate;
+  }
+  delete next.birthDate;
+
   delete next.club_id;
   delete next.organizations;
   delete next.athletes;
@@ -1236,6 +1251,29 @@ const SCALARI_PER_MODELLO = new Map<string, Set<string>>(
 );
 
 /**
+ * **Le chiavi che questo modulo consuma da se**, e che percio non sono
+ * spazzatura anche se non sono colonne.
+ *
+ * `settings_patch` non e una colonna: e l istruzione «fondi queste chiavi
+ * dentro `settings`, senza rileggere le altre», e viene tolta da
+ * `applyClubSettingsPatch` **dopo** la normalizzazione. Toglierla prima
+ * significava buttare via la scrittura invece di eseguirla.
+ */
+const CHIAVI_CONSUMATE_DA_QUESTO_MODULO = new Set(["settings_patch"]);
+
+/** Le colonne `Json`, dove un oggetto e il dato e non un'istruzione. */
+const JSON_COLUMNS_PER_MODELLO = new Map<string, Set<string>>(
+  (Prisma as any).dmmf.datamodel.models.map((modello: any) => [
+    modello.name,
+    new Set(
+      modello.fields
+        .filter((campo: any) => campo.kind === "scalar" && campo.type === "Json")
+        .map((campo: any) => campo.name as string),
+    ),
+  ]),
+);
+
+/**
  * **Le chiavi che non sono colonne, e i valori che non sono valori.**
  *
  * Togliere le relazioni non basta, ed e la lezione che questa correzione ha
@@ -1263,13 +1301,56 @@ const SCALARI_PER_MODELLO = new Map<string, Set<string>>(
  * Un operatore non e un valore che una rotta CRUD debba accettare: qui si
  * scrivono dati, e le operazioni le fa il dominio.
  */
+/**
+ * **Ogni risorsa di modello deve riconoscere il proprio modello.**
+ *
+ * `togliRelazioni` e la sola cosa che impedisce a un corpo di richiesta di
+ * arrivare a Prisma cosi com'e. Se un delegato non si risolve in un modello
+ * dichiarato, quella guardia si spegnerebbe **proprio sulla risorsa che non ha
+ * previsto** — ed e la forma di difetto che questo file ha gia incontrato due
+ * volte: un elenco che resta indietro in silenzio.
+ *
+ * Sta nel codice e non in un test per la stessa ragione di
+ * `assertOgniRisorsaDichiaraIlConfine`: un test si puo dimenticare di
+ * aggiornare, e il difetto che chiude e precisamente una dimenticanza.
+ */
+const assertOgniRisorsaConosceIlSuoModello = () => {
+  const senzaModello = Object.entries(RESOURCE_CONFIG)
+    .filter(([, config]) => (config as any)?.kind === "model")
+    .map(([resource, config]) => [
+      resource,
+      modelloDelDelegato(String((config as any)?.delegate || "")),
+    ])
+    .filter(([, modello]) => !SCALARI_PER_MODELLO.has(modello as string))
+    .map(([resource, modello]) => `${resource} -> ${modello || "(nessun delegato)"}`);
+
+  if (senzaModello.length) {
+    throw new Error(
+      "Queste risorse di modello non si risolvono in un modello dichiarato, " +
+        "e le loro scritture non sarebbero filtrate: " +
+        senzaModello.join(", "),
+    );
+  }
+};
+
+assertOgniRisorsaConosceIlSuoModello();
+
 const togliRelazioni = (resource: string, input: Record<string, any>) => {
   const config = RESOURCE_CONFIG[resource];
   const modello = modelloDelDelegato(String(config?.delegate || ""));
   const relazioni = RELAZIONI_PER_MODELLO.get(modello);
   const scalari = SCALARI_PER_MODELLO.get(modello);
+  /*
+    Un modello che non si riconosce **non** disattiva il filtro: sarebbe una
+    guardia che si spegne da sola sul caso che non ha previsto. Che ogni
+    risorsa si riconosca lo garantisce
+    `assertOgniRisorsaConosceIlSuoModello`, che impedisce a questo file di
+    caricarsi — la stessa forma di `assertOgniRisorsaDichiaraIlConfine`.
+  */
   if (!relazioni || !scalari) {
-    return input;
+    throw new Error(
+      `Il modello della risorsa «${resource}» non e riconosciuto: nessuna scrittura passa di qui`,
+    );
   }
 
   const next = { ...input };
@@ -1293,36 +1374,19 @@ const togliRelazioni = (resource: string, input: Record<string, any>) => {
       !Array.isArray(valore) &&
       !JSON_COLUMNS_PER_MODELLO.get(modello)?.has(nome)
     ) {
+      /*
+        Non «Accesso negato»: quella stringa e il marcatore con cui il route
+        handler generico ricava un 403 (CLAUDE.md §8), e questo non e un
+        problema di autorizzazione — e un corpo scritto male, che merita un
+        400 e un messaggio che dica cosa correggere.
+      */
       throw new Error(
-        `Accesso negato: «${nome}» attende un valore, non un'operazione`,
+        `Il campo «${nome}» attende un valore, non un'operazione`,
       );
     }
   }
   return next;
 };
-
-/**
- * **Le chiavi che questo modulo consuma da se**, e che percio non sono
- * spazzatura anche se non sono colonne.
- *
- * `settings_patch` non e una colonna: e l istruzione «fondi queste chiavi
- * dentro `settings`, senza rileggere le altre», e viene tolta da
- * `applyClubSettingsPatch` **dopo** la normalizzazione. Toglierla prima
- * significava buttare via la scrittura invece di eseguirla.
- */
-const CHIAVI_CONSUMATE_DA_QUESTO_MODULO = new Set(["settings_patch"]);
-
-/** Le colonne `Json`, dove un oggetto e il dato e non un'istruzione. */
-const JSON_COLUMNS_PER_MODELLO = new Map<string, Set<string>>(
-  (Prisma as any).dmmf.datamodel.models.map((modello: any) => [
-    modello.name,
-    new Set(
-      modello.fields
-        .filter((campo: any) => campo.kind === "scalar" && campo.type === "Json")
-        .map((campo: any) => campo.name as string),
-    ),
-  ]),
-);
 
 /**
  * **Una tessera non si firma da soli.**
@@ -2052,10 +2116,41 @@ export const replaceClubResourceCollections = async (
   return collections;
 };
 
+/**
+ * **Anche una risorsa di club scrive tre colonne vere.**
+ *
+ * `club_resource_items` tiene quasi tutto dentro `payload`, che e `Json` e
+ * dove un oggetto **e** il dato. Ma `name`, `status` e `date` sono colonne
+ * scalari, e finiscono in un `delegate.update` cosi come arrivano: un
+ * `{"name":{"set":"..."}}` veniva percio eseguito come **operazione**.
+ *
+ * Non rompeva nessun invariante — sono etichette, non denaro — ma la regola
+ * scritta per il registro generico («qui si scrivono dati, e le operazioni le
+ * fa il dominio») valeva su ventuno risorse e non sulle altre trenta, e niente
+ * lo diceva.
+ */
+const assertColonneScalariDiClub = (input: Record<string, any>) => {
+  for (const nome of ["name", "status", "date", "organization_id", "id"]) {
+    const valore = input[nome];
+    if (
+      valore !== null &&
+      valore !== undefined &&
+      typeof valore === "object" &&
+      !(valore instanceof Date) &&
+      !Array.isArray(valore)
+    ) {
+      throw new Error(
+        `Il campo «${nome}» attende un valore, non un'operazione`,
+      );
+    }
+  }
+};
+
 const normalizeClubResourceInput = (
   resource: string,
   input: Record<string, any>,
 ) => {
+  assertColonneScalariDiClub(input);
   const next = normalizeCommonAliases(input);
   const {
     id,
@@ -3936,6 +4031,23 @@ export const createResource = async (
   }
 
   /*
+    **La quarta porta di `organization_users`.** La guardia era su tre
+    scrittori su quattro: il ramo `upsert` dedicato, e i due che sincronizzano
+    le tessere. Questo — `create` semplice — non la eseguiva. Il tetto non
+    cambia, perche la risorsa e riservata a chi amministra il club; ma una
+    tabella che decide i permessi non deve avere uno scrittore fuori dal
+    controllo, e la sua documentazione diceva che non ne aveva.
+  */
+  if (resource === "organization_users" && normalized.organization_id && normalized.user_id) {
+    await assertConcessioneDiAccessoLecita(
+      String(normalized.organization_id),
+      String(normalized.user_id),
+      String(normalized.role || "member"),
+      scope,
+    );
+  }
+
+  /*
     E la creazione vera: una riga personale nasce solo per chi la chiede.
   */
   if (scope && isPersonalResource(resource)) {
@@ -4345,6 +4457,31 @@ export const updateResource = async (
   }
 
   const normalized = await normalizeModelInput(resource, input);
+
+  /*
+    **Il fondatore di un club non si cambia da qui, e nemmeno in modifica.**
+
+    La creazione lo controlla; la modifica no, e `creator_id` e una colonna
+    scalare, quindi arrivava intatta a `delegate.update`. Con una sola
+    richiesta un gestore poteva **regalare il club a chiunque** — perche
+    `resolveOrganizationScopeForUser` ricava da quella colonna sia
+    l'appartenenza sia il ruolo `owner` — e nello stesso gesto **spodestare
+    se stesso**, restando con `activeRole` nullo. Il nuovo proprietario non
+    compare in nessuna schermata delle tessere, perche di riga in
+    `organization_users` non ne nasce nessuna.
+
+    Non e una modifica che il registro generico debba sapere fare. Se un club
+    dovra cambiare intestazione, sara un atto con il suo percorso e la sua
+    traccia.
+  */
+  if (
+    scope &&
+    (resource === "clubs" || resource === "organizations") &&
+    normalized.creator_id !== undefined
+  ) {
+    delete normalized.creator_id;
+  }
+
   const existing = await delegate.findUnique({
     where: { id },
     include: getModelInclude(resource),

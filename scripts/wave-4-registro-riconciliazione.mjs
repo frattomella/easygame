@@ -74,6 +74,98 @@ const GRUPPO = randomUUID();
 
 const d = (s) => new Date(s);
 
+/**
+ * **Una matrice generata, perche un elenco scritto a mano sceglie i casi che
+ * gia funzionano.**
+ *
+ * Le prime versioni di questa sonda seminavano venticinque righe scelte una a
+ * una. Una revisione ostile con mille righe ne ha trovate **551 divergenti** —
+ * e ha mostrato la ragione: in ogni classe di difetto, il valore scritto a
+ * mano era il fratello che per caso andava d'accordo. `0x1f` si, `-0x10` no.
+ * `.9999` si, `.0004999` no. `{}` si, `{"a":"x,y"}` no.
+ *
+ * Un elenco compilato da chi ha appena corretto il difetto tende a contenere
+ * cio che quella correzione gestisce. La matrice si genera invece
+ * **combinando**: forme di data per fusi, per frazioni, per epoche; forme di
+ * numero per basi e per spaziature; valori JSON che non sono stringhe. Nessuno
+ * l'ha scelta perche passasse.
+ */
+const matriceOstile = () => {
+  const righe = [];
+  let n = 0;
+  const aggiungi = (campi) => {
+    righe.push({ id: `gen-${n}`, amount: 100 + (n % 7), date: "2026-03-09", ...campi });
+    n += 1;
+  };
+
+  /* --- le date: giorno × ora × frazione × fuso × epoca --- */
+  const giorni = ["2026-03-09", "2026-02-28", "2026-02-29", "2026-12-31", "9999-12-31", "0001-01-01", "1999-12-31", "2000-01-01"];
+  const ore = ["", "T00:00", "T12:00", "T23:59", "T23:59:59", "T24:00", "T23:59:60"];
+  const frazioni = ["", ".5", ".05", ".005", ".0005", ".0015", ".0025", ".9995", ".9996", ".9999", ".0004999", ".1234999", ".99949999"];
+  const fusi = ["", "Z", "+00:00", "+02:00", "-05:00", "+05:45", "+14:00", "+15:00", "+16:00", "-23:00", "+02:99", "+0230"];
+
+  for (const giorno of giorni) {
+    for (const ora of ore) {
+      aggiungi({ date: `${giorno}${ora}` });
+      if (!ora) continue;
+      for (const frazione of frazioni) {
+        if (!frazione) continue;
+        if (!/:\d{2}:\d{2}$/.test(ora)) continue;
+        aggiungi({ date: `${giorno}${ora}${frazione}` });
+        for (const fuso of fusi) {
+          if (!fuso) continue;
+          aggiungi({ date: `${giorno}${ora}${frazione}${fuso}` });
+        }
+      }
+      for (const fuso of fusi) {
+        if (!fuso) continue;
+        aggiungi({ date: `${giorno}${ora}${fuso}` });
+      }
+    }
+  }
+
+  /* --- le date che non sono stringhe, o non sono date --- */
+  for (const data of [
+    null, true, false, 0, 1, [], {}, ["2026-01-01"], ["2026-01-01T00:00:00Z"],
+    { toString: 1 }, { toString: "x" }, { valueOf: null }, [[]], [{}],
+    "now", "today", "epoch", "infinity", "-infinity", "09/03/2026", "2026-3-9",
+    "2026-03-09 ", " 2026-03-09", "2026-03-09\t", "\t2026-03-09", "2026-03-09\u00a0",
+    "", "   ", "0000-01-01", "10000-01-01", "2026-13-01", "2026-00-01", "2026-01-32",
+  ]) {
+    aggiungi({ date: data });
+    aggiungi({ date: undefined, created_at: data, description: "solo created_at" });
+  }
+
+  /* --- gli importi --- */
+  for (const importo of [
+    0, 1, -1, 0.005, -0.005, 0.004, 100, 1e6, 21474836.47, 21474836.48, 21474836.475,
+    1e15, -1e15, Infinity, -Infinity, NaN, true, false, null, [], {}, [5], [[5]],
+    "5", " 5", "5 ", "\t5", "5\t", "\n5", "5\n", "\r5", "\v5", "5\f", "\u00a05",
+    "0x10", "0X10", "-0x10", "+0x10", "0x1f", "0x1p4", "0X1P4", "0b101", "0o17",
+    "1e3", "1E3", "1e-3", "-1e3", "+1e3", ".5", "5.", "5.5.5", "1,5", "1.234,56",
+    "Infinity", "-Infinity", "NaN", "nan", "inf", "", "   ", "abc", "1abc",
+  ]) {
+    aggiungi({ amount: importo, description: "importo generato" });
+  }
+
+  /* --- il verso, e i testi --- */
+  for (const tipo of ["", " ", "income", "expense", "uscita", "out", "IN", "Expense", null, false, 0, {}, []]) {
+    aggiungi({ type: tipo, direction: "expense", description: "verso generato" });
+  }
+  for (const testo of [
+    "", " ", "  ", "\t", "\n", "\u00a0", "\ufeff", "normale", " con spazi ",
+    "\tcon tabulazione", 0, 1, true, false, null, [], {}, [1, 2], { a: 1 },
+    { a: "x,y" }, ["a,b"], { nested: { deep: [1, { k: "v,w" }] } }, 1e21, 1e-7,
+    "a".repeat(3000),
+  ]) {
+    aggiungi({ description: testo, title: "titolo di ripiego" });
+    aggiungi({ description: "descrizione", paymentMethod: testo });
+    aggiungi({ description: "descrizione", id: testo });
+  }
+
+  return righe;
+};
+
 const semina = async () => {
   const utente = await prisma.user.findFirst();
   if (!utente) throw new Error("Nessun utente nel database di sviluppo");
@@ -86,6 +178,7 @@ const semina = async () => {
       creator_id: utente.id,
       /* Il blob storico: due movimenti e un giroconto. */
       transactions: [
+        ...matriceOstile(),
         {
           id: "st-1",
           date: "2026-03-01T00:00:00.000Z",
@@ -272,6 +365,8 @@ const semina = async () => {
           amount: 500,
           description: "Giroconto storico",
         },
+        /* Il secondo ramo storico legge le stesse colonne: stessa matrice. */
+        ...matriceOstile(),
       ],
       settings: {
         seasons: [

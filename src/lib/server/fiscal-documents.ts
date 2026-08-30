@@ -734,6 +734,21 @@ export const issueInvoiceForTransaction = async (
       organization_id: context.organizationId,
       transaction_id: context.transaction.id,
       cancelled_at: null,
+      /*
+        **Non basta che una riga ci sia: dev'essere nata dalla sequenza.**
+
+        Sul lato ricevuta questo filtro e il numero, che li puo mancare. Qui
+        `invoice_number` e `NOT NULL` — e per un momento e sembrato che
+        bastasse. Non basta: `NOT NULL` dice che una stringa c'e, non che
+        quella stringa l'ha assegnata `allocateDocumentNumber`. Una bozza con
+        numero digitato, o una riga importata, veniva riconosciuta come «gia
+        emessa» e restituita **dichiarando successo**: la famiglia riceveva un
+        documento con l'importo sbagliato e senza fotografia, e quell'incasso
+        non poteva piu essere fatturato davvero.
+
+        `sequence` la scrive solo la sequenza. E questa la prova.
+      */
+      NOT: { sequence: null },
     },
   });
 

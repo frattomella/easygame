@@ -991,3 +991,37 @@ scrittura, quindi arrivava a Prisma come argomento sconosciuto e la creazione
 di un club moriva — da entrambe le schermate. Il difetto non era stato chiuso:
 era stato **spostato**, e il test lo diceva verde perche il doppio di Prisma
 accetta gli argomenti che non conosce.
+
+### La sesta tornata, e cosa dice del metodo (2026-08-30)
+
+Un **High** — e una critica al metodo che vale piu del difetto.
+
+**`creator_id` era chiuso in creazione e aperto in modifica.** La colonna e una
+scalare, quindi sopravviveva al filtro e arrivava a `delegate.update`. Con una
+richiesta sola un gestore poteva **regalare il club a chiunque** — perche
+`resolveOrganizationScopeForUser` ricava da quella colonna sia l'appartenenza
+sia il ruolo `owner` — e nello stesso gesto **spodestare se stesso**, restando
+con `activeRole` nullo. Il nuovo proprietario non compariva in nessuna
+schermata delle tessere, perche di riga in `organization_users` non ne nasceva
+nessuna, e non passava da `assertConcessioneDiAccessoLecita` ne dall'audit.
+
+Chiuse nella stessa tornata: l'operatore di Prisma su una colonna scalare
+passava ancora sulle **trenta risorse di club**, dove `name`, `status` e `date`
+sono colonne vere; `organization_users` aveva ancora un quarto scrittore fuori
+dalla guardia; il rifiuto di un corpo malformato diceva «Accesso negato», cioe
+il marcatore riservato al 403, su cio che e un 400; e `togliRelazioni` **usciva
+senza filtrare** se non riconosceva il modello — una guardia che si spegne da
+sola sul caso che non ha previsto. Adesso `assertOgniRisorsaConosceIlSuoModello`
+impedisce al file di caricarsi, come gia fa il confine.
+
+**E la critica al metodo.** La sonda di riconciliazione era verde su
+venticinque righe scritte a mano. Una revisione con mille righe ne ha trovate
+**551 divergenti**, e ha mostrato perche: in ogni classe di difetto, il valore
+scritto a mano era il fratello che per caso andava d'accordo — `0x1f` si,
+`-0x10` no; `.9999` si, `.0004999` no; `{}` si, `{"a":"x,y"}` no.
+
+Un elenco compilato da chi ha appena corretto un difetto tende a contenere cio
+che quella correzione gestisce. La sonda ora **genera** la sua matrice
+combinando forme — giorni per ore per frazioni per fusi per epoche, basi
+numeriche per spaziature, valori JSON che non sono stringhe — e semina
+**2.253 righe** che nessuno ha scelto perche passassero.

@@ -179,9 +179,14 @@ BEGIN
     guasto che questa migrazione esiste per finire, raggiunto da una data
     invece che da un importo.
   */
+  /*
+    Il confronto con due costanti costa una frazione di due `EXTRACT`, e su
+    una vista che valuta questa funzione quattro volte per riga storica la
+    differenza si misura.
+  */
   IF NOT isfinite(esito)
-     OR EXTRACT(YEAR FROM esito) < 1
-     OR EXTRACT(YEAR FROM esito) > 9999 THEN
+     OR esito < timestamp '0001-01-01 00:00:00'
+     OR esito >= timestamp '10000-01-01 00:00:00' THEN
     RETURN NULL;
   END IF;
 

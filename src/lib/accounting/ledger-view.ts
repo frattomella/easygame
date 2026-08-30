@@ -66,14 +66,64 @@ import {
  *    tabulazione usciva diversa, e quando era fatta di sola tabulazione una
  *    lettura ripiegava sul titolo e l'altra no.
  */
+/**
+ * Un numero come lo stampa `jsonb`: mai in notazione esponenziale.
+ *
+ * `String(1e21)` vale `"1e+21"` e `String(1e-7)` vale `"1e-7"`; `jsonb`
+ * scrive `1000000000000000000000` e `0.0000001`.
+ */
+const numeroComeJsonb = (valore: number): string => {
+  if (!Number.isFinite(valore)) return String(valore);
+  const testo = String(valore);
+  if (!/[eE]/.test(testo)) return testo;
+  /* `toFixed` non basta oltre le 100 cifre: si ricostruisce dalla mantissa. */
+  const [mantissa, esponente] = testo.split(/[eE]/);
+  const potenza = Number(esponente);
+  const segno = mantissa.startsWith("-") ? "-" : "";
+  const cifre = mantissa.replace("-", "").replace(".", "");
+  const virgola = mantissa.replace("-", "").indexOf(".");
+  const posizione = (virgola < 0 ? cifre.length : virgola) + potenza;
+  if (posizione <= 0) return `${segno}0.${"0".repeat(-posizione)}${cifre}`;
+  if (posizione >= cifre.length) {
+    return `${segno}${cifre}${"0".repeat(posizione - cifre.length)}`;
+  }
+  return `${segno}${cifre.slice(0, posizione)}.${cifre.slice(posizione)}`;
+};
+
+/**
+ * **Il testo di un valore JSON, come lo scrive `->>` di Postgres.**
+ *
+ * Non e `JSON.stringify`. `jsonb` mette uno spazio dopo i due punti **e**
+ * dopo la virgola, ma solo dove sono **separatori**: una virgola dentro una
+ * stringa resta come sta. Una sostituzione testuale sul risultato di
+ * `JSON.stringify` non sa distinguere i due casi, e su `{"a":"x,y"}`
+ * produceva `{"a":"x, y"}` — cioe cambiava il **dato**, non la sua
+ * formattazione.
+ *
+ * Si ricostruisce quindi il testo scendendo nella struttura, dove la
+ * distinzione e ovvia.
+ */
 const jsonComeTesto = (value: unknown): string => {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "object") {
-    /* `->>` rende il JSON con uno spazio dopo la virgola, come `jsonb`. */
-    return JSON.stringify(value).replace(/,(?=[^\s])/g, ", ");
+  if (typeof value !== "object") {
+    return typeof value === "number" ? numeroComeJsonb(value) : String(value);
   }
-  return String(value);
+  return serializzaComeJsonb(value);
+};
+
+const serializzaComeJsonb = (valore: unknown): string => {
+  if (valore === null) return "null";
+  if (typeof valore === "boolean") return valore ? "true" : "false";
+  if (typeof valore === "number") return numeroComeJsonb(valore);
+  if (typeof valore === "string") return JSON.stringify(valore);
+  if (Array.isArray(valore)) {
+    return `[${valore.map((v) => serializzaComeJsonb(v)).join(", ")}]`;
+  }
+  const coppie = Object.entries(valore as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .map(([chiave, v]) => `${JSON.stringify(chiave)}: ${serializzaComeJsonb(v)}`);
+  return `{${coppie.join(", ")}}`;
 };
 
 /** `NULLIF(btrim(x), '')`: i soli spazi, e il vuoto diventa `null`. */
@@ -126,6 +176,21 @@ const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
  */
 const CENTESIMI_MASSIMI = 2147483647;
 
+/** Un numero come lo legge `strtod`, esadecimali con segno ed esponente compresi. */
+const numeroDaTestoC = (testo: string): number => {
+  const segno = testo.startsWith("-") ? -1 : 1;
+  const senzaSegno = testo.replace(/^[+-]/, "");
+  if (!/^0[xX]/.test(senzaSegno)) return segno * Number(senzaSegno);
+
+  const corpo = senzaSegno.slice(2);
+  const [cifre, esponente] = corpo.split(/[pP]/);
+  const [intere, decimali = ""] = cifre.split(".");
+  const mantissa =
+    (intere ? parseInt(intere, 16) : 0) +
+    (decimali ? parseInt(decimali, 16) / 16 ** decimali.length : 0);
+  return segno * mantissa * 2 ** (esponente ? Number(esponente) : 0);
+};
+
 const centesimiStorici = (value: unknown): number | null => {
   /*
     **Cio che `float8in` di Postgres sa leggere, e nient'altro.**
@@ -142,14 +207,20 @@ const centesimiStorici = (value: unknown): number | null => {
     TypeScript ne toglieva uno solo, e dieci righe uscivano da una sola delle
     due.
   */
-  const DECIMALE = /^[+-]?((\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?|0[xX][0-9a-fA-F]+)$/;
+  /*
+    `float8in` usa `strtod`, che accetta il segno **prima** di `0x` e la forma
+    esadecimale con esponente binario (`0x1p4`); `Number()` non accetta ne
+    l'uno ne l'altra. Le due forme si convertono a mano.
+  */
+  const DECIMALE =
+    /^[+-]?((\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?|0[xX][0-9a-fA-F]*(\.[0-9a-fA-F]*)?([pP][+-]?\d+)?)$/;
   const ripulito =
     typeof value === "string" ? value.replace(/^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, "") : "";
   const numero =
     typeof value === "number"
       ? value
       : typeof value === "string" && DECIMALE.test(ripulito)
-        ? Number(ripulito)
+        ? numeroDaTestoC(ripulito)
         : NaN;
   if (!Number.isFinite(numero)) return null;
   const centesimi = Math.abs(Math.floor(numero * 100 + 0.5));
@@ -177,6 +248,18 @@ const centesimiStorici = (value: unknown): number | null => {
 const ISO_STORICA =
   /^(\d{4})-(\d{2})-(\d{2})(?:[T ]([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
+/**
+ * L'anno dev'essere fra 1 e 9999, e si guarda **l'istante finale**.
+ *
+ * Postgres non conosce l'anno zero e non sa rileggere l'anno 10000 attraverso
+ * il convertitore di Prisma: una riga sola cosi fa cadere prima nota,
+ * rendiconto, export e saldi di quel club.
+ */
+const dentroGliAnniLeggibili = (istante: Date): string | null => {
+  const anno = istante.getUTCFullYear();
+  return anno < 1 || anno > 9999 ? null : istante.toISOString();
+};
+
 const dataStorica = (value: unknown): string | null => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value.toISOString();
@@ -187,7 +270,18 @@ const dataStorica = (value: unknown): string | null => {
     in coda la toglie `String.prototype.trim` e non la toglie `btrim`, e le due
     letture si trovavano in disaccordo su una riga per un carattere invisibile.
   */
-  const testo = String(value ?? "").replace(/^ +| +$/g, "");
+  /*
+    **`String(value)` non e cio che fa `->>`, e su un oggetto puo alzare.**
+
+    Un valore JSON che non e una stringa arrivava qui grezzo: un array
+    `["2026-01-01"]` diventava `"2026-01-01"` per JavaScript e restava un
+    array per Postgres — quindi la riga usciva da una lettura sola. E un
+    oggetto con una chiave `toString` che non e una funzione non ha nessuna
+    conversione a primitivo: `String(...)` **alza**, e con lei cadeva
+    l'**intera** lettura del registro. Cioe l'oracolo che deve accorgersi delle
+    divergenze moriva su una riga scritta male.
+  */
+  const testo = jsonComeTesto(value).replace(/^ +| +$/g, "");
   if (!testo) return null;
 
   /*
@@ -250,30 +344,60 @@ const dataStorica = (value: unknown): string | null => {
     lo sa rileggere — una riga sola cosi faceva cadere prima nota, rendiconto,
     export e saldi di quel club.
   */
-  if (frazione && frazione.length > 4) {
-    const millesimi = Number(frazione.slice(1).padEnd(4, "0").slice(0, 4));
-    muro.setUTCMilliseconds(Math.round(millesimi / 10));
-  }
-  if (muro.getUTCFullYear() > 9999) return null;
-
-  if (!fuso || fuso === "Z") {
-    return muro.toISOString();
-  }
-
   /*
-    Postgres non conosce un fuso oltre ±15:59, e rifiuta la stringa; JavaScript
-    la accetta. Otto valori uscivano da una lettura sola.
-  */
+    **L'offset si calcola prima, perche decide da che parte si arrotonda.**
 
-  /* L'offset sposta l'istante, non il giorno scritto. */
-  const cifre = fuso.slice(1).replace(":", "");
-  const ore_di_fuso = Number(cifre.slice(0, 2));
-  const minuti_di_fuso = Number(cifre.slice(2));
-  if (minuti_di_fuso > 59) return null;
-  const minutiDiFuso = ore_di_fuso * 60 + minuti_di_fuso;
-  if (minutiDiFuso > 15 * 60 + 59) return null;
-  const verso = fuso[0] === "-" ? 1 : -1;
-  return new Date(muro.getTime() + verso * minutiDiFuso * 60000).toISOString();
+    Postgres legge la stringa in un istante — applicando il fuso — e solo dopo
+    applica `timestamp(3)`. Il verso dell'arrotondamento dipende dal segno dei
+    microsecondi contati da 2000-01-01, quindi dall'istante **finale**: su
+    `2000-01-01T00:00:00.9995-05:00` l'orologio da muro e del 2000 ma
+    l'istante e le cinque del mattino dello stesso giorno, e le due letture
+    cadevano su due millesimi diversi.
+  */
+  let minutiDiFuso = 0;
+  if (fuso && fuso !== "Z") {
+    const cifre = fuso.slice(1).replace(":", "");
+    const oreDiFuso = Number(cifre.slice(0, 2));
+    const minutiSpezzati = Number(cifre.slice(2));
+    /*
+      Postgres non conosce un fuso oltre ±15:59, ne minuti oltre 59, e rifiuta
+      la stringa; JavaScript la accetta.
+    */
+    if (minutiSpezzati > 59) return null;
+    const totale = oreDiFuso * 60 + minutiSpezzati;
+    if (totale > 15 * 60 + 59) return null;
+    minutiDiFuso = (fuso[0] === "-" ? 1 : -1) * totale;
+  }
+
+  const istante = new Date(muro.getTime() + minutiDiFuso * 60000);
+
+  if (frazione) {
+    /*
+      **Postgres arrotonda due volte, e in un verso che non e quello di
+      `Math.round`.**
+
+      *La prima* nel leggere il testo: la parte decimale dei secondi diventa un
+      intero di **microsecondi**. *La seconda* nell'applicare `timestamp(3)`:
+      quei microsecondi diventano millesimi. Arrotondare una volta sola dava un
+      millesimo di scarto su valori come `.1234999` — 123.499,9 µs, che
+      diventano 123.500 e poi 124 — e uno scarto sul millesimo, a capodanno, e
+      un **anno fiscale** diverso.
+
+      E il verso: `AdjustTimestampForTypmod` lavora sui microsecondi **con
+      segno** contati da 2000-01-01 e arrotonda per eccesso in valore assoluto.
+      Sopra quell'epoca e mezzo-per-eccesso; **sotto e mezzo-per-difetto**, che
+      e il contrario di `Math.round`.
+    */
+    const primaDelDuemila = istante.getTime() < Date.UTC(2000, 0, 1);
+    const arrotonda = (valore: number) =>
+      primaDelDuemila ? -Math.round(-valore) : Math.round(valore);
+
+    const microsecondi = arrotonda(Number(`0${frazione}`) * 1e6);
+    istante.setUTCMilliseconds(arrotonda(microsecondi / 1000));
+    if (Number.isNaN(istante.getTime())) return null;
+  }
+
+  return dentroGliAnniLeggibili(istante);
 };
 
 /**

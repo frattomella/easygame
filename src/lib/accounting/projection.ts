@@ -42,10 +42,27 @@ import {
   type CounterpartyKind,
 } from "./model";
 
+/**
+ * `NULLIF(btrim(x), '')`: i **soli spazi**, come Postgres.
+ *
+ * `String.prototype.trim` toglie tabulazioni, a capo, spazi unificatori e
+ * BOM; `btrim` no. Il gemello in `ledger-view.ts` era stato corretto e questo
+ * no, e le due letture del registro divergevano su etichetta della
+ * controparte, tipo, identificativo e descrizione — quest'ultima **visibile a
+ * chi legge la prima nota**.
+ */
 const testo = (value: unknown) => {
-  const text = String(value ?? "").trim();
+  const text = String(value ?? "").replace(/^ +| +$/g, "");
   return text || null;
 };
+
+/**
+ * Una colonna che la vista legge **cosi com'e**, senza `btrim` e senza
+ * `NULLIF`: una stringa di soli spazi resta tale, e la stringa vuota resta
+ * vuota. Applicarci `testo()` le trasformava in `null` in una lettura sola.
+ */
+const grezzo = (value: unknown) =>
+  value === null || value === undefined ? null : String(value);
 
 /**
  * **Un importo che il registro non sa mostrare esce da entrambe le letture.**
@@ -93,6 +110,8 @@ const proietta = (input: {
   counterpartyKind?: CounterpartyKind | null;
   counterpartyId?: string | null;
   counterpartyLabel?: string | null;
+  /** La valuta della riga sorgente: la vista legge `COALESCE(currency, 'EUR')`. */
+  currency?: string | null;
   paymentMethod?: string | null;
   documentKind?: string | null;
   documentId?: string | null;
@@ -126,7 +145,7 @@ const proietta = (input: {
     seasonId: input.seasonId ?? null,
     direction: input.direction,
     amountCents: input.amountCents,
-    currency: "EUR",
+    currency: input.currency ?? "EUR",
     financialAccountId: input.financialAccountId ?? null,
     financialAccountName: input.financialAccountName ?? null,
     operationTypeCode: input.operationTypeCode ?? null,
@@ -164,6 +183,8 @@ export type PaymentTransactionRow = {
   organization_id: string;
   paid_at: Date | string;
   amount: number | string;
+  /** La valuta dichiarata sulla riga: senza, il registro legge euro. */
+  currency?: string | null;
   payment_method?: string | null;
   notes?: string | null;
   athlete_id?: string | null;
@@ -255,6 +276,7 @@ export const projectPaymentTransactions = (
         id: `payment-transaction:${row.id}`,
         organizationId: row.organization_id,
         entryDate: paidAt,
+        currency: row.currency ?? null,
         /*
           Il segno dell'importo di uno storno e gia negativo nel dominio. Qui
           non si somma, si mostra: la direzione dice cosa e successo, e
@@ -285,11 +307,11 @@ export const projectPaymentTransactions = (
           (row.athlete_id ? "ATHLETE" : null),
         counterpartyId: testo(row.counterparty_id) || testo(row.athlete_id),
         counterpartyLabel: etichetta,
-        paymentMethod: testo(row.payment_method),
+        paymentMethod: grezzo(row.payment_method),
         documentKind: testo(row._documentKind),
         documentId: testo(row._documentId),
         documentNumber: testo(row._documentNumber),
-        notes: testo(row.notes),
+        notes: grezzo(row.notes),
         createdAt: iso(row.created_at),
       }),
     ];
@@ -395,12 +417,26 @@ export const projectSportWorkPayouts = (
       buco. Se il netto e zero, dal conto verso la persona non e uscito niente:
       la riga non c'e, e il denaro dei contributi lo racconta l'F24.
     */
-    const netto = Number(row.net_amount);
+    /*
+      **Il ripiego sul lordo vale per la colonna assente, non per un numero
+      che non e un numero.**
+
+      Premi, rimborsi e fatture dei professionisti non hanno una quota
+      contributiva: li il lordo e l'intero esborso, e la ricaduta serve. Ma
+      `net_amount` e `NOT NULL`, quindi da una riga vera non manca mai: la
+      ricaduta scattava percio solo su `NaN`, dove la vista — che legge
+      `easygame_centesimi(sw.net_amount)` — scarta la riga. Una lettura la
+      mostrava col lordo e l'altra non la mostrava affatto.
+    */
     const lordo = Number(row.gross_amount) || 0;
-    const base = Number.isFinite(netto) ? netto : lordo;
-    const firmato = toCents(base);
+    const netto = Number(row.net_amount);
+    const senzaNetto = row.net_amount === undefined || row.net_amount === null;
+    const base = senzaNetto ? lordo : netto;
+    const firmato = toCents(Number.isFinite(base) ? base : NaN);
     const amountCents = Math.abs(firmato);
-    if (amountCents === 0 || !rappresentabile(amountCents)) return [];
+    if (!Number.isFinite(firmato) || amountCents === 0 || !rappresentabile(amountCents)) {
+      return [];
+    }
 
     /*
       **Il segno del netto decide il verso, e deve.** (D-F)
@@ -434,8 +470,8 @@ export const projectSportWorkPayouts = (
         counterpartyKind: "SPORT_WORK_PERSON",
         counterpartyId: testo(row.person_id),
         counterpartyLabel: persona,
-        paymentMethod: testo(row.payment_method),
-        notes: testo(row.reference),
+        paymentMethod: grezzo(row.payment_method),
+        notes: grezzo(row.reference),
         createdAt: iso(row.created_at),
       }),
     ];
@@ -513,8 +549,8 @@ export const projectFundingSettlements = (
         counterpartyKind: "ENTITY",
         counterpartyId: testo(row.program_id),
         counterpartyLabel: programma,
-        paymentMethod: testo(row.method),
-        notes: testo(row.notes) || testo(row.reference),
+        paymentMethod: grezzo(row.method),
+        notes: testo(row.notes) ?? grezzo(row.reference),
         createdAt: iso(row.created_at),
       }),
     ];

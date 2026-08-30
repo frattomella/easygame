@@ -330,3 +330,68 @@ test("una relazione annidata non entra nella scrittura", async () => {
     );
   }
 });
+
+/* ------------------- il fondatore, e i valori che non sono valori */
+
+/**
+ * **Un club non si regala.**
+ *
+ * La creazione controllava che `creator_id` fosse quello della sessione; la
+ * modifica no, e `creator_id` e una colonna scalare — arrivava intatta a
+ * `delegate.update`. Con una richiesta sola un gestore poteva intestare il
+ * club a chiunque, perche `resolveOrganizationScopeForUser` ricava da quella
+ * colonna sia l'appartenenza sia il ruolo `owner`; e nello stesso gesto
+ * **spodestava se stesso**. Il nuovo proprietario non compariva in nessuna
+ * schermata delle tessere, perche di riga in `organization_users` non ne
+ * nasceva nessuna.
+ */
+test("il fondatore di un club non si cambia dal registro generico", async () => {
+  await risorse.updateResource(
+    "clubs",
+    MIO,
+    { name: "Rinominato", creator_id: VITTIMA },
+    scopeAttaccante(),
+  );
+
+  const club = fake.rows("club").find((riga) => riga.id === MIO);
+  assert.equal(club.name, "Rinominato", "il resto della modifica passa");
+  assert.equal(club.creator_id, IO, "il fondatore no");
+});
+
+/**
+ * Un oggetto su una colonna scalare non e un valore: e un'**operazione** che
+ * Prisma esegue. Le guardie leggono `normalized.<campo>` aspettandosi un
+ * valore, quindi non lo riconoscono e lo lasciano passare intatto.
+ */
+test("un operatore su una colonna scalare non entra nella scrittura", async () => {
+  for (const corpo of [
+    { name: { set: "Operatore" } },
+    { slug: { set: "operatore" } },
+  ]) {
+    await assert.rejects(
+      () => risorse.updateResource("clubs", MIO, corpo, scopeAttaccante()),
+      /attende un valore, non un'operazione/,
+    );
+  }
+
+  const club = fake.rows("club").find((riga) => riga.id === MIO);
+  assert.notEqual(club.name, "Operatore");
+});
+
+/**
+ * E il rifiuto **non** dice «Accesso negato»: quella stringa e il marcatore
+ * con cui il route handler generico ricava un 403, e un corpo scritto male
+ * merita un 400 — con un messaggio che dica cosa correggere.
+ */
+test("un corpo malformato non e un problema di autorizzazione", async () => {
+  await assert.rejects(
+    () => risorse.updateResource("clubs", MIO, { name: { set: "x" } }, scopeAttaccante()),
+    (errore) => {
+      assert.ok(
+        !String(errore.message).includes("Accesso negato"),
+        "sarebbe un 403 su cio che e un 400",
+      );
+      return true;
+    },
+  );
+});
