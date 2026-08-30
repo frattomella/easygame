@@ -105,6 +105,36 @@ const semina = async () => {
         { id: "st-3", amount: 10, type: "income", description: "Senza data" },
         /* Importo zero: idem. */
         { id: "st-4", date: "2026-03-03T00:00:00.000Z", amount: 0, description: "Zero" },
+        /*
+          **Le righe sporche, che erano il difetto piu grave della Wave.**
+
+          Una revisione ostile ha mostrato che un solo `amount` in notazione
+          italiana, o una data che non esiste, faceva fallire **l'intera query**
+          della vista: da quel momento, per quel club, non funzionavano piu
+          prima nota, rendiconto, export e saldi. Il gemello in TypeScript
+          degradava con grazia, quindi le due scritture della stessa regola non
+          coincidevano — e questa sonda non lo vedeva, perche non seminava
+          niente di sporco.
+
+          Adesso lo semina. Nessuna di queste righe deve comparire, e nessuna
+          deve far cadere la lettura.
+        */
+        { id: "sp-1", date: "2026-03-05T00:00:00.000Z", amount: "1.234,56", description: "Importo italiano" },
+        { id: "sp-2", date: "2026-02-31", amount: 10, description: "Trentuno febbraio" },
+        { id: "sp-3", date: "2026-03-01xyz", amount: 10, description: "Data con la coda" },
+        { id: "sp-4", date: {}, amount: 10, description: "Data che e un oggetto" },
+        { id: "sp-5", date: "2026-03-06T00:00:00.000Z", amount: null, description: "Importo assente" },
+        /*
+          **Due righe con lo stesso `id`.** Producevano due righe del registro
+          con lo stesso identificativo, e l'ordine del registro lo usa come
+          criterio di spareggio: la pagina 2 poteva ripetere righe della 1.
+        */
+        { id: "st-1", date: "2026-03-07T00:00:00.000Z", amount: 11, description: "Id ripetuto" },
+        /*
+          Solo `created_at`: la dichiarazione la leggeva, l'SQL no, e la riga
+          spariva da una lettura e non dall'altra.
+        */
+        { id: "sp-6", created_at: "2026-03-08T00:00:00.000Z", amount: 7.77, description: "Solo created_at" },
       ],
       transfers: [
         {

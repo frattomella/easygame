@@ -509,6 +509,12 @@ model PaymentTransaction {
   transaction_invoices    Invoice[]
 
   @@index([organization_id])
+  /// La data e l'asse su cui il registro ordina e filtra sempre, e senza indice
+  /// ogni lettura di un anno era una scansione completa della tabella. Nasce nella
+  /// migrazione `20260830090000_wave4_registro_unico` e vive **anche** qui: un
+  /// indice creato solo in SQL e un indice che il prossimo `migrate dev`
+  /// cancella, e nessuno se ne accorge finche non rallenta la produzione.
+  @@index([organization_id, paid_at], map: "payment_transactions_org_paid_at_idx")
   @@index([athlete_id])
   @@index([payment_id])
   @@index([external_payment_id])
@@ -899,6 +905,8 @@ model FundingSettlement {
   lines           FundingSettlementLine[]
 
   @@index([organization_id])
+  /// Come per gli incassi: il registro ordina e filtra per data.
+  @@index([organization_id, settled_at], map: "funding_settlements_org_settled_at_idx")
   @@index([program_id])
   @@index([financial_account_id])
   @@index([reversal_of_id])
@@ -2649,6 +2657,8 @@ model AccountingEntry {
   @@index([organization_id, fiscal_year])
   @@index([organization_id, financial_account_id, entry_date])
   @@index([organization_id, reconciliation_status])
+  /// Il filtro per causale, che la pagina offre e che nessun indice serviva.
+  @@index([organization_id, operation_type_code], map: "accounting_entries_org_operation_code_idx")
   @@index([organization_id, source_domain, source_id])
   @@index([transfer_group_id])
   @@index([reversal_of_id])

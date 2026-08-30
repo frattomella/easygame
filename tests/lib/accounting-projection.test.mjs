@@ -324,14 +324,25 @@ test("la maturazione non e un incasso: la proiezione conosce solo le liquidazion
 });
 
 test("lo storno di una liquidazione esce, e riapre il credito", () => {
+  /*
+    **L'importo dello storno e negativo, e il database lo pretende.**
+
+    `funding_settlements_amount_check` impone importo positivo a una
+    liquidazione e negativo a uno storno. Questa prova lo scriveva positivo —
+    uno stato che il database non puo contenere — e il doppio la lasciava
+    passare: e la stessa distanza fra doppio e database che questa Wave ha gia
+    pagato due volte. Da quando il verso lo decide il **segno**, una prova
+    scritta su un dato impossibile smette anche di dire il vero.
+  */
   const righe = projectFundingSettlements([
     liquidazione({ reversed_at: "2026-11-20T00:00:00.000Z" }),
-    liquidazione({ id: "fs-storno", reversal_of_id: "fs-1" }),
+    liquidazione({ id: "fs-storno", reversal_of_id: "fs-1", amount: -800 }),
   ]);
 
   const storno = righe.find((r) => r.sourceId === "fs-storno");
   assert.equal(storno.direction, "OUT");
   assert.equal(storno.sourceDomain, "REVERSAL");
+  assert.equal(storno.amountCents, 80000, "l'importo esce sempre positivo");
 });
 
 /* ================================== il contratto: sola lettura, sempre */

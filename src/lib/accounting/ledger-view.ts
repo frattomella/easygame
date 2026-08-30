@@ -83,6 +83,46 @@ const data = (value: unknown): Date | null => {
 const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
 /**
+ * La data di un movimento storico, letta da un blob JSON che nessuno controlla.
+ *
+ * **Perche non basta `new Date(...)`.** JavaScript accetta il 31 febbraio e lo
+ * fa scivolare al 3 marzo; Postgres lo rifiuta. Le due letture del registro
+ * divergevano quindi su una riga che nessuna delle due dovrebbe accettare: una
+ * la faceva sparire, l'altra la datava a un giorno che nel dato non c'e.
+ *
+ * Una data impossibile non e una data. Qui si rifiuta, e la riga esce dal
+ * registro come esce dalla vista.
+ */
+const dataStorica = (value: unknown): string | null => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  const testo = String(value ?? "").trim();
+  if (!testo) return null;
+
+  const date = new Date(testo);
+  if (Number.isNaN(date.getTime())) return null;
+
+  /*
+    Il giorno scritto deve essere il giorno letto. Se scivola, la data non
+    esisteva.
+  */
+  const giorno = testo.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (giorno) {
+    const [, anno, mese, quanti] = giorno;
+    if (
+      date.getUTCFullYear() !== Number(anno) ||
+      date.getUTCMonth() + 1 !== Number(mese) ||
+      date.getUTCDate() !== Number(quanti)
+    ) {
+      return null;
+    }
+  }
+
+  return date.toISOString();
+};
+
+/**
  * Da dove viene una riga del registro.
  *
  * Non e un dettaglio di presentazione: e cio che decide **se si puo toccare**.
@@ -302,7 +342,7 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
 
   const movimenti = asArray(club.transactions).flatMap(
     (row, index): LedgerViewRow[] => {
-      const entryDate = iso(row?.date) || iso(row?.created_at);
+      const entryDate = dataStorica(row?.date) || dataStorica(row?.created_at);
       if (!entryDate) return [];
       const amountCents = Math.abs(toCents(Number(row?.amount) || 0));
       if (amountCents === 0) return [];
@@ -314,7 +354,19 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
       return [
         {
           ...guscio(entryDate),
-          id: `legacy-transaction:${row?.id || index}`,
+          /*
+            **L'identificativo e la posizione, non il campo `id` del JSON.**
+
+            Due righe del blob con lo stesso `id` — e succede, perche nessuno
+            ha mai imposto l'unicita dentro una colonna JSON — producevano due
+            righe del registro con lo stesso identificativo. L'ordine del
+            registro usa proprio l'identificativo come criterio di spareggio,
+            quindi la pagina 2 poteva ripetere righe della pagina 1: cioe
+            esattamente l'invariante che quel criterio esiste per garantire.
+            La posizione nell'array e unica per costruzione. Il campo `id` del
+            JSON, dove c'e, resta in `source_id`.
+          */
+          id: `legacy-transaction:${index}`,
           direction: ["expense", "uscita", "out"].includes(tipo) ? "OUT" : "IN",
           amount_cents: amountCents,
           source_domain: "MANUAL",
@@ -329,7 +381,7 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
 
   const giroconti = asArray(club.transfers).flatMap(
     (row, index): LedgerViewRow[] => {
-      const entryDate = iso(row?.date) || iso(row?.created_at);
+      const entryDate = dataStorica(row?.date) || dataStorica(row?.created_at);
       if (!entryDate) return [];
       const amountCents = Math.abs(toCents(Number(row?.amount) || 0));
       if (amountCents === 0) return [];
@@ -340,19 +392,27 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
         gamba di niente, e presentarlo come due meta suggerirebbe un
         collegamento che nel dato non c'e.
       */
-      const descrizione = testo(row?.description) || "Giroconto storico";
+      /*
+        La gamba sola si dichiara. Il blob non dice fra quali conti sia passato
+        il denaro in una forma che si possa credere, e chi legge «trasferito in
+        uscita 500, in entrata 0» deve poter capire perche invece di sospettare
+        un errore.
+      */
+      const etichetta = testo(row?.description) || "Giroconto storico";
+      const descrizione = etichetta + " (storico, gamba sola)";
 
       return [
         {
           ...guscio(entryDate),
-          id: `legacy-transfer:${row?.id || index}`,
+          id: `legacy-transfer:${index}`,
           direction: "OUT",
           amount_cents: amountCents,
           source_domain: "INTERNAL_TRANSFER",
           source_id: String(row?.id || `legacy-transfer-${index}`),
           description: descrizione,
           payment_method: "Giroconto",
-          search_text: testoDiRicerca([descrizione]),
+          /* La ricerca guarda l etichetta, non la nota fra parentesi. */
+          search_text: testoDiRicerca([etichetta]),
         },
       ];
     },

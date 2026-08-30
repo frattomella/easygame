@@ -211,11 +211,25 @@ export const projectPaymentTransactions = (
     const rimborso = !storno && amountCents < 0;
     const importo = Math.abs(amountCents);
 
+    /*
+      **Il verso lo dice il segno, non il fatto di essere uno storno.** (D-E)
+
+      Il ramo guardava solo `reverses_transaction_id`, e lo storno di un
+      **rimborso** — che e una riga positiva, perche riporta dentro denaro
+      uscito — usciva come uscita. Il registro raccontava sessanta euro usciti
+      per trenta rientrati: i totali reggevano (entrambe le gambe sono
+      neutralizzate) e la storia si leggeva al contrario, che e l'unica cosa
+      che il registro esiste per fare.
+    */
+    const verso: AccountingLine["direction"] = amountCents < 0 ? "OUT" : "IN";
+
     const etichetta =
       testo(row.counterparty_label) || testo(row._athleteName) || "Incasso";
 
     const descrizione = storno
-      ? `Storno incasso - ${etichetta}`
+      ? amountCents >= 0
+        ? `Storno rimborso - ${etichetta}`
+        : `Storno incasso - ${etichetta}`
       : rimborso
         ? `Rimborso - ${etichetta}`
         : `Incasso - ${etichetta}`;
@@ -230,7 +244,7 @@ export const projectPaymentTransactions = (
           non si somma, si mostra: la direzione dice cosa e successo, e
           l'importo resta positivo come ovunque nella prima nota.
         */
-        direction: storno || rimborso ? "OUT" : "IN",
+        direction: verso,
         amountCents: importo,
         sourceDomain: storno ? "REVERSAL" : rimborso ? "REFUND" : "ATHLETE_PAYMENT",
         sourceId: row.id,
@@ -368,8 +382,22 @@ export const projectSportWorkPayouts = (
     const netto = Number(row.net_amount);
     const lordo = Number(row.gross_amount) || 0;
     const base = Number.isFinite(netto) ? netto : lordo;
-    const amountCents = Math.abs(toCents(base));
+    const firmato = toCents(base);
+    const amountCents = Math.abs(firmato);
     if (amountCents === 0) return [];
+
+    /*
+      **Il segno del netto decide il verso, e deve.** (D-F)
+
+      Il verso si ricavava dal solo tipo di operazione, e l'importo si prendeva
+      in valore assoluto. Il saldo del conto invece somma `net_amount` **con il
+      suo segno** e lo tratta come uscita: su una riga con netto negativo — un
+      rimborso spese corretto in negativo — le due letture divergevano del
+      **doppio** dell'importo. Erano due formule diverse per lo stesso numero,
+      ed e esattamente cio che questa Wave vieta.
+    */
+    const versoDalSegno: AccountingLine["direction"] | null =
+      firmato < 0 ? "IN" : null;
 
     const persona = testo(row._personName) || "Persona";
 
@@ -378,7 +406,7 @@ export const projectSportWorkPayouts = (
         id: `sport-work:${row.id}`,
         organizationId: row.organization_id,
         entryDate: paidAt,
-        direction: storno ? "IN" : "OUT",
+        direction: versoDalSegno ?? (storno ? "IN" : "OUT"),
         amountCents,
         sourceDomain: storno ? "REVERSAL" : "SPORT_WORK_PAYOUT",
         sourceId: row.id,
@@ -437,9 +465,16 @@ export const projectFundingSettlements = (
     const settledAt = iso(row.settled_at);
     if (!settledAt) return [];
 
-    const amountCents = Math.abs(toCents(Number(row.amount) || 0));
+    const firmato = toCents(Number(row.amount) || 0);
+    const amountCents = Math.abs(firmato);
     if (amountCents === 0) return [];
 
+    /*
+      Il segno decide il verso anche qui, e il database lo pretende: un vincolo
+      impone importo positivo a una liquidazione e negativo a uno storno. Le due
+      condizioni coincidono sempre, e leggere il segno invece del riferimento
+      allo storno tiene la regola una sola.
+    */
     const storno = Boolean(row.reversal_of_id);
     const programma = testo(row._programName) || "Contributo";
 
@@ -448,7 +483,7 @@ export const projectFundingSettlements = (
         id: `funding-settlement:${row.id}`,
         organizationId: row.organization_id,
         entryDate: settledAt,
-        direction: storno ? "OUT" : "IN",
+        direction: firmato < 0 ? "OUT" : "IN",
         amountCents,
         sourceDomain: storno ? "REVERSAL" : "FUNDING_SETTLEMENT",
         sourceId: row.id,
