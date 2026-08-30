@@ -137,6 +137,7 @@ Riferimento completo: [`.env.example`](../../.env.example).
 | `AUTH_BASE_URL` | Base per le redirect URI OAuth |
 | `AUTH_RATE_LIMIT_SECRET` | Salt degli hash delle chiavi di rate limit **e** fallback per la cifratura SMTP. Cambiarla invalida i bucket e rende indecifrabile la password SMTP |
 | `EASYGAME_PLATFORM_ADMIN_EMAILS` | CSV di email admin di piattaforma. Se **vuota**, chiunque abbia `role in ("platform_admin","admin")` diventa admin: tenerla sempre valorizzata |
+| `EASYGAME_TRUSTED_MEDIA_HOSTS` | CSV di host verso cui `/api/v1/athletes/<id>/avatar` accetta di rimandare quando `avatar_url` porta un indirizzo esterno. Vuota va bene: le foto caricate diventano `data:` e non hanno bisogno di rimandi. Senza l elenco la rotta sarebbe un **rimando aperto** ospitato dal dominio del prodotto, su un valore che la segreteria digita |
 | `AUTH_ALLOW_TEST_CODES` | Espone gli OTP in risposta. **Mai `true` in un ambiente condiviso** |
 
 ### I deploy di anteprima falliscono, e non e una regressione (rilevato 2026-08-25)

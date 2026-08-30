@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
 import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import { lockInstallmentAndTransaction } from "./payment-transactions";
 import {
@@ -238,14 +239,23 @@ const asRecord = (value: unknown): Record<string, any> =>
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
 
+/**
+ * **Una seconda linea di difesa che non poteva scattare.**
+ *
+ * Il confronto era con l'elenco dei club **consentiti**, cioe con l'insieme
+ * piu largo: la riga passava per qualunque club dell'utente, compreso quello
+ * che questo controllo esiste per escludere. Era inerte — il chiamante
+ * vincolava gia il club attivo — e una difesa inerte e peggio di una difesa
+ * assente, perche si legge come una difesa.
+ */
 const ensureOrganizationAccess = (
   scope: PaymentReminderScope | undefined,
   organizationId: string | null | undefined,
 ) => {
   if (!scope) return;
   if (!organizationId) throw denied("sollecito senza club");
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("il club indicato non e fra quelli a cui hai accesso");
+  if (!belongsToActiveClub(scope, organizationId)) {
+    throw denied("il club indicato non e quello attivo");
   }
 };
 

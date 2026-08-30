@@ -187,10 +187,51 @@ test("l'avatar autorizza su tutti i club dell'utente, non solo su quello attivo"
     /scope\.allowedOrganizationIds\.includes\(athlete\.organization_id\)/,
     "un <img> non manda x-active-club-id: autorizzare sul club attivo romperebbe gli utenti multi-club",
   );
-  assert.equal(
-    /scope\.activeOrganizationId\s*===\s*athlete\.organization_id/.test(source),
-    false,
-    "il confronto sul club attivo e proprio il difetto da evitare",
+  /*
+    **Cio che questo test **non** deve fare: fissare una grafia.**
+
+    Qui c'era una seconda asserzione che **vietava** la comparsa di
+    `activeOrganizationId === athlete.organization_id`. La rotta e corretta
+    per una ragione non locale — `resolveOrganizationScopeForUser(userId,
+    athlete.organization_id)` onora il club preferito solo se e fra quelli
+    consentiti, quindi qui `includes(X)` **implica** `activeOrganizationId ===
+    X` — ma vietare la scrittura giusta significa inchiodare in questo file
+    l'anti-pattern che tutto il resto della Wave 4 ha passato mesi a togliere,
+    e renderlo quello che una revisione futura leggera come «voluto».
+
+    Cio che va presidiato e il **motivo**: l'`<img>` non manda
+    `x-active-club-id`, quindi il club preferito lo deve dichiarare la rotta.
+  */
+  assert.match(
+    source,
+    /resolveOrganizationScopeForUser\(\s*[^,]+,\s*athlete\.organization_id/,
+    "il club dell'atleta va passato come preferito: e cio che rende il controllo qui sopra equivalente al confine",
+  );
+});
+
+/**
+ * **Un rimando aperto ospitato dal dominio del prodotto.**
+ *
+ * `avatar_url` e una colonna che la segreteria compila, e la rotta rispondeva
+ * `302` verso qualunque `http(s)`. Il collegamento che gira e
+ * `easygame.../avatar`, e chi lo apre finisce altrove — e chi lo riceve non e
+ * detto che sia del club.
+ */
+test("l'avatar non rimanda verso un indirizzo qualsiasi", () => {
+  const source = readFileSync(
+    path.join(SRC, "app", "api", "v1", "athletes", "[id]", "avatar", "route.ts"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /isTrustedAvatarHost\(stored\)/,
+    "il rimando va verso gli archivi che l'applicazione usa, non verso cio che qualcuno ha digitato",
+  );
+  assert.match(
+    source,
+    /url\.protocol !== "https:"/,
+    "e solo in https: un rimando in chiaro e comunque un rimando",
   );
 });
 

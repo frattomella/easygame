@@ -1,3 +1,4 @@
+import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
 import {
   createAttachment,
   deleteAttachment,
@@ -97,14 +98,31 @@ const denied = (message: string) => new Error(`Accesso negato: ${message}`);
  * quindi senza questa riga esisterebbe un percorso — «di che club e la firma?»
  * — che il confine non attraversa.
  */
+/**
+ * **La sedicesima copia del confronto sbagliato.**
+ *
+ * `allowedOrganizationIds.includes(...)` dice «questo club e fra i tuoi»; il
+ * permesso si verifica invece con `activeRole`, che e il ruolo nel club
+ * **attivo**. Le due cose coincidono finche l'utente ha un club solo, e
+ * divergono esattamente quando conta.
+ *
+ * Qui era innocuo per un motivo non locale — entrambi i chiamanti vincolano il
+ * club prima — e `src/lib/auth/active-club-boundary.ts` esiste perche un
+ * motivo non locale non e una difesa: il giorno in cui qualcuno aggiunge un
+ * terzo chiamante, non c'e niente che glielo ricordi.
+ *
+ * E `if (!scope) return` disabilitava il controllo per intero: e giusto per i
+ * percorsi interni, che non prendono niente dalla rete, ed e per questo che
+ * resta — ma ora e la sola eccezione, e sta scritta.
+ */
 const ensureClubAccess = (
   scope: ClubSignatureScope | undefined,
   organizationId: string,
 ) => {
   if (!organizationId) throw new Error("Nessun club indicato");
   if (!scope) return;
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("il club non e fra quelli accessibili");
+  if (!belongsToActiveClub(scope, organizationId)) {
+    throw denied("il club non e quello attivo");
   }
 };
 

@@ -42,6 +42,40 @@ const notFound = () =>
   );
 
 /** Da data URL a byte, oppure `null`. */
+/**
+ * **Gli archivi verso cui questa rotta accetta di rimandare.**
+ *
+ * `avatar_url` e una colonna che la segreteria compila, e un `302` verso un
+ * indirizzo arbitrario fa di questa rotta un rimando aperto ospitato dal
+ * dominio dell'applicazione: il collegamento che gira e `easygame.../avatar`,
+ * e chi lo apre finisce altrove. Chi lo riceve non e detto che sia del club.
+ *
+ * L'elenco e vuoto per difetto — oggi le foto caricate diventano `data:` e
+ * non hanno bisogno di nessun rimando — e si allarga da
+ * `EASYGAME_TRUSTED_MEDIA_HOSTS`, che elenca gli host separati da virgola. Le
+ * foto degli account esterni (OAuth) stanno su Google, e sono l'unico caso
+ * gia noto.
+ */
+const HOST_DI_MEDIA_FIDATI = new Set(
+  [
+    "lh3.googleusercontent.com",
+    ...String(process.env.EASYGAME_TRUSTED_MEDIA_HOSTS || "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
+  ],
+);
+
+const isTrustedAvatarHost = (value: string) => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") return false;
+    return HOST_DI_MEDIA_FIDATI.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+};
+
 const decodeDataUrl = (value: string) => {
   const match = /^data:([^;,]+)(;base64)?,(.*)$/is.exec(value);
   if (!match) return null;
@@ -165,8 +199,25 @@ export async function GET(request: Request, context: Context) {
       });
     }
 
-    // Un URL esterno: si rimanda li invece di fare da proxy.
+    /*
+      **Un URL esterno: si rimanda li invece di fare da proxy — ma il valore
+      lo scrive il club.**
+
+      `avatar_url` e una colonna che la segreteria compila. Un `302` verso un
+      indirizzo arbitrario fa di questa rotta un rimando aperto ospitato dal
+      dominio dell'applicazione: il collegamento che si manda in giro e
+      `easygame.../avatar`, e chi lo apre finisce altrove.
+
+      Non e una vulnerabilita del club contro se stesso — la colonna la scrive
+      chi ha gia accesso — ma il dominio che presta la sua faccia e quello del
+      prodotto, e chi riceve il collegamento non e detto che sia del club.
+
+      Si rimanda quindi solo verso gli archivi che l'applicazione usa davvero.
+    */
     if (/^https?:\/\//i.test(stored)) {
+      if (!isTrustedAvatarHost(stored)) {
+        return notFound();
+      }
       return NextResponse.redirect(stored, 302);
     }
 
