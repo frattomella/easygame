@@ -6,6 +6,7 @@ import {
 import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { openGatewayCheckout } from "@/lib/server/payment-gateway";
+import { resolvePaymentLinkOrigin } from "@/lib/server/payment-links";
 import { requireClubEntitlement } from "@/lib/server/entitlements";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { PaymentGatewayError } from "@/lib/payments/gateway";
@@ -90,6 +91,51 @@ export async function POST(request: Request) {
 
     if (!successUrl || !cancelUrl) {
       return jsonError("URL di ritorno obbligatori");
+    }
+
+    /*
+      **Gli URL di ritorno devono stare in casa.**
+
+      Erano validati solo come «e un URL»: qualunque host, e nessun controllo
+      di origine. Chi ha accesso ai pagamenti del club — segreteria compresa —
+      poteva aprire un checkout vero, per una rata vera, con
+      `successUrl` su un dominio proprio, e mandare alla famiglia il link
+      Stripe autentico. La famiglia paga su una pagina genuina, con il marchio
+      del suo club, e **subito dopo un pagamento riuscito** — il momento di
+      massima fiducia — finisce su una pagina che dice «carta rifiutata,
+      reinserisci i dati». EasyGame e Stripe fanno da garanti.
+
+      `payment-links.ts` questo attacco lo aveva gia previsto e lo rifiuta da
+      tempo sulla rotta pubblica: costruisce gli URL dal solo ambiente
+      configurato e non guarda ne la richiesta ne le sue intestazioni. Il
+      gemello autenticato non aveva ricevuto la stessa cura — e «autenticato»
+      qui vuol dire quattro ruoli su sette, non uno.
+
+      Qui gli URL non si possono costruire (la pagina di ritorno cambia a
+      seconda di dove si e partiti), ma si puo pretendere che siano **sulla
+      nostra origine**. Senza ambiente configurato non si emette niente, che e
+      la stessa scelta gia presa di la: meglio nessun checkout che un checkout
+      che riporta altrove.
+    */
+    const origineAmmessa = resolvePaymentLinkOrigin();
+    if (!origineAmmessa) {
+      return jsonError(
+        "Origine dell'applicazione non configurata: imposta AUTH_BASE_URL o NEXT_PUBLIC_APP_URL prima di aprire un pagamento online",
+      );
+    }
+
+    const nostro = (candidato: string) => {
+      try {
+        return new URL(candidato).origin === new URL(origineAmmessa).origin;
+      } catch {
+        return false;
+      }
+    };
+
+    if (!nostro(successUrl) || !nostro(cancelUrl)) {
+      return jsonError(
+        "Gli URL di ritorno devono appartenere a questa applicazione",
+      );
     }
 
     const scope = await resolveOrganizationScopeForUser(

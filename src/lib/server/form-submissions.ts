@@ -404,13 +404,32 @@ const storeSubmissionFiles = async ({
     }
 
     /*
-      La firma arriva come PNG disegnato dal browser: non passa dal selettore
-      di file e non ha senso confrontarla con l'elenco dei tipi accettati.
+      La firma arriva come immagine disegnata dal browser: non passa dal
+      selettore di file, e confrontarla con l'elenco dei documenti accettati
+      (PDF, foto, scansioni) non avrebbe senso.
+
+      Ma «non quell'elenco» non vuol dire «nessun elenco». Il controllo era
+      saltato del tutto, e chi compila un modulo pubblico decide come si chiama
+      la parte multipart: bastava nominarla `file:<idCampoFirma>` per dichiarare
+      qualunque tipo. Non ne usciva uno stored XSS — `createAttachment`
+      rivalida su un elenco piu ampio che non contiene ne HTML ne SVG, e cio
+      che non e visualizzabile in linea viene servito come allegato con
+      `nosniff` — ma allargava i tipi accettati da sette a quindici passando da
+      una porta che non doveva aprirsi.
+
+      Una firma e un'immagine, e sono queste due.
     */
-    const checkMime = requireNarrowMimeTypes && field.type !== "signature";
-    if (checkMime && !isPublicFormUploadMimeType(incoming.mimeType)) {
+    const TIPI_FIRMA = new Set(["image/png", "image/jpeg"]);
+    const mimeAccettato =
+      field.type === "signature"
+        ? TIPI_FIRMA.has(String(incoming.mimeType || "").toLowerCase())
+        : !requireNarrowMimeTypes || isPublicFormUploadMimeType(incoming.mimeType);
+
+    if (!mimeAccettato) {
       throw new FormSubmissionError(
-        `«${field.label}»: formato non accettato. Carica un PDF o una foto.`,
+        field.type === "signature"
+          ? `«${field.label}»: la firma deve essere un'immagine.`
+          : `«${field.label}»: formato non accettato. Carica un PDF o una foto.`,
       );
     }
 
@@ -454,27 +473,59 @@ const notifyClub = async ({
     where: { id: organizationId },
     select: {
       creator_id: true,
-      organization_users: { select: { user_id: true } },
+      organization_users: { select: { user_id: true, role: true } },
     },
   });
   if (!club) return;
 
+  /*
+    **La compilazione la esamina chi esamina i moduli, non tutto il club.**
+
+    `organization_users` non veniva filtrato per ruolo, e quella tabella
+    contiene anche genitori e allenatori — il riscatto di un token di accesso
+    ci scrive dentro il ruolo che il token nomina. Una compilazione anonima
+    arrivava quindi nella bacheca di **ogni** tesserato, con una email a testa.
+
+    Erano tre cose insieme: il nome dichiarato da chi compila un modulo
+    pubblico veniva diffuso a tutte le famiglie del club invece che alla sola
+    segreteria; chiunque conoscesse lo slug — che e il link di iscrizione, e
+    si da a tutti — aveva un canale di testo verso quelle bacheche; e una
+    richiesta produceva N email con la reputazione SMTP del club.
+
+    Il destinatario giusto e chi puo leggere i moduli, che e la stessa domanda
+    che governa la schermata delle compilazioni.
+  */
   const recipientIds: string[] = Array.from(
     new Set(
       [
         club.creator_id,
-        ...club.organization_users.map((membership: any) => membership.user_id),
+        ...club.organization_users
+          .filter((membership: any) =>
+            canAccessClubResource(membership.role, "forms", "read"),
+          )
+          .map((membership: any) => membership.user_id),
       ].filter(Boolean),
     ),
   );
   if (!recipientIds.length) return;
+
+  /*
+    Il nome arriva dal corpo di una richiesta anonima. Resta utile alla
+    segreteria — dice chi ha compilato — ma entra come **una riga sola e
+    corta**: senza a capo non puo fingersi un messaggio del sistema, e
+    accorciato non e piu lo spazio per scriverne uno.
+  */
+  const nomeInBacheca = String(respondentName || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
 
   await (prisma as any).notification.createMany({
     data: recipientIds.map((userId) => ({
       organization_id: organizationId,
       user_id: userId,
       title: "Nuova compilazione da esaminare",
-      message: `${templateTitle}${respondentName ? ` — ${respondentName}` : ""}`,
+      message: `${templateTitle}${nomeInBacheca ? ` — ${nomeInBacheca}` : ""}`,
       type: "form_submission",
       data: { templateId, submissionId, source: "forms" },
     })),

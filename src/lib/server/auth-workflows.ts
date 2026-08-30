@@ -646,6 +646,11 @@ type OAuthProviderConfig = {
  */
 const MICROSOFT_SHARED_TENANTS = new Set(["common", "organizations", "consumers"]);
 
+/** Due indirizzi sono lo stesso indirizzo. Confronto normalizzato, come al login. */
+const sameEmail = (a: unknown, b: unknown) =>
+  String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase() &&
+  String(a ?? "").trim() !== "";
+
 const microsoftTenant = () =>
   String(process.env.MICROSOFT_TENANT_ID || "").trim() || "common";
 
@@ -860,13 +865,31 @@ export const findOrCreateOAuthUser = async ({
       where: { id: existingAccount.user.id },
       data: {
         /*
-          L'identita qui e gia dimostrata — il provider ha riconosciuto lo
-          stesso `sub` di sempre — ma «l'indirizzo e verificato» resta una cosa
-          che dice il provider. Se non la dice, non la scriviamo noi.
+          **Verificato da chi, e per quale indirizzo.**
+
+          L'identita qui e dimostrata — il provider ha riconosciuto lo stesso
+          `sub` di sempre — ma «l'indirizzo e verificato» resta una cosa che
+          dice il provider, e la dice **del proprio** indirizzo, non di
+          qualunque indirizzo l'account porti in quel momento.
+
+          Senza il confronto, questo ramo era la strada che riapriva il difetto
+          chiuso ieri: si collega il proprio account a Google, si cambia il
+          proprio indirizzo con quello del tutore di un'altra famiglia — il
+          cambio azzera `email_verified_at`, ed e quell'azzeramento a chiudere
+          la porta — e poi si rientra da Google. Stesso `sub`, quindi nessun
+          controllo, e qui si ristampava «verificato» su un indirizzo che
+          nessuno ha mai verificato. Da li l'area genitore riconosceva di
+          nuovo il legame per indirizzo, con dentro pagamenti, fatture e
+          certificati medici di quel minore.
+
+          Si stampa quindi solo se il provider ha verificato **quell'**
+          indirizzo: quello che porta l'account adesso.
         */
         email_verified_at:
           existingAccount.user.email_verified_at ||
-          (emailVerified ? new Date() : null),
+          (emailVerified && sameEmail(email, existingAccount.user.email)
+            ? new Date()
+            : null),
         user_metadata: {
           ...existingMetadata,
           avatarUrl: avatarUrl || existingMetadata.avatarUrl,

@@ -149,6 +149,14 @@ beforeEach(() => {
   /* Il prefisso non si scrive per esteso: vedi `tests/ui/ci-guardrails.test.mjs`. */
   process.env.STRIPE_SECRET_KEY = `sk_${"test"}_non_e_una_chiave_vera`;
 
+  /*
+    L'origine dell'applicazione: gli URL di ritorno devono appartenerle, e
+    senza ambiente configurato il checkout non si apre affatto — la stessa
+    scelta gia presa per i link di pagamento, dove un ritorno che porta
+    altrove e peggio di nessun link.
+  */
+  process.env.AUTH_BASE_URL = "https://easygame.test";
+
   fake = createFakePrisma(seed());
   setPrismaClientForTests(fake.client);
 
@@ -336,4 +344,70 @@ test("un genitore non apre un checkout a nome del club", async () => {
     chiamate.filter((c) => c.url.includes("/checkout/sessions")).length,
     0,
   );
+});
+
+/* ------------------------------- gli URL di ritorno stanno in casa */
+
+/**
+ * **Il checkout autenticato era un redirector aperto.**
+ *
+ * `successUrl` e `cancelUrl` erano validati solo come «e un URL»: qualunque
+ * host. Chi ha accesso ai pagamenti del club — quattro ruoli su sette,
+ * segreteria compresa — poteva aprire un checkout **vero**, per una rata
+ * **vera**, con il ritorno su un dominio proprio, e mandare alla famiglia il
+ * link Stripe autentico.
+ *
+ * La famiglia paga su una pagina genuina, con il marchio del suo club, e
+ * subito dopo il pagamento riuscito — il momento di massima fiducia — finisce
+ * su «carta rifiutata, reinserisci i dati». EasyGame e Stripe fanno da
+ * garanti.
+ *
+ * `payment-links.ts` questo attacco lo aveva gia previsto e lo rifiuta da
+ * tempo sulla rotta pubblica. Il gemello autenticato no.
+ */
+test("un URL di ritorno su un altro dominio si rifiuta", async () => {
+  const response = await route.POST(
+    richiesta({
+      body: { successUrl: "https://easygame-pagamenti.example/conferma" },
+    }),
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(
+    (await response.json())?.error?.message || "",
+    /devono appartenere a questa applicazione/,
+  );
+});
+
+test("vale anche per l'URL di annullamento", async () => {
+  const response = await route.POST(
+    richiesta({ body: { cancelUrl: "https://altrove.example/annullato" } }),
+  );
+
+  assert.equal(response.status, 400);
+});
+
+/**
+ * Senza origine configurata non si apre niente: meglio nessun checkout che un
+ * checkout che riporta altrove. E la stessa scelta di `payment-links.ts`.
+ */
+test("senza origine configurata il checkout non si apre", async () => {
+  const precedente = process.env.AUTH_BASE_URL;
+  const precedentePubblica = process.env.NEXT_PUBLIC_APP_URL;
+  delete process.env.AUTH_BASE_URL;
+  delete process.env.NEXT_PUBLIC_APP_URL;
+
+  try {
+    const response = await route.POST(richiesta());
+    assert.equal(response.status, 400);
+    assert.match(
+      (await response.json())?.error?.message || "",
+      /Origine dell'applicazione non configurata/,
+    );
+  } finally {
+    if (precedente !== undefined) process.env.AUTH_BASE_URL = precedente;
+    if (precedentePubblica !== undefined) {
+      process.env.NEXT_PUBLIC_APP_URL = precedentePubblica;
+    }
+  }
 });

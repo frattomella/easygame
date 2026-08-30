@@ -1224,3 +1224,110 @@ Vale registrarlo quanto i difetti, perche dice dove non serve tornare.
 - **Il legame fra sessione e club.** Un `x-active-access-role: owner` forgiato
   produce `activeRole = null`, cioe un rifiuto, non una promozione. Non e stata
   trovata nessuna strada per cui una sessione del club A agisca sul club B.
+
+---
+
+## Undicesima tornata — dove il prodotto incontra chi non ha fatto login (2026-08-31)
+
+Audit indipendente sul perimetro esterno: link di pagamento, checkout Stripe,
+moduli pubblici, entitlement, e la riconciliazione del denaro che arriva da
+fuori.
+
+### Il checkout autenticato accettava URL di ritorno su qualunque dominio
+
+`POST /api/payments/create-checkout-session` validava `successUrl` e
+`cancelUrl` solo come «e un URL». Chi ha accesso ai pagamenti del club —
+quattro ruoli su sette, segreteria compresa — poteva aprire un checkout vero,
+per una rata vera, con il ritorno su un dominio proprio, e mandare alla
+famiglia il link Stripe **autentico**. La famiglia paga su una pagina genuina,
+con il marchio del suo club, e subito dopo il pagamento riuscito — il momento
+di massima fiducia — finisce su «carta rifiutata, reinserisci i dati».
+
+`payment-links.ts` questo attacco lo aveva gia previsto e lo rifiuta da tempo
+sulla rotta pubblica, costruendo gli URL dal solo ambiente configurato. Il
+gemello autenticato non aveva ricevuto la stessa cura. Adesso gli URL devono
+appartenere all'origine configurata, e senza ambiente configurato il checkout
+non si apre.
+
+### Una compilazione anonima raggiungeva la bacheca di tutto il club
+
+`notifyClub` prendeva `club.creator_id` piu **ogni riga** di
+`organization_users`, senza filtro di ruolo — e quella tabella contiene anche
+genitori e allenatori, perche il riscatto di un token di accesso ci scrive
+dentro il ruolo che il token nomina.
+
+Erano tre cose insieme: il nome dichiarato da chi compila un modulo pubblico
+veniva diffuso a **tutte le famiglie** del club invece che alla sola
+segreteria; chiunque conoscesse lo slug — che e il link di iscrizione, e si da
+a tutti — aveva un canale di testo verso quelle bacheche; e una richiesta
+produceva N email, con la reputazione SMTP del club in gioco.
+
+Adesso il destinatario e chi puo leggere i moduli, che e la stessa domanda che
+governa la schermata delle compilazioni, e il nome entra come una riga sola e
+corta.
+
+Nella stessa area, i campi `signature` saltavano del tutto il controllo sul
+tipo del file invece di essere fissati a un'immagine: non ne usciva uno stored
+XSS — `createAttachment` rivalida e cio che non e visualizzabile in linea viene
+servito come allegato con `nosniff` — ma allargava i tipi accettati da sette a
+quindici da una porta che non doveva aprirsi.
+
+### Cosa l'audit ha trovato pulito
+
+- **I link di pagamento.** Token da 32 byte casuali, solo l'hash SHA-256 nel
+  database, confronto in tempo costante, un unico 404 per ogni caso negativo,
+  due contatori di tentativi consumati prima di qualunque lavoro sul database.
+  L'importo **non e congelato**: si ricalcola dal registro a ogni apertura,
+  quindi un link riusabile non e un link riscuotibile due volte. Valuta fissata
+  nel codice, beneficiario preso da `club_payment_accounts`, URL di ritorno
+  costruiti dal solo ambiente.
+- **Il checkout, a parte gli URL.** Importo calcolato dal server e limitato dal
+  residuo; un `clubId` nel corpo che contraddice la sessione viene rifiutato,
+  non preferito; provider, conto connesso e commissione vengono dallo stato del
+  server. `checkout-status` chiede sessione, club attivo e
+  `accounting.read`: non si sonda la sessione di un altro club.
+- **I moduli pubblici.** Club, modello, versione e stato derivati dallo slug;
+  dal client arrivano solo risposte e file. Nessun mass assignment:
+  `validateAnswers` scorre i campi dichiarati e scarta tutto il resto, compreso
+  un valore mandato al posto di un allegato. La dimensione si controlla prima
+  di leggere i byte.
+- **Billing ed entitlement.** Piano, abbonamento e override stanno fra le
+  chiavi di proprieta della piattaforma, e `withPlatformOwnedSettings`
+  ripristina il valore salvato e registra il tentativo — su **tutti** i
+  percorsi di scrittura, compresi creazione e upsert. `livemode` si verifica
+  prima della deduplica e prima di qualunque scrittura, dalla chiave segreta e
+  non da una variabile d'ambiente che puo restare indietro.
+- **La deduplica economica.** La meta «due righe» e chiusa davvero: dedup
+  sull'evento, dedup sui due nomi che Stripe da allo stesso denaro ancorata al
+  PaymentIntent — quindi indipendente dall'ordine di arrivo — e la corsa
+  leggi-poi-scrivi arbitrata dall'indice unico parziale. La meta «zero righe»
+  era invece aperta, ed e il difetto corretto in questa tornata.
+
+### La conferma sulla decima tornata, e cosa ha trovato
+
+Due correzioni della decima tornata erano incomplete, e le ha trovate la
+revisione di conferma — non l'audit esterno.
+
+**L'indirizzo verificato tornava dalla porta di servizio.** Il ramo OAuth
+«stesso `sub`» ristampava `email_verified_at` senza confrontare l'indirizzo
+del provider con quello che l'account porta adesso: collegare il proprio
+account, cambiare indirizzo con quello del tutore di un'altra famiglia e
+rientrare dal provider rimetteva la verifica, e con essa il legame per
+indirizzo che la decima tornata aveva appena chiuso. Vedi
+[07 — Autenticazione](07-authentication.md).
+
+**E l'audit registrava l'indirizzo che il chiamante sceglieva.**
+`src/lib/server/audit.ts` conteneva una seconda copia di «qual e l'indirizzo di
+chi bussa», con la voce piu a sinistra di `X-Forwarded-For`. Corretta la copia
+dei limiti di tentativi e non questa, restavano due idee diverse dello stesso
+fatto — la forma di difetto che la stessa tornata aveva corretto sul controllo
+dell'amministratore di piattaforma. Non e un aggiramento di controlli, ma
+corrompe il registro su cui ci si basa dopo: chi attacca sceglieva l'indirizzo
+delle proprie righe, tentativi di accesso falliti e accessi negati compresi.
+Adesso `getRequestIp` e l'unica implementazione.
+
+**Due dei test nuovi non potevano fallire.** Verificavano che chi amministra
+legga e un genitore no, per ogni `owner_type` — proprieta vera **anche** per un
+tipo non dichiarato, perche la ricaduta e su `clubs`. Dicevano di legare la
+mappa alla sua fonte e non la legavano: ora il confronto e fra insiemi di
+chiavi, e un `owner_type` nuovo senza decisione fa fallire il test.

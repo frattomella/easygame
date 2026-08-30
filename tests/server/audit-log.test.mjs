@@ -147,7 +147,20 @@ test("registra actor, club, azione, risorsa, esito e contesto", async () => {
   assert.equal(riga.organization_id, "bbbbbbbb-0000-4000-8000-000000000002");
   assert.equal(riga.resource, "invoices");
   assert.equal(riga.resource_id, "inv-1");
-  assert.equal(riga.ip, "203.0.113.9", "solo il primo IP della catena");
+  /*
+    **La voce accodata dal proxy, non la prima della catena.**
+
+    Questo test chiedeva «solo il primo IP», e il primo IP e esattamente quello
+    che scrive il client: chi bussa sceglieva l'indirizzo che sarebbe comparso
+    nelle proprie righe di audit — tentativi di accesso falliti e accessi
+    negati compresi. Il test fissava il difetto invece della proprieta.
+
+    Ogni proxy accoda l'indirizzo da cui ha ricevuto, quindi con un solo proxy
+    fidato davanti l'indirizzo vero e l'ultimo. La regola sta in
+    `getRequestIp`, che adesso e l'unica implementazione: qui viveva una
+    seconda copia, e le due dicevano cose diverse.
+  */
+  assert.equal(riga.ip, "10.0.0.1", "l'indirizzo accodato dal proxy fidato");
   assert.equal(riga.user_agent, "Mozilla/5.0 test");
   assert.deepEqual(riga.metadata, { motivo: "annullamento" });
 });

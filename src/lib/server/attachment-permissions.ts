@@ -100,6 +100,19 @@ export const canAccessAttachmentOwner = (
   return canAccessClubResource(activeRole, risorsa, action);
 };
 
+/**
+ * I tipi per cui questo modulo ha deciso **esplicitamente**.
+ *
+ * Non e la stessa cosa di «i tipi che ricevono un rifiuto»: un tipo mai
+ * dichiarato ricade su `clubs` e si comporta bene lo stesso, ed e proprio
+ * questo che rende invisibile una dimenticanza. Esporre l'elenco permette al
+ * test di confrontarlo con `ATTACHMENT_OWNER_TYPES` e accorgersi di un
+ * `owner_type` nuovo su cui nessuno ha deciso niente.
+ */
+export const ATTACHMENT_OWNER_TYPES_DECLARED = Object.freeze(
+  Object.keys(RISORSA_PER_TIPO),
+);
+
 /** Il messaggio di rifiuto, che nomina la cosa e non il file. */
 export const attachmentDenied = (ownerType: unknown) =>
   new Error(

@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { getRequestIp } from "./auth-rate-limit";
 
 /**
  * Audit log delle operazioni sensibili (ADR-0019).
@@ -386,14 +387,24 @@ export type AuditEventInput = {
   metadata?: Record<string, unknown> | null;
 };
 
+/*
+  **L'indirizzo lo dice una funzione sola.**
+
+  Qui viveva una seconda copia di «qual e l'indirizzo del chiamante», e prendeva
+  la voce piu a sinistra di `X-Forwarded-For` — quella che scrive il client.
+  Corretta la copia dei limiti di tentativi e non questa, restavano due idee
+  diverse dello stesso fatto: il difetto che questa Wave ha gia incontrato con
+  l'amministratore di piattaforma, dove due serrature dicevano cose diverse.
+
+  Non e un aggiramento di controlli — il valore si scrive soltanto — ma corrompe
+  esattamente il registro su cui ci si basa dopo: chi bussa sceglieva l'indirizzo
+  che compariva nelle proprie righe di audit, compresi i tentativi di accesso
+  falliti e gli accessi negati.
+*/
 const readClientIp = (request?: Request | null) => {
   if (!request) return null;
-  const forwarded = request.headers.get("x-forwarded-for");
-  return (
-    forwarded?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip")?.trim() ||
-    null
-  );
+  const indirizzo = getRequestIp(request);
+  return indirizzo && indirizzo !== "unknown" ? indirizzo : null;
 };
 
 const readUserAgent = (request?: Request | null) => {

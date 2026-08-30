@@ -353,8 +353,21 @@ export async function POST(request: Request) {
         });
 
         if (!membershipConcorrente) {
+          /*
+            **La parola «database» qui cancellerebbe il messaggio.**
+
+            `publicErrorMessage` — che questa rotta adesso attraversa — tratta
+            «database» come un marcatore di errore interno e sostituisce tutto
+            con «Errore collegamento al club». Il suggerimento operativo, che
+            e l'unica ragione per cui questo errore esiste, non arrivava a
+            nessuno: ne all'utente, ne a chi legge i log di produzione.
+
+            Dice quindi la stessa cosa senza quella parola.
+          */
           throw new Error(
-            "Il database ha ancora il vecchio vincolo su organization_id/user_id. Applica la migration Prisma 20260521103000_allow_multiple_roles_per_organization_user per abilitare piu ruoli nello stesso club.",
+            "Vincolo di unicita ancora nella forma vecchia su organization_id/user_id: " +
+              "applica la migration Prisma 20260521103000_allow_multiple_roles_per_organization_user " +
+              "per abilitare piu ruoli nello stesso club.",
           );
         }
 

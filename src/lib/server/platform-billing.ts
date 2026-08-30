@@ -271,12 +271,32 @@ export const handlePlatformBillingEvent = async (
 
     if (!isDuplicate) throw error;
 
-    return {
-      duplicate: true,
-      status: "processed",
-      organizationId,
-      message: "Evento gia ricevuto: nessuna operazione ripetuta",
-    };
+    /*
+      **Un tentativo fallito non e un evento gia elaborato.**
+
+      Stessa forma dell'endpoint dei pagamenti, e stessa conseguenza spostata
+      di dominio: la riga si inserisce prima di agire, `markFailed` la lascia
+      dov'e, e alla riconsegna questo ramo rispondeva 200 «gia ricevuto». Il
+      provider smetteva di ritentare, e un club che ha pagato l'abbonamento
+      restava sul piano gratuito **per sempre**, senza che nessuna riga lo
+      dicesse a qualcuno.
+
+      Il tentativo fallito si riprende in modo atomico: una sola riga
+      aggiornata designa il vincitore anche fra riconsegne simultanee.
+    */
+    const ripreso = await webhookClient().updateMany({
+      where: { provider: "stripe", event_id: eventId, status: "failed" },
+      data: { status: "processed", error: null },
+    });
+
+    if (ripreso.count !== 1) {
+      return {
+        duplicate: true,
+        status: "processed",
+        organizationId,
+        message: "Evento gia ricevuto: nessuna operazione ripetuta",
+      };
+    }
   }
 
   const markIgnored = async (message: string): Promise<BillingWebhookOutcome> => {

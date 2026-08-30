@@ -716,3 +716,85 @@ test("se il saldo non e ancora maturo non si scrive niente", async () => {
   assert.equal(esito.aggiornati, 0);
   assert.equal(scritture, 0);
 });
+
+/* ------------------------------- il tentativo fallito, e la riconsegna */
+
+/**
+ * **Un tentativo fallito non e un evento gia elaborato.**
+ *
+ * La riga di deduplica si scrive **prima** di agire — ed e giusto, perche e il
+ * vincolo di unicita a rendere affidabile la deduplica fra consegne
+ * simultanee. Ma se qualcosa falliva dopo l'inserimento, `markFailed` lasciava
+ * la riga dov'era e la rotta rispondeva 500. Alla riconsegna dello stesso
+ * `evt_` l'inserimento falliva di nuovo, e il ramo del doppione rispondeva
+ * **200 «gia ricevuto»**: il provider smetteva di ritentare.
+ *
+ * Il risultato e il caso peggiore che questo dominio conosca. Il denaro e sul
+ * conto del club e in EasyGame non esiste nessuna riga: la rata resta
+ * scoperta, il sollecito riparte, e la famiglia viene invitata a pagare una
+ * seconda volta. Un incasso perso in silenzio e peggio di uno contato due
+ * volte, perche nessuno lo va a cercare.
+ *
+ * La finestra non e teorica: fra l'inserimento e la scrittura del movimento
+ * ci sono piu viaggi verso il database e una chiamata HTTPS al provider senza
+ * timeout.
+ */
+test("un evento fallito e poi riconsegnato viene elaborato, non scambiato per un doppione", async () => {
+  const evento = conPagamento({
+    reference: {
+      organizationId: CLUB,
+      paymentId: "rata-che-arriva-dopo",
+      athleteId: null,
+    },
+  });
+
+  await assert.rejects(
+    () => gateway.handleGatewayWebhookEvent(evento),
+    /Accesso negato|non trovata/,
+    "il primo tentativo fallisce dopo aver gia scritto la riga di deduplica",
+  );
+
+  assert.equal(fake.rows("paymentTransaction").length, 0);
+  assert.equal(fake.rows("paymentWebhookEvent")[0].status, "failed");
+
+  // La condizione transitoria si risolve: la rata c'e.
+  fake.rows("athletePayment").push({
+    id: "rata-che-arriva-dopo",
+    organization_id: CLUB,
+    athlete_id: ATLETA,
+    amount: 100,
+    status: "pending",
+    description: "Rata arrivata dopo",
+    data: {},
+  });
+
+  const ritentato = await gateway.handleGatewayWebhookEvent(evento);
+
+  assert.equal(
+    ritentato.duplicate,
+    false,
+    "la riconsegna di un tentativo fallito non e un doppione",
+  );
+  assert.equal(
+    fake.rows("paymentTransaction").length,
+    1,
+    "il denaro incassato dal provider deve finire nel registro",
+  );
+});
+
+/**
+ * Il verso opposto, che e la ragione per cui la riga si scrive prima: un
+ * evento **riuscito** e riconsegnato resta un doppione, e non incassa due
+ * volte. La ripresa vale solo per lo stato `failed`.
+ */
+test("la ripresa non riapre un evento gia riuscito", async () => {
+  const evento = eventoRiuscito();
+
+  await gateway.handleGatewayWebhookEvent(evento);
+  const secondo = await gateway.handleGatewayWebhookEvent(evento);
+  const terzo = await gateway.handleGatewayWebhookEvent(evento);
+
+  assert.equal(secondo.duplicate, true);
+  assert.equal(terzo.duplicate, true);
+  assert.equal(fake.rows("paymentTransaction").length, 1);
+});

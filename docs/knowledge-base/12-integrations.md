@@ -400,3 +400,49 @@ e lo ha dichiarato qui.
 L'unica integrazione interna e con **Platform Notifications**: il giro notturno
 scrive in `notifications` e non apre un secondo canale.
 
+
+---
+
+## Riconsegna dei webhook: fallito non e elaborato (2026-08-31, undicesima tornata)
+
+La riga di `payment_webhook_events` si scrive **prima** di agire, e il vincolo
+di unicita su `(provider, event_id)` e cio che rende affidabile la deduplica
+fra due consegne simultanee. Un «esiste gia?» seguito da una scrittura avrebbe
+una finestra in mezzo, e la finestra e proprio il caso che si vuole escludere.
+
+Mancava pero il verso opposto. Se qualcosa falliva **dopo** l'inserimento — un
+singhiozzo verso il database, il timeout della funzione mentre si interroga il
+provider, un rifiuto di dominio — la riga restava al suo posto con
+`status = "failed"` e la rotta rispondeva 500. Alla riconsegna dello stesso
+`evt_`, l'inserimento falliva di nuovo e il ramo del doppione rispondeva
+**200 «gia ricevuto»**: il provider smetteva di ritentare.
+
+Il denaro era sul conto del club e in EasyGame non esisteva **nessuna** riga.
+La rata restava scoperta, il sollecito ripartiva, e la famiglia veniva invitata
+a pagare una seconda volta. Nessun processo rilegge le righe `failed`.
+
+La finestra non e teorica: fra l'inserimento e la scrittura del movimento ci
+sono piu viaggi verso il database e una chiamata HTTPS al provider **senza
+timeout** (`stripe-http.ts` non imposta `AbortSignal`).
+
+### La regola adesso
+
+| Stato della riga alla riconsegna | Cosa succede |
+|---|---|
+| `processed` | doppione: 200, nessuna operazione ripetuta |
+| `ignored` | doppione: 200, l'evento era gia stato scartato con una ragione |
+| `failed` | **si riprende**: il tentativo precedente non ha concluso niente |
+
+La ripresa e atomica — `updateMany` filtrato su `failed`, e una sola riga
+aggiornata designa il vincitore anche fra riconsegne simultanee. Chi non vince
+risponde «gia ricevuto», che per lui e vero.
+
+Riprendere non puo far contare due volte: se il tentativo precedente avesse
+gia scritto il movimento, la deduplica economica sull'indice parziale
+`payment_transactions_incasso_unico` — `(organization_id, external_payment_id)`
+— lo riconosce e restituisce l'incasso esistente invece di crearne un altro.
+
+**La stessa forma esisteva sul billing di piattaforma**
+(`src/lib/server/platform-billing.ts`), con la stessa conseguenza spostata di
+dominio: un club che ha pagato l'abbonamento restava sul piano gratuito per
+sempre, senza che nessuna riga lo dicesse a qualcuno.

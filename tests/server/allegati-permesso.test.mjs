@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   attachmentDenied,
   canAccessAttachmentOwner,
+  ATTACHMENT_OWNER_TYPES_DECLARED,
 } from "../../src/lib/server/attachment-permissions.ts";
 import { ATTACHMENT_OWNER_TYPES } from "../../src/lib/attachments.ts";
 
@@ -121,18 +122,38 @@ test("il rifiuto nomina la cosa, non il file", () => {
  * valore per difetto.
  */
 test("ogni owner_type dichiarato ha una regola esplicita", () => {
-  for (const tipo of ATTACHMENT_OWNER_TYPES) {
-    // `club` e `announcement` hanno regole proprie e passano di la.
-    if (tipo === "club" || tipo === "announcement") continue;
-    assert.equal(
-      canAccessAttachmentOwner("owner", tipo, "read"),
-      true,
-      `«${tipo}» deve essere leggibile da chi amministra`,
+  /*
+    **Il confronto e sulle chiavi, non sul comportamento.**
+
+    Nella prima stesura questo test chiedeva se `owner` potesse leggere e
+    `parent` no, per ogni tipo — e non poteva fallire: un tipo **non**
+    dichiarato ricade su `clubs`, dove `owner` e vero e `parent` e falso
+    esattamente come per un tipo dichiarato. Verificava una proprieta che vale
+    da entrambe le parti della cosa che voleva distinguere.
+
+    La ricaduta e voluta e va benissimo — e il verso giusto in cui sbagliare —
+    ma rende **invisibile** la dimenticanza, ed e la dimenticanza che questo
+    test deve vedere. L'unico modo di vederla e confrontare gli insiemi.
+  */
+  const dichiarati = new Set(ATTACHMENT_OWNER_TYPES_DECLARED);
+  const attesi = ATTACHMENT_OWNER_TYPES.filter(
+    // `club` e `announcement` hanno regole proprie e non passano di qui.
+    (tipo) => tipo !== "club" && tipo !== "announcement",
+  );
+
+  for (const tipo of attesi) {
+    assert.ok(
+      dichiarati.has(tipo),
+      `«${tipo}» e un owner_type reale ma nessuno ha deciso chi lo vede: ` +
+        "aggiungilo a RISORSA_PER_TIPO invece di lasciarlo ricadere sul valore per difetto",
     );
-    assert.equal(
-      canAccessAttachmentOwner("parent", tipo, "read"),
-      false,
-      `«${tipo}» non deve essere leggibile da un genitore`,
+  }
+
+  for (const tipo of dichiarati) {
+    assert.ok(
+      attesi.includes(tipo),
+      `«${tipo}» e dichiarato qui ma non e un owner_type: createAttachment lo rifiuta, ` +
+        "quindi e una riga che non puo corrispondere a niente",
     );
   }
 });
@@ -186,8 +207,15 @@ test("chi non puo leggere un tipo non puo nemmeno caricarci dentro", () => {
   );
 });
 
-/** `other` e il valore predefinito: e previsto, e lo governa chi amministra. */
-test("«other» e una scelta dichiarata, non una ricaduta", () => {
+/**
+ * `other` e il valore predefinito del caricamento: lo governa chi amministra.
+ *
+ * Che sia **dichiarato** invece che lasciato alla ricaduta lo verifica il test
+ * sugli insiemi qui sopra — da qui non si vedrebbe, perche i due casi si
+ * comportano allo stesso modo. Queste righe fissano il perimetro, che e una
+ * cosa diversa e vale la pena scriverla.
+ */
+test("«other» lo governa chi amministra il club", () => {
   assert.equal(canAccessAttachmentOwner("owner", "other", "read"), true);
   assert.equal(canAccessAttachmentOwner("staff", "other", "read"), false);
   assert.equal(canAccessAttachmentOwner("trainer", "other", "read"), false);

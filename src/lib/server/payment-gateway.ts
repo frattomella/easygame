@@ -806,12 +806,48 @@ export const handleGatewayWebhookEvent = async (
 
     if (!isDuplicate) throw error;
 
-    return {
-      duplicate: true,
-      status: "processed",
-      transactionId: null,
-      message: "Evento gia ricevuto: nessuna operazione ripetuta",
-    };
+    /*
+      **Un tentativo fallito non e un evento gia elaborato.**
+
+      La riga si inserisce prima di agire, ed e giusto: e il vincolo di unicita
+      a rendere affidabile la deduplica fra due consegne simultanee. Ma se
+      qualcosa falliva **dopo** l'inserimento — un singhiozzo di rete verso il
+      database, il timeout della funzione mentre si interroga il provider, un
+      rifiuto di dominio — `markFailed` lasciava la riga al suo posto e la
+      rotta rispondeva 500. Alla riconsegna dello stesso `evt_` l'inserimento
+      falliva di nuovo, e questo ramo rispondeva **«gia ricevuto», con 200**:
+      il provider smetteva di ritentare.
+
+      Il risultato e il caso peggiore che questo dominio conosca. Il denaro e
+      sul conto del club e in EasyGame non esiste **nessuna** riga: la rata
+      resta scoperta, il sollecito riparte, e la famiglia viene invitata a
+      pagare una seconda volta. Un incasso perso in silenzio e peggio di uno
+      contato due volte, perche nessuno lo va a cercare — e niente rilegge le
+      righe `failed`.
+
+      Il tentativo fallito si riprende quindi, e lo si riprende **in modo
+      atomico**: `updateMany` filtrato su `failed` e una sola riga aggiornata
+      designano un vincitore unico anche se le riconsegne sono simultanee. Chi
+      non vince risponde «gia ricevuto», che per lui e vero.
+
+      Riprendere non puo far contare due volte: se il tentativo precedente
+      avesse gia scritto il movimento, la deduplica economica su
+      `(organization_id, external_payment_id)` lo riconosce e restituisce
+      l'incasso esistente invece di crearne un altro.
+    */
+    const ripreso = await webhookClient().updateMany({
+      where: { provider: event.provider, event_id: eventId, status: "failed" },
+      data: { status: "processed", error: null },
+    });
+
+    if (ripreso.count !== 1) {
+      return {
+        duplicate: true,
+        status: "processed",
+        transactionId: null,
+        message: "Evento gia ricevuto: nessuna operazione ripetuta",
+      };
+    }
   }
 
   const markIgnored = async (message: string): Promise<WebhookOutcome> => {

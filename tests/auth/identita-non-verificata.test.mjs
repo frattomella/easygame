@@ -252,3 +252,58 @@ test("il reset password non dice se un identificativo esiste", () => {
     "prima si dimostra di avere il token, poi si giudica la password",
   );
 });
+
+/**
+ * **E il ramo che riapriva la porta appena chiusa.**
+ *
+ * Il ramo «stesso `sub`» non passa dalla guardia sull'indirizzo, e non deve:
+ * quell'identita e dimostrata. Ma ristampava `email_verified_at` guardando
+ * solo se il provider avesse verificato **qualcosa**, non se avesse verificato
+ * **quell'** indirizzo — cioe quello che l'account porta adesso.
+ *
+ * La strada: si collega il proprio account a Google; si cambia il proprio
+ * indirizzo con quello del tutore di un'altra famiglia (il cambio azzera
+ * `email_verified_at`, ed e quell'azzeramento a chiudere l'area genitore); si
+ * rientra da Google. Stesso `sub`, nessun controllo, e la verifica tornava —
+ * su un indirizzo che nessuno ha mai verificato. Da li l'area genitore
+ * riconosceva di nuovo il legame per indirizzo.
+ */
+test("il rientro OAuth non ristampa la verifica su un indirizzo cambiato", () => {
+  const sorgente = fs.readFileSync(
+    path.join(PROJECT_ROOT, "src/lib/server/auth-workflows.ts"),
+    "utf8",
+  );
+
+  const inizio = sorgente.indexOf("export const findOrCreateOAuthUser");
+  const corpo = sorgente.slice(inizio, sorgente.indexOf("\nexport const", inizio + 1));
+
+  const ramo = corpo.indexOf("existingAccount.user.email_verified_at ||");
+  assert.notEqual(ramo, -1, "il ramo del `sub` gia collegato deve esistere");
+
+  const decisione = corpo.slice(ramo, ramo + 220);
+  assert.match(
+    decisione,
+    /sameEmail\(\s*email,\s*existingAccount\.user\.email\s*\)/,
+    "si stampa «verificato» solo se il provider ha verificato l'indirizzo che l'account porta adesso",
+  );
+});
+
+/** Il confronto fra indirizzi normalizza, e non considera uguale il vuoto. */
+test("il confronto fra indirizzi ignora maiuscole e spazi, e rifiuta il vuoto", () => {
+  const sorgente = fs.readFileSync(
+    path.join(PROJECT_ROOT, "src/lib/server/auth-workflows.ts"),
+    "utf8",
+  );
+
+  const inizio = sorgente.indexOf("const sameEmail =");
+  assert.notEqual(inizio, -1);
+  const corpo = sorgente.slice(inizio, inizio + 260);
+
+  assert.match(corpo, /toLowerCase\(\)/, "due indirizzi differiscono per maiuscole");
+  assert.match(corpo, /trim\(\)/, "e per spazi ai bordi");
+  assert.match(
+    corpo,
+    /!==\s*""/,
+    "due indirizzi vuoti non sono lo stesso indirizzo",
+  );
+});

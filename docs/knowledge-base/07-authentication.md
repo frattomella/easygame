@@ -278,3 +278,20 @@ la protezione vera e `requirePlatformAdmin` sugli endpoint
 `tests/auth/` copre: `session-sync`, `request-deduper`, `active-club-access`,
 `membership-load-result`, `role-authorization`, `auth-security`.
 Vedi [15 — Testing](15-testing.md).
+
+### E il rientro da un provider gia collegato
+
+Il ramo «stesso `sub`» non passa dalla guardia sull'indirizzo, e non deve:
+quell'identita e dimostrata dal provider. Ristampava pero `email_verified_at`
+guardando solo **se** il provider avesse verificato qualcosa, non se avesse
+verificato **quell'** indirizzo — cioe quello che l'account porta adesso.
+
+Era la strada che riapriva la porta chiusa dalla regola qui sopra: si collega
+il proprio account al provider; si cambia il proprio indirizzo con quello del
+tutore di un'altra famiglia — il cambio azzera `email_verified_at`, ed e quel
+`null` a chiudere l'area genitore; si rientra dal provider. Stesso `sub`,
+nessun controllo, e la verifica tornava su un indirizzo che nessuno aveva mai
+verificato.
+
+`email_verified_at` si stampa quindi solo quando il provider ha verificato
+**l'indirizzo che l'account porta in quel momento**.
