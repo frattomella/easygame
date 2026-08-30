@@ -429,8 +429,16 @@ export const normalizeSponsorCollection = (
       perche il denaro non c'e piu, la riga di storno perche conterebbe due
       volte in negativo. E la stessa regola di `isSettledTransaction`.
     */
+    /*
+      Anche `reversed`, che e la chiave con cui le righe gia normalizzate
+      tornano indietro: la scheda dello sponsor le rimappa e le ripassa a
+      questa funzione, che non riconosceva la propria stessa uscita e le
+      dichiarava tutte vive. Il totale in fondo contava quindi anche gli
+      storni, mentre il riquadro «Incassato» — calcolato dal server — no.
+    */
     reversed: Boolean(
-      raw.reversed_at ||
+      raw.reversed ||
+        raw.reversed_at ||
         raw.reversedAt ||
         raw.reverses_transaction_id ||
         raw.reversesTransactionId,

@@ -27,6 +27,7 @@ import { PayOnlineDialog } from "@/components/payments/PayOnlineDialog";
 import { RefundDialog } from "@/components/payments/RefundDialog";
 import { DocumentDecisionDialog } from "@/components/payments/DocumentDecisionDialog";
 import { useAthletePaymentLedger } from "@/components/payments/use-athlete-payment-ledger";
+import { useCausaliIncasso } from "@/components/payments/use-causali-incasso";
 import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { apiRequest } from "@/lib/api/client";
@@ -267,6 +268,7 @@ export function AthleteEnrollmentTab({
   onDownloadDocument,
   onRemoveDocument,
 }: AthleteEnrollmentTabProps) {
+  const causali = useCausaliIncasso();
   const ledger = useAthletePaymentLedger({
     athleteId,
     charges,
@@ -847,6 +849,7 @@ export function AthleteEnrollmentTab({
         ledger={ledger.selectedLedger}
         athleteName={athleteName}
         methodChoices={methodChoices}
+        operationTypeChoices={causali}
         isSaving={ledger.isSaving}
         onSubmit={ledger.registerPayment}
       />

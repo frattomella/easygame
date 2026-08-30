@@ -629,3 +629,61 @@ test("una rata con incassi veri non finisce fra lo storico", async () => {
     "questa rata ha la sua prova: sta nella cassa, non nello storico",
   );
 });
+
+/* ------------------------------------------ il troncamento del confronto */
+
+/**
+ * **Il rendiconto mostra due letture, e ne dichiarava una sola.**
+ *
+ * `truncated` veniva preso dalla lettura principale e basta. Ma il rendiconto
+ * mostra anche il **confronto** con il periodo precedente, che e una seconda
+ * lettura con lo stesso tetto: se si ferma, le variazioni sono calcolate su
+ * una parte del periodo di prima e su tutto quello di adesso. Il numero che ne
+ * esce non e piccolo per caso — e sbagliato, e si presentava senza avvisi.
+ */
+test("se il periodo di confronto si tronca, il rendiconto lo dichiara", async () => {
+  const registro = await import("../../src/lib/server/accounting.ts");
+  const tetto = registro.TETTO_RIGHE_REGISTRO;
+
+  /*
+    Il periodo di adesso resta corto; quello di confronto no. E la disposizione
+    che il difetto rendeva invisibile: il rendiconto non aveva niente da dire
+    sulla lettura che stava presentando accanto.
+  */
+  const righe = fake.rows("accountingEntry");
+  const modello = righe[0];
+  for (let i = righe.length; i <= tetto + 1; i += 1) {
+    righe.push({
+      ...modello,
+      id: `confronto-${i}`,
+      entry_date: new Date("2025-03-01T00:00:00.000Z"),
+      fiscal_year: 2025,
+    });
+  }
+
+  const esito = await riepilogo({
+    from: "2026-01-01",
+    to: "2026-12-31",
+    compareWith: { from: "2025-01-01", to: "2025-12-31" },
+  });
+
+  assert.equal(
+    esito.truncated,
+    true,
+    "il troncamento del confronto e comunque un troncamento del rendiconto",
+  );
+});
+
+/**
+ * E il numero che l'avviso stampa e quello della **lettura**, non quello dei
+ * soli movimenti di cassa: `lineCount` esclude le righe neutralizzate, quindi
+ * dichiarava un limite piu basso di quello vero.
+ */
+test("il rendiconto dice quante righe ha letto, non quante ne ha contate", async () => {
+  const esito = await riepilogo();
+  assert.equal(typeof esito.lineCountRaw, "number");
+  assert.ok(
+    esito.lineCountRaw >= esito.lineCount,
+    "le righe lette non sono meno di quelle contate",
+  );
+});

@@ -61,6 +61,7 @@ import {
   fromSponsorCents,
   normalizeSponsorContract,
   resolveSponsorCredit,
+  type SponsorCollection,
   type SponsorCredit,
 } from "@/lib/sponsors/model";
 
@@ -101,22 +102,29 @@ type Sponsor = {
 
 type SponsorDraft = Omit<Sponsor, "id"> & { id?: string };
 
-type SponsorPayment = {
-  id: string;
+/**
+ * **Un incasso di sponsorizzazione, nella forma in cui il server lo manda.**
+ *
+ * Era la forma del vecchio blob JSON — `date`, `amount`, `type`, `status` —
+ * e da questa Wave quel blob non riceve piu niente. La scheda «Pagamenti»
+ * continuava a leggerlo, quindi mostrava una collezione ferma mentre il
+ * residuo accanto veniva dal registro: due letture della stessa domanda, sulla
+ * stessa pagina.
+ */
+type SponsorPayment = SponsorCollection & { sponsorId: string };
+
+/**
+ * La finestra «Registra pagamento» compila ancora i suoi campi: sono cio che
+ * l'operatore digita, non cio che il registro conserva.
+ */
+type SponsorPaymentDraft = {
   sponsorId: string;
   date: string;
-  amount: number;
+  amount: string;
   description: string;
   type: string;
   status: string;
-  created_at?: string;
-  updated_at?: string;
 };
-
-type SponsorPaymentDraft = Omit<
-  SponsorPayment,
-  "id" | "amount" | "created_at" | "updated_at"
-> & { amount: string };
 
 export default function SponsorsPage() {
   const { showToast } = useToast();
@@ -132,6 +140,8 @@ export default function SponsorsPage() {
   // Sponsors and payments from database
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [payments, setPayments] = useState<SponsorPayment[]>([]);
+  /* La lettura del residuo puo fallire, e allora la pagina lo dichiara. */
+  const [erroreCrediti, setErroreCrediti] = useState(false);
 
   // Get club ID from localStorage or URL
   const [clubId, setClubId] = useState<string | null>(null);
@@ -242,13 +252,8 @@ export default function SponsorsPage() {
 
     try {
       setLoading(true);
-      const [sponsorsData, paymentsData] = await Promise.all([
-        getClubData(clubId, "sponsors"),
-        getClubData(clubId, "sponsor_payments"),
-      ]);
-
+      const sponsorsData = await getClubData(clubId, "sponsors");
       setSponsors(Array.isArray(sponsorsData) ? sponsorsData : []);
-      setPayments(Array.isArray(paymentsData) ? paymentsData : []);
 
       /*
         Le tre cifre le calcola il server, che conosce **entrambe** le fonti
@@ -257,16 +262,46 @@ export default function SponsorsPage() {
         comunque, con il solo dovuto.
       */
       const conCredito = await fetchSponsorsWithCredit({ clubId });
-      if (!conCredito.error && conCredito.data?.sponsors) {
-        setCreditiDalServer(
-          new Map(
-            conCredito.data.sponsors.map((riga) => [
-              String(riga.sponsor.id),
-              riga.credit,
-            ]),
-          ),
-        );
+      if (conCredito.error || !conCredito.data?.sponsors) {
+        /*
+          **Un residuo sbagliato e peggio di un residuo assente.**
+
+          Qui l'errore veniva ingoiato, e la pagina ricadeva su un calcolo che
+          conosce il solo contratto: ogni sponsor tornava a mostrare l'intero
+          dovuto come residuo, in disaccordo con la sua stessa scheda. E il
+          difetto che questa lettura esiste per chiudere, rimesso in piedi in
+          silenzio proprio quando la lettura non funziona.
+        */
+        setCreditiDalServer(new Map());
+        setPayments([]);
+        setErroreCrediti(true);
+        return;
       }
+
+      setErroreCrediti(false);
+      setCreditiDalServer(
+        new Map(
+          conCredito.data.sponsors.map((riga) => [
+            String(riga.sponsor.id),
+            riga.credit,
+          ]),
+        ),
+      );
+
+      /*
+        La scheda «Pagamenti» legge **la stessa fonte del residuo**. Leggeva la
+        vecchia collezione JSON, che da questa Wave non riceve piu niente: un
+        incasso appena registrato spariva, con il messaggio di successo ancora
+        sullo schermo.
+      */
+      setPayments(
+        conCredito.data.sponsors.flatMap((riga) =>
+          riga.collections.map((incasso) => ({
+            ...incasso,
+            sponsorId: String(riga.sponsor.id),
+          })),
+        ),
+      );
     } catch (error) {
       console.error("Error loading sponsors and payments:", error);
       showToast("error", "Errore nel caricamento dei dati");
@@ -351,13 +386,7 @@ export default function SponsorsPage() {
 
   const sponsorCredit = React.useCallback(
     (sponsor: any) => {
-      const dalServer = creditiDalServer.get(String(sponsor?.id || ""));
-      if (dalServer) return dalServer;
-
-      return resolveSponsorCredit({
-        contract: normalizeSponsorContract(sponsor?.contract),
-        collections: [],
-      });
+      return creditiDalServer.get(String(sponsor?.id || "")) || null;
     },
     [creditiDalServer],
   );
@@ -693,20 +722,27 @@ export default function SponsorsPage() {
       }
 
       try {
-        await deleteClubDataItem(currentClubId, "sponsor_payments", paymentId);
-        const currentPayments = Array.isArray(payments) ? payments : [];
-        setPayments(
-          currentPayments.filter(
-            (payment) => payment && payment.id !== paymentId,
-          ),
+        /*
+          **Un incasso non si cancella: si storna.**
+
+          Questa riga cancellava davvero, e dalla vecchia collezione JSON —
+          cioe da una fonte che non e piu quella che l'elenco mostra. Il
+          risultato era il peggiore possibile: il pulsante rispondeva
+          «eliminato», la riga spariva dallo schermo, e in prima nota il
+          denaro restava dov'era. La scheda dello sponsor lo rifiuta gia da
+          questa Wave; qui no, e le due schermate si contraddicevano.
+        */
+        showToast(
+          "error",
+          "Un incasso non si cancella: si storna dalla scheda dello sponsor, " +
+            "cosi che il registro conservi cio che e stato registrato e perche e stato annullato.",
         );
-        showToast("success", "Pagamento eliminato con successo");
       } catch (error) {
         console.error("Error deleting payment:", error);
-        showToast("error", "Errore nell'eliminare il pagamento");
+        showToast("error", "Operazione non riuscita");
       }
     },
-    [clubId, payments, showToast],
+    [clubId, showToast],
   );
 
   // Format date
@@ -907,6 +943,13 @@ export default function SponsorsPage() {
                                 <TableCell className="text-right">
                                   {(() => {
                                     const credit = sponsorCredit(sponsor);
+                                    if (!credit) {
+                                      return (
+                                        <span className="text-muted-foreground">
+                                          Non disponibile
+                                        </span>
+                                      );
+                                    }
                                     if (!credit.hasContract) {
                                       return (
                                         <span className="text-muted-foreground">
@@ -1122,36 +1165,39 @@ export default function SponsorsPage() {
                             return (
                               <TableRow key={payment.id}>
                                 <TableCell>
-                                  {formatDate(payment.date)}
+                                  {payment.paidAt ? formatDate(payment.paidAt) : "—"}
                                 </TableCell>
                                 <TableCell className="font-medium">
                                   {sponsor?.name || "N/A"}
                                 </TableCell>
                                 <TableCell>
-                                  {payment.description || "N/A"}
+                                  {payment.notes || payment.paymentMethod || "N/A"}
                                 </TableCell>
                                 <TableCell>
+                                  {/*
+                                    **Uno storno si dichiara.** La riga portava
+                                    gia `reversed`, e nessuno lo leggeva: un
+                                    incasso annullato compariva verde accanto
+                                    alla sua compensazione rossa, sotto un
+                                    «Incassato» che non contava ne l'uno ne
+                                    l'altra. Chi guardava vedeva due movimenti
+                                    e un totale che non li spiegava.
+                                  */}
                                   <span
-                                    className={`px-2 py-1 rounded-full text-xs font-medium ${payment.type === "entrata" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+                                    className={`px-2 py-1 rounded-full text-xs font-medium ${payment.reversed ? "bg-slate-100 text-slate-600" : "bg-green-100 text-green-800"}`}
                                   >
-                                    {payment.type === "entrata"
-                                      ? "Entrata"
-                                      : "Uscita"}
+                                    {payment.reversed ? "Stornato" : "Entrata"}
                                   </span>
                                 </TableCell>
                                 <TableCell
-                                  className={`font-medium ${payment.type === "entrata" ? "text-green-600" : "text-red-600"}`}
+                                  className={`font-medium ${payment.reversed ? "text-slate-500 line-through" : "text-green-600"}`}
                                 >
-                                  {payment.type === "entrata" ? "+" : "-"} €
-                                  {(payment.amount || 0).toFixed(2)}
+                                  {payment.amountCents < 0 ? "-" : "+"} €
+                                  {(Math.abs(payment.amountCents || 0) / 100).toFixed(2)}
                                 </TableCell>
                                 <TableCell>
-                                  <span
-                                    className={`px-2 py-1 rounded-full text-xs font-medium ${payment.status === "completato" ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800"}`}
-                                  >
-                                    {payment.status === "completato"
-                                      ? "Completato"
-                                      : "In attesa"}
+                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    Registrato
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-right">
@@ -1505,8 +1551,16 @@ export default function SponsorsPage() {
                   onChange={handlePaymentChange}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                 >
+                  {/*
+                    **«Uscita» non era un'opzione: era una bugia.**
+
+                    Il gestore registrava sempre un incasso in entrata — la
+                    scelta sopravviveva solo in un ternario che restituiva
+                    "Bonifico" da entrambi i rami — quindi scegliendo «Uscita»
+                    il totale incassato dallo sponsor **saliva**. Un pagamento
+                    verso uno sponsor e un'altra cosa e non si registra da qui.
+                  */}
                   <option value="entrata">Entrata</option>
-                  <option value="uscita">Uscita</option>
                 </select>
               </div>
               <div className="space-y-2">

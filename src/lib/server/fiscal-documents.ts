@@ -517,6 +517,34 @@ export const issueReceiptForTransaction = async (
       kind: "receipt",
     }));
 
+  /**
+   * **Una riga viva ma senza numero: il posto occupato da un documento che
+   * non esiste.**
+   *
+   * `receipts_transaction_unico` e unico fra le ricevute **vive** di un
+   * incasso, e il controllo di idempotenza qui sopra ignora — giustamente —
+   * quelle senza numero, perche una ricevuta senza numero non e stata emessa.
+   * Le due regole insieme lasciavano uno stato senza uscita: una riga viva e
+   * non numerata — che esiste nei dati piu vecchi, e che una scrittura
+   * fallita a meta puo ancora produrre — non veniva riconosciuta, e la
+   * `INSERT` che seguiva si infrangeva sull'indice.
+   *
+   * E si infrangeva **dopo** l'allocazione del numero: ogni clic ne bruciava
+   * uno, la sequenza avanzava sul nulla, e l'incasso restava per sempre non
+   * documentabile.
+   *
+   * Quella riga non e un documento: e un posto vuoto. Si riempie, invece di
+   * tentare di mettergliene un secondo accanto.
+   */
+  const orfana = await receiptClient().findFirst({
+    where: {
+      organization_id: context.organizationId,
+      transaction_id: context.transaction.id,
+      cancelled_at: null,
+      receipt_number: null,
+    },
+  });
+
   const allocation = await allocateDocumentNumber({
     organizationId: context.organizationId,
     kind: "receipt",
@@ -532,8 +560,7 @@ export const issueReceiptForTransaction = async (
   });
   snapshot.issuedByUserId = scope?.userId || null;
 
-  return receiptClient().create({
-    data: {
+  const colonne = {
       organization_id: context.organizationId,
       athlete_id: context.transaction.athlete_id,
       payment_id: context.transaction.payment_id,
@@ -556,8 +583,13 @@ export const issueReceiptForTransaction = async (
         transactionId: context.transaction.id,
         issuedBy: scope?.userId || null,
       },
-    },
-  });
+  };
+
+  if (orfana) {
+    return receiptClient().update({ where: { id: orfana.id }, data: colonne });
+  }
+
+  return receiptClient().create({ data: colonne });
 };
 
 /**
@@ -614,6 +646,13 @@ export const issueInvoiceForTransaction = async (
       organization_id: context.organizationId,
       transaction_id: context.transaction.id,
       cancelled_at: null,
+      /*
+        Il commento qui sopra lo dichiarava gia — «viva **e numerata**» — e
+        la riga non c'era: il lato ricevuta la aveva, questo no. Una fattura
+        senza numero non e stata emessa, e riconoscerla come tale
+        restituirebbe un documento che non esiste dichiarando successo.
+      */
+      NOT: { invoice_number: null },
     },
   });
 
@@ -626,6 +665,22 @@ export const issueInvoiceForTransaction = async (
       organizationId: context.organizationId,
       kind: "invoice",
     }));
+
+  /*
+    Come per la ricevuta: una riga viva e senza numero e un posto vuoto, non
+    un documento. Riconoscerla e riempirla e la sola via d'uscita — altrimenti
+    la `INSERT` si infrange su `invoices_transaction_unico` **dopo**
+    l'allocazione, e ogni tentativo brucia un numero mentre l'incasso resta
+    non documentabile.
+  */
+  const orfana = await invoiceClient().findFirst({
+    where: {
+      organization_id: context.organizationId,
+      transaction_id: context.transaction.id,
+      cancelled_at: null,
+      invoice_number: null,
+    },
+  });
 
   const allocation = await allocateDocumentNumber({
     organizationId: context.organizationId,
@@ -653,8 +708,7 @@ export const issueInvoiceForTransaction = async (
   });
   snapshot.issuedByUserId = scope?.userId || null;
 
-  return invoiceClient().create({
-    data: {
+  const colonne = {
       organization_id: context.organizationId,
       athlete_id: context.transaction.athlete_id,
       payment_id: context.transaction.payment_id,
@@ -695,8 +749,13 @@ export const issueInvoiceForTransaction = async (
         recipientSource: recipient.source,
         issuedBy: scope?.userId || null,
       },
-    },
-  });
+  };
+
+  if (orfana) {
+    return invoiceClient().update({ where: { id: orfana.id }, data: colonne });
+  }
+
+  return invoiceClient().create({ data: colonne });
 };
 
 /* -------------------------------------------------- annullamento e rettifica */

@@ -328,7 +328,7 @@ export default function ManagementSummary({
     debba dichiararla, che e la cosa che non faceva.
   */
   const [report, setReport] = React.useState<
-    (ManagementReport & { truncated?: boolean }) | null
+    (ManagementReport & { truncated?: boolean; lineCountRaw?: number }) | null
   >(null);
   const [balances, setBalances] = React.useState<
     Array<{ accountId: string; balanceCents: number }> | null | undefined
@@ -727,7 +727,7 @@ export default function ManagementSummary({
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 <strong>Questi totali non coprono tutto il periodo.</strong> La
-                lettura si e fermata a {cash?.lineCount || 0} movimenti, dai piu
+                lettura si e fermata a {report?.lineCountRaw ?? cash?.lineCount ?? 0} movimenti, dai piu
                 recenti: cio che viene prima non e in nessuno dei numeri qui
                 sotto. Restringi il periodo o scegli un anno fiscale, e i totali
                 torneranno a coprire l&apos;insieme intero.

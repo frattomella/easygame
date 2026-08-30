@@ -32,6 +32,7 @@ import {
   Upload,
   Euro,
   Calendar,
+  Ban,
   TrendingUp,
   TrendingDown,
 } from "lucide-react";
@@ -1047,7 +1048,23 @@ export default function SponsorDetailsPage() {
                                 <TableCell>{formatDate(payment.date)}</TableCell>
                                 <TableCell>{payment.description}</TableCell>
                                 <TableCell>
-                                  {payment.type === "entrata" ? (
+                                  {/*
+                                    **Uno storno si dichiara.** `reversed`
+                                    veniva mappato qui sopra e non letto in
+                                    nessuna riga: un incasso di 500 stornato
+                                    mostrava un «+€500» verde accanto a un
+                                    «−€500» rosso, sotto un riquadro
+                                    «Incassato €0». Chi guardava vedeva due
+                                    movimenti e un totale che non li spiegava,
+                                    e non aveva modo di capire quale dei due
+                                    fosse l'annullamento dell'altro.
+                                  */}
+                                  {payment.reversed ? (
+                                    <div className="flex items-center gap-1 text-slate-500">
+                                      <Ban className="h-4 w-4" />
+                                      <span>Stornato</span>
+                                    </div>
+                                  ) : payment.type === "entrata" ? (
                                     <div className="flex items-center gap-1 text-green-600">
                                       <TrendingUp className="h-4 w-4" />
                                       <span>Entrata</span>
@@ -1059,7 +1076,15 @@ export default function SponsorDetailsPage() {
                                     </div>
                                   )}
                                 </TableCell>
-                                <TableCell className={payment.type === "entrata" ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                                <TableCell
+                                  className={
+                                    payment.reversed
+                                      ? "text-slate-500 font-medium line-through"
+                                      : payment.type === "entrata"
+                                        ? "text-green-600 font-medium"
+                                        : "text-red-600 font-medium"
+                                  }
+                                >
                                   {payment.type === "entrata" ? "+" : "-"}€{payment.amount.toFixed(2)}
                                 </TableCell>
                                 <TableCell>{payment.paymentMethod}</TableCell>

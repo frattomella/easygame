@@ -1150,8 +1150,22 @@ export default function AthleteProfilePage() {
     }
   };
 
+  /**
+   * **Un messaggio verde che dice una cosa che non e successa.**
+   *
+   * Questo gestore non chiama niente: nessuna email parte, nessuna credenziale
+   * viene generata. La segreteria leggeva «Credenziali inviate», chiudeva la
+   * scheda, e l'atleta restava senza accesso senza che nessuno lo sapesse.
+   *
+   * La stessa correzione e gia stata fatta sulla scheda di un socio. Finche
+   * l'invito non esiste come funzione del prodotto, il pulsante lo dichiara:
+   * un'assenza dichiarata si puo pianificare, una promessa falsa no.
+   */
   const handleShareCredentials = () => {
-    showToast("success", "Credenziali inviate all'atleta via email");
+    showToast(
+      "error",
+      "L'invio delle credenziali non e ancora disponibile: si consegnano dall'area riservata della persona, dove l'accesso viene creato davvero.",
+    );
   };
 
   // Handle avatar upload

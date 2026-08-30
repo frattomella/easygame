@@ -357,8 +357,22 @@ export default function StaffMemberDetailsPage() {
     }
   };
 
+  /**
+   * **Un messaggio verde che dice una cosa che non e successa.**
+   *
+   * Questo gestore non chiama niente: nessuna email parte, nessuna credenziale
+   * viene generata. La segreteria leggeva «Credenziali inviate», chiudeva la
+   * scheda, e il membro dello staff restava senza accesso senza che nessuno lo sapesse.
+   *
+   * La stessa correzione e gia stata fatta sulla scheda di un socio. Finche
+   * l'invito non esiste come funzione del prodotto, il pulsante lo dichiara:
+   * un'assenza dichiarata si puo pianificare, una promessa falsa no.
+   */
   const handleShareCredentials = () => {
-    showToast("success", "Credenziali inviate al membro dello staff via email");
+    showToast(
+      "error",
+      "L'invio delle credenziali non e ancora disponibile: si consegnano dall'area riservata della persona, dove l'accesso viene creato davvero.",
+    );
   };
 
   const formatDate = (dateString: string) => {

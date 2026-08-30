@@ -548,3 +548,69 @@ test("una seconda emissione sullo stesso incasso resta idempotente", async () =>
     1,
   );
 });
+
+/* ------------------------- la riga viva ma senza numero, e la sequenza */
+
+/**
+ * **Un posto occupato da un documento che non esiste.**
+ *
+ * `receipts_transaction_unico` e unico fra le ricevute **vive** di un incasso,
+ * e il controllo di idempotenza ignora — giustamente — quelle senza numero,
+ * perche una ricevuta senza numero non e stata emessa. Le due regole insieme
+ * lasciavano uno stato senza uscita: una riga viva e non numerata non veniva
+ * riconosciuta, e la `INSERT` che seguiva si infrangeva sull'indice.
+ *
+ * E si infrangeva **dopo** l'allocazione: ogni tentativo bruciava un numero e
+ * la sequenza avanzava sul nulla, mentre l'incasso restava per sempre non
+ * documentabile.
+ */
+test("una ricevuta viva e senza numero si riempie, non si duplica", async () => {
+  fake.rows("receipt").push({
+    id: "ricevuta-orfana",
+    organization_id: CLUB,
+    transaction_id: "incasso-1",
+    receipt_number: null,
+    cancelled_at: null,
+    amount: 130,
+  });
+
+  const emessa = await ricevuta();
+
+  assert.equal(emessa.id, "ricevuta-orfana", "e la stessa riga, riempita");
+  assert.ok(emessa.receipt_number, "e adesso ha un numero");
+  assert.equal(
+    fake.rows("receipt").filter((r) => r.transaction_id === "incasso-1").length,
+    1,
+    "una sola ricevuta viva per quell'incasso",
+  );
+});
+
+/**
+ * La guardia che il commento della fattura dichiarava e il codice non aveva:
+ * il lato ricevuta filtrava sul numero, il lato fattura no. Una fattura senza
+ * numero non e stata emessa, e riconoscerla come tale restituirebbe un
+ * documento che non esiste dichiarando successo.
+ */
+test("una fattura viva e senza numero si riempie, e non ne blocca l'emissione", async () => {
+  fake.rows("invoice").push({
+    id: "fattura-orfana",
+    organization_id: CLUB,
+    transaction_id: "incasso-1",
+    invoice_number: null,
+    cancelled_at: null,
+    amount: 130,
+  });
+
+  const emessa = await documents.issueInvoiceForTransaction(
+    { transactionId: "incasso-1" },
+    scope(),
+  );
+
+  assert.equal(emessa.id, "fattura-orfana", "il posto vuoto si riempie");
+  assert.ok(emessa.invoice_number, "e adesso porta un numero");
+  assert.equal(
+    fake.rows("invoice").filter((r) => r.transaction_id === "incasso-1").length,
+    1,
+    "una sola fattura viva per quell'incasso",
+  );
+});

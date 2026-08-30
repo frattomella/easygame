@@ -203,6 +203,8 @@ export type AccountingReportResult = ManagementReport & {
   organizationId: string;
   /** Righe considerate, e se la lettura si e fermata prima della fine. */
   lineCount: number;
+  /** Le righe lette, comprese quelle che non sono cassa. */
+  lineCountRaw: number;
   truncated: boolean;
   /**
    * I saldi dei conti, oppure `null` per chi non ha `accounting.accounts_read`.
@@ -347,7 +349,23 @@ export const buildAccountingReport = async (
     ...report,
     organizationId,
     lineCount: lines.length,
-    truncated,
+    /*
+      **Il troncamento e uno solo, e riguarda entrambe le letture.**
+
+      Qui veniva preso dalla lettura principale e basta. Ma il rendiconto
+      mostra anche il **confronto** con il periodo precedente, che e una
+      seconda lettura con lo stesso tetto: se si ferma, le variazioni sono
+      calcolate su una parte del periodo di prima e su tutto quello di adesso.
+      Il numero che ne esce non e piccolo per caso — e sbagliato, e senza
+      questa riga si presentava senza avvisi.
+    */
+    truncated: Boolean(truncated || precedenti?.truncated),
+    /*
+      Quante righe la lettura ha davvero raccolto: e il numero che l'avviso
+      deve dire. `lineCount` esclude le righe neutralizzate, quindi dichiarava
+      un limite piu basso di quello vero.
+    */
+    lineCountRaw: lines.length,
     accountBalances: saldi,
     accrualScope: "club",
   };

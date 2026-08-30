@@ -406,17 +406,21 @@ export default function SociPage() {
   }, [fetchSoci]);
 
   /**
-   * Scrive la stessa modifica su ogni socio selezionato.
+   * Scrive la stessa modifica su ogni socio selezionato, **una riga per
+   * volta**.
    *
-   * I soci vivono in un unico array JSONB (`clubs.members`): la modifica di
-   * massa e **una sola scrittura**, non una per riga. Non e
-   * un'ottimizzazione, e cio che la rende indivisibile — dieci scritture
-   * separate possono fermarsi alla settima e lasciare l'elenco a meta.
+   * Fino a questa Wave era una scrittura sola: si rileggeva `clubs.members`
+   * intera, si cambiavano gli elementi selezionati e si risalvava l'array. La
+   * indivisibilita che quel disegno prometteva era vera, e costava piu di
+   * quanto valesse — una sonda di concorrenza ha fatto sparire, per quella
+   * strada, un socio ammesso da un'altra segreteria un istante prima: la
+   * riscrittura portava con se una fotografia gia vecchia.
    *
-   * Si rilegge l'array dal server invece di ricostruirlo da cio che la
-   * schermata mostra: l'elenco visualizzato e una **proiezione** (nomi
-   * ricomposti, stato derivato), e riscriverlo cancellerebbe tutti i campi
-   * che la proiezione non porta con se.
+   * Venti richieste invece di una sono venti scritture di una riga, ognuna
+   * sotto il `FOR UPDATE` del club. In cambio la modifica **non e piu
+   * indivisibile**: se una fallisce, le altre restano scritte. E per questo
+   * che l'esito parziale va detto e l'elenco va riletto comunque — il
+   * contrario di quello che il codice faceva.
    */
   const applyToSelection = async (
     updatesFor: (member: Record<string, any>) => Record<string, any>,
@@ -454,18 +458,37 @@ export default function SociPage() {
       );
 
       const falliti = esiti.filter((esito) => esito.error);
+
+      /*
+        **La rilettura viene prima, e non ha condizioni.**
+
+        Prima l'errore usciva da un `throw`, quindi `fetchSoci()` non veniva
+        mai eseguita: la griglia restava a mostrare i valori di prima anche per
+        le righe che erano state scritte davvero. E il messaggio preciso —
+        costruito due righe sopra dal primo errore — veniva sostituito nel
+        `catch` da «Operazione non riuscita», che non dice ne quante ne quali.
+      */
+      await fetchSoci();
+
       if (falliti.length) {
-        throw new Error(
-          falliti[0].error?.message ||
-            `${falliti.length} soci non sono stati aggiornati`,
+        showToast(
+          "error",
+          `${falliti.length} soci su ${bersagli.length} non sono stati aggiornati: ` +
+            (falliti[0].error?.message || "errore sconosciuto"),
         );
+        return;
       }
 
-      await fetchSoci();
       showToast("success", successMessage(targetIds.size));
     } catch (error) {
       console.error("Error running bulk member action:", error);
-      showToast("error", "Operazione non riuscita");
+      await fetchSoci().catch(() => {});
+      showToast(
+        "error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Operazione non riuscita",
+      );
     } finally {
       setBulkBusy(false);
     }

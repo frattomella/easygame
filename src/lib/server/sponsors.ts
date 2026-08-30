@@ -323,7 +323,13 @@ export const getSponsorCredit = async (
 export const listSponsorsWithCredit = async (
   filter: ListSponsorsFilter = {},
   scope?: SponsorScope,
-): Promise<Array<{ sponsor: NormalizedSponsor; credit: SponsorCredit }>> => {
+): Promise<
+  Array<{
+    sponsor: NormalizedSponsor;
+    collections: SponsorCollection[];
+    credit: SponsorCredit;
+  }>
+> => {
   const organizationId = resolveOrganizationId(scope, filter.organizationId);
   assertCanRead(scope);
 
@@ -361,11 +367,24 @@ export const listSponsorsWithCredit = async (
 
   return records.map((record: any) => {
     const sponsor = normalizeSponsor(record);
+    /*
+      **Gli incassi escono insieme al residuo, e per la stessa ragione.**
+
+      L'elenco calcolava il residuo dal server — che conosce entrambe le fonti
+      — e poi mostrava la scheda «Pagamenti» leggendo la sola collezione JSON,
+      che da questa Wave non riceve piu niente. Un incasso appena registrato
+      spariva: il messaggio diceva «registrato con successo» e la scheda
+      restava vuota. Due letture della stessa domanda, di nuovo.
+    */
+    const collections = normalizeSponsorCollections(
+      bySponsor.get(sponsor.id) || [],
+    );
     return {
       sponsor,
+      collections,
       credit: resolveSponsorCredit({
         contract: sponsor.contract,
-        collections: normalizeSponsorCollections(bySponsor.get(sponsor.id) || []),
+        collections,
       }),
     };
   });
