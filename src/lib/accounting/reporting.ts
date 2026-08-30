@@ -226,6 +226,25 @@ export type AccrualSummary = {
   overdueReceivablesCents: number;
   overdueCount: number;
   /** Maturato e non ancora liquidato dagli enti. Proprietario: i bandi. */
+  /**
+   * **Il denaro incassato prima che il registro esistesse.**
+   *
+   * Sono le rate che risultano saldate e **non hanno nessun incasso** a
+   * dimostrarlo: righe anteriori al registro degli incassi (ADR-0036), dove il
+   * ledger conserva per compatibilita la lettura «pagata = incassata per
+   * intero». Toglierla cancellerebbe denaro davvero ricevuto (RC FIX 3).
+   *
+   * **Perche e un numero a se, e perche l'audit lo ha preteso.** Quel denaro
+   * non compare fra i crediti — la rata e saldata — e non puo comparire nella
+   * cassa del periodo, perche non esiste nessun fatto finanziario con una data,
+   * un conto e un importo da mostrare. Senza dichiararlo, il rendiconto **non
+   * chiude**: dovuto meno incassato meno residuo lasciava una differenza muta,
+   * e su un club appena migrato quella differenza e l'intero storico.
+   *
+   * Dichiararlo e l'unica cosa onesta: e la stessa scelta del saldo di apertura
+   * dei conti, che conserva un numero senza inventarne i movimenti.
+   */
+  legacyCollectedCents: number;
   fundingPendingCents: number;
   /** Maturato e non ancora erogato alle persone. Proprietario: lavoro sportivo. */
   sportWorkAccruedUnpaidCents: number;
@@ -235,6 +254,7 @@ export const ACCRUAL_ZERO: AccrualSummary = {
   familyReceivablesCents: 0,
   overdueReceivablesCents: 0,
   overdueCount: 0,
+  legacyCollectedCents: 0,
   fundingPendingCents: 0,
   sportWorkAccruedUnpaidCents: 0,
 };

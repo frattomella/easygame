@@ -155,12 +155,37 @@ export const readAccrualSummary = async (
     Sommare qui `amount - paid` a mano sarebbe la seconda implementazione della
     regola piu delicata del prodotto.
   */
-  const rateTotali = summarizeLedgers(
-    buildInstallmentLedgers({
-      charges: rate || [],
-      transactions: incassi || [],
-      now,
-    }),
+  const registri = buildInstallmentLedgers({
+    charges: rate || [],
+    transactions: incassi || [],
+    now,
+  });
+  const rateTotali = summarizeLedgers(registri);
+
+  /*
+    **Il denaro incassato prima che il registro esistesse.**
+
+    Una rata saldata **senza nessun incasso** a dimostrarlo: il ledger la conta
+    come pagata per compatibilita, perche toglierla cancellerebbe denaro
+    davvero ricevuto (RC FIX 3). Ma non ha un fatto finanziario da proiettare,
+    quindi non compare nella cassa del periodo, e non compare fra i crediti
+    perche e saldata.
+
+    Senza dichiararla il rendiconto **non chiude**, e l'audit lo ha misurato:
+    su due rate — 100 con 50 incassati davvero, 200 saldate senza registro — la
+    risposta diceva incassato 50 e crediti 50 su un dovuto di 300, e i 200
+    mancanti non li nominava nessuno. Su un club appena migrato quella
+    differenza e l'intero storico.
+
+    Non si somma alla cassa: e denaro senza data, senza conto e senza prova.
+    Si dichiara accanto.
+  */
+  const incassatoStorico = registri.reduce(
+    (somma: number, registro: any) =>
+      registro.transactions.length === 0 && registro.state === "paid"
+        ? somma + (Number(registro.paidAmount) || 0)
+        : somma,
+    0,
   );
 
   /*
@@ -188,6 +213,7 @@ export const readAccrualSummary = async (
     familyReceivablesCents: toCents(rateTotali.residualAmount),
     overdueReceivablesCents: toCents(rateTotali.overdueAmount),
     overdueCount: rateTotali.overdueCount,
+    legacyCollectedCents: toCents(incassatoStorico),
     fundingPendingCents: toCents(bandi.pendingSettlementAmount),
     sportWorkAccruedUnpaidCents: toCents(compensi.accruedUnpaid),
   };

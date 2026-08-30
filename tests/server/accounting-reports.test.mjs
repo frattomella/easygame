@@ -511,3 +511,121 @@ test("una coppia originale/storno non entra nel riepilogo, e il conteggio lo dic
   assert.equal(report.cash.paidCents, 0);
   assert.equal(report.cash.neutralizedCount, 2);
 });
+
+/* ============= il denaro incassato prima che il registro esistesse */
+
+test("il rendiconto chiude: dovuto = incassato + storico + residuo", async () => {
+  /*
+    **Trovato dall'audit, e misurato.** Il lato cassa proietta solo incassi
+    veri; il lato competenza usa il ledger, che per compatibilita conta come
+    saldata una rata `paid` **senza nessun incasso** — righe anteriori al
+    registro (RC FIX 3), e toglierle cancellerebbe denaro davvero ricevuto.
+
+    Su due rate — 100 con 50 incassati davvero, 200 saldate senza registro — la
+    risposta diceva incassato 50 e crediti 50 su un dovuto di 300. **I 200
+    mancanti non li nominava nessuno.** Su un club appena migrato quella
+    differenza e l'intero storico.
+
+    Ora si dichiarano. Non si sommano alla cassa: sono denaro senza data, senza
+    conto e senza prova, e la cassa di un periodo non li puo contenere.
+  */
+  const atleta = "99999999-0000-4000-8000-000000000009";
+  fake.rows("athlete").push({
+    id: atleta,
+    organization_id: CLUB,
+    first_name: "Anna",
+    last_name: "Rossi",
+  });
+  fake.rows("athletePayment").push(
+    {
+      id: "rata-con-registro",
+      organization_id: CLUB,
+      athlete_id: atleta,
+      description: "Quota A",
+      amount: 100,
+      status: "partially_paid",
+    },
+    {
+      id: "rata-storica",
+      organization_id: CLUB,
+      athlete_id: atleta,
+      description: "Quota B",
+      amount: 200,
+      status: "paid",
+    },
+  );
+  fake.rows("paymentTransaction").push({
+    id: "inc-vero",
+    organization_id: CLUB,
+    athlete_id: atleta,
+    payment_id: "rata-con-registro",
+    amount: 50,
+    paid_at: new Date("2026-09-10T00:00:00Z"),
+    payment_method: "Contanti",
+  });
+
+  const report = await riepilogo({ organizationId: CLUB });
+
+  /*
+    Il dovuto si somma dalle righe vere del club invece di scriverlo a mano: il
+    seme di questo file porta gia altre rate, e un numero fisso proverebbe
+    l'aritmetica del test invece di quella del rendiconto.
+  */
+  const dovuto = fake
+    .rows("athletePayment")
+    .filter((r) => r.organization_id === CLUB && r.status !== "cancelled")
+    .reduce((somma, r) => somma + Math.round(Number(r.amount) * 100), 0);
+  /*
+    **La cassa delle famiglie, non tutta la cassa.** `cash.collectedCents`
+    comprende sponsor, contributi e movimenti manuali: e il totale del club, e
+    confrontarlo con il dovuto delle rate sarebbe confrontare due perimetri
+    diversi. L'identita che deve chiudere riguarda un dominio solo.
+  */
+  const incassato =
+    report.breakdown.bySourceDomain.find((riga) => riga.key === "ATHLETE_PAYMENT")
+      ?.inCents ?? 0;
+  const storico = report.accrual.legacyCollectedCents;
+  const residuo = report.accrual.familyReceivablesCents;
+
+  assert.equal(storico, 20000, "la rata saldata senza registro si dichiara");
+  assert.equal(
+    incassato + storico + residuo,
+    dovuto,
+    `il rendiconto deve chiudere: ${incassato} + ${storico} + ${residuo} != ${dovuto}`,
+  );
+});
+
+test("una rata con incassi veri non finisce fra lo storico", async () => {
+  const atleta = "99999999-0000-4000-8000-00000000000a";
+  fake.rows("athlete").push({
+    id: atleta,
+    organization_id: CLUB,
+    first_name: "Bruno",
+    last_name: "Verdi",
+  });
+  fake.rows("athletePayment").push({
+    id: "rata-saldata",
+    organization_id: CLUB,
+    athlete_id: atleta,
+    description: "Quota C",
+    amount: 100,
+    status: "paid",
+  });
+  fake.rows("paymentTransaction").push({
+    id: "inc-pieno",
+    organization_id: CLUB,
+    athlete_id: atleta,
+    payment_id: "rata-saldata",
+    amount: 100,
+    paid_at: new Date("2026-09-10T00:00:00Z"),
+    payment_method: "Contanti",
+  });
+
+  const report = await riepilogo({ organizationId: CLUB });
+
+  assert.equal(
+    report.accrual.legacyCollectedCents,
+    0,
+    "questa rata ha la sua prova: sta nella cassa, non nello storico",
+  );
+});
