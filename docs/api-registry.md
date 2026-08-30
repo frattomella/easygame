@@ -181,6 +181,12 @@ Fonte ufficiale da mantenere aggiornata:
   presente nel libro e assente dall'anagrafica. Il `DELETE` rifiuta se il libro
   nomina la persona — chi non e piu socio si dimette o si esclude, con una data
   e una delibera
+- `GET /api/v1/sponsorships` — gli sponsor del club, ognuno con le sue tre
+  cifre e con gli **incassi che le spiegano**. Prima l'elenco calcolava il
+  residuo nel browser e da una fonte sola — la piu vecchia delle due — e uno
+  sponsor che aveva appena pagato 2.000 su 5.000 compariva con residuo 5.000
+  nell'elenco e 3.000 nella sua scheda: due schermate della stessa
+  applicazione, due risposte alla stessa domanda
 - `GET|PUT /api/v1/sponsorships/:id` — il **contratto** di uno sponsor e le sue
   tre cifre — dovuto, incassato, residuo — con gli incassi che le spiegano. Il
   credito lo calcola il server perche le fonti sono due: gli incassi con la

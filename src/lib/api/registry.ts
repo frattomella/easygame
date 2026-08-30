@@ -373,6 +373,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "sponsorships.list",
+    method: "GET",
+    path: "/api/v1/sponsorships",
+    description:
+      "Gli sponsor del club, ognuno con le sue tre cifre e con gli **incassi che le spiegano**. Prima l'elenco calcolava il residuo nel browser e da una fonte sola, la piu vecchia delle due: uno sponsor che aveva appena pagato 2.000 su 5.000 compariva con residuo 5.000 nell'elenco e 3.000 nella sua scheda",
+    mobile_ready: false,
+  },
+  {
     name: "sponsorships.contract",
     method: "GET|PUT",
     path: "/api/v1/sponsorships/:id",
