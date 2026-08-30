@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
+import { normalizeClubSites } from "@/lib/club-sites";
 import {
   readAllAccountingLines,
   TETTO_RIGHE_REGISTRO,
@@ -112,6 +114,39 @@ const leggiTutteLeRighe = async (
   }
 
   return { lines: lines as AccountingExportLine[], total };
+};
+
+/* ========================================================================== */
+/* I nomi che la riga non porta                                                */
+/* ========================================================================== */
+
+/**
+ * Le etichette di stagione e sede del club, in una lettura sola.
+ *
+ * Sono due mappe piccole — una manciata di stagioni e di sedi per club — e non
+ * meritano un join riga per riga. Restano vuote dove il dato non c'e: una riga
+ * proiettata non dichiara una stagione, e una cella vuota e la verita mentre
+ * una inventata non lo sarebbe.
+ */
+const leggiEtichette = async (organizationId: string) => {
+  const club = await (prisma as any).club.findUnique({
+    where: { id: organizationId },
+    select: { settings: true, club_sites: true },
+  });
+
+  const stagioni = new Map<string, string>();
+  for (const stagione of normalizeClubSeasons(club?.settings)?.seasons || []) {
+    const id = asText((stagione as any)?.id);
+    if (id) stagioni.set(id, asText((stagione as any)?.label) || id);
+  }
+
+  const sedi = new Map<string, string>();
+  for (const sede of normalizeClubSites(club?.club_sites)) {
+    const id = asText(sede?.id);
+    if (id) sedi.set(id, asText(sede?.name) || id);
+  }
+
+  return { stagioni, sedi };
 };
 
 /* ========================================================================== */
@@ -308,12 +343,27 @@ export const buildAccountingExport = async (
 
   const documenti = await leggiDocumenti(organizationId, lines);
 
+  /*
+    **I nomi di stagione e sede, in una lettura sola.**
+    La riga porta gli identificativi; un foglio che stampasse `2026-27` o un
+    UUID direbbe qualcosa che chi lo apre non puo leggere. Sono due mappe
+    piccole — un club ha una manciata di stagioni e di sedi — e vivono dove
+    vivono da sempre, cioe dentro `clubs.settings` e `clubs.club_sites`.
+  */
+  const { stagioni, sedi } = await leggiEtichette(organizationId);
+
   const arricchite: AccountingExportLine[] = lines.map((riga) => {
+    const etichette = {
+      seasonLabel: riga.seasonId ? stagioni.get(String(riga.seasonId)) || null : null,
+      siteLabel: riga.siteId ? sedi.get(String(riga.siteId)) || null : null,
+    };
+
     const documento = riga.documentId ? documenti.get(String(riga.documentId)) : null;
-    if (!documento) return riga;
+    if (!documento) return { ...riga, ...etichette };
 
     return {
       ...riga,
+      ...etichette,
       /*
         Il numero gia sulla riga vince su quello del documento: una riga
         proiettata lo porta dal suo dominio, che lo ha letto nello stesso

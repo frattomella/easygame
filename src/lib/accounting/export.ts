@@ -82,6 +82,16 @@ export type AccountingExportLine = AccountingLine & {
   vatCents?: number | null;
   /** Come si chiama il documento collegato: «Fattura», «Ricevuta». */
   documentLabel?: string | null;
+  /**
+   * Il **nome** della stagione e della sede, quando il chiamante li ha
+   * risolti.
+   *
+   * La riga porta gli identificativi; un foglio che stampasse `2026-27` o un
+   * UUID direbbe qualcosa che chi lo apre non puo leggere. Chi non li risolve
+   * lascia stampare l'identificativo, che e comunque piu di niente.
+   */
+  seasonLabel?: string | null;
+  siteLabel?: string | null;
 };
 
 /* ========================================================================== */
@@ -123,6 +133,21 @@ export const ACCOUNTING_EXPORT_COLUMNS: readonly CsvColumn[] = [
   { key: "imposta", label: "IVA" },
   { key: "origine", label: "Origine" },
   { key: "annoFiscale", label: "Anno fiscale" },
+  /*
+    **Stagione e sede, che non sono l'anno fiscale.**
+
+    La stagione 2026/27 contiene movimenti del 2026 e del 2027, e un
+    commercialista che riceve il file deve poter separare i due assi senza
+    chiederli indietro. La sede idem, per un club multi-sede: sono le due
+    colonne che permettono a chi apre il foglio di rifare da solo il taglio che
+    la schermata offre.
+
+    Restano vuote dove il dato non c'e — le righe proiettate non dichiarano una
+    stagione, e i movimenti storici non dichiarano niente — e una cella vuota e
+    la verita, mentre una inventata non lo sarebbe.
+  */
+  { key: "stagione", label: "Stagione" },
+  { key: "sede", label: "Sede" },
   { key: "riconciliazione", label: "Riconciliazione" },
   { key: "stornatoIl", label: "Stornato il" },
   { key: "note", label: "Note" },
@@ -258,6 +283,8 @@ export const toAccountingExportRow = (
   annoFiscale: Number.isFinite(Number(line.fiscalYear))
     ? Number(line.fiscalYear)
     : "",
+  stagione: testo(line.seasonLabel) || testo(line.seasonId),
+  sede: testo(line.siteLabel) || testo(line.siteId),
   riconciliazione:
     RECONCILIATION_STATUS_LABELS[line.reconciliationStatus] ||
     testo(line.reconciliationStatus),

@@ -228,7 +228,23 @@ test("entrata e uscita sono due colonne distinte, e nessun importo porta il segn
   assert.equal(uscita[colonna("Uscita")], "45,5");
   assert.equal(uscita[colonna("Entrata")], "");
 
-  assert.ok(!csv.includes("-"), "nessun importo esce con il segno");
+  /*
+    Il segno si cerca **nelle celle degli importi**, e non nel file intero.
+    L'asserzione era `!csv.includes("-")`, che e piu forte di cio che serve e
+    piu debole di cio che sembra: vietava un trattino ovunque — nel nome di una
+    stagione, in una descrizione, in un IBAN — e non avrebbe distinto un
+    importo negativo da un trattino innocuo. Da quando il foglio porta la
+    colonna Stagione, `2026-27` la faceva fallire senza che niente fosse
+    sbagliato.
+  */
+  for (const riga of [entrata, uscita]) {
+    for (const cella of [riga[colonna("Entrata")], riga[colonna("Uscita")]]) {
+      assert.ok(
+        !String(cella).includes("-"),
+        `nessun importo esce con il segno: trovato ${JSON.stringify(cella)}`,
+      );
+    }
+  }
 });
 
 test("un importo che arrivasse gia negativo esce comunque senza segno", () => {
@@ -427,4 +443,47 @@ test("la riga del foglio si compone da sola, e ogni chiave e una colonna dichiar
   const chiaviDichiarate = ACCOUNTING_EXPORT_COLUMNS.map((c) => c.key);
 
   assert.deepEqual(Object.keys(composta).sort(), [...chiaviDichiarate].sort());
+});
+
+/* ============================ stagione e sede, che non sono l'anno === */
+
+test("il foglio porta stagione e sede accanto all'anno fiscale", () => {
+  /*
+    Sono tre assi diversi e servono tutti e tre: la stagione 2026/27 contiene
+    movimenti del 2026 e del 2027, e un commercialista che riceve il file deve
+    poter rifare da solo il taglio che la schermata offre, senza chiederlo
+    indietro.
+  */
+  const { csv } = buildAccountingExportCsv([
+    riga({ seasonLabel: "2026/27", siteId: "sede-1", siteLabel: "Palestra centrale" }),
+  ]);
+
+  const [, prima] = parseCsv(csv);
+
+  assert.equal(prima[colonna("Anno fiscale")], "2026");
+  assert.equal(prima[colonna("Stagione")], "2026/27");
+  assert.equal(prima[colonna("Sede")], "Palestra centrale");
+});
+
+test("senza nome risolto stampa l'identificativo, che e piu di niente", () => {
+  const { csv } = buildAccountingExportCsv([
+    riga({ seasonId: "2026-27", siteId: "sede-9" }),
+  ]);
+
+  const [, prima] = parseCsv(csv);
+  assert.equal(prima[colonna("Stagione")], "2026-27");
+  assert.equal(prima[colonna("Sede")], "sede-9");
+});
+
+test("una riga che non dichiara stagione ne sede lascia le celle vuote", () => {
+  /*
+    Una cella vuota e la verita: le righe proiettate non dichiarano una
+    stagione, e i movimenti storici non dichiarano niente. Inventarla sarebbe
+    peggio.
+  */
+  const { csv } = buildAccountingExportCsv([riga({ seasonId: null, siteId: null })]);
+
+  const [, prima] = parseCsv(csv);
+  assert.equal(prima[colonna("Stagione")], "");
+  assert.equal(prima[colonna("Sede")], "");
 });
