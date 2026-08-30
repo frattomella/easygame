@@ -1011,3 +1011,41 @@ test("un documento annullato non si mostra", async () => {
   assert.equal(riga.documentNumber, null);
   assert.equal(riga.documentKind, null);
 });
+
+test("uno storno concorrente impedisce la riconciliazione, anche se la lettura era gia passata", async () => {
+  /*
+    **Trovato dall'audit.** La guardia stava **prima** della scrittura: lanciando
+    storno e riconciliazione insieme, la riconciliazione leggeva la riga prima
+    che lo storno confermasse, la trovava non stornata, e scriveva. Otto
+    movimenti su otto finivano con `reversed_at` valorizzato **e**
+    `reconciliation_status = 'reconciled'` — lo stato che il messaggio d'errore
+    dichiara impossibile.
+
+    Il rimedio non e un lock: e la condizione **dentro** l'`UPDATE`. Qui si
+    simula la corsa marcando la riga come stornata fra la lettura e la
+    scrittura, che e esattamente cio che l'altra transazione faceva.
+  */
+  const riga = await accounting.createAccountingEntry(movimento(), scope());
+
+  const originale = righe().find((r) => r.id === riga.id);
+  originale.reversed_at = new Date("2026-09-16T00:00:00Z");
+
+  await assert.rejects(
+    () =>
+      accounting.reconcileAccountingEntry(
+        { entryId: riga.id, status: "reconciled" },
+        scope(),
+      ),
+    /non si riconcilia/i,
+  );
+
+  /*
+    Il valore predefinito lo mette il database (`@default("unreconciled")`), non
+    il servizio: qui basta e conta che **non** sia diventato «riconciliato».
+  */
+  assert.notEqual(
+    righe().find((r) => r.id === riga.id).reconciliation_status,
+    "reconciled",
+    "la riga non deve risultare riconciliata",
+  );
+});

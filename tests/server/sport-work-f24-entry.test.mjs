@@ -228,3 +228,50 @@ test("l'adempimento di un altro club non si assolve", async () => {
 
   assert.equal(movimenti().length, 0);
 });
+
+/* ================= l'idempotenza non deve diventare silenzio */
+
+test("se l'importo cambia, il versamento gia registrato lo dichiara", async () => {
+  /*
+    **Trovato dall'audit, e in sequenza: non serve nessuna corsa.**
+
+    La seconda chiamata restituiva la riga esistente senza guardarne l'importo e
+    senza dire niente. Un F24 assolto per 1.000, riassolto per 9.999 perche la
+    segreteria si era accorta dell'errore, lasciava nei libri **1.000** e
+    rispondeva successo.
+
+    Un versamento silenziosamente non registrato e uno registrato per l'importo
+    sbagliato sono lo stesso difetto: un numero che nessuno vede sbagliare.
+  */
+  await agenda.completeObligation("obl-1", { payment: versamento() }, scope());
+  assert.equal(movimenti()[0].amount_cents, 31600);
+
+  fake.rows("sportWorkObligation")[0].amount = 999.9;
+
+  const esito = await agenda.completeObligation(
+    "obl-1",
+    { payment: versamento() },
+    scope(),
+  );
+
+  assert.equal(movimenti().length, 1, "il denaro non esce due volte");
+  assert.equal(
+    movimenti()[0].amount_cents,
+    31600,
+    "e la riga registrata non si riscrive in silenzio",
+  );
+  assert.match(esito.financialEntrySkipped, /gia registrato per 316\.00/);
+  assert.match(esito.financialEntrySkipped, /999\.90/);
+  assert.match(esito.financialEntrySkipped, /si storna/);
+});
+
+test("se l'importo coincide, la seconda chiamata resta silenziosa", async () => {
+  await agenda.completeObligation("obl-1", { payment: versamento() }, scope());
+  const esito = await agenda.completeObligation(
+    "obl-1",
+    { payment: versamento() },
+    scope(),
+  );
+
+  assert.equal(esito.financialEntrySkipped, null, "niente da segnalare");
+});

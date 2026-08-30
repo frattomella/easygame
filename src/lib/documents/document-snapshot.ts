@@ -299,6 +299,36 @@ export const IMMUTABLE_DOCUMENT_FIELDS = [
   "postal_code",
   "province",
   "country",
+  /*
+    **Lo stato, e cio che lo accompagna.** (C-1)
+
+    Non erano nell'elenco, e l'audit ne ha fatto un aggiramento in **due
+    chiamate**: `PATCH {"status":"draft"}` passava — l'insieme dei campi
+    toccati era vuoto — e la seconda `PATCH` trovava una riga che si
+    dichiarava bozza, quindi `assertDocumentMutable` usciva subito e lasciava
+    riscrivere importo, data, imponibile, imposta, intestatario e **lo
+    snapshot** di una fattura gia consegnata.
+
+    La stessa mossa riportava in vita un documento **annullato**:
+    `{"status":"draft","cancelled_at":null}` lo faceva tornare modificabile.
+
+    `is_electronic` sta qui per una ragione sua: `fiscal-documents.ts` lo
+    scrive esplicitamente a `false` citando ADR-0053 — «far credere a una
+    societa di aver adempiuto» — e dal CRUD generico si poteva rimettere a
+    `true` su una fattura emessa, senza nemmeno il declassamento.
+
+    `data` ci sta perche la rotta di stampa di una fattura ne legge
+    l'intestatario: era il modo piu breve per cambiare a chi risulta intestato
+    un documento consegnato.
+  */
+  "status",
+  "cancelled_at",
+  "cancelled_by",
+  "cancellation_reason",
+  "cancels_document_id",
+  "is_electronic",
+  "operation_type_code",
+  "data",
 ] as const;
 
 export type ImmutableDocumentField = (typeof IMMUTABLE_DOCUMENT_FIELDS)[number];
@@ -349,13 +379,20 @@ export const immutableFieldsTouchedBy = (
  * proprietario del dominio la riesporta, cosi il punto di ingresso documentato
  * resta uno solo.
  */
+/**
+ * Gli stati a partire dai quali un documento e **gia uscito** dalla societa.
+ *
+ * Un documento annullato e emesso quanto uno valido: qualcuno ce l'ha in mano,
+ * e cio che dice non si riscrive. Cambia solo che non e piu in vigore.
+ */
+const STATI_EMESSI = new Set(["issued", "cancelled"]);
+
 export const assertDocumentMutable = (
   current: Record<string, any>,
   updates: Record<string, any>,
 ) => {
   const status = String(current?.status ?? "").trim();
-  const isIssued = status === "issued" || status === "cancelled";
-  if (!isIssued) return;
+  if (!STATI_EMESSI.has(status)) return;
 
   const touched = immutableFieldsTouchedBy(updates, current);
   if (!touched.length) return;

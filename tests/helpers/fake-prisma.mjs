@@ -99,6 +99,24 @@ const matchesWhere = (record, where) => {
     */
     if (condition === undefined) continue;
 
+    /*
+      `null` significa `IS NULL`, e in un database **non esiste «assente»**.
+
+      Le righe di questi doppi sono fixture scritte a mano, dove un campo non
+      pertinente si omette; una riga letta da Postgres porta invece `null`
+      esplicito. Confrontando `undefined === null` il doppio rispondeva «nessuna
+      riga» dove il database avrebbe risposto «questa».
+
+      Non e pedanteria: e la fedelta che serve a provare le guardie scritte
+      **dentro** la scrittura — `updateMany({ where: { id, reversed_at: null } })`
+      e il modo in cui si chiude una corsa fra storno e riconciliazione, e un
+      doppio che non la sa eseguire fa fallire il test giusto.
+    */
+    if (condition === null) {
+      if (record[key] !== null && record[key] !== undefined) return false;
+      continue;
+    }
+
     const value = record[key];
 
     if (condition && typeof condition === "object" && !Array.isArray(condition)) {

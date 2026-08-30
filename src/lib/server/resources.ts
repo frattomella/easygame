@@ -3583,6 +3583,41 @@ const assertPaymentHasNoEconomicHistory = async (
   }
 };
 
+/**
+ * **Un documento fiscale emesso non si cancella.** (H-5)
+ *
+ * `deleteResource` non aveva nessuna guardia fiscale: `DELETE
+ * /api/v1/invoices/<id>` su una fattura **emessa** rimuoveva la riga, e con
+ * essa — `EInvoiceTransmission.invoice_id` e `onDelete: Cascade` — anche il
+ * tracciato preparato.
+ *
+ * **Perche e peggio di una cancellazione qualsiasi.** La sequenza di
+ * numerazione **non arretra**: dopo la cancellazione resta un buco che nessuno
+ * puo spiegare. Un buco spiegabile — un documento annullato, che resta e dice
+ * di esserlo — e la cosa che un verificatore si aspetta di trovare; un numero
+ * mancante senza nessuna riga che lo giustifichi e il contrario di cio che il
+ * dominio dichiara di garantire.
+ *
+ * Un documento **bozza** resta cancellabile: non e uscito da nessuna parte, e
+ * non ha ancora consumato un numero.
+ *
+ * E la stessa regola di `assertPaymentHasNoEconomicHistory`, un piano piu in
+ * la: cio che qualcuno ha in mano non sparisce.
+ */
+const assertDocumentNotIssued = async (resource: string, record: any) => {
+  if (resource !== "invoices" && resource !== "receipts") return;
+  if (!record) return;
+
+  const stato = String(record.status ?? "").trim();
+  if (stato !== "issued" && stato !== "cancelled") return;
+
+  const numero = String(record.invoice_number ?? record.receipt_number ?? "").trim();
+  throw new Error(
+    `Un documento emesso non si cancella${numero ? ` (${numero})` : ""}: il numero non si libera, e un buco nella numerazione non e spiegabile. ` +
+      "Annullalo, cosi resta e dice di essere annullato.",
+  );
+};
+
 export const deleteResource = async (
   resource: string,
   id: string,
@@ -3631,6 +3666,7 @@ export const deleteResource = async (
     troppo.
   */
   await assertPaymentHasNoEconomicHistory(resource, existing?.id);
+  await assertDocumentNotIssued(resource, existing);
 
   const record = await delegate.delete({
     where: { id },

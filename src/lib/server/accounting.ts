@@ -1383,8 +1383,22 @@ export const reconcileAccountingEntry = async (
     );
   }
 
-  const row = await entryClient().update({
-    where: { id: originale.id },
+  /*
+    **La guardia deve stare nella scrittura, non prima di essa.**
+
+    L'audit ha lanciato uno storno e una riconciliazione insieme: la
+    riconciliazione leggeva la riga **prima** che lo storno confermasse, la
+    trovava non stornata, e scriveva. Otto movimenti su otto finivano con
+    `reversed_at` valorizzato **e** `reconciliation_status = 'reconciled'` —
+    lo stato che il messaggio d'errore due righe sopra dichiara impossibile.
+
+    Il rimedio non e un lock: e mettere la condizione **dentro** l'`UPDATE`.
+    Postgres valuta il `WHERE` sulla riga al momento della scrittura, quindi o
+    la riga e ancora non stornata e l'aggiornamento avviene, o non lo e e non
+    tocca niente — e allora si rilegge e si dice perche.
+  */
+  const aggiornate = await entryClient().updateMany({
+    where: { id: originale.id, reversed_at: null },
     data: {
       reconciliation_status: status,
       value_date: toDateOrNull(input.valueDate) ?? originale.value_date,
@@ -1392,6 +1406,16 @@ export const reconcileAccountingEntry = async (
       reconciled_at: status === "reconciled" ? new Date() : null,
       reconciled_by: status === "reconciled" ? scope.userId || null : null,
     },
+  });
+
+  if (!aggiornate?.count) {
+    throw new Error(
+      "Un movimento stornato non si riconcilia: quel denaro non e mai arrivato in banca",
+    );
+  }
+
+  const row = await entryClient().findUnique({
+    where: { id: originale.id },
     include: { financial_account: true, operation_type: true },
   });
 

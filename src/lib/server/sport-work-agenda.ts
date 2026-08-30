@@ -788,6 +788,43 @@ const ADEMPIMENTI_CHE_PAGANO = new Set(["CONTRIBUTION", "F24"]);
  * e `financialEntrySkipped` spiega perche. Un versamento silenziosamente non
  * registrato e un buco che nessuno vede, ed e il difetto che stiamo chiudendo.
  */
+/**
+ * **Idempotente non vuol dire silenzioso.**
+ *
+ * L'idempotenza dell'F24 impedisce che il denaro esca due volte, ed e giusta.
+ * Ma la seconda chiamata restituiva la riga esistente **senza guardarne
+ * l'importo**, e senza dire niente: l'audit lo ha provato in sequenza, senza
+ * bisogno di nessuna corsa. Un adempimento assolto per 1.000, riassolto per
+ * 9.999 perche la segreteria si era accorta dell'errore, lasciava nei libri
+ * **1.000** e restituiva successo.
+ *
+ * E la stessa famiglia del buco che questa funzione esiste per chiudere: un
+ * versamento silenziosamente **non** registrato e un versamento silenziosamente
+ * registrato **per l'importo sbagliato** sono lo stesso difetto — un numero
+ * che nessuno vede sbagliare.
+ *
+ * **Perche non si aggiorna la riga e basta.** Perche l'importo di un F24
+ * cumulativo cambia quando cambiano i compensi del mese, e riscrivere in
+ * silenzio un movimento gia registrato — magari gia riconciliato con
+ * l'estratto conto — significherebbe far cambiare il passato senza un autore.
+ * Qui si **dichiara la differenza**, e chi la legge decide: stornare il
+ * movimento e registrarne uno nuovo e un gesto con un nome e una traccia.
+ */
+const confrontaImporto = (esistente: any, richiesto: number) => {
+  const scritto = Number(esistente?.amount_cents) || 0;
+  const atteso = Math.round(Number(richiesto) * 100);
+
+  if (scritto === atteso) return { entry: esistente, skipped: null };
+
+  return {
+    entry: esistente,
+    skipped:
+      `Il versamento era gia registrato per ${(scritto / 100).toFixed(2)} EUR, e l'adempimento ora ne dichiara ` +
+      `${(atteso / 100).toFixed(2)} EUR. La riga di prima nota **non** e stata modificata: ` +
+      "per correggerla si storna il movimento e se ne registra uno nuovo, cosi la differenza resta leggibile.",
+  };
+};
+
 const registraVersamento = async (
   obligation: any,
   payment: {
@@ -834,7 +871,7 @@ const registraVersamento = async (
       source_event_key: chiave,
     },
   });
-  if (gia) return { entry: gia, skipped: null };
+  if (gia) return confrontaImporto(gia, importo);
 
   try {
     const entry = await createAccountingEntry(
@@ -876,7 +913,7 @@ const registraVersamento = async (
           source_event_key: chiave,
         },
       });
-      if (esistente) return { entry: esistente, skipped: null };
+      if (esistente) return confrontaImporto(esistente, importo);
     }
     throw error;
   }
