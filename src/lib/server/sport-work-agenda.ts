@@ -595,7 +595,7 @@ export const listObligations = async (
   const organizationId = resolveOrganizationId(scope, filter.organizationId);
   const dueBefore = toDateOrNull(filter.dueBefore);
 
-  return obligationClient().findMany({
+  const righe = await obligationClient().findMany({
     where: {
       organization_id: organizationId,
       ...(asText(filter.status)
@@ -607,6 +607,73 @@ export const listObligations = async (
       ...(dueBefore ? { due_date: { lte: dueBefore } } : {}),
     },
     orderBy: [{ due_date: "asc" }],
+  });
+
+  return marcaVersamentiStornati(organizationId, righe);
+};
+
+/**
+ * **Un adempimento assolto il cui versamento e stato stornato lo dichiara.**
+ *
+ * ---
+ *
+ * Da quando l'idempotenza della prima nota vale sulle righe **vive**, la
+ * correzione di un F24 sbagliato e possibile — si storna e si registra di
+ * nuovo. Ma fra i due gesti esiste uno stato che una sonda di concorrenza ha
+ * fotografato e che nessuna schermata sapeva raccontare: l'adempimento
+ * `COMPLETED`, **zero** righe vive in prima nota, e il saldo che pareggia a
+ * zero. I contributi sono usciti dal conto del club, l'agenda dice che
+ * l'obbligo e assolto, e il registro non porta piu niente.
+ *
+ * Lo stato **non e sbagliato**: e la meta di una correzione, e dura quanto
+ * serve a registrare l'importo giusto. Cio che era sbagliato e che non si
+ * vedesse. `paymentReversed` lo dichiara, e la schermata puo dirlo invece di
+ * mostrare una spunta verde su un buco.
+ *
+ * Non si cambia lo **stato** dell'adempimento, e non e prudenza: lo stato dice
+ * cosa ha fatto la segreteria, e la segreteria l'adempimento lo ha assolto.
+ * Riportarlo indietro riscriverebbe il suo gesto per raccontare un fatto di un
+ * altro dominio.
+ */
+const marcaVersamentiStornati = async (
+  organizationId: string,
+  righe: readonly any[],
+) => {
+  const conVersamento = righe.filter(
+    (riga) =>
+      riga?.status === "COMPLETED" &&
+      ADEMPIMENTI_CHE_PAGANO.has(String(riga.kind || "").toUpperCase()),
+  );
+  if (!conVersamento.length) return righe;
+
+  const chiavi = conVersamento.map(
+    (riga) => `sport_work_obligation:${riga.reference_key}`,
+  );
+
+  const vive = await (prisma as any).accountingEntry.findMany({
+    where: {
+      organization_id: organizationId,
+      source_domain: "MANUAL",
+      source_event_key: { in: chiavi },
+      reversed_at: null,
+    },
+    select: { source_event_key: true },
+  });
+
+  const registrate = new Set(vive.map((riga: any) => riga.source_event_key));
+
+  return righe.map((riga) => {
+    if (!conVersamento.includes(riga)) return riga;
+    const chiave = `sport_work_obligation:${riga.reference_key}`;
+    return {
+      ...riga,
+      /*
+        Vero solo quando l'adempimento **comporta** un versamento, e in prima
+        nota non ne resta nessuno vivo. Un adempimento che non paga niente non
+        porta questa bandiera, e non ha senso che la porti.
+      */
+      paymentReversed: !registrate.has(chiave),
+    };
   });
 };
 

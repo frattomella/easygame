@@ -472,7 +472,21 @@ test("nemmeno la data, ne lo snapshot, ne l'intestatario", async () => {
   }
 });
 
-test("cio che non e fiscalmente rilevante resta modificabile", async () => {
+test("la causale di un documento consegnato non si riscrive", async () => {
+  /*
+    **Questa prova diceva il contrario, e una revisione ostile ha mostrato
+    perche era sbagliata.**
+
+    La causale sembrava «non fiscalmente rilevante». Ma **si vede sul foglio**:
+    la rotta di stampa la mostra, e il cruscotto del genitore, la scheda di
+    iscrizione e l'export contabile la leggono tutti dalla colonna. Riscriverla
+    dopo la consegna faceva divergere in silenzio gli elenchi dal documento che
+    la famiglia ha in mano — e lo faceva senza toccare nessun importo, cioe nel
+    modo meno visibile possibile.
+
+    Cio che resta modificabile su un documento emesso e cio che il foglio non
+    dice: un allegato rigenerato, un riferimento interno.
+  */
   await registraIncasso(CORPO);
   const incasso = fake.rows("paymentTransaction")[0];
   const ricevuta = await documents.issueReceiptForTransaction(
@@ -480,17 +494,77 @@ test("cio che non e fiscalmente rilevante resta modificabile", async () => {
     scope(),
   );
 
-  await resources.updateResource(
-    "receipts",
-    ricevuta.id,
-    { description: "Ricevuta rata unica 2026/27" },
-    scope(),
+  await assert.rejects(
+    () =>
+      resources.updateResource(
+        "receipts",
+        ricevuta.id,
+        { description: "Ricevuta rata unica 2026/27" },
+        scope(),
+      ),
+    /non si modifica/,
   );
 
-  assert.equal(
+  assert.notEqual(
     fake.rows("receipt").find((row) => row.id === ricevuta.id).description,
     "Ricevuta rata unica 2026/27",
   );
+});
+
+test("un documento in bozza si corregge: e l'unico stato in cui si puo", async () => {
+  /*
+    Il rovescio della regola, e la ragione per cui e un elenco di cio che e
+    **permesso** invece di uno di cio che e vietato: `status` e testo libero
+    senza enum e senza `CHECK`, e una revisione ostile ha creato ricevute con
+    stato `"sent"`, `"Issued"`, `"EMESSA"`, `"posted"`, `"final"` e vuoto.
+    Nessuna era nell'elenco degli stati emessi, quindi nessuna diventava mai
+    immutabile: importo, data, intestatario e **lo snapshot** — la fonte che la
+    stampa legge — restavano riscrivibili per sempre.
+  */
+  fake.rows("receipt").push({
+    id: "ricevuta-bozza",
+    organization_id: CLUB,
+    status: "draft",
+    amount: 100,
+    description: "Bozza",
+    issue_date: new Date("2026-09-01T00:00:00Z"),
+  });
+
+  await resources.updateResource(
+    "receipts",
+    "ricevuta-bozza",
+    { description: "Bozza corretta", amount: 120 },
+    scope(),
+  );
+
+  const riga = fake.rows("receipt").find((row) => row.id === "ricevuta-bozza");
+  assert.equal(riga.description, "Bozza corretta");
+  assert.equal(riga.amount, 120);
+});
+
+test("uno stato inventato non rende un documento modificabile", async () => {
+  for (const stato of ["sent", "Issued", "EMESSA", "posted", "final", ""]) {
+    fake.rows("receipt").push({
+      id: `ricevuta-${stato || "vuoto"}`,
+      organization_id: CLUB,
+      status: stato,
+      amount: 100,
+      description: "Documento",
+      issue_date: new Date("2026-09-01T00:00:00Z"),
+    });
+
+    await assert.rejects(
+      () =>
+        resources.updateResource(
+          "receipts",
+          `ricevuta-${stato || "vuoto"}`,
+          { amount: 999 },
+          scope(),
+        ),
+      /non si modifica/,
+      `stato ${JSON.stringify(stato)}: non e una bozza, quindi non si riscrive`,
+    );
+  }
 });
 
 /* ========================================================================== */

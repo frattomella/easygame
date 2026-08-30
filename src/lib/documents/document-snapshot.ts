@@ -329,6 +329,22 @@ export const IMMUTABLE_DOCUMENT_FIELDS = [
   "is_electronic",
   "operation_type_code",
   "data",
+  /*
+    **Cio che c'e stampato sul foglio, e che restava riscrivibile.** (R4-4)
+
+    La modalita di pagamento e la causale **si vedono sul documento
+    consegnato** — la rotta di stampa le legge — e non erano nell'elenco. Una
+    revisione ostile ha cambiato «bonifico» in «carta di credito DIVERSA» su
+    una ricevuta gia emessa, e il foglio ristampato lo diceva.
+
+    La causale ha una seconda ragione: la stampa ricade su `snapshot.description`
+    quando c'e, ma il cruscotto del genitore, la scheda di iscrizione e l'export
+    contabile leggono tutti la colonna. Riscriverla faceva divergere in silenzio
+    gli elenchi dal documento di carta.
+  */
+  "method",
+  "payment_method",
+  "description",
 ] as const;
 
 export type ImmutableDocumentField = (typeof IMMUTABLE_DOCUMENT_FIELDS)[number];
@@ -380,19 +396,36 @@ export const immutableFieldsTouchedBy = (
  * resta uno solo.
  */
 /**
- * Gli stati a partire dai quali un documento e **gia uscito** dalla societa.
+ * L'**unico** stato in cui un documento si puo ancora riscrivere.
  *
- * Un documento annullato e emesso quanto uno valido: qualcuno ce l'ha in mano,
- * e cio che dice non si riscrive. Cambia solo che non e piu in vigore.
+ * ---
+ *
+ * ## Perche una bozza e non un elenco di stati emessi
+ *
+ * Prima qui c'era `STATI_EMESSI = {"issued", "cancelled"}`: un elenco di cio
+ * che **e uscito**, e tutto il resto era modificabile. Sembra equivalente e non
+ * lo e, perche `status` e una colonna di testo libero senza enum e senza
+ * `CHECK`, e il registro generico la accetta come una qualunque.
+ *
+ * Una revisione ostile ha creato ricevute con `status` `"sent"`, `"Issued"`,
+ * `"EMESSA"`, `"posted"`, `"final"` e stringa vuota. Nessuna di quelle e nella
+ * lista, quindi **nessuna diventava mai immutabile**: importo, data,
+ * intestatario e — peggio di tutto — lo **snapshot**, che e la fonte che la
+ * stampa legge, restavano riscrivibili per sempre. E cancellabili.
+ *
+ * Un elenco di cio che e vietato lascia passare cio che nessuno ha previsto. Un
+ * elenco di cio che e permesso no: si e in **bozza**, oppure il documento e
+ * uscito. Il dominio scrive soltanto `issued` e `cancelled`, quindi nessun
+ * percorso legittimo perde niente.
  */
-const STATI_EMESSI = new Set(["issued", "cancelled"]);
+const STATO_MODIFICABILE = "draft";
 
 export const assertDocumentMutable = (
   current: Record<string, any>,
   updates: Record<string, any>,
 ) => {
-  const status = String(current?.status ?? "").trim();
-  if (!STATI_EMESSI.has(status)) return;
+  const status = String(current?.status ?? "").trim().toLowerCase();
+  if (status === STATO_MODIFICABILE) return;
 
   const touched = immutableFieldsTouchedBy(updates, current);
   if (!touched.length) return;

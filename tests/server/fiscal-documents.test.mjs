@@ -422,3 +422,129 @@ test("la decisione documentale si legge prima di emettere", async () => {
   assert.equal(esito.recipient.name, "Anna Rossi");
   assert.equal(esito.recipient.source, "guardian");
 });
+
+/* ============== il documento dirottato, e quello annullato per sempre === */
+
+test("una riga senza numero non passa per una ricevuta gia emessa", async () => {
+  /*
+    **Il dirottamento che una revisione ostile ha eseguito.**
+
+    Il controllo di idempotenza era «esiste una riga con questo
+    `transaction_id`?». Un collaboratore — che una ricevuta non potrebbe
+    emetterla, perche la rotta di emissione chiede `canManageClubConfiguration`
+    — creava dal registro generico una riga `receipts` con il `transaction_id`
+    di un incasso vero, importo un centesimo e la causale che voleva.
+    L'emissione trovava quella riga e restituiva **quella**: senza numero,
+    senza snapshot. E poiche il collegamento era unico, quell'incasso non
+    poteva piu essere documentato. Mai.
+
+    La creazione dal registro generico e chiusa; questo controllo resta stretto
+    comunque, perche una difesa sola prima o poi si dimentica. Si riconosce
+    come gia emessa solo una riga che porta un **numero**, che nasce dalla
+    sequenza e non si digita.
+  */
+  const risorse = await import("../../src/lib/server/resources.ts");
+
+  /* La prima difesa: la riga non nasce. */
+  await assert.rejects(
+    () =>
+      risorse.createResource(
+        "receipts",
+        {
+          organization_id: CLUB,
+          athlete_id: ATLETA,
+          transaction_id: "incasso-1",
+          issue_date: "2026-05-01",
+          amount: 0.01,
+          description: "FINTA",
+          status: "sent",
+        },
+        "create",
+        scope(),
+      ),
+    /si emette dal suo incasso/,
+  );
+
+  assert.equal(
+    fake.rows("receipt").length,
+    0,
+    "nessuna riga forgiata in tabella",
+  );
+
+  /*
+    La seconda: anche se una riga senza numero esistesse — importata, o scritta
+    da una versione futura — non passerebbe per un documento gia emesso. Qui la
+    si semina direttamente in tabella, che e l'unico modo rimasto di ottenerla.
+  */
+  fake.rows("receipt").push({
+    id: "ricevuta-finta",
+    organization_id: CLUB,
+    athlete_id: ATLETA,
+    /*
+      Senza `transaction_id`: con esso l'indice unico parziale del database
+      rifiuterebbe la ricevuta vera, ed e cio che deve fare. Cio che si prova
+      qui e la seconda difesa: che una riga **senza numero** non venga scambiata
+      per un documento emesso.
+    */
+    transaction_id: null,
+    receipt_number: null,
+    status: "sent",
+    amount: 0.01,
+    description: "FINTA",
+    issue_date: new Date("2026-05-01T00:00:00.000Z"),
+    cancelled_at: null,
+  });
+
+  const emessa = await ricevuta();
+
+  assert.notEqual(emessa.id, "ricevuta-finta", "la riga forgiata non e un documento");
+  assert.ok(emessa.receipt_number, "la ricevuta vera porta un numero");
+  assert.equal(emessa.amount, 130);
+  assert.ok(emessa.snapshot, "e porta la fotografia dei dati");
+});
+
+test("dopo l'annullamento, l'incasso torna documentabile", async () => {
+  /*
+    `cancelDocument` lascia il collegamento all'incasso dov'e — e giusto: il
+    documento annullato deve continuare a dire a cosa si riferiva. Ma il
+    controllo di idempotenza non filtrava sull'annullamento, e restituiva la
+    ricevuta morta **dichiarando successo**: la famiglia riceveva un foglio
+    ritirato, e la prima nota — che i documenti annullati li esclude di
+    proposito — mostrava l'incasso senza numero.
+
+    E la stessa forma dell'idempotenza della prima nota: la procedura
+    consigliata era resa impossibile dal controllo che la consigliava.
+  */
+  const prima = await ricevuta();
+  assert.ok(prima.receipt_number);
+
+  await documents.cancelDocument(
+    { kind: "receipt", documentId: prima.id, reason: "Emessa alla persona sbagliata" },
+    scope(),
+  );
+
+  const seconda = await ricevuta();
+
+  assert.notEqual(seconda.id, prima.id, "e un documento nuovo, non quello ritirato");
+  assert.ok(seconda.receipt_number, "con un numero suo");
+  assert.notEqual(
+    seconda.receipt_number,
+    prima.receipt_number,
+    "il numero ritirato non torna disponibile (ADR-0044)",
+  );
+
+  const annullata = fake.rows("receipt").find((riga) => riga.id === prima.id);
+  assert.ok(annullata.cancelled_at, "l'originale resta, annullato");
+});
+
+test("una seconda emissione sullo stesso incasso resta idempotente", async () => {
+  /* Il controllo inverso: stretto non vuol dire che emetta due volte. */
+  const prima = await ricevuta();
+  const seconda = await ricevuta();
+
+  assert.equal(seconda.id, prima.id);
+  assert.equal(
+    fake.rows("receipt").filter((riga) => riga.transaction_id === "incasso-1").length,
+    1,
+  );
+});

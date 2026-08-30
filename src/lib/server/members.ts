@@ -763,21 +763,36 @@ export const removeMemberProfile = async (
   const esistente = await findMemberInAnagrafica(organizationId, wanted);
   if (!esistente) throw new Error("Socio non trovato");
 
-  const eventi = await eventClient(prisma).count({
-    where: { organization_id: organizationId, member_id: wanted },
+  /*
+    **Il conteggio sta dentro la transazione, e dopo il lock.**
+
+    Stava fuori, e la cancellazione apriva una transazione sua: una sonda di
+    concorrenza ha lanciato insieme un'ammissione e una cancellazione dello
+    stesso socio, e le ha viste riuscire **tutte e due**. Il risultato era lo
+    stato che questo modulo esiste per rendere impossibile — un socio presente
+    nel libro e assente dall'anagrafica — cioe esattamente quello che la
+    scrittura per riga aveva appena chiuso dall'altro lato.
+
+    `removeClubResourceItem` prende il `FOR UPDATE` sul club; contare **dopo**
+    di lui significa contare quando nessun'altra ammissione puo piu confermare.
+  */
+  const rimosso = await (prisma as any).$transaction(async (tx: any) => {
+    await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${organizationId}::uuid FOR UPDATE`;
+
+    const eventi = await eventClient(tx).count({
+      where: { organization_id: organizationId, member_id: wanted },
+    });
+
+    if (eventi > 0) {
+      throw new Error(
+        `Questo socio ha ${eventi} ${eventi === 1 ? "evento" : "eventi"} nel libro soci e non si cancella: ` +
+          "chi non e piu socio si dimette o si esclude, con una data e una delibera. " +
+          "Cancellarlo lascerebbe nel registro un nome che nessuno puo piu risolvere.",
+      );
+    }
+
+    return removeClubResourceItem(tx, organizationId, "members", wanted);
   });
-
-  if (eventi > 0) {
-    throw new Error(
-      `Questo socio ha ${eventi} ${eventi === 1 ? "evento" : "eventi"} nel libro soci e non si cancella: ` +
-        "chi non e piu socio si dimette o si esclude, con una data e una delibera. " +
-        "Cancellarlo lascerebbe nel registro un nome che nessuno puo piu risolvere.",
-    );
-  }
-
-  const rimosso = await (prisma as any).$transaction((tx: any) =>
-    removeClubResourceItem(tx, organizationId, "members", wanted),
-  );
 
   if (!rimosso) throw new Error("Socio non trovato");
 

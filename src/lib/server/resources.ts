@@ -1317,6 +1317,28 @@ const applyClubResourceSync = async (
     return;
   }
 
+  /*
+    **Il lock che le tre gemelle avevano e questa no.**
+
+    `appendClubResourceItem`, `updateClubResourceItem` e
+    `removeClubResourceItem` prendono tutte il `FOR UPDATE` sul club prima di
+    toccare la collezione. Questa — che la riscrive **intera**, cancellando e
+    ricreando — non lo prendeva: la mutua esclusione che il lock deve garantire
+    semplicemente non esisteva contro questo percorso.
+
+    Una sonda di concorrenza ha lanciato due riscritture della stessa
+    collezione, quindici volte: **quindici** hanno prodotto righe duplicate in
+    `club_resource_items`, e **quindici** hanno lasciato la tabella e
+    l'aggregato JSON a dire due cose diverse. Il database non poteva accorgersene
+    — su `club_resource_items` non c'e nessun indice unico oltre alla chiave
+    primaria — quindi la divergenza restava silenziosa.
+
+    Prendere il lock qui chiude anche il disallineamento d'ordine che la stessa
+    sonda ha visto come deadlock fra questo percorso e il salvataggio di un
+    contratto sponsor: adesso tutti e quattro prendono lo stesso lock per primo.
+  */
+  await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${organization_id}::uuid FOR UPDATE`;
+
   const existingItems = await tx.clubResourceItem.findMany({
     where: { organization_id, resource_type },
     orderBy: { created_at: "asc" },
@@ -3819,9 +3841,35 @@ const guardFiscalDocumentIntegrity = (
     }
   }
 
-  if (existing) {
-    assertDocumentMutable(existing, normalized);
+  /*
+    **Un documento fiscale non nasce dal registro generico.**
+
+    Nasce da un incasso, e lo emette `fiscal-documents.ts`: li si risolve
+    l'intestatario, si congela lo snapshot, si chiede il numero alla sequenza
+    e si scrive lo stato. Il registro generico non fa nessuna di quelle cose, e
+    lasciarglielo creare produceva un documento **senza numero e senza
+    snapshot** che il dominio poi scambiava per uno gia emesso.
+
+    Una revisione ostile lo ha usato cosi: un collaboratore — che una ricevuta
+    non potrebbe emetterla, perche la rotta di emissione chiede
+    `canManageClubConfiguration` — creava una riga `receipts` con il
+    `transaction_id` di un incasso **vero**. Il controllo di idempotenza
+    dell'emissione trovava quella riga e restituiva **quella**, senza numero,
+    con importo un centesimo e la causale che l'attaccante aveva scritto. E
+    poiche `transaction_id` e unico, quell'incasso non poteva **piu** essere
+    documentato: mai.
+
+    La modifica resta possibile — un allegato rigenerato, un riferimento — e
+    la difende `assertDocumentMutable`. La creazione no.
+  */
+  if (!existing) {
+    throw new Error(
+      "Accesso negato: un documento fiscale si emette dal suo incasso, non dal registro generico. " +
+        "Da li nascono il numero, lo snapshot e la classificazione, che qui non si possono produrre.",
+    );
   }
+
+  assertDocumentMutable(existing, normalized);
 };
 
 export const updateResource = async (

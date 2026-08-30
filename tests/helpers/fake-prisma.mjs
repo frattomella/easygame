@@ -245,7 +245,36 @@ const UNIQUE_CONSTRAINTS = {
   financialAccount: [["organization_id", "name"]],
   eInvoiceTransmission: [["invoice_id"]],
   platformSetting: [["key"]],
-  receipt: [["transaction_id"]],
+  /*
+    **Un documento vivo per incasso**, e non uno qualunque.
+
+    Il vincolo era pieno, e il database non lo e piu: e un indice unico
+    **parziale** su `cancelled_at IS NULL`
+    (`receipts_transaction_unico`, `invoices_transaction_unico`). La
+    differenza non e formale — con il vincolo pieno una ricevuta annullata
+    bloccava per sempre il suo incasso, e il doppio faceva fallire proprio la
+    prova che dimostra che adesso non lo blocca piu.
+  */
+  receipt: [
+    {
+      fields: ["transaction_id"],
+      quando: (row) =>
+        row.transaction_id !== null &&
+        row.transaction_id !== undefined &&
+        !row.cancelled_at,
+    },
+    ["organization_id", "receipt_number"],
+  ],
+  invoice: [
+    {
+      fields: ["transaction_id"],
+      quando: (row) =>
+        row.transaction_id !== null &&
+        row.transaction_id !== undefined &&
+        !row.cancelled_at,
+    },
+    ["organization_id", "invoice_number"],
+  ],
   fundingEnrollment: [["program_id", "athlete_id"]],
   athleteCategoryMembership: [
     ["organization_id", "athlete_id", "category_id"],

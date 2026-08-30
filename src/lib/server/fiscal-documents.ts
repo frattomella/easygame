@@ -475,8 +475,32 @@ export const issueReceiptForTransaction = async (
 
   assertIssuable(context.transaction);
 
-  const existing = await receiptClient().findUnique({
-    where: { transaction_id: context.transaction.id },
+  /*
+    **Un documento gia emesso, e non uno qualunque che citi questo incasso.**
+
+    Il controllo era «esiste una riga con questo `transaction_id`?», e una
+    revisione ostile ne ha fatto un dirottamento: una riga `receipts` creata dal
+    registro generico — senza numero, senza snapshot, con l'importo e la
+    causale scritti dall'attaccante — veniva restituita **al posto** della
+    ricevuta vera, e poiche il collegamento era unico quell'incasso non poteva
+    piu essere documentato. Mai.
+
+    La creazione dal registro generico e chiusa (`resources.ts`); questo
+    controllo resta stretto comunque, perche una difesa sola prima o poi si
+    dimentica: si riconosce come «gia emessa» solo una riga che porta un
+    **numero**, che nasce dalla sequenza e non si digita.
+
+    E si ignorano gli **annullati**: un documento ritirato ha smesso di
+    rappresentare quell'incasso, e restituirlo dichiarando successo consegnava
+    alla famiglia un foglio che non vale piu.
+  */
+  const existing = await receiptClient().findFirst({
+    where: {
+      organization_id: context.organizationId,
+      transaction_id: context.transaction.id,
+      cancelled_at: null,
+      NOT: { receipt_number: null },
+    },
   });
 
   if (existing) return existing;
@@ -581,10 +605,15 @@ export const issueInvoiceForTransaction = async (
     );
   }
 
+  /*
+    Come per la ricevuta: si riconosce come «gia emessa» solo una fattura viva
+    e numerata. Vedi `issueReceiptForTransaction`.
+  */
   const existing = await invoiceClient().findFirst({
     where: {
       organization_id: context.organizationId,
       transaction_id: context.transaction.id,
+      cancelled_at: null,
     },
   });
 

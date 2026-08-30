@@ -536,7 +536,10 @@ model Invoice {
   id                  String                @id @default(uuid()) @db.Uuid
   organization_id     String                @db.Uuid
   athlete_id          String?               @db.Uuid
-  payment_id          String?               @unique @db.Uuid
+  /// Una rata saldata in due incassi ha due fatture: il collegamento resta, e
+  /// l unicita che pretendeva una fattura per rata no. Vedi la migrazione
+  /// 20260830190000_wave4_documento_annullato_riemettibile.
+  payment_id          String?               @db.Uuid
   /// L'incasso documentato. Prima viveva dentro `data.transactionId`.
   transaction_id      String?               @db.Uuid
   invoice_number      String
@@ -594,6 +597,7 @@ model Invoice {
   @@index([organization_id])
   @@index([athlete_id])
   @@index([transaction_id])
+  @@index([payment_id])
   @@map("invoices")
 }
 
@@ -609,7 +613,10 @@ model Receipt {
   organization_id     String              @db.Uuid
   athlete_id          String?             @db.Uuid
   payment_id          String?             @db.Uuid
-  transaction_id      String?             @unique @db.Uuid
+  /// L unicita e sui documenti **vivi**: un indice parziale su cancelled_at.
+  /// Un documento annullato smette di rappresentare quell incasso, che torna
+  /// documentabile. Vedi la stessa migrazione.
+  transaction_id      String?             @db.Uuid
   invoice_id          String?             @db.Uuid
   receipt_number      String?
   /// Il codice della serie. Vuoto = serie predefinita.
@@ -646,6 +653,7 @@ model Receipt {
   @@index([organization_id])
   @@index([athlete_id])
   @@index([payment_id])
+  @@index([transaction_id])
   @@map("receipts")
 }
 

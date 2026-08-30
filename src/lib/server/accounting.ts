@@ -940,9 +940,40 @@ export const updateAccountingEntry = async (
   const causalePrima = originale.operation_type_code;
   const ambitoPrima = originale.activity_scope_snapshot;
 
-  const row = await entryClient().update({
-    where: { id: originale.id },
+  /*
+    **La guardia sta nella scrittura, non prima di essa** — e qui non ci stava.
+
+    `reconcileAccountingEntry` era gia stata riscritta cosi, con il commento
+    che spiega perche. Questa funzione no, e una sonda di concorrenza lo ha
+    ottenuto **trenta volte su trenta**: lanciando insieme uno storno e una
+    riclassificazione, la modifica leggeva la riga prima che lo storno
+    confermasse, la trovava non stornata, e scriveva. L'originale finiva
+    `commerciale` e il suo storno restava `istituzionale`.
+
+    La coppia non si annullava piu **per voce**: nel rendiconto restavano
+    settecentotrentacinque euro di uscita commerciale e altrettanti di entrata
+    istituzionale, per movimenti che finanziariamente si compensano. La
+    ripartizione fra istituzionale e commerciale e il numero da cui dipende il
+    trattamento fiscale di una ASD, e si corrompeva in tutte e due le direzioni.
+
+    Il rimedio non e un lock: e la condizione **dentro** l'`UPDATE`. Postgres
+    valuta il `WHERE` sulla riga al momento della scrittura, quindi o la riga e
+    ancora non stornata e l'aggiornamento avviene, o non lo e e non tocca
+    niente — e allora si dice perche.
+  */
+  const aggiornate = await entryClient().updateMany({
+    where: { id: originale.id, reversed_at: null },
     data: dati,
+  });
+
+  if (!aggiornate?.count) {
+    throw new Error(
+      "Un movimento stornato non si modifica: la coppia originale e storno racconta una correzione, e riscriverne una meta la rende illeggibile",
+    );
+  }
+
+  const row = await entryClient().findUnique({
+    where: { id: originale.id },
     include: { financial_account: true, operation_type: true },
   });
 

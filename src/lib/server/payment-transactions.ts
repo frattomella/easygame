@@ -736,6 +736,40 @@ export const reversePaymentTransaction = async (
       throw new Error("Questo incasso e gia stato stornato");
     }
 
+    /*
+      **Un incasso gia rimborsato non si storna, e il conto lo dice.**
+
+      Lo storno scrive l'importo intero dell'originale, perche dice «questo
+      incasso non e mai avvenuto». Ma se una parte del denaro e **gia** tornata
+      indietro come rimborso, quella parte esce due volte: una revisione ostile
+      ha misurato un incasso da 100 con 30 rimborsati e poi stornato, e ha
+      trovato la cassa reale a +70 con il rendiconto **e** il saldo del conto a
+      -30. Sbagliati tutti e due di cento, e — peggio — d'accordo fra loro,
+      cioe invisibili a qualunque riconciliazione fra due letture.
+
+      Il rimedio non e stornare il residuo: sarebbe uno storno che non dice cio
+      che uno storno dice. E rifiutare, e dire cosa fare — perche il caso c'e,
+      ed e un errore vero della segreteria che va risolto in un gesto che si
+      legge.
+    */
+    const rimborsi = await client.paymentTransaction.findMany({
+      where: refundsOfTransaction(original),
+    });
+
+    const rimborsatoCents = rimborsi.reduce(
+      (totale: number, riga: any) =>
+        totale + Math.abs(Math.round(toPaymentAmount(riga.amount) * 100)),
+      0,
+    );
+
+    if (rimborsatoCents > 0) {
+      throw new Error(
+        `Questo incasso e gia stato rimborsato per ${(rimborsatoCents / 100).toFixed(2)} EUR e non si storna: ` +
+          "lo storno dichiara che l'incasso non e mai avvenuto, e una parte del denaro e gia tornata indietro per un'altra strada. " +
+          "Registra un rimborso per la differenza, oppure storna prima il rimborso.",
+      );
+    }
+
     await client.paymentTransaction.update({
       where: { id: original.id },
       data: {
