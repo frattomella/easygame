@@ -408,7 +408,7 @@ model AthletePayment {
   updated_at      DateTime             @updatedAt
   organization    Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   athlete         Athlete?             @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  invoice         Invoice?
+  invoices        Invoice[]
   receipts        Receipt[]
   transactions    PaymentTransaction[]
 

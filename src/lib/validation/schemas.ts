@@ -97,8 +97,8 @@ export const paymentTransactionInputSchema = z
       catalogo del club lo sa `fiscal_operation_types`, e chiederlo qui
       significherebbe una lettura del database dentro uno schema.
     */
-    operation_type_code: z.string().trim().max(60).optional(),
-    operationTypeCode: z.string().trim().max(60).optional(),
+    operation_type_code: z.string().trim().max(60).nullish(),
+    operationTypeCode: z.string().trim().max(60).nullish(),
     /** Su quale conto e entrato il denaro. */
     financial_account_id: z.string().trim().max(64).optional(),
     financialAccountId: z.string().trim().max(64).optional(),
