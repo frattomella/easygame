@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canAccessClubResource } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -70,12 +71,6 @@ export async function GET(request: Request, context: Context) {
       );
     }
 
-    const scope = await resolveOrganizationScopeForUser(
-      session.db.user_id,
-      request.headers.get("x-active-club-id"),
-      request.headers.get("x-active-access-role"),
-    );
-
     const athlete = await prisma.athlete.findUnique({
       where: { id: context.params.id },
       select: { id: true, organization_id: true, avatar_url: true, data: true, updated_at: true },
@@ -83,11 +78,43 @@ export async function GET(request: Request, context: Context) {
 
     if (!athlete) return notFound();
 
+    /*
+      **Il club dell'atleta si passa come club preferito, e il ruolo si risolve
+      per quello.**
+
+      Un `<img src>` non manda `x-active-club-id`: autorizzare sul club attivo
+      farebbe sparire le foto agli utenti multi-club, e il difetto si
+      presenterebbe come «alcune foto non si caricano», che e la forma piu
+      difficile da diagnosticare.
+
+      Ma l'elenco dei club **da solo** non e un confine, ed e la lezione di
+      questa Wave: il permesso si verifica con un ruolo, e quel ruolo deve
+      essere il ruolo **in quel club**. Passando l'organizzazione dell'atleta
+      come club preferito, `resolveOrganizationScopeForUser` risolve il ruolo
+      li — e i due controlli parlano dello stesso club. E la stessa forma delle
+      rotte che la revisione ha giudicato corrette: la firma del club, il libro
+      soci, le causali fiscali.
+    */
+    const scope = await resolveOrganizationScopeForUser(
+      session.db.user_id,
+      athlete.organization_id,
+    );
+
     if (!scope.allowedOrganizationIds.includes(athlete.organization_id)) {
       return NextResponse.json(
         {
           data: null,
           error: { message: "Accesso negato: l'atleta appartiene a un altro club" },
+        },
+        { status: 403 },
+      );
+    }
+
+    if (!canAccessClubResource(scope.activeRole, "athletes", "read")) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Accesso negato per il ruolo attivo" },
         },
         { status: 403 },
       );

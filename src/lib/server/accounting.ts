@@ -120,6 +120,20 @@ const ensureOrganizationAccess = (
   }
 };
 
+/**
+ * Il club su cui si sta lavorando, e il confine gia verificato.
+ *
+ * Esportata perche il riepilogo possa applicare il confine **senza leggere
+ * niente**: prima lo ricavava dalla lettura delle righe, e le altre quattro
+ * letture aspettavano quella per potersi appoggiare al suo verdetto. Il
+ * verdetto resta uno solo — questa e la stessa funzione — e le cinque letture
+ * partono insieme.
+ */
+export const resolveAccountingScopeId = (
+  scope: AccountingScope,
+  requested?: unknown,
+) => resolveOrganizationId(scope, requested);
+
 const resolveOrganizationId = (scope: AccountingScope, requested?: unknown) => {
   const wanted = asText(requested);
   if (wanted) {
@@ -469,6 +483,100 @@ export const readAllAccountingLines = async (
 
   const lines = (righe || []).map((riga: LedgerViewRow) =>
     ledgerRowToLine(riga, permissions),
+  );
+
+  return { lines, total, truncated: total > lines.length };
+};
+
+/**
+ * **Le sole colonne che il riepilogo somma e raggruppa.**
+ *
+ * `buildManagementReport` non guarda descrizioni, note, controparti, documenti
+ * ne il testo di ricerca: raggruppa per verso, causale, conto, mese, origine e
+ * ambito, e somma gli importi. Leggere il resto significa far attraversare al
+ * driver, per trentacinquemila righe, colonne che nessuno legge — e il testo
+ * di ricerca e la piu grande di tutte, perche e la concatenazione delle altre.
+ *
+ * Su un riepilogo senza filtri, che e cio che la pagina chiede aprendosi,
+ * quelle colonne erano la differenza fra stare dentro la soglia e starne
+ * fuori.
+ */
+const COLONNE_DI_AGGREGAZIONE = {
+  id: true,
+  row_kind: true,
+  organization_id: true,
+  entry_date: true,
+  fiscal_year: true,
+  season_id: true,
+  direction: true,
+  amount_cents: true,
+  currency: true,
+  financial_account_id: true,
+  financial_account_name: true,
+  operation_type_code: true,
+  operation_type_label: true,
+  activity_scope: true,
+  source_domain: true,
+  source_id: true,
+  reconciliation_status: true,
+  reversal_of_id: true,
+  reversed_at: true,
+} as const;
+
+/**
+ * Le righe del riepilogo: **tutte quelle del filtro, e solo le colonne che
+ * servono a contarle**.
+ *
+ * Restituisce righe di dominio come le altre, con i campi non letti a vuoto.
+ * Non e una scorciatoia nascosta: la funzione ha un nome che dice a cosa
+ * serve, e chi ha bisogno della riga intera — l'export, l'elenco — chiama
+ * `readAllAccountingLines`.
+ */
+export const readAccountingAggregationLines = async (
+  filters: AccountingListFilters,
+  scope: AccountingScope,
+  cap = TETTO_RIGHE_REGISTRO,
+): Promise<{ lines: AccountingLine[]; total: number; truncated: boolean }> => {
+  const organizationId = resolveOrganizationId(scope, filters.organizationId);
+  const where = ledgerWhere(
+    organizationId,
+    await normalizzaFiltri(organizationId, filters),
+  );
+
+  const [righe, total] = await Promise.all([
+    ledgerClient().findMany({
+      where,
+      orderBy: ORDINE_REGISTRO,
+      take: cap,
+      select: COLONNE_DI_AGGREGAZIONE,
+    }),
+    ledgerClient().count({ where }),
+  ]);
+
+  const lines = (righe || []).map((riga: any) =>
+    ledgerRowToLine(
+      {
+        ...riga,
+        description: "",
+        notes: null,
+        payment_method: null,
+        counterparty_kind: null,
+        counterparty_id: null,
+        counterparty_label: null,
+        document_kind: null,
+        document_id: null,
+        document_number: null,
+        site_id: null,
+        value_date: null,
+        bank_reference: null,
+        transfer_group_id: null,
+        reversal_reason: null,
+        created_by: null,
+        created_at: null,
+        search_text: null,
+      } as LedgerViewRow,
+      { reverse: false, reconcile: false, manage: false },
+    ),
   );
 
   return { lines, total, truncated: total > lines.length };

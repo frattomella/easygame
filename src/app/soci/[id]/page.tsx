@@ -363,8 +363,23 @@ export default function MemberDetailsPage() {
     }
   };
 
+  /**
+   * **Diceva «inviate» e non inviava niente.**
+   *
+   * Il pulsante mostrava un messaggio di successo e non chiamava nessuna rotta:
+   * una segreteria che ci contava aspettava una mail che non sarebbe mai
+   * partita, e la persona dall'altra parte non riceveva nulla senza che
+   * nessuno lo sapesse.
+   *
+   * Un invito a un socio non esiste ancora come funzione del prodotto. Finche
+   * non esiste, il pulsante lo dice: e un'assenza dichiarata, che si puo
+   * pianificare, invece di una promessa falsa.
+   */
   const handleShareCredentials = () => {
-    showToast("success", "Credenziali inviate al socio via email");
+    showToast(
+      "error",
+      "L'invito a un socio non e ancora disponibile: le credenziali si consegnano dalla scheda della persona in area riservata.",
+    );
   };
 
   const formatDate = (dateString: string) => {
@@ -697,7 +712,7 @@ export default function MemberDetailsPage() {
           onClick={() => setEditingSection(null)}
         >
           <div 
-            className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden"
+            className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90dvh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b">

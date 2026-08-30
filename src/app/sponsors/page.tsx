@@ -1,6 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import {
+  fetchSponsorsWithCredit,
+  recordSponsorCollection,
+} from "@/lib/sponsors/client";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
@@ -55,9 +59,9 @@ import { useRouter } from "next/navigation";
 import { sortByName } from "@/lib/sorting";
 import {
   fromSponsorCents,
-  normalizeLegacySponsorCollections,
   normalizeSponsorContract,
   resolveSponsorCredit,
+  type SponsorCredit,
 } from "@/lib/sponsors/model";
 
 const SPONSOR_TYPE_OPTIONS = [
@@ -245,6 +249,24 @@ export default function SponsorsPage() {
 
       setSponsors(Array.isArray(sponsorsData) ? sponsorsData : []);
       setPayments(Array.isArray(paymentsData) ? paymentsData : []);
+
+      /*
+        Le tre cifre le calcola il server, che conosce **entrambe** le fonti
+        degli incassi e sa perche non si sommano due volte. La lettura e
+        separata di proposito: se fallisce, l'elenco degli sponsor si vede
+        comunque, con il solo dovuto.
+      */
+      const conCredito = await fetchSponsorsWithCredit({ clubId });
+      if (!conCredito.error && conCredito.data?.sponsors) {
+        setCreditiDalServer(
+          new Map(
+            conCredito.data.sponsors.map((riga) => [
+              String(riga.sponsor.id),
+              riga.credit,
+            ]),
+          ),
+        );
+      }
     } catch (error) {
       console.error("Error loading sponsors and payments:", error);
       showToast("error", "Errore nel caricamento dei dati");
@@ -309,24 +331,35 @@ export default function SponsorsPage() {
     perche un club che ha usato entrambe non deve vedere lo stesso incasso due
     volte.
   */
+  /**
+   * **Le tre cifre arrivano dal server, e non si ricalcolano qui.**
+   *
+   * Erano calcolate nel browser da una fonte sola: la vecchia collezione JSON.
+   * Da quando un incasso di sponsorizzazione e una riga del registro degli
+   * incassi, quella collezione e la piu vecchia delle due — e uno sponsor che
+   * aveva appena pagato 2.000 su 5.000 compariva con residuo **5.000** in
+   * questo elenco e **3.000** nella sua scheda. Due schermate della stessa
+   * applicazione, due risposte alla stessa domanda.
+   *
+   * Il ripiego locale resta per il primo istante, prima che la lettura torni:
+   * mostra il dovuto, che il contratto porta con se, invece di un riquadro
+   * vuoto.
+   */
+  const [creditiDalServer, setCreditiDalServer] = useState<
+    Map<string, SponsorCredit>
+  >(new Map());
+
   const sponsorCredit = React.useCallback(
     (sponsor: any) => {
-      const merged = new Map<string, any>();
-      for (const payment of [
-        ...getSponsorPayments(sponsor?.id),
-        ...(Array.isArray(sponsor?.payments) ? sponsor.payments : []),
-      ]) {
-        const key = String(payment?.id || "").trim();
-        if (key && merged.has(key)) continue;
-        merged.set(key || `riga-${merged.size}`, payment);
-      }
+      const dalServer = creditiDalServer.get(String(sponsor?.id || ""));
+      if (dalServer) return dalServer;
 
       return resolveSponsorCredit({
         contract: normalizeSponsorContract(sponsor?.contract),
-        collections: normalizeLegacySponsorCollections([...merged.values()]),
+        collections: [],
       });
     },
-    [getSponsorPayments],
+    [creditiDalServer],
   );
 
   const formatAmount = React.useCallback(
@@ -500,29 +533,37 @@ export default function SponsorsPage() {
     }
 
     try {
-      const newPaymentData = {
-        ...newPayment,
-        id: `payment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      /*
+        **L'incasso di uno sponsor va nel registro degli incassi**, come quello
+        della scheda. Questa riga scriveva ancora nella vecchia collezione
+        JSON, che la rotta degli incassi dichiara congelata: il denaro non
+        arrivava in prima nota, e il rendiconto del club non vedeva un euro di
+        sponsorizzazioni registrate da qui.
+      */
+      const risposta = await recordSponsorCollection({
+        clubId: currentClubId,
+        sponsorId: newPayment.sponsorId,
         amount: parseFloat(newPayment.amount),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+        paidAt: newPayment.date || null,
+        paymentMethod: newPayment.type === "entrata" ? "Bonifico" : "Bonifico",
+        notes: newPayment.description || null,
+      });
+      if (risposta.error) throw new Error(risposta.error.message);
 
-      const addedPayment = await addClubData(
-        currentClubId,
-        "sponsor_payments",
-        newPaymentData,
-      );
-      const currentPayments = Array.isArray(payments) ? payments : [];
-      setPayments([...currentPayments, addedPayment]);
+      await loadSponsorsAndPayments();
       setShowAddPaymentDialog(false);
       resetNewPayment();
       showToast("success", "Pagamento registrato con successo");
     } catch (error) {
       console.error("Error saving payment:", error);
-      showToast("error", "Errore nel salvare il pagamento");
+      showToast(
+        "error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore nel salvare il pagamento",
+      );
     }
-  }, [newPayment, clubId, payments, showToast, resetNewPayment]);
+  }, [newPayment, clubId, showToast, resetNewPayment, loadSponsorsAndPayments]);
 
   // Delete sponsor
   const handleDeleteSponsor = React.useCallback(
@@ -1174,7 +1215,7 @@ export default function SponsorsPage() {
           }
         }}
       >
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-hidden">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90dvh] overflow-hidden">
           <DialogHeader className="border-b px-6 py-4">
             <DialogTitle className="text-lg">
               {isEditMode

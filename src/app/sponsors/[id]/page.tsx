@@ -285,9 +285,21 @@ export default function SponsorDetailsPage() {
       (risposta.data.collections || []).map((incasso) => ({
         id: incasso.id,
         description: incasso.notes || incasso.counterpartyLabel || "Incasso",
-        amount: fromSponsorCents(incasso.amountCents),
-        /* Uno storno e un'uscita: e denaro che torna indietro, e si vede. */
-        type: incasso.amountCents < 0 || incasso.reversed ? "uscita" : "entrata",
+        /*
+          L'importo esce sempre **positivo**, e il verso lo dice `type`: la
+          tabella scrive gia il segno davanti. Prendere il valore con il suo
+          segno stampava «-€-500,00» sulla riga di uno storno.
+        */
+        amount: Math.abs(fromSponsorCents(incasso.amountCents)),
+        /*
+          **Il verso lo dice il segno, non `reversed`.**
+
+          `reversed` e vero su **entrambe** le facce della coppia — l'originale
+          e il suo storno — perche serve a escluderle dai totali. Usarlo come
+          verso faceva comparire due righe «Uscita» per un incasso stornato,
+          sotto un riquadro «Incassato» che diceva correttamente zero.
+        */
+        type: incasso.amountCents < 0 ? "uscita" : "entrata",
         date: incasso.paidAt || "",
         paymentMethod: incasso.paymentMethod || "",
         notes: incasso.notes || "",
@@ -639,7 +651,12 @@ export default function SponsorDetailsPage() {
 
             {/* Tabs for different sections */}
             <Tabs defaultValue="anagrafica">
-              <TabsList className="grid w-full grid-cols-3">
+              {/*
+                Tre linguette in 375 px stanno strette. La stessa forma di
+                /movements e della scheda socio: a colonna su telefono, in fila
+                da tablet in su.
+              */}
+              <TabsList className="grid w-full grid-cols-3 sm:flex sm:w-fit">
                 <TabsTrigger value="anagrafica">
                   <Building className="h-4 w-4 mr-2" />
                   Anagrafica
@@ -1062,6 +1079,17 @@ export default function SponsorDetailsPage() {
                         </TableBody>
                       </Table>
                     </div>
+                    {/*
+                      Il pulsante di cancellazione resta, e dice perche non
+                      cancella: un incasso si storna, dalla pagina Movimenti.
+                      Toglierlo del tutto lascerebbe chi lo cercava senza
+                      risposta; lasciarlo muto era peggio, perche prometteva
+                      un'azione che non c'e.
+                    */}
+                    <p className="mt-3 text-xs text-slate-500">
+                      Un incasso non si cancella: si storna dalla pagina
+                      Movimenti, cosi la correzione resta leggibile.
+                    </p>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1143,7 +1171,7 @@ export default function SponsorDetailsPage() {
           onClick={() => setEditingSection(null)}
         >
           <div 
-            className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden"
+            className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90dvh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b">
@@ -1159,7 +1187,7 @@ export default function SponsorDetailsPage() {
             <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
               {editingSection === 'anagrafica' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="flex items-center gap-2">
                       <Label>Sponsor</Label>
                       <Switch 
@@ -1189,7 +1217,7 @@ export default function SponsorDetailsPage() {
                       onChange={(e) => setEditFormData({...editFormData, fiscalCode: e.target.value})}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Telefono (Primario)</Label>
                       <Input 
@@ -1225,7 +1253,7 @@ export default function SponsorDetailsPage() {
 
               {editingSection === 'sede' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>Indirizzo</Label>
                       <Input 
@@ -1288,7 +1316,7 @@ export default function SponsorDetailsPage() {
                       onChange={(e) => setEditFormData({...editFormData, vatNumber: e.target.value})}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <Label>PEC</Label>
                       <Input 
@@ -1340,7 +1368,7 @@ export default function SponsorDetailsPage() {
                 onChange={(e) => setNewPayment({...newPayment, description: e.target.value})}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Importo (€) *</Label>
                 <Input 
@@ -1361,7 +1389,7 @@ export default function SponsorDetailsPage() {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Data *</Label>
                 <Input 

@@ -114,24 +114,71 @@ const aBlocchi = async (delegate, righe, blocco = 2000) => {
 
 const misure = [];
 
+/**
+ * Quante volte si misura, e perche non una sola.
+ *
+ * Una revisione ostile ha rifatto queste misure e ha ottenuto numeri diversi —
+ * il riepilogo oltre soglia dove qui risultava dentro. Aveva ragione su tre
+ * cose, e sono corrette qui:
+ *
+ * 1. **manca(va) un `ANALYZE`.** Dopo aver scritto trentacinquemila righe le
+ *    statistiche del pianificatore dicono ancora «una riga», e Postgres sceglie
+ *    piani su stime che non hanno niente a che vedere con il dataset. La prima
+ *    misura pagava quel piano sbagliato;
+ * 2. **un campione solo** non e una misura: la prima esecuzione paga le cache
+ *    fredde, la compilazione dei prepared statement e la prima connessione;
+ * 3. **un filtro solo.** Il riepilogo con l'anno fiscale vede meta delle righe;
+ *    quello che la pagina chiede quando nessuno sceglie un anno le vede tutte,
+ *    ed e lo scenario piu pesante.
+ *
+ * Si riporta la **mediana**, e accanto il minimo e il massimo: una mediana da
+ * sola nasconde una coda, e la coda e cio che un club vede il lunedi mattina.
+ */
+const RIPETIZIONI = 5;
+
 const cronometra = async (etichetta, soglia, fn) => {
-  const t0 = process.hrtime.bigint();
-  let esito = null;
+  const tempi = [];
   let errore = null;
+
+  /* Un giro a vuoto: scalda le cache e non entra nella misura. */
   try {
-    esito = await fn();
+    await fn();
   } catch (error) {
     errore = error;
   }
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  const verdetto = errore ? "ERRORE" : ms <= soglia ? "OK  " : "OLTRE";
+
+  if (!errore) {
+    for (let giro = 0; giro < RIPETIZIONI; giro += 1) {
+      const t0 = process.hrtime.bigint();
+      try {
+        await fn();
+      } catch (error) {
+        errore = error;
+        break;
+      }
+      tempi.push(Number(process.hrtime.bigint() - t0) / 1e6);
+    }
+  }
+
+  tempi.sort((a, b) => a - b);
+  const ms = tempi.length ? tempi[Math.floor(tempi.length / 2)] : 0;
+  const min = tempi.length ? tempi[0] : 0;
+  const max = tempi.length ? tempi[tempi.length - 1] : 0;
+
+  const verdetto = errore ? "ERRORE" : max <= soglia ? "OK  " : "OLTRE";
   console.log(
-    `  ${verdetto} ${etichetta.padEnd(46)} ${ms.toFixed(0).padStart(7)} ms   (soglia ${soglia} ms)` +
+    `  ${verdetto} ${etichetta.padEnd(46)} ${ms.toFixed(0).padStart(7)} ms` +
+      ` (min ${min.toFixed(0)}, max ${max.toFixed(0)})   (soglia ${soglia} ms)` +
       (errore ? `   ${String(errore.message).split(NEWLINE)[0].slice(0, 80)}` : ""),
   );
-  const riga = { etichetta, soglia, ms, entro: !errore && ms <= soglia, errore: Boolean(errore) };
+
+  /*
+    Il verdetto guarda il **massimo**, non la mediana: una soglia rispettata a
+    meta delle esecuzioni non e una soglia rispettata.
+  */
+  const riga = { etichetta, soglia, ms, min, max, entro: !errore && max <= soglia, errore: Boolean(errore) };
   misure.push(riga);
-  return { ...riga, esito };
+  return riga;
 };
 
 const semina = async () => {
@@ -319,10 +366,19 @@ const semina = async () => {
     },
   });
 
+  /*
+    **`ANALYZE` prima di misurare.** Dopo trentacinquemila scritture le
+    statistiche del pianificatore dicono ancora «una riga»: senza, si misura un
+    piano scelto su stime che non descrivono il dataset, e il numero che ne esce
+    non e ne il caso vero ne un caso peggiore riproducibile.
+  */
+  await prisma.$executeRawUnsafe("ANALYZE");
+
   console.log(
     `  ${T.atleti} atleti - ${T.incassi} incassi - ${T.movimenti} movimenti - ` +
       `${T.liquidazioni} liquidazioni - ${T.compensi} compensi - ${T.storici} storici` +
-      `${NEWLINE}  righe di prima nota: ~${RIGHE_TOTALI.toLocaleString("it-IT")}`,
+      `${NEWLINE}  righe di prima nota: ~${RIGHE_TOTALI.toLocaleString("it-IT")}` +
+      `${NEWLINE}  statistiche aggiornate con ANALYZE`,
   );
 };
 
@@ -377,6 +433,14 @@ const misura = async () => {
   await cronometra("8. rendiconto annuale", 2000, () =>
     buildAccountingReport({ organizationId: CLUB, fiscalYear: 2026 }, scope),
   );
+  /*
+    **Il caso piu pesante, che il collaudo non misurava.** L'anno fiscale
+    dimezza le righe; quando nessuno sceglie un anno — che e cio che la pagina
+    chiede aprendosi — il riepilogo le vede tutte.
+  */
+  await cronometra("8b. rendiconto senza filtri", 2000, () =>
+    buildAccountingReport({ organizationId: CLUB }, scope),
+  );
   await cronometra("9. saldi di tutti i conti", 1000, () =>
     listFinancialAccountBalances(scope),
   );
@@ -418,7 +482,11 @@ try {
       "RIEPILOGO" +
       NEWLINE +
       misure
-        .map((m) => `  ${m.etichetta.padEnd(46)} ${m.ms.toFixed(0).padStart(7)} ms`)
+        .map(
+          (m) =>
+            `  ${m.etichetta.padEnd(46)} ${m.ms.toFixed(0).padStart(7)} ms` +
+            ` (min ${m.min.toFixed(0)}, max ${m.max.toFixed(0)}, soglia ${m.soglia})`,
+        )
         .join(NEWLINE),
   );
 } catch (error) {

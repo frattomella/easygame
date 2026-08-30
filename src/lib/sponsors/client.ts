@@ -88,3 +88,17 @@ export const recordSponsorCollection = (input: {
       },
     },
   );
+
+/**
+ * Gli sponsor del club, ognuno con le sue tre cifre, **calcolate dal server**.
+ *
+ * Sostituisce il calcolo che l'elenco faceva nel browser da una fonte sola: da
+ * quando un incasso di sponsorizzazione e una riga del registro degli incassi,
+ * la vecchia collezione JSON e la piu vecchia delle due, e uno sponsor che
+ * aveva appena pagato compariva con residuo pieno nell'elenco e corretto nella
+ * sua scheda.
+ */
+export const fetchSponsorsWithCredit = (options: { clubId?: string | null } = {}) =>
+  apiRequest<{ sponsors: SponsorCreditView[] }>(
+    withClub("/api/v1/sponsorships", options.clubId),
+  );

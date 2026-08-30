@@ -322,7 +322,14 @@ export default function ManagementSummary({
   role: string | null;
 }) {
   const [filtri, setFiltri] = React.useState<Filtri>(FILTRI_VUOTI);
-  const [report, setReport] = React.useState<ManagementReport | null>(null);
+  /*
+    `truncated` fa parte della risposta e non del tipo di dominio: e una
+    proprieta della **lettura**, non del riepilogo. Sta qui perche la pagina
+    debba dichiararla, che e la cosa che non faceva.
+  */
+  const [report, setReport] = React.useState<
+    (ManagementReport & { truncated?: boolean }) | null
+  >(null);
   const [balances, setBalances] = React.useState<
     Array<{ accountId: string; balanceCents: number }> | null | undefined
   >(undefined);
@@ -699,6 +706,34 @@ export default function ManagementSummary({
               </span>
             ) : null}
           </div>
+
+          {/*
+            **Il troncamento si dichiara, e questa era la pagina che taceva.**
+
+            Il server calcola `truncated` e lo restituisce; questa schermata lo
+            dichiarava nel tipo della risposta e non lo leggeva in nessuna riga.
+            Una revisione ostile ha misurato un club da 42.000 righe: la pagina
+            stampava sedici riquadri in euro, cinque tabelle e il confronto con
+            l'anno prima sulle **quarantamila piu recenti**, e sotto il titolo
+            diceva «40000 movimenti considerati» senza un solo segnale.
+            Mancavano 434.520 euro di incassato e 418.520 di pagato.
+
+            La pagina dei movimenti l'avviso ce l'aveva; l'export rifiuta
+            proprio per non consegnare un file incompleto. La superficie con cui
+            si chiudono i conti era l'unica muta.
+          */}
+          {report?.truncated ? (
+            <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                <strong>Questi totali non coprono tutto il periodo.</strong> La
+                lettura si e fermata a {cash?.lineCount || 0} movimenti, dai piu
+                recenti: cio che viene prima non e in nessuno dei numeri qui
+                sotto. Restringi il periodo o scegli un anno fiscale, e i totali
+                torneranno a coprire l&apos;insieme intero.
+              </span>
+            </p>
+          ) : null}
 
           {errore ? (
             <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">

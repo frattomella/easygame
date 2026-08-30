@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canAccessClubResource } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -34,6 +35,18 @@ export async function GET(request: Request, context: Context) {
     );
     if (!organizationId || !scope.allowedOrganizationIds.includes(organizationId)) {
       return jsonError("Accesso negato", 403);
+    }
+
+    /*
+      **Il permesso, che qui non c'era.** Il file e un allegato di una
+      compilazione: puo essere una carta d'identita, un certificato, la foto di
+      un minore. Il confine era coerente — l'organizzazione arriva dal percorso
+      e viene passata come club preferito, quindi il ruolo si risolve per
+      quella — e mancava l'altra meta. Chiunque appartenesse al club scaricava
+      qualunque allegato conoscendone l'identificativo.
+    */
+    if (!canAccessClubResource(scope.activeRole, "forms", "read")) {
+      return jsonError("Accesso negato per il ruolo attivo", 403);
     }
 
     const raw = String(asset.data_base64 || "");

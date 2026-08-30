@@ -1,5 +1,9 @@
 import { prisma } from "./prisma";
-import { readAllAccountingLines, type AccountingScope } from "./accounting";
+import {
+  readAccountingAggregationLines,
+  resolveAccountingScopeId,
+  type AccountingScope,
+} from "./accounting";
 import {
   canReadAccountBalances,
   listFinancialAccountBalances,
@@ -83,12 +87,10 @@ const asText = (value: unknown) => String(value ?? "").trim();
  * `truncated: true`, che e cio che si puo dire di onesto. Un riepilogo
  * silenziosamente parziale sarebbe peggio di un errore.
  */
-const NESSUN_PERMESSO = { reverse: false, reconcile: false, manage: false };
-
 const leggiTutteLeRighe = (
   filtri: Record<string, unknown>,
   scope: AccountingScope,
-) => readAllAccountingLines(filtri, scope, NESSUN_PERMESSO);
+) => readAccountingAggregationLines(filtri, scope);
 
 /* ========================================================================== */
 /* La competenza: crediti e debiti, letti dai loro proprietari                  */
@@ -281,50 +283,53 @@ export const buildAccountingReport = async (
   };
 
   /*
-    La lettura delle righe viene **prima**, e non per ordine di importanza: e
-    lei che verifica il confine — `listAccountingEntries` risolve il club e
-    nega l'accesso a quello di un altro. Le letture che seguono si appoggiano a
-    quel verdetto invece di ripeterlo con criteri propri, che e il modo in cui
-    due controlli sullo stesso confine finiscono per non coincidere piu.
+    **Il confine si verifica prima, e da solo.**
+
+    Prima lo verificava la lettura delle righe, ed era corretto ma costoso: le
+    altre quattro letture aspettavano che finisse per potersi appoggiare al suo
+    verdetto. Su 35.000 righe la sola sequenza fra il registro (1,4 s) e la
+    competenza (0,9 s) portava il riepilogo **oltre la soglia di due secondi**.
+
+    `resolveAccountingScopeId` fa lo stesso controllo senza leggere niente, e
+    da li in poi le cinque letture partono insieme. Il verdetto resta uno solo:
+    e la stessa funzione che `listAccountingEntries` usa dentro di se.
   */
-  const { lines, truncated } = await leggiTutteLeRighe(filtriDiLettura, scope);
+  const organizationId = resolveAccountingScopeId(scope, input.organizationId);
 
-  const organizationId =
-    asText(input.organizationId) || asText(scope.activeOrganizationId);
-  if (!organizationId) throw new Error("Accesso negato: nessun club attivo selezionato");
-
-  const [causali, competenza, saldi, precedenti] = await Promise.all([
-    listOperationTypes(organizationId, { seed: false }),
-    readAccrualSummary(organizationId, input.now || new Date()),
-    /*
-      I saldi hanno un permesso proprio, e chi non ce l'ha riceve `null`: la
-      matrice della pagina e quella della rotta devono essere la stessa
-      (lezione W3-14), e un elenco con i saldi a zero le farebbe divergere in
-      silenzio.
-    */
-    canReadAccountBalances(scope.activeRole)
-      ? listFinancialAccountBalances(
-          {
-            userId: asText(scope.userId),
-            activeOrganizationId: scope.activeOrganizationId || null,
-            activeRole: scope.activeRole,
-            allowedOrganizationIds: scope.allowedOrganizationIds,
-          },
-          { organizationId },
-        )
-      : Promise.resolve(null),
-    input.compareWith
-      ? leggiTutteLeRighe(
-          {
-            ...filtriDiLettura,
-            from: input.compareWith.from ?? null,
-            to: input.compareWith.to ?? null,
-            fiscalYear: input.compareWith.fiscalYear ?? null,
-          },
-          scope,
-        )
-      : Promise.resolve(null),
-  ]);
+  const [{ lines, truncated }, causali, competenza, saldi, precedenti] =
+    await Promise.all([
+      leggiTutteLeRighe(filtriDiLettura, scope),
+      listOperationTypes(organizationId, { seed: false }),
+      readAccrualSummary(organizationId, input.now || new Date()),
+      /*
+        I saldi hanno un permesso proprio, e chi non ce l'ha riceve `null`: la
+        matrice della pagina e quella della rotta devono essere la stessa
+        (lezione W3-14), e un elenco con i saldi a zero le farebbe divergere in
+        silenzio.
+      */
+      canReadAccountBalances(scope.activeRole)
+        ? listFinancialAccountBalances(
+            {
+              userId: asText(scope.userId),
+              activeOrganizationId: scope.activeOrganizationId || null,
+              activeRole: scope.activeRole,
+              allowedOrganizationIds: scope.allowedOrganizationIds,
+            },
+            { organizationId },
+          )
+        : Promise.resolve(null),
+      input.compareWith
+        ? leggiTutteLeRighe(
+            {
+              ...filtriDiLettura,
+              from: input.compareWith.from ?? null,
+              to: input.compareWith.to ?? null,
+              fiscalYear: input.compareWith.fiscalYear ?? null,
+            },
+            scope,
+          )
+        : Promise.resolve(null),
+    ]);
 
   const bucketByOperationType = Object.fromEntries(
     causali.map((causale) => [causale.code, causale.reportingBucket]),

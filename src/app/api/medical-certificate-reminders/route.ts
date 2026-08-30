@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { canAccessClubResource } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -74,16 +75,30 @@ export async function POST(request: Request) {
   const scope = await resolveOrganizationScopeForUser(
     session.db.user_id,
     requestedOrganizationId,
+    request.headers.get("x-active-access-role"),
   );
 
-  if (scope.allowedOrganizationIds.length === 0) {
+  if (!scope.activeOrganizationId) {
     return jsonError("Club non disponibile", 403);
+  }
+
+  /*
+    Il confine e il club **attivo**, e il permesso quello dei certificati
+    medici. Questa rotta manda notifiche e **email** ai tutori a nome della
+    societa, e chiedeva soltanto che l'atleta fosse in uno qualunque dei club di
+    chi domanda: un genitore poteva far partire un sollecito a ogni altra
+    famiglia. Vedi `src/lib/auth/active-club-boundary.ts`.
+  */
+  if (
+    !canAccessClubResource(scope.activeRole, "medical_certificates", "update")
+  ) {
+    return jsonError("Accesso negato per il ruolo attivo", 403);
   }
 
   const athlete = await prisma.athlete.findFirst({
     where: {
       id: athleteId,
-      organization_id: { in: scope.allowedOrganizationIds },
+      organization_id: scope.activeOrganizationId,
     },
     include: {
       organization: { select: { id: true, name: true } },

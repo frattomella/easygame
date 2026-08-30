@@ -3,6 +3,10 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import {
+  removeMemberProfile,
+  updateMemberProfile,
+} from "@/lib/members/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -425,29 +429,37 @@ export default function SociPage() {
 
     setBulkBusy(true);
     try {
-      const { data: clubData, error: fetchError } = await supabase
-        .from("clubs")
-        .select("members")
-        .eq("id", clubId)
-        .single();
+      /*
+        **Un socio alla volta, anche quando sono venti.**
 
-      if (fetchError) throw fetchError;
+        Questa azione rileggeva `clubs.members` intera, cambiava gli elementi
+        selezionati e risalvava l'array. E la riscrittura di massa che il
+        registro generico non accetta piu — perche una sonda di concorrenza le
+        ha fatto perdere un socio appena ammesso — e questa era l'ultima
+        superficie che ancora la tentava, tramite l'adapter `supabase`.
 
-      const currentMembers = Array.isArray(clubData?.members)
-        ? clubData.members
-        : [];
-      const updatedMembers = currentMembers.map((member: any) =>
-        targetIds.has(String(member?.id))
-          ? { ...member, ...updatesFor(member) }
-          : member,
+        Venti richieste invece di una sono venti scritture di **una riga**,
+        ognuna sotto il `FOR UPDATE` del club: chi ammette un socio nello stesso
+        momento si mette in fila invece di sparire.
+      */
+      const bersagli = rowsForScope("selected");
+      const esiti = await Promise.all(
+        bersagli.map((socio) =>
+          updateMemberProfile({
+            clubId,
+            memberId: String(socio.id),
+            updates: updatesFor(socio),
+          }),
+        ),
       );
 
-      const { error: updateError } = await supabase
-        .from("clubs")
-        .update({ members: updatedMembers })
-        .eq("id", clubId);
-
-      if (updateError) throw updateError;
+      const falliti = esiti.filter((esito) => esito.error);
+      if (falliti.length) {
+        throw new Error(
+          falliti[0].error?.message ||
+            `${falliti.length} soci non sono stati aggiornati`,
+        );
+      }
 
       await fetchSoci();
       showToast("success", successMessage(targetIds.size));
@@ -481,32 +493,28 @@ export default function SociPage() {
     if (!confirm("Sei sicuro di voler eliminare questo socio?")) return;
 
     try {
-      // Get current club data
-      const { data: clubData, error: fetchError } = await supabase
-        .from("clubs")
-        .select("members")
-        .eq("id", clubId)
-        .single();
+      /*
+        **La cancellazione passa dal servizio, che sa dire di no.**
 
-      if (fetchError) throw fetchError;
-
-      // Filter out the member to delete
-      const currentMembers = clubData?.members || [];
-      const updatedMembers = currentMembers.filter(
-        (member: any) => member.id !== socioId,
-      );
-
-      // Update the club with the new members array
-      const { error: updateError } = await supabase
-        .from("clubs")
-        .update({ members: updatedMembers })
-        .eq("id", clubId);
-
-      if (updateError) throw updateError;
+        Riscriveva l'array intero dal browser, e cosi facendo scavalcava la
+        guardia del libro soci: un socio con una storia associativa veniva
+        cancellato dall'anagrafica e restava citato nel registro, che e la sola
+        cosa che il libro esiste per impedire. La scheda del socio era gia stata
+        collegata al servizio; questo elenco no.
+      */
+      const esito = await removeMemberProfile({ clubId, memberId: socioId });
+      if (esito.error) throw new Error(esito.error.message);
 
       setSoci(soci.filter((socio) => socio.id !== socioId));
+      showToast("success", "Socio eliminato");
     } catch (error) {
       console.error("Error deleting socio:", error);
+      showToast(
+        "error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore nell'eliminazione del socio",
+      );
     }
   };
 
