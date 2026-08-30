@@ -4927,3 +4927,135 @@ venisse a mancare, la cosa giusta e **smettere di distribuire**, non lasciare
 invecchiare.
 
 **Stato:** ATTIVA.
+
+## ADR-0093 — La prima nota e una **vista**, non una tabella
+
+**Contesto.** La Wave 4 doveva dare a un club una prima nota: un registro con
+data, conto, causale, controparte e origine, che raccontasse **tutto** il denaro
+del club. Ma quel denaro ha gia cinque proprietari — gli incassi delle famiglie,
+i compensi del lavoro sportivo, le liquidazioni dei bandi, i movimenti
+registrati a mano, e il blob storico che nessuno ha travasato — e ognuno lo
+possiede per una ragione che la contabilita non cancella.
+
+**La decisione, in due tempi.**
+
+*Il primo:* il registro **non materializza** cio che appartiene ad altri
+domini. Li **proietta**. Una tabella che copiasse un incasso sarebbe la seconda
+contabilita che il committente ha vietato: due fonti per lo stesso numero, e
+nessun modo di tenerle allineate — con la certezza che il giorno in cui
+divergono nessuno sa quale credere.
+
+*Il secondo:* la proiezione vive **nel database**, come vista
+(`accounting_ledger_lines`). La prima stesura la faceva in TypeScript, e
+rileggeva l'intero registro a ogni pagina: su 35.000 righe una pagina costava
+5,7 secondi, il rendiconto 110 e l'export 93, perche entrambi **sfogliavano**
+quella funzione — quaranta e ottanta volte, e ognuna ricostruiva tutto per
+restituire cinquecento righe. Il costo era O(N × pagine), e una cache sopra
+sarebbe stata un cerotto su una domanda posta male.
+
+**Perche una vista e non una tabella materializzata.** Una vista non contiene
+niente, quindi non puo disallinearsi da cio che legge: se un incasso viene
+stornato, la vista lo sa nello stesso istante in cui lo sa
+`payment_transactions`, perche **e** `payment_transactions`. Una tabella
+materializzata avrebbe riportato il problema del primo tempo — due fonti — con
+in piu un lavoro di aggiornamento da tenere corretto.
+
+**Il prezzo, e come lo si paga.** La regola finisce scritta due volte: in SQL,
+che e cio che la produzione esegue, e in TypeScript
+(`src/lib/accounting/ledger-view.ts`), che e cio che i test leggono e che il
+doppio di Prisma ricompone. Due scritture della stessa regola sono due
+contabilita, **a meno che qualcuno provi che coincidono**:
+`scripts/wave-4-registro-riconciliazione.mjs` le confronta contro Postgres,
+riga per riga e campo per campo, sui casi in cui potrebbero divergere — storno,
+rimborso, netto zero, documento annullato, importo a mezzo centesimo, e sette
+righe di blob malformate.
+
+Senza quella sonda questa decisione sarebbe sbagliata. Con lei, e la sola che
+regge il vincolo di non avere una seconda contabilita **e** quello di aprire un
+rendiconto in meno di due secondi.
+
+**Contro ADR-0007 (Cedi Platform).** Una vista SQL standard non e
+accoppiamento all'hosting: e il contrario. Il giorno in cui la logica di dominio
+si sposta fuori da Next.js, questa definizione si porta dietro cosi com'e,
+mentre una proiezione scritta in TypeScript andrebbe riscritta.
+
+**Conseguenze operative.** La vista richiede `previewFeatures = ["views"]` sul
+generatore Prisma ed e l'unica del progetto. `prisma migrate deploy` la applica
+come SQL; `prisma db push` **non** la creerebbe, e per questo `db:push` resta
+bloccato dalla guardia e `scripts/start-local.mjs` lo rifiuta esplicitamente.
+
+---
+
+## ADR-0094 — Il confine multi-tenant e una **dichiarazione obbligatoria**, non un elenco
+
+**Contesto.** Due tornate di revisione ostile hanno trovato la stessa famiglia
+di difetto quattro volte, e ogni volta la correzione precedente sembrava
+completa.
+
+1. Un modulo autorizzava una riga contro `allowedOrganizationIds` — tutti i club
+   dell'utente — mentre il permesso si verifica con `activeRole`, che e il ruolo
+   nel club **attivo**. Corretto in `document-templates.ts`, con un commento che
+   lo raccontava.
+2. Sei moduli nuovi lo hanno reintrodotto. Corretti tutti e sei.
+3. La seconda revisione ne ha trovati **altri dodici**. Corretti con una
+   funzione sola, importata: `src/lib/auth/active-club-boundary.ts`.
+4. E poi ha trovato due risorse — `users` e `assets` — che non avevano un
+   controllo **sbagliato**: non ne avevano affatto. Una ricerca dell'anti-pattern
+   non poteva vederle, perche l'anti-pattern li non c'era.
+
+**La decisione.** Il confine non e piu un elenco di risorse da ricordarsi di
+aggiornare. Ogni risorsa di modello **dichiara** il suo confine in
+`RESOURCE_BOUNDARIES` — `club`, `persona` o `chiuso` — e
+`assertOgniRisorsaDichiaraIlConfine()`, eseguita al caricamento del modulo,
+**impedisce a `resources.ts` di caricarsi** se una ne resta senza.
+
+Vive nel codice e non in un test perche un test si puo dimenticare di
+aggiornare, e perche il difetto che chiude e precisamente una dimenticanza.
+
+**E la seconda meta, che vale quanto la prima.** Il confine dice **su quale
+club**; non dice **cosa si puo fare**. I due controlli sono entrambi
+obbligatori, e cinque moduli superavano il primo senza eseguire mai il secondo —
+uno di essi dichiarava `activeRole` nel suo tipo di scope e non lo leggeva in
+nessuna riga. Il permesso e stato aggiunto **dentro il perimetro del dominio**,
+non nelle rotte, cosi che una rotta nuova non possa dimenticarlo.
+
+**L'unica eccezione, e quanto e stretta.** L'elenco dei club resta filtrato
+sull'appartenenza — li la risorsa **e** il club, e il selettore di societa deve
+poter leggere quella su cui sta per spostarsi. Ma del club **non attivo** escono
+le sole colonne che servono a sceglierlo. L'eccezione era corretta nella ragione
+e tre ordini di grandezza piu larga nell'effetto: usciva la riga intera, con
+IBAN, saldi, prima nota storica, sponsor e soci col codice fiscale.
+
+---
+
+## ADR-0095 — L'idempotenza vale sulle righe **vive**, non su quelle stornate
+
+**Contesto.** Tre vincoli di unicita della Wave 4 — l'evento sorgente di un
+movimento, il documento di un incasso, la fattura di una rata — sono nati
+**pieni**, cioe contando anche le righe che non rappresentano piu niente. Ognuno
+dei tre ha prodotto lo stesso guasto, e ognuno lo ha prodotto **sulla procedura
+che il prodotto stesso consigliava**:
+
+| Vincolo | Cosa impediva |
+|---|---|
+| `accounting_entries_evento_unico` | il messaggio dice «storna e registra di nuovo»; la riga stornata teneva la chiave, e l'importo corretto non entrava mai |
+| `receipts_transaction_id_key` | una ricevuta annullata per errore bloccava per sempre il suo incasso, e l'emissione restituiva il documento morto **dichiarando successo** |
+| `invoices_payment_id_key` | una rata saldata in due incassi poteva avere una sola fattura, e il secondo tentativo falliva **dopo** che il numero era stato assegnato: ogni clic ne bruciava uno |
+
+**La decisione.** L'unicita di un fatto vale fra le sue rappresentazioni
+**vive**. I tre vincoli sono indici unici **parziali**: `WHERE reversed_at IS
+NULL` per il movimento, `WHERE cancelled_at IS NULL` per i documenti; e
+l'unicita per rata e stata tolta, perche il dominio emette per **incasso** e non
+per rata.
+
+**Perche non indebolisce niente.** Due richieste simultanee per lo stesso evento
+continuano a infrangersi sull'indice, perche nessuna delle due e stornata. Cio
+che cambia e che dopo una correzione il posto si libera — ed e la sola cosa che
+rende la correzione possibile.
+
+**La regola generale, per chi scrivera il quarto.** Un vincolo di unicita su un
+dominio che ammette lo **storno** deve essere parziale sulla colonna che
+dichiara lo storno. Altrimenti il vincolo protegge dal doppio e vieta la
+correzione, e non c'e modo di accorgersene finche qualcuno non sbaglia un
+importo.
+

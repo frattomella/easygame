@@ -162,6 +162,29 @@ Classificazione:
 | Fee di piattaforma | PARTIAL | `calculatePlatformFee` implementata e usata nei metadata, ma non c'e incasso reale |
 | Abbonamenti / HUB extra | MISSING | `/hub` (607 righe) e un catalogo **statico**: nessuna chiamata dati, nessuna persistenza |
 
+
+## Contabilita dopo la remediation della Wave 4 (2026-08-30)
+
+Cio che due tornate di revisione ostile hanno cambiato. Le capability sopra
+restano vere; qui c'e la parte che prima era descritta e non funzionava, o
+funzionava e non si vedeva.
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| **Il registro regge un club grande** | COMPLETE | La prima nota e adesso la vista `accounting_ledger_lines`: filtri, ordinamento, paginazione, conteggio, ricerca e aggregazione scendono nel database. Su 35.000 righe — sotto il tetto dichiarato di 40.000 — la prima pagina costa **325 ms** contro 5.719, il rendiconto **723 ms** contro 110.621, l'export **1.057 ms** contro 93.285. Il tetto **non e stato abbassato** per far passare il collaudo; oltre il tetto il rendiconto lo dichiara e l'export rifiuta. Misure riproducibili: `scripts/measure-accounting-performance.mjs --grande`, con `ANALYZE`, un giro a vuoto e cinque ripetizioni |
+| **La classificazione arriva a un incasso** | COMPLETE | `activity_scope_snapshot` esisteva e **nessuna schermata mandava la causale**: ogni incasso reale nasceva non classificato, e il rendiconto dichiarava non classificato il cento per cento delle entrate delle famiglie mentre il documento emesso per lo stesso incasso diceva «commerciale». La finestra di incasso chiede adesso la causale — **facoltativa**, perche una causale obbligatoria su una finestra che si apre trenta volte di fila diventa un campo compilato a caso — e il servizio congela l'ambito leggendolo dal catalogo. Un codice fuori catalogo si **rifiuta**: una classificazione che cita il nulla non e una classificazione mancante, e una sbagliata che sembra compilata |
+| **Un documento annullato non blocca il suo incasso** | COMPLETE | L'unicita del documento e adesso parziale su `cancelled_at`: annullata una ricevuta emessa per errore, quell'incasso torna documentabile. Prima l'emissione restituiva il documento morto **dichiarando successo**, e la prima nota — che i documenti annullati li esclude — mostrava l'incasso senza numero |
+| **Un documento fiscale nasce solo dal suo dominio** | COMPLETE | Il registro generico non puo piu **crearlo**: nasce da un incasso, dove si risolve l'intestatario, si congela lo snapshot e si chiede il numero alla sequenza. Un collaboratore creava una riga `receipts` con il `transaction_id` di un incasso vero, e quell'incasso non poteva **piu** essere documentato |
+| **L'immutabilita e un elenco di cio che e permesso** | COMPLETE | Era un elenco di stati **emessi**, e `status` e testo libero senza enum: una ricevuta creata con stato `"sent"` o `"posted"` non diventava mai immutabile, e lo **snapshot** — la fonte che la stampa legge — restava riscrivibile per sempre. Adesso si e in **bozza**, oppure il documento e uscito. Modalita di pagamento e causale sono immutabili: si vedono sul foglio |
+| **Il rendiconto dichiara il troncamento** | COMPLETE | Il server calcolava `truncated` e la pagina non lo leggeva: su un club da 42.000 righe stampava sedici riquadri in euro sulle quarantamila piu recenti, senza un segnale. Mancavano 434.520 € di incassato |
+| **Le due schermate degli sponsor dicono lo stesso residuo** | COMPLETE | L'elenco lo calcolava nel browser da una fonte sola: uno sponsor che aveva appena pagato 2.000 su 5.000 compariva con residuo **5.000** nell'elenco e **3.000** nella sua scheda. Adesso lo calcola il server, che conosce entrambe le fonti |
+| **Il confine multi-tenant e una dichiarazione obbligatoria** | COMPLETE | `resources.ts` **non si carica** se una risorsa di modello non dichiara il suo confine. Chiude la classe di difetto che quattro correzioni successive non erano riuscite a chiudere, e le due risorse che un confine non ce l'avevano affatto. Vedi [ADR-0094](18-decision-log.md#adr-0094--il-confine-multi-tenant-e-una-dichiarazione-obbligatoria-non-un-elenco) |
+| **Riconciliazione bancaria** | **PARTIAL, e va detto** | Cio che esiste e una **spunta manuale** con data valuta e riferimento sulla riga. Nessun parser CAMT/MT940/CBI, nessun matching automatico: chiamarla «riconciliazione bancaria» senza questa riga sarebbe una promessa |
+| **Libro soci** | **PARTIAL, e va detto** | Registro append-only con numerazione assegnata, delibera, cessazione e stato derivato a una data. E **bookkeeping**, non conformita statutaria: nessun professionista ha confermato che soddisfi gli obblighi dello statuto o del RUNTS, e il prodotto non lo chiama «legalmente conforme» da nessuna parte |
+| **Chiusura dei periodi** | MISSING | Un esercizio non si chiude, e un movimento retrodatato entra in un anno gia rendicontato |
+| **Ciclo passivo** | MISSING | I fornitori esistono come **controparte**; fatture ricevute, scadenzario passivo e pagamenti a fornitore no |
+| **Motore IVA** | MISSING | Imponibile e imposta si conservano e si espongono; non si **liquidano** |
+
 ## Abbigliamento e materiali
 
 | Capability | Stato | Note |
