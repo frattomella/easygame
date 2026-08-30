@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { apiRequest } from "@/lib/api/client";
 import { Wallet } from "lucide-react";
 import { InstallmentLedgerList } from "./InstallmentLedgerList";
 import { RegisterPaymentDialog } from "./RegisterPaymentDialog";
@@ -77,6 +78,37 @@ export function AthletePaymentLedger({
     canManage,
     onLedgerChanged,
   });
+
+  /**
+   * Le causali attive del club, per la finestra di incasso.
+   *
+   * Si leggono qui e non nella finestra perche la finestra si apre e si chiude
+   * trenta volte di fila: leggerle a ogni apertura sarebbe trenta richieste per
+   * un elenco che non cambia. Se la lettura fallisce — un ruolo che le causali
+   * non le vede — l'elenco resta vuoto e la finestra lo dice, invece di
+   * impedire di registrare l'incasso.
+   */
+  const [causali, setCausali] = React.useState<
+    Array<{ code: string; label: string }>
+  >([]);
+
+  React.useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      const risposta = await apiRequest<{
+        operationTypes?: Array<{ code: string; label: string; isActive?: boolean }>;
+      }>("/api/v1/fiscal/operation-types");
+      if (!vivo || risposta.error) return;
+      setCausali(
+        (risposta.data?.operationTypes || [])
+          .filter((causale) => causale.isActive !== false)
+          .map((causale) => ({ code: causale.code, label: causale.label })),
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -244,6 +276,7 @@ export function AthletePaymentLedger({
         ledger={ledger.selectedLedger}
         athleteName={athleteName}
         methodChoices={methodChoices}
+        operationTypeChoices={causali}
         isSaving={ledger.isSaving}
         onSubmit={ledger.registerPayment}
       />

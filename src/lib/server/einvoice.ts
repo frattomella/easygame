@@ -168,6 +168,15 @@ const linesFromInvoice = (invoice: any): EInvoiceLine[] => {
       unitPriceCents: lineCents,
       vatRate: snapshot?.amounts.vatRate ?? null,
       vatNature: snapshot?.amounts.vatNature ?? null,
+      /*
+        L'imposta **congelata sul documento**, non ricalcolata. Il documento la
+        ricava per differenza dal totale incassato; il tracciato la
+        ricalcolava dall'aliquota, e su circa meta degli importi al 22% i due
+        numeri divergono di un centesimo — abbastanza perche
+        `<ImportoTotaleDocumento>` dichiarasse una cifra diversa da quella che
+        la famiglia ha pagato.
+      */
+      vatAmountCents: snapshot?.amounts.vatAmountCents ?? null,
     },
   ];
 };

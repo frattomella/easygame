@@ -765,16 +765,30 @@ test("una riga propria che dichiara la stagione risponde con quella", async () =
   assert.equal(perData.total, 0, "e non quella in cui la data cadrebbe");
 });
 
-test("una stagione che il club non ha configurato da elenco vuoto, non un errore", async () => {
+test("una stagione che il club non ha in elenco si rifiuta, invece di rispondere zero", async () => {
+  /*
+    **Questa prova diceva il contrario, e una revisione ostile ha mostrato
+    perche era sbagliata.**
+
+    Rispondere «elenco vuoto» sembrava prudente e non lo era: le righe
+    proiettate una stagione non la dichiarano mai, quindi il filtro le toglieva
+    tutte comunque. Il risultato era un elenco vuoto, un rendiconto **tutto a
+    zero** e un CSV valido e senza righe — e nessun modo di distinguere «questa
+    stagione non ha movimenti» da «questa stagione non esiste», che e la
+    differenza fra una societa tranquilla e un segnalibro vecchio o una
+    stagione cancellata.
+
+    Il rifiuto vale solo per un club che le stagioni **le ha configurate**: chi
+    non le ha ancora non deve vedersi rifiutare una lettura per una
+    configurazione che nessuno gli ha chiesto. Lo prova il caso qui sotto.
+  */
   await accounting.createAccountingEntry(movimento(), scope());
 
-  const esito = await accounting.listAccountingEntries(
-    { seasonId: "1999-2000" },
-    scope(),
-    PIENI,
+  await assert.rejects(
+    () =>
+      accounting.listAccountingEntries({ seasonId: "1999-2000" }, scope(), PIENI),
+    /non e fra quelle configurate dal club/,
   );
-
-  assert.equal(esito.total, 0);
 });
 
 test("senza stagioni configurate il filtro non fa sparire il denaro", async () => {

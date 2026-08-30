@@ -334,3 +334,107 @@ test("il tracciato si produce comunque, anche con dei rilievi", () => {
   assert.ok(costruito.xml.length > 0);
   assert.equal(costruito.formallyValid, false);
 });
+
+/* ============ il tracciato non deve contraddire il documento === */
+
+test("l'imposta congelata sul documento vince su quella ricalcolata", () => {
+  /*
+    **Il difetto, misurato su una fattura vera da 10,01 euro.**
+
+    Il documento ricava l'imposta **per differenza** dal totale incassato —
+    `splitVatFromTotal` — mentre il tracciato la ricalcolava come
+    `imponibile x aliquota`. Le due strade non danno lo stesso centesimo su
+    circa meta degli importi al 22%: l'XML dichiarava
+    `<ImportoTotaleDocumento>10.00` per una fattura da 10,01, e si dichiarava
+    formalmente valido.
+
+    Un file che contraddice il documento che rappresenta e peggio di un file
+    rifiutato: lo SdI lo accetta, e la differenza la scopre chi riconcilia.
+  */
+  const { xml, totalCents } = costruisci({
+    document: {
+      ...DOCUMENTO,
+      lines: [
+        {
+          description: "Sponsorizzazione",
+          quantity: 1,
+          unitPriceCents: 820,
+          vatRate: 22,
+          /* Cio che il documento dichiara, per differenza da 10,01. */
+          vatAmountCents: 181,
+        },
+      ],
+    },
+  });
+
+  assert.match(xml, /<ImportoTotaleDocumento>10\.01<\/ImportoTotaleDocumento>/);
+  assert.match(xml, /<Imposta>1\.81<\/Imposta>/);
+  assert.equal(totalCents, 1001);
+});
+
+test("senza imposta dichiarata si ricalcola dall'aliquota, come prima", () => {
+  const { xml, totalCents } = costruisci({
+    document: {
+      ...DOCUMENTO,
+      lines: [
+        {
+          description: "Sponsorizzazione",
+          quantity: 1,
+          unitPriceCents: 100000,
+          vatRate: 22,
+        },
+      ],
+    },
+  });
+
+  assert.match(xml, /<ImportoTotaleDocumento>1220\.00<\/ImportoTotaleDocumento>/);
+  assert.equal(totalCents, 122000);
+});
+
+test("aliquota positiva e natura IVA insieme sono un rilievo", () => {
+  /*
+    La natura dice **perche** l'IVA non si applica: dichiararla insieme a
+    un'aliquota positiva significa dire due cose che si escludono, e lo SdI
+    scarta il file. La configurazione che lo produce e legittima — una causale
+    puo avere aliquota 22 e una natura scritta per errore — quindi il rilievo
+    va detto dove si puo ancora rimediare.
+  */
+  const issues = builder.validateEInvoice({
+    profile: PROFILO(),
+    recipient: INTESTATARIO,
+    document: {
+      ...DOCUMENTO,
+      lines: [
+        {
+          description: "Sponsorizzazione",
+          quantity: 1,
+          unitPriceCents: 100000,
+          vatRate: 22,
+          vatNature: "N2.2",
+        },
+      ],
+    },
+  });
+
+  assert.ok(
+    issues.some((issue) => /si escludono/.test(issue.message)),
+    "il rilievo deve dirlo prima dello scarto",
+  );
+});
+
+test("il bollo dichiarato e un rilievo: entra nel totale del tracciato", () => {
+  /*
+    Il bollo entra in `<ImportoTotaleDocumento>`; se il documento non lo ha
+    addebitato — e l'importo del documento e l'incasso, che il bollo non lo
+    contiene — il tracciato dichiara allo SdI un totale diverso da quello che
+    la famiglia ha pagato. E il caso tipico di una ASD: aliquota zero e bollo
+    da due euro.
+  */
+  const issues = builder.validateEInvoice({
+    profile: PROFILO(),
+    recipient: INTESTATARIO,
+    document: { ...DOCUMENTO, stampDutyCents: 200 },
+  });
+
+  assert.ok(issues.some((issue) => /bollo entra nel totale/.test(issue.message)));
+});

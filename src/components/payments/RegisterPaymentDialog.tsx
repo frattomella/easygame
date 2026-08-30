@@ -57,6 +57,24 @@ export type RegisterPaymentSubmission = {
   paymentMethod: string;
   paidAt: string;
   notes: string;
+  /**
+   * **La causale, che nessuna schermata chiedeva.**
+   *
+   * `activity_scope_snapshot` esiste sull'incasso, il servizio sa risolverlo
+   * dal catalogo, e la classificazione fiscale e cio per cui meta della Wave 4
+   * e stata costruita. Ma l'unica schermata che registra un incasso di una
+   * famiglia non mandava `operation_type_code`, quindi ogni incasso reale
+   * nasceva **non classificato** — e il rendiconto dichiarava non classificato
+   * il cento per cento delle entrate delle famiglie, mentre il documento
+   * emesso per lo stesso incasso diceva «commerciale».
+   *
+   * Resta facoltativa, ed e una scelta: una causale obbligatoria su una
+   * finestra che una segreteria apre trenta volte di fila diventa un campo che
+   * si compila a caso, e una classificazione inventata e peggio di una
+   * mancante. Il rendiconto dichiara quante righe nessuno ha classificato, ed
+   * e cosi che un club capisce che ha del lavoro da fare.
+   */
+  operationTypeCode: string | null;
 };
 
 export type RegisterPaymentDialogProps = {
@@ -68,6 +86,13 @@ export type RegisterPaymentDialogProps = {
   /** I metodi configurati dal club. Mai testo libero (ADR-0036). */
   methodChoices?: string[];
   isSaving?: boolean;
+  /**
+   * Le causali attive del club, gia lette da chi monta la finestra.
+   *
+   * Vuoto significa «il club non ne ha configurate», e la finestra lo dice
+   * invece di mostrare un elenco vuoto senza spiegazione.
+   */
+  operationTypeChoices?: Array<{ code: string; label: string }>;
   onSubmit: (submission: RegisterPaymentSubmission) => void | Promise<void>;
 };
 
@@ -78,12 +103,14 @@ export function RegisterPaymentDialog({
   athleteName,
   methodChoices = [],
   isSaving = false,
+  operationTypeChoices = [],
   onSubmit,
 }: RegisterPaymentDialogProps) {
   const [amount, setAmount] = React.useState("");
   const [paymentMethod, setPaymentMethod] = React.useState("");
   const [paidAt, setPaidAt] = React.useState(todayIsoDate());
   const [notes, setNotes] = React.useState("");
+  const [operationTypeCode, setOperationTypeCode] = React.useState("");
   const [touched, setTouched] = React.useState(false);
 
   /*
@@ -98,6 +125,7 @@ export function RegisterPaymentDialog({
     setPaymentMethod(methodChoices[0] || "");
     setPaidAt(todayIsoDate());
     setNotes("");
+    setOperationTypeCode("");
     setTouched(false);
     // `methodChoices` e un array ricostruito a ogni render: dipendere dal suo
     // contenuto rimetterebbe a zero i campi mentre si scrive.
@@ -126,6 +154,7 @@ export function RegisterPaymentDialog({
       paymentMethod,
       paidAt,
       notes: notes.trim(),
+      operationTypeCode: operationTypeCode || null,
     });
   };
 
@@ -173,6 +202,41 @@ export function RegisterPaymentDialog({
                 onChange={(event) => setPaidAt(event.target.value)}
               />
             </div>
+          </div>
+
+          {/*
+            **La causale, facoltativa e dichiarata.**
+
+            Il posto della classificazione fiscale e questo: e qui che qualcuno
+            sa cosa sta incassando. Restava vuota su ogni incasso reale perche
+            la finestra non la chiedeva, e il rendiconto dichiarava non
+            classificato il cento per cento delle entrate delle famiglie.
+          */}
+          <div className="space-y-2">
+            <Label htmlFor="registra-pagamento-causale">Causale</Label>
+            <Select
+              value={operationTypeCode || "__nessuna__"}
+              onValueChange={(value) =>
+                setOperationTypeCode(value === "__nessuna__" ? "" : value)
+              }
+            >
+              <SelectTrigger id="registra-pagamento-causale">
+                <SelectValue placeholder="Non classificato" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__nessuna__">Non classificato</SelectItem>
+                {operationTypeChoices.map((causale) => (
+                  <SelectItem key={causale.code} value={causale.code}>
+                    {causale.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {operationTypeChoices.length === 0
+                ? "Il club non ha ancora configurato le causali: configurale in Organizzazione per classificare le entrate."
+                : "Decide come l'incasso compare nel rendiconto, e si congela adesso: correggere la causale domani non cambia questo incasso."}
+            </p>
           </div>
 
           <div className="space-y-2">

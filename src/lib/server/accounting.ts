@@ -180,8 +180,41 @@ const resolveSeasonWindow = async (organizationId: string, seasonId: string) => 
     where: { id: organizationId },
     select: { settings: true },
   });
+  /*
+    **Configurate davvero**, e non sintetizzate dal normalizzatore.
+
+    `normalizeClubSeasons` restituisce una stagione predefinita anche a un club
+    che non ne ha nessuna: e utile alle schermate, e qui sarebbe una risposta
+    inventata. La distinzione fra i due casi decide se una stagione sconosciuta
+    e un errore o un dato mancante.
+  */
+  const configurate = Array.isArray((club?.settings as any)?.seasons)
+    ? ((club?.settings as any).seasons as unknown[])
+    : [];
   const stagioni = normalizeClubSeasons(club?.settings)?.seasons || [];
   const stagione = stagioni.find((riga: any) => String(riga.id) === seasonId);
+
+  /*
+    **Una stagione che il club ha configurato, e questa non c'e: si rifiuta.**
+
+    Senza questo controllo il filtro cadeva sul confronto letterale, e le righe
+    proiettate — che una stagione non la dichiarano mai — non ne portavano
+    nessuna: la risposta era un elenco vuoto, un rendiconto tutto a zero e un
+    CSV valido e senza righe. Nessun errore, e nessun modo di distinguere
+    «questa stagione non ha movimenti» da «questa stagione non esiste», che e
+    la differenza fra una societa tranquilla e un segnalibro vecchio.
+
+    Il rifiuto vale **solo** se il club le stagioni le ha configurate. Chi non
+    le ha ancora configurate non deve vedersi rifiutare una lettura per una
+    configurazione che nessuno gli ha chiesto: li vale la sola regola che il
+    dato sostiene — chi dichiara la stagione risponde con quella — e le righe
+    che non la dichiarano restano fuori dal filtro, non dal registro.
+  */
+  if (!stagione && configurate.length > 0) {
+    throw new Error(
+      `La stagione «${seasonId}» non e fra quelle configurate dal club: scegline una dall'elenco, oppure configurala.`,
+    );
+  }
   if (!stagione) return null;
 
   const inizio = toDateOrNull(stagione.startDate);

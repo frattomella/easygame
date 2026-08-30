@@ -252,7 +252,20 @@ test("lo storno conserva anche la causale dell'originale", async () => {
   /*
     Uno storno classificato diversamente dall'originale sposterebbe denaro da
     una voce di rendiconto a un'altra senza che nessuno lo abbia deciso.
+
+    La causale va seminata nel catalogo: un codice fuori catalogo adesso viene
+    **rifiutato**, e il doppio deve descrivere un club che quella causale ce
+    l'ha davvero.
   */
+  fake.rows("fiscalOperationType").push({
+    id: "causale-quota-attivita",
+    organization_id: CLUB,
+    code: "quota_attivita",
+    label: "Quota attivita",
+    activity_scope: "institutional",
+    is_active: true,
+  });
+
   const creato = await service.createPaymentTransaction(
     {
       paymentId: RATA,
@@ -355,7 +368,22 @@ test("senza causale dichiarata non si congela nessun ambito", async () => {
   assert.equal(incassi()[0].activity_scope_snapshot, null);
 });
 
-test("un ambito fuori catalogo non entra: diventa «non classificato»", async () => {
+test("un ambito fuori catalogo non entra: vale quello che dice la causale", async () => {
+  /*
+    Un ambito che non e nel catalogo degli ambiti non e una dichiarazione: si
+    scarta, e vale cio che la **causale** dichiara. Prima cadeva su «non
+    classificato», che era la risposta giusta solo finche nessuno leggeva la
+    causale — adesso la si legge, e l'autorita e li.
+  */
+  fake.rows("fiscalOperationType").push({
+    id: "causale-quota-attivita",
+    organization_id: CLUB,
+    code: "quota_attivita",
+    label: "Quota attivita",
+    activity_scope: "institutional",
+    is_active: true,
+  });
+
   await service.createPaymentTransaction(
     {
       paymentId: RATA,
@@ -367,7 +395,7 @@ test("un ambito fuori catalogo non entra: diventa «non classificato»", async (
     scope(),
   );
 
-  assert.equal(incassi()[0].activity_scope_snapshot, "unspecified");
+  assert.equal(incassi()[0].activity_scope_snapshot, "institutional");
 });
 
 test("lo storno conserva l'ambito congelato dell'originale", async () => {
@@ -440,22 +468,29 @@ test("l'ambito arriva dal catalogo quando nessuno lo dichiara", async () => {
   );
 });
 
-test("una causale che il club non ha in catalogo non classifica niente", async () => {
+test("una causale che il club non ha in catalogo si rifiuta", async () => {
   /*
-    Un codice che nessuna causale porta non e una dichiarazione valida:
-    congelarlo come istituzionale o commerciale sarebbe inventare.
+    Prima l'incasso entrava con quel codice e ambito «non classificato»: la
+    riga restava in tabella a citare una causale che nel suo club non esiste, e
+    a chi aveva sbagliato a scriverla non lo diceva nessuno. Una
+    classificazione che cita il nulla non e una classificazione mancante: e una
+    sbagliata, che sembra compilata.
   */
-  await service.createPaymentTransaction(
-    {
-      paymentId: RATA,
-      amount: 200,
-      paymentMethod: "Contanti",
-      operationTypeCode: "codice_inesistente",
-    },
-    scope(),
+  await assert.rejects(
+    () =>
+      service.createPaymentTransaction(
+        {
+          paymentId: RATA,
+          amount: 200,
+          paymentMethod: "Contanti",
+          operationTypeCode: "codice_inesistente",
+        },
+        scope(),
+      ),
+    /non e nel catalogo del club/,
   );
 
-  assert.equal(incassi()[0].activity_scope_snapshot, "unspecified");
+  assert.equal(incassi().length, 0, "nessun incasso scritto");
 });
 
 test("l'ambito congelato non cambia se la causale viene corretta dopo", async () => {

@@ -38,6 +38,20 @@ export type EInvoiceLine = {
   vatRate: number | null;
   /** Natura IVA (`N2.2`, `N4`, ...), obbligatoria quando l'aliquota e zero. */
   vatNature?: string | null;
+  /**
+   * **L'imposta congelata sul documento, quando c'e.**
+   *
+   * Senza, il tracciato la ricalcolava come `imponibile x aliquota`. Ma il
+   * documento l'imposta la ricava **per differenza** dal totale incassato —
+   * `splitVatFromTotal` — e le due strade non danno lo stesso centesimo su
+   * circa meta degli importi al 22%. Su una fattura da 10,01 euro il tracciato
+   * dichiarava `<ImportoTotaleDocumento>10.00`: un file che contraddice la
+   * fattura che rappresenta, e che si dichiarava formalmente valido.
+   *
+   * Quando l'imposta e nota, si usa quella. Il tracciato deve dire cio che il
+   * documento dice, non cio che il documento avrebbe potuto dire.
+   */
+  vatAmountCents?: number | null;
 };
 
 export type EInvoiceRecipient = {
@@ -177,7 +191,41 @@ export const validateEInvoice = (input: {
           "Con aliquota zero serve la natura IVA (per esempio N2.2 o N4): lo SdI non accetta un'assenza senza motivo.",
       });
     }
+
+    /*
+      **E il contrario, che nessuno controllava.** La natura IVA dice *perche*
+      l'operazione non e imponibile: dichiararla insieme a un'aliquota positiva
+      significa dire due cose che si escludono, e lo SdI scarta il file. La
+      configurazione che lo produce e legittima — una causale puo avere
+      aliquota 22 e una natura scritta per errore — quindi il rilievo va detto
+      qui, dove si puo ancora rimediare, invece di scoprirlo dallo scarto.
+    */
+    if (Number(line.vatRate) > 0 && asText(line.vatNature)) {
+      issues.push({
+        path: `document.lines.${index}.vatNature`,
+        message:
+          "Un'aliquota maggiore di zero e una natura IVA insieme si escludono: la natura dice perche l'IVA non si applica. Correggi la causale.",
+      });
+    }
   });
+
+  /*
+    **Il bollo dichiarato ma non addebitato.**
+
+    Il bollo entra in `<ImportoTotaleDocumento>`; se il documento non lo ha
+    addebitato — e l'importo del documento e l'incasso, che il bollo non lo
+    contiene — il tracciato dichiara al Sistema di Interscambio un totale
+    diverso da quello che la famiglia ha pagato. E il caso tipico di una ASD:
+    aliquota zero e bollo da due euro.
+  */
+  const bollo = Math.round(Number(input.document?.stampDutyCents) || 0);
+  if (bollo > 0) {
+    issues.push({
+      path: "document.stampDutyCents",
+      message:
+        "Il bollo entra nel totale del tracciato: verifica che sia stato addebitato anche sul documento, altrimenti l'XML dichiara una cifra diversa da quella incassata.",
+    });
+  }
 
   return issues;
 };
@@ -300,19 +348,41 @@ export const buildEInvoiceXml = (input: {
   const recipientCode = asText(recipient.recipientCode).toUpperCase() || "0000000";
 
   /* Le righe raggruppate per aliquota: il riepilogo ne vuole una per aliquota. */
-  const summaries = new Map<string, { rate: number; nature: string; taxableCents: number }>();
+  const summaries = new Map<
+    string,
+    { rate: number; nature: string; taxableCents: number; vatCents: number | null }
+  >();
   for (const line of document.lines) {
     const rate = line.vatRate === null ? 0 : Number(line.vatRate) || 0;
     const nature = asText(line.vatNature);
     const key = `${rate}|${nature}`;
-    const current = summaries.get(key) || { rate, nature, taxableCents: 0 };
+    const current =
+      summaries.get(key) || { rate, nature, taxableCents: 0, vatCents: null };
     current.taxableCents += lineTotalCents(line);
+
+    /*
+      **L'imposta dichiarata vince su quella ricalcolata.** Il documento la
+      ricava per differenza dal totale incassato; ricalcolarla come
+      `imponibile x aliquota` da un centesimo diverso su circa meta degli
+      importi al 22%, e il tracciato finiva per contraddire la fattura che
+      rappresenta.
+    */
+    if (line.vatAmountCents !== null && line.vatAmountCents !== undefined) {
+      current.vatCents =
+        (current.vatCents ?? 0) + Math.round(Number(line.vatAmountCents) || 0);
+    }
     summaries.set(key, current);
   }
 
-  /* L'imposta di ogni riepilogo, arrotondata una volta sola. */
-  const vatOf = (summary: { rate: number; taxableCents: number }) =>
-    Math.round((summary.taxableCents * summary.rate) / 100);
+  /* L'imposta di ogni riepilogo: quella dichiarata, o quella dell'aliquota. */
+  const vatOf = (summary: {
+    rate: number;
+    taxableCents: number;
+    vatCents: number | null;
+  }) =>
+    summary.vatCents !== null
+      ? summary.vatCents
+      : Math.round((summary.taxableCents * summary.rate) / 100);
 
   const vatCents = Array.from(summaries.values()).reduce(
     (sum, summary) => sum + vatOf(summary),

@@ -363,6 +363,12 @@ export function useAthletePaymentLedger({
           payment_method: submission.paymentMethod,
           notes: submission.notes,
           source: "MANUAL",
+          /*
+            La causale, che questa chiamata non mandava. Senza, ogni incasso
+            reale nasceva non classificato — e il servizio sa risolvere
+            l'ambito dal catalogo, ma solo se qualcuno gli dice quale causale.
+          */
+          operation_type_code: submission.operationTypeCode,
         },
       });
       setIsSaving(false);

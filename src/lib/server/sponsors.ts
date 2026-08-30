@@ -567,6 +567,29 @@ export const recordSponsorCollection = async (
 ) => {
   const preparato = await prepareSponsorCollection(input, scope);
 
+  /*
+    **La causale di sponsorizzazione e una proposta, non una dichiarazione.**
+
+    `buildSponsorCollectionInput` mette il codice `sponsorizzazione` quando
+    nessuno ne indica uno: e un ripiego ragionevole, ma un club che quella
+    causale non l'ha configurata non deve vedersi **rifiutare l'incasso** —
+    perche il registro degli incassi rifiuta un codice fuori catalogo, ed e
+    giusto che lo faccia quando qualcuno lo **dichiara**.
+    La distinzione fra dichiarato e proposto e la stessa che i documenti
+    fiscali fanno da sempre: qui la proposta cade se il catalogo non la
+    riconosce, e l'incasso entra non classificato invece di non entrare.
+  */
+  const codice = asText(preparato.operationTypeCode);
+  const dichiarato = asText(input.operationTypeCode);
+  if (codice && !dichiarato) {
+    const { getOperationType } = await import("./fiscal-config");
+    const causale = await getOperationType({
+      organizationId: preparato.organizationId,
+      code: codice,
+    });
+    if (!causale) preparato.operationTypeCode = null;
+  }
+
   const { createPaymentTransaction } = await import("./payment-transactions");
 
   const esito = await createPaymentTransaction(

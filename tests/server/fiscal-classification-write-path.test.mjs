@@ -617,7 +617,27 @@ test("una causale di un altro club non classifica un incasso", async () => {
     is_active: true,
   });
 
-  await registraIncasso({ ...CORPO, operation_type_code: "affitto_impianto" });
+  /*
+    **Adesso si rifiuta, invece di scrivere una classificazione che cita il
+    nulla.**
+
+    Prima l'incasso entrava con quel codice e ambito «non classificato»: la
+    riga restava in tabella a citare una causale che nel suo club non esiste, e
+    a chi aveva sbagliato non lo diceva nessuno. Una classificazione che cita il
+    nulla non e una classificazione mancante: e una sbagliata, che sembra
+    compilata.
+  */
+  await assert.rejects(
+    () => registraIncasso({ ...CORPO, operation_type_code: "affitto_impianto" }),
+    /non e nel catalogo del club/,
+  );
+
+  assert.equal(fake.rows("paymentTransaction").length, 0);
+});
+
+test("una causale del proprio club classifica, e il documento la porta", async () => {
+  /* Il controllo inverso: stretto non vuol dire che rifiuti anche il caso buono. */
+  await registraIncasso({ ...CORPO, operation_type_code: "quota_attivita" });
   const incasso = fake.rows("paymentTransaction")[0];
 
   const ricevuta = await documents.issueReceiptForTransaction(
@@ -625,11 +645,22 @@ test("una causale di un altro club non classifica un incasso", async () => {
     scope(),
   );
 
+  assert.equal(fake.rows("paymentTransaction")[0].operation_type_code, "quota_attivita");
+  assert.equal(
+    fake.rows("paymentTransaction")[0].activity_scope_snapshot,
+    "unspecified",
+    "l'ambito si congela dal catalogo: qui la causale dichiara «non classificato», ed e la verita",
+  );
+  /*
+    La causale **c'e** e il documento la porta; la **classificazione** no, e
+    non e una contraddizione: questa causale dichiara «non classificato», che e
+    cio che il club ha configurato. Il codice dice cosa si e incassato,
+    l'ambito dice come si tratta fiscalmente, e sono due dichiarazioni distinte.
+  */
+  assert.equal(ricevuta.operation_type_code, "quota_attivita");
   assert.equal(
     ricevuta.snapshot.classification.declared,
     false,
-    "un codice che il club non ha in catalogo non e una dichiarazione valida",
+    "una causale che non dichiara un ambito non e una classificazione dichiarata",
   );
-  assert.equal(ricevuta.snapshot.classification.source, "absent");
-  assert.equal(ricevuta.operation_type_code, null);
 });

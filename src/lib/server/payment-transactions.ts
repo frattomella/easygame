@@ -431,7 +431,24 @@ const risolviAmbito = async (
   if (isActivityScope(dichiarato)) return normalizeActivityScope(dichiarato);
 
   const causale = await getOperationType({ organizationId, code });
-  return causale ? normalizeActivityScope(causale.activityScope) : "unspecified";
+
+  /*
+    **Un codice che il club non ha in catalogo si rifiuta, e non si scrive.**
+
+    Prima si accettava e si congelava `unspecified`: l'incasso restava in
+    tabella citando una causale che non esiste, il documento emesso da quello
+    stesso incasso usciva NON CLASSIFICATO, e a chi aveva sbagliato a scrivere
+    il codice non lo diceva nessuno. Una classificazione che cita il nulla non
+    e una classificazione mancante: e una classificazione **sbagliata**, che
+    sembra compilata.
+  */
+  if (!causale) {
+    throw new Error(
+      `La causale «${code}» non e nel catalogo del club: configurala fra le causali, oppure registra l'incasso senza classificarlo.`,
+    );
+  }
+
+  return normalizeActivityScope(causale.activityScope);
 };
 
 /**

@@ -862,7 +862,25 @@ export default function ManagementSummary({
                     {percent(scope.unspecifiedShare)}) non hanno una
                     classificazione. Finche restano cosi, la ripartizione fra
                     istituzionale e commerciale non descrive l&apos;attivita
-                    della societa: la si completa configurando le causali.
+                    della societa.
+                    <br />
+                    {/*
+                      **Il rimedio non esiste per tutte le righe, e dirlo e piu
+                      onesto che promettere.**
+
+                      Le liquidazioni dei bandi e le uscite del lavoro sportivo
+                      non hanno una causale, e non possono averla: il loro
+                      dominio non ne conosce una. Quelle righe restano «non
+                      dichiarate» per sempre, e un club che riceve contributi o
+                      paga compensi non vedra mai questa quota scendere a zero.
+                      Mandarlo a configurare le causali era una risposta che per
+                      quelle righe non funziona.
+                    */}
+                    Le entrate e le uscite registrate a mano e gli incassi delle
+                    famiglie si classificano configurando le causali; i
+                    contributi degli enti e i compensi del lavoro sportivo
+                    restano «non dichiarati» perche il loro dominio non porta
+                    una causale, e non e qualcosa che si possa configurare.
                   </span>
                 </p>
               ) : (
