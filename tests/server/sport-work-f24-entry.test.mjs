@@ -275,3 +275,49 @@ test("se l'importo coincide, la seconda chiamata resta silenziosa", async () => 
 
   assert.equal(esito.financialEntrySkipped, null, "niente da segnalare");
 });
+
+test("dopo lo storno, l'importo corretto si registra davvero", async () => {
+  /*
+    **La procedura consigliata era impossibile.**
+
+    Il messaggio dice: «per correggerla si storna il movimento e se ne registra
+    uno nuovo». Ma la riga stornata conservava il suo `source_event_key`, e il
+    controllo di idempotenza la ritrovava: da quel momento l'adempimento non si
+    assolveva piu, e l'importo corretto non entrava mai. Il controllo che
+    consigliava la procedura era lo stesso che la impediva.
+
+    Una riga stornata non rappresenta piu niente — la coppia originale/storno
+    somma zero. L'idempotenza vale fra le righe **vive**, e l'indice unico
+    parziale del database dice adesso la stessa cosa.
+  */
+  await agenda.completeObligation("obl-1", { payment: versamento() }, scope());
+  const originale = movimenti()[0];
+  assert.equal(originale.amount_cents, 31600);
+
+  /* La segreteria storna: l'originale resta, marcato. */
+  originale.reversed_at = new Date("2026-09-20T00:00:00Z");
+
+  /* E riassolve con l'importo giusto. */
+  fake.rows("sportWorkObligation")[0].amount = 999.9;
+  const esito = await agenda.completeObligation(
+    "obl-1",
+    { payment: versamento() },
+    scope(),
+  );
+
+  assert.equal(esito.financialEntrySkipped, null, "niente da segnalare: si e potuto registrare");
+
+  const vive = movimenti().filter((riga) => !riga.reversed_at);
+  assert.equal(vive.length, 1, "una sola riga viva");
+  assert.equal(
+    vive[0].amount_cents,
+    99990,
+    "e porta l'importo corretto, non piu quello vecchio",
+  );
+
+  assert.equal(
+    movimenti().length,
+    2,
+    "l'originale stornato resta nei libri: il denaro non si cancella",
+  );
+});

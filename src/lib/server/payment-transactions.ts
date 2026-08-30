@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { getOperationType } from "./fiscal-config";
+import { isActivityScope } from "@/lib/fiscal/operation-types";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import type { FrozenSettlement } from "@/lib/payments/commission";
 import { isCounterpartyKind, normalizeActivityScope } from "@/lib/accounting/model";
@@ -397,6 +399,42 @@ export type CreatePaymentTransactionInput = {
 };
 
 /**
+ * **L'ambito da congelare sulla riga dell'incasso.**
+ *
+ * Tre casi, e l'ordine conta:
+ *
+ * 1. chi lo dichiara esplicitamente vince — puo aver letto la causale un
+ *    istante prima, dentro una transazione sua, e riletterla qui darebbe una
+ *    risposta piu recente di quella su cui ha deciso;
+ * 2. altrimenti, se l'incasso porta una causale, l'ambito e quello che il
+ *    **catalogo** dichiara adesso, e da adesso resta congelato;
+ * 3. senza causale non c'e niente da congelare, e la colonna resta `null`.
+ *    `null` e diverso da `"unspecified"`: il primo dice «non e stata
+ *    classificata», il secondo dice «e stata classificata come non
+ *    classificabile». Sono due cose diverse, e il rendiconto le conta
+ *    entrambe fra le non classificate senza dover indovinare quale sia.
+ */
+const risolviAmbito = async (
+  organizationId: string,
+  operationTypeCode: unknown,
+  dichiarato: unknown,
+) => {
+  /*
+    Senza causale non si congela niente, **nemmeno un ambito dichiarato**: un
+    ambito che nessuna causale giustifica sarebbe una classificazione che
+    nessuno ha preso. Questo controllo viene per primo, e non e un dettaglio di
+    ordine: e la regola.
+  */
+  const code = asText(operationTypeCode);
+  if (!code) return null;
+
+  if (isActivityScope(dichiarato)) return normalizeActivityScope(dichiarato);
+
+  const causale = await getOperationType({ organizationId, code });
+  return causale ? normalizeActivityScope(causale.activityScope) : "unspecified";
+};
+
+/**
  * I campi della controparte, nella forma in cui vanno scritti sulla riga.
  *
  * Il tipo passa da `isCounterpartyKind`: una stringa arbitraria in quella
@@ -570,6 +608,33 @@ export const createPaymentTransaction = async (
       }
     }
 
+    /*
+      **L'ambito si congela leggendo il catalogo, non aspettando che qualcuno
+      lo passi.**
+
+      La firma dichiarava un `activityScope` da fornire «da chi ha appena letto
+      la causale». Nessun chiamante lo forniva, e lo schema di validazione non
+      lo dichiarava, quindi Zod lo toglieva anche a chi ci avesse provato: ogni
+      incasso finiva in tabella con `activity_scope_snapshot = "unspecified"`,
+      e la ricaduta prevista dalla proiezione — `snapshot ?? causale corrente` —
+      non scattava mai, perche `??` non attraversa una stringa valorizzata.
+
+      Il risultato era che il rendiconto dichiarava **non classificato** il
+      cento per cento degli incassi delle famiglie, mentre il documento emesso
+      per lo stesso incasso diceva «commerciale». Due schermate, due risposte,
+      lo stesso fatto.
+
+      Adesso l'ambito lo risolve `getOperationType`, che e il proprietario del
+      catalogo, ed e la stessa disciplina del numero di un documento: non si
+      digita, si chiede a chi lo possiede. Chi lo passa esplicitamente vince,
+      perche puo aver letto la causale un istante prima in una transazione sua.
+    */
+    const ambitoCongelato = await risolviAmbito(
+      organizationId,
+      input.operationTypeCode,
+      input.activityScope,
+    );
+
     const row = await client.paymentTransaction.create({
       data: {
         organization_id: organizationId,
@@ -586,9 +651,7 @@ export const createPaymentTransaction = async (
         external_payment_id: asText(input.externalPaymentId) || null,
         external_event_id: asText(input.externalEventId) || null,
         operation_type_code: asText(input.operationTypeCode) || null,
-        activity_scope_snapshot: asText(input.operationTypeCode)
-          ? normalizeActivityScope(input.activityScope)
-          : null,
+        activity_scope_snapshot: ambitoCongelato,
         financial_account_id: asText(input.financialAccountId) || null,
         ...counterpartyColumns(input),
         ...settlementColumns(input.settlement),

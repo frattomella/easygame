@@ -392,3 +392,98 @@ test("lo storno conserva l'ambito congelato dell'originale", async () => {
     "uno storno classificato diversamente sposterebbe denaro fra due voci di rendiconto",
   );
 });
+
+/* ================== l'ambito si legge dal catalogo, non si aspetta */
+
+/*
+  **Il difetto H-4, e perche i test non lo vedevano.**
+
+  La firma prevedeva un `activityScope` fornito «da chi ha appena letto la
+  causale». Nessun chiamante lo forniva, e `paymentTransactionInputSchema` non
+  lo dichiarava, quindi Zod lo toglieva anche a chi ci avesse provato: ogni
+  incasso reale finiva in tabella con `activity_scope_snapshot` a
+  «unspecified», e il rendiconto dichiarava non classificato il cento per cento
+  degli incassi delle famiglie — mentre il documento emesso per lo stesso
+  incasso diceva «commerciale».
+
+  I test non lo vedevano perche passavano `activityScope` a mano, cioe
+  descrivevano un chiamante che non esiste. Questi due passano **solo** il
+  codice, come fa il prodotto.
+*/
+
+test("l'ambito arriva dal catalogo quando nessuno lo dichiara", async () => {
+  fake.rows("fiscalOperationType").push({
+    id: "causale-commerciale",
+    organization_id: CLUB,
+    code: "sponsorizzazione",
+    label: "Sponsorizzazione",
+    activity_scope: "commercial",
+    is_active: true,
+  });
+
+  await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Bonifico",
+      operationTypeCode: "sponsorizzazione",
+    },
+    scope(),
+  );
+
+  assert.equal(
+    incassi()[0].activity_scope_snapshot,
+    "commercial",
+    "l'incasso deve portare l'ambito che il catalogo dichiara, non «unspecified»",
+  );
+});
+
+test("una causale che il club non ha in catalogo non classifica niente", async () => {
+  /*
+    Un codice che nessuna causale porta non e una dichiarazione valida:
+    congelarlo come istituzionale o commerciale sarebbe inventare.
+  */
+  await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Contanti",
+      operationTypeCode: "codice_inesistente",
+    },
+    scope(),
+  );
+
+  assert.equal(incassi()[0].activity_scope_snapshot, "unspecified");
+});
+
+test("l'ambito congelato non cambia se la causale viene corretta dopo", async () => {
+  fake.rows("fiscalOperationType").push({
+    id: "causale-mutabile",
+    organization_id: CLUB,
+    code: "quota_corsi",
+    label: "Quota corsi",
+    activity_scope: "institutional",
+    is_active: true,
+  });
+
+  await service.createPaymentTransaction(
+    {
+      paymentId: RATA,
+      amount: 200,
+      paymentMethod: "Contanti",
+      operationTypeCode: "quota_corsi",
+    },
+    scope(),
+  );
+
+  /* Il club corregge la natura della causale, il giorno dopo. */
+  fake.rows("fiscalOperationType").find(
+    (c) => c.code === "quota_corsi",
+  ).activity_scope = "commercial";
+
+  assert.equal(
+    incassi()[0].activity_scope_snapshot,
+    "institutional",
+    "un rendiconto gia consegnato non deve cambiare natura retroattivamente",
+  );
+});

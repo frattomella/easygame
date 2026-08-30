@@ -875,3 +875,40 @@ posto una coppia polimorfa con l'etichetta congelata. **Nessuna tabella che
 materializzi incassi, compensi o contributi**: sarebbe la seconda contabilita.
 **Nessun ruolo `treasurer`**: la separazione «registra / storna» ottiene lo
 stesso con i permessi.
+
+### Wave 4 — remediation (2026-08-30)
+
+**`accounting_entries_evento_unico` diventa parziale anche su `reversed_at`.**
+L'unicita dell'evento contava anche le righe **stornate**, e il risultato era
+che la procedura di correzione consigliata dal prodotto era resa impossibile
+dal vincolo che la consigliava: un versamento F24 registrato per l'importo
+sbagliato e poi stornato lasciava in tabella la riga morta con il suo
+`source_event_key`, e da quel momento l'adempimento non si assolveva piu.
+
+Una riga stornata non rappresenta piu niente — la coppia originale/storno somma
+zero, e il fatto e tornato non registrato. L'unicita vale fra le righe **vive**:
+
+```sql
+CREATE UNIQUE INDEX accounting_entries_evento_unico
+  ON accounting_entries (organization_id, source_domain, source_event_key)
+  WHERE source_event_key IS NOT NULL AND reversed_at IS NULL;
+```
+
+La protezione contro la doppia registrazione non si indebolisce: due richieste
+simultanee per lo stesso evento continuano a infrangersi qui, perche nessuna
+delle due e stornata.
+
+**`payment_transactions.activity_scope_snapshot` viene finalmente scritto.** La
+colonna esisteva e il valore lo doveva passare il chiamante; nessun chiamante lo
+passava, e lo schema di validazione non lo dichiarava, quindi Zod lo toglieva
+anche a chi ci avesse provato. Ogni incasso reale finiva in tabella con
+`"unspecified"`, e il rendiconto dichiarava **non classificato il cento per
+cento degli incassi delle famiglie** — mentre il documento emesso per lo stesso
+incasso diceva «commerciale».
+
+Adesso lo risolve `getOperationType`, che e il proprietario del catalogo: e la
+stessa disciplina del numero di un documento, che non si digita ma si chiede a
+chi lo possiede. Senza causale non si congela niente, **nemmeno un ambito
+dichiarato**: un ambito che nessuna causale giustifica sarebbe una
+classificazione che nessuno ha preso.
+

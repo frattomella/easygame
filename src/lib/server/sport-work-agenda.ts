@@ -864,11 +864,27 @@ const registraVersamento = async (
 
   const chiave = `sport_work_obligation:${obligation.reference_key}`;
 
+  /*
+    **`reversed_at: null`, e senza questo la correzione era impossibile.**
+
+    Il messaggio di `confrontaImporto` dice a chi sbaglia l'importo: «storna il
+    movimento e registrane uno nuovo». Ma la riga stornata conservava il suo
+    `source_event_key`, e questo controllo la ritrovava: da quel momento
+    l'adempimento non si assolveva piu, e l'importo corretto non entrava mai.
+    La procedura consigliata era resa impossibile dal controllo che la
+    consigliava.
+
+    Una riga stornata non rappresenta piu niente — la coppia originale/storno
+    somma zero, e il fatto e tornato non registrato. L'idempotenza vale fra le
+    righe **vive**, e l'indice unico parziale lo dice adesso allo stesso modo
+    (migrazione `20260830120000_wave4_idempotenza_viva`).
+  */
   const gia = await (prisma as any).accountingEntry.findFirst({
     where: {
       organization_id: obligation.organization_id,
       source_domain: "MANUAL",
       source_event_key: chiave,
+      reversed_at: null,
     },
   });
   if (gia) return confrontaImporto(gia, importo);
@@ -911,6 +927,8 @@ const registraVersamento = async (
           organization_id: obligation.organization_id,
           source_domain: "MANUAL",
           source_event_key: chiave,
+          /* Vive, come sopra: l'indice unico che ci ha appena fermati e parziale. */
+          reversed_at: null,
         },
       });
       if (esistente) return confrontaImporto(esistente, importo);
