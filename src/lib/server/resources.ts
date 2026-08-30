@@ -1459,9 +1459,17 @@ const assertConcessioneDiAccessoLecita = async (
     return;
   }
 
+  /*
+    Un amministratore del club **attivo** tessera qualcun altro. Non se stesso:
+    una tessera che ci si concede da soli non e un'amministrazione, e con
+    `role: "owner"` sarebbe una promozione — piccola oggi, perche owner e
+    club_manager hanno gli stessi diritti, e una scalata il giorno in cui non
+    li avranno piu.
+  */
   if (
     belongsToActiveClub(scope, organization_id) &&
-    canManageClubConfiguration(scope.activeRole)
+    canManageClubConfiguration(scope.activeRole) &&
+    bersaglio !== chiamante
   ) {
     return;
   }
@@ -2130,7 +2138,13 @@ export const replaceClubResourceCollections = async (
  * lo diceva.
  */
 const assertColonneScalariDiClub = (input: Record<string, any>) => {
-  for (const nome of ["name", "status", "date", "organization_id", "id"]) {
+  /*
+    `title` non e una colonna, ma `normalizeClubResourceInput` lo usa come
+    ripiego per `name`: un operatore li dentro arrivava a Prisma e tornava
+    come 500 con la forma della query e l'identificativo del club nel
+    messaggio, invece del 400 che merita.
+  */
+  for (const nome of ["name", "title", "status", "date", "organization_id", "id"]) {
     const valore = input[nome];
     if (
       valore !== null &&
@@ -3840,7 +3854,26 @@ export const createResource = async (
           "Accesso negato: un club si crea per se, non a nome di un altro",
         );
       }
-      normalized.creator_id = scope.userId;
+
+      /*
+        **Solo quando il club nasce davvero.**
+
+        In modo `upsert` questo stesso oggetto e anche la meta `update`: la
+        riga qui sotto scriveva quindi `creator_id` **sopra un club
+        esistente**, senza che il chiamante lo avesse nemmeno nominato. Un
+        gestore che rimandava il proprio club con `mode: "upsert"` se lo
+        intestava, e il proprietario legittimo — che di norma non ha una riga
+        in `organization_users` — si ritrovava **fuori dal proprio club**.
+
+        Era peggio del difetto che la tornata prima aveva chiuso: li bisognava
+        dichiarare `creator_id`, qui lo scriveva il codice per conto
+        dell'attaccante.
+      */
+      if (mode !== "upsert" || !String(normalized.id || "").trim()) {
+        normalized.creator_id = scope.userId;
+      } else {
+        delete normalized.creator_id;
+      }
     }
 
     /*

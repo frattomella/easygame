@@ -853,6 +853,18 @@ export const issueInvoiceForTransaction = async (
           organization_id: context.organizationId,
           transaction_id: context.transaction.id,
           cancelled_at: null,
+          /*
+            **La stessa prova che chiede il controllo di idempotenza.**
+
+            Senza, la lettura di recupero restituiva **proprio la riga che il
+            controllo aveva scartato**: una bozza col numero digitato occupa
+            l'indice unico, quindi la `INSERT` si infrange di sicuro e il
+            recupero consegna la bozza dichiarando successo — con l'importo
+            sbagliato e senza fotografia. La guardia aggiunta sopra non
+            riduceva il difetto: lo rendeva **certo**, e in piu bruciava un
+            numero della sequenza a ogni tentativo.
+          */
+          NOT: { sequence: null },
         },
       }),
   );

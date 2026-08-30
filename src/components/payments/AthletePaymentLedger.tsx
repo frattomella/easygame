@@ -2,6 +2,7 @@
 
 import React from "react";
 import { apiRequest } from "@/lib/api/client";
+import { useContiIncasso } from "@/components/payments/use-conti-incasso";
 import { useCausaliIncasso } from "./use-causali-incasso";
 import { Wallet } from "lucide-react";
 import { InstallmentLedgerList } from "./InstallmentLedgerList";
@@ -81,6 +82,7 @@ export function AthletePaymentLedger({
   });
 
   const causali = useCausaliIncasso();
+  const conti = useContiIncasso();
 
   return (
     <div className="space-y-4">
@@ -249,6 +251,7 @@ export function AthletePaymentLedger({
         athleteName={athleteName}
         methodChoices={methodChoices}
         operationTypeChoices={causali}
+        accountChoices={conti}
         isSaving={ledger.isSaving}
         onSubmit={ledger.registerPayment}
       />

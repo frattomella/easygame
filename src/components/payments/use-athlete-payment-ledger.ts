@@ -369,6 +369,7 @@ export function useAthletePaymentLedger({
             l'ambito dal catalogo, ma solo se qualcuno gli dice quale causale.
           */
           operation_type_code: submission.operationTypeCode,
+          financial_account_id: submission.financialAccountId,
         },
       });
       setIsSaving(false);

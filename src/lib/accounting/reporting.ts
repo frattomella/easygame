@@ -222,6 +222,16 @@ export const summarizeCash = (
 export type AccrualSummary = {
   /** Residuo delle rate delle famiglie. Proprietario: il ledger delle rate. */
   familyReceivablesCents: number;
+  /**
+   * Quanto le famiglie hanno versato **in piu** del dovuto.
+   *
+   * Il residuo non puo essere negativo — una rata da 300 pagata 500 lascia
+   * residuo zero — e senza questo campo l identita «dovuto = incassato +
+   * storico + residuo» si rompeva dalla parte opposta, per un importo che
+   * nessun numero del rendiconto nominava. E denaro che il club tiene per
+   * conto della famiglia: non e ricavo e non e un credito.
+   */
+  familyCreditCents: number;
   /** La parte di quel residuo gia scaduta. */
   overdueReceivablesCents: number;
   overdueCount: number;
@@ -252,6 +262,7 @@ export type AccrualSummary = {
 
 export const ACCRUAL_ZERO: AccrualSummary = {
   familyReceivablesCents: 0,
+  familyCreditCents: 0,
   overdueReceivablesCents: 0,
   overdueCount: 0,
   legacyCollectedCents: 0,

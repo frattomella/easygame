@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertContoDelClub } from "./financial-account-guard";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
@@ -1109,47 +1110,89 @@ export const createFundingSettlement = async (
     ensureOrganizationAccess(scope, row.organization_id);
   }
 
-  const settledByAccrual = new Map<string, number>();
-  if (accrualIds.length) {
-    const existingLines = await settlementLineClient().findMany({
-      where: { accrual_id: { in: accrualIds } },
-    });
-    for (const line of Array.isArray(existingLines) ? existingLines : []) {
-      settledByAccrual.set(
-        line.accrual_id,
-        Number(
-          (
-            (settledByAccrual.get(line.accrual_id) || 0) +
-            toFundingAmount(line.amount)
-          ).toFixed(2),
-        ),
-      );
+  /**
+   * **La capienza si misura dentro la transazione, con i periodi bloccati.**
+   *
+   * Questa verifica girava **prima** di `$transaction`, e niente bloccava i
+   * periodi: sei richieste simultanee da 10.000 euro contro un maturato di
+   * 10.000 leggevano tutte «capiente» e **quattro passavano**. Quarantamila
+   * euro liquidati su diecimila maturati: trentamila inventati, che il
+   * registro mostra e che nessuno ha mai ricevuto.
+   *
+   * Sequenzialmente il controllo era gia corretto — la seconda richiesta viene
+   * rifiutata con «restano 0.00 EUR su quel periodo». Era solo la lettura
+   * fuori dalla transazione, la stessa forma che
+   * `lockInstallmentAndTransaction` chiude sugli incassi delle famiglie.
+   */
+  const misuraCapienza = async (client: any) => {
+    if (accrualIds.length) {
+      /*
+        `FOR UPDATE` mette in fila chi liquida lo stesso periodo. L'ordine e
+        quello degli identificativi, cosi due richieste che toccano gli stessi
+        periodi in ordine diverso non si bloccano a vicenda.
+      */
+      const ordinati = [...accrualIds].sort();
+      for (const id of ordinati) {
+        await client.$queryRaw`SELECT id FROM funding_accruals WHERE id = ${id}::uuid FOR UPDATE`;
+      }
     }
-  }
 
-  const accrualsById = new Map<
-    string,
-    { accruedAmount: number; settledAmount: number }
-  >(
-    accrualRows.map((row: any) => [
-      String(row.id),
-      {
-        accruedAmount: toFundingAmount(row.accrued_amount),
-        settledAmount: settledByAccrual.get(row.id) || 0,
-      },
-    ]),
-  );
+    const settledByAccrual = new Map<string, number>();
+    if (accrualIds.length) {
+      const existingLines = await client.fundingSettlementLine.findMany({
+        where: { accrual_id: { in: accrualIds } },
+      });
+      for (const line of Array.isArray(existingLines) ? existingLines : []) {
+        settledByAccrual.set(
+          line.accrual_id,
+          Number(
+            (
+              (settledByAccrual.get(line.accrual_id) || 0) +
+              toFundingAmount(line.amount)
+            ).toFixed(2),
+          ),
+        );
+      }
+    }
 
-  const error = validateSettlementAllocation({
-    amount: input.amount,
-    lines,
-    accrualsById,
-  });
-  if (error) throw new Error(error);
+    const accrualsById = new Map<
+      string,
+      { accruedAmount: number; settledAmount: number }
+    >(
+      accrualRows.map((row: any) => [
+        String(row.id),
+        {
+          accruedAmount: toFundingAmount(row.accrued_amount),
+          settledAmount: settledByAccrual.get(row.id) || 0,
+        },
+      ]),
+    );
+
+    const error = validateSettlementAllocation({
+      amount: input.amount,
+      lines,
+      accrualsById,
+    });
+    if (error) throw new Error(error);
+
+    return accrualsById;
+  };
 
   const settledAt = toDateOrNull(input.settledAt) || new Date();
 
+  /*
+    Il conto appartiene al club che scrive: un conto di un altro club produceva
+    denaro che il registro mostra e che **nessun saldo contiene**. Vedi
+    `financial-account-guard.ts`.
+  */
+  const contoVerificato = await assertContoDelClub(
+    program.organization_id,
+    input.financialAccountId,
+  );
+
   return (prisma as any).$transaction(async (client: any) => {
+    const accrualsById = await misuraCapienza(client);
+
     const settlement = await client.fundingSettlement.create({
       data: {
         organization_id: program.organization_id,
@@ -1159,7 +1202,7 @@ export const createFundingSettlement = async (
         amount: toFundingAmount(input.amount),
         method: asText(input.method) || null,
         notes: asText(input.notes) || null,
-        financial_account_id: asText(input.financialAccountId) || null,
+        financial_account_id: contoVerificato,
         created_by: scope?.userId || null,
       },
     });

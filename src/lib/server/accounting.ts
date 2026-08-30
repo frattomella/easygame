@@ -152,6 +152,24 @@ const toDateOrNull = (value: unknown) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+/**
+ * **L'ultimo istante di una data nuda**, e il valore com'e quando porta gia
+ * un orario.
+ *
+ * `AAAA-MM-GG` in fondo a un intervallo significa «tutto quel giorno». Senza
+ * questa distinzione l'ultimo giorno di ogni periodo spariva dal rendiconto e
+ * dall'export; con un orario esplicito, invece, chi chiama ha detto una cosa
+ * piu precisa e va rispettata.
+ */
+const fineGiornata = (value: unknown) => {
+  const data = toDateOrNull(value);
+  if (!data) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return new Date(data.getTime() + 24 * 60 * 60 * 1000 - 1);
+  }
+  return data;
+};
+
 const iso = (value: unknown): string | null => toDateOrNull(value)?.toISOString() || null;
 
 /* ========================================================================== */
@@ -344,7 +362,9 @@ const ledgerWhere = (
     sei colonne separate avrebbe richiesto sei `OR`, e nessuno di essi avrebbe
     potuto usare un indice.
   */
-  ...(f.search ? { search_text: { contains: f.search } } : {}),
+  ...(f.search
+    ? { search_text: { contains: f.search, mode: "insensitive" as const } }
+    : {}),
   /*
     La stagione: chi la dichiara risponde con quella, chi non la dichiara —
     ogni riga proiettata — risponde con la data. Le due vie devono coesistere,
@@ -400,7 +420,26 @@ const normalizzaFiltri = async (
 
   return {
     from: toDateOrNull(filters.from),
-    to: toDateOrNull(filters.to),
+    /*
+      **«Fino al 31 dicembre» comprende il 31 dicembre.**
+
+      Il filtro arriva da un `<input type="date">`, cioe una data nuda, e
+      `new Date("2026-12-31")` vale **mezzanotte**. Il confronto `lte`
+      escludeva quindi tutto cio che quel giorno porta un orario — e lo portano
+      quasi tutti i movimenti che il prodotto scrive da se: uno storno
+      (`paid_at` e l'istante), un rimborso confermato dal provider, una
+      liquidazione, un compenso.
+
+      Misurato: un incasso di 500 il 15 ottobre e un rimborso di 200 il 31
+      dicembre alle 16:40 danno, filtrando per anno fiscale, un netto di 300;
+      filtrando `2026-01-01…2026-12-31`, un netto di **500**. Il rendiconto
+      sopravvaluta di duecento euro, e il CSV consegnato al commercialista ha
+      una riga in meno di quello per anno fiscale.
+
+      Peggio fra due periodi adiacenti: un incasso alle 20:00 del 31 dicembre
+      non e ne nel 2026 ne nel 2027. Contato **zero volte**.
+    */
+    to: fineGiornata(filters.to),
     fiscalYear: toFiscalYearFilter(filters.fiscalYear),
     accountId: asText(filters.financialAccountId) || null,
     siteId: asText(filters.siteId) || null,
@@ -409,7 +448,24 @@ const normalizzaFiltri = async (
     sourceDomain: asText(filters.sourceDomain).toUpperCase() || null,
     activityScope: asText(filters.activityScope).toLowerCase() || null,
     reconciliation: asText(filters.reconciliationStatus).toLowerCase() || null,
-    search: asText(filters.search).toLowerCase() || null,
+    /*
+      **La ricerca si abbassa come si e abbassata la colonna.**
+
+      `search_text` e costruita da `lower()` di Postgres, che applica la
+      mappatura di maiuscole e minuscole **carattere per carattere**;
+      `String.prototype.toLowerCase` applica quella completa di Unicode, che
+      in qualche punto e diversa:
+
+        "ΟΔΟΣ"      Postgres "οδοσ"     JavaScript "οδος"   (sigma finale)
+        "İstanbul"  Postgres "istanbul" JavaScript "i̇stanbul"
+
+      Non e una divergenza fra due letture del registro: e una riga che **non
+      si trova cercandola con la propria descrizione**. Chi digita ΟΔΟΣ ottiene
+      `οδος`, la colonna contiene `οδοσ`, e la riga non esce.
+
+      Il confronto lo fa il database: si abbassa con lo stesso `lower()`.
+    */
+    search: asText(filters.search) || null,
     seasonId,
     finestraStagione: seasonId
       ? await resolveSeasonWindow(organizationId, seasonId)

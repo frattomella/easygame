@@ -338,13 +338,23 @@ LEFT JOIN "financial_accounts" fa
   ON fa.id = e.financial_account_id
 LEFT JOIN "fiscal_operation_types" ot
   ON ot.id = e.operation_type_id
+/*
+  **Un documento annullato non presta il suo numero.**
+
+  Il ramo dei movimenti propri univa i documenti senza filtrare
+  l annullamento — a differenza del ramo degli incassi, che lo filtra da
+  sempre. Un movimento manuale che cita una ricevuta annullata ne stampava il
+  numero in prima nota, come se il documento fosse ancora valido.
+*/
 LEFT JOIN "invoices" inv
   ON inv.id = e.document_id
  AND inv.organization_id = e.organization_id
+ AND inv.cancelled_at IS NULL
  AND lower(COALESCE(e.document_kind, '')) IN ('invoice', 'fattura')
 LEFT JOIN "receipts" rec
   ON rec.id = e.document_id
  AND rec.organization_id = e.organization_id
+ AND rec.cancelled_at IS NULL
  AND lower(COALESCE(e.document_kind, '')) IN ('receipt', 'ricevuta')
 
 UNION ALL

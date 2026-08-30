@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertContoDelClub } from "./financial-account-guard";
 import {
   audit,
   ensureOrganizationAccess,
@@ -434,6 +435,16 @@ export const recordCompensationPayout = async (
   let created: any;
   let updatedInstallment: any = null;
 
+  /*
+    Il conto appartiene al club che scrive: un conto di un altro club produceva
+    denaro che il registro mostra e che **nessun saldo contiene**. Vedi
+    `financial-account-guard.ts`.
+  */
+  const contoVerificato = await assertContoDelClub(
+    person.organization_id,
+    input.financialAccountId,
+  );
+
   try {
     const outcome = await (prisma as any).$transaction(async (client: any) => {
       await lockPersonAndInstallment(client, person.id, installmentId);
@@ -527,7 +538,7 @@ export const recordCompensationPayout = async (
           payment_method: asText(input.paymentMethod) || null,
           reference: asText(input.reference) || null,
           bank_account_id: asText(input.bankAccountId) || null,
-          financial_account_id: asText(input.financialAccountId) || null,
+          financial_account_id: contoVerificato,
           rules_version: computation.rulesVersion,
           social_rate: computation.socialRate,
           reduction_factor: computation.reductionFactor,
@@ -866,6 +877,17 @@ export const recordSupportingOutbound = async (
 
   const paidAt = toDateOrNull(input.paidAt) || new Date();
 
+  /*
+    Il conto appartiene al club che scrive: un conto di un altro club produceva
+    denaro che il registro mostra e che **nessun saldo contiene**. Vedi
+    `financial-account-guard.ts`.
+  */
+  const contoVerificato = await assertContoDelClub(
+    person.organization_id,
+    input.financialAccountId,
+    client,
+  );
+
   return client.sportWorkOutboundTransaction.create({
     data: {
       organization_id: person.organization_id,
@@ -882,7 +904,7 @@ export const recordSupportingOutbound = async (
       payment_method: asText(input.paymentMethod) || null,
       reference: asText(input.reference) || null,
       bank_account_id: asText(input.bankAccountId) || null,
-      financial_account_id: asText(input.financialAccountId) || null,
+      financial_account_id: contoVerificato,
       rules_version: null,
       net_amount: amount,
       club_cost: amount,

@@ -825,6 +825,28 @@ export default function ManagementSummary({
                 kpi={kpi("familyReceivables")}
                 value={euro(accrual.familyReceivablesCents)}
               />
+              {/*
+                **Il denaro incassato in piu, che prima non aveva un nome.**
+
+                Il residuo non puo essere negativo, quindi una rata da 300
+                pagata 500 lasciava duecento euro fuori da ogni numero del
+                rendiconto: incassato piu residuo superava il dovuto, e
+                l identita di chiusura si rompeva senza che niente lo dicesse.
+                Il riquadro compare solo quando c e qualcosa da dire.
+              */}
+              {accrual.familyCreditCents > 0 ? (
+                <KpiCard
+                  kpi={{
+                    key: "familyCredit",
+                    label: "Versato in piu dalle famiglie",
+                    quantity: "finanziaria",
+                    owner: "src/lib/server/accounting-reports.ts",
+                    definition:
+                      "Denaro che il club tiene per conto delle famiglie: non e un ricavo e non e un credito. Va rimborsato o portato a conto della rata successiva.",
+                  }}
+                  value={euro(accrual.familyCreditCents)}
+                />
+              ) : null}
               <KpiCard
                 kpi={kpi("overdueReceivables")}
                 value={euro(accrual.overdueReceivablesCents)}

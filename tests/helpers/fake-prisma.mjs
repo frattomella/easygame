@@ -147,20 +147,38 @@ const matchesWhere = (record, where) => {
         cancellava **tutte** le righe. Un test sulla pulizia dei dati scaduti
         sarebbe passato provando il contrario di cio che deve provare.
       */
-      if ("gt" in condition) {
-        if (!(value > condition.gt)) return false;
-        continue;
-      }
-      if ("gte" in condition) {
-        if (!(value >= condition.gte)) return false;
-        continue;
-      }
-      if ("lt" in condition) {
-        if (!(value < condition.lt)) return false;
-        continue;
-      }
-      if ("lte" in condition) {
-        if (!(value <= condition.lte)) return false;
+      /*
+        **Un intervallo ha due estremi, e questo doppio ne guardava uno.**
+
+        Ognuno dei quattro rami finiva con `continue`, che passa alla chiave
+        successiva del `where`: su `{ gte, lte }` — cioe la forma di ogni
+        filtro per periodo — veniva verificato solo `gte`, e `lte` non veniva
+        letto mai.
+
+        Il risultato era che **nessun test poteva accorgersi** di un difetto
+        sul limite superiore di un intervallo. E infatti non se n'e accorto
+        nessuno: che il filtro `to` escludesse l'ultimo giorno di ogni periodo
+        — un rimborso di fine anno fuori dal rendiconto, un incasso del 31
+        dicembre contato zero volte fra due periodi adiacenti — lo ha trovato
+        un audit che leggeva il database vero, non la suite.
+
+        I confronti si valutano ora tutti e quattro, e si esce solo se ne era
+        presente almeno uno.
+      */
+      const confronti = ["gt", "gte", "lt", "lte"].filter((op) => op in condition);
+      if (confronti.length) {
+        for (const op of confronti) {
+          const limite = condition[op];
+          const esito =
+            op === "gt"
+              ? value > limite
+              : op === "gte"
+                ? value >= limite
+                : op === "lt"
+                  ? value < limite
+                  : value <= limite;
+          if (!esito) return false;
+        }
         continue;
       }
       /*

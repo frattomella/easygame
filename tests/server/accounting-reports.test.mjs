@@ -652,7 +652,13 @@ test("se il periodo di confronto si tronca, il rendiconto lo dichiara", async ()
   */
   const righe = fake.rows("accountingEntry");
   const modello = righe[0];
-  for (let i = righe.length; i <= tetto + 1; i += 1) {
+  /*
+    `tetto + 1` righe **nel periodo di confronto**, non nell array: le righe
+    del 2026 gia presenti non contano, perche il confronto legge il solo 2025.
+    Contarle era possibile finche il doppio di Prisma ignorava il limite
+    superiore di un intervallo — cioe finche questo test non poteva fallire.
+  */
+  for (let i = 0; i <= tetto + 1; i += 1) {
     righe.push({
       ...modello,
       id: `confronto-${i}`,

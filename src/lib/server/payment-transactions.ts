@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertContoDelClub } from "./financial-account-guard";
 import { getOperationType } from "./fiscal-config";
 import { isActivityScope } from "@/lib/fiscal/operation-types";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
@@ -563,6 +564,16 @@ export const createPaymentTransaction = async (
     );
   }
 
+  /*
+    Il conto si verifica **prima** della transazione, e appartiene al club che
+    scrive: un conto di un altro club produceva denaro che il registro mostra e
+    che nessun saldo contiene. Vedi `financial-account-guard.ts`.
+  */
+  const contoVerificato = await assertContoDelClub(
+    organizationId,
+    input.financialAccountId,
+  );
+
   const created = await (prisma as any).$transaction(async (client: any) => {
     if (paymentId) {
       /*
@@ -669,7 +680,7 @@ export const createPaymentTransaction = async (
         external_event_id: asText(input.externalEventId) || null,
         operation_type_code: asText(input.operationTypeCode) || null,
         activity_scope_snapshot: ambitoCongelato,
-        financial_account_id: asText(input.financialAccountId) || null,
+        financial_account_id: contoVerificato,
         ...counterpartyColumns(input),
         ...settlementColumns(input.settlement),
         data: {},
@@ -774,6 +785,51 @@ export const reversePaymentTransaction = async (
       indietro: annullarlo non e la contraddizione che questa guardia esiste
       per impedire, ed e anzi il gesto che il messaggio qui sotto consiglia.
     */
+    /*
+      **Un documento vivo attesta che quel denaro e arrivato.**
+
+      `assertIssuable` impedisce di emettere una ricevuta su un incasso gia
+      stornato — cioe l'ordine improbabile. L'ordine naturale non era guardato:
+      si emette, ci si accorge dell'errore, si storna. Il documento restava
+      `issued`, numerato e non annullato, mentre la cassa di quell'incasso
+      tornava a zero: il registro dei documenti e la prima nota si
+      contraddicevano per l'intero importo, e la riga della prima nota
+      continuava a stampare il numero accanto alla data di storno.
+
+      Non si annulla per conto dell'operatore: annullare un documento fiscale
+      e un atto che vuole un motivo, e quel motivo lo sa solo chi lo compie
+      (ADR-0044). Si rifiuta, e si dice l'ordine giusto.
+    */
+    const documentiVivi = await Promise.all([
+      client.receipt.findFirst({
+        where: {
+          organization_id: original.organization_id,
+          transaction_id: original.id,
+          cancelled_at: null,
+          NOT: { receipt_number: null },
+        },
+        select: { receipt_number: true },
+      }),
+      client.invoice.findFirst({
+        where: {
+          organization_id: original.organization_id,
+          transaction_id: original.id,
+          cancelled_at: null,
+          NOT: { sequence: null },
+        },
+        select: { invoice_number: true },
+      }),
+    ]);
+
+    const numeroVivo =
+      documentiVivi[0]?.receipt_number || documentiVivi[1]?.invoice_number;
+    if (numeroVivo) {
+      throw new Error(
+        `Questo incasso e documentato da ${numeroVivo}, e un documento emesso attesta che il denaro e arrivato: ` +
+          "annulla prima il documento, indicando il motivo, e poi storna l'incasso.",
+      );
+    }
+
     const rimborsi =
       toPaymentAmount(original.amount) < 0
         ? []

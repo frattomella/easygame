@@ -58,6 +58,17 @@ export type RegisterPaymentSubmission = {
   paidAt: string;
   notes: string;
   /**
+   * **Su quale conto il denaro e arrivato.**
+   *
+   * Questa finestra non lo chiedeva e non lo mandava: ogni incasso di una
+   * famiglia nasceva senza conto. Il registro lo mostra e il rendiconto lo
+   * conta, ma i **saldi** si sommano per conto, e una riga senza conto non
+   * entra in nessuno. Il riquadro «Saldo cassa e banca» — che dichiara di
+   * essere il saldo di apertura piu tutti i movimenti registrati — sbagliava
+   * dell'intero incassato quote del club.
+   */
+  financialAccountId: string | null;
+  /**
    * **La causale, che nessuna schermata chiedeva.**
    *
    * `activity_scope_snapshot` esiste sull'incasso, il servizio sa risolverlo
@@ -93,6 +104,12 @@ export type RegisterPaymentDialogProps = {
    * invece di mostrare un elenco vuoto senza spiegazione.
    */
   operationTypeChoices?: Array<{ code: string; label: string }>;
+  /**
+   * I conti attivi del club. Vuoto significa «il club non ne ha ancora
+   * configurati», e allora l'incasso si registra lo stesso: il rendiconto lo
+   * raggruppa sotto «Senza conto», che e un'assenza dichiarata.
+   */
+  accountChoices?: Array<{ id: string; name: string }>;
   onSubmit: (submission: RegisterPaymentSubmission) => void | Promise<void>;
 };
 
@@ -104,6 +121,7 @@ export function RegisterPaymentDialog({
   methodChoices = [],
   isSaving = false,
   operationTypeChoices = [],
+  accountChoices = [],
   onSubmit,
 }: RegisterPaymentDialogProps) {
   const [amount, setAmount] = React.useState("");
@@ -111,7 +129,21 @@ export function RegisterPaymentDialog({
   const [paidAt, setPaidAt] = React.useState(todayIsoDate());
   const [notes, setNotes] = React.useState("");
   const [operationTypeCode, setOperationTypeCode] = React.useState("");
+  const [financialAccountId, setFinancialAccountId] = React.useState("");
   const [touched, setTouched] = React.useState(false);
+
+  /*
+    **Si preseleziona il primo conto attivo.**
+
+    Chiedere alla segreteria di scegliere il conto a ogni incasso significa che
+    prima o poi non lo scegliera, e la riga tornera a non entrare in nessun
+    saldo. Quasi tutti i club ne hanno uno solo; resta cambiabile.
+  */
+  React.useEffect(() => {
+    if (!financialAccountId && accountChoices.length) {
+      setFinancialAccountId(accountChoices[0].id);
+    }
+  }, [accountChoices, financialAccountId]);
 
   /*
     I campi si ripopolano ogni volta che la finestra si apre su una rata:
@@ -155,6 +187,7 @@ export function RegisterPaymentDialog({
       paidAt,
       notes: notes.trim(),
       operationTypeCode: operationTypeCode || null,
+      financialAccountId: financialAccountId || null,
     });
   };
 
@@ -236,6 +269,33 @@ export function RegisterPaymentDialog({
               {operationTypeChoices.length === 0
                 ? "Il club non ha ancora configurato le causali: configurale in Organizzazione per classificare le entrate."
                 : "Decide come l'incasso compare nel rendiconto, e si congela adesso: correggere la causale domani non cambia questo incasso."}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="registra-pagamento-conto">Conto</Label>
+            <Select
+              value={financialAccountId || "__nessuno__"}
+              onValueChange={(value) =>
+                setFinancialAccountId(value === "__nessuno__" ? "" : value)
+              }
+            >
+              <SelectTrigger id="registra-pagamento-conto">
+                <SelectValue placeholder="Senza conto" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__nessuno__">Senza conto</SelectItem>
+                {accountChoices.map((conto) => (
+                  <SelectItem key={conto.id} value={conto.id}>
+                    {conto.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {accountChoices.length === 0
+                ? "Il club non ha ancora configurato i conti: configurali in Contabilita, altrimenti questo incasso non entrera in nessun saldo."
+                : "Dove il denaro e arrivato. Senza, l'incasso resta in prima nota e fuori dai saldi di cassa e banca."}
             </p>
           </div>
 

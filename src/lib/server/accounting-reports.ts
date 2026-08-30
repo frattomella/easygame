@@ -185,8 +185,29 @@ export const readAccrualSummary = async (
     })),
   );
 
+  /*
+    **Il denaro incassato in piu ha un nome.**
+
+    `residualAmount` e il residuo **dovuto**, e non puo essere negativo: una
+    rata da 300 pagata 500 lascia residuo zero, non meno duecento. E giusto —
+    ma allora l'identita che il rendiconto dichiara, «dovuto = incassato +
+    storico + residuo», si rompe dalla parte opposta: incassato piu residuo
+    supera il dovuto di duecento euro, e nessun campo li nomina.
+
+    Duecento euro che il club **tiene per conto della famiglia**. Non sono
+    ricavo, non sono un credito, e non erano da nessuna parte: adesso sono un
+    numero con un'etichetta, e l'identita torna a chiudere.
+  */
+  const eccedenzaFamiglie = registri.reduce(
+    (somma: number, riga: any) =>
+      somma + Math.max(0, Number(riga.paidAmount) - Number(riga.dueAmount)),
+    0,
+  );
+
   return {
     familyReceivablesCents: toCents(rateTotali.residualAmount),
+    /** Quanto le famiglie hanno versato **in piu** del dovuto. */
+    familyCreditCents: toCents(eccedenzaFamiglie),
     overdueReceivablesCents: toCents(rateTotali.overdueAmount),
     overdueCount: rateTotali.overdueCount,
     legacyCollectedCents: toCents(incassatoStorico),

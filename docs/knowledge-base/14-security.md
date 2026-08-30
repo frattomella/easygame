@@ -1025,3 +1025,41 @@ che quella correzione gestisce. La sonda ora **genera** la sua matrice
 combinando forme — giorni per ore per frazioni per fusi per epoche, basi
 numeriche per spaziature, valori JSON che non sono stringhe — e semina
 **2.253 righe** che nessuno ha scelto perche passassero.
+
+### La settima tornata: l'audit che non ha guardato nessun diff (2026-08-30)
+
+Alla conferma sul round precedente si e affiancata una revisione di forma
+diversa: **nessun diff, nessun commit**. Solo il dominio contabile, attaccato
+dall'esterno con una domanda sola — *si possono far mentire i soldi?* — e con
+550 operazioni casuali su Postgres vero.
+
+Ha trovato **sei strade** che nessuna revisione sui diff aveva visto, perche
+nessuna di esse e un errore in una riga: sono tutte proprieta emergenti.
+
+| | Cosa | Quanto |
+|---|---|---|
+| F1 | Il `financial_account_id` di **un altro club** era accettato dai quattro domini che proiettano nel registro. `listFinancialAccountBalances` filtra per club **e** per elenco dei conti di quel club: quella riga non entrava in nessuno dei due saldi | rendiconto **+8.500 €**, somma dei saldi di entrambi i club **0 €** |
+| F2 | Il filtro `to` arriva da un `<input type="date">` e vale **mezzanotte**: l'ultimo giorno di ogni periodo spariva da rendiconto ed export | netto sopravvalutato di **200 €**; un incasso del 31 dicembre alle 20:00 contato **zero volte** fra due periodi adiacenti |
+| F3 | La capienza di un periodo maturato era letta **fuori** dalla transazione | 4 richieste su 6 accettate: **30.000 € inventati** su 10.000 maturati |
+| F4 | La finestra di incasso non chiedeva il conto: ogni quota nasceva senza | «Saldo cassa e banca» sbagliato **dell'intero incassato quote** |
+| F5 | Uno storno lasciava viva e numerata la ricevuta dell'incasso | registro dei documenti e prima nota discordi per **l'intero importo** |
+| F7 | Il sovra-incasso rompeva l'identita di chiusura del rendiconto | **200 €** che il club tiene per la famiglia e che nessun numero nominava |
+
+Chiuse insieme a queste: il numero di un documento **annullato** compariva in
+prima nota sui movimenti propri; e la ricerca della prima nota abbassava il
+testo con `toLowerCase()` di JavaScript mentre la colonna e costruita da
+`lower()` di Postgres — su greco e turco **una riga non si trovava cercandola
+con la propria descrizione**.
+
+### E un difetto del doppio, che vale piu di tutti gli altri
+
+Correggendo F2 il test di regressione passava **prima** della correzione.
+`matchesWhere` in `tests/helpers/fake-prisma.mjs` chiudeva ogni confronto
+d'ordine con `continue`: su `{ gte, lte }` — la forma di **ogni** filtro per
+periodo — leggeva `gte` e non arrivava mai a `lte`.
+
+Nessun test poteva quindi accorgersi di un difetto sul limite superiore di un
+intervallo, e infatti nessuno se n'era accorto: F2 l'ha trovato un audit che
+leggeva il database vero. Il doppio valuta ora tutti e quattro i confronti — e
+la prima cosa che ha fatto e stata far fallire un test scritto da noi, che
+contava le righe sbagliate.
