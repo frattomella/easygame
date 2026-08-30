@@ -38,6 +38,7 @@ const ATLETA = "99999999-0000-4000-8000-000000000009";
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 
@@ -217,6 +218,7 @@ test("la rata di un altro club non si cancella e non si legge", async () => {
   const altroClub = () => ({
     userId: "user-b",
     activeOrganizationId: "bbbbbbbb-0000-4000-8000-000000000002",
+    activeRole: "owner",
     allowedOrganizationIds: ["bbbbbbbb-0000-4000-8000-000000000002"],
   });
 

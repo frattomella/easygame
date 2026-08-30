@@ -39,6 +39,7 @@ const TOKEN = "token-di-sessione";
 const scope = () => ({
   userId: UTENTE,
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

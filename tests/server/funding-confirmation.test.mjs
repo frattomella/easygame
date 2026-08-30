@@ -26,12 +26,14 @@ const ATLETA = "33333333-0000-4000-8000-00000000000c";
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 
 const scopeAltro = () => ({
   userId: "user-b",
   activeOrganizationId: ALTRO_CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [ALTRO_CLUB],
 });
 

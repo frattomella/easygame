@@ -31,6 +31,7 @@ const GRUPPO_SANTI = `group:${CATEGORIA}:${SITE_SANTI}`;
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

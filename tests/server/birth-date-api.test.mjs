@@ -32,6 +32,7 @@ const ATLETA_LEGACY = "22222222-0000-4000-8000-000000000002";
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

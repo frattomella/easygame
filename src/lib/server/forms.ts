@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "crypto";
+import { canAccessClubResource } from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
 import {
@@ -81,6 +82,20 @@ const ensureOrganizationAccess = (
   if (!scope) return;
   /* Il confine e il club **attivo**: vedi `src/lib/auth/active-club-boundary.ts`. */
   assertActiveClub(scope, organizationId, "il modulo");
+
+  /*
+    **E il permesso, che questo modulo dichiarava e non leggeva.**
+
+    `FormsAccessScope` porta `activeRole` dal primo giorno, e nessuna riga lo
+    guardava: un genitore o un atleta poteva elencare i moduli, crearne,
+    **pubblicarne** uno a nome della societa, rigenerare lo slug pubblico
+    invalidando il link vivo, e cancellare. Il confine era corretto; era
+    l'altra meta a mancare, e le due sono entrambe obbligatorie — vedi
+    `src/lib/auth/active-club-boundary.ts`.
+  */
+  if (!canAccessClubResource(scope.activeRole, "forms", "read")) {
+    throw denied("i moduli della societa li gestisce chi ci lavora dentro");
+  }
 };
 
 const resolveOrganizationId = (

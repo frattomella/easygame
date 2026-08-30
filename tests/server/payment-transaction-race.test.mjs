@@ -33,6 +33,7 @@ const RATA = "11111111-0000-4000-8000-00000000000a";
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

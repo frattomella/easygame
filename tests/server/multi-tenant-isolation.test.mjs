@@ -26,6 +26,7 @@ const MATCH_B = "44444444-0000-4000-8000-000000000004";
 const scopeA = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
 });
 
@@ -33,6 +34,7 @@ const scopeA = () => ({
 const scopeVuoto = () => ({
   userId: "user-x",
   activeOrganizationId: null,
+  activeRole: "owner",
   allowedOrganizationIds: [],
 });
 

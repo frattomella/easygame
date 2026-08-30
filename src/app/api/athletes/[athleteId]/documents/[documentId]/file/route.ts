@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canAccessClubResource } from "@/lib/access-roles";
 import {
   firstText,
   getSharedDocumentsFromAthlete,
@@ -28,13 +29,28 @@ export async function GET(request: Request, context: Context) {
     const scope = await resolveOrganizationScopeForUser(
       session.db.user_id,
       request.headers.get("x-active-club-id"),
+      request.headers.get("x-active-access-role"),
     );
-    const athlete = await prisma.athlete.findFirst({
-      where: {
-        id: context.params.athleteId,
-        organization_id: { in: scope.allowedOrganizationIds },
-      },
-    });
+
+    /*
+      Il confine e il **club attivo**, e il permesso e quello dei certificati
+      medici: questo endpoint consegna il **file** — una carta d'identita, un
+      certificato — e chiedeva soltanto che l'atleta fosse in uno qualunque dei
+      club di chi domanda. Un genitore scaricava i documenti di ogni altra
+      famiglia conoscendone gli identificativi.
+    */
+    if (!canAccessClubResource(scope.activeRole, "medical_certificates", "read")) {
+      return jsonError("Accesso negato per il ruolo attivo", 403);
+    }
+
+    const athlete = scope.activeOrganizationId
+      ? await prisma.athlete.findFirst({
+          where: {
+            id: context.params.athleteId,
+            organization_id: scope.activeOrganizationId,
+          },
+        })
+      : null;
 
     if (!athlete) return jsonError("Atleta non appartenente al club", 403);
 

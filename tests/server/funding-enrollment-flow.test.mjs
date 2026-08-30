@@ -39,8 +39,8 @@ before(async () => {
 const scope = (organizationId = CLUB) => ({
   userId: "utente-1",
   activeOrganizationId: organizationId,
-  allowedOrganizationIds: [organizationId],
   activeRole: "owner",
+  allowedOrganizationIds: [organizationId],
 });
 
 const seed = () => ({

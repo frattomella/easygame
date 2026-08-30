@@ -30,12 +30,14 @@ const ATT_B = "22222222-0000-4000-8000-00000000000b";
 const scopeA = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
 });
 
 const scopeB = () => ({
   userId: "user-b",
   activeOrganizationId: CLUB_B,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_B],
 });
 

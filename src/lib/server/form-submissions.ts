@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { canAccessClubResource } from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
 import { createAttachment } from "./attachments";
@@ -100,6 +101,15 @@ const ensureOrganizationAccess = (
   if (!scope) return;
   /* Il confine e il club **attivo**: vedi `src/lib/auth/active-club-boundary.ts`. */
   assertActiveClub(scope, organizationId, "la compilazione");
+
+  /*
+    E il permesso, come per i moduli. Una compilazione porta nome, cognome,
+    codice fiscale, tutori e i file caricati: e la lettura piu delicata del
+    dominio, e non aveva nessuna porta.
+  */
+  if (!canAccessClubResource(scope.activeRole, "forms", "read")) {
+    throw denied("le compilazioni della societa le legge chi ci lavora dentro");
+  }
 };
 
 const resolveOrganizationId = (

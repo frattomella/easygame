@@ -36,6 +36,7 @@ const ATT_FIRMA = "33333333-0000-4000-8000-00000000000c";
 const scopeA = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
 });
 

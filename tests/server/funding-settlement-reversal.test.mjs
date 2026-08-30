@@ -35,6 +35,7 @@ const CONTO = "cccccccc-0000-4000-8000-00000000c002";
 const scope = () => ({
   userId: "11111111-0000-4000-8000-000000000aaa",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 
@@ -265,6 +266,7 @@ test("la liquidazione di un altro club non si storna, e non si legge", async () 
   const altro = {
     userId: "22222222-0000-4000-8000-000000000bbb",
     activeOrganizationId: ALTRO_CLUB,
+    activeRole: "owner",
     allowedOrganizationIds: [ALTRO_CLUB],
   };
 

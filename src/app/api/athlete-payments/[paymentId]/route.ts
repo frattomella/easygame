@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -85,9 +86,23 @@ export async function PATCH(request: Request, context: Context) {
       session.db.user_id,
       request.headers.get("x-active-club-id"),
     );
-    if (!scope.allowedOrganizationIds.includes(payment.organization_id)) {
-      return jsonError("Accesso negato al pagamento", 403);
-    }
+    /*
+      **Il confine e il club attivo, e questa rotta era l'anti-pattern in
+      chiaro.**
+
+      Il permesso si verifica due righe sotto con `scope.activeRole`, che e il
+      ruolo nel club **attivo**; il confine guardava l'elenco di tutti i club
+      dell'utente. Chi possiede una societa e in un'altra e soltanto genitore
+      poteva mandare `x-active-club-id: <la propria>` con l'identificativo di
+      una rata dell'altra, e riscriverla, annullarla o **cancellarla** — e la
+      cancellazione porta via in cascata ogni incasso, storno e rimborso
+      collegato, cioe l'invariante centrale di questa Wave.
+
+      La correzione e stata fatta in quindici moduli e questo file non c'era:
+      sta sotto `/api/`, non sotto `/api/v1/`, e la ricerca si era fermata al
+      secondo. Vedi `src/lib/auth/active-club-boundary.ts`.
+    */
+    assertActiveClub(scope, payment.organization_id, "il pagamento");
 
     if (!canManageClubConfiguration(scope.activeRole)) {
       return jsonError(

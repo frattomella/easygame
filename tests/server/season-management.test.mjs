@@ -377,6 +377,7 @@ test("un club inesistente non produce una stagione fantasma", async () => {
 const scopeA = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
 });
 

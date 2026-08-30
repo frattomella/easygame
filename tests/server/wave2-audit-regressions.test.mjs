@@ -111,8 +111,8 @@ test("il riepilogo RSVP si legge sul club attivo, non su uno dichiarato", async 
   const scopeMisto = {
     userId: PROPRIETARIO_A,
     activeOrganizationId: CLUB_A,
-    allowedOrganizationIds: [CLUB_A, CLUB_B],
     activeRole: "owner",
+    allowedOrganizationIds: [CLUB_A, CLUB_B],
   };
 
   await assert.rejects(
@@ -132,8 +132,8 @@ test("la nota privata di una famiglia non esce dal suo club", async () => {
   const scopeMisto = {
     userId: PROPRIETARIO_A,
     activeOrganizationId: CLUB_A,
-    allowedOrganizationIds: [CLUB_A, CLUB_B],
     activeRole: "owner",
+    allowedOrganizationIds: [CLUB_A, CLUB_B],
   };
 
   let uscita = "";

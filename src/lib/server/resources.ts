@@ -235,29 +235,126 @@ type ResourceAccessScope = {
   allowedOrganizationIds: string[];
 };
 
-const ORGANIZATION_SCOPED_MODEL_RESOURCES = new Set([
-  "dashboards",
-  "organization_users",
-  "club_resource_items",
-  "athletes",
-  "athlete_category_memberships",
-  "simplified_athletes",
-  "medical_certificates",
-  "simplified_certificates",
-  "payment_methods",
-  "payments",
-  "simplified_payments",
-  "invoices",
-  "receipts",
-  "trainer_payments",
-  "notifications",
-  "simplified_notifications",
-  "training_attendance",
-]);
+/**
+ * **Le risorse di modello che sono legate a un club, e quelle che non lo sono.**
+ *
+ * ---
+ *
+ * ## Il difetto che questa riga chiude, ed era il piu grave del prodotto
+ *
+ * Questo insieme decide se una risorsa di modello viene filtrata per club.
+ * `users` non c'era, e non per una svista di scoping: **non ha un club**, quindi
+ * non c'era niente da filtrare. Il risultato pero era che
+ * `GET /api/v1/users` non applicava **nessun** `where`, e
+ * `resolveRecordOrganizationId` restituiva `null`, e `ensureOrganizationAccess`
+ * con `null` esce senza negare.
+ *
+ * L'unico controllo rimasto era il ruolo — e chiunque puo registrarsi creando
+ * un club e diventarne proprietario. Una revisione ostile ha letto l'anagrafica
+ * di **tutti** gli utenti della piattaforma, ha riscritto la password di un
+ * amministratore e lo ha cancellato, portandosi via in cascata i club che aveva
+ * creato.
+ *
+ * `assets` era la stessa cosa: nessun club, nessun filtro, e dentro ci sono i
+ * documenti di identita e i certificati medici delle famiglie, con il contenuto
+ * in `data_base64`.
+ *
+ * ## La forma della correzione
+ *
+ * Un insieme non basta: la sua **assenza** era il difetto, e un secondo insieme
+ * dimenticato produrrebbe lo stesso buco. Ogni risorsa di modello dichiara
+ * quindi il suo confine, e `assertOgniRisorsaDichiaraIlConfine` — chiamata
+ * all'avvio del modulo — rifiuta di caricarsi se una ne resta senza.
+ *
+ * Tre confini, e nessun altro:
+ *
+ * | Confine | Cosa significa |
+ * |---|---|
+ * | `club` | la riga porta un `organization_id`, e si filtra per club |
+ * | `persona` | la riga e di **chi la chiede**, e si filtra per `userId` |
+ * | `chiuso` | non passa dal registro generico: ha rotte proprie |
+ */
+const RESOURCE_BOUNDARIES: Record<string, "club" | "persona" | "chiuso"> = {
+  /* Il club stesso: ha un ramo suo, piu sotto. */
+  clubs: "club",
+  organizations: "club",
+
+  dashboards: "club",
+  organization_users: "club",
+  club_resource_items: "club",
+  athletes: "club",
+  athlete_category_memberships: "club",
+  simplified_athletes: "club",
+  medical_certificates: "club",
+  simplified_certificates: "club",
+  payment_methods: "club",
+  payments: "club",
+  simplified_payments: "club",
+  invoices: "club",
+  receipts: "club",
+  trainer_payments: "club",
+  notifications: "club",
+  simplified_notifications: "club",
+  training_attendance: "club",
+
+  /**
+   * **L'utente vede se stesso, e nessun altro.**
+   *
+   * Un utente non appartiene a un club: appartiene a se stesso, e puo stare in
+   * piu societa. Filtrarlo per club non avrebbe senso; non filtrarlo affatto e
+   * cio che ha aperto la porta. La sua anagrafica si legge e si corregge dal
+   * proprio profilo, e l'amministrazione degli utenti ha le sue rotte sotto
+   * `/api/v1/admin`, che chiedono di essere amministratori della piattaforma.
+   */
+  users: "persona",
+
+  /**
+   * **Gli allegati non passano di qui.**
+   *
+   * `assets` non ha un `organization_id`: il club sta dentro `path`, e
+   * dedurlo da una stringa per autorizzare un documento di identita sarebbe un
+   * confine costruito su una convenzione di denominazione. Le quattro rotte che
+   * servono gli allegati — documenti dell'atleta, cruscotto del genitore,
+   * allegati dei moduli — verificano ognuna il suo, e nessuna passa dal
+   * registro generico. Nessun client chiedeva `/api/v1/assets`: la porta era
+   * aperta e non serviva a niente.
+   */
+  assets: "chiuso",
+};
+
+/**
+ * Nessuna risorsa di modello senza un confine dichiarato.
+ *
+ * Vive qui, e non in un test, perche un test si puo dimenticare di aggiornare;
+ * questo modulo **non si carica** se qualcuno aggiunge una risorsa e non dice a
+ * cosa appartiene. E la sola difesa che non richiede a nessuno di ricordarsi.
+ */
+const assertOgniRisorsaDichiaraIlConfine = () => {
+  const senzaConfine = Object.keys(MODEL_RESOURCES).filter(
+    (resource) => !RESOURCE_BOUNDARIES[resource],
+  );
+  if (senzaConfine.length) {
+    throw new Error(
+      `Risorse di modello senza confine dichiarato: ${senzaConfine.join(", ")}. ` +
+        "Dichiararlo in RESOURCE_BOUNDARIES: «club», «persona» o «chiuso».",
+    );
+  }
+};
+assertOgniRisorsaDichiaraIlConfine();
+
+/** Le risorse che il registro generico non serve affatto. */
+export const isClosedResource = (resource: string) =>
+  RESOURCE_BOUNDARIES[resource] === "chiuso";
+
+/** Le risorse in cui una riga appartiene a **chi la chiede**. */
+const isPersonalResource = (resource: string) =>
+  RESOURCE_BOUNDARIES[resource] === "persona";
 
 const isOrganizationScopedResource = (resource: string) =>
   RESOURCE_CONFIG[resource]?.kind === "club_resource" ||
-  ORGANIZATION_SCOPED_MODEL_RESOURCES.has(resource);
+  (RESOURCE_BOUNDARIES[resource] === "club" &&
+    resource !== "clubs" &&
+    resource !== "organizations");
 
 /**
  * Il confine del CRUD generico, ed e il **club attivo**.
@@ -331,6 +428,27 @@ const assertRecordAccess = (
   scope?: ResourceAccessScope,
 ) => {
   if (!scope || !record) {
+    return;
+  }
+
+  /*
+    **Una riga personale e di chi la chiede, e di nessun altro.**
+
+    Prima questo ramo non esisteva, e non per distrazione: `users` non ha un
+    club, quindi `resolveRecordOrganizationId` restituiva `null` e
+    `ensureOrganizationAccess` con `null` esce **senza negare**. Il confine
+    mancava del tutto, e l'unico controllo era il ruolo — che chiunque puo
+    ottenere registrandosi con un club proprio.
+
+    Una revisione ostile ha letto l'anagrafica di tutti gli utenti della
+    piattaforma, riscritto la password di un amministratore e cancellato il suo
+    account, portandosi via in cascata i club che aveva creato.
+  */
+  if (isPersonalResource(resource)) {
+    const proprietario = String(record.id ?? "").trim();
+    if (!proprietario || proprietario !== String(scope.userId ?? "").trim()) {
+      throw new Error("Accesso negato alla risorsa del club");
+    }
     return;
   }
 
@@ -659,6 +777,16 @@ const withCompatibilityAliases = (
   return next;
 };
 
+/**
+ * I campi di un utente che il registro generico non scrive **mai**.
+ *
+ * `role` e quella che decide chi amministra la piattaforma quando non c'e un
+ * elenco di indirizzi configurato; `app_metadata` e `is_platform_admin` sono le
+ * altre due che il controllo ha letto o potrebbe leggere. Un privilegio che si
+ * concede da se non e un privilegio.
+ */
+const PROTECTED_USER_FIELDS = ["role", "app_metadata", "is_platform_admin"] as const;
+
 const serializeUser = (record: Record<string, any>) => {
   const next = clone(record);
   delete next.password_hash;
@@ -688,7 +816,45 @@ const serializeClubResourceItem = (record: Record<string, any>) =>
       : {}),
   });
 
-const serializeRecord = (resource: string, record: Record<string, any>) => {
+/**
+ * **Le colonne del club che escono comunque, e quelle che non escono mai.**
+ *
+ * `payment_pin` e stato tolto dalle colonne **proiettabili** — quelle che un
+ * client puo chiedere con `?fields=` — e una prova lo presidia. Ma una lettura
+ * **senza** `?fields=` non passa da quella lista: restituisce la riga intera, e
+ * `withCompatibilityAliases` e una copia senza filtro. Il segreto usciva
+ * comunque, e la prova passava.
+ *
+ * Un segreto non si difende con un elenco di cio che si puo chiedere: si
+ * difende con un elenco di cio che non esce, applicato all'uscita.
+ */
+const CLUB_FIELDS_MAI_ESPOSTI = ["payment_pin"] as const;
+
+/**
+ * Le colonne che identificano un club, e nient'altro.
+ *
+ * Sono cio che serve a **sceglierlo**: il selettore di societa mostra un nome e
+ * un logo. Tutto il resto — IBAN, conti, prima nota storica, sponsor, soci —
+ * vive dentro il club, e si legge solo dal club attivo.
+ */
+const CLUB_CAMPI_DI_IDENTITA = new Set([
+  "id",
+  "slug",
+  "name",
+  "business_name",
+  "logo_url",
+  "city",
+  "province",
+  "created_at",
+  "updated_at",
+  "creator_id",
+]);
+
+const serializeRecord = (
+  resource: string,
+  record: Record<string, any>,
+  scope?: ResourceAccessScope,
+) => {
   if (!record) {
     return null;
   }
@@ -699,6 +865,30 @@ const serializeRecord = (resource: string, record: Record<string, any>) => {
 
   if (RESOURCE_CONFIG[resource]?.kind === "club_resource") {
     return serializeClubResourceItem(record);
+  }
+
+  if (resource === "clubs" || resource === "organizations") {
+    const pulito = { ...record };
+    for (const campo of CLUB_FIELDS_MAI_ESPOSTI) delete pulito[campo];
+
+    /*
+      Il club **non attivo** esce ridotto alla sua identita. Senza scope — le
+      letture interne del server — non si riduce niente: chi chiama da dentro
+      ha gia il suo confine.
+    */
+    const attivo = String(scope?.activeOrganizationId ?? "").trim();
+    if (scope && attivo && String(record.id ?? "").trim() !== attivo) {
+      return withCompatibilityAliases(
+        resource,
+        Object.fromEntries(
+          Object.entries(pulito).filter(([campo]) =>
+            CLUB_CAMPI_DI_IDENTITA.has(campo),
+          ),
+        ),
+      );
+    }
+
+    return withCompatibilityAliases(resource, pulito);
   }
 
   return withCompatibilityAliases(resource, record);
@@ -853,6 +1043,33 @@ const normalizeModelInput = async (
 
   if (resource === "users") {
     delete next.club_access;
+
+    /*
+      **Cio che un utente non scrive su se stesso.**
+
+      Da quando `users` e una risorsa **personale** — una riga si legge e si
+      corregge solo se e la propria — il registro generico non e piu una porta
+      verso gli altri. Resta pero una porta verso il proprio privilegio: la
+      colonna `role` e quella che `isPlatformAdminUser` legge quando non c'e un
+      elenco di indirizzi configurato, e `PATCH /api/v1/users/<me>` la
+      scriveva come una colonna qualunque.
+
+      Il ruolo di piattaforma lo assegna chi gia lo ha, dalle rotte sotto
+      `/api/v1/admin`. `user_metadata.role` non conta piu niente, e qui si
+      toglie comunque: due difese per lo stesso privilegio, perche una sola
+      prima o poi si dimentica.
+    */
+    for (const campo of PROTECTED_USER_FIELDS) delete next[campo];
+
+    if (
+      next.user_metadata &&
+      typeof next.user_metadata === "object" &&
+      !Array.isArray(next.user_metadata)
+    ) {
+      for (const campo of PROTECTED_USER_FIELDS) {
+        delete (next.user_metadata as Record<string, any>)[campo];
+      }
+    }
 
     if (next.password) {
       const password = String(next.password);
@@ -2780,6 +2997,20 @@ export const listResourcePage = async (
     where.AND = [...(where.AND || []), ...searchFilter.AND];
   }
 
+  /*
+    **L'elenco di una risorsa personale mostra una riga sola: la propria.**
+
+    `GET /api/v1/users` non applicava nessun `where`, e restituiva l'anagrafica
+    di **ogni utente della piattaforma** a chiunque avesse un ruolo di gestione
+    in un club qualunque — cioe a chiunque, perche il ruolo lo si ottiene
+    registrandosi con una societa propria.
+  */
+  if (isPersonalResource(resource) && scope) {
+    const proprio = String(scope.userId ?? "").trim();
+    if (!proprio) return { records: [], meta: null };
+    where.id = proprio;
+  }
+
   if (resource === "clubs" || resource === "organizations") {
     if (scope) {
       if (!scope.allowedOrganizationIds.length) {
@@ -2787,12 +3018,21 @@ export const listResourcePage = async (
       }
 
       /*
-        La scheda di **un** club: e l'unico punto in cui l'elenco dei club resta
-        il criterio giusto, perche qui la risorsa **e** il club e chiederne uno
-        a cui si appartiene non e uno sconfinamento. Il confine del club attivo
-        vale per tutto cio che sta **dentro** un club, non per la scelta di
-        quale club guardare — altrimenti il selettore di societa non potrebbe
-        leggere quella su cui sta per spostarsi.
+        **L'eccezione, e quanto e stata stretta.**
+
+        Qui la risorsa **e** il club, e chiederne uno a cui si appartiene non e
+        uno sconfinamento: il selettore di societa deve poter leggere quella su
+        cui sta per spostarsi. Ma «leggere» significava **la riga intera**, e
+        una revisione ostile ha misurato cosa ci sta dentro: IBAN, conti
+        correnti con i loro saldi, la prima nota storica, gli sponsor, i soci
+        con il codice fiscale. Un genitore in una societa poteva leggerli
+        tenendo attiva la propria, dove e proprietario.
+
+        L'eccezione era tre ordini di grandezza piu larga della ragione che la
+        giustificava. Adesso e larga quanto la ragione: del club **non attivo**
+        escono le sole colonne che servono a sceglierlo, e tutto il resto sta
+        dietro il confine del club attivo come ogni altra cosa che vive dentro
+        un club.
       */
       if (typeof where.id === "string") {
         if (!scope.allowedOrganizationIds.includes(where.id)) {
@@ -2855,7 +3095,7 @@ export const listResourcePage = async (
   ]);
 
   const serializedRecords = records
-    .map((record: Record<string, any>) => serializeRecord(resource, record))
+    .map((record: Record<string, any>) => serializeRecord(resource, record, scope))
     .filter(Boolean) as Record<string, any>[];
 
   const seasonScopedRecords = season
@@ -2971,7 +3211,7 @@ export const getResourceById = async (
     );
   }
 
-  return record ? serializeRecord(resource, record) : null;
+  return record ? serializeRecord(resource, record, scope) : null;
 };
 
 const resolveUpsertWhere = (resource: string, input: Record<string, any>) => {

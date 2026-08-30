@@ -52,20 +52,160 @@ const APP_FILES = walk(SRC);
 // --- il PIN non torna --------------------------------------------------------
 
 test("nessun codice legge o scrive il PIN del club", () => {
+  /*
+    **`resources.ts` e l'unica eccezione, e la ragione e il difetto che segue.**
+
+    Il PIN non si legge da nessuna parte; compare la in una sola riga, come
+    voce di un elenco di colonne che **non escono mai**. Vietare anche quella
+    significherebbe vietare l'unico posto in cui il segreto viene tolto dalla
+    risposta.
+  */
   const offenders = APP_FILES.filter((file) =>
     /payment_pin|getClubPaymentPin|PinInput/.test(readCode(file)),
-  ).map((file) => path.relative(SRC, file).replace(/\\/g, "/"));
+  )
+    .map((file) => path.relative(SRC, file).replace(/\\/g, "/"))
+    .filter((file) => file !== "lib/server/resources.ts");
 
   assert.deepEqual(offenders, [], "il PIN di club e stato rimosso, non nascosto");
 });
 
-test("il PIN non e piu leggibile dalle API del club", () => {
-  const resources = readCode(path.join(SRC, "lib/server/resources.ts"));
-  assert.equal(
-    /"payment_pin"/.test(resources),
-    false,
-    "era proiettabile con ?fields=payment_pin: chiunque poteva leggerlo",
+test("il PIN non esce dalle API del club, nemmeno da una lettura intera", async () => {
+  /*
+    **La prova precedente controllava la cosa sbagliata, e passava mentre il
+    segreto usciva.**
+
+    Verificava che `"payment_pin"` non fosse fra le colonne **proiettabili** —
+    quelle che un client puo chiedere con `?fields=`. E vero, e non bastava: una
+    lettura **senza** `?fields=` non passa da quella lista, restituisce la riga
+    intera, e la serializzazione era una copia senza filtro. Una revisione
+    ostile ha letto `payment_pin: 1234` da `GET /api/v1/clubs`.
+
+    Un segreto non si difende con un elenco di cio che si puo chiedere: si
+    difende con un elenco di cio che non esce, applicato all'uscita. Questa
+    prova guarda la **risposta**, che e l'unica cosa che conta.
+  */
+  const { createFakePrisma } = await import("../helpers/fake-prisma.mjs");
+  const risorse = await import("../../src/lib/server/resources.ts");
+  const { __setPrismaClientForTests } = await import(
+    "../../src/lib/server/prisma.ts"
   );
+
+  const CLUB = "aaaaaaaa-0000-4000-8000-0000000000c1";
+  const UTENTE = "bbbbbbbb-0000-4000-8000-0000000000u1";
+
+  const fake = createFakePrisma({
+    club: [
+      {
+        id: CLUB,
+        slug: "alfa",
+        name: "ASD Alfa",
+        payment_pin: "1234",
+        iban: "IT60X0542811101000000123456",
+      },
+    ],
+  });
+  __setPrismaClientForTests(fake.client);
+
+  const scope = {
+    userId: UTENTE,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    allowedOrganizationIds: [CLUB],
+  };
+
+  const scheda = await risorse.getResourceById("clubs", CLUB, scope);
+  assert.ok(scheda, "il club attivo si legge");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(scheda, "payment_pin"),
+    false,
+    "il PIN non esce dalla scheda del club attivo",
+  );
+
+  const { records } = await risorse.listResourcePage(
+    "clubs",
+    new URLSearchParams(),
+    scope,
+  );
+  for (const record of records) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(record, "payment_pin"),
+      false,
+      "il PIN non esce dall'elenco dei club",
+    );
+  }
+});
+
+test("di un club non attivo esce l'identita, e nient'altro", async () => {
+  /*
+    **L'eccezione dei club era tre ordini di grandezza piu larga della ragione
+    che la giustificava.**
+
+    L'elenco dei club resta filtrato sui club dell'utente — e giusto: li la
+    risorsa **e** il club, e il selettore di societa deve poter leggere quella
+    su cui sta per spostarsi. Ma «leggere» significava la riga **intera**, e una
+    revisione ostile ha misurato cosa ci sta dentro: IBAN, conti correnti con i
+    saldi, la prima nota storica, gli sponsor, i soci con il codice fiscale. Un
+    genitore in una societa li leggeva tenendo attiva la propria.
+
+    Del club non attivo escono adesso le sole colonne che servono a sceglierlo.
+  */
+  const { createFakePrisma } = await import("../helpers/fake-prisma.mjs");
+  const risorse = await import("../../src/lib/server/resources.ts");
+  const { __setPrismaClientForTests } = await import(
+    "../../src/lib/server/prisma.ts"
+  );
+
+  const MIO = "aaaaaaaa-0000-4000-8000-0000000000a1";
+  const ALTRO = "bbbbbbbb-0000-4000-8000-0000000000b1";
+
+  const fake = createFakePrisma({
+    club: [
+      { id: MIO, slug: "mio", name: "Il mio club" },
+      {
+        id: ALTRO,
+        slug: "altro",
+        name: "Club altrui",
+        logo_url: "https://x/logo.png",
+        iban: "IT99",
+        payment_pin: "1234",
+        transactions: [{ id: "t1", amount: 70000 }],
+        bank_accounts: [{ id: "b1", iban: "IT99", balance: 250000 }],
+        members: [{ id: "m1", fiscal_code: "BNCLCU90A01H501X" }],
+        sponsors: [{ id: "s1", name: "Sponsor riservato" }],
+      },
+    ],
+  });
+  __setPrismaClientForTests(fake.client);
+
+  const { records } = await risorse.listResourcePage(
+    "clubs",
+    new URLSearchParams(),
+    {
+      userId: "u1",
+      activeOrganizationId: MIO,
+      allowedOrganizationIds: [MIO, ALTRO],
+    },
+  );
+
+  const altrui = records.find((record) => record.id === ALTRO);
+  assert.ok(altrui, "il club resta elencabile: serve a sceglierlo");
+  assert.equal(altrui.name, "Club altrui");
+  assert.equal(altrui.logo_url, "https://x/logo.png");
+
+  for (const segreto of [
+    "iban",
+    "payment_pin",
+    "transactions",
+    "bank_accounts",
+    "members",
+    "sponsors",
+  ]) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(altrui, segreto),
+      false,
+      `${segreto} vive dentro il club, e si legge solo dal club attivo`,
+    );
+  }
 });
 
 test("nessun PIN predefinito scritto nel codice", () => {
@@ -93,7 +233,22 @@ test("la rotta dei pagamenti atleta controlla il ruolo", () => {
     /requireAuthenticatedUser/,
     "sessione e appartenenza restano i presidi principali",
   );
-  assert.match(route, /allowedOrganizationIds/);
+  /*
+    **Il confine e il club attivo, non l'elenco dei club.**
+
+    Questa riga chiedeva `allowedOrganizationIds`, cioe esattamente la forma
+    che una revisione ostile ha sfruttato: il permesso si verifica con
+    `activeRole` — il ruolo nel club **attivo** — e il confine guardava tutti i
+    club dell'utente. Chi possiede una societa e in un'altra e solo genitore
+    poteva cancellare una rata dell'altra, portandosi via in cascata ogni
+    incasso, storno e rimborso collegato.
+  */
+  assert.match(route, /assertActiveClub\(scope, payment\.organization_id/);
+  assert.equal(
+    /allowedOrganizationIds/.test(route),
+    false,
+    "l'elenco dei club non e un confine: lo e il club attivo",
+  );
 });
 
 /**

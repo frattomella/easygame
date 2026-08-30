@@ -43,6 +43,7 @@ let checkoutRicevuti;
 const scope = (organizationId = CLUB) => ({
   userId: UTENTE,
   activeOrganizationId: organizationId,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB, ALTRO_CLUB],
 });
 

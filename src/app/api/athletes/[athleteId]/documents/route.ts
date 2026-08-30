@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { assertClubResourceAccess } from "@/lib/access-roles";
 import { NextResponse } from "next/server";
 import {
   asArray,
@@ -75,25 +76,51 @@ const validateUpload = ({
   return "";
 };
 
+/**
+ * L'atleta di cui si stanno leggendo o scrivendo i documenti.
+ *
+ * ---
+ *
+ * ## Due controlli che mancavano, e cosa aprivano
+ *
+ * Cercava l'atleta fra **tutti** i club dell'utente, e non chiedeva nessun
+ * ruolo. I documenti condivisi di un atleta sono carte d'identita, certificati
+ * medici e tesserini: un **genitore** poteva leggerli, scaricarne il file,
+ * approvarli e archiviarli — per ogni atleta del club, e per ogni atleta di
+ * ogni altro club a cui fosse mai stato iscritto.
+ *
+ * Adesso il confine e il **club attivo**
+ * (`src/lib/auth/active-club-boundary.ts`) e il permesso e quello che governa
+ * gia i certificati medici, che sono lo stesso genere di dato.
+ *
+ * Restituisce `null` quando l'atleta non c'e o non e del club attivo — le due
+ * cose si confondono di proposito — e solleva quando il ruolo non basta,
+ * perche «non esiste» e «non ti e permesso» sono due risposte diverse e chi le
+ * riceve deve poterle distinguere.
+ */
 const loadAthleteForSession = async (
   request: Request,
   userId: string,
   athleteId: string,
   preferredOrganizationId?: string,
+  azione: "read" | "update" = "read",
 ) => {
   const scope = await resolveOrganizationScopeForUser(
     userId,
     preferredOrganizationId || request.headers.get("x-active-club-id"),
+    request.headers.get("x-active-access-role"),
   );
 
-  if (scope.allowedOrganizationIds.length === 0) {
+  if (!scope.activeOrganizationId) {
     return null;
   }
+
+  assertClubResourceAccess(scope.activeRole, "medical_certificates", azione);
 
   return prisma.athlete.findFirst({
     where: {
       id: athleteId,
-      organization_id: { in: scope.allowedOrganizationIds },
+      organization_id: scope.activeOrganizationId,
     },
     include: {
       organization: { select: { id: true, name: true } },
@@ -203,6 +230,7 @@ export async function POST(request: Request, context: Context) {
       session.db.user_id,
       context.params.athleteId,
       firstText(body?.organizationId, body?.organization_id),
+      "update",
     );
     if (!athlete) return jsonError("Atleta non appartenente al club", 403);
 
@@ -337,6 +365,7 @@ export async function PATCH(request: Request, context: Context) {
       session.db.user_id,
       context.params.athleteId,
       firstText(body?.organizationId, body?.organization_id),
+      "update",
     );
     if (!athlete) return jsonError("Atleta non appartenente al club", 403);
 
@@ -442,6 +471,7 @@ export async function DELETE(request: Request, context: Context) {
       session.db.user_id,
       context.params.athleteId,
       firstText(body?.organizationId, body?.organization_id),
+      "update",
     );
     if (!athlete) return jsonError("Atleta non appartenente al club", 403);
 

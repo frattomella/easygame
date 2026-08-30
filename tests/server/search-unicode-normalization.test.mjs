@@ -45,6 +45,7 @@ const NFC = NFD.normalize("NFC");
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

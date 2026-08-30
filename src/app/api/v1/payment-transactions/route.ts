@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertAccountingPermission } from "@/lib/accounting/permissions";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -80,6 +81,19 @@ export async function GET(request: Request) {
         request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
+
+    /*
+      **Il permesso, che qui non c'era.**
+
+      La `POST` di questo stesso file verifica
+      `canManageClubConfiguration(scope.activeRole)`; la `GET` non verificava
+      niente, e restituisce il **libro cassa del club**: ogni incasso di ogni
+      famiglia, con importi, date, metodi, controparti e storni. Un genitore,
+      un atleta o un allenatore lo leggevano per intero.
+      La matrice esiste gia — `parent`, `athlete` e `trainer` non hanno
+      `accounting.read` — e questa rotta non gliela chiedeva.
+    */
+    assertAccountingPermission(scope.activeRole, "accounting.read");
 
     const transactions = await listPaymentTransactions(
       {

@@ -39,6 +39,7 @@ let inviate;
 const scope = (organizationId = CLUB) => ({
   userId: "dddddddd-0000-4000-8000-00000000000a",
   activeOrganizationId: organizationId,
+  activeRole: "owner",
   allowedOrganizationIds: [organizationId],
 });
 

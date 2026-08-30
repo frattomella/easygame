@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { assertActiveClub } from "@/lib/auth/active-club-boundary";
+import { hasAccountingPermission } from "@/lib/accounting/permissions";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -67,9 +69,24 @@ export async function GET(request: Request) {
       request.headers.get("x-active-club-id"),
     );
 
-    if (!scope.allowedOrganizationIds.includes(String(charge.organization_id))) {
+    /*
+      Il confine e il club **attivo** — vedi
+      `src/lib/auth/active-club-boundary.ts`. E il permesso: questa risposta
+      contiene lo storico degli incassi di una famiglia, con importi, date e
+      metodi. Non aveva nessun controllo di ruolo, e qualunque membro del club
+      leggeva la posizione economica di chiunque altro, conoscendone la rata.
+    */
+    assertActiveClub(scope, charge.organization_id, "la rata");
+
+    if (!hasAccountingPermission(scope.activeRole, "accounting.read")) {
       return NextResponse.json(
-        { data: null, error: { message: "Accesso negato: la rata appartiene a un altro club" } },
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: lo storico degli incassi di una famiglia lo legge chi tiene i conti del club",
+          },
+        },
         { status: 403 },
       );
     }

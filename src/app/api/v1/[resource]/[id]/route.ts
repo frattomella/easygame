@@ -5,6 +5,7 @@ import {
   getResourceById,
   projectClubResponse,
   updateResource,
+  isClosedResource,
 } from "@/lib/server/resources";
 import {
   requireAuthenticatedUser,
@@ -67,6 +68,18 @@ type Context = {
 const ensureResource = (resource: string) => {
   if (!RESOURCE_CONFIG[resource]) {
     throw new Error(`Unknown resource: ${resource}`);
+  }
+  /*
+    **Una risorsa chiusa non passa di qui**, e la porta si chiude prima della
+    sessione: `assets` non ha un `organization_id` — il club sta dentro `path` —
+    e dedurlo da una convenzione di denominazione per autorizzare un documento
+    di identita sarebbe un confine costruito su un nome di file. Le quattro
+    rotte che servono gli allegati verificano ognuna il suo.
+  */
+  if (isClosedResource(resource)) {
+    throw new Error(
+      `Accesso negato: ${resource} non si legge dal registro generico, ma dalle rotte del suo dominio`,
+    );
   }
 };
 

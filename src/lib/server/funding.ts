@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { canAccessClubResource } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   buildFundingReconciliation,
@@ -53,6 +54,8 @@ import {
 export type FundingScope = {
   userId: string;
   activeOrganizationId: string | null;
+  /** Il ruolo nel club attivo. Serve al permesso, che il confine non sostituisce. */
+  activeRole?: string | null;
   allowedOrganizationIds: string[];
 };
 
@@ -101,6 +104,26 @@ const ensureOrganizationAccess = (
   if (!attivo) throw denied("nessun club attivo selezionato");
   if (attivo !== asText(organizationId)) {
     throw denied("non trovato, o non appartiene al club attivo");
+  }
+
+  /*
+    **E il permesso, che nelle letture non c'era.**
+
+    Le scritture chiedevano `canManageClubConfiguration`; le letture non
+    chiedevano niente, e ogni `GET` sotto `/api/v1/funding` era aperta a
+    chiunque appartenesse al club — compresa la riconciliazione di un bando e
+    il suo export CSV. Sapere **quali famiglie** sono iscritte a un voucher e
+    per quanto e un'affermazione sulla loro situazione economica, ed era la
+    lettura piu delicata del dominio e l'unica senza porta.
+
+    Il confine dice **su quale club**; questo dice **se puoi**. I due controlli
+    sono entrambi obbligatori — vedi `src/lib/auth/active-club-boundary.ts` — e
+    stanno insieme perche nessuno ne aggiunga uno solo.
+  */
+  if (!canAccessClubResource(scope.activeRole, "payments", "read")) {
+    throw denied(
+      "i contributi pubblici li vede chi tiene i conti del club: dicono la situazione economica di una famiglia",
+    );
   }
 };
 

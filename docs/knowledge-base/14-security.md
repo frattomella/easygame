@@ -425,6 +425,144 @@ documenti emessi prima che lo snapshot esistesse non ne hanno uno — ma e una
 ricaduta, non piu la regola. Il logo resta corrente per scelta: e
 un'immagine servita dall'applicazione, non un dato fiscale.
 
+### 6-octies. Tre classi di confine che la correzione precedente non poteva vedere — PRESIDIATO (2026-08-30, seconda revisione)
+
+La correzione di [6-quinquies](#6-quinquies-il-confine-multi-tenant-era-allowedorganizationids-in-quindici-moduli--presidiato-2026-08-30-wave-4-remediation) ha inseguito **una firma**: autorizzare una riga con
+`allowedOrganizationIds` mentre il permesso si verifica con `activeRole`. L'ha
+chiusa in quindici moduli. Una revisione ostile indipendente ha poi mostrato
+che fuori da quella firma c'erano tre classi, e due erano peggiori.
+
+#### Classe 1 — risorse senza **nessun** confine
+
+`users` e `assets` non avevano un controllo sbagliato: non ne avevano affatto.
+Una ricerca dell'anti-pattern non poteva vederle, perche l'anti-pattern li non
+c'era.
+
+`ORGANIZATION_SCOPED_MODEL_RESOURCES` elencava venti risorse di modello e non
+queste due. `listResourcePage` non applicava quindi nessun `where`, e
+`resolveRecordOrganizationId` restituiva `null` — e `ensureOrganizationAccess`,
+ricevendo `null`, **esce senza negare**. L'unico controllo rimasto era il
+ruolo, e il ruolo lo si ottiene registrandosi con un club proprio.
+
+Cosa la revisione ha eseguito:
+
+```
+GET    /api/v1/users            -> l'anagrafica di ogni utente della piattaforma
+PATCH  /api/v1/users/<vittima>  {"password":"..."} -> 200, impronta riscritta
+DELETE /api/v1/users/<vittima>  -> 200; Club.creator_id e ON DELETE CASCADE
+GET    /api/v1/assets           -> carte d'identita e certificati medici,
+                                   con il contenuto in data_base64
+```
+
+**La correzione non e un terzo elenco**, perche la sua **assenza** era il
+difetto e un quarto dimenticato produrrebbe lo stesso buco. Ogni risorsa di
+modello dichiara adesso il suo confine in `RESOURCE_BOUNDARIES`, e
+`assertOgniRisorsaDichiaraIlConfine` — eseguita al caricamento del modulo —
+**impedisce a `resources.ts` di caricarsi** se una ne resta senza. Vive nel
+codice e non in un test perche un test si puo dimenticare di aggiornare.
+
+Tre confini, e nessun altro:
+
+| Confine | Cosa significa |
+|---|---|
+| `club` | la riga porta un `organization_id`, e si filtra per club |
+| `persona` | la riga e di **chi la chiede**, e si filtra per `userId` |
+| `chiuso` | non passa dal registro generico: ha rotte proprie |
+
+`users` e `persona`: un utente non appartiene a un club, appartiene a se
+stesso. `assets` e `chiuso`: non ha un `organization_id` — il club sta dentro
+`path` — e dedurlo da una convenzione di denominazione per autorizzare un
+documento di identita sarebbe un confine costruito su un nome di file. Le
+quattro rotte che servono gli allegati verificano ognuna il suo, e nessun
+client chiedeva `/api/v1/assets`.
+
+#### Classe 2 — confine giusto, **permesso assente**
+
+`active-club-boundary.ts` dichiara nella sua intestazione che decide **su quale
+club**, non **cosa si puo fare**, e che i due controlli sono entrambi
+obbligatori. Cinque moduli superavano il primo e non eseguivano mai il secondo:
+
+| Dove | Cosa lasciava fare a chiunque appartenesse al club |
+|---|---|
+| `GET /api/v1/payment-transactions` | il **libro cassa** del club: ogni incasso di ogni famiglia, con importi, date, metodi, controparti e storni. La `POST` dello stesso file il permesso lo chiedeva |
+| `/api/v1/forms/**` | elencare, creare, **pubblicare** un modulo a nome della societa, rigenerare lo slug pubblico invalidando il link vivo, cancellare, e leggere ogni compilazione con nomi, codici fiscali e file caricati |
+| `GET /api/v1/funding/**` | quali famiglie sono iscritte a un voucher e per quanto — un'affermazione sulla loro situazione economica — compresa la riconciliazione di un bando e il suo export CSV |
+| `/api/athletes/:id/documents` e `/file` | leggere, **scaricare**, approvare e archiviare carte d'identita e certificati di ogni atleta |
+| `GET /api/payments/checkout-status` | lo storico completo degli incassi di una rata di chiunque |
+
+`src/lib/server/forms.ts` dichiarava `activeRole` nel suo tipo di scope e non
+lo leggeva in nessuna riga.
+
+Il permesso e stato aggiunto **dove vive il dominio** — dentro
+`ensureOrganizationAccess` di `funding.ts`, `forms.ts` e
+`form-submissions.ts` — cosi che nessuna rotta nuova possa dimenticarlo.
+
+#### Classe 3 — moduli che la ricognizione non ha raggiunto
+
+Tre rotte sotto `/api/`, non sotto `/api/v1/`, portavano l'anti-pattern
+verbatim. La ricognizione si era fermata al secondo prefisso.
+
+`PATCH /api/athlete-payments/:id` era il caso peggiore: riscrivere, annullare o
+**cancellare** una rata di un altro club — e `payment_transactions.payment_id`
+e `ON DELETE CASCADE`, quindi la cancellazione porta via ogni incasso, storno e
+rimborso collegato. Cioe D-3, l'invariante centrale della Wave, distrutta da un
+club in cui l'attaccante e un genitore.
+
+#### E, orthogonale a tutte e tre: il privilegio che si concedeva da se
+
+`isPlatformAdminUser` leggeva il ruolo da tre posti, e il **primo** era
+`user_metadata.role` — una colonna JSON che l'utente stesso scrive da
+`PATCH /api/v1/auth/user`, che accettava qualunque chiave.
+
+```
+PATCH /api/v1/auth/user   {"user_metadata":{"role":"platform_admin"}}
+```
+
+Da qualunque account — un genitore, un atleta, uno appena registrato e senza
+club — la richiesta successiva era gia amministratore della piattaforma: dati
+di pagamento di ogni societa, piani e abbonamenti scrivibili, profilo fiscale e
+conto Stripe di qualunque club. Comprese **due delle cinque rotte** a cui la
+correzione precedente aveva appena aggiunto il gate di ruolo, perche
+l'amministratore di piattaforma le scavalca entrambe.
+
+E la seconda meta: con l'elenco di indirizzi **configurato**, l'ultima riga
+concedeva comunque sul solo ruolo. L'elenco non era una condizione, era un ramo
+alternativo.
+
+La regola adesso:
+
+| Quando | Cosa vale |
+|---|---|
+| l'elenco di indirizzi e configurato | **solo** l'indirizzo |
+| l'elenco e vuoto (sviluppo) | la colonna `users.role` |
+
+`user_metadata.role` non vale mai, e in piu `PROTECTED_USER_FIELDS` impedisce
+di scriverlo: due difese per lo stesso privilegio, perche una sola prima o poi
+si dimentica.
+
+#### Il club non attivo, e quanto ne usciva
+
+L'eccezione dichiarata — l'elenco dei club resta filtrato sui club dell'utente,
+perche li la risorsa **e** il club e il selettore di societa deve poter leggere
+quella su cui sta per spostarsi — era corretta nella ragione e tre ordini di
+grandezza piu larga nell'effetto: «leggere» significava **la riga intera**.
+
+Una revisione ha letto, da un club dove era soltanto genitore: IBAN, conti
+correnti con i saldi, la prima nota storica, gli sponsor, i soci con il codice
+fiscale, e il `payment_pin`.
+
+Del club **non attivo** escono adesso le sole colonne che servono a sceglierlo.
+E `payment_pin` non esce mai, da nessun club: era stato tolto dalle colonne
+**proiettabili** — quelle che un client puo chiedere con `?fields=` — e una
+prova lo presidiava, ma una lettura **senza** `?fields=` non passa da quella
+lista. La prova passava e il segreto usciva. Adesso guarda la risposta.
+
+**Le prove:** `tests/server/platform-boundary.test.mjs` (le tre classi, piu il
+controllo inverso), `tests/auth/active-club-boundary.test.mjs` (il ruolo che si
+concede da se, e l'elenco che e una condizione),
+`tests/server/club-pin-removed.test.mjs` (il PIN e il club non attivo, guardati
+sulla **risposta** invece che sul sorgente).
+
 ### 7. ~~Nessun audit log~~ — IMPLEMENTATO (2026-08-22)
 
 `src/lib/server/audit.ts` scrive su `audit_logs` chi ha fatto cosa, su quale

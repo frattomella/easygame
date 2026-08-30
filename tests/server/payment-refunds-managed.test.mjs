@@ -153,6 +153,7 @@ afterEach(() => {
 const scopeDi = (organizationId = CLUB) => ({
   userId: "user-1",
   activeOrganizationId: organizationId,
+  activeRole: "owner",
   allowedOrganizationIds: [organizationId],
 });
 

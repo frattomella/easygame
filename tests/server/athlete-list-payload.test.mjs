@@ -26,6 +26,7 @@ const ATHLETE = "11111111-0000-4000-8000-000000000001";
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

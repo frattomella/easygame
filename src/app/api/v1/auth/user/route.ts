@@ -42,10 +42,33 @@ export async function PATCH(request: Request) {
             .trim()
             .toLowerCase()
         : undefined;
-    const metadata =
+    /*
+      **Le chiavi che il soggetto di un dato non puo scrivere su se stesso.**
+
+      `user_metadata` e una colonna JSON libera, e va bene che lo sia: e il
+      posto dove una persona tiene le sue preferenze. Ma da qui si scriveva
+      **qualunque** chiave, e `isPlatformAdminUser` ne leggeva una: `role`.
+      Da un account qualunque — un genitore, un atleta, uno appena registrato
+      e senza club — bastava
+      `{"user_metadata":{"role":"platform_admin"}}` per diventare
+      amministratore della piattaforma alla richiesta successiva.
+
+      Il controllo di `platform-admin.ts` non legge piu quel campo, e questa
+      lista e la seconda meta della stessa correzione: due difese per lo stesso
+      privilegio, perche una sola prima o poi si dimentica.
+    */
+    const CHIAVI_NON_SCRIVIBILI = ["role", "app_metadata", "is_platform_admin"];
+
+    const metadataGrezzo =
       (typeof body?.data === "object" && body.data) ||
       (typeof body?.user_metadata === "object" && body.user_metadata) ||
       {};
+
+    const metadata = Object.fromEntries(
+      Object.entries(metadataGrezzo).filter(
+        ([chiave]) => !CHIAVI_NON_SCRIVIBILI.includes(chiave),
+      ),
+    ) as Record<string, any>;
     const phone =
       metadata.phone !== undefined
         ? String(metadata.phone || "").trim()

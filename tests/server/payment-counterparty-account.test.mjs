@@ -34,6 +34,7 @@ const SPONSOR = "sponsor-ferramenta";
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 
@@ -296,6 +297,7 @@ test("un incasso con la controparte di un altro club non passa dallo scope sbagl
   const altro = {
     userId: "user-b",
     activeOrganizationId: "bbbbbbbb-0000-4000-8000-000000000002",
+    activeRole: "owner",
     allowedOrganizationIds: ["bbbbbbbb-0000-4000-8000-000000000002"],
   };
 

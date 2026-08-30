@@ -55,6 +55,7 @@ before(async () => {
 const scope = (organizationId = CLUB) => ({
   userId: UTENTE,
   activeOrganizationId: organizationId,
+  activeRole: "owner",
   allowedOrganizationIds: [organizationId],
 });
 

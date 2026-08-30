@@ -32,12 +32,14 @@ let fake;
 const scope = () => ({
   userId: "11111111-0000-4000-8000-00000000000a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 
 const scopeAltro = () => ({
   userId: "22222222-0000-4000-8000-00000000000b",
   activeOrganizationId: ALTRO_CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [ALTRO_CLUB],
 });
 

@@ -53,6 +53,7 @@ const scopeB = (activeRole = "owner") => ({
 const documentScopeA = () => ({
   userId: UTENTE_A,
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
   role: "owner",
 });
@@ -60,6 +61,7 @@ const documentScopeA = () => ({
 const documentScopeB = () => ({
   userId: UTENTE_B,
   activeOrganizationId: CLUB_B,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_B],
   role: "owner",
 });
@@ -786,8 +788,8 @@ test("una compilazione di un altro club non si approva affatto", async () => {
   const scopeAltroveAttivo = {
     ...scopeA(),
     activeOrganizationId: CLUB_B,
-    allowedOrganizationIds: [CLUB_A, CLUB_B],
     activeRole: "owner",
+    allowedOrganizationIds: [CLUB_A, CLUB_B],
   };
 
   await assert.rejects(

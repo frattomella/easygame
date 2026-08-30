@@ -38,6 +38,7 @@ const ATLETA = "99999999-0000-4000-8000-000000000009";
 const scope = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

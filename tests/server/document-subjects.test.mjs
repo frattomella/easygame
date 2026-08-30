@@ -30,6 +30,7 @@ const CLUB_B = "bbbbbbbb-0000-4000-8000-000000000002";
 const scopeA = () => ({
   userId: "user-a",
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
 });
 

@@ -72,6 +72,7 @@ beforeEach(() => {
 const scope = () => ({
   userId: "utente-del-club",
   activeOrganizationId: CLUB,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB],
 });
 

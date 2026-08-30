@@ -30,6 +30,7 @@ const USER_SEGRETERIA = "22222222-0000-4000-8000-00000000000b";
 const scopeDirezione = () => ({
   userId: USER_DIREZIONE,
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
   role: "owner",
 });
@@ -37,6 +38,7 @@ const scopeDirezione = () => ({
 const scopeSegreteria = () => ({
   userId: USER_SEGRETERIA,
   activeOrganizationId: CLUB_A,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_A],
   role: "collaborator",
 });
@@ -44,6 +46,7 @@ const scopeSegreteria = () => ({
 const scopeAltroClub = () => ({
   userId: "33333333-0000-4000-8000-00000000000c",
   activeOrganizationId: CLUB_B,
+  activeRole: "owner",
   allowedOrganizationIds: [CLUB_B],
   role: "owner",
 });
@@ -630,6 +633,7 @@ test("il ruolo di un club non vale sui documenti di un altro", async () => {
   const doppioClub = {
     userId: USER_SEGRETERIA,
     activeOrganizationId: CLUB_B,
+    activeRole: "owner",
     allowedOrganizationIds: [CLUB_A, CLUB_B],
     role: "owner",
   };
@@ -672,6 +676,7 @@ test("un identificativo inesistente e uno altrui dicono la stessa cosa", async (
   const altroClub = {
     userId: USER_SEGRETERIA,
     activeOrganizationId: CLUB_B,
+    activeRole: "owner",
     allowedOrganizationIds: [CLUB_A, CLUB_B],
     role: "owner",
   };
