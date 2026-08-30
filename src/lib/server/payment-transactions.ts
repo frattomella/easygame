@@ -769,9 +769,17 @@ export const reversePaymentTransaction = async (
       ed e un errore vero della segreteria che va risolto in un gesto che si
       legge.
     */
-    const rimborsi = await client.paymentTransaction.findMany({
-      where: refundsOfTransaction(original),
-    });
+    /*
+      La guardia riguarda gli **incassi**. Un rimborso e gia denaro che torna
+      indietro: annullarlo non e la contraddizione che questa guardia esiste
+      per impedire, ed e anzi il gesto che il messaggio qui sotto consiglia.
+    */
+    const rimborsi =
+      toPaymentAmount(original.amount) < 0
+        ? []
+        : await client.paymentTransaction.findMany({
+            where: refundsOfTransaction(original),
+          });
 
     const rimborsatoCents = rimborsi.reduce(
       (totale: number, riga: any) =>
@@ -877,6 +885,30 @@ export const reversePaymentTransaction = async (
 const refundsOfTransaction = (original: any) => ({
   organization_id: original.organization_id,
   amount: { lt: 0 },
+  /*
+    **Solo i rimborsi vivi.**
+
+    Il filtro non escludeva quelli stornati, e il rifiuto dello storno diceva
+    all'operatore di fare una cosa che poi non funzionava: «storna prima il
+    rimborso» — fatto, e lo storno dell'incasso restava rifiutato per sempre,
+    citando un rimborso che non esiste piu. E la stessa forma di ADR-0095:
+    un fatto vale fra le sue rappresentazioni vive.
+  */
+  reversed_at: null,
+  /*
+    **E non e rimborso di se stesso.**
+
+    Quando l'incasso ha un identificativo del provider, i rimborsi si
+    riconoscono da quello — ma un rimborso porta lo **stesso** identificativo
+    dell'incasso che rimborsa, ed e negativo. Chiedendo i rimborsi *di un
+    rimborso* la riga trovava se stessa, e stornare un rimborso era percio
+    **impossibile**: il rifiuto citava, come rimborso gia avvenuto, la riga
+    che si stava cercando di annullare.
+
+    E il consiglio del messaggio — «storna prima il rimborso» — non era quindi
+    solo inefficace dopo: era irrealizzabile.
+  */
+  id: { not: original.id },
   ...(original.external_payment_id
     ? { external_payment_id: original.external_payment_id }
     : {
@@ -1025,6 +1057,41 @@ export const recordRefundTransaction = async (
       lo stesso incasso, e la verifica si rifa qui dentro.
     */
     await lockInstallmentAndTransaction(client, paymentId, original.id);
+
+    /*
+      **Lo storno e il rimborso sono la stessa domanda posta da due parti, e
+      la guardia ne copriva una sola.**
+
+      `reversePaymentTransaction` rifiuta di stornare cio che e gia stato
+      rimborsato. Al contrario non c'era niente: si poteva stornare prima e
+      rimborsare dopo, senza nessuna simultaneita, e il registro accettava
+      entrambi. Cento euro incassati, cento stornati — cioe «non e mai
+      avvenuto» — e trenta restituiti su un incasso che il registro dichiara
+      inesistente: in cassa restano settanta euro che il registro conta come
+      meno trenta.
+
+      Ed e il caso peggiore fra quelli possibili, perche il saldo derivato e
+      la prima nota **concordano**: leggono entrambi le stesse righe vive.
+      Nessuna riconciliazione fra le due letture puo vederlo. Il denaro manca
+      e basta.
+
+      Il caso e realistico: la segreteria storna un pagamento con carta mentre
+      il rimborso di Stripe e per strada, o arriva dopo. Entrambi i percorsi
+      prendono lo stesso blocco sulla riga dell'incasso, quindi qui la lettura
+      e affidabile.
+    */
+    const originale = await client.paymentTransaction.findUnique({
+      where: { id: original.id },
+      select: { reversed_at: true },
+    });
+
+    if (originale?.reversed_at) {
+      throw new Error(
+        "Questo incasso e stato stornato, e un incasso stornato non si rimborsa: " +
+          "lo storno dichiara che il denaro non e mai entrato, quindi non c'e niente da restituire. " +
+          "Se il denaro e davvero tornato indietro, annulla lo storno e registra il rimborso.",
+      );
+    }
 
     const alreadyWritten = await client.paymentTransaction.findFirst({
       where: {

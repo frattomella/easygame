@@ -360,6 +360,46 @@ const prove = async () => {
      VALUES ('${randomUUID()}', '${CLUB}', '${PROGRAMMA}', '2026-10-03', -800, '${liquidazione}', now(), now())`,
   );
 
+  console.log(`${NL}=== QUANTO PUO VALERE UN IMPORTO ===${NL}`);
+
+  /*
+    **21.474.836,47 euro e il piu grande importo che il registro sa mostrare.**
+
+    Non e una scelta di prodotto: e il limite della colonna della vista. Oltre
+    quello i centesimi non entrano in un intero, e Postgres non tronca — alza
+    `integer out of range` e **l'intera query cade**. Un solo movimento fuori
+    scala, e quel club perdeva prima nota, rendiconto, export e saldi.
+
+    Le funzioni `easygame_centesimi` reggono comunque, e in quel caso si perde
+    una riga invece di un anno di contabilita; ma la riga non deve nascere, ed
+    e per questo che il divieto sta qui e non nell'applicazione: la prima volta
+    e nata da una scrittura che l'applicazione non ha visto.
+  */
+
+  await permesso(
+    "un incasso all'importo massimo rappresentabile",
+    `INSERT INTO payment_transactions (id, organization_id, athlete_id, amount, paid_at, payment_method, source, currency, created_at, updated_at)
+     VALUES ('${randomUUID()}', '${CLUB}', '${ATLETA}', 21474836.47, '2026-10-01', 'Bonifico', 'MANUAL', 'EUR', now(), now())`,
+  );
+  await vietato(
+    "un incasso di un centesimo oltre il rappresentabile",
+    "un movimento che il registro non puo mostrare non deve poter nascere",
+    `INSERT INTO payment_transactions (id, organization_id, athlete_id, amount, paid_at, payment_method, source, currency, created_at, updated_at)
+     VALUES ('${randomUUID()}', '${CLUB}', '${ATLETA}', 21474836.48, '2026-10-01', 'Bonifico', 'MANUAL', 'EUR', now(), now())`,
+  );
+  await vietato(
+    "un Date.now() finito nel campo dell'importo",
+    "millemila miliardi non sono un incasso: sono un errore che spegneva la contabilita del club",
+    `INSERT INTO payment_transactions (id, organization_id, athlete_id, amount, paid_at, payment_method, source, currency, created_at, updated_at)
+     VALUES ('${randomUUID()}', '${CLUB}', '${ATLETA}', 1700000000000, '2026-10-01', 'Bonifico', 'MANUAL', 'EUR', now(), now())`,
+  );
+  await vietato(
+    "una liquidazione di bando fuori scala",
+    "vale per ogni dominio che entra nel registro, non solo per gli incassi",
+    `INSERT INTO funding_settlements (id, organization_id, program_id, settled_at, amount, created_at, updated_at)
+     VALUES ('${randomUUID()}', '${CLUB}', '${PROGRAMMA}', '2026-10-04', 50000000000, now(), now())`,
+  );
+
   console.log(`${NL}=== IL LIBRO SOCI ===${NL}`);
 
   const socio = randomUUID();

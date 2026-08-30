@@ -21,7 +21,8 @@
  * 4. doppia proiezione dello stesso evento sorgente (l'idempotenza dell'F24);
  * 5. giroconto concorrente;
  * 6. saldo letto **mentre** si scrive;
- * 7. riconciliazione doppia.
+ * 7. riconciliazione doppia;
+ * 8. storno e rimborso dello stesso incasso, nei due ordini e insieme.
  *
  * Come per la misura delle prestazioni: club dedicato, e se ne va alla fine.
  */
@@ -119,7 +120,7 @@ const esegui = async () => {
   const accounting = await import("../src/lib/server/accounting.ts");
   const funding = await import("../src/lib/server/funding.ts");
 
-  console.log(NEWLINE + "Le sette prove di concorrenza:" + NEWLINE);
+  console.log(NEWLINE + "Le prove di concorrenza:" + NEWLINE);
 
   /* ------------------------------------------------ 1. doppio incasso */
   await prova(
@@ -370,6 +371,93 @@ const esegui = async () => {
       return {
         ok: dopo[0].balanceCents === atteso && tutteCoerenti,
         dettaglio: `saldo finale ${dopo[0].balanceCents} (atteso ${atteso}), ${intermedie.length} letture tutte coerenti: ${tutteCoerenti}`,
+      };
+    },
+  );
+
+  /* --------------------------- 8. storno e rimborso, nei due ordini */
+  await prova(
+    "8. storno e rimborso dello stesso incasso",
+    "uno solo dei due passa, in qualunque ordine",
+    async () => {
+      const atleta = await prisma.athlete.create({
+        data: { organization_id: CLUB, first_name: "Chiara", last_name: "Neri", updated_at: new Date() },
+      });
+
+      /*
+        **La guardia copriva una direzione sola.** `reversePaymentTransaction`
+        rifiutava di stornare cio che era gia stato rimborsato; al contrario
+        non c'era niente. Si poteva stornare prima e rimborsare dopo, **senza
+        nessuna simultaneita**, e il registro accettava entrambi: cento euro
+        incassati, cento stornati — cioe «non e mai avvenuto» — e trenta
+        restituiti su un incasso che il registro dichiara inesistente.
+
+        Ed e il caso peggiore fra quelli possibili, perche il saldo derivato e
+        la prima nota **concordano**: leggono le stesse righe vive. Nessuna
+        riconciliazione fra le due letture puo vederlo. Il denaro manca e
+        basta.
+      */
+      const perso = [];
+      for (const ordine of ["storno-prima", "rimborso-prima", "insieme"]) {
+        const rata = await prisma.athletePayment.create({
+          data: {
+            organization_id: CLUB,
+            athlete_id: atleta.id,
+            description: `Quota - ${ordine}`,
+            amount: 100,
+            updated_at: new Date(),
+          },
+        });
+        const creato = await payments.createPaymentTransaction(
+          { paymentId: rata.id, amount: 100, paymentMethod: "Carta", financialAccountId: CASSA },
+          scope(),
+        );
+
+        const storna = () =>
+          payments.reversePaymentTransaction(
+            { transactionId: creato.transaction.id, reason: "Errore di cassa" },
+            scope(),
+          );
+        const rimborsa = () =>
+          payments.recordRefundTransaction(
+            {
+              transactionId: creato.transaction.id,
+              amountCents: 3000,
+              externalRefundId: `re_${ordine}`,
+            },
+            scope(),
+          );
+
+        if (ordine === "insieme") {
+          await insieme(storna, rimborsa);
+        } else {
+          const primo = ordine === "storno-prima" ? storna : rimborsa;
+          const secondo = ordine === "storno-prima" ? rimborsa : storna;
+          await primo().catch(() => {});
+          await secondo().catch(() => {});
+        }
+
+        const righe = await prisma.paymentTransaction.findMany({
+          where: { payment_id: rata.id },
+        });
+        /*
+          La cassa reale: 100 entrati, meno il rimborso se e stato eseguito.
+          Il registro deve raccontare o «zero, non e mai avvenuto» (storno) o
+          «settanta» (rimborso), mai meno trenta.
+        */
+        const rimborsato = righe.some(
+          (r) => Number(r.amount) < 0 && !r.reverses_transaction_id,
+        );
+        const stornato = righe.some((r) => r.reverses_transaction_id);
+        if (rimborsato && stornato) perso.push(ordine);
+      }
+
+      return {
+        ok: perso.length === 0,
+        dettaglio:
+          perso.length === 0
+            ? "3 ordini su 3: mai storno e rimborso insieme"
+            : `storno e rimborso entrambi accettati in: ${perso.join(", ")}`,
       };
     },
   );

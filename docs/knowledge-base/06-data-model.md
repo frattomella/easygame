@@ -815,6 +815,49 @@ e filtra sempre: `payment_transactions (organization_id, paid_at)`,
 `accounting_entries (organization_id, operation_type_code)` per il filtro per
 causale, che non era indicizzato da nessuna parte.
 
+#### Quanto puo valere un importo, e perche il database lo dice (2026-08-30)
+
+`amount_cents` della vista e un `int`. Oltre **21.474.836,47 euro** i centesimi
+non ci entrano, e Postgres non tronca: alza `integer out of range` e l'intera
+query cade — cioe quel club perde prima nota, rendiconto, export e saldi, tutti
+insieme, per una riga sola.
+
+Tre `CHECK` impediscono che una riga cosi nasca:
+
+| Vincolo | Tabella | Regola |
+|---|---|---|
+| `payment_transactions_amount_scala_check` | `payment_transactions` | `abs(amount) <= 21474836.47` |
+| `sport_work_outbound_scala_check` | `sport_work_outbound_transactions` | lo stesso su `net_amount` e `gross_amount` |
+| `funding_settlements_scala_check` | `funding_settlements` | lo stesso su `amount` |
+
+E `easygame_centesimi(double precision) RETURNS int` regge comunque: `NULL` per
+il fuori scala, per `NaN` e per gli infiniti — che Postgres accetta volentieri
+come `double precision` e rifiuta come `int`. Le due meta non si sostituiscono:
+il vincolo impedisce, la funzione limita il danno se il vincolo verra aggirato
+da una scrittura che l'applicazione non vede.
+
+#### La data storica accetta ISO 8601, e nient'altro
+
+`easygame_blob_timestamp(text)` rifiuta tutto cio che non ha la forma
+`AAAA-MM-GG[THH:MM[:SS[.mmm]][Z|±HH:MM]]`. Non e pignoleria: e la sola forma su
+cui la vista SQL e la sua dichiarazione in TypeScript
+(`src/lib/accounting/ledger-view.ts`) possono essere d'accordo. Postgres
+risolve `'now'`, `'today'`, `'epoch'`, `'infinity'`; JavaScript no.
+`'09/03/2026'` e il 3 settembre per uno e il 9 marzo per l'altro. Un giorno di
+scarto a cavallo di dicembre e un **anno fiscale** sbagliato.
+
+Quando l'offset c'e, si onora e si porta in UTC: e cio che fa JavaScript, e
+percio il risultato non dipende dal fuso della sessione — la dichiarazione
+`IMMUTABLE` resta vera, che prima non lo era.
+
+Il ripiego sceglie fra i due valori **letti**, non fra i due grezzi:
+`COALESCE(easygame_blob_timestamp(date), easygame_blob_timestamp(created_at))`.
+Con `COALESCE` sui grezzi una `date` sporca ma presente vinceva su un
+`created_at` buono, e la riga usciva da una lettura del registro e non
+dall'altra.
+
+Vedi ADR-0096.
+
 ### `membership_events` — il libro soci
 
 Append-only, e lo stato **si deriva**. L'anagrafica del socio resta in

@@ -135,6 +135,42 @@ const semina = async () => {
           spariva da una lettura e non dall'altra.
         */
         { id: "sp-6", created_at: "2026-03-08T00:00:00.000Z", amount: 7.77, description: "Solo created_at" },
+        /*
+          **I casi che facevano cadere la vista un centesimo piu in la.**
+
+          I due `try-cast` intercettavano il fallimento della conversione, non
+          il `::int` che veniva dopo: oltre 21.474.836,47 euro i centesimi non
+          entrano in un intero e Postgres alza, portandosi via l'intera query.
+          NaN e gli infiniti passano volentieri per `double precision` e
+          muoiono allo stesso modo, e `'infinity'` come data moriva sull'anno.
+        */
+        { id: "sc-1", date: "2026-03-09T00:00:00.000Z", amount: 999999999999, description: "Fuori scala" },
+        { id: "sc-2", date: "2026-03-09T00:00:00.000Z", amount: 1e15, description: "Fuori scala grande" },
+        { id: "sc-3", date: "2026-03-09T00:00:00.000Z", amount: -1e15, description: "Fuori scala negativo" },
+        { id: "sc-4", date: "2026-03-09T00:00:00.000Z", amount: "Infinity", description: "Infinito" },
+        { id: "sc-5", date: "2026-03-09T00:00:00.000Z", amount: "NaN", description: "Non un numero" },
+        { id: "sc-6", date: "2026-03-09T00:00:00.000Z", amount: " 1e400", description: "Overflow di testo" },
+        { id: "sc-7", date: "infinity", amount: 10, description: "Data infinita" },
+        /*
+          **Cio che le due letture leggevano diverso.** Postgres risolve le
+          parole del tempo e legge `09/03/2026` come il 3 settembre; JavaScript
+          non le risolve e lo legge come il 9 marzo. Un giorno di scarto a
+          cavallo di dicembre e un anno fiscale sbagliato.
+        */
+        { id: "sc-8", date: "now", amount: 10, description: "La parola adesso" },
+        { id: "sc-9", date: "today", amount: 10, description: "La parola oggi" },
+        { id: "sc-10", date: "epoch", amount: 10, description: "La parola epoca" },
+        { id: "sc-11", date: "09/03/2026", amount: 10, description: "Data all'americana" },
+        { id: "sc-12", date: "2026-03-09T12:00:00+02:00", amount: 13, description: "Data con fuso" },
+        /*
+          `COALESCE` sceglieva fra i due valori **grezzi**: una data sporca ma
+          presente vinceva su un `created_at` buono, e la riga usciva da una
+          lettura e non dall'altra.
+        */
+        { id: "sc-13", date: "sporca", created_at: "2026-04-01T00:00:00.000Z", amount: 21, description: "Ripiego sul created_at" },
+        /* Un booleano vale 1 per JavaScript e non e un numero per Postgres. */
+        { id: "sc-14", date: "2026-03-09T00:00:00.000Z", amount: true, description: "Importo booleano" },
+        { id: "sc-15", date: "2026-03-09T00:00:00.000Z", amount: [5], description: "Importo in lista" },
       ],
       transfers: [
         {

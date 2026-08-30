@@ -886,3 +886,100 @@ test("il rimborso non crea un secondo storico: e una riga di Payments V2", async
 
   assert.equal(movimenti.length, 2, "un incasso e un rimborso, non tre righe");
 });
+
+/* ------------------------------------ lo storno e il rimborso, insieme */
+
+/**
+ * **La guardia che copriva una direzione sola.**
+ *
+ * `reversePaymentTransaction` rifiutava di stornare un incasso gia rimborsato,
+ * e la spiegava bene. Al contrario non c'era niente: si poteva **stornare
+ * prima e rimborsare dopo**, in due gesti separati, senza nessuna
+ * simultaneita, e il registro accettava entrambi.
+ *
+ * Cento euro incassati, cento stornati — cioe «non e mai avvenuto» — e trenta
+ * restituiti su un incasso che il registro dichiara inesistente. In cassa
+ * restano settanta euro; il registro ne conta meno trenta. E il caso peggiore
+ * fra quelli possibili, perche il saldo derivato e la prima nota **sono
+ * d'accordo fra loro**: leggono le stesse righe vive. Nessuna riconciliazione
+ * fra le due letture puo vederlo.
+ */
+test("un incasso stornato non si rimborsa", async () => {
+  const servizio = await import("../../src/lib/server/payment-transactions.ts");
+  const originale = await registraIncasso();
+
+  await servizio.reversePaymentTransaction(
+    { transactionId: originale.id, reason: "Registrato per errore" },
+    scopeDi(),
+  );
+
+  await assert.rejects(
+    gateway.requestGatewayRefund(
+      { transactionId: originale.id, amountCents: 3000 },
+      scopeDi(),
+    ),
+    /stornato/i,
+    "il rimborso di un incasso stornato non parte",
+  );
+
+  const somma = fake
+    .rows("paymentTransaction")
+    .reduce((totale, row) => totale + Number(row.amount), 0);
+  assert.equal(
+    somma,
+    0,
+    "incasso e compensazione si annullano: nessun rimborso si e aggiunto",
+  );
+});
+
+/**
+ * E il rovescio: il messaggio del rifiuto dice «storna prima il rimborso», e
+ * quel consiglio deve funzionare. Il filtro dei rimborsi non escludeva quelli
+ * stornati, quindi dopo aver seguito l'istruzione lo storno restava rifiutato
+ * per sempre, citando un rimborso che non esisteva piu.
+ */
+test("stornato il rimborso, l'incasso torna stornabile", async () => {
+  const servizio = await import("../../src/lib/server/payment-transactions.ts");
+  const originale = await registraIncasso();
+
+  const richiesta = await gateway.requestGatewayRefund(
+    { transactionId: originale.id, amountCents: 4000 },
+    scopeDi(),
+  );
+  await gateway.handleGatewayWebhookEvent(
+    eventoRimborso({
+      refund: { externalRefundId: richiesta.externalRefundId, amountCents: 4000 },
+    }),
+  );
+
+  await assert.rejects(
+    servizio.reversePaymentTransaction(
+      { transactionId: originale.id, reason: "Errore" },
+      scopeDi(),
+    ),
+    /gia stato rimborsato/i,
+    "col rimborso vivo lo storno e giustamente rifiutato",
+  );
+
+  const rimborso = fake
+    .rows("paymentTransaction")
+    .find((row) => Number(row.amount) < 0 && !row.reversed_at);
+
+  await servizio.reversePaymentTransaction(
+    { transactionId: rimborso.id, reason: "Rimborso sbagliato" },
+    scopeDi(),
+  );
+
+  await servizio.reversePaymentTransaction(
+    { transactionId: originale.id, reason: "Errore" },
+    scopeDi(),
+  );
+
+  const originaleDopo = fake
+    .rows("paymentTransaction")
+    .find((row) => row.id === originale.id);
+  assert.ok(
+    originaleDopo.reversed_at,
+    "seguito il consiglio, lo storno passa davvero",
+  );
+});

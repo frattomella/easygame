@@ -5059,3 +5059,111 @@ dichiara lo storno. Altrimenti il vincolo protegge dal doppio e vieta la
 correzione, e non c'e modo di accorgersene finche qualcuno non sbaglia un
 importo.
 
+
+## ADR-0096 — Un dato che il registro non sa mostrare non deve poter nascere
+
+**Contesto.** La migrazione «a prova di blob» aveva chiuso il guasto per cui
+un solo movimento storico scritto male spegneva prima nota, rendiconto, export
+e saldi di un club. Lo aveva chiuso a meta: i due `try-cast` intercettavano il
+fallimento della **conversione**, e nessuno intercettava il `::int` che veniva
+subito dopo. Oltre 21.474.836,47 euro i centesimi non entrano in un intero, e
+Postgres non tronca — alza `integer out of range` e l'intera query cade.
+
+E non riguardava piu soltanto il blob. Lo stesso cast era applicato a
+`payment_transactions.amount`, `sport_work_outbound_transactions.net_amount` e
+`funding_settlements.amount`, e nessun vincolo ne limitava la grandezza:
+`payment_transactions_amount_check` vieta lo zero, non l'infinito. Un
+`Date.now()` finito nel campo dell'importo bastava a togliere a un club la sua
+contabilita, **senza nessun dato storico**.
+
+**La decisione, in due meta che non si sostituiscono.**
+
+*La prevenzione.* I tre importi di dominio dichiarano nel database quanto
+possono valere. 21.474.836,47 non e una scelta di prodotto: e il limite della
+colonna della vista, e dirlo dove il dato nasce e il solo modo di impedire che
+ci arrivi qualcosa che poi non si puo leggere. E un `CHECK` e non un controllo
+applicativo perche la prima volta e nato da una scrittura che l'applicazione
+non ha visto.
+
+*La tolleranza.* `easygame_centesimi` restituisce `NULL` invece di alzare — per
+il fuori scala, per `NaN` e per gli infiniti, che Postgres accetta volentieri
+come `double precision` e rifiuta come `int`. Se un vincolo verra aggirato, si
+perdera **una riga**, non un anno di contabilita.
+
+**E la data, che le due letture leggevano diversa.** ADR-0093 ha messo in conto
+che la regola sia scritta due volte — in SQL e in TypeScript — e che il prezzo
+si paghi provando che coincidono. La sonda di riconciliazione ne trovava quindi
+quindici casi su trentasei in cui non coincidevano, e nessuno per un difetto
+dell'una: divergevano perche **interpretavano**, e interpretavano diverso.
+Postgres risolve `'now'`, `'today'`, `'epoch'`, `'infinity'`; JavaScript no.
+`'09/03/2026'` e il 3 settembre per uno e il 9 marzo per l'altro. E
+`COALESCE(date, created_at)` sceglieva fra i due valori **grezzi**, quindi una
+data sporca ma presente vinceva su un `created_at` buono.
+
+Non c'era un'interpretazione giusta da scegliere. C'e una forma sola che non ha
+bisogno di essere interpretata — ISO 8601 — e il resto non e una data: adesso
+entrambe le letture accettano quella e rifiutano tutto il resto, e l'offset,
+quando c'e, lo onorano allo stesso modo. Un giorno di scarto a cavallo di
+dicembre e un anno fiscale sbagliato, che e il tipo di errore che nessuno
+ritrova.
+
+**Conseguenze.** La sonda `wave-4-registro-riconciliazione.mjs` semina i
+quindici casi che divergevano piu i sette che facevano cadere la vista;
+`wave-4-db-invariants.mjs` prova i tre vincoli di scala. Nessuno dei due
+guasti era visibile ai test, perche nessun test aveva mai scritto un numero
+troppo grande.
+
+---
+
+## ADR-0097 — Il confine dice **su quale club**; e c'e una terza domanda, che e **da dove viene la richiesta**
+
+**Contesto.** ADR-0094 ha reso il confine multi-tenant una dichiarazione
+obbligatoria, e ha aggiunto la sua seconda meta: il confine dice su quale club,
+il permesso dice cosa si puo fare. Una terza tornata di revisione ostile ha
+trovato tre difetti che superavano **entrambi** i controlli, perche nessuno dei
+tre li attraversa.
+
+1. **Una porta che non chiamava la guardia.** `assertRecordAccess` era eseguita
+   in `getResourceById`, `updateResource` e `deleteResource` — tutte tranne
+   una. `createResource` non la eseguiva mai, e in modo `upsert` **non crea**:
+   aggiorna per chiave, e la chiave la sceglie chi chiama. Su `users` la chiave
+   e l'email e `password` diventa `password_hash` per strada. Il divieto di
+   scrivere `users.role`, aggiunto due tornate prima, restava intatto e del
+   tutto inutile: non serviva diventare amministratore, bastava riscrivere la
+   sua password.
+
+2. **Un permesso che si concede da se, dalla riga giusta.** `club_access` nel
+   corpo di un `PATCH` sulla **propria** scheda scriveva
+   `organization_users` senza che nessuno lo guardasse. Il confine dava
+   ragione all'attaccante — la riga era davvero sua — e da li in poi continuava
+   a dargliela, perche a quel punto **aveva ragione**: era owner del club che
+   aveva nominato. Il confine non veniva aggirato, veniva **spostato**.
+
+3. **Un controllo la cui esecuzione dipendeva da come la richiesta era
+   scritta.** Il permesso di ruolo su contributi, moduli e compilazioni viveva
+   dentro `ensureOrganizationAccess`, ma `resolveOrganizationId` la chiamava
+   solo sul ramo in cui il chiamante **nominava** un club. Il percorso ordinario
+   del client non lo nomina: manda l'intestazione del club attivo e basta. La
+   porta era chiusa a chi bussava e aperta a chi entrava dal lato.
+
+**La decisione.** Le tre regole che ne discendono, e che valgono oltre i tre
+casi:
+
+- **una porta di scrittura che puo trovare una riga esistente la sta
+  modificando**, e va giudicata come una modifica. `upsert` non e una
+  creazione;
+- **una tabella che decide i permessi non e una tabella di dati.** Scriverci una
+  riga va giustificato, e le sole tre giustificazioni sono: chi ha creato il
+  club, una tessera che esiste gia con quel ruolo, un amministratore del club
+  **attivo**. Tutto il resto e negato — compresa la pagina di verifica del
+  token, che si tesserava da sola dopo aver chiesto a `validateUserToken` un
+  parere che quella funzione non da: legge la lunghezza della stringa e risponde
+  `valid: true`;
+- **il club si risolve prima e si giudica sempre**, non solo quando il chiamante
+  lo nomina.
+
+**E una quarta cosa, che non e una regola ma un difetto di tipo.**
+`ResourceAccessScope`, dentro `resources.ts`, non dichiarava `activeRole`. Le
+rotte lo risolvevano e lo passavano; questo modulo non poteva leggerlo nemmeno
+volendo. Un campo assente da un tipo strutturale non e un errore per il
+compilatore: e un campo che non esiste.

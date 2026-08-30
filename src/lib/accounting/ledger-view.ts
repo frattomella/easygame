@@ -38,7 +38,6 @@
 import {
   fiscalYearOfEntry,
   normalizeActivityScope,
-  toCents,
   type AccountingLine,
   type AccountingSourceDomain,
   type CounterpartyKind,
@@ -83,6 +82,39 @@ const data = (value: unknown): Date | null => {
 const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
 /**
+ * I centesimi di un importo che arriva da un blob JSON, o `null`.
+ *
+ * **Perche non basta `Number(...)`.** Due ragioni, e sono due difetti
+ * diversi trovati insieme.
+ *
+ * *La prima:* `Number(true)` vale 1 e `Number([5])` vale 5, mentre in SQL
+ * `'true'::double precision` e `'[5]'::double precision` falliscono. La riga
+ * usciva quindi da una lettura sola del registro — e valeva 1,00 euro perche
+ * qualcuno aveva scritto `true`.
+ *
+ * *La seconda, che era la piu grave:* oltre 21.474.836,47 euro i centesimi non
+ * entrano in un `int`, e Postgres non tronca: **alza un errore e la vista
+ * cade**. Un solo importo fuori scala — un `Date.now()` finito nel campo
+ * sbagliato — e quel club perdeva prima nota, rendiconto, export e saldi.
+ *
+ * Un importo che non si puo rappresentare non e un importo: la riga esce dal
+ * registro, e ne esce da **entrambe** le letture.
+ */
+const CENTESIMI_MASSIMI = 2147483647;
+
+const centesimiStorici = (value: unknown): number | null => {
+  const numero =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value.trim())
+        : NaN;
+  if (!Number.isFinite(numero)) return null;
+  const centesimi = Math.abs(Math.floor(numero * 100 + 0.5));
+  return centesimi > CENTESIMI_MASSIMI ? null : centesimi;
+};
+
+/**
  * La data di un movimento storico, letta da un blob JSON che nessuno controlla.
  *
  * **Perche non basta `new Date(...)`.** JavaScript accetta il 31 febbraio e lo
@@ -93,12 +125,32 @@ const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
  * Una data impossibile non e una data. Qui si rifiuta, e la riga esce dal
  * registro come esce dalla vista.
  */
+const ISO_STORICA =
+  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
 const dataStorica = (value: unknown): string | null => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value.toISOString();
   }
   const testo = String(value ?? "").trim();
   if (!testo) return null;
+
+  /*
+    **Si accetta la sola forma su cui le due letture possono essere d'accordo.**
+
+    Oltre alla forma ISO le due divergevano su tutto cio che ognuna delle due
+    interpreta a modo suo, e nessuna delle due sbagliava per conto proprio:
+
+      "now" / "today" / "epoch"   Postgres li risolve, JavaScript no
+      "09/03/2026"                Postgres 3 settembre, JavaScript 9 marzo
+      "infinity"                  Postgres lo accetta, e poi cade sull'anno
+
+    Una data che due letture dello stesso registro datano a due giorni diversi
+    sposta l'anno fiscale a cavallo di dicembre. Non c'e un'interpretazione
+    giusta da scegliere: c'e una forma sola che non ha bisogno di essere
+    interpretata, e il resto non e una data.
+  */
+  if (!ISO_STORICA.test(testo)) return null;
 
   const date = new Date(testo);
   if (Number.isNaN(date.getTime())) return null;
@@ -343,8 +395,8 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
     (row, index): LedgerViewRow[] => {
       const entryDate = dataStorica(row?.date) || dataStorica(row?.created_at);
       if (!entryDate) return [];
-      const amountCents = Math.abs(toCents(Number(row?.amount) || 0));
-      if (amountCents === 0) return [];
+      const amountCents = centesimiStorici(row?.amount);
+      if (!amountCents) return [];
 
       const tipo = String(row?.type || row?.direction || "income").toLowerCase();
       const descrizione =
@@ -382,8 +434,8 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
     (row, index): LedgerViewRow[] => {
       const entryDate = dataStorica(row?.date) || dataStorica(row?.created_at);
       if (!entryDate) return [];
-      const amountCents = Math.abs(toCents(Number(row?.amount) || 0));
-      if (amountCents === 0) return [];
+      const amountCents = centesimiStorici(row?.amount);
+      if (!amountCents) return [];
 
       /*
         Un giroconto storico e **una** riga sola nel blob, non due. Resta una
