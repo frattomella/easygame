@@ -365,6 +365,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "membership.profiles",
+    method: "PATCH|DELETE",
+    path: "/api/v1/membership/profiles/:id",
+    description:
+      "La **scheda** di un socio, una alla volta. Prima si correggeva riscrivendo l'intera colonna `clubs.members` dal browser: una sonda di concorrenza ha ottenuto un socio presente nel libro e assente dall'anagrafica. `DELETE` rifiuta se il libro nomina la persona — chi non e piu socio si dimette o si esclude",
+    mobile_ready: false,
+  },
+  {
+    name: "sponsorships.contract",
+    method: "GET|PUT",
+    path: "/api/v1/sponsorships/:id",
+    description:
+      "Il **contratto** di uno sponsor e le sue tre cifre — dovuto, incassato, residuo — con gli incassi che le spiegano. Il credito si calcola sul server perche le fonti sono due, e una pagina che ne vedesse una sola direbbe un numero sbagliato con la faccia di uno giusto",
+    mobile_ready: false,
+  },
+  {
+    name: "sponsorships.collections",
+    method: "POST",
+    path: "/api/v1/sponsorships/:id/collections",
+    description:
+      "L'incasso di uno sponsor, registrato **nel registro degli incassi** con la controparte congelata. Prima finiva in una collezione JSON e il denaro non arrivava mai in prima nota: il residuo dello sponsor era giusto, il rendiconto del club no",
+    mobile_ready: false,
+  },
+  {
     name: "rsvp.answer",
     method: "GET|POST",
     path: "/api/v1/rsvp",

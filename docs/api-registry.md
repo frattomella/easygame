@@ -175,6 +175,20 @@ Fonte ufficiale da mantenere aggiornata:
   sua ammissione in una transazione sola. Prima la creazione riscriveva
   l'intera colonna `clubs.members` dal browser, e due segreterie in
   contemporanea si cancellavano a vicenda
+- `PATCH|DELETE /api/v1/membership/profiles/:id` — la **scheda** di un socio,
+  una alla volta. Prima si correggeva riscrivendo l'intera colonna
+  `clubs.members` dal browser: una sonda di concorrenza ha ottenuto un socio
+  presente nel libro e assente dall'anagrafica. Il `DELETE` rifiuta se il libro
+  nomina la persona — chi non e piu socio si dimette o si esclude, con una data
+  e una delibera
+- `GET|PUT /api/v1/sponsorships/:id` — il **contratto** di uno sponsor e le sue
+  tre cifre — dovuto, incassato, residuo — con gli incassi che le spiegano. Il
+  credito lo calcola il server perche le fonti sono due: gli incassi con la
+  controparte dichiarata e la vecchia collezione JSON
+- `POST /api/v1/sponsorships/:id/collections` — l'incasso di uno sponsor,
+  registrato **nel registro degli incassi** con la controparte congelata. Prima
+  finiva in una collezione JSON e il denaro non arrivava mai in prima nota: il
+  residuo dello sponsor era giusto, il rendiconto del club no
 - `GET /api/v1/funding/programs/:id/reconciliation` — la riconciliazione di un
   bando: una riga per atleta e per periodo, con la misura grezza accanto al
   requisito e il non maturato accanto al maturato. `?format=csv` la scarica in

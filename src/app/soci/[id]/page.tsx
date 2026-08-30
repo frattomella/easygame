@@ -36,7 +36,10 @@ import { MembershipRegisterPanel } from "./membership-register-panel";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
-import { deleteClubDataItem } from "@/lib/simplified-db";
+import {
+  removeMemberProfile,
+  updateMemberProfile,
+} from "@/lib/members/client";
 import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
 import { PhoneField } from "@/components/forms/phone-field";
 import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
@@ -289,7 +292,6 @@ export default function MemberDetailsPage() {
     if (!clubId || !memberId) return;
 
     try {
-      const { updateClubDataItem } = await import("@/lib/simplified-db");
       const fullName = formatPersonNameLastFirst({
         firstName: editFormData.firstName,
         lastName: editFormData.lastName,
@@ -301,15 +303,35 @@ export default function MemberDetailsPage() {
         name: fullName || editFormData.name || undefined,
         fullName: fullName || editFormData.fullName || undefined,
       };
-      
-      await updateClubDataItem(clubId, "members", memberId, payload);
-      
-      setMember(payload);
+
+      /*
+        **Una scheda alla volta, e non l'elenco.**
+
+        Fino alla Wave 4 questa riga chiamava `updateClubDataItem`, che
+        rileggeva `clubs.members` intera, ne cambiava un elemento e la
+        risalvava tutta dal browser. Una sonda di concorrenza ha lanciato
+        quella riscrittura insieme a un'ammissione e ha ottenuto un socio
+        presente nel libro soci e assente dall'anagrafica: la copia partita
+        di qui non lo conteneva ancora.
+      */
+      const risposta = await updateMemberProfile({
+        clubId,
+        memberId,
+        updates: payload,
+      });
+      if (risposta.error) throw new Error(risposta.error.message);
+
+      setMember(risposta.data?.member || payload);
       setEditingSection(null);
       showToast("success", "Modifiche salvate con successo");
     } catch (error) {
       console.error("Error updating member:", error);
-      showToast("error", "Errore nel salvataggio delle modifiche");
+      showToast(
+        "error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore nel salvataggio delle modifiche",
+      );
     }
   };
 
@@ -318,12 +340,25 @@ export default function MemberDetailsPage() {
 
     if (confirm("Sei sicuro di voler eliminare questo socio?")) {
       try {
-        await deleteClubDataItem(clubId, "members", memberId);
+        /*
+          Il servizio rifiuta se il libro soci nomina questa persona, e dice
+          perche: chi non e piu socio si dimette o si esclude — e un evento,
+          con una data e una delibera — e non e la stessa cosa che non essere
+          mai esistito. Il messaggio arriva fin qui invece di essere sostituito
+          da un generico «errore»: e l'unica cosa utile che si puo dire.
+        */
+        const esito = await removeMemberProfile({ clubId, memberId });
+        if (esito.error) throw new Error(esito.error.message);
         showToast("success", "Socio eliminato con successo");
         router.push(`/soci?clubId=${clubId}`);
       } catch (error) {
         console.error("Error deleting member:", error);
-        showToast("error", "Errore nell'eliminazione del socio");
+        showToast(
+          "error",
+          error instanceof Error && error.message
+            ? error.message
+            : "Errore nell'eliminazione del socio",
+        );
       }
     }
   };

@@ -513,3 +513,123 @@ test("ammissione e cessazione lasciano una traccia, e la cessazione ha la sua", 
   assert.equal(cessazione.metadata.evento, "RESIGNATION");
   assert.equal(cessazione.metadata.socio, SOCIO_A);
 });
+
+/* ================== la scheda del socio, una alla volta === */
+
+/*
+  **Il difetto che una sonda di concorrenza ha misurato.**
+
+  Correggere o cancellare un socio era una lettura, una modifica di un elemento
+  dell'array e una riscrittura dell'**intera** colonna `clubs.members`, fatta
+  dal browser. Lanciata insieme a un'ammissione, quella riscrittura ha prodotto
+  lo stato che nessuna schermata puo spiegare: **un socio presente nel libro e
+  assente dall'anagrafica**, perche la copia partita dal browser non lo
+  conteneva ancora.
+
+  Il libro soci esiste per essere dimostrabile. Un registro che cita una persona
+  che l'anagrafica non conosce piu non dimostra piu niente.
+*/
+
+test("la correzione tocca un socio solo e conserva cio che non nomina", async () => {
+  fake.rows("clubResourceItem").push(socioInAnagrafica(CLUB_A, "socio-2", "Verdi"));
+
+  const aggiornato = await members.updateMemberProfile(scopeA(), SOCIO_A, {
+    firstName: "Mario",
+    lastName: "Rossi",
+    email: "mario.rossi@example.it",
+  });
+
+  assert.equal(aggiornato.email, "mario.rossi@example.it");
+  assert.equal(aggiornato.type, "ordinario", "i campi non nominati restano");
+
+  const righe = fake
+    .rows("clubResourceItem")
+    .filter((r) => r.resource_type === "members" && r.organization_id === CLUB_A);
+  assert.equal(righe.length, 2, "nessuna riga cancellata e ricreata");
+  assert.equal(
+    righe.find((r) => r.payload.id === "socio-2").payload.lastName,
+    "Verdi",
+    "l'altro socio non e stato toccato",
+  );
+});
+
+test("il numero di tessera non si corregge da qui", async () => {
+  await members.recordMembershipEvent(scopeA(), {
+    memberId: SOCIO_A,
+    eventType: "ADMISSION",
+    effectiveDate: "2024-09-01",
+    resolutionReference: "Delibera 12/2024",
+  });
+
+  const aggiornato = await members.updateMemberProfile(scopeA(), SOCIO_A, {
+    email: "x@y.it",
+    membershipNumber: "9999",
+  });
+
+  assert.equal(
+    aggiornato.membershipNumber,
+    undefined,
+    "il numero lo assegna il libro, e non si digita",
+  );
+});
+
+test("la scheda di un socio di un altro club non si corregge", async () => {
+  await assert.rejects(
+    () => members.updateMemberProfile(scopeA(), SOCIO_B, { email: "x@y.it" }),
+    /non trovato/i,
+  );
+
+  const altrui = fake.rows("clubResourceItem").find((r) => r.payload.id === SOCIO_B);
+  assert.equal(altrui.payload.email, undefined);
+});
+
+test("un socio senza storia si cancella", async () => {
+  const esito = await members.removeMemberProfile(scopeA(), SOCIO_A);
+
+  assert.equal(esito.removed.id, SOCIO_A);
+  assert.equal(
+    fake
+      .rows("clubResourceItem")
+      .filter((r) => r.resource_type === "members" && r.organization_id === CLUB_A)
+      .length,
+    0,
+  );
+});
+
+test("un socio nominato dal libro non si cancella: si dimette", async () => {
+  /*
+    Stessa regola del difetto D-1, applicata alle persone invece che al denaro:
+    cio che ha una storia non si cancella. Chi non e piu socio si dimette o si
+    esclude — e un evento, con una data e una delibera — e non e la stessa cosa
+    che non essere mai esistito.
+  */
+  await ammetti();
+
+  await assert.rejects(
+    () => members.removeMemberProfile(scopeA(), SOCIO_A),
+    /non si cancella/,
+  );
+
+  assert.equal(
+    fake
+      .rows("clubResourceItem")
+      .filter((r) => r.resource_type === "members" && r.organization_id === CLUB_A)
+      .length,
+    1,
+    "il socio deve essere ancora li",
+  );
+  assert.equal(fake.rows("membershipEvent").length, 1, "e il libro pure");
+});
+
+test("chi non tiene il libro non corregge e non cancella una scheda", async () => {
+  for (const ruolo of ["trainer", "parent", "athlete", "staff"]) {
+    await assert.rejects(
+      () => members.updateMemberProfile(scopeA(ruolo), SOCIO_A, { email: "x@y.it" }),
+      /Accesso negato/,
+    );
+    await assert.rejects(
+      () => members.removeMemberProfile(scopeA(ruolo), SOCIO_A),
+      /Accesso negato/,
+    );
+  }
+});

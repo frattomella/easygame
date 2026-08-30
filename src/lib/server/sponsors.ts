@@ -55,7 +55,7 @@
 import { prisma } from "./prisma";
 import {
   readClubResourceCollection,
-  replaceClubResourceCollection,
+  updateClubResourceItem,
 } from "./resources";
 import { assertAccountingPermission } from "@/lib/accounting/permissions";
 import {
@@ -382,11 +382,27 @@ export type SaveSponsorContractInput = {
 /**
  * Registra o aggiorna il **contratto** di uno sponsor.
  *
- * Riscrive la collezione intera perche e cosi che una collezione di club si
- * scrive — `club_resource_items` e il campo JSON aggregato restano allineati
- * solo passando da `resources.ts` — e conserva ogni campo dello sponsor che
- * questo modulo non nomina: logo, iban, regione. Un salvataggio che li
- * perdesse sarebbe indistinguibile da una cancellazione.
+ * ---
+ *
+ * ## Una riga sola, e perche non l'intera collezione
+ *
+ * Prima riscriveva tutta la collezione, «perche e cosi che una collezione di
+ * club si scrive». Non era piu vero, e una sonda di concorrenza lo ha mostrato:
+ * due contratti salvati insieme si infrangevano **tutte e otto le volte** su un
+ * conflitto di chiave primaria in `club_resource_items`, con un messaggio che
+ * non diceva niente a chi lo riceveva. Una riscrittura di massa cancella le
+ * righe e le ricrea; due che si incrociano si contendono gli stessi
+ * identificativi.
+ *
+ * `updateClubResourceItem` tocca **una riga** sotto il `FOR UPDATE` del club:
+ * due segreterie che salvano due contratti diversi nello stesso momento
+ * riescono tutte e due, e ognuna vede l'altro contratto.
+ *
+ * ## Cosa conserva
+ *
+ * Ogni campo dello sponsor che questo modulo non nomina — logo, iban, regione —
+ * perche la modifica si fonde con il payload esistente invece di sostituirlo.
+ * Un salvataggio che li perdesse sarebbe indistinguibile da una cancellazione.
  */
 export const saveSponsorContract = async (
   input: SaveSponsorContractInput,
@@ -399,23 +415,27 @@ export const saveSponsorContract = async (
   const contract = sanitizeSponsorContract(input.contract);
 
   const records = await readSponsorRecords(organizationId);
-  const index = records.findIndex((item: any) => asText(item?.id) === sponsorId);
+  const esistente = records.find((item: any) => asText(item?.id) === sponsorId);
 
-  if (index < 0) {
+  if (!esistente) {
     throw denied("lo sponsor non appartiene a questo club");
   }
 
-  const next = records.map((item: any, position: number) =>
-    position === index ? applySponsorContract(item, contract) : item,
+  const aggiornato = await (prisma as any).$transaction((tx: any) =>
+    updateClubResourceItem(
+      tx,
+      organizationId,
+      SPONSOR_RESOURCE_TYPE,
+      sponsorId,
+      applySponsorContract(esistente, contract),
+    ),
   );
 
-  await replaceClubResourceCollection(
-    organizationId,
-    SPONSOR_RESOURCE_TYPE,
-    next,
-  );
+  if (!aggiornato) {
+    throw denied("lo sponsor non appartiene a questo club");
+  }
 
-  return normalizeSponsor(next[index]);
+  return normalizeSponsor(aggiornato);
 };
 
 export type PrepareSponsorCollectionInput = {
@@ -505,4 +525,64 @@ export const findSponsorCounterparty = async (
   const record = records.find((item: any) => asText(item?.id) === id);
 
   return record ? sponsorFiscalCounterparty(normalizeSponsor(record)) : null;
+};
+
+/* ============================================================ l'incasso vero */
+
+/**
+ * L'incasso di uno sponsor, **registrato**.
+ *
+ * ---
+ *
+ * ## L'anello che mancava
+ *
+ * `prepareSponsorCollection` produceva l'incasso gia pronto e si fermava li,
+ * «per la dipendenza verso W4-C». La dipendenza e chiusa da tempo, e la
+ * conseguenza di lasciarla aperta non era teorica: la schermata degli sponsor
+ * continuava a scrivere nella vecchia collezione JSON `sponsor_payments`, e il
+ * denaro di uno sponsor **non arrivava in prima nota**. Il §12 del piano chiede
+ * che un contratto da 5.000 con 2.000 incassati produca 2.000 di entrata nel
+ * registro, e ne produceva zero.
+ *
+ * ## Perche passa dal registro degli incassi e non da una tabella sua
+ *
+ * Perche un incasso da uno sponsor **e** un incasso: ha un conto, una causale,
+ * una data, una controparte e uno storno. `payment_transactions` sa gia fare
+ * tutte e cinque le cose, e il proiettore del registro lo legge gia. Una
+ * seconda tabella sarebbe stata la seconda contabilita.
+ *
+ * ## Cosa resta della vecchia collezione
+ *
+ * Si **legge** e non si scrive piu: `listSponsorCollections` unisce le due
+ * fonti, e il doppio conteggio non puo avvenire perche sono disgiunte per
+ * costruzione. Un club che aveva incassi nel blob li vede ancora nel suo
+ * residuo; da oggi in poi ogni incasso nuovo passa di qui.
+ */
+export const recordSponsorCollection = async (
+  input: PrepareSponsorCollectionInput & {
+    financialAccountId?: unknown;
+    externalReference?: unknown;
+  },
+  scope?: SponsorScope,
+) => {
+  const preparato = await prepareSponsorCollection(input, scope);
+
+  const { createPaymentTransaction } = await import("./payment-transactions");
+
+  const esito = await createPaymentTransaction(
+    {
+      ...preparato,
+      financialAccountId: input.financialAccountId ?? null,
+      externalReference: input.externalReference ?? null,
+    },
+    scope
+      ? {
+          userId: scope.userId,
+          activeOrganizationId: scope.activeOrganizationId,
+          allowedOrganizationIds: scope.allowedOrganizationIds,
+        }
+      : undefined,
+  );
+
+  return esito;
 };

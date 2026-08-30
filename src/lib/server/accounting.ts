@@ -1045,6 +1045,26 @@ export const reverseAccountingEntry = async (
           reversed_at: now,
           reversed_by: scope.userId || null,
           reversal_reason: reason,
+          /*
+            **Lo storno cancella la spunta bancaria dell'originale.**
+
+            `reconcileAccountingEntry` dichiara impossibile lo stato «stornato
+            e riconciliato», e mette la sua guardia dentro l'`UPDATE` perche
+            una riconciliazione non passi su una riga gia stornata. Ma la corsa
+            ha due versi, e il secondo non era coperto: se la riconciliazione
+            arriva **prima**, la riga risulta riconciliata, e lo storno che
+            segue la lascia cosi. Una sonda di concorrenza lo ha ottenuto otto
+            volte su otto.
+
+            Non e un difetto di ordine, e di significato: uno storno dice «questo
+            movimento non e mai avvenuto», e cio che non e avvenuto non puo
+            essere stato visto sull'estratto conto. La spunta torna quindi dove
+            stava, e l'operatore riconcilia la coppia — che nell'estratto conto,
+            se il denaro si e mosso davvero, comparira come due righe.
+          */
+          reconciliation_status: "unreconciled",
+          reconciled_at: null,
+          reconciled_by: null,
         },
       });
 

@@ -39,6 +39,11 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import {
+  fetchSponsorCredit,
+  recordSponsorCollection,
+  saveSponsorContract,
+} from "@/lib/sponsors/client";
+import {
   EMPTY_SPONSOR_CONTRACT,
   fromSponsorCents,
   normalizeLegacySponsorCollections,
@@ -47,6 +52,7 @@ import {
   sanitizeSponsorContract,
   toSponsorCents,
   type SponsorContract,
+  type SponsorCredit,
 } from "@/lib/sponsors/model";
 import {
   Table,
@@ -202,10 +208,13 @@ export default function SponsorDetailsPage() {
 
         setContract(normalizeSponsorContract(sponsorData.contract));
 
-        // Load payments and documents from sponsorData if available
-        const sponsorPayments = sponsorData.payments || [];
-        setPayments(sponsorPayments);
-        
+        /*
+          Gli incassi **non** si leggono piu dalla scheda: sono righe del
+          registro degli incassi, e le due fonti le unisce il server. Vedi
+          `ricaricaIncassi`, chiamata subito sotto.
+        */
+        void ricaricaIncassi();
+
         const sponsorDocuments = sponsorData.documents || [];
         setDocuments(sponsorDocuments);
       } catch (error) {
@@ -257,6 +266,36 @@ export default function SponsorDetailsPage() {
     }
   };
 
+  /**
+   * Rilegge gli incassi dello sponsor **dal server**.
+   *
+   * Le fonti sono due — le righe di `payment_transactions` con la controparte
+   * dichiarata, e la vecchia collezione JSON — e solo il server le conosce
+   * entrambe e sa perche non si sommano due volte. Una pagina che ne guardasse
+   * una sola direbbe un residuo sbagliato con la faccia di uno giusto.
+   */
+  const ricaricaIncassi = React.useCallback(async () => {
+    if (!clubId || !sponsorId) return;
+
+    const risposta = await fetchSponsorCredit(sponsorId, { clubId });
+    if (risposta.error || !risposta.data) return;
+
+    setCreditoDalServer(risposta.data.credit || null);
+    setPayments(
+      (risposta.data.collections || []).map((incasso) => ({
+        id: incasso.id,
+        description: incasso.notes || incasso.counterpartyLabel || "Incasso",
+        amount: fromSponsorCents(incasso.amountCents),
+        /* Uno storno e un'uscita: e denaro che torna indietro, e si vede. */
+        type: incasso.amountCents < 0 || incasso.reversed ? "uscita" : "entrata",
+        date: incasso.paidAt || "",
+        paymentMethod: incasso.paymentMethod || "",
+        notes: incasso.notes || "",
+        reversed: incasso.reversed,
+      })),
+    );
+  }, [clubId, sponsorId]);
+
   const handleAddPayment = async () => {
     if (!newPayment.description || !newPayment.amount || !newPayment.paymentMethod) {
       showToast("error", "Compila tutti i campi obbligatori");
@@ -264,21 +303,33 @@ export default function SponsorDetailsPage() {
     }
 
     try {
-      const paymentData = {
-        id: `payment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        ...newPayment,
-        created_at: new Date().toISOString(),
-      };
+      /*
+        **L'incasso di uno sponsor e un incasso, e va nel registro.**
 
-      const updatedPayments = [...payments, paymentData];
-      setPayments(updatedPayments);
+        Questa riga scriveva nella collezione JSON annidata sulla scheda dello
+        sponsor. Il residuo dello sponsor tornava, e il denaro **non arrivava
+        in prima nota**: il §12 del piano chiede che un contratto da 5.000 con
+        2.000 incassati produca 2.000 di entrata nel registro, e ne produceva
+        zero. Il rendiconto del club non vedeva un euro di sponsorizzazioni.
 
-      // Update sponsor data with new payment
-      const { updateClubDataItem } = await import("@/lib/simplified-db");
-      await updateClubDataItem(clubId!, "sponsors", sponsorId, {
-        ...sponsor,
-        payments: updatedPayments,
+        Adesso passa da `/api/v1/sponsorships/:id/collections`, che scrive una
+        riga di `payment_transactions` con la controparte dichiarata: da li la
+        legge il registro, che la proietta come qualunque altro incasso, e i
+        saldi dei conti, che la sommano.
+      */
+      const risposta = await recordSponsorCollection({
+        clubId,
+        sponsorId,
+        amount: newPayment.amount,
+        paidAt: newPayment.date || null,
+        paymentMethod: newPayment.paymentMethod,
+        notes:
+          [newPayment.description, newPayment.notes].filter(Boolean).join(" - ") ||
+          null,
       });
+      if (risposta.error) throw new Error(risposta.error.message);
+
+      await ricaricaIncassi();
 
       setShowAddPaymentDialog(false);
       setNewPayment({
@@ -293,28 +344,32 @@ export default function SponsorDetailsPage() {
       showToast("success", "Pagamento registrato con successo");
     } catch (error) {
       console.error("Error adding payment:", error);
-      showToast("error", "Errore nella registrazione del pagamento");
+      showToast(
+        "error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore nella registrazione del pagamento",
+      );
     }
   };
 
-  const handleDeletePayment = async (paymentId: string) => {
-    if (!confirm("Sei sicuro di voler eliminare questo pagamento?")) return;
-
-    try {
-      const updatedPayments = payments.filter(p => p.id !== paymentId);
-      setPayments(updatedPayments);
-
-      const { updateClubDataItem } = await import("@/lib/simplified-db");
-      await updateClubDataItem(clubId!, "sponsors", sponsorId, {
-        ...sponsor,
-        payments: updatedPayments,
-      });
-
-      showToast("success", "Pagamento eliminato con successo");
-    } catch (error) {
-      console.error("Error deleting payment:", error);
-      showToast("error", "Errore nell'eliminazione del pagamento");
-    }
+  /**
+   * **Un incasso non si cancella: si storna.**
+   *
+   * E la regola centrale della Wave 4 (D-3), e vale anche qui. Fino a ieri
+   * questo pulsante toglieva un elemento dalla collezione JSON e risalvava
+   * l'array: il denaro spariva senza uno storno, senza un autore e senza una
+   * riga che lo raccontasse.
+   *
+   * Adesso l'incasso di uno sponsor e una riga del registro degli incassi, e si
+   * corregge dove gli incassi si correggono — con uno storno, che lascia
+   * l'originale al suo posto e gli mette accanto la riga opposta.
+   */
+  const handleDeletePayment = async (_paymentId: string) => {
+    showToast(
+      "error",
+      "Un incasso non si cancella: si storna dalla pagina Movimenti, cosi la correzione resta leggibile.",
+    );
   };
 
   const handleAddDocument = async () => {
@@ -381,13 +436,31 @@ export default function SponsorDetailsPage() {
     sottrazione fra il pattuito e cio che e davvero arrivato. Salvarlo vorrebbe
     dire vederlo divergere dagli incassi il primo giorno in cui qualcuno storna.
   */
+  /**
+   * Le tre cifre dello sponsor, **calcolate dal server**.
+   *
+   * Erano calcolate qui, dalla sola collezione JSON annidata sulla scheda. Da
+   * quando un incasso di sponsorizzazione e una riga del registro degli
+   * incassi, quella collezione e una delle **due** fonti, e la piu vecchia:
+   * una pagina che guardasse solo lei direbbe che lo sponsor deve ancora tutto
+   * il giorno dopo aver pagato.
+   *
+   * Il ripiego locale resta per il primo istante, prima che la lettura torni:
+   * mostra il dovuto, che il contratto porta con se, invece di un riquadro
+   * vuoto.
+   */
+  const [creditoDalServer, setCreditoDalServer] = useState<SponsorCredit | null>(
+    null,
+  );
+
   const credit = React.useMemo(
     () =>
+      creditoDalServer ||
       resolveSponsorCredit({
         contract,
         collections: normalizeLegacySponsorCollections(payments),
       }),
-    [contract, payments],
+    [creditoDalServer, contract, payments],
   );
 
   const openContractEditor = () => {
@@ -424,17 +497,33 @@ export default function SponsorDetailsPage() {
     }
 
     try {
-      const { updateClubDataItem } = await import("@/lib/simplified-db");
-      await updateClubDataItem(clubId, "sponsors", sponsorId, {
+      /*
+        **Il contratto si salva dalla sua rotta, non riscrivendo la scheda.**
+
+        `updateClubDataItem` rileggeva `clubs.sponsors` intera, ne cambiava un
+        elemento e la risalvava tutta dal browser. Una sonda di concorrenza ha
+        salvato due contratti insieme e li ha visti fallire **tutte e otto le
+        volte** su un conflitto di chiave primaria, con un messaggio che a chi
+        lo riceveva non diceva niente.
+      */
+      const risposta = await saveSponsorContract({
+        clubId,
+        sponsorId,
         contract: next,
       });
+      if (risposta.error) throw new Error(risposta.error.message);
 
       setContract(next);
       setIsEditingContract(false);
       showToast("success", "Contratto salvato");
     } catch (error) {
       console.error("Error saving sponsor contract:", error);
-      showToast("error", "Errore nel salvataggio del contratto");
+      showToast(
+        "error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore nel salvataggio del contratto",
+      );
     }
   };
 

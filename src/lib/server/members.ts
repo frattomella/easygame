@@ -1,7 +1,12 @@
 import { prisma } from "./prisma";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import { allocateSequenceNumber } from "./document-numbering";
-import { appendClubResourceItem, readClubResourceCollection } from "./resources";
+import {
+  appendClubResourceItem,
+  readClubResourceCollection,
+  removeClubResourceItem,
+  updateClubResourceItem,
+} from "./resources";
 import {
   MEMBERSHIP_SEQUENCE_KIND,
   MEMBERSHIP_SEQUENCE_YEAR,
@@ -623,6 +628,170 @@ export const admitNewMember = async (
     event: summarizeEvent(outcome.event),
     status: deriveMemberStatus([toDerivationInput(outcome.event)]),
   };
+};
+
+/* ------------------------------------- la scheda del socio, una alla volta */
+
+/**
+ * Corregge l'anagrafica di **un** socio.
+ *
+ * ---
+ *
+ * ## Il difetto che chiude, e come e stato misurato
+ *
+ * Correggere un socio era una lettura, una modifica di un elemento dell'array
+ * e una riscrittura dell'**intera** colonna `clubs.members`, fatta dal browser.
+ * Una sonda di concorrenza ha lanciato quella riscrittura insieme a
+ * un'ammissione, e ha ottenuto lo stato che nessuna schermata puo spiegare:
+ * **un socio presente nel libro e assente dall'anagrafica**, perche la copia
+ * partita dal browser non lo conteneva ancora.
+ *
+ * Il libro soci esiste per essere dimostrabile. Un registro che cita una
+ * persona che l'anagrafica non conosce piu non dimostra piu niente.
+ *
+ * ## Perche una riga sola, e non un lock in piu
+ *
+ * Mettere le scritture in fila non basterebbe, ed e la lezione gia scritta in
+ * `applyClubSettingsPatch`: la copia vecchia arriva dal **client**, e resta
+ * vecchia anche se la sua scrittura aspetta il proprio turno. Cio che risolve e
+ * dichiarare **quel socio** invece dell'elenco: `updateClubResourceItem` tocca
+ * una riga di `club_resource_items` e ricompone l'aggregato dalla tabella, che
+ * e la fonte.
+ *
+ * ## Cosa non si corregge da qui
+ *
+ * Il **numero di tessera** e la **storia associativa**. Il primo lo assegna il
+ * libro all'ammissione e non si digita; la seconda e append-only e si cambia
+ * aggiungendo un evento, non riscrivendo il passato. `MEMBER_RESERVED_KEYS` le
+ * difende entrambe, ed e lo stesso elenco che protegge l'ammissione.
+ */
+export const updateMemberProfile = async (
+  scope: MemberAccessScope,
+  memberId: string,
+  updates: Record<string, any>,
+  options: { organizationId?: string | null } = {},
+): Promise<Record<string, any>> => {
+  assertCanManage(scope);
+  const organizationId = resolveOrganizationId(scope, options.organizationId);
+
+  const wanted = asText(memberId);
+  if (!wanted) throw new Error("Manca il socio da correggere");
+
+  const draft = { ...(updates || {}) };
+  for (const key of MEMBER_RESERVED_KEYS) delete draft[key];
+
+  if (!Object.keys(draft).length) {
+    throw new Error("Nessuna modifica da salvare");
+  }
+
+  const esistente = await findMemberInAnagrafica(organizationId, wanted);
+  if (!esistente) throw new Error("Socio non trovato");
+
+  /*
+    Nome e cognome restano obbligatori anche in correzione: sono cio con cui il
+    libro nomina la persona negli eventi gia registrati, e svuotarli
+    renderebbe illeggibile una storia che non si puo riscrivere.
+  */
+  const firstName = asText(draft.firstName ?? draft.first_name ?? esistente.firstName ?? esistente.first_name);
+  const lastName = asText(draft.lastName ?? draft.last_name ?? esistente.lastName ?? esistente.last_name);
+  if (!firstName || !lastName) {
+    throw new Error("Nome e cognome del socio sono obbligatori");
+  }
+
+  const fullName = `${firstName} ${lastName}`.trim();
+  const payload = {
+    ...draft,
+    firstName,
+    lastName,
+    name: fullName,
+    fullName,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const aggiornato = await (prisma as any).$transaction((tx: any) =>
+    updateClubResourceItem(tx, organizationId, "members", wanted, payload),
+  );
+
+  if (!aggiornato) throw new Error("Socio non trovato");
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.anagraficaUpdated,
+    actorUserId: scope.userId,
+    actorRole: scope.activeRole || null,
+    organizationId,
+    resource: "members",
+    resourceId: wanted,
+    /* I campi, non i valori: un codice fiscale in chiaro dentro un log e un dato in piu che gira. */
+    metadata: { campiCambiati: Object.keys(draft) },
+  });
+
+  return aggiornato;
+};
+
+/**
+ * Cancella **un** socio dall'anagrafica — e solo se il libro non lo nomina.
+ *
+ * ---
+ *
+ * ## Perche una cancellazione ha una guardia, e qual e
+ *
+ * E la stessa regola del difetto D-1, applicata alle persone invece che al
+ * denaro: **cio che ha una storia non si cancella**. Un socio con anche un solo
+ * evento nel libro — un'ammissione, una dimissione, un'esclusione — e una
+ * persona di cui il club deve poter dimostrare la posizione a una data. Toglierlo
+ * dall'anagrafica lascerebbe nel registro un nome che non si puo piu risolvere,
+ * ed e esattamente cio che il libro esiste per impedire.
+ *
+ * Chi non e piu socio si **dimette o si esclude**: e un evento, ha una data e
+ * una delibera, e la sua posizione si deriva. Non e la stessa cosa che non
+ * essere mai esistito.
+ *
+ * Un socio senza nessun evento e invece un'anagrafica inserita per errore, e
+ * quella si toglie.
+ */
+export const removeMemberProfile = async (
+  scope: MemberAccessScope,
+  memberId: string,
+  options: { organizationId?: string | null } = {},
+): Promise<{ removed: Record<string, any> }> => {
+  assertCanManage(scope);
+  const organizationId = resolveOrganizationId(scope, options.organizationId);
+
+  const wanted = asText(memberId);
+  if (!wanted) throw new Error("Manca il socio da cancellare");
+
+  const esistente = await findMemberInAnagrafica(organizationId, wanted);
+  if (!esistente) throw new Error("Socio non trovato");
+
+  const eventi = await eventClient(prisma).count({
+    where: { organization_id: organizationId, member_id: wanted },
+  });
+
+  if (eventi > 0) {
+    throw new Error(
+      `Questo socio ha ${eventi} ${eventi === 1 ? "evento" : "eventi"} nel libro soci e non si cancella: ` +
+        "chi non e piu socio si dimette o si esclude, con una data e una delibera. " +
+        "Cancellarlo lascerebbe nel registro un nome che nessuno puo piu risolvere.",
+    );
+  }
+
+  const rimosso = await (prisma as any).$transaction((tx: any) =>
+    removeClubResourceItem(tx, organizationId, "members", wanted),
+  );
+
+  if (!rimosso) throw new Error("Socio non trovato");
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.resourceDeleted,
+    actorUserId: scope.userId,
+    actorRole: scope.activeRole || null,
+    organizationId,
+    resource: "members",
+    resourceId: wanted,
+    metadata: { nome: labelOf(esistente) },
+  });
+
+  return { removed: rimosso };
 };
 
 /* ---------------------------------------------------------- le letture */

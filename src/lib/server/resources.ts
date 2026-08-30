@@ -1272,6 +1272,105 @@ export const appendClubResourceItem = async (
 };
 
 /**
+ * Modifica **un** elemento di una collezione di club, dentro una transazione
+ * gia aperta.
+ *
+ * E la terza gemella di `appendClubResourceItem` e `removeClubResourceItem`, e
+ * mancava: senza di lei l'unico modo di correggere un socio era rileggere la
+ * colonna JSON intera dal browser, cambiare un elemento dell'array e
+ * risalvarla. Una sonda di concorrenza ha mostrato cosa succede quando quella
+ * riscrittura incrocia un'ammissione: **un socio compare nel libro e non in
+ * anagrafica**, perche la copia arrivata dal browser non lo conteneva.
+ *
+ * Il `FOR UPDATE` mette in fila le richieste, ma da solo non basterebbe — e la
+ * lezione gia scritta in `applyClubSettingsPatch`: una copia vecchia resta
+ * vecchia anche se aspetta il proprio turno. Cio che risolve e **scrivere una
+ * riga sola**: chi corregge un socio dichiara quel socio, e non l'elenco.
+ *
+ * **Il confine di club sta nella ricerca.** Le righe si cercano gia filtrate
+ * per `organization_id`: un identificativo di un altro club non trova niente,
+ * e la funzione restituisce `null` senza dire che quella riga esiste altrove.
+ *
+ * **L'identificativo non si cambia.** E la chiave con cui il libro soci, gli
+ * incassi e i documenti citano l'elemento: riscriverlo li lascerebbe a citare
+ * qualcosa che non esiste piu.
+ */
+export const updateClubResourceItem = async (
+  tx: Prisma.TransactionClient,
+  organization_id: string,
+  resource_type: string,
+  id: string,
+  updates: Record<string, any>,
+) => {
+  assertKnownClubResourceType(resource_type);
+
+  const wanted = String(id || "").trim();
+  if (!wanted) {
+    throw new Error(`Elemento non indicato per ${resource_type}`);
+  }
+  if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+    throw new Error(`Modifica non valida per ${resource_type}`);
+  }
+
+  await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${organization_id}::uuid FOR UPDATE`;
+
+  const rows = await tx.clubResourceItem.findMany({
+    where: { organization_id, resource_type },
+    orderBy: { created_at: "asc" },
+  });
+
+  const target = rows.find(
+    (row) =>
+      String(row.id) === wanted ||
+      String((row.payload as any)?.id || "") === wanted,
+  );
+
+  if (!target) {
+    return null;
+  }
+
+  const corrente: Record<string, any> =
+    target.payload && typeof target.payload === "object" && !Array.isArray(target.payload)
+      ? (target.payload as Record<string, any>)
+      : {};
+
+  const payload: Record<string, any> = {
+    ...corrente,
+    ...updates,
+    id: corrente.id ?? String(target.id),
+  };
+
+  const aggiornata = await tx.clubResourceItem.update({
+    where: { id: target.id },
+    data: {
+      name: payload?.name || payload?.title || null,
+      status: payload?.status || null,
+      date: toDateOrUndefined(payload?.date) || null,
+      payload,
+      updated_at: new Date(),
+    },
+  });
+
+  if (CLUB_JSON_FIELDS.includes(resource_type)) {
+    /*
+      L'aggregato si ricompone dalle righe **gia lette**, con quella corretta al
+      posto suo: e la stessa fonte, e risparmia una seconda lettura dentro il
+      lock.
+    */
+    await tx.club.update({
+      where: { id: organization_id },
+      data: {
+        [resource_type]: rows.map((row) =>
+          serializeClubResourceItem(row.id === target.id ? aggiornata : row),
+        ),
+      },
+    });
+  }
+
+  return serializeClubResourceItem(aggiornata);
+};
+
+/**
  * Toglie **un** elemento da una collezione di club, dentro una transazione gia
  * aperta.
  *
@@ -1535,6 +1634,23 @@ export const DOMAIN_OWNED_RESOURCE_ITEM_TYPES = [
   */
   "expected_income",
   "expected_expenses",
+  /*
+    **I soci, dalla Wave 4 in poi.**
+
+    L'anagrafica del socio e la meta visibile del **libro soci**, che e
+    append-only e deve poter dimostrare chi era socio a una data. Riscriverla in
+    blocco dal browser — leggi la colonna, cambia un elemento, risalva l'array —
+    e il modo in cui una sonda di concorrenza ha ottenuto lo stato che nessuna
+    schermata puo spiegare: **un socio presente nel libro e assente
+    dall'anagrafica**, perche la copia partita dal browser non lo conteneva
+    ancora.
+
+    Un registro che cita una persona che l'anagrafica non conosce piu non
+    dimostra piu niente. Adesso i soci si scrivono uno alla volta, dalle rotte
+    di `/api/v1/membership`, e ognuna tocca una riga di `club_resource_items`
+    sotto il `FOR UPDATE` del club.
+  */
+  "members",
 ] as const;
 
 /**
@@ -3149,6 +3265,22 @@ export const createResource = async (
         );
         for (const field of CLUB_RESOURCE_TYPES) {
           if (input[field] !== undefined) {
+            /*
+              **La terza porta di una collezione con un proprietario.**
+
+              Le prime due — la risorsa di modello `club_resource_items` e la rotta
+              per nome `/api/v1/<tipo>` — le chiude
+              `assertNotDomainOwnedResourceItem`. Questa e la piu difficile da
+              vedere, perche non nomina la collezione: e un `PUT /api/v1/clubs` che
+              porta il campo JSON aggregato, e riscrive **l intera** collezione con
+              la copia che il browser aveva letto un istante — o dieci minuti —
+              prima.
+
+              E la porta da cui una sonda di concorrenza ha fatto sparire un socio
+              appena ammesso: la scrittura andava a buon fine, nessun errore, e il
+              libro restava a citare una persona che l anagrafica non conosceva piu.
+            */
+            assertNotDomainOwnedResourceItem(field, field);
             await syncClubResourceItemsFromField(
               record.id,
               field,
@@ -3180,6 +3312,22 @@ export const createResource = async (
     );
     for (const field of CLUB_RESOURCE_TYPES) {
       if (input[field] !== undefined) {
+        /*
+          **La terza porta di una collezione con un proprietario.**
+
+          Le prime due — la risorsa di modello `club_resource_items` e la rotta
+          per nome `/api/v1/<tipo>` — le chiude
+          `assertNotDomainOwnedResourceItem`. Questa e la piu difficile da
+          vedere, perche non nomina la collezione: e un `PUT /api/v1/clubs` che
+          porta il campo JSON aggregato, e riscrive **l intera** collezione con
+          la copia che il browser aveva letto un istante — o dieci minuti —
+          prima.
+
+          E la porta da cui una sonda di concorrenza ha fatto sparire un socio
+          appena ammesso: la scrittura andava a buon fine, nessun errore, e il
+          libro restava a citare una persona che l anagrafica non conosceva piu.
+        */
+        assertNotDomainOwnedResourceItem(field, field);
         await syncClubResourceItemsFromField(record.id, field, input[field]);
       }
     }
@@ -3588,6 +3736,22 @@ export const updateResource = async (
     );
     for (const field of CLUB_RESOURCE_TYPES) {
       if (input[field] !== undefined) {
+        /*
+          **La terza porta di una collezione con un proprietario.**
+
+          Le prime due — la risorsa di modello `club_resource_items` e la rotta
+          per nome `/api/v1/<tipo>` — le chiude
+          `assertNotDomainOwnedResourceItem`. Questa e la piu difficile da
+          vedere, perche non nomina la collezione: e un `PUT /api/v1/clubs` che
+          porta il campo JSON aggregato, e riscrive **l intera** collezione con
+          la copia che il browser aveva letto un istante — o dieci minuti —
+          prima.
+
+          E la porta da cui una sonda di concorrenza ha fatto sparire un socio
+          appena ammesso: la scrittura andava a buon fine, nessun errore, e il
+          libro restava a citare una persona che l anagrafica non conosceva piu.
+        */
+        assertNotDomainOwnedResourceItem(field, field);
         await syncClubResourceItemsFromField(record.id, field, input[field]);
       }
     }

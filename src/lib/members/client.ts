@@ -137,3 +137,44 @@ export const admitNewMember = (input: {
       notes: input.notes || null,
     },
   });
+
+/**
+ * Corregge la scheda di **un** socio.
+ *
+ * Sostituisce `updateClubDataItem(clubId, "members", …)`, che rileggeva la
+ * colonna `clubs.members` intera, ne cambiava un elemento e la risalvava tutta.
+ * Una sonda di concorrenza ha lanciato quella riscrittura insieme a
+ * un'ammissione e ha ottenuto un socio presente nel libro e assente
+ * dall'anagrafica: la copia partita dal browser non lo conteneva ancora.
+ */
+export const updateMemberProfile = (input: {
+  clubId?: string | null;
+  memberId: string;
+  updates: Record<string, any>;
+}) =>
+  apiRequest<{ member: Record<string, any> }>(
+    `/api/v1/membership/profiles/${encodeURIComponent(input.memberId)}`,
+    {
+      method: "PATCH",
+      body: { organization_id: input.clubId || null, ...input.updates },
+    },
+  );
+
+/**
+ * Cancella un socio — e il servizio rifiuta se il libro lo nomina.
+ *
+ * Chi non e piu socio si **dimette o si esclude**: e un evento, ha una data e
+ * una delibera, e la sua posizione si deriva. Non e la stessa cosa che non
+ * essere mai esistito.
+ */
+export const removeMemberProfile = (input: {
+  clubId?: string | null;
+  memberId: string;
+}) =>
+  apiRequest<{ removed: Record<string, any> }>(
+    withClub(
+      `/api/v1/membership/profiles/${encodeURIComponent(input.memberId)}`,
+      input.clubId,
+    ),
+    { method: "DELETE" },
+  );
