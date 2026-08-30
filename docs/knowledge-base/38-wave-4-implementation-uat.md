@@ -22,7 +22,7 @@
 4. [Il registro, e perche e una vista](#4--il-registro-e-perche-e-una-vista)
 5. [Le prestazioni, prima e dopo](#5--le-prestazioni-prima-e-dopo)
 6. [Le prove: cosa gira, e contro cosa](#6--le-prove-cosa-gira-e-contro-cosa)
-7. [Le due tornate di revisione ostile](#7--le-due-tornate-di-revisione-ostile)
+7. [Le cinque tornate di revisione ostile](#7--le-cinque-tornate-di-revisione-ostile)
 8. [Gli invarianti contabili, dichiarati](#8--gli-invarianti-contabili-dichiarati)
 9. [La gap matrix](#9--la-gap-matrix)
 10. [Cosa la Wave 4 non ha fatto](#10--cosa-la-wave-4-non-ha-fatto)
@@ -237,10 +237,13 @@ conti e il rendiconto — raccontino **lo stesso denaro**.
 
 ---
 
-## 7 — Le due tornate di revisione ostile
+## 7 — Le cinque tornate di revisione ostile
 
-Due tornate indipendenti, cinque revisori la seconda volta. Vale la pena
-scrivere cosa hanno trovato, perche il pattern si ripete.
+Cinque tornate indipendenti. Vale la pena scrivere cosa hanno trovato ognuna,
+perche il pattern si ripete e la sua forma e la cosa piu utile di tutto questo
+documento: **ogni tornata ha trovato difetti creati dalla tornata precedente**,
+e la quinta ne ha trovati meno della quarta, che ne aveva trovati meno della
+terza. La curva scende, e non e ancora piatta.
 
 ### Prima tornata
 
@@ -276,6 +279,80 @@ non ha. `users` e `assets` non avevano un controllo sbagliato: non ne avevano
 affatto. Per questo il confine adesso non e un elenco ma una **dichiarazione
 obbligatoria**: `resources.ts` non si carica se una risorsa di modello non dice
 a cosa appartiene.
+
+---
+
+### Terza tornata: cio che i test verdi non vedevano
+
+Tre revisori su codice gia corretto e gia verde — 3.529 test, zero rossi. Hanno
+trovato **sei fra Critical e quasi-Critical**, e nessuno era visibile alla
+suite.
+
+| # | Cosa | Perche i test non lo vedevano |
+|---|---|---|
+| CRITICAL | `prisma generate` falliva: il ramo non si installava ne si deployava | test, typecheck, lint e build usavano tutti il client generato **prima** del commit che ha rotto lo schema. Un artefatto piu vecchio del codice che descrive non e una verifica |
+| CRITICAL | un incasso senza causale rispondeva 400 | il test che copre quel caso **omette la chiave** invece di mandarla `null`: la sola forma che il client non produce mai |
+| CRITICAL | `createResource` non chiamava mai `assertRecordAccess`: un `upsert` per email riscriveva la password di chiunque | il test del confine copriva le altre tre porte. La quarta non aveva un controllo sbagliato: non ne aveva affatto |
+| CRITICAL | `club_access` nel corpo concedeva `owner` di un club qualsiasi | il confine dava ragione all'attaccante — la riga era davvero sua — e continuava a dargliela **dopo**, perche a quel punto aveva ragione |
+| CRITICAL | un importo oltre 21.474.836,47 spegneva la contabilita di un club | nessun test aveva mai scritto un numero troppo grande |
+| CRITICAL | stornare e poi rimborsare era accettato: 100 € persi per incidente | saldo derivato e prima nota **concordano** su quel dato: nessuna riconciliazione fra le due letture puo vederlo |
+
+### Quarta tornata: i difetti creati dalle correzioni
+
+Due revisori sulle correzioni della terza. **Un High di sicurezza e un Critical
+di prodotto, entrambi creati dalla terza tornata** — che e precisamente il
+motivo per cui la conferma si fa.
+
+- una **relazione annidata** scavalcava il confine, perche l'elenco delle
+  relazioni da togliere era scritto a mano e lo schema era cambiato sotto;
+- **cancellare uno sponsor** azzerava lo storico di tutti gli altri, perche il
+  gestore risalvava nella vecchia collezione JSON un elenco che da un commit
+  prima veniva dal registro, e nella forma sbagliata;
+- le due letture del registro divergevano ancora su **undici date a Greenwich e
+  ventisette a Roma**: la sonda che deve provare che coincidono dava un verdetto
+  diverso a seconda della macchina su cui girava;
+- **riempire** una riga orfana invece di crearla toglieva all'indice unico la
+  possibilita di arbitrare una corsa: due emissioni simultanee restituivano due
+  numeri e lasciavano una riga sola.
+
+### Quinta tornata: la correzione che sposta il difetto
+
+Due revisori sulle correzioni della quarta. **Due Critical**, di nuovo creati
+dalla tornata precedente.
+
+- **la creazione di un club era morta**, da entrambe le schermate. La chiave
+  `members` era stata ribattezzata `memberships` per separare le tessere dal
+  libro soci, e nessuno la **consumava** prima della scrittura: arrivava a
+  Prisma come argomento sconosciuto. Il difetto non era stato chiuso, era stato
+  **spostato** — e il test lo diceva verde perche il doppio di Prisma accetta
+  gli argomenti che non conosce;
+- **ogni emissione di fattura falliva** contro Postgres. Il filtro
+  `NOT: { invoice_number: null }` era stato aggiunto per rendere il lato
+  fattura uguale al lato ricevuta; ma `receipts.receipt_number` e nullabile e
+  `invoices.invoice_number` e `NOT NULL`, e Prisma rifiuta un filtro nullo su
+  una colonna obbligatoria. Una simmetria apparente costava l'intera funzione,
+  e i test la coprivano con uno stato che il database non ammette.
+
+E due difetti che nessuna tornata precedente aveva visto: un **operatore** di
+Prisma su una colonna scalare — `{"status":{"set":"paid"}}` — attraversava
+tutte le guardie e marcava una rata come saldata senza che un euro fosse
+entrato; e `creator_id` preso dal corpo permetteva di **intestare un club a un
+altro utente**, che se lo ritrovava attivo e con ruolo di proprietario.
+
+Piu **165 divergenze su 482 righe ostili** fra le due letture del registro:
+arrotondamento del millesimo (che a capodanno cambia l'anno fiscale, e a fine
+millennio produce l'anno 10000 e fa cadere ogni lettura di quel club), fusi
+fuori scala, spazi bianchi nei numeri, esadecimali, `btrim` contro `trim`,
+`COALESCE` contro `||`, e il rendering JSON di un valore che non e una
+stringa. La sonda ne semina ora ventiquattro classi, e riconcilia in quattro
+fusi orari diversi.
+
+**La lezione, e vale piu del singolo elenco:** una correzione che insegue una
+**firma** — «cerca `allowedOrganizationIds`» — non trova cio che quella firma
+non ha; e una correzione che tiene un **elenco** — di relazioni, di risorse, di
+nomi — resta indietro in silenzio il giorno in cui lo schema cambia. Le due
+regole che ne restano sono le stesse: chiedere allo schema invece di
+ricordarsi, e far fallire il caricamento invece del test.
 
 ---
 

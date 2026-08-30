@@ -47,6 +47,22 @@ const testo = (value: unknown) => {
   return text || null;
 };
 
+/**
+ * **Un importo che il registro non sa mostrare esce da entrambe le letture.**
+ *
+ * I tre `CHECK` di scala impediscono che una riga cosi nasca, e
+ * `easygame_centesimi` fa uscire dalla vista quella che nascesse comunque. La
+ * dichiarazione in TypeScript non aveva ne l uno ne l altro: su un importo
+ * fuori scala la vista mostrava **zero righe** e la dichiarazione ne mostrava
+ * tre, con un numero che in un `int` non entra.
+ *
+ * Non e una differenza teorica: e il doppio di Prisma a costruire il registro
+ * dei test da questa funzione, quindi la suite girava contro una lettura e la
+ * produzione contro l altra.
+ */
+const rappresentabile = (centesimi: number) =>
+  Number.isFinite(centesimi) && Math.abs(centesimi) <= 2147483647;
+
 const iso = (value: unknown): string | null => {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
@@ -190,7 +206,7 @@ export const projectPaymentTransactions = (
     if (!paidAt) return [];
 
     const amountCents = toCents(Number(row.amount) || 0);
-    if (amountCents === 0) return [];
+    if (amountCents === 0 || !rappresentabile(amountCents)) return [];
 
     /*
       **Tre casi, non due.** (D-B)
@@ -384,7 +400,7 @@ export const projectSportWorkPayouts = (
     const base = Number.isFinite(netto) ? netto : lordo;
     const firmato = toCents(base);
     const amountCents = Math.abs(firmato);
-    if (amountCents === 0) return [];
+    if (amountCents === 0 || !rappresentabile(amountCents)) return [];
 
     /*
       **Il segno del netto decide il verso, e deve.** (D-F)
@@ -467,7 +483,7 @@ export const projectFundingSettlements = (
 
     const firmato = toCents(Number(row.amount) || 0);
     const amountCents = Math.abs(firmato);
-    if (amountCents === 0) return [];
+    if (amountCents === 0 || !rappresentabile(amountCents)) return [];
 
     /*
       Il segno decide il verso anche qui, e il database lo pretende: un vincolo

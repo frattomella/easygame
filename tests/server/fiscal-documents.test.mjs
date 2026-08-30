@@ -593,31 +593,46 @@ test("una ricevuta viva e senza numero si riempie, non si duplica", async () => 
 });
 
 /**
- * La guardia che il commento della fattura dichiarava e il codice non aveva:
- * il lato ricevuta filtrava sul numero, il lato fattura no. Una fattura senza
- * numero non e stata emessa, e riconoscerla come tale restituirebbe un
- * documento che non esiste dichiarando successo.
+ * **Sulle fatture non esiste una riga orfana, e lo dice lo schema.**
+ *
+ * Il difetto sulle ricevute era reale, e scrivendone il test era sembrato
+ * identico anche di qua. Non lo e: `receipts.receipt_number` e nullabile e
+ * `invoices.invoice_number` e `NOT NULL`. Una fattura senza numero **non puo
+ * esistere**, e chiederla a Prisma non e una guardia in piu — e un errore
+ * (`Argument \`invoice_number\` must not be null`) che faceva cadere **ogni**
+ * emissione di fattura contro Postgres.
+ *
+ * Il test che copriva quel caso passava perche il doppio di Prisma accetta
+ * `invoice_number: null`, cioe perche descriveva uno stato che il database
+ * rifiuta. Adesso descrive lo schema.
  */
-test("una fattura viva e senza numero si riempie, e non ne blocca l'emissione", async () => {
-  fake.rows("invoice").push({
-    id: "fattura-orfana",
-    organization_id: CLUB,
-    transaction_id: "incasso-1",
-    invoice_number: null,
-    cancelled_at: null,
-    amount: 130,
-  });
+test("una fattura senza numero non e uno stato possibile", async () => {
+  const { Prisma } = await import("@prisma/client");
+  const colonna = Prisma.dmmf.datamodel.models
+    .find((modello) => modello.name === "Invoice")
+    .fields.find((campo) => campo.name === "invoice_number");
 
-  const emessa = await documents.issueInvoiceForTransaction(
-    { transactionId: "incasso-1" },
-    scope(),
-  );
-
-  assert.equal(emessa.id, "fattura-orfana", "il posto vuoto si riempie");
-  assert.ok(emessa.invoice_number, "e adesso porta un numero");
   assert.equal(
-    fake.rows("invoice").filter((r) => r.transaction_id === "incasso-1").length,
+    colonna.isRequired,
+    true,
+    "se un giorno diventasse nullabile, servirebbe qui la stessa cura delle ricevute",
+  );
+});
+
+/**
+ * Chi perde una corsa riceve il documento del vincitore, non l'errore grezzo
+ * di un vincolo violato: cio che e successo e che il documento **c'e**, e lo
+ * ha emesso qualcun altro un istante prima.
+ */
+test("due emissioni simultanee restituiscono lo stesso documento", async () => {
+  const esiti = await Promise.all([
+    documents.issueInvoiceForTransaction({ transactionId: "incasso-1" }, scope()),
+    documents.issueInvoiceForTransaction({ transactionId: "incasso-1" }, scope()),
+  ]);
+
+  assert.equal(esiti[0].id, esiti[1].id, "una fattura sola, consegnata a entrambi");
+  assert.equal(
+    fake.rows("invoice").filter((riga) => riga.transaction_id === "incasso-1").length,
     1,
-    "una sola fattura viva per quell'incasso",
   );
 });

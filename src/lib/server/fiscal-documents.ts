@@ -635,7 +635,39 @@ export const issueReceiptForTransaction = async (
     return receiptClient().findUnique({ where: { id: orfana.id } });
   }
 
-  return receiptClient().create({ data: colonne });
+  return creaDocumentoVivo(
+    () => receiptClient().create({ data: colonne }),
+    () =>
+      receiptClient().findFirst({
+        where: {
+          organization_id: context.organizationId,
+          transaction_id: context.transaction.id,
+          cancelled_at: null,
+          NOT: { receipt_number: null },
+        },
+      }),
+  );
+};
+
+/**
+ * **Chi perde una corsa riceve il documento del vincitore, non un 500 nudo.**
+ *
+ * L indice unico parziale arbitra correttamente due emissioni simultanee: una
+ * scrive, l altra si infrange. Ma il perdente riceveva l errore grezzo di
+ * Prisma — un vincolo violato, tradotto in «Operazione non riuscita» — mentre
+ * cio che e successo e che il documento **c e**, e lo ha fatto qualcun altro
+ * un istante prima. E la stessa cosa che l idempotenza avrebbe restituito se
+ * la seconda richiesta fosse arrivata un millisecondo dopo.
+ */
+const creaDocumentoVivo = async (crea: () => Promise<any>, rileggi: () => Promise<any>) => {
+  try {
+    return await crea();
+  } catch (error: any) {
+    if (String(error?.code) !== "P2002") throw error;
+    const vinto = await rileggi();
+    if (vinto) return vinto;
+    throw error;
+  }
 };
 
 /**
@@ -684,21 +716,24 @@ export const issueInvoiceForTransaction = async (
   }
 
   /*
-    Come per la ricevuta: si riconosce come «gia emessa» solo una fattura viva
-    e numerata. Vedi `issueReceiptForTransaction`.
+    **Qui la simmetria con la ricevuta finisce, e lo dice lo schema.**
+
+    Sulla ricevuta si filtra anche sul numero, perche `receipts.receipt_number`
+    e nullabile e una riga senza numero e un posto vuoto e non un documento.
+    `invoices.invoice_number` e invece `NOT NULL`: una fattura senza numero
+    **non puo esistere**, e chiederlo a Prisma non e una guardia in piu — e un
+    errore. `Argument \`invoice_number\` must not be null`, e ogni emissione
+    di fattura cadeva.
+
+    Il filtro era stato aggiunto per rendere questo lato uguale all'altro. I
+    due lati sono diversi perche le due colonne lo sono, e la simmetria
+    apparente costava l'intera funzione.
   */
   const existing = await invoiceClient().findFirst({
     where: {
       organization_id: context.organizationId,
       transaction_id: context.transaction.id,
       cancelled_at: null,
-      /*
-        Il commento qui sopra lo dichiarava gia — «viva **e numerata**» — e
-        la riga non c'era: il lato ricevuta la aveva, questo no. Una fattura
-        senza numero non e stata emessa, e riconoscerla come tale
-        restituirebbe un documento che non esiste dichiarando successo.
-      */
-      NOT: { invoice_number: null },
     },
   });
 
@@ -713,20 +748,12 @@ export const issueInvoiceForTransaction = async (
     }));
 
   /*
-    Come per la ricevuta: una riga viva e senza numero e un posto vuoto, non
-    un documento. Riconoscerla e riempirla e la sola via d'uscita — altrimenti
-    la `INSERT` si infrange su `invoices_transaction_unico` **dopo**
-    l'allocazione, e ogni tentativo brucia un numero mentre l'incasso resta
-    non documentabile.
+    **E per la stessa ragione qui non c'e nessuna riga orfana da riempire.**
+
+    Il caso che il lato ricevuta deve gestire — una riga viva e senza numero,
+    che occupa il posto senza essere un documento — su `invoices` non esiste:
+    la colonna e `NOT NULL`. Cercarla era la seconda meta dello stesso errore.
   */
-  const orfana = await invoiceClient().findFirst({
-    where: {
-      organization_id: context.organizationId,
-      transaction_id: context.transaction.id,
-      cancelled_at: null,
-      invoice_number: null,
-    },
-  });
 
   const allocation = await allocateDocumentNumber({
     organizationId: context.organizationId,
@@ -803,46 +830,17 @@ export const issueInvoiceForTransaction = async (
       cancels_document_id: null,
   };
 
-  if (orfana) {
-    /*
-      **Riempire una riga non e crearla, e l'indice non protegge piu.**
-
-      Con la `INSERT` il perdente di una corsa si infrangeva rumorosamente su
-      `invoices_transaction_unico`. Scrivendo invece **dentro** la riga
-      orfana, due emissioni simultanee riuscivano tutte e due: la seconda
-      sovrascriveva la prima, e il primo chiamante riceveva un documento
-      completo — numero, fotografia, importo — che **nessuna riga porta**. La
-      segreteria lo stampava, e nel registro non c'era.
-
-      La condizione `invoice_number: null` nella `where` rimette la corsa dove
-      stava: vince chi arriva primo, e chi perde non scrive niente e riceve il
-      documento del vincitore invece di uno inesistente. Il numero che ha
-      allocato resta bruciato, come per ogni tentativo fallito (ADR-0044).
-    */
-    const preso = await invoiceClient().updateMany({
-      where: { id: orfana.id, invoice_number: null, cancelled_at: null },
-      data: colonne,
-    });
-
-    if (preso.count === 0) {
-      const vinta = await invoiceClient().findFirst({
+  return creaDocumentoVivo(
+    () => invoiceClient().create({ data: colonne }),
+    () =>
+      invoiceClient().findFirst({
         where: {
           organization_id: context.organizationId,
           transaction_id: context.transaction.id,
           cancelled_at: null,
-          NOT: { invoice_number: null },
         },
-      });
-      if (vinta) return vinta;
-      throw new Error(
-        "Il documento di questo incasso e stato emesso da un'altra richiesta nello stesso istante: ricarica la pagina.",
-      );
-    }
-
-    return invoiceClient().findUnique({ where: { id: orfana.id } });
-  }
-
-  return invoiceClient().create({ data: colonne });
+      }),
+  );
 };
 
 /* -------------------------------------------------- annullamento e rettifica */

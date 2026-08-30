@@ -63,7 +63,7 @@ RETURNS int
 LANGUAGE plpgsql
 IMMUTABLE
 PARALLEL SAFE
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
   centesimi double precision;
@@ -98,6 +98,31 @@ COMMENT ON FUNCTION easygame_centesimi(double precision) IS
 
 
 -- ---------------------------------------------------------------------------
+-- 1-bis. E la terza funzione, che era rimasta indietro
+-- ---------------------------------------------------------------------------
+--
+-- easygame_blob_number e chiamata da entrambi i rami storici della vista e non
+-- era stata ricreata: restava senza search_path fissato mentre le altre due lo
+-- avevano. Nessuna delle tre tocca una tabella, quindi non c e un exploit --
+-- ma una correzione a due terzi si legge come una correzione.
+
+CREATE OR REPLACE FUNCTION easygame_blob_number(valore text)
+RETURNS double precision
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+  RETURN valore::double precision;
+EXCEPTION
+  WHEN others THEN
+    RETURN NULL;
+END;
+$$;
+
+
+-- ---------------------------------------------------------------------------
 -- 2. La data storica: la sola forma su cui le due letture concordano
 -- ---------------------------------------------------------------------------
 
@@ -106,7 +131,7 @@ RETURNS timestamp(3)
 LANGUAGE plpgsql
 IMMUTABLE
 PARALLEL SAFE
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
   ripulito text;
@@ -144,7 +169,19 @@ BEGIN
     esito := ripulito::timestamp(3);
   END IF;
 
-  IF NOT isfinite(esito) THEN
+  /*
+    **Non basta `isfinite`: l anno 10000 e finito.**
+
+    `timestamp(3)` arrotonda, e `9999-12-31T23:59:59.9996` diventa
+    `10000-01-01`. Postgres lo conserva volentieri; il convertitore di Prisma
+    poi non lo sa rileggere e alza — quindi una riga sola cosi faceva cadere
+    prima nota, rendiconto, export e saldi di quel club, che e esattamente il
+    guasto che questa migrazione esiste per finire, raggiunto da una data
+    invece che da un importo.
+  */
+  IF NOT isfinite(esito)
+     OR EXTRACT(YEAR FROM esito) < 1
+     OR EXTRACT(YEAR FROM esito) > 9999 THEN
     RETURN NULL;
   END IF;
 
@@ -220,7 +257,7 @@ BEGIN
       );
     EXCEPTION WHEN others THEN
       RAISE NOTICE
-        'Il vincolo % non e stato validato: esiste gia una riga fuori scala. Il vincolo vale comunque sulle scritture nuove. Dettaglio: %',
+        'Il vincolo % non e stato validato, e vale comunque su ogni scrittura nuova. Se il motivo e una riga gia fuori scala va corretta; se e altro, lo dice il dettaglio: %',
         split_part(vincolo.riga, '|', 2), SQLERRM;
     END;
   END LOOP;

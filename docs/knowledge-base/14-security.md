@@ -952,3 +952,42 @@ permessi non deve avere uno scrittore sorvegliato e uno no. Ora ne ha due
 sorvegliati, e la chiave che legge si chiama `memberships`: sotto `members` si
 scontrava con il **libro soci**, e la creazione di un club rispondeva «Accesso
 negato» dopo aver scritto il club.
+
+### La quinta tornata: il corpo di una richiesta non e fatto solo di chiavi (2026-08-30)
+
+**Un club si poteva intestare a un altro.** `creator_id` arrivava dal corpo e
+non veniva confrontato con la sessione, e
+`resolveOrganizationScopeForUser` ricava **da quella colonna** sia
+l'appartenenza sia il ruolo `owner`. Si creava quindi un club — nome e
+configurazione scelti da chi attacca — e lo si intestava a un altro, che se ne
+trovava uno nuovo fra i propri, attivo e con ruolo di proprietario. E la stessa
+forma della tessera che si firma da sola, un passo prima: li si concede
+l'accesso a un club che esiste, qui se ne fabbrica uno.
+
+**E un valore che non e un valore.** Prisma legge un **oggetto** su una colonna
+scalare come un operatore di aggiornamento. Le guardie leggono
+`normalized.<campo>` aspettandosi un valore semplice:
+
+    PATCH /api/v1/payments/<id>   {"status":{"set":"paid"}}
+
+`guardLedgerOwnedPaymentState` calcolava `String({...})` — cioe
+`"[object Object]"` — non lo riconosceva fra gli stati che sorveglia, e usciva
+**senza riscrivere niente**; poi `delegate.update` applicava l'operatore. Una
+rata risultava saldata senza che un euro fosse entrato, che e l'invariante che
+quella guardia esiste per difendere (CLAUDE.md §2: *lo stato di una rata non si
+imposta, si ricava*). Con `{"amount":{"increment":5000}}` cambiava anche
+l'importo, e con `{"settings":{"set":{...}}}` su un club l'intera colonna
+`settings` veniva sostituita dall'involucro.
+
+Le due correzioni sono la stessa: `togliRelazioni` non filtra piu **nomi**, ma
+confronta il corpo con lo schema — toglie cio che non e una colonna, e rifiuta
+un oggetto dove lo schema dichiara uno scalare. Le colonne `Json` restano
+libere, perche li l'oggetto **e** il dato.
+
+**Una lezione sul rinominare.** La tornata precedente aveva ribattezzato
+`members` in `memberships` per separare le tessere dal libro soci, e la
+correzione era a meta: nessuno **consumava** la chiave nuova prima della
+scrittura, quindi arrivava a Prisma come argomento sconosciuto e la creazione
+di un club moriva — da entrambe le schermate. Il difetto non era stato chiuso:
+era stato **spostato**, e il test lo diceva verde perche il doppio di Prisma
+accetta gli argomenti che non conosce.

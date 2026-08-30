@@ -210,6 +210,60 @@ const semina = async () => {
         /* E i numeri che JavaScript legge in binario e in ottale, e Postgres no. */
         { id: "fz-13", date: "2026-03-09", amount: "0b101", description: "Importo binario" },
         { id: "fz-14", date: "2026-03-09", amount: "0o17", description: "Importo ottale" },
+        /*
+          **Le divergenze che una revisione con 482 righe ostili ha trovato
+          dove ventisei non arrivavano.**
+
+          *L'arrotondamento del millesimo.* `timestamp(3)` arrotonda e
+          `new Date` tronca: a capodanno i due finiscono in **anni fiscali
+          diversi**, e a fine millennio l'arrotondamento produce l'anno 10000 —
+          finito, quindi accettato da `isfinite`, e illeggibile per Prisma:
+          una riga sola faceva cadere prima nota, rendiconto, export e saldi.
+        */
+        { id: "ms-1", date: "2025-12-31T23:59:59.9999Z", amount: 51, description: "Millesimo a capodanno" },
+        { id: "ms-2", date: "2026-12-31T23:59:59.9996", amount: 52, description: "Millesimo a fine anno" },
+        { id: "ms-3", date: "2026-03-09T12:00:00.0015", amount: 53, description: "Millesimo e mezzo" },
+        { id: "ms-4", date: "2026-03-09T12:00:00.123999", amount: 54, description: "Sei decimali" },
+        { id: "ms-5", date: "9999-12-31T23:59:59.9996", amount: 55, description: "L'anno diecimila" },
+        /* Un fuso oltre ±15:59: Postgres lo rifiuta, JavaScript no. */
+        { id: "fu-1", date: "2026-03-09T12:00:00+16:00", amount: 56, description: "Fuso fuori scala" },
+        { id: "fu-2", date: "2026-03-09T12:00:00-23:00", amount: 57, description: "Fuso molto fuori scala" },
+        { id: "fu-3", date: "2026-03-09T12:00:00+02:99", amount: 58, description: "Minuti di fuso impossibili" },
+        { id: "fu-4", date: "2026-03-09T12:00:00+15:00", amount: 59, description: "Fuso al limite, valido" },
+        /*
+          *Lo spazio non e l'unico carattere che `float8in` scarta*, e
+          l'esadecimale lo leggono **tutti e due** — al contrario di quanto il
+          commento diceva.
+        */
+        { id: "nu-1", date: "2026-03-09", amount: "\t5", description: "Numero con tabulazione" },
+        { id: "nu-2", date: "2026-03-09", amount: "5\n", description: "Numero con a capo" },
+        { id: "nu-3", date: "2026-03-09", amount: "0x1f", description: "Numero esadecimale" },
+        { id: "nu-4", date: "2026-03-09", amount: "0X10", description: "Esadecimale maiuscolo" },
+        /*
+          *`btrim` toglie i soli spazi*, `trim` toglie anche tabulazioni,
+          spazi unificatori e BOM: la descrizione usciva diversa, e quando era
+          fatta di sola tabulazione una lettura ripiegava sul titolo e l'altra
+          no.
+        */
+        { id: "tx-1", date: "2026-03-09", amount: 61, description: "\tcon tabulazione" },
+        { id: "tx-2", date: "2026-03-09", amount: 62, description: "\t", title: "titolo di ripiego" },
+        { id: "tx-3", date: "2026-03-09", amount: 63, description: "\u00a0", title: "titolo di ripiego" },
+        { id: "tx-4", date: "2026-03-09", amount: 64, description: "Metodo strano", paymentMethod: "\t" },
+        { id: "tx-5", date: "2026-03-09", amount: 65, description: "Metodo con coda", paymentMethod: " Contanti\t" },
+        /* `NULLIF(btrim(id), '')` contro `String(row.id || …)`. */
+        { id: "  T12  ", date: "2026-03-09", amount: 66, description: "Identificativo con spazi" },
+        { id: "   ", date: "2026-03-09", amount: 67, description: "Identificativo di soli spazi" },
+        /*
+          *`COALESCE` sceglie il primo non nullo, `||` il primo vero:* una
+          stringa vuota in `type` faceva prendere due strade diverse, e la
+          riga usciva con il **verso opposto**.
+        */
+        { id: "vr-1", date: "2026-03-09", amount: 68, type: "", direction: "expense", description: "Tipo vuoto" },
+        { id: "vr-2", date: "2026-03-09", amount: 69, type: false, direction: "expense", description: "Tipo falso" },
+        { id: "vr-3", date: "2026-03-09", amount: 70, type: 0, direction: "expense", description: "Tipo zero" },
+        /* `->>` rende il JSON; `String()` no. */
+        { id: "js-1", date: "2026-03-09", amount: 71, description: {} },
+        { id: "js-2", date: "2026-03-09", amount: 72, description: [1, 2] },
       ],
       transfers: [
         {

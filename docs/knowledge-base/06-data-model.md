@@ -884,7 +884,20 @@ fatto dopo rifiutava ogni data valida che in UTC cade il giorno prima o dopo,
 `2026-01-01T00:30:00+02:00` compresa, che per giunta finisce in un anno fiscale
 diverso.
 
-Le tre funzioni fissano `search_path = pg_catalog`.
+**E il millesimo, che sposta l'anno.** `timestamp(3)` **arrotonda** e
+`new Date` **tronca**: `23:59:59.9999` diventa il secondo dopo per Postgres e
+resta il millesimo prima per JavaScript, e a cavallo di capodanno le due
+letture finiscono in anni fiscali diversi. Peggio: quell'arrotondamento su
+`9999-12-31T23:59:59.9996` produce l'**anno 10000**, che `isfinite` accetta e
+che il convertitore di Prisma non sa rileggere — una riga sola cosi faceva
+cadere prima nota, rendiconto, export e saldi di quel club, raggiungendo da una
+data lo stesso guasto che i vincoli di scala chiudono da un importo. Entrambe
+le letture arrotondano allo stesso modo, e rifiutano un anno fuori da 1–9999.
+
+Un fuso oltre ±15:59, o con piu di 59 minuti, e rifiutato da entrambe: Postgres
+non lo conosce, JavaScript si.
+
+Le tre funzioni fissano `search_path = pg_catalog, pg_temp`.
 
 Vedi ADR-0096.
 

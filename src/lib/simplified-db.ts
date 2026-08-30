@@ -1911,7 +1911,8 @@ export async function createClub(name: string, userId: string) {
         name,
         slug,
         creator_id: userId,
-        members: [
+        /* Le tessere di accesso, non il libro soci: vedi `syncClubMembers`. */
+        memberships: [
           {
             user_id: userId,
             role: "club_creator",

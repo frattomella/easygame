@@ -53,8 +53,32 @@ import {
   type SportWorkOutboundRow,
 } from "./projection";
 
+/**
+ * **Il testo di un valore JSON, come lo renderebbe `->>` di Postgres.**
+ *
+ * Due differenze, e producevano entrambe righe diverse fra le due letture del
+ * registro:
+ *
+ * 1. `String({})` vale `"[object Object]"` e `String([1,2])` vale `"1,2"`;
+ *    `->>` rende il **JSON**, cioe `"{}"` e `"[1, 2]"`;
+ * 2. `String.prototype.trim` toglie tabulazioni, a capo, spazi unificatori e
+ *    BOM; `btrim` toglie i **soli spazi**. Una descrizione che comincia per
+ *    tabulazione usciva diversa, e quando era fatta di sola tabulazione una
+ *    lettura ripiegava sul titolo e l'altra no.
+ */
+const jsonComeTesto = (value: unknown): string => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    /* `->>` rende il JSON con uno spazio dopo la virgola, come `jsonb`. */
+    return JSON.stringify(value).replace(/,(?=[^\s])/g, ", ");
+  }
+  return String(value);
+};
+
+/** `NULLIF(btrim(x), '')`: i soli spazi, e il vuoto diventa `null`. */
 const testo = (value: unknown) => {
-  const text = String(value ?? "").trim();
+  const text = jsonComeTesto(value).replace(/^ +| +$/g, "");
   return text || null;
 };
 
@@ -104,16 +128,28 @@ const CENTESIMI_MASSIMI = 2147483647;
 
 const centesimiStorici = (value: unknown): number | null => {
   /*
+    **Cio che `float8in` di Postgres sa leggere, e nient'altro.**
+
     `Number("0b101")` vale 5 e `Number("0o17")` vale 15; `'0b101'::float8`
-    fallisce. Si accetta quindi la sola forma decimale, che e cio che Postgres
-    sa leggere — e con lo stesso `btrim` dei soli spazi.
+    fallisce — ma `'0x1f'::float8` vale 31, e `Number("0x1f")` pure. Le due
+    letture divergevano quindi in **tutte e due le direzioni**, e su forme
+    diverse: binario e ottale li leggeva solo JavaScript, l'esadecimale lo
+    accettano entrambi.
+
+    E lo spazio non e l'unico carattere che `float8in` scarta: toglie anche
+    tabulazione, a capo, ritorno, tabulazione verticale e avanzamento pagina —
+    a differenza di `btrim`, che si limita agli spazi. La lettura in
+    TypeScript ne toglieva uno solo, e dieci righe uscivano da una sola delle
+    due.
   */
-  const DECIMALE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
+  const DECIMALE = /^[+-]?((\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?|0[xX][0-9a-fA-F]+)$/;
+  const ripulito =
+    typeof value === "string" ? value.replace(/^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, "") : "";
   const numero =
     typeof value === "number"
       ? value
-      : typeof value === "string" && DECIMALE.test(value.replace(/^ +| +$/g, ""))
-        ? Number(value.replace(/^ +| +$/g, ""))
+      : typeof value === "string" && DECIMALE.test(ripulito)
+        ? Number(ripulito)
         : NaN;
   if (!Number.isFinite(numero)) return null;
   const centesimi = Math.abs(Math.floor(numero * 100 + 0.5));
@@ -189,18 +225,6 @@ const dataStorica = (value: unknown): string | null => {
   );
   if (Number.isNaN(muro.getTime())) return null;
 
-  /*
-    Il giorno **scritto** dev'essere il giorno **letto**: il 31 febbraio non e
-    una data, e JavaScript lo fa scivolare al 3 marzo mentre Postgres lo
-    rifiuta.
-
-    Il confronto va fatto qui, sull'orologio da muro, e non dopo aver applicato
-    il fuso: fatto dopo rifiutava ogni data con offset che attraversa la
-    mezzanotte — `2026-01-01T00:30:00+02:00` e il 31 dicembre in UTC, ed e
-    una data perfettamente valida che spariva da una lettura sola. E finiva in
-    un **anno fiscale** diverso, che e esattamente il guasto da cui si stava
-    scappando.
-  */
   if (
     muro.getUTCFullYear() !== Number(anno) ||
     muro.getUTCMonth() + 1 !== Number(mese) ||
@@ -209,13 +233,45 @@ const dataStorica = (value: unknown): string | null => {
     return null;
   }
 
+  /*
+    **`timestamp(3)` arrotonda, `new Date` tronca.**
+
+    `23:59:59.9999` diventa il secondo dopo per Postgres e resta il millesimo
+    prima per JavaScript — e a cavallo di capodanno le due letture finiscono in
+    **anni fiscali diversi**.
+
+    L'arrotondamento viene **dopo** il controllo del giorno, e non prima: il
+    31 dicembre alle 23:59:59.9999 e una data valida che arrotondando diventa
+    il primo gennaio, e un controllo fatto dopo la rifiuterebbe come se il
+    giorno non fosse esistito.
+
+    E l'anno 10000, che nasce proprio da questo arrotondamento, esce da
+    entrambe le letture: `isfinite` lo accetta e il convertitore di Prisma non
+    lo sa rileggere — una riga sola cosi faceva cadere prima nota, rendiconto,
+    export e saldi di quel club.
+  */
+  if (frazione && frazione.length > 4) {
+    const millesimi = Number(frazione.slice(1).padEnd(4, "0").slice(0, 4));
+    muro.setUTCMilliseconds(Math.round(millesimi / 10));
+  }
+  if (muro.getUTCFullYear() > 9999) return null;
+
   if (!fuso || fuso === "Z") {
     return muro.toISOString();
   }
 
+  /*
+    Postgres non conosce un fuso oltre ±15:59, e rifiuta la stringa; JavaScript
+    la accetta. Otto valori uscivano da una lettura sola.
+  */
+
   /* L'offset sposta l'istante, non il giorno scritto. */
   const cifre = fuso.slice(1).replace(":", "");
-  const minutiDiFuso = Number(cifre.slice(0, 2)) * 60 + Number(cifre.slice(2));
+  const ore_di_fuso = Number(cifre.slice(0, 2));
+  const minuti_di_fuso = Number(cifre.slice(2));
+  if (minuti_di_fuso > 59) return null;
+  const minutiDiFuso = ore_di_fuso * 60 + minuti_di_fuso;
+  if (minutiDiFuso > 15 * 60 + 59) return null;
   const verso = fuso[0] === "-" ? 1 : -1;
   return new Date(muro.getTime() + verso * minutiDiFuso * 60000).toISOString();
 };
@@ -444,7 +500,15 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
       const amountCents = centesimiStorici(row?.amount);
       if (!amountCents) return [];
 
-      const tipo = String(row?.type || row?.direction || "income").toLowerCase();
+      /*
+        `COALESCE` sceglie il primo **non nullo**, non il primo **vero**: con
+        `{type: "", direction: "expense"}` l'SQL prendeva la stringa vuota e
+        ne ricavava un'entrata, mentre `||` scavalcava fino a `direction` e
+        ne ricavava un'uscita. Sei righe uscivano con il verso opposto.
+      */
+      const tipo = jsonComeTesto(
+        row?.type ?? row?.direction ?? "income",
+      ).toLowerCase();
       const descrizione =
         testo(row?.description) || testo(row?.title) || "Movimento storico";
 
@@ -467,7 +531,8 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
           direction: ["expense", "uscita", "out"].includes(tipo) ? "OUT" : "IN",
           amount_cents: amountCents,
           source_domain: "MANUAL",
-          source_id: String(row?.id || `legacy-${index}`),
+          /* `NULLIF(btrim(id), '')`, come nella vista. */
+          source_id: testo(row?.id) || `legacy-${index}`,
           description: descrizione,
           payment_method: testo(row?.paymentMethod) || testo(row?.method),
           search_text: testoDiRicerca([descrizione]),
@@ -505,7 +570,7 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
           direction: "OUT",
           amount_cents: amountCents,
           source_domain: "INTERNAL_TRANSFER",
-          source_id: String(row?.id || `legacy-transfer-${index}`),
+          source_id: testo(row?.id) || `legacy-transfer-${index}`,
           description: descrizione,
           payment_method: "Giroconto",
           /* La ricerca guarda l etichetta, non la nota fra parentesi. */
@@ -527,9 +592,18 @@ export const projectLegacyClubMovements = (club: any): LedgerViewRow[] => {
  * minuscolo. Sta nella riga e non nel codice di ricerca perche il filtro possa
  * scendere nel `WHERE` invece di scorrere in memoria trentacinquemila righe.
  */
+/**
+ * Il testo su cui la ricerca lavora, costruito **come lo costruisce la vista**.
+ *
+ * `String.prototype.trim` toglie tabulazioni, a capo, spazi unificatori e BOM;
+ * `btrim` toglie i **soli spazi**. Una descrizione che comincia per
+ * tabulazione produceva due testi di ricerca diversi, e quando era fatta di
+ * sola tabulazione una lettura la considerava vuota e l'altra no: la stessa
+ * parola trovava la riga in produzione e non nei test, o viceversa.
+ */
 const testoDiRicerca = (parti: readonly unknown[]) => {
   const testo = parti
-    .map((parte) => String(parte ?? "").trim())
+    .map((parte) => jsonComeTesto(parte).replace(/^ +| +$/g, ""))
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

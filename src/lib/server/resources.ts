@@ -980,6 +980,14 @@ const normalizeCommonAliases = (input: Record<string, any>) => {
   */
   delete next.organization;
   delete next.athlete;
+  /*
+    Questi tre restano anche qui, e non solo per il percorso di modello:
+    `normalizeClubResourceInput` chiama questa funzione e **non** passa da
+    `togliRelazioni`, quindi senza queste righe finivano dentro `payload`.
+  */
+  delete next.payment;
+  delete next.invoice;
+  delete next.receipt;
 
   return next;
 };
@@ -1212,21 +1220,109 @@ const RELAZIONI_PER_MODELLO = new Map<string, Set<string>>(
 const modelloDelDelegato = (delegate: string) =>
   delegate ? delegate.charAt(0).toUpperCase() + delegate.slice(1) : "";
 
+/**
+ * Le colonne **scalari** di un modello, con il tipo che lo schema dichiara.
+ * Serve a distinguere «valore» da «operatore»: vedi `togliRelazioni`.
+ */
+const SCALARI_PER_MODELLO = new Map<string, Set<string>>(
+  (Prisma as any).dmmf.datamodel.models.map((modello: any) => [
+    modello.name,
+    new Set(
+      modello.fields
+        .filter((campo: any) => campo.kind !== "object")
+        .map((campo: any) => campo.name as string),
+    ),
+  ]),
+);
+
+/**
+ * **Le chiavi che non sono colonne, e i valori che non sono valori.**
+ *
+ * Togliere le relazioni non basta, ed e la lezione che questa correzione ha
+ * dovuto imparare due volte.
+ *
+ * *Il primo caso, che ha rotto la creazione di un club.* Una chiave che non e
+ * ne una relazione ne una colonna — `memberships`, che questo modulo consuma
+ * da se — arrivava intatta a `delegate.create({ data })`, e Prisma rifiutava
+ * l'argomento sconosciuto. Non e una svista di una chiave: **tutto** cio che
+ * lo schema non conosce va tolto, perche il corpo lo scrive chi chiama.
+ *
+ * *Il secondo, che era una porta aperta.* Prisma legge un **oggetto** su una
+ * colonna scalare come un operatore di aggiornamento. Le guardie di questo
+ * file leggono `normalized.<campo>` aspettandosi un valore semplice:
+ *
+ *     PATCH /api/v1/payments/<id>   {"status":{"set":"paid"}}
+ *
+ * `guardLedgerOwnedPaymentState` calcolava `String({...})` — cioe
+ * `"[object Object]"` — non lo riconosceva fra gli stati che sorveglia, e
+ * usciva **senza riscrivere niente**; poi `delegate.update` applicava
+ * l'operatore. Una rata risultava saldata senza che un euro fosse entrato, che
+ * e l'invariante che quella guardia esiste per difendere. Con
+ * `{"amount":{"increment":5000}}` cambiava anche l'importo.
+ *
+ * Un operatore non e un valore che una rotta CRUD debba accettare: qui si
+ * scrivono dati, e le operazioni le fa il dominio.
+ */
 const togliRelazioni = (resource: string, input: Record<string, any>) => {
   const config = RESOURCE_CONFIG[resource];
-  const relazioni = RELAZIONI_PER_MODELLO.get(
-    modelloDelDelegato(String(config?.delegate || "")),
-  );
-  if (!relazioni) {
+  const modello = modelloDelDelegato(String(config?.delegate || ""));
+  const relazioni = RELAZIONI_PER_MODELLO.get(modello);
+  const scalari = SCALARI_PER_MODELLO.get(modello);
+  if (!relazioni || !scalari) {
     return input;
   }
 
   const next = { ...input };
-  for (const nome of relazioni) {
-    delete next[nome];
+  for (const nome of Object.keys(next)) {
+    if (CHIAVI_CONSUMATE_DA_QUESTO_MODULO.has(nome)) continue;
+    if (relazioni.has(nome) || !scalari.has(nome)) {
+      delete next[nome];
+      continue;
+    }
+
+    /*
+      Un valore che e un oggetto semplice — non una data, non un array — su una
+      colonna scalare e un operatore. `Json` fa eccezione: li l'oggetto **e**
+      il valore, e Prisma non ci legge nessun operatore.
+    */
+    const valore = next[nome];
+    if (
+      valore !== null &&
+      typeof valore === "object" &&
+      !(valore instanceof Date) &&
+      !Array.isArray(valore) &&
+      !JSON_COLUMNS_PER_MODELLO.get(modello)?.has(nome)
+    ) {
+      throw new Error(
+        `Accesso negato: «${nome}» attende un valore, non un'operazione`,
+      );
+    }
   }
   return next;
 };
+
+/**
+ * **Le chiavi che questo modulo consuma da se**, e che percio non sono
+ * spazzatura anche se non sono colonne.
+ *
+ * `settings_patch` non e una colonna: e l istruzione «fondi queste chiavi
+ * dentro `settings`, senza rileggere le altre», e viene tolta da
+ * `applyClubSettingsPatch` **dopo** la normalizzazione. Toglierla prima
+ * significava buttare via la scrittura invece di eseguirla.
+ */
+const CHIAVI_CONSUMATE_DA_QUESTO_MODULO = new Set(["settings_patch"]);
+
+/** Le colonne `Json`, dove un oggetto e il dato e non un'istruzione. */
+const JSON_COLUMNS_PER_MODELLO = new Map<string, Set<string>>(
+  (Prisma as any).dmmf.datamodel.models.map((modello: any) => [
+    modello.name,
+    new Set(
+      modello.fields
+        .filter((campo: any) => campo.kind === "scalar" && campo.type === "Json")
+        .map((campo: any) => campo.name as string),
+    ),
+  ]),
+);
 
 /**
  * **Una tessera non si firma da soli.**
@@ -3629,7 +3725,26 @@ export const createResource = async (
   normalizeAnagraficaText(resource, normalized);
 
   if (resource === "clubs" || resource === "organizations") {
-    if (scope?.userId && !normalized.creator_id) {
+    /*
+      **Il fondatore di un club e chi lo sta creando.**
+
+      `creator_id` arrivava dal corpo e non veniva confrontato con la sessione.
+      Ma `resolveOrganizationScopeForUser` ricava da quella colonna sia
+      l'appartenenza sia il ruolo `owner`: si poteva quindi creare un club —
+      con il nome e la configurazione scelti da chi attacca — e **intestarlo a
+      un altro**, che se ne trovava uno nuovo fra i propri, attivo e con ruolo
+      di proprietario.
+
+      E la stessa forma della tessera che si firma da sola, un passo prima:
+      li si concedeva l'accesso a un club esistente, qui se ne fabbrica uno.
+    */
+    if (scope?.userId) {
+      const dichiarato = String(normalized.creator_id || "").trim();
+      if (dichiarato && dichiarato !== String(scope.userId)) {
+        throw new Error(
+          "Accesso negato: un club si crea per se, non a nome di un altro",
+        );
+      }
       normalized.creator_id = scope.userId;
     }
 
