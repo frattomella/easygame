@@ -178,9 +178,25 @@ export function RegisterPaymentDialog({
       guasto che la preselezione esiste per evitare.
 
       «Una volta sola» vuol dire una volta per apertura, non una per sessione.
+
+      **E riazzerare non basta: bisogna ripreselezionare qui.**
+
+      Azzerare soltanto il riferimento lasciava il campo vuoto per sempre. La
+      preselezione vive in un effetto che dipende da `accountChoices`, e
+      `accountChoices` e uno stato che si popola **una volta** per club: dopo
+      quella volta la sua identita non cambia piu, quindi quell'effetto non
+      riparte a nessuna apertura successiva. Il risultato era il contrario di
+      quello che si voleva — non piu «senza conto dopo averlo scelto una
+      volta», ma **senza conto sempre, dalla seconda apertura in poi**, che e
+      esattamente il guasto da mille euro che la preselezione esiste per
+      evitare.
+
+      Il conto lo rimette quindi questo effetto, che e quello che sa davvero
+      quando si riapre. L'altro resta per il caso in cui i conti arrivino
+      **dopo** l'apertura: li il riferimento e ancora falso e tocca a lui.
     */
-    contoScelto.current = false;
-    setFinancialAccountId("");
+    contoScelto.current = accountChoices.length > 0;
+    setFinancialAccountId(accountChoices[0]?.id ?? "");
     setTouched(false);
     // `methodChoices` e un array ricostruito a ogni render: dipendere dal suo
     // contenuto rimetterebbe a zero i campi mentre si scrive.

@@ -204,6 +204,30 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+      **E per tutti gli altri tipi, il permesso di cio a cui si attacca.**
+
+      La correzione che ha chiuso lettura, modifica e cancellazione si era
+      fermata a tre verbi su quattro: `POST` restava sorvegliato solo per i due
+      tipi qui sopra. Un genitore poteva quindi depositare un file nella
+      cartella di un atleta di un'altra famiglia — `owner_type=athlete`,
+      `category=certificato-medico` — e quel file compariva alla segreteria
+      fra i documenti di quel ragazzo, indistinguibile da uno vero.
+
+      Non e un furto di dati ma un avvelenamento dell'archivio, ed e la stessa
+      dimenticanza di sempre: la guardia messa sulle porte che si erano viste,
+      non su tutte quelle che ci sono.
+    */
+    if (!canAccessAttachmentOwner(scope.activeRole, ownerTypeCaricato, "create")) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: attachmentDenied(ownerTypeCaricato).message },
+        },
+        { status: 403 },
+      );
+    }
+
     if (!file || typeof file === "string") {
       return NextResponse.json(
         { data: null, error: { message: "Nessun file ricevuto." } },

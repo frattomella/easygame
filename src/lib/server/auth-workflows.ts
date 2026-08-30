@@ -636,6 +636,22 @@ type OAuthProviderConfig = {
   }>;
 };
 
+/**
+ * Il tenant Microsoft su cui si autentica, `common` se non e stato scelto.
+ *
+ * `common`, `organizations` e `consumers` sono i tre endpoint **multi-tenant**:
+ * accettano l'utente di qualunque directory, anche una creata poco fa da chi
+ * sta attaccando. Un tenant nominato e invece una directory sola, la cui
+ * amministrazione e nota.
+ */
+const MICROSOFT_SHARED_TENANTS = new Set(["common", "organizations", "consumers"]);
+
+const microsoftTenant = () =>
+  String(process.env.MICROSOFT_TENANT_ID || "").trim() || "common";
+
+const microsoftTenantIsTrusted = () =>
+  !MICROSOFT_SHARED_TENANTS.has(microsoftTenant().toLowerCase());
+
 const oauthProviders: Record<string, OAuthProviderConfig | undefined> = {
   google:
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
@@ -677,10 +693,8 @@ const oauthProviders: Record<string, OAuthProviderConfig | undefined> = {
           label: "Microsoft",
           clientId: process.env.MICROSOFT_CLIENT_ID,
           clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
-          authorizationUrl:
-            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-          tokenUrl:
-            "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+          authorizationUrl: `https://login.microsoftonline.com/${microsoftTenant()}/oauth2/v2.0/authorize`,
+          tokenUrl: `https://login.microsoftonline.com/${microsoftTenant()}/oauth2/v2.0/token`,
           scope: "openid profile email User.Read",
           profile: async (accessToken: string) => {
             const response = await fetch(
@@ -695,7 +709,23 @@ const oauthProviders: Record<string, OAuthProviderConfig | undefined> = {
             return {
               providerAccountId: String(payload.sub || payload.oid),
               email: String(payload.email || payload.preferred_username),
-              emailVerified: true,
+              /*
+                **Microsoft non verifica l'indirizzo, e lo dice.**
+
+                Il claim `email` di Entra ID e un attributo che l'amministratore
+                del tenant scrive: non e legato a un dominio dimostrato. Con
+                l'endpoint `/common` il tenant lo puo creare chiunque in pochi
+                minuti — quindi chiunque puo presentarsi con l'indirizzo di un
+                altro. E la vulnerabilita che Microsoft stessa documenta
+                («nOAuth»): l'indirizzo non va usato per decidere chi sei.
+
+                Diventa affidabile solo quando il deployment fissa **il proprio**
+                tenant: li l'amministratore e il club, e la sua parola vale.
+                Senza `MICROSOFT_TENANT_ID` l'indirizzo resta non verificato, e
+                piu sotto un indirizzo non verificato non apre nessun conto
+                esistente.
+              */
+              emailVerified: microsoftTenantIsTrusted(),
               firstName: payload.given_name || null,
               lastName: payload.family_name || null,
               displayName: payload.name || null,
@@ -793,6 +823,7 @@ export const findOrCreateOAuthUser = async ({
   providerId,
   providerAccountId,
   email,
+  emailVerified,
   firstName,
   lastName,
   displayName,
@@ -802,6 +833,7 @@ export const findOrCreateOAuthUser = async ({
   providerId: string;
   providerAccountId: string;
   email: string;
+  emailVerified: boolean;
   firstName?: string | null;
   lastName?: string | null;
   displayName?: string | null;
@@ -827,7 +859,14 @@ export const findOrCreateOAuthUser = async ({
     const updatedUser = await prisma.user.update({
       where: { id: existingAccount.user.id },
       data: {
-        email_verified_at: existingAccount.user.email_verified_at || new Date(),
+        /*
+          L'identita qui e gia dimostrata — il provider ha riconosciuto lo
+          stesso `sub` di sempre — ma «l'indirizzo e verificato» resta una cosa
+          che dice il provider. Se non la dice, non la scriviamo noi.
+        */
+        email_verified_at:
+          existingAccount.user.email_verified_at ||
+          (emailVerified ? new Date() : null),
         user_metadata: {
           ...existingMetadata,
           avatarUrl: avatarUrl || existingMetadata.avatarUrl,
@@ -847,6 +886,40 @@ export const findOrCreateOAuthUser = async ({
     });
 
     return updatedUser;
+  }
+
+  /*
+    **Un indirizzo non verificato non apre nessun conto, e non ne crea.**
+
+    Sotto questa riga ci sono i due percorsi che si fidano dell'indirizzo: uno
+    entra in un conto che esiste gia, l'altro ne crea uno nuovo. Entrambi
+    prendono per buono che chi si presenta possieda quell'indirizzo, e finche
+    quella prova non c'era il primo era una **presa di possesso**: bastava un
+    tenant proprio, un utente con l'indirizzo della vittima e un giro di login
+    per ricevere il cookie di sessione della vittima — password, OTP e limiti
+    di tentativi scavalcati tutti insieme.
+
+    Il secondo non e innocuo per conto suo: creare un conto sull'indirizzo di
+    un altro lo occupa, e quando il legittimo proprietario arrivera davvero
+    verificato finira **dentro** il conto occupato, con chi lo aveva occupato
+    ancora collegato.
+
+    Il ramo di sopra — il provider riconosce lo stesso `sub` — non passa di
+    qui: quell'identita e dimostrata, e chi si e gia collegato continua a
+    entrare.
+  */
+  if (!emailVerified) {
+    throw new Error(
+      /*
+        Il messaggio finisce in `?oauthError=` sulla pagina di login: non ci si
+        mette l'indirizzo, che e un dato personale e le query string si
+        registrano nei log di ogni intermediario.
+      */
+      `Accesso negato: ${providerId} non certifica che l'indirizzo dichiarato ` +
+        "appartenga a chi ha effettuato l'accesso, e un indirizzo non verificato " +
+        "non puo aprire ne creare un account. " +
+        "Accedi con la password, oppure configura MICROSOFT_TENANT_ID sul tenant del club.",
+    );
   }
 
   const existingUser = await prisma.user.findUnique({
@@ -1048,11 +1121,6 @@ export const confirmPasswordReset = async ({
     throw new Error("Link di reset non valido o scaduto");
   }
 
-  const policy = validatePassword(password, user.email);
-  if (!policy.valid) {
-    throw new Error(getPasswordPolicyMessage(policy));
-  }
-
   const challenge = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: user.id,
@@ -1087,6 +1155,27 @@ export const confirmPasswordReset = async ({
       data: { attempts: { increment: 1 } },
     });
     throw new Error("Link di reset non valido o scaduto");
+  }
+
+  /*
+    **La regola sulla password si controlla dopo il token, non prima.**
+
+    Prima veniva applicata subito dopo aver trovato l'utente, e i suoi messaggi
+    escono verbatim dalla rotta: una password corta rispondeva «deve contenere
+    almeno 12 caratteri» quando quell'`uid` esisteva e «Link di reset non valido
+    o scaduto» quando non esisteva — **senza avere il token**. Chi provava un
+    identificativo scopriva cosi se corrispondeva a un account.
+
+    E `validatePassword` confronta anche con la parte locale dell'indirizzo:
+    l'errore «una password che non contenga il nome dell'email» confermava
+    all'attaccante di aver indovinato l'indirizzo della vittima.
+
+    Adesso chi non ha dimostrato di avere il token riceve una frase sola,
+    identica in tutti i casi.
+  */
+  const policy = validatePassword(password, user.email);
+  if (!policy.valid) {
+    throw new Error(getPasswordPolicyMessage(policy));
   }
 
   const password_hash = await hashPassword(password);

@@ -13,8 +13,17 @@ import {
   type ClubStructure,
 } from "@/lib/structures-utils";
 
+/*
+  Mancava il trattino fra la variante e il nodo: `[89ab][0-9a-f]{12}` sono
+  tredici caratteri di fila dove lo UUID ne ha quattro, un trattino e dodici.
+  Nessun identificativo reale corrispondeva mai — e siccome l'unico uso e
+  «se **non** e uno UUID allora ricadi sul primo atleta collegato», la ricaduta
+  scattava sempre: chiedere l'atleta di un altro non otteneva un rifiuto, ma il
+  proprio primo figlio, e un genitore con figli in due club poteva vedersi
+  presentare quello sbagliato. Il ramo del rifiuto era codice morto.
+*/
 const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isRecord = (value: unknown): value is Record<string, any> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -611,8 +620,30 @@ const serializeParentStructureBooking = (
 export const getParentLinkedAthletes = async (userId: string) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true },
+    select: { email: true, email_verified_at: true },
   });
+
+  /*
+    **L'indirizzo vale come legame solo se e verificato.**
+
+    Un tutore si collega al suo account redimendo un token, e allora c'e
+    `linked_user_id`. Finche non lo ha fatto vale anche la corrispondenza con
+    l'indirizzo di contatto che la segreteria ha scritto sulla scheda — ed e
+    quella corrispondenza che apriva la porta.
+
+    `PATCH /api/v1/auth/user` lascia cambiare il proprio indirizzo con qualunque
+    altro non ancora registrato. Chiunque avesse **una qualsiasi** tessera nel
+    club — genitore di suo figlio, atleta, allenatore — poteva scrivere
+    l'indirizzo del tutore di un'altra famiglia e leggere di quel minore
+    pagamenti, fatture, **certificati medici** e documenti d'identita, poi
+    rimettere il proprio.
+
+    Il cambio azzera pero `email_verified_at`, e il login non rilascia sessioni
+    a un indirizzo non verificato: pretendere qui la verifica chiude la strada
+    senza toccare il tutore vero, che per avere una sessione ha gia dovuto
+    dimostrare di leggere quella casella.
+  */
+  const verifiedEmail = user?.email_verified_at ? user.email : null;
   const memberships = await prisma.organizationUser.findMany({
     where: {
       user_id: userId,
@@ -650,7 +681,7 @@ export const getParentLinkedAthletes = async (userId: string) => {
 
   const uniqueAthletes = new Map<string, (typeof candidateAthletes)[number]>();
   candidateAthletes.forEach((athlete) => {
-    if (athleteBelongsToParent(athlete, userId, user?.email)) {
+    if (athleteBelongsToParent(athlete, userId, verifiedEmail)) {
       uniqueAthletes.set(athlete.id, athlete);
     }
   });

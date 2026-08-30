@@ -63,6 +63,18 @@ const PROTECTED_PREFIXES = [
   "/secretariat",
   "/settings",
   "/soci",
+  /*
+    Stessa dimenticanza di `/consensi`, sul dominio piu riservato che ci sia:
+    `/sport-work` e in `MANAGEMENT_PATH_PREFIXES` e fra i prefissi riservati a
+    proprietario e gestore, ma non era qui — e a differenza di ogni altra area
+    gestionale non ha un `layout.tsx` che monti `AccessAreaGuard`. La sua shell
+    legge il ruolo da `localStorage`, che e del client.
+
+    Le rotte reggono — `sportWorkRoute` risolve il ruolo sul server — quindi
+    non usciva un dato. Ma la pagina dei compensi si apriva **senza sessione**,
+    e questo elenco esiste esattamente perche non si apra.
+  */
+  "/sport-work",
   "/sponsors",
   "/staff",
   "/structures",

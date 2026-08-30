@@ -166,6 +166,24 @@ const MANAGEMENT_ADMIN_ONLY_RESOURCES = new Set([
   "organizations",
   "organization_users",
   "payment_methods",
+  /*
+    **Il lavoro sportivo, come risorsa e non solo come pagina.**
+
+    `/sport-work` era gia fra i prefissi riservati qui sopra, e i permessi del
+    dominio danno a collaboratore e segreteria il solo `sport_work.read_own`.
+    Ma la risorsa non era dichiarata, e `canAccessClubResource` risponde `true`
+    a segreteria e collaboratore per **qualunque** nome che non sia in questo
+    elenco. Gli allegati ereditano il permesso da cio a cui sono attaccati, e
+    per il lavoro sportivo ereditavano quindi un permesso che non esisteva:
+    respinti da `/api/v1/sport-work/people`, gli stessi documenti — documento
+    d'identita, autocertificazione, **coordinate bancarie** di ogni
+    collaboratore — si ottenevano dalla rotta generica degli allegati chiedendo
+    `owner_type=sport_work_person`, e si potevano riscrivere e cancellare.
+
+    La pagina e la rotta lo sapevano; la matrice no. E la matrice e il posto in
+    cui questa cosa va detta una volta per tutte le porte.
+  */
+  "sport_work",
   "users",
 ]);
 

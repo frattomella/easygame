@@ -108,13 +108,22 @@ POST /api/v1/auth/password/forgot { email }
 
 POST /api/v1/auth/password/reset { userId, token, password }
   1. rate limit su utente e IP (5 / 15 min)
-  2. validazione con la policy password del progetto
-  3. challenge cercata per user + channel + purpose, non consumata, non scaduta
-  4. confronto degli hash con timingSafeEqual; tentativo errato incrementa
+  2. challenge cercata per user + channel + purpose, non consumata, non scaduta
+  3. confronto degli hash con timingSafeEqual; tentativo errato incrementa
      attempts, oltre MAX_OTP_ATTEMPTS la challenge viene bruciata
+  4. validazione con la policy password del progetto — DOPO il token, non prima
   5. in transazione: consuma la challenge, aggiorna password_hash,
      cancella TUTTE le sessioni dell'utente
 ```
+
+L'ordine fra il passo 2 e il passo 4 e stato invertito nella decima tornata, e
+non e un dettaglio di stile. La policy password veniva applicata subito dopo
+aver trovato l'utente, e i suoi messaggi escono verbatim dalla rotta: una
+password corta rispondeva «deve contenere almeno 12 caratteri» quando quell'`uid`
+esisteva e «Link di reset non valido o scaduto» quando non esisteva — **senza
+avere il token**. E `validatePassword` confronta anche con la parte locale
+dell'indirizzo, quindi l'errore «una password che non contenga il nome
+dell'email» confermava di aver indovinato l'indirizzo della vittima.
 
 Dettagli che contano:
 
@@ -175,6 +184,25 @@ Se `AUTH_RATE_LIMIT_SECRET` manca, il fallback e `CRON_SECRET`, poi
 `DATABASE_URL`, poi la costante `"easygame-local"`. **Impostare sempre il
 segreto negli ambienti condivisi.**
 
+### Quale indirizzo IP conta
+
+`getRequestIp` non prende piu la voce piu a **sinistra** di `X-Forwarded-For`.
+Quella la scrive il client: cambiandola a ogni richiesta si otteneva un
+secchiello nuovo ogni volta, e con esso login, registrazione, moduli pubblici,
+checkout dei link di pagamento e — perche la chiave li contiene l'indirizzo —
+invio e conferma degli OTP, cioe rinvii illimitati verso la casella di
+qualcun altro.
+
+Ogni proxy **accoda** l'indirizzo da cui ha ricevuto, quindi l'indirizzo vero e
+la n-esima voce da destra, con n il numero di proxy fidati:
+`AUTH_RATE_LIMIT_TRUSTED_PROXIES`, che vale **1** (Vercel) se non dichiarato.
+Chi mette una CDN davanti a Vercel deve dichiarare 2, altrimenti i limiti
+contano gli indirizzi della CDN invece di quelli di chi bussa.
+
+I limiti per **identita** (`identity:`, `pwreset:`) non passano di qui e non
+sono mai stati aggirabili in questo modo: e la ragione per cui il difetto era
+un fastidio — posta indesiderata verso la vittima — e non una chiave rotta.
+
 ## OAuth
 
 Provider previsti: **Google** e **Microsoft** (`getEnabledOAuthProviders`).
@@ -185,6 +213,38 @@ Attivi solo se sono presenti le rispettive coppie
 Flusso: `/start` genera lo state e il cookie dedicato → redirect al provider →
 `/callback` scambia il codice, fa upsert su `external_accounts`, crea o collega
 l'utente e apre la sessione. `AUTH_BASE_URL` determina la redirect URI.
+
+### Un indirizzo non verificato non apre e non crea un account
+
+`findOrCreateOAuthUser` decide in quest'ordine:
+
+1. se esiste un `external_accounts` con lo stesso `(provider, sub)`, entra —
+   quell'identita e dimostrata dal provider, e l'indirizzo non c'entra;
+2. altrimenti, se `emailVerified` e **falso**, rifiuta;
+3. altrimenti collega l'account che ha quell'indirizzo, o ne crea uno nuovo.
+
+Il passo 2 e la correzione della decima tornata. Prima non esisteva: il valore
+`emailVerified` veniva calcolato da `profile()` e la callback non lo passava —
+la funzione non aveva nemmeno il parametro. Il collegamento avveniva **per solo
+indirizzo**, e chi controllava una directory Entra ID poteva presentarsi con
+l'indirizzo di un altro e ricevere la sua sessione (vedi
+[14 — Sicurezza](14-security.md), decima tornata).
+
+`email_verified_at` si scrive solo quando il provider ha davvero verificato.
+
+### Quando un provider «verifica» davvero
+
+| Provider | `emailVerified` |
+|---|---|
+| Google | il claim `email_verified` di `openidconnect.googleapis.com/v1/userinfo` |
+| Microsoft | **vero solo** se `MICROSOFT_TENANT_ID` nomina un tenant preciso |
+
+Con `common`, `organizations` o `consumers` — i tre endpoint multi-tenant —
+Microsoft accetta l'utente di **qualunque** directory, compresa una creata
+poco fa da chi attacca, e l'attributo `mail` non e legato a un dominio
+dimostrato. In quella configurazione l'accesso Microsoft puo far entrare solo
+chi si e gia collegato (passo 1), e ogni collegamento nuovo viene rifiutato con
+un messaggio che dice come abilitarlo.
 
 ## Platform admin
 

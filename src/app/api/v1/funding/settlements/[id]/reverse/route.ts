@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -76,7 +77,10 @@ export async function POST(request: Request, context: Context) {
 
     return NextResponse.json({ data: reversal, error: null });
   } catch (error: any) {
-    const message = String(error?.message || "Errore nello storno della liquidazione");
+    const message = publicErrorMessage(
+      error,
+      "Errore nello storno della liquidazione",
+    );
     const status = message.includes("Accesso negato")
       ? 403
       : message.includes("non trovata")

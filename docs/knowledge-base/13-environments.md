@@ -944,3 +944,24 @@ un'azione GitHub o dal cron di una macchina.
   ambiente Production, dal giro del lavoro sportivo. Le tre voci nuove usano la
   stessa variabile e quindi non ne servono altre. Quando esistera un progetto
   di produzione andra impostata anche li.
+
+---
+
+## Le due variabili della decima tornata (2026-08-31)
+
+| Variabile | Default | Cosa cambia |
+|---|---|---|
+| `MICROSOFT_TENANT_ID` | vuoto → `common` | Con `common` (o `organizations`/`consumers`) l'indirizzo dichiarato da Microsoft **non e considerato verificato**, e un accesso Microsoft non puo piu collegarsi a un account EasyGame esistente ne crearne uno nuovo. Nominare qui il tenant del club lo riabilita |
+| `AUTH_RATE_LIMIT_TRUSTED_PROXIES` | `1` | Quanti proxy fidati stanno davanti all'app. Determina quale voce di `X-Forwarded-For` conta come indirizzo del chiamante. Su Vercel e 1; con una CDN davanti a Vercel va portato a 2 |
+
+Nessuna delle due va impostata su Vercel perche il comportamento predefinito e
+gia corretto per quel deployment: `MICROSOFT_TENANT_ID` serve solo a chi vuole
+**abilitare** l'accesso Microsoft, e `AUTH_RATE_LIMIT_TRUSTED_PROXIES` solo a
+chi cambia la topologia davanti all'applicazione.
+
+> **Attenzione al verso dell'errore su `AUTH_RATE_LIMIT_TRUSTED_PROXIES`.**
+> Dichiararne **meno** di quanti ce ne sono fa contare l'indirizzo di un proxy
+> al posto di quello del chiamante: tutti finiscono nello stesso secchiello e i
+> limiti diventano troppo stretti — fastidioso, ma visibile. Dichiararne **piu**
+> di quanti ce ne sono fa risalire dentro la parte della catena che scrive il
+> client, e li i limiti tornano aggirabili. Nel dubbio, il numero piu basso.

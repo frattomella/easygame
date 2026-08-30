@@ -1110,3 +1110,117 @@ una tessera revocata chiude tutto **senza** rilogin, comprese le url degli
 allegati; l'amministratore di piattaforma e verificato e non dedotto, e non si
 auto-promuove da nessuna delle tre porte; le scritture annidate vengono tolte
 in silenzio e gli operatori di Prisma rifiutati.
+
+---
+
+## Wave 4 — la decima tornata: l'identita, non piu il denaro (2026-08-31)
+
+Le nove tornate precedenti avevano guardato quasi solo la contabilita. La
+decima ha cambiato bersaglio: **che cosa il prodotto accetta come prova di chi
+sei**. Un revisore di conferma sul lavoro del giorno prima, e un audit
+indipendente che ha attaccato l'autenticazione dall'esterno — rotte pubbliche,
+webhook, guardie di pagina, legame fra sessione e club.
+
+### Il piu grave: un accesso OAuth apriva l'account di un altro
+
+`findOrCreateOAuthUser` non aveva il parametro `emailVerified`. Il provider lo
+calcolava — Google leggendo il claim, Microsoft scrivendo `true` fisso — e la
+callback lo **buttava via**: era codice morto. Quando nessun `external_account`
+corrispondeva, la funzione cercava l'utente **per indirizzo**, e trovandolo gli
+rilasciava il cookie di sessione.
+
+Con l'endpoint Microsoft `/common` il tenant Entra ID lo crea chiunque in pochi
+minuti, e l'attributo `mail` non e legato a un dominio dimostrato: bastava
+crearne uno, scriverci l'indirizzo della vittima e fare un giro di login per
+entrare nel suo account — password, OTP e limiti di tentativi scavalcati tutti
+insieme. E la vulnerabilita che Microsoft documenta come «nOAuth», e la sua
+raccomandazione e esattamente questa: non usare il claim `email` per decidere
+chi sei.
+
+Era **latente**: `.env.example` ha entrambi i provider vuoti, quindi oggi
+nessun ambiente li espone. Si sarebbe armata da sola il giorno in cui qualcuno
+avesse riempito `MICROSOFT_CLIENT_ID`, senza nessun avviso.
+
+La regola adesso:
+
+| Situazione | Cosa succede |
+|---|---|
+| il provider riconosce lo stesso `sub` di sempre | entra: quell'identita e dimostrata |
+| l'indirizzo e **verificato** e un account con quell'indirizzo esiste | si collega |
+| l'indirizzo e **verificato** e non esiste nessun account | se ne crea uno |
+| l'indirizzo **non e verificato** | rifiutato: non apre e non crea |
+
+L'ultimo caso chiude due strade, non una. Oltre alla presa di possesso, impedisce
+di **occupare** l'indirizzo di un altro con un account nuovo: chi lo occupa
+resta collegato, e il legittimo proprietario che un giorno arrivasse davvero
+verificato finirebbe dentro quell'account.
+
+Microsoft dichiara l'indirizzo verificato **solo** con `MICROSOFT_TENANT_ID`
+configurato su un tenant nominato: li l'amministratore e il club, e la sua
+parola vale. Con `common`, `organizations` o `consumers` no.
+
+### Ogni tessera del club apriva la cartella di un'altra famiglia
+
+`isGuardianLinkedToUser` accettava anche `guardian.email` — l'indirizzo di
+contatto che la segreteria scrive sulla scheda — come prova del legame fra un
+account e un tutore. E `PATCH /api/v1/auth/user` lascia cambiare il proprio
+indirizzo con qualunque altro non ancora registrato.
+
+Chiunque avesse **una qualsiasi** tessera nel club — genitore del proprio
+figlio, atleta, allenatore — poteva scrivere l'indirizzo del tutore di
+un'altra famiglia e leggere di quel minore pagamenti, ricevute, fatture,
+**certificati medici** e documenti d'identita, poi rimettere il proprio.
+
+Il cambio azzera pero `email_verified_at`, e il login non rilascia sessioni a
+un indirizzo non verificato: adesso il legame per indirizzo **vale solo se
+l'indirizzo e verificato**. Il tutore vero non se ne accorge — per avere una
+sessione ha gia dovuto dimostrare di leggere quella casella.
+
+### E il caricamento degli allegati, che era rimasto aperto
+
+La nona tornata aveva chiuso lettura, modifica e cancellazione degli allegati e
+si era fermata a **tre verbi su quattro**: `POST /api/v1/attachments` era
+sorvegliato solo per `club` e `announcement`. Un genitore poteva depositare un
+file nella cartella di un atleta di un'altra famiglia — `owner_type=athlete`,
+`category=certificato-medico` — e alla segreteria compariva fra i documenti di
+quel ragazzo, indistinguibile da uno vero.
+
+Nella stessa area, `sport_work` non era dichiarata fra le risorse riservate:
+segreteria e collaboratore, respinti da `/api/v1/sport-work/people`, ottenevano
+gli stessi documenti — documento d'identita, autocertificazione, **coordinate
+bancarie** — da `/api/v1/attachments?owner_type=sport_work_person`.
+
+### Le altre chiusure
+
+| Cosa | Dov'era |
+|---|---|
+| Il limite di tentativi si azzerava aggiungendo `X-Forwarded-For`: si prendeva la voce piu a **sinistra**, che la scrive il client | `src/lib/server/auth-rate-limit.ts` |
+| Il reset password giudicava la password **prima** del token: una password corta diceva se quell'`uid` esisteva, e se si era indovinato l'indirizzo | `confirmPasswordReset` |
+| `isPlatformAdminSession` teneva il ramo su `users.role` anche a elenco di indirizzi configurato, mentre `isPlatformAdminUser` no: due serrature che si contraddicono sulla porta di `/api/v1/admin/*` | `src/lib/server/auth.ts` |
+| Cambiare indirizzo o password non chiudeva le altre sessioni: una sessione presa in prestito diventava proprieta definitiva | `PATCH /api/v1/auth/user` |
+| `/sport-work` non era fra i `PROTECTED_PREFIXES` e non ha un layout con `AccessAreaGuard`: la pagina dei compensi si apriva **senza sessione** (le rotte reggevano) | `src/middleware.ts` |
+| Una rotta raggiungibile da un utente eseguiva `DROP INDEX` / `CREATE UNIQUE INDEX` su P2002, cioe si riparava lo schema da sola | `auth/access/redeem` |
+| Il guardiano UUID non riconosceva nessuno UUID (mancava un trattino): chiedere l'atleta di un altro non otteneva un rifiuto ma il proprio primo figlio | `src/lib/server/parent-dashboard.ts` |
+
+### Cosa l'audit ha trovato **pulito**
+
+Vale registrarlo quanto i difetti, perche dice dove non serve tornare.
+
+- **I due webhook.** Corpo letto come testo prima di qualunque parse, firma
+  verificata prima di toccarlo, `timingSafeEqual` dietro un controllo di
+  lunghezza, solo schema `v1`, tolleranza di 300 secondi sul timestamp,
+  rifiuto (503, non 200) quando manca il segreto, replay chiuso da
+  `(provider, event_id)`. Una chiamata non verificata non muove niente.
+- **L'enumerazione al login.** Confronto bcrypt fittizio sul ramo negativo, un
+  solo messaggio, indirizzo normalizzato in minuscolo perche il secchiello per
+  identita non si possa spezzare cambiando maiuscole.
+- **Il meccanismo OTP.** Codici salvati come SHA-256, TTL applicato, tentativi
+  fermi a cinque con la sfida bruciata, consumo unico, sfide precedenti
+  invalidate al rinvio. `AUTH_ALLOW_TEST_CODES` richiede **anche**
+  `NODE_ENV !== "production"`.
+- **Il token di reset.** 32 byte casuali, salvato solo come hash, confrontato
+  in tempo costante, TTL di 30 minuti, uno solo vivo per utente, e tutte le
+  sessioni cancellate nella stessa transazione della scrittura.
+- **Il legame fra sessione e club.** Un `x-active-access-role: owner` forgiato
+  produce `activeRole = null`, cioe un rifiuto, non una promozione. Non e stata
+  trovata nessuna strada per cui una sessione del club A agisca sul club B.

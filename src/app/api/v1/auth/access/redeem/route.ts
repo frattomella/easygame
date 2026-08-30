@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
@@ -39,15 +40,6 @@ const isOrganizationUserUniqueError = (error: any) => {
   return (
     target.includes("organization_id") &&
     target.includes("user_id")
-  );
-};
-
-const ensureOrganizationUserMultiRoleIndex = async () => {
-  await prisma.$executeRawUnsafe(
-    'DROP INDEX IF EXISTS "organization_users_organization_id_user_id_key"',
-  );
-  await prisma.$executeRawUnsafe(
-    'CREATE UNIQUE INDEX IF NOT EXISTS "organization_users_organization_id_user_id_role_key" ON "organization_users"("organization_id", "user_id", "role")',
   );
 };
 
@@ -335,15 +327,24 @@ export async function POST(request: Request) {
           throw error;
         }
 
-        try {
-          await ensureOrganizationUserMultiRoleIndex();
-        } catch {
-          throw new Error(
-            "Il database ha ancora il vecchio vincolo su organization_id/user_id. Applica la migration Prisma 20260521103000_allow_multiple_roles_per_organization_user per abilitare piu ruoli nello stesso club.",
-          );
-        }
+        /*
+          **Lo schema lo cambia una migrazione, non una richiesta.**
 
-        const membershipAfterIndexFix = await prisma.organizationUser.findFirst({
+          Qui si eseguiva `DROP INDEX` e `CREATE UNIQUE INDEX` con
+          `$executeRawUnsafe`, dentro il gestore di una rotta che un utente
+          qualunque raggiunge con un token valido: una richiesta che si
+          ripara il database da sola. La migrazione
+          `20260521103000_allow_multiple_roles_per_organization_user` fa gia
+          esattamente le stesse due istruzioni, quindi era anche codice morto
+          su ogni database aggiornato.
+
+          Il conflitto ha due cause possibili e adesso si distinguono: due
+          richieste simultanee che creano la **stessa** tessera — e allora la
+          riga c'e gia e la si usa — oppure il vecchio vincolo ancora in piedi,
+          che e un problema di schema e va detto a chi puo applicare la
+          migrazione, non aggirato.
+        */
+        const membershipConcorrente = await prisma.organizationUser.findFirst({
           where: {
             organization_id: accessToken.organization_id,
             user_id: session.db.user_id,
@@ -351,12 +352,16 @@ export async function POST(request: Request) {
           },
         });
 
-        membership = membershipAfterIndexFix
-          ? await updateExistingMembership(
-              membershipAfterIndexFix.id,
-              membershipAfterIndexFix.is_primary,
-            )
-          : await createAssignedMembership();
+        if (!membershipConcorrente) {
+          throw new Error(
+            "Il database ha ancora il vecchio vincolo su organization_id/user_id. Applica la migration Prisma 20260521103000_allow_multiple_roles_per_organization_user per abilitare piu ruoli nello stesso club.",
+          );
+        }
+
+        membership = await updateExistingMembership(
+          membershipConcorrente.id,
+          membershipConcorrente.is_primary,
+        );
       }
     }
     const nowIso = new Date().toISOString();
@@ -453,7 +458,9 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore collegamento al club" },
+        error: {
+          message: publicErrorMessage(error, "Errore collegamento al club"),
+        },
       },
       { status: 500 },
     );

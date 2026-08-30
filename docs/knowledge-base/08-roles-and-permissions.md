@@ -264,3 +264,29 @@ lavoro sportivo.
 e la maggioranza dei suoi controlli prova **il diniego**: un test che provasse
 solo cio che un proprietario puo fare passerebbe anche se la matrice desse tutto
 a tutti.
+
+---
+
+## `sport_work` e una risorsa riservata (2026-08-31, decima tornata)
+
+`MANAGEMENT_ADMIN_ONLY_RESOURCES` non conteneva `sport_work`, e
+`canAccessClubResource` risponde **vero** a segreteria e collaboratore per
+qualunque nome che non sia in quell'elenco.
+
+Il perimetro del lavoro sportivo era dichiarato in due punti su tre: fra i
+`MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES` (la pagina) e nei permessi di dominio di
+`src/lib/sport-work/permissions.ts`, che a collaboratore e segreteria danno il
+solo `sport_work.read_own`. Non era dichiarato dove conta per **le porte che
+non sono ne la pagina ne la rotta del dominio**.
+
+Gli allegati ereditano il permesso da cio a cui sono attaccati
+(`src/lib/server/attachment-permissions.ts`), quindi ereditavano un permesso
+che non esisteva: respinti da `/api/v1/sport-work/people`, gli stessi
+documenti — documento d'identita, autocertificazione, **coordinate bancarie** —
+si ottenevano da `/api/v1/attachments?owner_type=sport_work_person`, e si
+potevano riscrivere e cancellare.
+
+La regola generale che questo caso illustra: **il perimetro di un dominio si
+dichiara nella matrice**, non solo nelle sue rotte. La matrice e il posto in cui
+lo si dice una volta per tutte le porte, comprese quelle che non esistevano
+quando il dominio e nato.

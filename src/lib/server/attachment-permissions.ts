@@ -42,30 +42,34 @@ import { canAccessClubResource, type ResourceAction } from "@/lib/access-roles";
  * elenco non conosce e trattato come il piu riservato che ci sia — perche non
  * sapere a chi appartiene un file non e una ragione per mostrarlo.
  */
+/*
+  Le chiavi sono **esattamente** i valori di `ATTACHMENT_OWNER_TYPES`
+  (`src/lib/attachments.ts`) meno i due che hanno regole proprie, `club` e
+  `announcement`. Prima ce n'erano il doppio — plurali e nomi di cose che non
+  sono `owner_type` (`medical_certificate`, `sponsor`, `invoice`, `receipt`,
+  `payment`, `form_submission`) — e `createAttachment` li rifiuta tutti: erano
+  righe che non potevano corrispondere a niente. Una tabella dei permessi che
+  elenca porte inesistenti fa credere di aver deciso su casi su cui non ha
+  deciso, e infatti il test scritto insieme a questo modulo verificava
+  `medical_certificate`, cioe un tipo che non esiste.
+*/
 const RISORSA_PER_TIPO: Record<string, string> = {
   athlete: "athletes",
-  athletes: "athletes",
-  medical_certificate: "medical_certificates",
-  medical_certificates: "medical_certificates",
   guardian: "athletes",
   member: "members",
-  members: "members",
   staff: "staff",
-  staff_member: "staff",
-  staff_members: "staff",
   trainer: "trainers",
-  trainers: "trainers",
   sport_work_person: "sport_work",
   sport_work_relationship: "sport_work",
   form: "forms",
-  forms: "forms",
-  form_submission: "forms",
-  sponsor: "sponsors",
-  sponsors: "sponsors",
-  payment: "payments",
-  payments: "payments",
-  invoice: "payments",
-  receipt: "payments",
+  /*
+    `other` e il valore predefinito del caricamento: un file di cui nessuno ha
+    dichiarato a che cosa appartiene. Lo governa quindi chi amministra il club,
+    che e la stessa regola del tipo sconosciuto — ma detta qui invece che
+    ricavata dal fallback, perche `other` non e sconosciuto: e previsto, ed e
+    una scelta che valga la pena leggere.
+  */
+  other: "clubs",
 };
 
 /**

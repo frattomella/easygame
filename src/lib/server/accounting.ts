@@ -914,14 +914,26 @@ export const createAccountingEntry = async (
         new Date(riga.entry_date).toISOString().slice(0, 10),
         String(riga.financial_account_id || ""),
         String(riga.operation_type_code || ""),
+        /*
+          La controparte era nominata nel commento e assente dal confronto:
+          riusare la stessa chiave per uno sponsor diverso rispondeva «fatto»
+          e teneva in silenzio la riga del primo.
+        */
+        String(riga.counterparty_kind || "").toUpperCase(),
+        String(riga.counterparty_id || ""),
+        String(riga.counterparty_label || ""),
       ].join("|");
 
+    const controparte = counterpartyColumns(input);
     const richiesta = [
       resolveAmountCents(input),
       normalizeDirection(input.direction),
       (toDateOrNull(input.entryDate) as Date)?.toISOString().slice(0, 10) || "",
       asText(input.financialAccountId),
       asText(input.operationTypeCode),
+      String(controparte.counterparty_kind || "").toUpperCase(),
+      String(controparte.counterparty_id || ""),
+      String(controparte.counterparty_label || ""),
     ].join("|");
 
     if (impronta(gia) !== richiesta) {

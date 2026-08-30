@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isPhoneVerificationEnabled } from "@/lib/auth/provider-policy";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { prisma } from "@/lib/server/prisma";
 import {
   buildSessionPayload,
@@ -161,6 +162,34 @@ export async function PATCH(request: Request) {
       },
     });
 
+    /*
+      **Cambiare credenziali chiude le altre sessioni.**
+
+      La password si riscriveva senza chiedere quella corrente e senza toccare
+      le sessioni aperte, e l'indirizzo pure: una sessione presa in prestito —
+      un browser lasciato aperto, un Bearer sfuggito dal flusso mobile —
+      diventava proprieta definitiva del conto, perche chi la teneva poteva
+      cambiare password e indirizzo e restare dentro mentre il proprietario
+      restava fuori.
+
+      Il reset via email lo faceva gia (`confirmPasswordReset` cancella tutte
+      le sessioni nella stessa transazione della scrittura): qui mancava.
+      Questa sessione resta viva, cosi chi sta legittimamente cambiando i
+      propri dati non si ritrova sloggato; tutte le altre cadono, e chi
+      possedeva quella vera se ne accorge subito.
+
+      Chiedere **anche** la password corrente e la difesa che manca ancora, ed
+      e una modifica a due schermate: e registrata come debito (W4-R13).
+    */
+    if (emailChanged || requestedPassword !== undefined) {
+      await prisma.session.deleteMany({
+        where: {
+          user_id: session.db.user_id,
+          NOT: { id: session.db.id },
+        },
+      });
+    }
+
     return NextResponse.json({
       data: {
         user: buildSessionPayload(
@@ -175,7 +204,8 @@ export async function PATCH(request: Request) {
     return NextResponse.json(
       {
         data: { user: null },
-        error: { message: error?.message || "Errore aggiornamento utente" },
+        // Il testo interno di Prisma non esce dalla rotta.
+        error: { message: publicErrorMessage(error, "Errore aggiornamento utente") },
       },
       { status: 500 },
     );

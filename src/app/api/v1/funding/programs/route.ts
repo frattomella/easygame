@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -47,7 +48,9 @@ const failure = (error: any, fallback: string) => {
     return NextResponse.json(validationErrorPayload(error), { status: 400 });
   }
 
-  const message = String(error?.message || fallback);
+  // Il messaggio interno di Prisma non esce: `publicErrorMessage` lascia
+  // passare «Accesso negato», da cui dipende il 403 qui sotto.
+  const message = publicErrorMessage(error, fallback);
   const status = message.includes("Accesso negato")
     ? 403
     : message.includes("non trovato")

@@ -15,13 +15,56 @@ const hashIdentifier = (scope: string, identifier: string) =>
     )
     .digest("hex");
 
+/**
+ * Quanti proxy fidati stanno davanti all'applicazione. Su Vercel e uno.
+ *
+ * Serve a sapere **quale** voce di `X-Forwarded-For` ha scritto un proxy e
+ * quale ha scritto il client: ogni proxy accoda l'indirizzo da cui ha ricevuto,
+ * quindi l'indirizzo vero e la n-esima voce da destra, con n il numero di
+ * proxy fidati. Chi ne mette due davanti (per esempio una CDN sopra Vercel)
+ * deve dichiararlo, altrimenti il limite finisce per contare gli indirizzi
+ * della CDN e non quelli di chi bussa.
+ */
+const trustedProxyCount = () => {
+  const dichiarato = Number(process.env.AUTH_RATE_LIMIT_TRUSTED_PROXIES || "1");
+  return Number.isFinite(dichiarato) && dichiarato >= 1
+    ? Math.floor(dichiarato)
+    : 1;
+};
+
+/**
+ * L'indirizzo da cui arriva la richiesta, per i limiti di tentativi.
+ *
+ * **Il difetto che chiude.** Si prendeva `X-Forwarded-For.split(",")[0]`, cioe
+ * la voce **piu a sinistra** — che e esattamente quella che scrive il client.
+ * Bastava aggiungere l'intestazione a mano e cambiarla a ogni richiesta per
+ * avere un secchiello nuovo ogni volta: login, registrazione, moduli pubblici,
+ * checkout dei link di pagamento, e — perche la chiave li contiene
+ * l'indirizzo IP — anche invio e conferma degli OTP, cioe rinvii illimitati
+ * verso la casella di qualcun altro.
+ *
+ * I limiti per identita (`identity:`, `pwreset:`) non passavano di qui e
+ * reggevano: e per questo che restava un fastidio e non una chiave rotta.
+ */
 export const getRequestIp = (request: Request) => {
-  const forwarded = request.headers.get("x-forwarded-for");
-  return (
-    forwarded?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip")?.trim() ||
-    "unknown"
-  );
+  const catena = (request.headers.get("x-forwarded-for") || "")
+    .split(",")
+    .map((voce) => voce.trim())
+    .filter(Boolean);
+
+  if (catena.length) {
+    const indice = Math.max(0, catena.length - trustedProxyCount());
+    const scelto = catena[indice];
+    if (scelto) return scelto;
+  }
+
+  /*
+    `x-real-ip` lo scrive il proxy sovrascrivendolo, quindi non e accodabile
+    dal client come la catena qui sopra. In assenza di entrambe si restituisce
+    `unknown`, che mette tutti nello stesso secchiello: e il verso prudente in
+    cui sbagliare, perche stringe invece di aprire.
+  */
+  return request.headers.get("x-real-ip")?.trim() || "unknown";
 };
 
 export const consumeAuthRateLimit = async (

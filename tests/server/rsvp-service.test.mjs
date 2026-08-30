@@ -81,9 +81,31 @@ const trainings = () => [
 ];
 
 const seed = () => ({
+  /*
+    **`email_verified_at` non e decorazione.**
+
+    Il legame fra un account e un tutore vale anche per corrispondenza con
+    l'indirizzo di contatto scritto sull'anagrafica, e dalla decima tornata
+    quella corrispondenza conta **solo se l'indirizzo e verificato**: chiunque
+    puo cambiare il proprio con `PATCH /api/v1/auth/user`, e senza questa
+    condizione bastava scrivere l'indirizzo del tutore di un'altra famiglia
+    per leggerne certificati medici e pagamenti.
+
+    Un utente con una sessione ha sempre l'indirizzo verificato — il login non
+    ne rilascia a chi non lo ha — quindi seminarlo qui non allenta il test:
+    lo rende conforme a cio che puo esistere davvero.
+  */
   user: [
-    { id: GENITORE, email: "genitore@example.it" },
-    { id: ESTRANEO, email: "estraneo@example.it" },
+    {
+      id: GENITORE,
+      email: "genitore@example.it",
+      email_verified_at: new Date("2026-01-01T00:00:00.000Z"),
+    },
+    {
+      id: ESTRANEO,
+      email: "estraneo@example.it",
+      email_verified_at: new Date("2026-01-01T00:00:00.000Z"),
+    },
   ],
   /*
     L'appartenenza dice **a quale club** il genitore ha accesso; a dire **per
@@ -423,4 +445,68 @@ test("un invito gia risposto esce dai pendenti ma resta fra gli inviti", async (
   assert.equal(chiuso.state, "no_response");
   assert.equal(chiuso.canAnswer, false);
   assert.match(chiuso.blockedMessage, /scaduto/i);
+});
+
+/**
+ * ===========================================================================
+ * Decima tornata — l'indirizzo di contatto non e una prova, se non e verificato
+ * ===========================================================================
+ *
+ * Il legame fra un account e un tutore vale per `linked_user_id`, e in sua
+ * assenza per corrispondenza con l'indirizzo di contatto scritto
+ * sull'anagrafica dalla segreteria.
+ *
+ * `PATCH /api/v1/auth/user` lascia cambiare il proprio indirizzo con qualunque
+ * altro non ancora registrato. Chiunque avesse **una qualsiasi** tessera nel
+ * club — genitore del proprio figlio, atleta, allenatore — poteva scrivere
+ * l'indirizzo del tutore di un'altra famiglia e agire al posto suo: qui
+ * rispondere per un atleta che non e suo, e nell'area genitore leggerne
+ * pagamenti, fatture e **certificati medici**.
+ *
+ * Il cambio azzera pero `email_verified_at`, e il login non rilascia sessioni a
+ * un indirizzo non verificato. Il legame per indirizzo vale quindi solo se
+ * l'indirizzo e verificato — condizione che il tutore vero soddisfa sempre, e
+ * che chi ha appena cambiato indirizzo non soddisfa mai.
+ */
+test("un indirizzo appena cambiato non collega a un atleta di un'altra famiglia", async () => {
+  const utente = fake.rows("user").find((riga) => riga.id === ESTRANEO);
+  assert.ok(utente, "l'estraneo deve esistere nel seed");
+
+  // L'attacco: si prende l'indirizzo del tutore dichiarato sull'anagrafica.
+  utente.email = "genitore@example.it";
+  utente.email_verified_at = null;
+
+  await assert.rejects(
+    () =>
+      rispondi({
+        userId: ESTRANEO,
+        actorEmail: "genitore@example.it",
+      }),
+    /Accesso negato/,
+    "un indirizzo non verificato non deve collegare a nessun atleta",
+  );
+
+  assert.equal(
+    righe().length,
+    0,
+    "e non deve nemmeno lasciare una riga di risposta",
+  );
+});
+
+/**
+ * Il verso opposto: verificato, il legame per indirizzo continua a valere.
+ * Una correzione che chiudesse anche il tutore vero non sarebbe una correzione.
+ */
+test("verificato, l'indirizzo collega come prima", async () => {
+  const utente = fake.rows("user").find((riga) => riga.id === ESTRANEO);
+  utente.email = "genitore@example.it";
+  utente.email_verified_at = new Date("2026-01-01T00:00:00.000Z");
+
+  const esito = await rispondi({
+    userId: ESTRANEO,
+    actorEmail: "genitore@example.it",
+  });
+
+  assert.equal(esito.status, "yes");
+  assert.equal(righe().length, 1);
 });

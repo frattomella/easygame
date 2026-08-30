@@ -2,10 +2,7 @@ import { randomBytes, randomUUID } from "crypto";
 import type { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
-import {
-  getPlatformAdminEmails,
-  isPlatformAdminEmail,
-} from "@/lib/platform-admin";
+import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { normalizeAccessRole } from "@/lib/access-roles";
 
 export const SESSION_COOKIE_NAME = "easygame_session";
@@ -202,16 +199,22 @@ export const isPlatformAdminSession = (
     return false;
   }
 
-  if (isPlatformAdminEmail(session.db.user.email)) {
-    return true;
-  }
+  /*
+    **La regola sta in un posto solo.**
 
-  const role = String(session.db.user.role || "").toLowerCase();
-  if (getPlatformAdminEmails().length === 0) {
-    return role === "platform_admin" || role === "admin";
-  }
+    Qui ne viveva una seconda copia, e le due non dicevano la stessa cosa:
+    `isPlatformAdminUser` era stata corretta perche con l'elenco configurato
+    contasse **solo** l'indirizzo, mentre questa manteneva il ramo alternativo
+    su `users.role` anche a elenco pieno — proprio sul controllo che sorveglia
+    tutto `/api/v1/admin/*`.
 
-  return role === "platform_admin";
+    L'effetto pratico: togliere qualcuno dall'elenco degli indirizzi lo toglieva
+    dalla porta d'ingresso ma non dall'API. Non ho trovato una strada con cui
+    un utente si scriva `users.role` da solo, quindi non era sfruttabile — ma
+    un disegno a due serrature che si contraddicono e gia rotto prima che
+    qualcuno trovi come aprirlo.
+  */
+  return isPlatformAdminUser(session.db.user);
 };
 
 export const requirePlatformAdmin = async (request: Request | NextRequest) => {

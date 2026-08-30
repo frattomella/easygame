@@ -53,6 +53,7 @@ export async function GET(request: Request, context: Context) {
       providerId: provider,
       providerAccountId: profile.providerAccountId,
       email: profile.email,
+      emailVerified: profile.emailVerified,
       firstName: profile.firstName,
       lastName: profile.lastName,
       displayName: profile.displayName,
