@@ -733,6 +733,88 @@ Gli altri invarianti, tutti nel database:
 e senza congelamento la correzione di una voce cambierebbe la natura di tutti i
 movimenti passati, retroattivamente.
 
+### `accounting_ledger_lines` — la vista che **e** la prima nota (2026-08-30)
+
+Non e una tabella. E una **vista** che unisce in un solo elenco cinque
+sorgenti: i movimenti propri di `accounting_entries`, e la proiezione di
+`payment_transactions`, `sport_work_outbound_transactions`,
+`funding_settlements` e del blob storico `clubs.transactions` /
+`clubs.transfers`.
+
+**Perche una vista e non una tabella.** Una tabella che materializzasse
+incassi, compensi e liquidazioni sarebbe la seconda contabilita che questa
+Wave vieta: due fonti per lo stesso numero, e nessun modo di tenerle
+allineate. Una vista non contiene niente, quindi non puo disallinearsi da cio
+che legge. Se un incasso viene stornato, la vista lo sa nello stesso istante in
+cui lo sa `payment_transactions`, perche **e** `payment_transactions`.
+
+**Il difetto che chiude.** `listAccountingEntries` rileggeva l'**intero**
+registro a ogni chiamata, filtrava in memoria, ordinava in memoria e affettava
+cinquanta righe. Il rendiconto e l'export la **sfogliavano**, quaranta e
+ottanta volte, e ognuna di quelle chiamate ricostruiva tutto per restituirne
+cinquecento. Il costo era O(N x pagine). Misurato su 35.000 righe:
+
+| | prima | dopo |
+|---|---:|---:|
+| prima nota, prima pagina | 5.719 ms | **409 ms** |
+| pagina intermedia | 4.885 ms | **397 ms** |
+| ultima pagina | 5.225 ms | **371 ms** |
+| filtro anno fiscale | 3.305 ms | **190 ms** |
+| filtro conto | 1.904 ms | **135 ms** |
+| filtro causale | 1.934 ms | **42 ms** |
+| ricerca testuale | 5.107 ms | **227 ms** |
+| rendiconto annuale | 110.621 ms | **1.859 ms** |
+| export annuale completo | 93.285 ms | **1.321 ms** |
+
+Le misure si rifanno con
+`node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-accounting-performance.mjs --grande`.
+
+**La regola e scritta due volte, e una sonda lo tiene onesto.**
+
+| Dove | Cosa fa |
+|---|---|
+| la migrazione `20260830090000_wave4_registro_unico` | la **esegue**, in SQL: e cio che la produzione usa |
+| `src/lib/accounting/ledger-view.ts` | la **dichiara**, in TypeScript: e cio che i test leggono, e cio che il doppio Prisma ricompone |
+| `scripts/wave-4-registro-riconciliazione.mjs` | prova che le due **coincidono**, contro Postgres vero, riga per riga e campo per campo |
+
+Senza la terza, le prime due sarebbero due contabilita. La sonda semina i casi
+in cui potrebbero divergere — storno, rimborso, compenso a netto zero,
+liquidazione stornata, documento annullato, movimento storico, importo con la
+frazione a mezzo centesimo — e confronta 35 colonne piu l'ordine.
+
+**Cosa la sonda ha insegnato sul database vero:**
+
+- `payment_transactions_amount_check` **vieta l'importo zero**: il ramo «importo
+  zero» delle due proiezioni e irraggiungibile per gli incassi, e resta
+  esercitato solo dove un importo nullo e possibile davvero — il blob storico,
+  che vincoli non ne ha, e il netto di un compenso interamente trattenuto;
+- `funding_settlements_amount_check` impone importo **positivo** a una
+  liquidazione e **negativo** a uno storno. Entrambe le letture prendono il
+  valore assoluto, quindi coincidono; ma una stesura che avesse dato allo
+  storno un importo positivo sarebbe passata nei doppi e caduta sul database.
+
+**`row_kind` dice cosa si puo toccare**, e non e presentazione: `entry` e di
+questa contabilita e si modifica e si storna; `projected` appartiene a un
+dominio proprietario e si corregge li, dove ci sono i suoi permessi, i suoi
+invarianti e il suo audit; `legacy` e il blob storico, che non ha nemmeno un
+conto a cui appartenere.
+
+**Sola lettura, e non per convenzione.** Postgres rifiuta una scrittura su una
+vista con `UNION ALL`: non serve una guardia applicativa, il database non ha un
+modo di eseguirla. Il doppio dei test fa lo stesso, perche un test che
+riuscisse a scrivere qui descriverebbe un database che non esiste.
+
+La vista richiede `previewFeatures = ["views"]` sul generatore Prisma: e
+l'unica del progetto, e la dichiarazione completa vive nel file SQL della
+migrazione, che e l'unico posto dove puo stare per intero.
+
+**Tre indici aggiunti con lei**, perche i domini proiettati avevano
+`organization_id` e nessuno la **data**, che e l'asse su cui il registro ordina
+e filtra sempre: `payment_transactions (organization_id, paid_at)`,
+`funding_settlements (organization_id, settled_at)`, e
+`accounting_entries (organization_id, operation_type_code)` per il filtro per
+causale, che non era indicizzato da nessuna parte.
+
 ### `membership_events` — il libro soci
 
 Append-only, e lo stato **si deriva**. L'anagrafica del socio resta in

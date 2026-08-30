@@ -368,6 +368,12 @@ test("milleduecento movimenti escono tutti: l'export sfoglia oltre le 500 righe 
 });
 
 test("oltre il tetto non esce un file corto: esce un errore che dice cosa restringere", async () => {
+  /*
+    Il tetto adesso si conta in **righe** e non in pagine: l'export non sfoglia
+    piu, chiede una volta sola. Il difetto che il tetto difende non e cambiato —
+    un file di prima nota a cui mancano righe, aperto in un foglio di calcolo,
+    non si distingue da uno completo.
+  */
   const righe = fake.rows("accountingEntry");
   for (let indice = 0; indice < 600; indice += 1) {
     righe.push(movimento(`m-troppi-${indice}`));
@@ -375,7 +381,7 @@ test("oltre il tetto non esce un file corto: esce un errore che dice cosa restri
 
   await assert.rejects(
     servizio.buildAccountingExport(
-      { maxPages: 1 },
+      { maxRows: 500 },
       {
         userId: GESTORE,
         activeOrganizationId: CLUB,

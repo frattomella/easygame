@@ -1,5 +1,12 @@
 generator client {
   provider = "prisma-client-js"
+  /*
+    `views` serve alla sola `accounting_ledger_lines`: e una **vista**, non una
+    tabella, e Prisma deve saperlo per non provare a crearla o a cancellarla in
+    una migrazione. La definizione vive nel file SQL della migrazione, che e
+    l'unico posto dove puo stare per intero.
+  */
+  previewFeatures = ["views"]
 }
 
 datasource db {
@@ -2695,4 +2702,70 @@ model MembershipEvent {
   @@index([organization_id, member_id, effective_date])
   @@index([organization_id, event_type])
   @@map("membership_events")
+}
+
+/// **La prima nota, in una lettura sola.**
+///
+/// Non e una tabella: e una **vista** (`prisma/migrations/20260830090000_wave4_registro_unico`),
+/// e la differenza e tutta la ragione per cui esiste. Una tabella che copiasse
+/// incassi, compensi e liquidazioni sarebbe la seconda contabilita che il
+/// committente ha vietato: due fonti per lo stesso numero, e nessun modo di
+/// tenerle allineate. Una vista non contiene niente, quindi non puo
+/// disallinearsi da cio che legge.
+///
+/// **Il difetto che chiude.** `listAccountingEntries` rileggeva l'intero
+/// registro a ogni pagina, e il rendiconto e l'export la sfogliavano quaranta e
+/// ottanta volte: su 35.000 righe il rendiconto ci metteva due minuti e
+/// l'export tre e mezzo. Il costo era O(N x pagine), e una cache sopra sarebbe
+/// stata un cerotto su una domanda posta male.
+///
+/// **Sola lettura, e non solo per convenzione.** Postgres rifiuta una scrittura
+/// su una vista con `UNION ALL`. Non serve una guardia applicativa: il database
+/// non ha un modo di eseguirla.
+///
+/// `row_kind` dice da dove viene la riga: `entry` (di questa contabilita, si
+/// modifica e si storna), `projected` (di un dominio proprietario, sola
+/// lettura), `legacy` (il blob storico, sola lettura e senza conto).
+view AccountingLedgerLine {
+  id                     String    @unique
+  row_kind               String
+  organization_id        String    @db.Uuid
+  entry_date             DateTime
+  fiscal_year            Int
+  season_id              String?
+  direction              String
+  amount_cents           Int
+  currency               String
+  financial_account_id   String?
+  financial_account_name String?
+  operation_type_code    String?
+  operation_type_label   String?
+  activity_scope         String
+  description            String
+  notes                  String?
+  payment_method         String?
+  counterparty_kind      String?
+  counterparty_id        String?
+  counterparty_label     String?
+  source_domain          String
+  source_id              String?
+  document_kind          String?
+  document_id            String?
+  document_number        String?
+  site_id                String?
+  reconciliation_status  String
+  value_date             DateTime?
+  bank_reference         String?
+  transfer_group_id      String?
+  reversal_of_id         String?
+  reversed_at            DateTime?
+  reversal_reason        String?
+  created_by             String?
+  created_at             DateTime?
+  /// La concatenazione minuscola dei campi su cui la pagina cerca. Sta nella
+  /// vista e non nel codice perche la ricerca possa scendere nel `WHERE`
+  /// invece di filtrare in memoria trentacinquemila righe gia lette.
+  search_text            String?
+
+  @@map("accounting_ledger_lines")
 }

@@ -17,11 +17,9 @@ import {
 } from "@/lib/accounting/model";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 import {
-  mergeAccountingLines,
-  projectFundingSettlements,
-  projectPaymentTransactions,
-  projectSportWorkPayouts,
-} from "@/lib/accounting/projection";
+  ledgerRowToLine,
+  type LedgerViewRow,
+} from "@/lib/accounting/ledger-view";
 
 /**
  * **La prima nota**: il proprietario delle righe proprie, e il lettore di
@@ -143,198 +141,17 @@ const toDateOrNull = (value: unknown) => {
 const iso = (value: unknown): string | null => toDateOrNull(value)?.toISOString() || null;
 
 /* ========================================================================== */
-/* Dalla riga alla forma comune                                                */
+/* La finestra di una stagione                                                 */
 /* ========================================================================== */
-
-/**
- * Una riga propria diventa una riga di prima nota.
- *
- * A differenza delle proiezioni, questa **puo** essere modificata, stornata e
- * riconciliata: e sua. I permessi li decide chi chiama, e questa funzione
- * riceve il verdetto invece di ricalcolarlo — un permesso valutato in due posti
- * e un permesso che prima o poi diverge.
- */
-const toLine = (
-  row: any,
-  can: { reverse: boolean; reconcile: boolean; manage: boolean },
-  numeriDocumento?: Map<string, string>,
-): AccountingLine => {
-  const stornata = Boolean(row.reversed_at);
-  const eStorno = row.source_domain === "REVERSAL";
-  const giroconto = row.source_domain === "INTERNAL_TRANSFER";
-
-  return {
-    id: `accounting-entry:${row.id}`,
-    organizationId: row.organization_id,
-    entryDate: iso(row.entry_date) as string,
-    fiscalYear: Number(row.fiscal_year),
-    seasonId: row.season_id || null,
-    direction: row.direction,
-    amountCents: Number(row.amount_cents) || 0,
-    currency: row.currency || "EUR",
-    financialAccountId: row.financial_account_id || null,
-    financialAccountName: row.financial_account?.name || null,
-    operationTypeCode: row.operation_type_code || null,
-    operationTypeLabel:
-      row.operation_type_label_snapshot || row.operation_type?.label || null,
-    activityScope: normalizeActivityScope(row.activity_scope_snapshot),
-    description: row.description,
-    notes: row.notes || null,
-    paymentMethod: row.payment_method || null,
-    counterpartyKind: (row.counterparty_kind as CounterpartyKind) || null,
-    counterpartyId: row.counterparty_id || null,
-    counterpartyLabel: row.counterparty_label || null,
-    sourceDomain: row.source_domain as AccountingSourceDomain,
-    sourceId: row.source_id || null,
-    documentKind: row.document_kind || null,
-    documentId: row.document_id || null,
-    /*
-      Il numero del documento arriva da una lettura sola per pagina, non da un
-      join riga per riga: i documenti collegati sono pochi, e chiederli uno
-      alla volta e il difetto che questa Wave ha tolto alla pagina.
-    */
-    documentNumber: numeriDocumento?.get(String(row.document_id || "")) || null,
-    siteId: row.site_id || null,
-    reconciliationStatus: row.reconciliation_status as ReconciliationStatus,
-    valueDate: iso(row.value_date),
-    bankReference: row.bank_reference || null,
-    transferGroupId: row.transfer_group_id || null,
-    reversalOfId: row.reversal_of_id || null,
-    reversedAt: iso(row.reversed_at),
-    reversalReason: row.reversal_reason || null,
-    createdBy: row.created_by || null,
-    createdAt: iso(row.created_at),
-    /*
-      **Cosa si puo fare, e perche cosi poco.**
-
-      Una riga **stornata** e uno **storno** non si toccano: sono la coppia che
-      racconta una correzione, e modificarne una meta la renderebbe illeggibile.
-      Un **giroconto** non si modifica gamba per gamba — si storna intero,
-      altrimenti le due meta possono divergere e il denaro sparisce fra due
-      conti. Nessuna riga si **cancella**: e la regola della Wave.
-    */
-    canEdit: can.manage && !stornata && !eStorno && !giroconto,
-    canDelete: false,
-    canReverse: can.reverse && !stornata && !eStorno,
-    canReconcile: can.reconcile && !stornata,
-  };
-};
-
-/* ========================================================================== */
-/* I movimenti storici, che vivono ancora nel JSON                             */
-/* ========================================================================== */
-
-const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
-
-/**
- * Le righe scritte prima della prima nota, lette dal blob e mostrate in sola
- * lettura.
- *
- * **Non hanno un conto**, e non gliene viene attribuito uno: il loro effetto e
- * gia dentro il saldo di apertura dei conti travasati, e assegnarle a una cassa
- * le conterebbe due volte.
- *
- * **Non hanno una causale**, e neanche questa viene inventata: compaiono come
- * `unspecified`, che e la verita. Il rendiconto le contera fra le «non
- * classificate» invece di nasconderle in un totale — ed e cosi che un club
- * capisce che ha del lavoro di classificazione da fare.
- */
-const projectLegacyClubMovements = (club: any): AccountingLine[] => {
-  const organizationId = String(club?.id || "");
-  if (!organizationId) return [];
-
-  const base = (id: string, entryDate: string) => ({
-    organizationId,
-    entryDate,
-    fiscalYear: fiscalYearOfEntry(entryDate),
-    seasonId: null,
-    currency: "EUR",
-    financialAccountId: null,
-    financialAccountName: null,
-    operationTypeCode: null,
-    operationTypeLabel: null,
-    activityScope: "unspecified" as const,
-    notes: null,
-    counterpartyKind: null,
-    counterpartyId: null,
-    counterpartyLabel: null,
-    sourceId: id,
-    documentKind: null,
-    documentId: null,
-    documentNumber: null,
-    siteId: null,
-    reconciliationStatus: "unreconciled" as const,
-    valueDate: null,
-    bankReference: null,
-    transferGroupId: null,
-    reversalOfId: null,
-    reversedAt: null,
-    reversalReason: null,
-    createdBy: null,
-    createdAt: entryDate,
-    canEdit: false,
-    canDelete: false,
-    canReverse: false,
-    canReconcile: false,
-  });
-
-  const movimenti = asArray(club.transactions).flatMap((row, index): AccountingLine[] => {
-    const entryDate = iso(row?.date) || iso(row?.created_at);
-    if (!entryDate) return [];
-    const amountCents = Math.abs(toCents(Number(row?.amount) || 0));
-    if (amountCents === 0) return [];
-
-    const tipo = String(row?.type || row?.direction || "income").toLowerCase();
-    return [
-      {
-        ...base(String(row?.id || `legacy-${index}`), entryDate),
-        id: `legacy-transaction:${row?.id || index}`,
-        direction: ["expense", "uscita", "out"].includes(tipo) ? "OUT" : "IN",
-        amountCents,
-        sourceDomain: "MANUAL",
-        description: asText(row?.description) || asText(row?.title) || "Movimento storico",
-        paymentMethod: asText(row?.paymentMethod) || asText(row?.method) || null,
-      } as AccountingLine,
-    ];
-  });
-
-  const giroconti = asArray(club.transfers).flatMap((row, index): AccountingLine[] => {
-    const entryDate = iso(row?.date) || iso(row?.created_at);
-    if (!entryDate) return [];
-    const amountCents = Math.abs(toCents(Number(row?.amount) || 0));
-    if (amountCents === 0) return [];
-
-    /*
-      Un giroconto storico e **una** riga sola nel blob, non due. Resta una riga
-      qui, con verso `OUT` per convenzione e senza gruppo: non e una gamba di
-      niente, e presentarlo come due meta suggerirebbe un collegamento che nel
-      dato non c'e.
-    */
-    return [
-      {
-        ...base(String(row?.id || `legacy-transfer-${index}`), entryDate),
-        id: `legacy-transfer:${row?.id || index}`,
-        direction: "OUT",
-        amountCents,
-        sourceDomain: "INTERNAL_TRANSFER",
-        description: asText(row?.description) || "Giroconto storico",
-        paymentMethod: "Giroconto",
-      } as AccountingLine,
-    ];
-  });
-
-  return [...movimenti, ...giroconti];
-};
 
 /**
  * **La finestra di date di una stagione.**
  *
- * Serve a un problema preciso, trovato dalla lane del rendiconto: il filtro per
- * stagione scendeva nel `where` di Prisma, che vale **solo per le righe
- * proprie**. Le righe proiettate — incassi, compensi, liquidazioni — non hanno
- * una colonna `season_id` e non possono averla: `payment_transactions` non sa
- * cosa sia una stagione sportiva. Il risultato osservabile era che un riepilogo
- * filtrato per stagione mostrava comunque gli incassi di **tutte** le stagioni.
+ * Serve a un problema preciso, trovato dalla lane del rendiconto: le righe
+ * proiettate — incassi, compensi, liquidazioni — non hanno una colonna
+ * `season_id` e non possono averla: `payment_transactions` non sa cosa sia una
+ * stagione sportiva. Il risultato osservabile era che un riepilogo filtrato per
+ * stagione mostrava comunque gli incassi di **tutte** le stagioni.
  *
  * Le due risposte facili sono entrambe sbagliate. Escluderle nasconde denaro
  * vero; lasciarle passare tutte risponde a una domanda diversa da quella posta.
@@ -404,13 +221,187 @@ const toOffset = (value: unknown) => {
 };
 
 /**
- * La prima nota di un club, in **una** lettura.
+ * **Il tetto assoluto di una lettura integrale.**
  *
- * I filtri sui campi che la tabella possiede scendono nel `where` di Prisma; i
- * filtri che valgono anche per le proiezioni si applicano dopo, sulla forma
- * comune. La differenza non e cosmetica: gli indici lavorano solo sul primo
- * gruppo, e per questo `entry_date`, `fiscal_year` e `financial_account_id` ne
- * hanno uno.
+ * Il rendiconto e l'export devono vedere **tutte** le righe del filtro, e le
+ * leggono in una volta sola. Questo numero esiste perche un club fuori scala
+ * non produca una lettura senza fine — non perche 40.000 righe siano un
+ * problema: al di sotto, il registro si legge in un secondo.
+ *
+ * E dichiarato qui, e non in due moduli, perche il riepilogo e l'export ne
+ * abbiano lo **stesso**: due tetti diversi sarebbero due risposte diverse alla
+ * stessa domanda.
+ */
+export const TETTO_RIGHE_REGISTRO = 40000;
+
+/**
+ * L'ordine del registro, e vale per **ogni** lettura.
+ *
+ * Data decrescente, e a parita di data l'identificativo. Il secondo criterio
+ * non e estetico: senza, la pagina 2 puo ripetere righe della pagina 1, perche
+ * due letture con lo stesso `ORDER BY` ambiguo non sono obbligate a restituire
+ * lo stesso ordine.
+ */
+const ORDINE_REGISTRO = [{ entry_date: "desc" as const }, { id: "asc" as const }];
+
+const ledgerClient = () => (prisma as any).accountingLedgerLine;
+
+/**
+ * Il `where` della vista, da un filtro gia normalizzato.
+ *
+ * **Ogni filtro scende nel database.** Prima ne scendeva meta: quelli che la
+ * tabella possedeva finivano nel `where` di Prisma, gli altri — origine,
+ * causale sulle proiezioni, ricerca testuale — si applicavano in memoria su
+ * righe gia lette. Che vuol dire che venivano lette tutte comunque.
+ */
+const ledgerWhere = (
+  organizationId: string,
+  f: {
+    from: Date | null;
+    to: Date | null;
+    fiscalYear: number | null;
+    accountId: string | null;
+    siteId: string | null;
+    operationTypeCode: string | null;
+    direction: string | null;
+    sourceDomain: string | null;
+    activityScope: string | null;
+    reconciliation: string | null;
+    search: string | null;
+    seasonId: string | null;
+    finestraStagione: { inizio: Date; fine: Date } | null;
+    rowKinds: readonly string[] | null;
+  },
+) => ({
+  organization_id: organizationId,
+  ...(f.from || f.to
+    ? {
+        entry_date: {
+          ...(f.from ? { gte: f.from } : {}),
+          ...(f.to ? { lte: f.to } : {}),
+        },
+      }
+    : {}),
+  ...(f.fiscalYear !== null ? { fiscal_year: f.fiscalYear } : {}),
+  ...(f.accountId ? { financial_account_id: f.accountId } : {}),
+  ...(f.siteId ? { site_id: f.siteId } : {}),
+  ...(f.operationTypeCode ? { operation_type_code: f.operationTypeCode } : {}),
+  ...(f.direction ? { direction: f.direction } : {}),
+  ...(f.sourceDomain ? { source_domain: f.sourceDomain } : {}),
+  ...(f.activityScope ? { activity_scope: f.activityScope } : {}),
+  ...(f.reconciliation ? { reconciliation_status: f.reconciliation } : {}),
+  ...(f.rowKinds ? { row_kind: { in: [...f.rowKinds] } } : {}),
+  /*
+    La ricerca lavora su una colonna che la vista compone gia in minuscolo:
+    descrizione, controparte, causale, note e riferimento bancario. Cercare su
+    sei colonne separate avrebbe richiesto sei `OR`, e nessuno di essi avrebbe
+    potuto usare un indice.
+  */
+  ...(f.search ? { search_text: { contains: f.search } } : {}),
+  /*
+    La stagione: chi la dichiara risponde con quella, chi non la dichiara —
+    ogni riga proiettata — risponde con la data. Le due vie devono coesistere,
+    perche un movimento manuale registrato in una stagione e retrodatato a
+    un'altra deve restare dove l'operatore l'ha messo.
+
+    Senza finestra — un club che non ha configurato le stagioni, o una stagione
+    senza date — resta la sola regola che il dato sostiene: si confronta cio
+    che la riga dichiara. **Non** si risponde elenco vuoto: sarebbe far sparire
+    denaro vero per una configurazione mancante.
+  */
+  ...(f.seasonId
+    ? f.finestraStagione
+      ? {
+          OR: [
+            { season_id: f.seasonId },
+            {
+              AND: [
+                { season_id: null },
+                {
+                  entry_date: {
+                    gte: f.finestraStagione.inizio,
+                    lte: f.finestraStagione.fine,
+                  },
+                },
+              ],
+            },
+          ],
+        }
+      : { season_id: f.seasonId }
+    : {}),
+});
+
+/** Quali generi di riga il filtro lascia passare. `null` = tutti. */
+const rowKindsOf = (filters: AccountingListFilters) => {
+  const generi = ["entry"];
+  if (filters.includeProjections !== false) generi.push("projected");
+  if (filters.includeLegacy !== false) generi.push("legacy");
+  return generi.length === 3 ? null : generi;
+};
+
+const normalizzaFiltri = async (
+  organizationId: string,
+  filters: AccountingListFilters,
+) => {
+  /*
+    `toFiscalYearFilter` e obbligatorio, e non e prudenza: `Number(null)` vale
+    `0` ed e un intero, quindi un filtro scritto a mano risponderebbe **elenco
+    vuoto** a chiunque non chieda un anno esplicito. E la trappola che il lavoro
+    sportivo ha trovato a runtime con duemila test verdi.
+  */
+  const seasonId = asText(filters.seasonId) || null;
+
+  return {
+    from: toDateOrNull(filters.from),
+    to: toDateOrNull(filters.to),
+    fiscalYear: toFiscalYearFilter(filters.fiscalYear),
+    accountId: asText(filters.financialAccountId) || null,
+    siteId: asText(filters.siteId) || null,
+    operationTypeCode: asText(filters.operationTypeCode) || null,
+    direction: normalizeDirection(filters.direction),
+    sourceDomain: asText(filters.sourceDomain).toUpperCase() || null,
+    activityScope: asText(filters.activityScope).toLowerCase() || null,
+    reconciliation: asText(filters.reconciliationStatus).toLowerCase() || null,
+    search: asText(filters.search).toLowerCase() || null,
+    seasonId,
+    finestraStagione: seasonId
+      ? await resolveSeasonWindow(organizationId, seasonId)
+      : null,
+    rowKinds: rowKindsOf(filters),
+  };
+};
+
+/**
+ * La prima nota di un club: **una pagina, due letture, nessuna ricostruzione**.
+ *
+ * ---
+ *
+ * ## Cosa faceva prima, e quanto costava
+ *
+ * Leggeva tutto: tutti i movimenti propri, tutti gli incassi, tutti i compensi,
+ * tutte le liquidazioni, tutto il blob storico. Poi filtrava in memoria,
+ * ordinava in memoria e affettava cinquanta righe. Il resto lo buttava.
+ *
+ * Su un club medio non si vedeva. Su 35.000 righe — sotto il tetto dichiarato
+ * di 40.000 — una pagina costava **5,7 secondi**. E il rendiconto e l'export,
+ * che questa funzione la **sfogliavano** quaranta e ottanta volte, costavano
+ * 110 e 93 secondi: ognuna delle ottanta chiamate ricostruiva il registro
+ * intero per restituirne cinquecento righe.
+ *
+ * Il costo non era una costante alta: era O(N x pagine). Una cache sopra
+ * sarebbe stata un cerotto su una domanda posta male.
+ *
+ * ## Cosa fa adesso
+ *
+ * Chiede al database una pagina, e il conto totale. Il registro — movimenti
+ * propri piu proiezione di incassi, compensi, liquidazioni e movimenti storici
+ * — e la vista `accounting_ledger_lines`, che non contiene niente: e la stessa
+ * lettura di prima, scritta una volta sola e messa dove gli indici lavorano.
+ *
+ * Le regole della proiezione non sono state duplicate senza rete:
+ * `src/lib/accounting/ledger-view.ts` le dichiara in TypeScript, e
+ * `scripts/wave-4-registro-riconciliazione.mjs` prova contro il database vero
+ * che le due letture coincidono riga per riga.
  */
 export const listAccountingEntries = async (
   filters: AccountingListFilters,
@@ -418,291 +409,69 @@ export const listAccountingEntries = async (
   permissions: { reverse: boolean; reconcile: boolean; manage: boolean },
 ) => {
   const organizationId = resolveOrganizationId(scope, filters.organizationId);
-
-  const from = toDateOrNull(filters.from);
-  const to = toDateOrNull(filters.to);
-  /*
-    `toFiscalYearFilter` e obbligatorio, e non e prudenza: `Number(null)` vale
-    `0` ed e un intero, quindi un filtro scritto a mano risponderebbe **elenco
-    vuoto** a chiunque non chieda un anno esplicito. E la trappola che il lavoro
-    sportivo ha trovato a runtime con duemila test verdi.
-  */
-  const fiscalYear = toFiscalYearFilter(filters.fiscalYear);
-  const direction = normalizeDirection(filters.direction);
-  const accountId = asText(filters.financialAccountId) || null;
-  const seasonId = asText(filters.seasonId) || null;
-  const siteId = asText(filters.siteId) || null;
-  const operationTypeCode = asText(filters.operationTypeCode) || null;
-  const sourceDomain = asText(filters.sourceDomain).toUpperCase() || null;
-  const activityScope = asText(filters.activityScope).toLowerCase() || null;
-  const reconciliation = asText(filters.reconciliationStatus).toLowerCase() || null;
-  const search = asText(filters.search).toLowerCase() || null;
-
-  /*
-    La finestra si risolve **prima** della lettura, e puo non esserci: un club
-    che non ha ancora configurato le stagioni, o una stagione senza date, non
-    permettono di attribuire per data una riga che la stagione non la dichiara.
-
-    In quel caso **non** si risponde elenco vuoto — sarebbe far sparire denaro
-    vero per una configurazione mancante. Vale la sola regola che il dato
-    sostiene: chi dichiara la stagione risponde con quella. Le proiezioni, che
-    non la dichiarano mai, restano fuori dal filtro, e la superficie che le
-    voleva dovra prima far configurare le stagioni.
-  */
-  const finestraStagione = seasonId
-    ? await resolveSeasonWindow(organizationId, seasonId)
-    : null;
-
-  const proprie = await entryClient().findMany({
-    where: {
-      organization_id: organizationId,
-      ...(from || to
-        ? { entry_date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
-        : {}),
-      ...(fiscalYear !== null ? { fiscal_year: fiscalYear } : {}),
-      ...(accountId ? { financial_account_id: accountId } : {}),
-      /*
-        Non si filtra qui su `season_id`: le righe proprie che **non** lo
-        dichiarano (un movimento registrato prima che le stagioni esistessero)
-        sparirebbero, mentre appartengono alla stagione in cui cadono. Il filtro
-        vale su tutte le righe allo stesso modo, poco piu sotto.
-      */
-      ...(siteId ? { site_id: siteId } : {}),
-      ...(operationTypeCode ? { operation_type_code: operationTypeCode } : {}),
-      ...(direction ? { direction } : {}),
-      ...(reconciliation ? { reconciliation_status: reconciliation } : {}),
-      ...(activityScope ? { activity_scope_snapshot: activityScope } : {}),
-    },
-    orderBy: [{ entry_date: "desc" }, { created_at: "desc" }],
-    include: { financial_account: true, operation_type: true },
-  });
-
-  const numeriDocumento = await risolviNumeriDocumento(organizationId, proprie);
-  let righe = proprie.map((row: any) => toLine(row, permissions, numeriDocumento));
-
-  if (filters.includeProjections !== false) {
-    righe = righe.concat(
-      await loadProjectedLines(organizationId, { from, to, accountId }),
-    );
-  }
-
-  if (filters.includeLegacy !== false) {
-    const club = await (prisma as any).club.findUnique({
-      where: { id: organizationId },
-      select: { id: true, transactions: true, transfers: true },
-    });
-    if (club) righe = righe.concat(projectLegacyClubMovements(club));
-  }
-
-  /* I filtri che valgono su tutte le righe, proiezioni comprese. */
-  const filtrate = mergeAccountingLines(righe).filter((riga) => {
-    if (from && Date.parse(riga.entryDate) < from.getTime()) return false;
-    if (to && Date.parse(riga.entryDate) > to.getTime()) return false;
-    if (fiscalYear !== null && riga.fiscalYear !== fiscalYear) return false;
-    if (seasonId && !finestraStagione) {
-      /*
-        Nessuna finestra: si puo solo confrontare cio che la riga dichiara.
-      */
-      if (riga.seasonId !== seasonId) return false;
-    }
-    if (finestraStagione) {
-      /*
-        Chi dichiara la stagione risponde con quella; chi non la dichiara —
-        ogni riga proiettata — risponde con la data. Le due vie devono
-        coesistere: un movimento manuale registrato in una stagione e
-        retrodatato a un'altra deve restare dove l'operatore l'ha messo.
-      */
-      if (riga.seasonId) {
-        if (riga.seasonId !== seasonId) return false;
-      } else {
-        const quando = Date.parse(riga.entryDate);
-        if (
-          quando < finestraStagione.inizio.getTime() ||
-          quando > finestraStagione.fine.getTime()
-        ) {
-          return false;
-        }
-      }
-    }
-    if (direction && riga.direction !== direction) return false;
-    if (accountId && riga.financialAccountId !== accountId) return false;
-    if (siteId && riga.siteId !== siteId) return false;
-    if (sourceDomain && riga.sourceDomain !== sourceDomain) return false;
-    if (operationTypeCode && riga.operationTypeCode !== operationTypeCode) return false;
-    if (activityScope && riga.activityScope !== activityScope) return false;
-    if (reconciliation && riga.reconciliationStatus !== reconciliation) return false;
-    if (search) {
-      const testo = [
-        riga.description,
-        riga.counterpartyLabel,
-        riga.operationTypeLabel,
-        riga.operationTypeCode,
-        riga.notes,
-        riga.bankReference,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      if (!testo.includes(search)) return false;
-    }
-    return true;
-  });
+  const where = ledgerWhere(
+    organizationId,
+    await normalizzaFiltri(organizationId, filters),
+  );
 
   const limit = toLimit(filters.limit);
   const offset = toOffset(filters.offset);
 
+  const [righe, total] = await Promise.all([
+    ledgerClient().findMany({
+      where,
+      orderBy: ORDINE_REGISTRO,
+      take: limit,
+      skip: offset,
+    }),
+    ledgerClient().count({ where }),
+  ]);
+
   return {
-    entries: filtrate.slice(offset, offset + limit),
-    total: filtrate.length,
+    entries: (righe || []).map((riga: LedgerViewRow) =>
+      ledgerRowToLine(riga, permissions),
+    ),
+    total,
     limit,
     offset,
   };
 };
 
 /**
- * I numeri dei documenti collegati alle righe proprie, in **una** lettura.
+ * **Tutte** le righe del filtro, in una lettura sola.
  *
- * La lettura porta il suo `organization_id` anche se gli id arrivano da righe
- * gia verificate: un documento di un altro club che per un errore finisse
- * referenziato non deve poter comparire con il suo numero. E il confine, non un
- * doppione del confine.
+ * La usano il riepilogo gestionale e l'export, che non possono sfogliare: un
+ * rendiconto costruito su una parte delle righe e un rendiconto sbagliato, e un
+ * file di prima nota a cui mancano righe, aperto in un foglio di calcolo che
+ * non sa niente di questa conversazione, **non si distingue da uno completo**.
+ *
+ * Prima sfogliavano `listAccountingEntries` quaranta e ottanta volte. Adesso
+ * chiedono una volta, e il tetto serve solo a fermare un club fuori scala:
+ * oltre, chi chiama decide se dichiarare la risposta parziale (il riepilogo) o
+ * rifiutare il file (l'export).
  */
-const risolviNumeriDocumento = async (
-  organizationId: string,
-  righe: readonly any[],
-): Promise<Map<string, string>> => {
-  const fatture: string[] = [];
-  const ricevute: string[] = [];
-  for (const riga of righe) {
-    const id = asText(riga.document_id);
-    if (!id) continue;
-    const tipo = asText(riga.document_kind).toLowerCase();
-    if (tipo === "invoice" || tipo === "fattura") fatture.push(id);
-    else if (tipo === "receipt" || tipo === "ricevuta") ricevute.push(id);
-  }
+export const readAllAccountingLines = async (
+  filters: AccountingListFilters,
+  scope: AccountingScope,
+  permissions: { reverse: boolean; reconcile: boolean; manage: boolean },
+  cap = TETTO_RIGHE_REGISTRO,
+): Promise<{ lines: AccountingLine[]; total: number; truncated: boolean }> => {
+  const organizationId = resolveOrganizationId(scope, filters.organizationId);
+  const where = ledgerWhere(
+    organizationId,
+    await normalizzaFiltri(organizationId, filters),
+  );
 
-  const mappa = new Map<string, string>();
-  if (!fatture.length && !ricevute.length) return mappa;
-
-  const [f, r] = await Promise.all([
-    fatture.length
-      ? (prisma as any).invoice.findMany({
-          where: { organization_id: organizationId, id: { in: fatture } },
-          select: { id: true, invoice_number: true },
-        })
-      : [],
-    ricevute.length
-      ? (prisma as any).receipt.findMany({
-          where: { organization_id: organizationId, id: { in: ricevute } },
-          select: { id: true, receipt_number: true },
-        })
-      : [],
+  const [righe, total] = await Promise.all([
+    ledgerClient().findMany({ where, orderBy: ORDINE_REGISTRO, take: cap }),
+    ledgerClient().count({ where }),
   ]);
 
-  for (const riga of f || []) mappa.set(riga.id, riga.invoice_number);
-  for (const riga of r || []) {
-    if (riga.receipt_number) mappa.set(riga.id, riga.receipt_number);
-  }
-  return mappa;
-};
+  const lines = (righe || []).map((riga: LedgerViewRow) =>
+    ledgerRowToLine(riga, permissions),
+  );
 
-/**
- * Le righe dei domini proprietari, lette con i loro filtri e proiettate.
- *
- * **Ogni lettura porta il suo `organization_id`.** Non e ridondanza rispetto al
- * confine gia verificato: e la regola del repository, e vale anche quando chi
- * legge ha gia superato un controllo — perche il giorno in cui questa funzione
- * viene chiamata da un altro punto, il filtro c'e comunque.
- */
-const loadProjectedLines = async (
-  organizationId: string,
-  window: { from: Date | null; to: Date | null; accountId: string | null },
-): Promise<AccountingLine[]> => {
-  const periodo = (field: string) =>
-    window.from || window.to
-      ? {
-          [field]: {
-            ...(window.from ? { gte: window.from } : {}),
-            ...(window.to ? { lte: window.to } : {}),
-          },
-        }
-      : {};
-
-  const contoSe = window.accountId ? { financial_account_id: window.accountId } : {};
-
-  const [incassi, compensi, liquidazioni] = await Promise.all([
-    (prisma as any).paymentTransaction.findMany({
-      where: { organization_id: organizationId, ...periodo("paid_at"), ...contoSe },
-      include: {
-        athlete: { select: { first_name: true, last_name: true } },
-        /*
-          Il documento che attesta l'incasso, quando e stato emesso. Prima le
-          colonne documento restavano vuote su ogni riga proiettata, e l'export
-          doveva rileggerle da capo: e lo stesso dato, chiesto due volte.
-        */
-        receipts: {
-          select: { id: true, receipt_number: true, cancelled_at: true },
-          take: 1,
-          orderBy: [{ issue_date: "desc" }],
-        },
-        transaction_invoices: {
-          select: { id: true, invoice_number: true, cancelled_at: true },
-          take: 1,
-          orderBy: [{ issue_date: "desc" }],
-        },
-      },
-      orderBy: [{ paid_at: "desc" }],
-    }),
-    (prisma as any).sportWorkOutboundTransaction.findMany({
-      where: { organization_id: organizationId, ...periodo("paid_at"), ...contoSe },
-      include: { person: { select: { first_name: true, last_name: true } } },
-      orderBy: [{ paid_at: "desc" }],
-    }),
-    (prisma as any).fundingSettlement.findMany({
-      where: { organization_id: organizationId, ...periodo("settled_at"), ...contoSe },
-      include: { program: { select: { name: true } } },
-      orderBy: [{ settled_at: "desc" }],
-    }),
-  ]);
-
-  const nome = (persona: any) =>
-    persona
-      ? `${persona.first_name || ""} ${persona.last_name || ""}`.trim() || null
-      : null;
-
-  return [
-    ...projectPaymentTransactions(
-      (incassi || []).map((row: any) => {
-        /*
-          La fattura vince sulla ricevuta quando ci sono entrambe: e il
-          documento con la numerazione fiscale propria, ed e quello che un
-          commercialista cerca. Un documento **annullato** non si mostra: dire
-          che un incasso porta un numero ritirato e peggio che non dirne
-          nessuno.
-        */
-        const fattura = (row.transaction_invoices || []).find((d: any) => !d.cancelled_at);
-        const ricevuta = (row.receipts || []).find((d: any) => !d.cancelled_at);
-        const documento = fattura || ricevuta;
-
-        return {
-          ...row,
-          _athleteName: nome(row.athlete),
-          _documentKind: documento ? (fattura ? "invoice" : "receipt") : null,
-          _documentId: documento?.id || null,
-          _documentNumber: fattura?.invoice_number || ricevuta?.receipt_number || null,
-        };
-      }),
-    ),
-    ...projectSportWorkPayouts(
-      (compensi || []).map((row: any) => ({ ...row, _personName: nome(row.person) })),
-    ),
-    ...projectFundingSettlements(
-      (liquidazioni || []).map((row: any) => ({
-        ...row,
-        _programName: row.program?.name || null,
-      })),
-    ),
-  ];
+  return { lines, total, truncated: total > lines.length };
 };
 
 export const getAccountingEntryById = async (id: string, scope: AccountingScope) => {
@@ -1431,5 +1200,3 @@ export const reconcileAccountingEntry = async (
 
   return row;
 };
-
-export const toAccountingLine = toLine;

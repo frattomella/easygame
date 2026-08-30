@@ -948,8 +948,20 @@ test("un incasso proiettato porta il numero della sua ricevuta", async () => {
     amount: 200,
     payment_method: "Contanti",
     financial_account_id: CASSA,
-    receipts: [{ id: "ric-1", receipt_number: "2026/000012", cancelled_at: null }],
-    transaction_invoices: [],
+  });
+  /*
+    Il documento e una **riga di `receipts`** che cita l'incasso, non un array
+    annidato sull'incasso: quest'ultimo era la forma che Prisma restituiva con
+    un `include`, e descriveva la lettura invece del database. Adesso il
+    registro e una vista, e le viste leggono tabelle.
+  */
+  fake.rows("receipt").push({
+    id: "ric-1",
+    organization_id: CLUB,
+    transaction_id: "inc-doc",
+    receipt_number: "2026/000012",
+    issue_date: new Date("2026-09-10T00:00:00Z"),
+    cancelled_at: null,
   });
 
   const esito = await accounting.listAccountingEntries({}, scope(), PIENI);
@@ -971,10 +983,22 @@ test("la fattura vince sulla ricevuta quando ci sono entrambe", async () => {
     amount: 200,
     payment_method: "Bonifico",
     financial_account_id: BANCA,
-    receipts: [{ id: "ric-2", receipt_number: "2026/000013", cancelled_at: null }],
-    transaction_invoices: [
-      { id: "fat-1", invoice_number: "FT-2026-0007", cancelled_at: null },
-    ],
+  });
+  fake.rows("receipt").push({
+    id: "ric-2",
+    organization_id: CLUB,
+    transaction_id: "inc-due",
+    receipt_number: "2026/000013",
+    issue_date: new Date("2026-09-10T00:00:00Z"),
+    cancelled_at: null,
+  });
+  fake.rows("invoice").push({
+    id: "fat-1",
+    organization_id: CLUB,
+    transaction_id: "inc-due",
+    invoice_number: "FT-2026-0007",
+    issue_date: new Date("2026-09-10T00:00:00Z"),
+    cancelled_at: null,
   });
 
   const esito = await accounting.listAccountingEntries({}, scope(), PIENI);
@@ -995,14 +1019,14 @@ test("un documento annullato non si mostra", async () => {
     amount: 200,
     payment_method: "Contanti",
     financial_account_id: CASSA,
-    receipts: [
-      {
-        id: "ric-3",
-        receipt_number: "2026/000014",
-        cancelled_at: new Date("2026-09-12T00:00:00Z"),
-      },
-    ],
-    transaction_invoices: [],
+  });
+  fake.rows("receipt").push({
+    id: "ric-3",
+    organization_id: CLUB,
+    transaction_id: "inc-annullato",
+    receipt_number: "2026/000014",
+    issue_date: new Date("2026-09-10T00:00:00Z"),
+    cancelled_at: new Date("2026-09-12T00:00:00Z"),
   });
 
   const esito = await accounting.listAccountingEntries({}, scope(), PIENI);

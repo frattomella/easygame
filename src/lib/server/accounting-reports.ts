@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { listAccountingEntries, type AccountingScope } from "./accounting";
+import { readAllAccountingLines, type AccountingScope } from "./accounting";
 import {
   canReadAccountBalances,
   listFinancialAccountBalances,
@@ -69,52 +69,26 @@ import { summarizePlanProgress } from "@/lib/sport-work/plan";
 const asText = (value: unknown) => String(value ?? "").trim();
 
 /**
- * Quante pagine di prima nota il riepilogo si spinge a leggere.
+ * Il riepilogo non sfoglia: **chiede una volta**.
  *
- * `listAccountingEntries` serve al massimo 500 righe per chiamata, ed e giusto
- * cosi: e la difesa di un elenco che si sfoglia. Un riepilogo di un anno pero
- * deve vedere **tutte** le righe, quindi le raccoglie sfogliando. Il tetto
- * esiste perche un club fuori scala non produca una lettura senza fine: oltre
- * il tetto la risposta dice `truncated: true`, che e cio che si puo dire di
- * onesto. Un riepilogo silenziosamente parziale sarebbe peggio di un errore.
+ * Sfogliava, e a caro prezzo. `listAccountingEntries` serve al massimo 500
+ * righe per chiamata — e la difesa giusta per un elenco che si scorre — e il
+ * riepilogo di un anno le raccoglieva chiamandola fino a quaranta volte. Ma
+ * ognuna di quelle quaranta **ricostruiva il registro intero** per restituirne
+ * cinquecento righe: su 35.000 righe il riepilogo costava 110 secondi, contro
+ * una soglia di due.
+ *
+ * Adesso `readAllAccountingLines` fa una lettura sola sulla vista. Il tetto
+ * resta, e serve ancora a fermare un club fuori scala: oltre, la risposta dice
+ * `truncated: true`, che e cio che si puo dire di onesto. Un riepilogo
+ * silenziosamente parziale sarebbe peggio di un errore.
  */
-const PAGINA = 500;
-const PAGINE_MASSIME = 40;
-
 const NESSUN_PERMESSO = { reverse: false, reconcile: false, manage: false };
 
-type RigheLette = {
-  lines: Awaited<ReturnType<typeof listAccountingEntries>>["entries"];
-  total: number;
-  truncated: boolean;
-};
-
-const leggiTutteLeRighe = async (
+const leggiTutteLeRighe = (
   filtri: Record<string, unknown>,
   scope: AccountingScope,
-): Promise<RigheLette> => {
-  const raccolte: RigheLette["lines"] = [];
-  let offset = 0;
-  let total = 0;
-
-  for (let pagina = 0; pagina < PAGINE_MASSIME; pagina += 1) {
-    const risposta = await listAccountingEntries(
-      { ...filtri, limit: PAGINA, offset },
-      scope,
-      NESSUN_PERMESSO,
-    );
-
-    total = risposta.total;
-    raccolte.push(...risposta.entries);
-    offset += risposta.entries.length;
-
-    if (!risposta.entries.length || offset >= risposta.total) {
-      return { lines: raccolte, total, truncated: false };
-    }
-  }
-
-  return { lines: raccolte, total, truncated: raccolte.length < total };
-};
+) => readAllAccountingLines(filtri, scope, NESSUN_PERMESSO);
 
 /* ========================================================================== */
 /* La competenza: crediti e debiti, letti dai loro proprietari                  */

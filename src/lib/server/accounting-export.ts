@@ -1,5 +1,9 @@
 import { prisma } from "./prisma";
-import { listAccountingEntries, type AccountingScope } from "./accounting";
+import {
+  readAllAccountingLines,
+  TETTO_RIGHE_REGISTRO,
+  type AccountingScope,
+} from "./accounting";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import { assertAccountingPermission } from "@/lib/accounting/permissions";
 import { toFiscalYearFilter } from "@/lib/accounting/model";
@@ -45,14 +49,15 @@ import {
  * accorgersene.
  */
 
-const PAGINA = 500;
-
 /**
- * Quante pagine si sfogliano prima di dichiarare che il filtro e troppo largo.
- * Quarantamila righe sono molto piu di un anno di prima nota di una ASD, ed e
- * lo stesso ordine di grandezza gia scelto dal riepilogo.
+ * Quante righe l'export legge prima di dichiarare che il filtro e troppo largo.
+ *
+ * Quarantamila sono molto piu di un anno di prima nota di una ASD, ed e lo
+ * stesso numero del riepilogo: due tetti diversi sarebbero due risposte diverse
+ * alla stessa domanda. Vive in `accounting.ts`, che e il proprietario della
+ * lettura, e qui si riesporta per chi lo cita.
  */
-export const PAGINE_MASSIME_EXPORT = 80;
+export const RIGHE_MASSIME_EXPORT = TETTO_RIGHE_REGISTRO;
 
 /**
  * L'export non serve nessun pulsante di riga: il file non porta «modifica»,
@@ -77,8 +82,8 @@ export type AccountingExportFilters = {
   activityScope?: unknown;
   reconciliationStatus?: unknown;
   search?: unknown;
-  /** Solo per il collaudo del rifiuto: vedi `PAGINE_MASSIME_EXPORT`. */
-  maxPages?: number;
+  /** Solo per il collaudo del rifiuto: vedi `RIGHE_MASSIME_EXPORT`. */
+  maxRows?: number;
   generatedAt?: Date;
 };
 
@@ -89,33 +94,24 @@ export type AccountingExportFilters = {
 const leggiTutteLeRighe = async (
   filtri: Record<string, unknown>,
   scope: AccountingScope,
-  maxPages: number,
+  tetto: number,
 ) => {
-  const raccolte: AccountingExportLine[] = [];
-  let offset = 0;
-  let total = 0;
+  const { lines, total, truncated } = await readAllAccountingLines(
+    filtri,
+    scope,
+    NESSUN_PERMESSO,
+    tetto,
+  );
 
-  for (let pagina = 0; pagina < maxPages; pagina += 1) {
-    const risposta = await listAccountingEntries(
-      { ...filtri, limit: PAGINA, offset },
-      scope,
-      NESSUN_PERMESSO,
+  if (truncated) {
+    throw new Error(
+      `L'export si ferma a ${tetto} righe e il filtro ne seleziona ${total}: ` +
+        "restringere il periodo o l'anno fiscale e riprovare. Un file a cui mancano righe, " +
+        "una volta aperto in un foglio di calcolo, non si distingue da uno completo.",
     );
-
-    total = risposta.total;
-    raccolte.push(...(risposta.entries as AccountingExportLine[]));
-    offset += risposta.entries.length;
-
-    if (!risposta.entries.length || offset >= risposta.total) {
-      return { lines: raccolte, total };
-    }
   }
 
-  throw new Error(
-    `L'export si ferma a ${maxPages * PAGINA} righe e il filtro ne seleziona ${total}: ` +
-      "restringere il periodo o l'anno fiscale e riprovare. Un file a cui mancano righe, " +
-      "una volta aperto in un foglio di calcolo, non si distingue da uno completo.",
-  );
+  return { lines: lines as AccountingExportLine[], total };
 };
 
 /* ========================================================================== */
@@ -299,9 +295,9 @@ export const buildAccountingExport = async (
   const { lines } = await leggiTutteLeRighe(
     filtriDiLettura,
     scope,
-    Number.isInteger(filtri.maxPages) && Number(filtri.maxPages) > 0
-      ? Number(filtri.maxPages)
-      : PAGINE_MASSIME_EXPORT,
+    Number.isInteger(filtri.maxRows) && Number(filtri.maxRows) > 0
+      ? Number(filtri.maxRows)
+      : RIGHE_MASSIME_EXPORT,
   );
 
   const organizationId =

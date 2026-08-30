@@ -7,6 +7,14 @@
  * il codice applica** prima di toccare il database, non a simulare Prisma.
  */
 
+/*
+  La dichiarazione della vista del registro, importata dal codice vero.
+
+  Il doppio non ricopia la regola: la **chiama**. Una seconda scrittura qui
+  sarebbe una terza contabilita, e divergerebbe al primo cambiamento.
+*/
+import { buildLedgerView } from "../../src/lib/accounting/ledger-view.ts";
+
 /** Vero se il valore soddisfa un filtro su campo JSON `{ path, equals }`. */
 const matchesJsonPath = (value, condition) => {
   let current = value;
@@ -153,6 +161,28 @@ const matchesWhere = (record, where) => {
       }
       if ("lte" in condition) {
         if (!(value <= condition.lte)) return false;
+        continue;
+      }
+      /*
+        `contains`, e serve a una cosa sola: la **ricerca** della prima nota.
+
+        La vista `accounting_ledger_lines` porta una colonna `search_text` gia
+        in minuscolo, e il filtro e `{ contains: <testo> }`. Senza questo ramo
+        la condizione cadeva in «non supportata» — che la considera soddisfatta
+        — e ogni test sulla ricerca sarebbe passato **qualunque cosa** cercasse,
+        provando il contrario di cio che deve provare.
+      */
+      if ("contains" in condition) {
+        const atteso = String(condition.contains ?? "");
+        const trovato = value === null || value === undefined ? "" : String(value);
+        const insensibile = condition.mode === "insensitive";
+        if (
+          !(insensibile
+            ? trovato.toLowerCase().includes(atteso.toLowerCase())
+            : trovato.includes(atteso))
+        ) {
+          return false;
+        }
         continue;
       }
       /*
@@ -400,6 +430,120 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     if (!store.has(name)) store.set(name, []);
     return store.get(name);
   };
+
+  /**
+   * **La vista del registro, ricostruita dal doppio.**
+   *
+   * `accounting_ledger_lines` non e una tabella: e una vista che unisce i
+   * movimenti propri alla proiezione di incassi, compensi, liquidazioni e
+   * movimenti storici. Il doppio non parla SQL, quindi la ricompone con
+   * `src/lib/accounting/ledger-view.ts` — che e la **stessa** dichiarazione
+   * della regola che il file di migrazione traduce in SQL.
+   *
+   * Questo e cio che rende i test ancora capaci di dire qualcosa: senza,
+   * qualunque prova sulla prima nota leggerebbe un elenco vuoto e passerebbe.
+   * Che la dichiarazione e la traduzione coincidano davvero lo prova
+   * `scripts/wave-4-registro-riconciliazione.mjs`, contro il database vero.
+   *
+   * Si ricalcola a **ogni** lettura, e non e uno spreco: un doppio che la
+   * memorizzasse mostrerebbe righe vecchie dopo una scrittura, cioe
+   * esattamente il difetto che una vista non puo avere.
+   */
+  const nomeOf = (persona) =>
+    persona
+      ? `${persona.first_name || ""} ${persona.last_name || ""}`.trim() || null
+      : null;
+
+  const perId = (name) => {
+    const mappa = new Map();
+    for (const riga of rowsOf(name)) mappa.set(riga.id, riga);
+    return mappa;
+  };
+
+  const righeDelRegistro = () => {
+    const conti = perId("financialAccount");
+    const causali = rowsOf("fiscalOperationType");
+    const causalePerCodice = new Map(
+      causali.map((c) => [`${c.organization_id}|${c.code}`, c]),
+    );
+    const causalePerId = perId("fiscalOperationType");
+    const atleti = perId("athlete");
+    const persone = perId("sportWorkPerson");
+    const programmi = perId("fundingProgram");
+    const fatture = rowsOf("invoice");
+    const ricevute = rowsOf("receipt");
+
+    const numeroDocumento = (documentKind, documentId, organizationId) => {
+      if (!documentId) return null;
+      const tipo = String(documentKind || "").toLowerCase();
+      const cerca = (righe, colonna) =>
+        righe.find(
+          (d) => d.id === documentId && d.organization_id === organizationId,
+        )?.[colonna] || null;
+      if (tipo === "invoice" || tipo === "fattura") {
+        return cerca(fatture, "invoice_number");
+      }
+      if (tipo === "receipt" || tipo === "ricevuta") {
+        return cerca(ricevute, "receipt_number");
+      }
+      return null;
+    };
+
+    return buildLedgerView({
+      entries: rowsOf("accountingEntry").map((row) => ({
+        ...row,
+        _accountName: conti.get(row.financial_account_id)?.name || null,
+        _operationTypeLabel: causalePerId.get(row.operation_type_id)?.label || null,
+        _documentNumber: numeroDocumento(
+          row.document_kind,
+          row.document_id,
+          row.organization_id,
+        ),
+      })),
+      paymentTransactions: rowsOf("paymentTransaction").map((row) => {
+        /*
+          La fattura vince sulla ricevuta quando ci sono entrambe, e un
+          documento **annullato** non si mostra: e la stessa regola della
+          vista, e mostrarne una qui e l'altra li vorrebbe dire che il doppio
+          descrive un database diverso da quello vero.
+        */
+        const fattura = fatture.find(
+          (d) => d.transaction_id === row.id && !d.cancelled_at,
+        );
+        const ricevuta = ricevute.find(
+          (d) => d.transaction_id === row.id && !d.cancelled_at,
+        );
+        const documento = fattura || ricevuta;
+        const causale = causalePerCodice.get(
+          `${row.organization_id}|${row.operation_type_code}`,
+        );
+
+        return {
+          ...row,
+          _athleteName: nomeOf(atleti.get(row.athlete_id)),
+          _accountName: conti.get(row.financial_account_id)?.name || null,
+          _operationTypeLabel: causale?.label || null,
+          _activityScope: causale?.activity_scope || null,
+          _documentKind: documento ? (fattura ? "invoice" : "receipt") : null,
+          _documentId: documento?.id || null,
+          _documentNumber:
+            fattura?.invoice_number || ricevuta?.receipt_number || null,
+        };
+      }),
+      sportWorkPayouts: rowsOf("sportWorkOutboundTransaction").map((row) => ({
+        ...row,
+        _personName: nomeOf(persone.get(row.person_id)),
+        _accountName: conti.get(row.financial_account_id)?.name || null,
+      })),
+      fundingSettlements: rowsOf("fundingSettlement").map((row) => ({
+        ...row,
+        _programName: programmi.get(row.program_id)?.name || null,
+        _accountName: conti.get(row.financial_account_id)?.name || null,
+      })),
+      clubs: rowsOf("club"),
+    });
+  };
+
 
   /*
     Un `create` che violerebbe un vincolo dichiarato fallisce come farebbe
@@ -672,6 +816,72 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     },
   });
 
+  /**
+   * Il delegate della vista: **legge e conta, e non scrive**.
+   *
+   * Postgres rifiuta una scrittura su una vista con `UNION ALL`, e il doppio
+   * fa lo stesso. Non e zelo: un test che riuscisse a scrivere qui
+   * descriverebbe un database che non esiste, e coprirebbe proprio il difetto
+   * — materializzare come riga propria cio che appartiene a un dominio — che
+   * questa Wave vieta.
+   */
+  const vistaRegistro = () => {
+    const nonScrivibile = (metodo) => async () => {
+      throw new Error(
+        `cannot ${metodo} a view: accounting_ledger_lines e una vista, ` +
+          "il registro si scrive nei domini che possiedono i numeri",
+      );
+    };
+
+    return {
+      findMany: async (args = {}) => {
+        calls.push({ delegate: "accountingLedgerLine", method: "findMany", args });
+        let rows = righeDelRegistro().filter((r) => matchesWhere(r, args.where));
+        const criteri = Array.isArray(args.orderBy)
+          ? args.orderBy
+          : args.orderBy
+            ? [args.orderBy]
+            : [];
+        if (criteri.length) {
+          rows = [...rows].sort((left, right) => {
+            for (const criterio of criteri) {
+              const [campo, verso] = Object.entries(criterio || {})[0] || [];
+              if (!campo) continue;
+              const a = left[campo];
+              const b = right[campo];
+              if (a === undefined || a === null) {
+                if (b === undefined || b === null) continue;
+                return 1;
+              }
+              if (b === undefined || b === null) return -1;
+              if (a < b) return verso === "desc" ? 1 : -1;
+              if (a > b) return verso === "desc" ? -1 : 1;
+            }
+            return 0;
+          });
+        }
+        const skip = Number(args.skip) || 0;
+        const take = Number.isInteger(args.take) ? args.take : undefined;
+        return take === undefined ? rows.slice(skip) : rows.slice(skip, skip + take);
+      },
+      count: async (args = {}) => {
+        calls.push({ delegate: "accountingLedgerLine", method: "count", args });
+        return righeDelRegistro().filter((r) => matchesWhere(r, args.where)).length;
+      },
+      findFirst: async (args = {}) => {
+        calls.push({ delegate: "accountingLedgerLine", method: "findFirst", args });
+        return righeDelRegistro().find((r) => matchesWhere(r, args.where)) || null;
+      },
+      create: nonScrivibile("create"),
+      createMany: nonScrivibile("create"),
+      update: nonScrivibile("update"),
+      updateMany: nonScrivibile("update"),
+      delete: nonScrivibile("delete"),
+      deleteMany: nonScrivibile("delete"),
+      upsert: nonScrivibile("upsert"),
+    };
+  };
+
   const delegates = new Map();
 
   const client = new Proxy(
@@ -685,7 +895,14 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       get: (target, property) => {
         if (property in target) return target[property];
         if (typeof property !== "string") return undefined;
-        if (!delegates.has(property)) delegates.set(property, makeDelegate(property));
+        if (!delegates.has(property)) {
+          delegates.set(
+            property,
+            property === "accountingLedgerLine"
+              ? vistaRegistro()
+              : makeDelegate(property),
+          );
+        }
         return delegates.get(property);
       },
     },
