@@ -85,6 +85,22 @@ const proietta = (input: {
   seasonId?: string | null;
   siteId?: string | null;
   createdAt?: string | null;
+  /**
+   * **Quando la riga sorgente e stata stornata.** (D-A)
+   *
+   * Era assente da questo guscio, e ogni proiezione scriveva `reversedAt:
+   * null` in modo fisso. La conseguenza si vedeva a valle:
+   * `isNeutralizedLine` esclude una riga se `reversedAt` e valorizzato
+   * **oppure** se e uno storno — e su una proiezione il primo criterio non
+   * scattava mai. Di ogni coppia originale/storno veniva quindi esclusa **una
+   * gamba sola**, e restava dentro quella sbagliata: l'originale.
+   *
+   * Un incasso da 100 stornato contava 100 nel rendiconto, mentre il saldo del
+   * conto — che legge il database e non la proiezione — diceva zero. Le due
+   * schermate si contraddicevano.
+   */
+  reversedAt?: string | null;
+  reversalOfId?: string | null;
 }): AccountingLine =>
   asProjectedLine({
     id: input.id,
@@ -116,8 +132,8 @@ const proietta = (input: {
     valueDate: null,
     bankReference: null,
     transferGroupId: null,
-    reversalOfId: null,
-    reversedAt: null,
+    reversalOfId: input.reversalOfId ?? null,
+    reversedAt: input.reversedAt ?? null,
     reversalReason: null,
     createdBy: null,
     createdAt: input.createdAt ?? null,
@@ -176,11 +192,33 @@ export const projectPaymentTransactions = (
     const amountCents = toCents(Number(row.amount) || 0);
     if (amountCents === 0) return [];
 
+    /*
+      **Tre casi, non due.** (D-B)
+
+      Il codice ne distingueva due — «ha `reverses_transaction_id`» oppure no —
+      e un **rimborso** cadeva nel secondo. Un rimborso e una riga **negativa
+      senza** riferimento allo storno: quel campo esclude la riga dai totali, ed
+      e esattamente cio che un rimborso non deve fare, perche il denaro e uscito
+      davvero. La scelta e giusta e sta nel dominio degli incassi.
+
+      Ma qui `Math.abs` ne faceva un'entrata da +50: un rimborso di 50 euro
+      **aumentava** l'incassato di 50 invece di ridurlo, sbagliando il netto di
+      due volte l'importo. E il catalogo delle origini portava `REFUND` con il
+      commento «non e uno storno: e denaro che torna indietro», e **nessun
+      proiettore lo produceva**: la voce documentava il comportamento mancante.
+    */
     const storno = Boolean(row.reverses_transaction_id);
+    const rimborso = !storno && amountCents < 0;
     const importo = Math.abs(amountCents);
 
     const etichetta =
       testo(row.counterparty_label) || testo(row._athleteName) || "Incasso";
+
+    const descrizione = storno
+      ? `Storno incasso - ${etichetta}`
+      : rimborso
+        ? `Rimborso - ${etichetta}`
+        : `Incasso - ${etichetta}`;
 
     return [
       proietta({
@@ -192,11 +230,13 @@ export const projectPaymentTransactions = (
           non si somma, si mostra: la direzione dice cosa e successo, e
           l'importo resta positivo come ovunque nella prima nota.
         */
-        direction: storno ? "OUT" : "IN",
+        direction: storno || rimborso ? "OUT" : "IN",
         amountCents: importo,
-        sourceDomain: storno ? "REVERSAL" : "ATHLETE_PAYMENT",
+        sourceDomain: storno ? "REVERSAL" : rimborso ? "REFUND" : "ATHLETE_PAYMENT",
         sourceId: row.id,
-        description: storno ? `Storno incasso - ${etichetta}` : `Incasso - ${etichetta}`,
+        description: descrizione,
+        reversedAt: iso(row.reversed_at),
+        reversalOfId: testo(row.reverses_transaction_id),
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
         operationTypeCode: testo(row.operation_type_code),
@@ -310,9 +350,24 @@ export const projectSportWorkPayouts = (
     const tipo = String(row.transaction_type || "OTHER").toUpperCase();
     const storno = tipo === "COMPENSATION_REVERSAL" || Boolean(row.reversal_of_id);
 
+    /*
+      **Zero e una risposta, non un dato mancante.** (D-D)
+
+      La ricaduta sul lordo era condizionata a `netto !== 0`, e su un compenso
+      interamente trattenuto — netto zero, contributi pari al lordo — proiettava
+      **il lordo** come uscita: denaro che dal conto non e mai uscito verso la
+      persona. Il saldo, che somma `net_amount`, diceva zero: le due letture
+      divergevano dell'intero lordo.
+
+      `net_amount` e `Float @default(0)` e ogni percorso di scrittura lo
+      valorizza — le voci d'agenda ci mettono l'importo stesso. Quindi il ramo
+      `!== 0` non proteggeva niente che non fosse gia coperto, e apriva questo
+      buco. Se il netto e zero, dal conto verso la persona non e uscito niente:
+      la riga non c'e, e il denaro dei contributi lo racconta l'F24.
+    */
     const netto = Number(row.net_amount);
     const lordo = Number(row.gross_amount) || 0;
-    const base = Number.isFinite(netto) && netto !== 0 ? netto : lordo;
+    const base = Number.isFinite(netto) ? netto : lordo;
     const amountCents = Math.abs(toCents(base));
     if (amountCents === 0) return [];
 
@@ -327,6 +382,8 @@ export const projectSportWorkPayouts = (
         amountCents,
         sourceDomain: storno ? "REVERSAL" : "SPORT_WORK_PAYOUT",
         sourceId: row.id,
+        reversedAt: iso(row.reversed_at),
+        reversalOfId: testo(row.reversal_of_id),
         description: `${ETICHETTE_LAVORO_SPORTIVO[tipo] || ETICHETTE_LAVORO_SPORTIVO.OTHER} - ${persona}`,
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
@@ -395,6 +452,8 @@ export const projectFundingSettlements = (
         amountCents,
         sourceDomain: storno ? "REVERSAL" : "FUNDING_SETTLEMENT",
         sourceId: row.id,
+        reversedAt: iso(row.reversed_at),
+        reversalOfId: testo(row.reversal_of_id),
         description: storno
           ? `Storno liquidazione - ${programma}`
           : `Liquidazione - ${programma}`,

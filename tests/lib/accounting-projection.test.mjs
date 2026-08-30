@@ -101,13 +101,31 @@ test("la coppia originale/storno non muove il saldo del conto", () => {
     incasso({ id: "inc-vero", amount: 400 }),
   ]);
 
-  /* Il saldo esclude entrambe: 200 in e 200 out si compensano comunque. */
+  /*
+    **Il saldo le esclude davvero, e il test lo deve provare passando lo stato
+    di storno.** (D-A)
+
+    La versione precedente di questo test passava solo `direction` e
+    `amountCents`: le due gambe si annullavano **algebricamente**, e il numero
+    tornava per una ragione diversa da quella dichiarata. Nascondeva proprio il
+    campo che alla proiezione mancava, ed e per questo che il difetto e
+    sopravvissuto a una suite verde.
+  */
   const saldo = deriveAccountBalanceCents(
     0,
-    righe.map((r) => ({ direction: r.direction, amountCents: r.amountCents })),
+    righe.map((r) => ({
+      direction: r.direction,
+      amountCents: r.amountCents,
+      reversedAt: r.reversedAt,
+      reversalOfId: r.reversalOfId,
+    })),
   );
 
   assert.equal(saldo, 40000, "resta solo l'incasso non stornato");
+  assert.ok(
+    righe.some((r) => r.reversedAt),
+    "la riga stornata deve portare la sua data di storno",
+  );
 });
 
 /* ================================================== lavoro sportivo */
@@ -182,23 +200,42 @@ test("la prima nota non ricalcola nessun contributo: legge il valore congelato",
   assert.equal(riga.amountCents, 117750);
 });
 
-test("dove il netto non e valorizzato vale il lordo", () => {
+test("dove il netto non e valorizzato affatto vale il lordo", () => {
   /*
     Premi, rimborsi e fatture dei professionisti non sono compensi, non
     consumano franchigie e non hanno una quota contributiva: li il lordo e
-    l'intero esborso.
+    l'intero esborso. La ricaduta serve alle righe **senza** la colonna, non a
+    quelle che dichiarano zero.
   */
-  const [riga] = projectSportWorkPayouts([
-    compenso({
-      transaction_type: "BONUS_PAYMENT",
-      net_amount: 0,
-      club_cost: 0,
-      gross_amount: 300,
-    }),
-  ]);
+  const senzaNetto = compenso({
+    transaction_type: "BONUS_PAYMENT",
+    club_cost: 0,
+    gross_amount: 300,
+  });
+  delete senzaNetto.net_amount;
+
+  const [riga] = projectSportWorkPayouts([senzaNetto]);
 
   assert.equal(riga.amountCents, 30000);
   assert.match(riga.description, /^Premio/);
+});
+
+test("un compenso interamente trattenuto non fa uscire niente dal conto", () => {
+  /*
+    **D-D**, trovato dall'audit. La ricaduta sul lordo era condizionata a
+    `netto !== 0`: un compenso interamente trattenuto — netto zero, contributi
+    pari al lordo — proiettava **il lordo** come uscita, cioe denaro che dal
+    conto verso la persona non e mai uscito. Il saldo, che somma `net_amount`,
+    diceva zero: le due letture divergevano dell'intero lordo.
+
+    Se il netto e zero, verso la persona non e uscito niente. Il denaro dei
+    contributi lo racconta la riga dell'F24.
+  */
+  const righe = projectSportWorkPayouts([
+    compenso({ gross_amount: 500, net_amount: 0, club_cost: 620 }),
+  ]);
+
+  assert.deepEqual(righe, []);
 });
 
 test("lo storno di un compenso rientra, e non si somma all'uscita", () => {
@@ -220,7 +257,12 @@ test("lo storno di un compenso rientra, e non si somma all'uscita", () => {
 
   const saldo = deriveAccountBalanceCents(
     0,
-    righe.map((r) => ({ direction: r.direction, amountCents: r.amountCents })),
+    righe.map((r) => ({
+      direction: r.direction,
+      amountCents: r.amountCents,
+      reversedAt: r.reversedAt,
+      reversalOfId: r.reversalOfId,
+    })),
   );
   assert.equal(saldo, 0, "la prima nota esclude entrambe dai totali");
 });
@@ -396,4 +438,77 @@ test("una riga da zero euro non si proietta", () => {
     projectSportWorkPayouts([compenso({ gross_amount: 0, net_amount: 0, club_cost: 0 })]),
     [],
   );
+});
+
+/* ================================ D-A e D-B: cio che l'audit ha trovato */
+
+test("una riga stornata porta la sua data di storno, su tutte le sorgenti", () => {
+  /*
+    **D-A.** Il guscio della proiezione scriveva `reversedAt: null` in modo
+    fisso. A valle, `isNeutralizedLine` esclude una riga se `reversedAt` e
+    valorizzato **oppure** se e uno storno: su una proiezione il primo criterio
+    non scattava mai, quindi di ogni coppia veniva esclusa **una gamba sola** —
+    e restava dentro quella sbagliata, l'originale.
+
+    Un incasso da 100 stornato contava 100 nel rendiconto, mentre il saldo del
+    conto diceva zero. Le due schermate si contraddicevano.
+  */
+  const [inc] = projectPaymentTransactions([
+    incasso({ reversed_at: "2026-09-05T00:00:00.000Z" }),
+  ]);
+  const [sw] = projectSportWorkPayouts([
+    compenso({ reversed_at: "2026-10-10T00:00:00.000Z" }),
+  ]);
+  const [fs] = projectFundingSettlements([
+    liquidazione({ reversed_at: "2026-11-20T00:00:00.000Z" }),
+  ]);
+
+  for (const riga of [inc, sw, fs]) {
+    assert.ok(riga.reversedAt, `${riga.sourceDomain} deve dichiarare lo storno`);
+  }
+});
+
+test("un rimborso e un'uscita, non un incasso al contrario", () => {
+  /*
+    **D-B.** Un rimborso e una riga **negativa senza** `reverses_transaction_id`
+    — quel campo esclude la riga dai totali, ed e cio che un rimborso non deve
+    fare, perche il denaro e uscito davvero.
+
+    `Math.abs` ne faceva un'entrata da +50: un rimborso **aumentava**
+    l'incassato invece di ridurlo, sbagliando il netto di due volte l'importo.
+  */
+  const [riga] = projectPaymentTransactions([
+    incasso({ id: "rimborso-1", amount: -50, reverses_transaction_id: null }),
+  ]);
+
+  assert.equal(riga.direction, "OUT");
+  assert.equal(riga.amountCents, 5000);
+  assert.equal(riga.sourceDomain, "REFUND");
+  assert.match(riga.description, /^Rimborso/);
+  assert.equal(riga.reversedAt, null, "un rimborso non e uno storno");
+});
+
+test("incasso, rimborso e storno danno il netto giusto", () => {
+  /*
+    Lo scenario con cui l'audit ha misurato lo scarto: 300 incassati, 50
+    rimborsati, e un incasso da 100 stornato. La cassa vera e 250.
+  */
+  const righe = projectPaymentTransactions([
+    incasso({ id: "a", amount: 300 }),
+    incasso({ id: "b", amount: -50, reverses_transaction_id: null }),
+    incasso({ id: "c", amount: 100, reversed_at: "2026-09-06T00:00:00.000Z" }),
+    incasso({ id: "d", amount: -100, reverses_transaction_id: "c" }),
+  ]);
+
+  const saldo = deriveAccountBalanceCents(
+    0,
+    righe.map((r) => ({
+      direction: r.direction,
+      amountCents: r.amountCents,
+      reversedAt: r.reversedAt,
+      reversalOfId: r.reversalOfId,
+    })),
+  );
+
+  assert.equal(saldo, 25000, "300 meno 50, e la coppia stornata non conta");
 });

@@ -96,14 +96,40 @@ const assertCanRead = (scope: MemberAccessScope | undefined) => {
 
 /* ---------------------------------------------------------------- scope */
 
+/**
+ * Il confine, ed e il **club attivo** — non l'insieme dei club accessibili.
+ *
+ * **Il difetto che l'audit della Wave 4 ha misurato qui.** Il confronto era con
+ * `allowedOrganizationIds`, cioe con tutti i club a cui l'utente appartiene.
+ * Ma il permesso si verifica con `activeRole`, che e il ruolo **nel club
+ * attivo**: i due insiemi non coincidono mai per chi ha piu di un club, e
+ * chiunque puo crearsi una societa e diventarne proprietario.
+ *
+ * Bastava mandare `x-active-club-id: <la mia>` insieme all'identificativo di
+ * un socio **di un'altra**, e il permesso veniva concesso con il ruolo
+ * sbagliato. L'audit lo ha provato end-to-end: un genitore in un club, e
+ * proprietario nel proprio, ha letto l'IBAN altrui, rinominato un conto,
+ * registrato un'uscita da 70.000 euro e stornato un movimento.
+ *
+ * **Era gia stato trovato e chiuso una volta**, in
+ * `src/lib/server/document-templates.ts`, con il commento che lo racconta. Sei
+ * moduli nuovi lo hanno reintrodotto: la lezione non era nel codice, era in un
+ * commento che nessuno ha riletto.
+ *
+ * La regola giusta e una sola: **la riga deve appartenere al club attivo**. Per
+ * lavorare su un altro club si cambia club, e il ruolo viene risolto di nuovo
+ * per quello.
+ */
 const ensureOrganizationAccess = (
   scope: MemberAccessScope | undefined,
   organizationId: string | null | undefined,
 ) => {
   if (!scope) return;
   if (!organizationId) throw denied("libro soci senza club");
-  if (!scope.allowedOrganizationIds.includes(organizationId)) {
-    throw denied("il socio appartiene a un altro club");
+  const attivo = asText(scope.activeOrganizationId);
+  if (!attivo) throw denied("nessun club attivo selezionato");
+  if (attivo !== asText(organizationId)) {
+    throw denied("non trovato, o non appartiene al club attivo");
   }
 };
 
