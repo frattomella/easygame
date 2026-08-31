@@ -690,6 +690,39 @@ const scenarioAssi = async () => {
 const scenarioSedi = async () => {
   console.log(`8. LA SEDE: ATTRIBUZIONE E SOMMA`);
 
+  /*
+    Un conto sulla **seconda** sede, con un movimento sopra. Senza una riga che
+    appartenga a una sede diversa ogni prova sul filtro e vacua: «Sede Nord»
+    non avrebbe niente da escludere, e passerebbe anche se non filtrasse
+    affatto. E precisamente cosi che la collisione fra le due chiavi `OR` era
+    sfuggita alla prima stesura di questo scenario.
+  */
+  const CASSA_SUD = randomUUID();
+  await prisma.financialAccount.create({
+    data: {
+      id: CASSA_SUD,
+      organization_id: CLUB,
+      name: "Cassa Sud",
+      kind: "CASH",
+      site_id: SEDE_B,
+      updated_at: new Date(),
+    },
+  });
+
+  await accounting.createAccountingEntry(
+    {
+      entryDate: "2026-12-01T10:00:00Z",
+      direction: "OUT",
+      amount: 40,
+      financialAccountId: CASSA_SUD,
+      operationTypeCode: "quota_attivita",
+      description: "Spesa della Sede Sud",
+      seasonId: "2026-27",
+      siteId: SEDE_B,
+    },
+    scope(),
+  );
+
   const tutte = await registro({});
   const sedeA = await registro({ siteId: SEDE_A });
   const sedeB = await registro({ siteId: SEDE_B });
@@ -744,6 +777,52 @@ const scenarioSedi = async () => {
     "ogni riga appartiene a una sede sola, e la somma torna",
     tutte.total,
     somma,
+  );
+
+  /*
+    **Sede e stagione insieme.**
+
+    Le due condizioni sono entrambe «questo oppure quello», e per un momento
+    sono state due chiavi `OR` dello stesso oggetto letterale: in JavaScript la
+    seconda sovrascrive la prima, in silenzio. La combinazione e quella normale
+    della pagina dei rendiconti — i due menu stanno nello stesso pannello — e
+    l'effetto era il peggiore possibile: il denaro di **tutte** le sedi mostrato
+    sotto il nome di una, senza nessun avviso, nel file consegnato al
+    commercialista. Peggio del difetto che stava correggendo, che almeno
+    mostrava troppo poco.
+
+    Nessun controllo le combinava, ed e per questo che e passato: i due filtri
+    erano provati uno per volta.
+  */
+  const soloStagione = await registro({ seasonId: "2026-27" });
+  const sedeEStagione = await registro({ seasonId: "2026-27", siteId: SEDE_A });
+
+  /*
+    La proprieta, non il conteggio: **nessuna** riga di un'altra sede deve
+    comparire. Confrontare due totali non basterebbe — se il filtro sparisse, i
+    due totali resterebbero uguali fra loro e sembrerebbero coerenti.
+  */
+  const estranee = (esito) =>
+    esito.entries.filter((r) => r.siteId && r.siteId !== SEDE_A).length;
+
+  prova(
+    "chiedere solo la sede non porta righe di un'altra sede",
+    0,
+    estranee(sedeA),
+  );
+
+  prova(
+    "chiedere sede e stagione insieme non annulla il filtro della sede",
+    0,
+    estranee(sedeEStagione),
+    `stagione ${soloStagione.total}, con sede ${sedeEStagione.total}`,
+  );
+
+  prova(
+    "e non annulla nemmeno quello della stagione",
+    true,
+    sedeEStagione.total <= sedeA.total,
+    `sede ${sedeA.total}, con stagione ${sedeEStagione.total}`,
   );
 };
 

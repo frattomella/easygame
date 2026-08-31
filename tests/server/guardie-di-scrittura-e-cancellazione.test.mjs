@@ -269,3 +269,55 @@ test("un club che ha emesso documenti fiscali non si cancella da una rotta CRUD"
     "il club deve essere ancora li",
   );
 });
+
+/**
+ * **L'alias e la porta che il prodotto usa davvero.**
+ *
+ * `deleteResource` non normalizza gli alias: confronta la stringa. La guardia
+ * copriva `athletes`, ma l'unica strada da cui l'interfaccia cancella un
+ * atleta e `simplified_athletes` (`simplified-db.ts` → `deleteClubAthlete`),
+ * che e la stessa tabella sotto un altro nome. La spiegazione era quindi
+ * irraggiungibile dal prodotto, e all'operatore sarebbe arrivato l'errore
+ * grezzo del vincolo invece della frase che dice cosa fare.
+ *
+ * E la convenzione che il file applica gia altrove: la guardia sulle rate
+ * copre `payments` **e** `simplified_payments`, quella sul club copre `clubs`
+ * **e** `organizations`.
+ */
+test("la guardia vale anche dall'alias che usa l'interfaccia", async () => {
+  fake.rows("fundingSettlementLine").push({
+    id: "line-2",
+    organization_id: CLUB,
+    accrual: { athlete_id: ATLETA },
+  });
+
+  await assert.rejects(
+    () => resources.deleteResource("simplified_athletes", ATLETA, scope()),
+    /contributi gia liquidati/i,
+  );
+});
+
+/**
+ * Ripuntare una riga gia scritta sull'atleta di un altro club e la stessa cosa
+ * che crearla li: la guardia deve valere su entrambi i verbi, come quella sul
+ * destinatario di una notifica.
+ */
+test("non si ripunta un'appartenenza sull'atleta di un altro club", async () => {
+  const creata = await resources.createResource(
+    "athlete_category_memberships",
+    { athlete_id: ATLETA, category_name: "Pulcini" },
+    "create",
+    scope(),
+  );
+
+  await assert.rejects(
+    () =>
+      resources.updateResource(
+        "athlete_category_memberships",
+        creata.id,
+        { athlete_id: ATLETA_ALTRUI },
+        scope(),
+      ),
+    /Accesso negato/,
+  );
+});

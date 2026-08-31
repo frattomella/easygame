@@ -998,3 +998,35 @@ chi lo possiede. Senza causale non si congela niente, **nemmeno un ambito
 dichiarato**: un ambito che nessuna causale giustifica sarebbe una
 classificazione che nessuno ha preso.
 
+
+---
+
+## Due semantiche di cancellazione corrette (2026-08-31, tredicesima tornata)
+
+Migrazione `20260831140000_wave4_cancellazioni_che_non_distruggono`.
+
+| Vincolo | Prima | Adesso | Perche |
+|---|---|---|---|
+| `notifications.user_id → users.id` | `SET NULL` | **`CASCADE`** | In questo modello `user_id = NULL` significa «di societa», e l'area genitore lo legge come **«di tutti»**: `getParentDashboardData` interroga `OR: [{ user_id }, { user_id: null }]` e restituisce la riga intera, `data` compreso. Cancellare un account trasformava quindi ogni sua notifica privata in una notifica per tutte le famiglie del club — una richiesta di cancellazione **pubblicava** i dati invece di toglierli. Una notifica indirizzata a chi non c'e piu non ha significato residuo |
+| `funding_settlement_lines.accrual_id → funding_accruals.id` | `CASCADE` | **`RESTRICT`** | La catena `athletes → funding_accruals → funding_settlement_lines` faceva sparire, cancellando un atleta, le righe che attribuiscono una liquidazione **gia erogata**. La testata sopravviveva con l'importo intero: un totale «liquidato» senza nessuno a cui attribuirlo, e una riconciliazione che perde beneficiari in silenzio. Lo dichiarava gia il commento del modello |
+
+`RESTRICT` non e raggiungibile dal percorso legittimo: `removeFundingEnrollment`
+cancella i maturati **solo** nel ramo «nessuno storico», che per costruzione non
+ha righe liquidate.
+
+### E la vista del registro porta la sede del conto
+
+Migrazione `20260831160000_wave4_la_sede_di_un_incasso`: i tre rami proiettati —
+incassi, compensi, liquidazioni — leggono `financial_accounts.site_id` dalla
+tabella che gia univano per il **nome** del conto. Prima scrivevano `NULL`, e
+siccome gli incassi delle famiglie stanno tutti in uno di quei rami, nessun euro
+pagato da una famiglia poteva avere una sede. I due rami storici restano senza:
+il vecchio blob non dice su quale conto sia passato il denaro.
+
+> **Il gemello in TypeScript deve derivarla insieme alla vista.**
+> `src/lib/accounting/projection.ts` prende la sede da `_accountSiteId`. Se una
+> delle due letture la derivasse e l'altra no, il registro racconterebbe sedi
+> diverse a seconda di chi lo chiede — ed e esattamente cio che
+> `scripts/wave-4-registro-riconciliazione.mjs` esiste per impedire. La sonda
+> semina apposta **un conto con una sede e uno senza**: senza il primo, il
+> confronto su quel campo sarebbe vacuo.

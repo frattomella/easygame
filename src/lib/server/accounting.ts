@@ -364,9 +364,6 @@ const ledgerWhere = (
     mentre il codice faceva l'opposto. La sede e un'attribuzione facoltativa:
     non dichiararla non e dichiarare «da nessuna parte».
   */
-  ...(f.siteId
-    ? { OR: [{ site_id: f.siteId }, { site_id: null }] }
-    : {}),
   ...(f.operationTypeCode ? { operation_type_code: f.operationTypeCode } : {}),
   ...(f.direction ? { direction: f.direction } : {}),
   ...(f.sourceDomain ? { source_domain: f.sourceDomain } : {}),
@@ -393,26 +390,53 @@ const ledgerWhere = (
     che la riga dichiara. **Non** si risponde elenco vuoto: sarebbe far sparire
     denaro vero per una configurazione mancante.
   */
-  ...(f.seasonId
-    ? f.finestraStagione
-      ? {
-          OR: [
-            { season_id: f.seasonId },
-            {
-              AND: [
-                { season_id: null },
+  /*
+    **Due disgiunzioni non stanno in due chiavi `OR`.**
+
+    La sede e la stagione sono entrambe «questo **oppure** quello», e per un
+    momento sono state due proprieta `OR` dello stesso oggetto letterale: in
+    JavaScript la seconda **sovrascrive** la prima, in silenzio. Con stagione e
+    sede scelte insieme — che e la combinazione normale della pagina dei
+    rendiconti, i due menu stanno nello stesso pannello — il filtro della sede
+    spariva del tutto, e il rendiconto mostrava il denaro di **tutte** le sedi
+    sotto il nome di una. Peggio del difetto che stava correggendo: quello
+    mostrava troppo poco, questo mostra troppo, e lo fa senza dirlo.
+
+    Stanno quindi in un `AND`, che e cio che sono davvero: le condizioni si
+    sommano, e aggiungerne una terza domani non cancellera niente.
+  */
+  ...(() => {
+    const clausole: Record<string, unknown>[] = [];
+
+    if (f.siteId) {
+      clausole.push({ OR: [{ site_id: f.siteId }, { site_id: null }] });
+    }
+
+    if (f.seasonId) {
+      clausole.push(
+        f.finestraStagione
+          ? {
+              OR: [
+                { season_id: f.seasonId },
                 {
-                  entry_date: {
-                    gte: f.finestraStagione.inizio,
-                    lte: f.finestraStagione.fine,
-                  },
+                  AND: [
+                    { season_id: null },
+                    {
+                      entry_date: {
+                        gte: f.finestraStagione.inizio,
+                        lte: f.finestraStagione.fine,
+                      },
+                    },
+                  ],
                 },
               ],
-            },
-          ],
-        }
-      : { season_id: f.seasonId }
-    : {}),
+            }
+          : { season_id: f.seasonId },
+      );
+    }
+
+    return clausole.length ? { AND: clausole } : {};
+  })(),
 });
 
 /** Quali generi di riga il filtro lascia passare. `null` = tutti. */
@@ -858,13 +882,22 @@ const counterpartyColumns = (input: {
  */
 
 const risolviSedeDelMovimento = async (
+  /*
+    Il client della transazione, non quello di modulo: entrambe le chiamate
+    stanno **dentro** `prisma.$transaction`, e usare il client globale
+    prenderebbe una seconda connessione mentre la transazione tiene la prima —
+    su un pool piccolo e il modo classico di far aspettare tutti. E la
+    convenzione che la riga qui accanto applica gia
+    (`ensureAccountBelongsToClub(client, …)`).
+  */
+  client: any,
   organizationId: string,
   riferimento: unknown,
 ) => {
   const wanted = asText(riferimento);
   if (!wanted) return null;
 
-  const club = await (prisma as any).club.findUnique({
+  const club = await client.club.findUnique({
     where: { id: organizationId },
     select: { club_sites: true },
   });
@@ -1062,7 +1095,7 @@ export const createAccountingEntry = async (
           asText(options?.sourceEventKey) || chiaveDelClient || null,
         document_kind: asText(input.documentKind) || null,
         document_id: asText(input.documentId) || null,
-        site_id: await risolviSedeDelMovimento(organizationId, input.siteId),
+        site_id: await risolviSedeDelMovimento(client, organizationId, input.siteId),
         value_date: toDateOrNull(input.valueDate),
         bank_reference: asText(input.bankReference) || null,
         created_by: scope.userId || null,
@@ -1185,7 +1218,7 @@ export const createInternalTransfer = async (
       amount_cents: amountCents,
       source_domain: "INTERNAL_TRANSFER" as const,
       transfer_group_id: gruppo,
-      site_id: await risolviSedeDelMovimento(organizationId, input.siteId),
+      site_id: await risolviSedeDelMovimento(client, organizationId, input.siteId),
       payment_method: "Giroconto",
       notes: asText(input.notes) || null,
       created_by: scope.userId || null,

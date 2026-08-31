@@ -4704,6 +4704,22 @@ export const updateResource = async (
     club — e si controlla solo se il `PATCH` tocca davvero il destinatario:
     una modifica che non lo nomina non deve dover ridichiarare il club.
   */
+  /*
+    Anche il padre si riverifica in modifica: un `PATCH` che ripunta
+    `athlete_id` su un atleta di un altro club e la stessa cosa che crearla li,
+    e passerebbe da qui invece che dalla creazione. La guardia sul destinatario
+    di una notifica era gia su entrambi i verbi; questa no.
+  */
+  await guardParentBelongsToClub(
+    resource,
+    {
+      ...normalized,
+      organization_id:
+        normalized.organization_id || existing?.organization_id || null,
+    },
+    scope,
+  );
+
   if ("user_id" in normalized) {
     await guardNotificationRecipient(
       resource,
@@ -4851,7 +4867,7 @@ const assertAthleteHasNoSettledFunding = async (
   resource: string,
   athleteId: string,
 ) => {
-  if (resource !== "athletes") return;
+  if (resource !== "athletes" && resource !== "simplified_athletes") return;
   if (!athleteId) return;
 
   const righeLiquidate = await (prisma as any).fundingSettlementLine.count({
