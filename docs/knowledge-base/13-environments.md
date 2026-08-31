@@ -980,3 +980,41 @@ provider riceve «gia ricevuto» e smette di ritentare.
 
 Un errore si gestisce; una funzione uccisa no. Il limite serve a trasformare il
 secondo caso nel primo.
+
+---
+
+## Stato di staging verificato — 2026-08-31 (chiusura Wave 4)
+
+Deploy di `4cd992a` su `easygame-staging` (`npx vercel --prod` sul progetto
+collegato). Nello scope Vercel esistono due soli progetti — `easygame-staging`
+e `easygamemobile` — e **nessun progetto di produzione**: la condizione che
+CLAUDE.md §9 chiede di verificare prima di ogni deploy regge.
+
+- Deployment `dpl_DrW2M6fqw1t1wbd2eBsxoiW3Fckq`, stato **READY**, alias
+  `https://easygame-staging-pi.vercel.app`.
+- `vercel-build` esegue `prisma migrate deploy`: le tre migrazioni della
+  chiusura sono passate, altrimenti la build sarebbe fallita e il deployment
+  non sarebbe READY.
+- **Nessuna variabile d'ambiente e stata toccata.** Le tre introdotte dalla
+  Wave — `MICROSOFT_TENANT_ID`, `AUTH_RATE_LIMIT_TRUSTED_PROXIES`,
+  `STRIPE_HTTP_TIMEOUT_MS` — sono tutte facoltative e il loro valore assente e
+  gia quello giusto per questo deployment. `AUTH_BASE_URL` e
+  `NEXT_PUBLIC_APP_URL` erano gia configurate, ed e da loro che dipende la
+  nuova guardia sugli URL di ritorno del checkout.
+
+### Smoke misurato sul deployment
+
+| Verifica | Esito |
+|---|---|
+| `/`, `/login`, `/api/v1/registry`, `/api/v1/auth/providers` | `200` |
+| `/api/v1/attachments`, `/accounting/entries`, `/sport-work/people`, `/notifications` senza sessione | `401` |
+| `/sport-work/compensations`, `/consensi`, `/reports`, `/movements` senza sessione | `307` |
+| `POST /api/payments/webhook` e `/api/billing/webhook` senza firma | `400`, nessuna mutazione |
+| `/pay/<token inesistente>`, `/forms/<slug inesistente>` | una risposta sola per ogni caso negativo |
+| `password/forgot` su due indirizzi diversi | risposta **identica**, nessuna enumerazione |
+
+Il `307` su `/sport-work/compensations` e la verifica dal vivo di una
+correzione della decima tornata: quella pagina si apriva **senza sessione**
+perche il prefisso non era fra i `PROTECTED_PREFIXES` e l'area non ha un layout
+con `AccessAreaGuard`. Le rotte reggevano gia, quindi non usciva un dato — ma
+la porta si apriva.
