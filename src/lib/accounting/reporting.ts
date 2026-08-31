@@ -643,7 +643,20 @@ export const filterLinesForReport = (
     ) {
       return false;
     }
-    if (filters.siteId && (line.siteId || null) !== filters.siteId) return false;
+    /*
+      Il gemello in memoria della regola SQL: una riga **senza** sede resta
+      visibile in ogni vista per sede, perche non dichiararla non e dichiarare
+      «da nessuna parte» (ADR-0038, e `recordMatchesSite` che lo applica ovunque
+      altrove). I due filtri devono rispondere identici, altrimenti il
+      rendiconto e l'elenco tornano a contare cose diverse.
+    */
+    if (
+      filters.siteId &&
+      line.siteId != null &&
+      line.siteId !== filters.siteId
+    ) {
+      return false;
+    }
     if (filters.sourceDomain && line.sourceDomain !== filters.sourceDomain) {
       return false;
     }

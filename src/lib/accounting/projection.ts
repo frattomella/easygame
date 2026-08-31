@@ -200,6 +200,17 @@ export type PaymentTransactionRow = {
   created_at?: Date | string | null;
   _athleteName?: string | null;
   _accountName?: string | null;
+  /**
+   * La sede del conto su cui il denaro si e mosso.
+   *
+   * La vista SQL la prende da `financial_accounts.site_id` unendo la tabella
+   * che gia univa per leggerne il **nome**. Il gemello qui non la prendeva, e
+   * dopo la correzione della vista le due letture avrebbero raccontato sedi
+   * diverse — proprio la divergenza che la riconciliazione esiste per
+   * impedire, e che non aveva visto solo perche nei dati seminati nessun conto
+   * aveva una sede.
+   */
+  _accountSiteId?: string | null;
   _operationTypeLabel?: string | null;
   _activityScope?: string | null;
   _documentKind?: string | null;
@@ -311,6 +322,7 @@ export const projectPaymentTransactions = (
         reversalOfId: testo(row.reverses_transaction_id),
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
+        siteId: testo(row._accountSiteId) || null,
         operationTypeCode: testo(row.operation_type_code),
         operationTypeLabel: testo(row._operationTypeLabel),
         /*
@@ -361,6 +373,17 @@ export type SportWorkOutboundRow = {
   created_at?: Date | string | null;
   _personName?: string | null;
   _accountName?: string | null;
+  /**
+   * La sede del conto su cui il denaro si e mosso.
+   *
+   * La vista SQL la prende da `financial_accounts.site_id` unendo la tabella
+   * che gia univa per leggerne il **nome**. Il gemello qui non la prendeva, e
+   * dopo la correzione della vista le due letture avrebbero raccontato sedi
+   * diverse — proprio la divergenza che la riconciliazione esiste per
+   * impedire, e che non aveva visto solo perche nei dati seminati nessun conto
+   * aveva una sede.
+   */
+  _accountSiteId?: string | null;
 };
 
 const ETICHETTE_LAVORO_SPORTIVO: Record<string, string> = {
@@ -487,6 +510,7 @@ export const projectSportWorkPayouts = (
         description: `${ETICHETTE_LAVORO_SPORTIVO[tipo] || ETICHETTE_LAVORO_SPORTIVO.OTHER} - ${persona}`,
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
+        siteId: testo(row._accountSiteId) || null,
         counterpartyKind: "SPORT_WORK_PERSON",
         counterpartyId: testo(row.person_id),
         counterpartyLabel: persona,
@@ -516,6 +540,17 @@ export type FundingSettlementRow = {
   created_at?: Date | string | null;
   _programName?: string | null;
   _accountName?: string | null;
+  /**
+   * La sede del conto su cui il denaro si e mosso.
+   *
+   * La vista SQL la prende da `financial_accounts.site_id` unendo la tabella
+   * che gia univa per leggerne il **nome**. Il gemello qui non la prendeva, e
+   * dopo la correzione della vista le due letture avrebbero raccontato sedi
+   * diverse — proprio la divergenza che la riconciliazione esiste per
+   * impedire, e che non aveva visto solo perche nei dati seminati nessun conto
+   * aveva una sede.
+   */
+  _accountSiteId?: string | null;
 };
 
 /**
@@ -566,6 +601,7 @@ export const projectFundingSettlements = (
           : `Liquidazione - ${programma}`,
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
+        siteId: testo(row._accountSiteId) || null,
         counterpartyKind: "ENTITY",
         counterpartyId: testo(row.program_id),
         counterpartyLabel: programma,

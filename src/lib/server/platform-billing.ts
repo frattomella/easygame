@@ -159,8 +159,28 @@ export const applySubscriptionSnapshot = async (input: {
     e il comportamento di prima e va bene: due eventi con lo stesso timestamp
     descrivono lo stesso momento.
   */
-  const eventAt = input.eventAt ? new Date(input.eventAt) : null;
-  if (eventAt && !Number.isNaN(eventAt.getTime())) {
+  const candidato = input.eventAt ? new Date(input.eventAt) : null;
+  const eventAt =
+    candidato && !Number.isNaN(candidato.getTime()) ? candidato : null;
+
+  /*
+    **Un evento senza istante non deve avvelenare la chiave di ordinamento.**
+
+    Scrivevo `new Date()` quando l'istante mancava — e `createdAt` **manca
+    davvero**: `stripe-billing.ts` lo mette a stringa vuota quando l'evento non
+    porta `created`. L'ora di elaborazione e per costruzione **piu recente** di
+    qualunque istante Stripe possa emettere, quindi una sola fotografia senza
+    timestamp bastava a far scartare come «vecchio» ogni evento legittimo
+    successivo. La guardia contro il disordine diventava una guardia contro
+    tutto.
+
+    Senza istante non si sa ordinare: non si confronta e non si scrive. La
+    colonna conserva l'ultimo istante **noto**, che e l'unica cosa che se ne
+    puo dire con verita.
+  */
+  const istanteDaScrivere = eventAt ?? undefined;
+
+  if (eventAt) {
     const corrente = await billingClient().findUnique({
       where: { organization_id: id },
       select: { last_event_at: true },
@@ -201,7 +221,7 @@ export const applySubscriptionSnapshot = async (input: {
         ? new Date(snapshot.currentPeriodEnd)
         : null,
       cancel_at_period_end: snapshot.cancelAtPeriodEnd,
-      last_event_at: eventAt && !Number.isNaN(eventAt.getTime()) ? eventAt : new Date(),
+      last_event_at: istanteDaScrivere,
       last_error: null,
     },
     update: {
@@ -214,7 +234,7 @@ export const applySubscriptionSnapshot = async (input: {
         ? new Date(snapshot.currentPeriodEnd)
         : null,
       cancel_at_period_end: snapshot.cancelAtPeriodEnd,
-      last_event_at: eventAt && !Number.isNaN(eventAt.getTime()) ? eventAt : new Date(),
+      last_event_at: istanteDaScrivere,
       last_error: null,
     },
   });

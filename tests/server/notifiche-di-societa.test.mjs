@@ -167,62 +167,15 @@ test("il perimetro e un parametro, non una costante del modulo", async () => {
   assert.equal(righe()[0].user_id, PROPRIETARIO);
 });
 
-/* =========================================================================
- * E il destinatario che sceglie chi scrive, dalla rotta generica
- * ========================================================================= */
-
-/**
- * `notifications` sta fra le risorse che un **allenatore** puo creare, il CRUD
- * generico forza `organization_id` al club attivo — e non guardava `user_id`.
+/*
+ * Il destinatario scelto da chi scrive — la rotta generica che accettava
+ * qualunque `user_id`, o nessuno — e presidiato da
+ * `tests/server/guardie-di-scrittura-e-cancellazione.test.mjs`, che esercita
+ * `createResource` davvero.
  *
- * Ne uscivano due cose, entrambe da un ruolo che non ha `communications.send`:
- * `{"user_id": null}` recapitava testo arbitrario a ogni account del club —
- * lo stesso pubblico del motore delle audience, senza il motore, senza
- * registro delle consegne e senza audit — e `{"user_id": "<chiunque>"}`
- * faceva partire una email vera, dal server del club, verso un account di
- * un'altra societa, perche `sendNotificationEmails` risolve l'utente senza
- * filtro di club.
- *
- * Test statico sul sorgente, nell'idioma di `tests/auth/api-authorization.test.mjs`:
- * `resources.ts` non e importabile da questo runner (ADR-0008, WP-04).
+ * Qui c'era invece un test **statico** che leggeva `resources.ts` come stringa
+ * e contava le chiamate alla guardia: passava con la guardia vuota, e infatti
+ * ha continuato a passare mentre la guardia si scavalcava omettendo un campo.
+ * Un test che non puo fallire per la ragione che dichiara e peggio di nessun
+ * test, perche occupa il posto di quello vero.
  */
-test("la scrittura di una notifica passa dalla guardia sul destinatario", async () => {
-  const fs = await import("node:fs");
-  const path = await import("node:path");
-
-  const sorgente = fs.readFileSync(
-    path.resolve(import.meta.dirname, "..", "..", "src/lib/server/resources.ts"),
-    "utf8",
-  );
-
-  assert.match(
-    sorgente,
-    /const guardNotificationRecipient = async/,
-    "la guardia deve esistere",
-  );
-
-  const chiamate = sorgente.match(/await guardNotificationRecipient\(/g) || [];
-  assert.ok(
-    chiamate.length >= 2,
-    `la guardia va chiamata sia in creazione sia in modifica: trovate ${chiamate.length} chiamate`,
-  );
-
-  /*
-    Spostare una notifica gia scritta su un altro destinatario e la stessa cosa
-    che scriverla li: se la guardia stesse solo sulla creazione, la porta
-    resterebbe aperta un `PATCH` piu in la.
-  */
-  const creazione = sorgente.indexOf("export const createResource");
-  const modifica = sorgente.indexOf("export const updateResource");
-  assert.ok(creazione > 0 && modifica > creazione);
-
-  const inCreazione = sorgente
-    .slice(creazione, modifica)
-    .includes("guardNotificationRecipient");
-  const inModifica = sorgente
-    .slice(modifica)
-    .includes("guardNotificationRecipient");
-
-  assert.ok(inCreazione, "createResource deve chiamarla");
-  assert.ok(inModifica, "updateResource deve chiamarla");
-});

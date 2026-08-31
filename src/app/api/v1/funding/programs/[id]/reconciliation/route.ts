@@ -6,6 +6,7 @@ import {
 } from "@/lib/server/auth";
 import { buildProgramReconciliation } from "@/lib/server/funding";
 import { toReconciliationCsv } from "@/lib/funding/reconciliation";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
  * La riconciliazione di un bando.
@@ -76,6 +77,34 @@ export async function GET(
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
+
+      /*
+        **Un export si traccia, anche se non scrive niente.**
+
+        E la stessa ragione per cui l'export contabile e tracciato: non e una
+        scrittura, ed e l'unica operazione che porta **tutto** fuori
+        dall'applicazione dentro un file. Qui il contenuto e denaro pubblico
+        attribuito a dei minori, riga per riga — cioe un'affermazione sulla
+        situazione economica delle loro famiglie — e «chi ha portato fuori
+        l'elenco dei voucher, quando» e una domanda che arriva dopo e a cui
+        nessuna riga di nessuna tabella sapeva rispondere.
+      */
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.accountingExported,
+        actorUserId: session.db.user_id,
+        actorEmail: session.db.user.email,
+        actorRole: scope.activeRole,
+        organizationId: scope.activeOrganizationId,
+        resource: "funding_programs",
+        resourceId: context.params.id,
+        request,
+        metadata: {
+          format: "csv",
+          programName: result.program.name,
+          rows: result.rows.length,
+          athletes: result.totals.athletes,
+        },
+      });
 
       return new NextResponse(csv, {
         status: 200,

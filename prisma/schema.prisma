@@ -937,7 +937,22 @@ model FundingSettlementLine {
   updated_at      DateTime          @updatedAt
   organization    Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   settlement      FundingSettlement @relation(fields: [settlement_id], references: [id], onDelete: Cascade)
-  accrual         FundingAccrual    @relation(fields: [accrual_id], references: [id], onDelete: Cascade)
+  /*
+    **La riga che attribuisce denaro pubblico non si cancella di rimbalzo.**
+
+    Era `Cascade`, e la catena partiva da lontano: cancellare un **atleta**
+    cancellava i suoi maturati, e i maturati si portavano via queste righe. La
+    testata della liquidazione sopravviveva con l'importo intero erogato
+    dall'ente, e le righe che lo giustificano sparivano: un totale «liquidato»
+    che non si puo piu attribuire a nessuno, e una riconciliazione da
+    consegnare al finanziatore che perde beneficiari in silenzio.
+
+    `RESTRICT` puo mordere solo quando esistono righe liquidate — l'unico
+    percorso che cancella i maturati e quello «nessuno storico», che per
+    costruzione non ne ha. La guardia applicativa spiega il rifiuto con una
+    frase; questo lo rende vero anche per chi non passa dall'applicazione.
+  */
+  accrual         FundingAccrual    @relation(fields: [accrual_id], references: [id], onDelete: Restrict)
 
   @@unique([settlement_id, accrual_id])
   @@index([organization_id])
@@ -976,7 +991,20 @@ model Notification {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   organization    Club?    @relation(fields: [organization_id], references: [id], onDelete: SetNull)
-  user            User?    @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  /*
+    **Cancellare una persona non deve pubblicare le sue notifiche.**
+
+    Era `SetNull`, e `user_id: null` in questo modello significa «di societa» —
+    che l'area genitore legge come «di tutti». Cancellare un account ne
+    trasformava quindi ogni notifica privata in una notifica per **tutte le
+    famiglie del club**, con dentro cio che portava: nome del genitore,
+    telefono, nome del minore, importi scoperti. Una richiesta di cancellazione
+    pubblicava i dati invece di toglierli.
+
+    Una notifica indirizzata a qualcuno che non c'e piu non ha nessun
+    significato residuo: se ne va con lui.
+  */
+  user            User?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([organization_id])
   @@index([user_id])

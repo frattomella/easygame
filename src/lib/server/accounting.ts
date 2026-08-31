@@ -16,6 +16,7 @@ import {
   type ReconciliationStatus,
 } from "@/lib/accounting/model";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
+import { buildSiteIndex, normalizeClubSites } from "@/lib/club-sites";
 import {
   ledgerRowToLine,
   type LedgerViewRow,
@@ -349,7 +350,23 @@ const ledgerWhere = (
     : {}),
   ...(f.fiscalYear !== null ? { fiscal_year: f.fiscalYear } : {}),
   ...(f.accountId ? { financial_account_id: f.accountId } : {}),
-  ...(f.siteId ? { site_id: f.siteId } : {}),
+  /*
+    **Una riga senza sede appartiene a tutte le sedi, non a nessuna.**
+
+    Era `{ site_id: f.siteId }`, un'uguaglianza stretta, e faceva sparire da
+    ogni vista per sede tutto cio che una sede non ce l'ha — mentre nel totale
+    del club quelle righe restano. Due viste della stessa contabilita che non
+    sommano allo stesso numero, e nessuna delle due sbagliata da sola.
+
+    E la regola che il proprietario del dominio applica gia ovunque
+    (`recordMatchesSite`: «lista vuota sul lato del record = resta visibile»),
+    e che il commento del rendiconto dichiarava di applicare proprio qui sopra
+    mentre il codice faceva l'opposto. La sede e un'attribuzione facoltativa:
+    non dichiararla non e dichiarare «da nessuna parte».
+  */
+  ...(f.siteId
+    ? { OR: [{ site_id: f.siteId }, { site_id: null }] }
+    : {}),
   ...(f.operationTypeCode ? { operation_type_code: f.operationTypeCode } : {}),
   ...(f.direction ? { direction: f.direction } : {}),
   ...(f.sourceDomain ? { source_domain: f.sourceDomain } : {}),
@@ -824,6 +841,46 @@ const counterpartyColumns = (input: {
   };
 };
 
+
+
+/**
+ * **La sede di un movimento si verifica, come quella di un conto.**
+ *
+ * `financial-accounts.ts` risolve il riferimento contro le sedi del club e
+ * rifiuta quelle che non esistono; qui si scriveva `asText(input.siteId)` e
+ * basta. Bastava quindi mandare la sede di **un altro club** — o una stringa
+ * qualunque — perche la riga entrasse nel totale del club senza corrispondere a
+ * nessuna voce del menu: un buco permanente e invisibile, che e esattamente il
+ * difetto che la vista per sede appena corretta esiste per non produrre.
+ *
+ * La sede resta facoltativa: quello che non e ammesso e **dichiararne una che
+ * non c'e**.
+ */
+
+const risolviSedeDelMovimento = async (
+  organizationId: string,
+  riferimento: unknown,
+) => {
+  const wanted = asText(riferimento);
+  if (!wanted) return null;
+
+  const club = await (prisma as any).club.findUnique({
+    where: { id: organizationId },
+    select: { club_sites: true },
+  });
+
+  const sedi = normalizeClubSites(club?.club_sites);
+  const risolta = buildSiteIndex(sedi).resolveSiteId(wanted);
+
+  if (!sedi.some((sede: any) => sede.id === risolta)) {
+    throw new Error(
+      `La sede indicata per il movimento non esiste in questo club: ${wanted}`,
+    );
+  }
+
+  return risolta;
+};
+
 /** Registra un movimento manuale: un fatto di cassa che nessun altro evento genera. */
 export const createAccountingEntry = async (
   input: CreateAccountingEntryInput,
@@ -1005,7 +1062,7 @@ export const createAccountingEntry = async (
           asText(options?.sourceEventKey) || chiaveDelClient || null,
         document_kind: asText(input.documentKind) || null,
         document_id: asText(input.documentId) || null,
-        site_id: asText(input.siteId) || null,
+        site_id: await risolviSedeDelMovimento(organizationId, input.siteId),
         value_date: toDateOrNull(input.valueDate),
         bank_reference: asText(input.bankReference) || null,
         created_by: scope.userId || null,
@@ -1128,7 +1185,7 @@ export const createInternalTransfer = async (
       amount_cents: amountCents,
       source_domain: "INTERNAL_TRANSFER" as const,
       transfer_group_id: gruppo,
-      site_id: asText(input.siteId) || null,
+      site_id: await risolviSedeDelMovimento(organizationId, input.siteId),
       payment_method: "Giroconto",
       notes: asText(input.notes) || null,
       created_by: scope.userId || null,

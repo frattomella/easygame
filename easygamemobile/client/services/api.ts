@@ -789,8 +789,29 @@ class EasyGameApiService {
     };
   }
 
+  /**
+   * Esce, e **revoca la sessione sul server**.
+   *
+   * Prima cancellava soltanto il token dal dispositivo: la riga in `sessions`
+   * restava viva per i suoi quattordici giorni. Un token copiato prima
+   * dell'uscita — da un backup, da un telefono restituito o smarrito, da un
+   * estratto MDM — continuava quindi a valere, e «esci» non era una revoca ma
+   * un gesto locale. Ed e proprio la cosa che si fa quando si perde il
+   * telefono.
+   *
+   * La chiamata e **al meglio**: se la rete non c'e, l'uscita locale deve
+   * avvenire lo stesso, perche lasciare l'utente dentro sarebbe peggio. Il
+   * server, dal canto suo, fa scadere la sessione da solo.
+   */
   async logout() {
     await this.ensureInit();
+
+    try {
+      await this.request(`${API_PREFIX}/auth/logout`, { method: "POST" });
+    } catch {
+      // Senza rete la sessione scadra da sola: l'uscita locale non si blocca.
+    }
+
     await this.setAuthToken(null);
     await this.setStoredUser(null);
   }

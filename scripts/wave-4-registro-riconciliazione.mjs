@@ -388,7 +388,13 @@ const semina = async () => {
 
   await prisma.financialAccount.createMany({
     data: [
-      { id: CASSA, organization_id: CLUB, name: "Cassa", kind: "CASH", updated_at: new Date() },
+      /*
+        **Un conto con una sede e uno senza.** La riconciliazione confronta anche
+        `site_id`, e senza un conto che una sede ce l'abbia il confronto sarebbe
+        vacuo: la vista SQL deriva la sede dal conto, e se il gemello in
+        TypeScript smettesse di derivarla nessuno se ne accorgerebbe.
+      */
+      { id: CASSA, organization_id: CLUB, name: "Cassa", kind: "CASH", site_id: "sede-riconciliazione", updated_at: new Date() },
       { id: BANCA, organization_id: CLUB, name: "Banca", kind: "BANK", updated_at: new Date() },
     ],
   });
@@ -800,6 +806,7 @@ const leggiDichiarazione = async () => {
     entries: entries.map((row) => ({
       ...row,
       _accountName: contiPerId.get(row.financial_account_id)?.name || null,
+      _accountSiteId: contiPerId.get(row.financial_account_id)?.site_id || null,
       _operationTypeLabel: causaliPerId.get(row.operation_type_id)?.label || null,
       _documentNumber: numeroDocumento(row.document_kind, row.document_id),
     })),
@@ -812,6 +819,8 @@ const leggiDichiarazione = async () => {
         ...row,
         _athleteName: nome(atletiPerId.get(row.athlete_id)),
         _accountName: contiPerId.get(row.financial_account_id)?.name || null,
+        _accountSiteId: contiPerId.get(row.financial_account_id)?.site_id || null,
+      _accountSiteId: contiPerId.get(row.financial_account_id)?.site_id || null,
         _operationTypeLabel: causale?.label || null,
         _activityScope: causale?.activity_scope || null,
         _documentKind: documento ? (fattura ? "invoice" : "receipt") : null,
@@ -823,11 +832,13 @@ const leggiDichiarazione = async () => {
       ...row,
       _personName: nome(personePerId.get(row.person_id)),
       _accountName: contiPerId.get(row.financial_account_id)?.name || null,
+      _accountSiteId: contiPerId.get(row.financial_account_id)?.site_id || null,
     })),
     fundingSettlements: liquidazioni.map((row) => ({
       ...row,
       _programName: programmiPerId.get(row.program_id)?.name || null,
       _accountName: contiPerId.get(row.financial_account_id)?.name || null,
+      _accountSiteId: contiPerId.get(row.financial_account_id)?.site_id || null,
     })),
     clubs: [club],
   });

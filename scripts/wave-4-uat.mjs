@@ -46,6 +46,8 @@ const ATLETA = randomUUID();
 const PERSONA = randomUUID();
 const SPONSOR = "sponsor-uat-1";
 const RATA = randomUUID();
+const SEDE_A = "sede-uat-a";
+const SEDE_B = "sede-uat-b";
 
 const d = (s) => new Date(s);
 
@@ -107,6 +109,10 @@ const semina = async () => {
       creator_id: UTENTE.id,
       transactions: [],
       transfers: [],
+      club_sites: [
+        { id: SEDE_A, name: "Sede Nord", active: true },
+        { id: SEDE_B, name: "Sede Sud", active: true },
+      ],
       sponsors: [
         {
           id: SPONSOR,
@@ -151,7 +157,12 @@ const semina = async () => {
 
   await prisma.financialAccount.createMany({
     data: [
-      { id: CASSA, organization_id: CLUB, name: "Cassa", kind: "CASH", updated_at: new Date() },
+      /*
+        La cassa sta a una sede, la banca no. Serve a misurare le due meta della
+        regola sulle sedi: cio che una sede ce l'ha deve comparire sotto la sua,
+        e cio che non ce l'ha deve comparire sotto **tutte**.
+      */
+      { id: CASSA, organization_id: CLUB, name: "Cassa", kind: "CASH", site_id: SEDE_A, updated_at: new Date() },
       { id: BANCA, organization_id: CLUB, name: "Banca", kind: "BANK", updated_at: new Date() },
     ],
   });
@@ -658,6 +669,84 @@ const scenarioAssi = async () => {
 };
 
 /** 7 — le quattro superfici raccontano lo stesso denaro. */
+/**
+ * **La sede: cio che ha una sede sta sotto la sua, cio che non ce l'ha sta
+ * sotto tutte.**
+ *
+ * Il difetto misurato su un club vero: dei cinque rami della vista del
+ * registro, quattro scrivevano `NULL` nella posizione della sede — scritto nel
+ * SQL — e gli incassi delle famiglie stanno tutti in uno di quei quattro.
+ * Nessun euro pagato da una famiglia poteva quindi avere una sede, e siccome
+ * il filtro era un'uguaglianza stretta, **selezionare una sede svuotava il
+ * rendiconto**: zero incassi, presentati senza nessun avviso, e lo stesso CSV
+ * consegnato al commercialista.
+ *
+ * Le due meta si misurano insieme, perche una sola non basta: la vista deve
+ * portare la sede del conto, e il filtro deve lasciar passare cio che una sede
+ * non ce l'ha (ADR-0038, «sede vuota = presente ovunque»). Con la prima e
+ * senza la seconda, i totali per sede continuerebbero a non sommare al totale
+ * del club.
+ */
+const scenarioSedi = async () => {
+  console.log(`8. LA SEDE: ATTRIBUZIONE E SOMMA`);
+
+  const tutte = await registro({});
+  const sedeA = await registro({ siteId: SEDE_A });
+  const sedeB = await registro({ siteId: SEDE_B });
+
+  const senzaSede = tutte.entries.filter((r) => !r.siteId).length;
+  const conSedeA = tutte.entries.filter((r) => r.siteId === SEDE_A).length;
+
+  prova(
+    "il registro attribuisce una sede alle righe del conto che ce l'ha",
+    true,
+    conSedeA > 0,
+    ` righe sulla Sede Nord`,
+  );
+
+  prova(
+    "chiedere una sede non svuota il rendiconto",
+    true,
+    sedeA.total > 0,
+    ` righe`,
+  );
+
+  /*
+    La riga senza sede compare in entrambe le viste: e la regola di ADR-0038, e
+    senza di essa i totali per sede non sommerebbero mai al totale del club.
+  */
+  prova(
+    "una riga senza sede compare sotto ogni sede",
+    true,
+    sedeA.total >= senzaSede && sedeB.total >= senzaSede,
+    `senza sede: `,
+  );
+
+  prova(
+    "la vista per sede non inventa righe che il club non ha",
+    true,
+    sedeA.total <= tutte.total && sedeB.total <= tutte.total,
+  );
+
+  /*
+    La proprieta che il commercialista verifica davvero: le righe attribuite a
+    una sede piu quelle attribuite all'altra piu quelle senza sede fanno il
+    totale del club, ciascuna contata una volta sola.
+  */
+  const perSede = new Map();
+  for (const riga of tutte.entries) {
+    const chiave = riga.siteId || "(senza sede)";
+    perSede.set(chiave, (perSede.get(chiave) || 0) + 1);
+  }
+  const somma = [...perSede.values()].reduce((a, b) => a + b, 0);
+
+  prova(
+    "ogni riga appartiene a una sede sola, e la somma torna",
+    tutte.total,
+    somma,
+  );
+};
+
 const scenarioQuadratura = async () => {
   console.log(`${NL}7. LA QUADRATURA: SALDO CONTO = MOVIMENTI + APERTURA`);
 
@@ -741,6 +830,7 @@ try {
   await scenarioFunding();
   await scenarioSponsor();
   await scenarioAssi();
+  await scenarioSedi();
   await scenarioQuadratura();
 
   const falliti = esiti.filter((e) => !e.ok);

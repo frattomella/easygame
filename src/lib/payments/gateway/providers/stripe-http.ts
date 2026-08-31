@@ -60,6 +60,83 @@ export type StripeRequestOptions = {
   idempotencyKey?: string;
 };
 
+/**
+ * Il limite di tempo di una chiamata a Stripe, in millisecondi.
+ *
+ * **Una chiamata che non finisce e peggio di una che fallisce.** Dentro il
+ * gestore del webhook questa chiamata sta **fra** la riga di deduplica gia
+ * scritta e la scrittura del movimento: se resta appesa finche la funzione
+ * viene uccisa dalla piattaforma, il codice non riceve nessun errore — quindi
+ * non passa da nessun `catch`, non segna il tentativo come fallito, e la riga
+ * resta come se l'evento fosse stato elaborato. Alla riconsegna il provider si
+ * sente rispondere «gia ricevuto» e smette di ritentare: l'incasso sparisce.
+ *
+ * Un errore si gestisce; una funzione uccisa no. Il limite serve a trasformare
+ * il secondo caso nel primo — e per farlo deve stare **sotto** il tempo massimo
+ * concesso alla funzione, altrimenti arriva sempre secondo. Cinque secondi
+ * lasciano margine al budget predefinito di Vercel per scrivere l'esito.
+ */
+const stripeTimeoutMs = () => {
+  const dichiarato = Number(process.env.STRIPE_HTTP_TIMEOUT_MS || 5_000);
+  return Number.isFinite(dichiarato) && dichiarato > 0 ? dichiarato : 5_000;
+};
+
+/**
+ * Fa la richiesta e ne legge il corpo, con un limite di tempo su **entrambi**.
+ *
+ * **Perche il corpo si legge qui e non dal chiamante.** Le due funzioni di
+ * questo modulo facevano `await response.json().catch(() => ({}))` **fuori**
+ * dal `try`. Il limite di tempo resta attaccato anche al corpo: se scadeva
+ * dopo le intestazioni ma prima della fine del corpo, quel `catch`
+ * trasformava l'interruzione in un oggetto vuoto, `response.ok` era vero, e la
+ * chiamata **restituiva `{}` come successo**.
+ *
+ * A valle non e un dettaglio: `snapshotFromSubscription({})` produce uno stato
+ * `not_active`, che vale piano `free`. Un club che paga veniva retrocesso,
+ * l'evento marcato come elaborato, e il provider smetteva di ritentare. Il
+ * limite messo per non perdere un incasso poteva quindi spegnere un
+ * abbonamento — proprio nel caso per cui era stato messo, cioe una connessione
+ * che si pianta.
+ */
+const eseguiChiamata = async (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body?: string },
+): Promise<{ response: Response; payload: Record<string, any> }> => {
+  const stopwatch = AbortSignal.timeout(stripeTimeoutMs());
+
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, signal: stopwatch });
+  } catch (error: any) {
+    const scaduta = error?.name === "TimeoutError" || stopwatch.aborted;
+    throw new PaymentGatewayError(
+      "provider_error",
+      scaduta
+        ? "Stripe non ha risposto entro il tempo massimo"
+        : `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
+      "stripe",
+    );
+  }
+
+  try {
+    return { response, payload: (await response.json()) as Record<string, any> };
+  } catch (error: any) {
+    /*
+      Un corpo vuoto legittimo — un `204`, una risposta senza JSON — non e un
+      errore e continua a valere `{}`. Un corpo **interrotto** invece si
+      distingue, e non deve mai passare per una risposta riuscita.
+    */
+    if (stopwatch.aborted || error?.name === "AbortError") {
+      throw new PaymentGatewayError(
+        "provider_error",
+        "Stripe ha risposto ma la risposta non e arrivata intera entro il tempo massimo",
+        "stripe",
+      );
+    }
+    return { response, payload: {} };
+  }
+};
+
 export const callStripe = async (
   path: string,
   options: StripeRequestOptions = {},
@@ -93,53 +170,14 @@ export const callStripe = async (
 
   const method = options.method || (options.body ? "POST" : "GET");
 
-  /*
-    **Una chiamata che non finisce e peggio di una che fallisce.**
-
-    Non c'era nessun limite di tempo. Dentro il gestore del webhook questa
-    chiamata sta **fra** la riga di deduplica gia scritta e la scrittura del
-    movimento: se resta appesa finche la funzione viene uccisa dalla
-    piattaforma, il codice non riceve nessun errore — quindi non passa da
-    nessun `catch`, non segna il tentativo come fallito, e la riga resta come
-    se l'evento fosse stato elaborato. Alla riconsegna il provider si sente
-    rispondere «gia ricevuto» e smette di ritentare: l'incasso sparisce.
-
-    Un errore lo si puo gestire; una funzione uccisa no. Il limite serve a
-    trasformare il secondo caso nel primo.
-  */
-  const STRIPE_TIMEOUT_MS = Number(
-    process.env.STRIPE_HTTP_TIMEOUT_MS || 10_000,
-  );
-
-  let response: Response;
-  const stopwatch = AbortSignal.timeout(
-    Number.isFinite(STRIPE_TIMEOUT_MS) && STRIPE_TIMEOUT_MS > 0
-      ? STRIPE_TIMEOUT_MS
-      : 10_000,
-  );
-
-  try {
-    response = await fetch(`${STRIPE_API_BASE}${path}`, {
+  const { response, payload } = await eseguiChiamata(
+    `${STRIPE_API_BASE}${path}`,
+    {
       method,
       headers,
       body: options.body ? encodeStripeForm(options.body) : undefined,
-      signal: stopwatch,
-    });
-  } catch (error: any) {
-    const scaduta = error?.name === "TimeoutError" || stopwatch.aborted;
-    throw new PaymentGatewayError(
-      "provider_error",
-      scaduta
-        ? "Stripe non ha risposto entro il tempo massimo"
-        : `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
-      "stripe",
-    );
-  }
-
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    any
-  >;
+    },
+  );
 
   if (!response.ok) {
     /*
@@ -247,25 +285,10 @@ export const callStripeV2 = async (
           ...(include.length ? { include } : {}),
         });
 
-  let response: Response;
-  try {
-    response = await fetch(`${STRIPE_API_V2_BASE}${path}${query}`, {
-      method,
-      headers,
-      body,
-    });
-  } catch (error: any) {
-    throw new PaymentGatewayError(
-      "provider_error",
-      `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
-      "stripe",
-    );
-  }
-
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    any
-  >;
+  const { response, payload } = await eseguiChiamata(
+    `${STRIPE_API_V2_BASE}${path}${query}`,
+    { method, headers, body },
+  );
 
   if (!response.ok) {
     /*

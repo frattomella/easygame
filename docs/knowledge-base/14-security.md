@@ -1420,3 +1420,74 @@ una chiamata appesa — in un errore gestibile, quindi in una riga `failed` che
 si riprende. Resta scoperto il caso in cui la funzione muoia per altro
 (esaurimento memoria, terminazione della piattaforma): e registrato in W4-R17
 insieme alle righe `failed` che nessuno rilegge.
+
+---
+
+## Tredicesima tornata — la chiusura: cancellazioni, mobile, export, sedi (2026-08-31)
+
+Quattro revisori in parallelo sull'ultimo perimetro non ancora battuto, piu la
+conferma sulla tornata precedente. **E l'ultima tornata della Wave 4.**
+
+### Il filo comune, che spiega tre difetti insieme
+
+> Ogni guardia di questo prodotto e scritta sul **nome della risorsa** che si
+> cancella, mentre Postgres distrugge per **raggiungibilita**.
+
+Il prodotto rifiuta `DELETE /api/v1/invoices/<emessa>` spiegando che un buco
+nella numerazione non e spiegabile. Non sapeva niente di cio che una
+cancellazione **un livello piu su** — un club, un utente — o **di fianco** — un
+atleta — si porta dietro. Misurato sul database di sviluppo: la chiusura
+`CASCADE` da `clubs` tocca **cinquantaquattro tabelle**, e `clubs.creator_id`
+e a sua volta `CASCADE`, quindi cancellare una persona cancellava ogni club che
+aveva creato.
+
+| Cosa | Adesso |
+|---|---|
+| Cancellare un account **pubblicava** le sue notifiche: `notifications.user_id` era `SET NULL`, e `NULL` significa «di tutti» per l'area genitore | `CASCADE`: una notifica indirizzata a chi non c'e piu se ne va con lui |
+| Cancellare un **atleta** distruggeva `funding_settlement_lines`: la liquidazione restava con l'importo intero e senza beneficiari | Guardia applicativa piu `RESTRICT` sul database |
+| `DELETE /api/v1/clubs/<il proprio>` cancellava 54 tabelle aggirando ogni guardia fiscale | Rifiutato se il club ha emesso documenti |
+| Le due rotte admin non lasciavano **nessuna traccia** | Audit su esito e su rifiuto; cancellare un utente che possiede club e rifiutato; per un club con storia fiscale serve `force=true`, ed e registrato |
+
+La richiesta di cancellazione che **pubblicava** i dati invece di toglierli e
+il difetto piu istruttivo della tornata: la dodicesima aveva dato un
+proprietario alla regola sulle notifiche e corretto i tre scrittori
+applicativi. Il quarto scrittore era il **database**, e nessun modulo poteva
+vederlo.
+
+### Il rendiconto per sede diceva zero euro
+
+Misurato su un club a due sedi: **tutte le sedi** 9 righe e 430,02 EUR, **per
+sede** 0 righe e 0,00 EUR. Dei cinque rami della vista del registro solo il
+primo portava una sede; gli altri quattro scrivevano `NULL`, e gli incassi
+delle famiglie stanno tutti in uno di quei quattro. Il filtro era
+un'uguaglianza stretta, quindi selezionare una sede **svuotava** il rendiconto,
+senza avviso, e lo stesso CSV finiva al commercialista.
+
+Due correzioni, perche una sola non basta: la vista ora prende la sede dal
+conto (era a un campo di distanza, e i rami univano gia quella tabella per
+leggerne il nome), e il filtro lascia passare cio che una sede non ce l'ha —
+la regola di ADR-0038, che il commento del rendiconto **dichiarava** proprio
+sopra un codice che faceva l'opposto. La sede di un movimento si valida ora
+come quella di un conto: dichiararne una che non esiste non e piu ammesso.
+
+### Il mobile e pulito
+
+Nessun Critical, nessun High. ADR-0018 regge — nessun ORM, nessuna stringa di
+connessione, e la guardia CI e reale. Il token vive solo in `expo-secure-store`,
+non finisce mai nei log, e non esce verso host diversi da quello configurato.
+Isolamento tenant: il client manda solo `x-active-club-id`, che il server
+valida; il ruolo memorizzato localmente non raggiunge **mai** una decisione di
+autorizzazione, perche viene sempre riderivato dalle appartenenze. Nessun dato
+di atleti o certificati medici viene scritto su disco.
+
+Corretto un difetto reale sotto l'eccezione di sicurezza di ADR-0025: **uscire
+non revocava la sessione**. Il token restava valido per i suoi quattordici
+giorni — ed e proprio quello che si fa quando si perde il telefono.
+
+### Export
+
+Nessun export restituisce campi che chi lo chiede non potrebbe gia vedere, e
+nessuno porta IBAN, hash o token. Corretti due difetti del tracciato dei bandi:
+usava una copia privata dell'escape che **non proteggeva il ritorno a capo** —
+un nome incollato da Windows inventava una beneficiaria dentro una
+rendicontazione pubblica — e non neutralizzava le formule.

@@ -2368,8 +2368,22 @@ const guardNotificationRecipient = async (
   scope?: ResourceAccessScope,
 ) => {
   if (!RECIPIENT_SCOPED_RESOURCES.has(resource)) return;
-  if (!("user_id" in data)) return;
 
+  /*
+    **Una chiave assente e un destinatario assente.**
+
+    Qui c'era `if (!("user_id" in data)) return;`, e bastava **omettere** la
+    chiave per scavalcare tutta la guardia: `user_id` non lo inietta nessuno a
+    monte — `normalizeModelInput` forza solo le colonne JSON, `stripUndefined`
+    toglie le chiavi assenti — e la colonna e nullable, quindi Prisma scriveva
+    `NULL`. Cioe esattamente la riga «di tutti» che questa guardia esiste per
+    impedire, ottenuta togliendo un campo invece che scrivendoci dentro.
+
+    Rifiutare `{"user_id": null}` e lasciar passare `{}` non e una guardia: e
+    un dosso. Sulla **modifica** l'assenza va invece rispettata — un `PATCH`
+    che non nomina il destinatario non deve ridichiararlo — e infatti li e chi
+    chiama a decidere se interpellarci.
+  */
   const destinatario = String(data.user_id ?? "").trim();
 
   if (!destinatario) {
@@ -2409,6 +2423,62 @@ const guardNotificationRecipient = async (
   throw new Error(
     "Accesso negato: il destinatario di una notifica deve appartenere al club",
   );
+};
+
+/**
+ * **Una riga figlia non si aggancia al padre di un altro club.**
+ *
+ * `createResource` forza `organization_id` al club della sessione, e questo
+ * chiude la meta piu ovvia: la riga nasce nel club giusto. Ma non guardava
+ * **a chi si attacca**. Su `athlete_category_memberships` bastava mandare
+ * l'identificativo di un atleta di un altro club: la riga finiva nel club di
+ * chi scrive e pendeva dall'atleta di qualcun altro.
+ *
+ * Le conseguenze non sono teoriche. Il club proprietario rilegge quelle
+ * appartenenze attraverso relazioni che non filtrano per club, e un
+ * `site_id` iniettato li dentro fa **sparire un suo atleta** da ogni elenco
+ * per sede: non corrisponde a nessuna delle sue sedi, e non e piu «senza
+ * sede».
+ *
+ * E la stessa forma del conto di un altro club, che nella contabilita e stata
+ * chiusa con una chiave esterna composta. Qui la chiave composta non c'e — e
+ * aggiungerla e una migrazione su una tabella grande — quindi la chiude
+ * l'applicazione, e lo dice.
+ */
+const PADRE_DA_VERIFICARE: Record<string, { campo: string; modello: string }> = {
+  athlete_category_memberships: { campo: "athlete_id", modello: "athlete" },
+};
+
+const guardParentBelongsToClub = async (
+  resource: string,
+  data: Record<string, any>,
+  scope?: ResourceAccessScope,
+) => {
+  const regola = PADRE_DA_VERIFICARE[resource];
+  if (!regola) return;
+
+  const padreId = String(data[regola.campo] ?? "").trim();
+  if (!padreId) return;
+
+  const clubId = String(
+    data.organization_id || scope?.activeOrganizationId || "",
+  ).trim();
+  if (!clubId) throw new Error("Accesso negato: club non risolto");
+
+  const padre = await (prisma as any)[regola.modello].findUnique({
+    where: { id: padreId },
+    select: { organization_id: true },
+  });
+
+  if (!padre) {
+    throw new Error("Accesso negato: la riga a cui si collega non esiste");
+  }
+
+  if (String(padre.organization_id) !== clubId) {
+    throw new Error(
+      "Accesso negato: non si puo collegare una riga a un elemento di un altro club",
+    );
+  }
 };
 
 const applyRecipientScope = (
@@ -3979,6 +4049,7 @@ export const createResource = async (
     fatto con cio che c'e.
   */
   await guardNotificationRecipient(resource, normalized, scope);
+  await guardParentBelongsToClub(resource, normalized, scope);
 
   const existingCharge =
     (resource === "payments" || resource === "simplified_payments") && normalized.id
@@ -4755,6 +4826,87 @@ export const updateResource = async (
  * Il conteggio guarda **tutti** gli incassi, storni inclusi: una rata incassata
  * e poi stornata ha saldo zero e una storia che deve restare leggibile.
  */
+/**
+ * **Cancellare un atleta non cancella l'attribuzione di denaro pubblico.**
+ *
+ * Il difetto che chiude, e la forma che lo rendeva invisibile: le guardie di
+ * questo file sono scritte sul **nome della risorsa** che si cancella, mentre
+ * Postgres distrugge per **raggiungibilita**. `athletes` non e fra le risorse
+ * riservate — la segreteria cancella un atleta tutti i giorni, ed e giusto —
+ * ma la catena `athletes -> funding_accruals -> funding_settlement_lines`
+ * arrivava fino al denaro di un ente pubblico.
+ *
+ * La testata della liquidazione sopravvive con l'importo intero erogato; le
+ * righe che lo giustificano sparivano. Il totale «liquidato» restava, senza
+ * piu nessuno a cui attribuirlo, e la riconciliazione da consegnare al
+ * finanziatore perdeva beneficiari in silenzio.
+ *
+ * E la stessa regola di `assertPaymentHasNoEconomicHistory`, applicata al
+ * livello che la raggiunge: un atleta **senza** liquidazioni resta
+ * cancellabile, perche correggere un'anagrafica sbagliata non e cancellare
+ * denaro. Il vincolo `RESTRICT` sul database e l'altra meta: questa frase
+ * spiega, quello vale anche per chi non passa dall'applicazione.
+ */
+const assertAthleteHasNoSettledFunding = async (
+  resource: string,
+  athleteId: string,
+) => {
+  if (resource !== "athletes") return;
+  if (!athleteId) return;
+
+  const righeLiquidate = await (prisma as any).fundingSettlementLine.count({
+    where: { accrual: { athlete_id: athleteId } },
+  });
+
+  if (righeLiquidate > 0) {
+    throw new Error(
+      "Questo atleta ha contributi gia liquidati da un ente e non si cancella: " +
+        "le righe che attribuiscono quel denaro sparirebbero, e la liquidazione " +
+        "resterebbe un totale senza beneficiari. Revoca l'iscrizione al bando, " +
+        "che conserva lo storico.",
+    );
+  }
+};
+
+/**
+ * **Un club con una storia fiscale non si cancella da una rotta CRUD.**
+ *
+ * `clubs` e una risorsa di modello, quindi `DELETE /api/v1/clubs/<il proprio>`
+ * e raggiungibile da proprietario e gestore — e sotto quella riga la
+ * cancellazione a catena del database tocca **cinquantaquattro tabelle**:
+ * fatture, ricevute, incassi, movimenti, conti, liquidazioni dei bandi, le
+ * sequenze di numerazione e ogni allegato.
+ *
+ * Il prodotto rifiuta `DELETE /api/v1/invoices/<emessa>` dicendo che «un buco
+ * nella numerazione non e spiegabile», e poi le cancellava tutte insieme un
+ * livello piu su. Le due porte non possono rispondere diversamente sulla
+ * stessa cosa.
+ *
+ * Un club **senza** documenti fiscali emessi resta cancellabile: chiudere una
+ * prova o un club creato per sbaglio e un'operazione legittima, e finche non
+ * e stato emesso niente non c'e nessun registro da spiegare.
+ */
+const assertClubHasNoFiscalHistory = async (
+  resource: string,
+  clubId: string,
+) => {
+  if (resource !== "clubs" && resource !== "organizations") return;
+  if (!clubId) return;
+
+  const [fatture, ricevute] = await Promise.all([
+    (prisma as any).invoice.count({ where: { organization_id: clubId } }),
+    (prisma as any).receipt.count({ where: { organization_id: clubId } }),
+  ]);
+
+  if (fatture > 0 || ricevute > 0) {
+    throw new Error(
+      `Questo club ha emesso documenti fiscali (${fatture} fatture, ${ricevute} ricevute) e non si cancella: ` +
+        "cancellarlo distruggerebbe registri che una societa e tenuta a conservare, " +
+        "insieme a incassi, movimenti e allegati. Archivia il club invece di cancellarlo.",
+    );
+  }
+};
+
 const assertPaymentHasNoEconomicHistory = async (
   resource: string,
   paymentId: string,
@@ -4878,6 +5030,8 @@ export const deleteResource = async (
   */
   await assertPaymentHasNoEconomicHistory(resource, existing?.id);
   await assertDocumentNotIssued(resource, existing);
+  await assertAthleteHasNoSettledFunding(resource, existing?.id);
+  await assertClubHasNoFiscalHistory(resource, existing?.id);
 
   const record = await delegate.delete({
     where: { id },

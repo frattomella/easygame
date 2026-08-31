@@ -968,7 +968,7 @@ chi cambia la topologia davanti all'applicazione.
 
 ### `STRIPE_HTTP_TIMEOUT_MS` (2026-08-31)
 
-Millisecondi, default **10000**. Limita ogni chiamata HTTP verso Stripe.
+Millisecondi, default **5000**. Limita ogni chiamata HTTP verso Stripe.
 
 Va tenuto **ben sotto** il tempo massimo della funzione serverless, e la
 ragione non e la latenza percepita: nel gestore del webhook quella chiamata sta

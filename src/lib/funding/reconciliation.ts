@@ -21,8 +21,12 @@
  * possono avere idee diverse. Escluderla dalla riconciliazione vorrebbe dire
  * far sparire proprio le domande.
  *
- * Modulo **puro**: riceve le righe gia lette, non conosce Prisma.
+ * Modulo **puro**: riceve le righe gia lette, non conosce Prisma — il tracciato
+ * CSV lo possiede `src/lib/csv.ts`, che e il solo posto in cui separatore,
+ * quoting e neutralizzazione delle formule sono decisi.
  */
+
+import { CSV_DELIMITER, CSV_EOL, csvEscape, csvValue } from "@/lib/csv";
 
 const asText = (value: unknown) => String(value ?? "").trim();
 
@@ -184,20 +188,34 @@ const CSV_COLUMNS: Array<[string, (row: ReconciliationRow) => unknown]> = [
 export const toReconciliationCsv = (
   reconciliation: FundingReconciliation,
 ): string => {
-  const escape = (value: unknown) => {
-    const text =
-      typeof value === "number"
-        ? String(value).replace(".", ",")
-        : asText(value);
+  /*
+    **Il tracciato lo scrive il modulo che lo possiede.**
 
-    return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
+    Qui viveva una copia privata di `escape`, e `src/lib/csv.ts` esiste
+    dichiaratamente per ritirarla: il pannello degli adempimenti era gia
+    migrato, questo no. Le due differenze non erano di stile.
 
-  const lines = [CSV_COLUMNS.map(([label]) => escape(label)).join(";")];
+    Non proteggeva il **ritorno a capo**: il suo test era `/[";\n]/`, senza
+    `\r`. Un nome incollato da Windows dentro un'anagrafica porta `\r\n`, e la
+    riga si spezzava in due — una beneficiaria in piu, inventata, dentro una
+    rendicontazione da consegnare a un ente pubblico.
+
+    E non neutralizzava le **formule**: `=HYPERLINK(...)` scritto in un nome
+    usciva come formula viva. Chi apre questo file e per definizione la persona
+    che sta riconciliando con il finanziatore, e lo apre in Excel.
+
+    `csvValue` fa entrambe le cose e converte i decimali in virgola, che e la
+    ragione per cui la copia era nata.
+  */
+  const lines = [
+    CSV_COLUMNS.map(([label]) => csvEscape(label)).join(CSV_DELIMITER),
+  ];
 
   for (const row of reconciliation.rows) {
-    lines.push(CSV_COLUMNS.map(([, pick]) => escape(pick(row))).join(";"));
+    lines.push(
+      CSV_COLUMNS.map(([, pick]) => csvValue(pick(row))).join(CSV_DELIMITER),
+    );
   }
 
-  return lines.join("\r\n");
+  return lines.join(CSV_EOL);
 };

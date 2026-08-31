@@ -6,14 +6,21 @@ import test from "node:test";
 /**
  * Verifica di conformita sui route handler.
  *
- * `src/lib/server/resources.ts` non e importabile da questo runner (usa import
- * senza estensione e costruisce PrismaClient a livello di modulo: vedi
- * ADR-0008 e WP-04), quindi l'isolamento multi-tenant non e testabile a
- * runtime senza un refactor.
+ * Questi test presidiano un rischio che solo il sorgente puo mostrare: che un
+ * endpoint **nuovo** dimentichi l'autenticazione o il filtro per
+ * organizzazione. Sono test statici, e lo sono per costruzione — la domanda
+ * «esiste una rotta che non chiama la guardia» non si risponde eseguendo le
+ * rotte che la chiamano.
  *
- * Nel frattempo questi test presidiano il rischio concreto: che un endpoint
- * nuovo dimentichi l'autenticazione o il filtro per organizzazione. Sono test
- * statici sul sorgente, non sul comportamento.
+ * **Nota corretta il 2026-08-31.** Qui c'era scritto che
+ * `src/lib/server/resources.ts` non fosse importabile da questo runner. Non e
+ * (piu) vero: si importa, e `tests/server/guardie-di-scrittura-e-cancellazione.test.mjs`
+ * ne esercita le guardie a runtime. La nota risaliva a prima di WP-04 ed e
+ * costata cara: una guardia scritta in quel file era stata coperta da un test
+ * **statico** che contava le chiamate — e ha continuato a passare mentre la
+ * guardia si scavalcava omettendo un campo. Quando la KB e il codice non
+ * concordano vince il codice (CLAUDE.md §1), e qui la KB stava impedendo il
+ * test migliore.
  */
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
