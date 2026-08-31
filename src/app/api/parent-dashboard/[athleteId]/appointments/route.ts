@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { createClubNotifications } from "@/lib/server/club-notifications";
+import { isManagementAccessRole } from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getParentDashboardData } from "@/lib/server/parent-dashboard";
@@ -49,18 +51,32 @@ const createAppointmentNotification = async ({
   message: string;
   appointment: Record<string, any>;
 }) => {
-  await prisma.notification
-    .create({
-      data: {
-        organization_id: organizationId,
-        user_id: null,
-        title,
-        message,
-        type: "appointment_request",
-        data: appointment,
-      },
-    })
-    .catch(() => undefined);
+  /*
+    **La richiesta di una famiglia non si mostra alle altre famiglie.**
+
+    Nasceva con `user_id: null`, che nel modello vuol dire «di club» e che il
+    prodotto interpreta come «di tutti»: `getParentDashboardData` legge
+    `OR: [{ user_id: userId }, { user_id: null }]` e restituisce la riga
+    **intera**, campo `data` compreso. E in `data` c'era l'appuntamento per
+    esteso — nome del genitore, indirizzo, telefono, nome del minore e il
+    motivo scritto a mano.
+
+    Bastava aprire la propria area famiglia per leggere quelle di tutti gli
+    altri, e rileggerla ogni giorno per raccogliere la rubrica del club.
+
+    La regola — un destinatario per riga, mai `user_id: null` — era gia stata
+    scritta due volte altrove; adesso ha un proprietario, e questi scrittori
+    la usano. Il perimetro qui e la gestione del club: un appuntamento lo
+    prende la segreteria — cioe l'area gestionale — non l'allenatore e non le altre famiglie.
+  */
+  await createClubNotifications({
+    clubId: organizationId,
+    title,
+    message,
+    type: "appointment_request",
+    data: appointment,
+    audience: (role) => isManagementAccessRole(role),
+  }).catch(() => undefined);
 };
 
 export async function POST(request: Request, context: Context) {

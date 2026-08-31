@@ -1331,3 +1331,92 @@ legga e un genitore no, per ogni `owner_type` — proprieta vera **anche** per u
 tipo non dichiarato, perche la ricaduta e su `clubs`. Dicevano di legare la
 mappa alla sua fonte e non la legavano: ora il confronto e fra insiemi di
 chiavi, e un `owner_type` nuovo senza decisione fa fallire il test.
+
+---
+
+## Dodicesima tornata — cio che esce verso persone reali (2026-08-31)
+
+Audit indipendente su motore delle audience, notifiche, invio email e job
+schedulati; piu la conferma sulla tornata precedente.
+
+### Una notifica «di club» e una notifica a tutti, e portava i dati di una famiglia
+
+Nel modello `Notification`, `user_id: null` vuol dire «di societa». Il prodotto
+pero lo legge come **«di tutti»**: `getParentDashboardData` interroga
+`OR: [{ user_id: userId }, { user_id: null }]` e restituisce la riga **intera**,
+campo `data` compreso.
+
+I due scrittori dell'area genitore usavano quella forma. La richiesta di
+appuntamento di una famiglia arrivava nella bacheca di ogni altra famiglia con
+dentro, per esteso: nome del genitore, indirizzo email, telefono, nome del
+minore e il motivo scritto a mano. Bastava aprire la propria pagina per
+leggerle tutte, e rileggerla ogni giorno per raccogliere la rubrica del club.
+Il caricamento di un documento era la stessa cosa, con in piu il titolo scritto
+dalla famiglia — testo libero e di lunghezza non controllata.
+
+**La cosa che conta piu del difetto: era la terza volta.** La stessa forma era
+gia stata trovata e chiusa nel giro delle automazioni e nello scheduler del
+lavoro sportivo, e in entrambi i casi la correzione era rimasta **privata al
+suo modulo**. Due copie della stessa regola sono il modo in cui la terza nasce
+gia sbagliata. La regola adesso ha un proprietario —
+`src/lib/server/club-notifications.ts` — e i tre scrittori passano di li.
+
+### E il destinatario lo sceglieva chi scrive
+
+`notifications` sta fra le risorse che un **allenatore** puo creare. Il CRUD
+generico forza `organization_id` al club attivo e **non guardava `user_id`**:
+
+- `{"user_id": null}` recapitava testo arbitrario a ogni account del club —
+  proprietario, segreteria, genitori, atleti: lo stesso pubblico del motore
+  delle audience, senza il motore, senza registro delle consegne e senza audit;
+- `{"user_id": "<uuid di chiunque>"}` faceva partire una email vera, dal server
+  del club, verso un account di **un'altra societa**, perche
+  `sendNotificationEmails` risolve l'utente senza filtro di club.
+
+Adesso una notifica si indirizza a una persona, e quella persona deve
+appartenere al club. Vale in creazione **e** in modifica: spostare una notifica
+gia scritta su un altro destinatario e la stessa cosa che scriverla li.
+
+### Una compilazione anonima raggiungeva tutte le famiglie
+
+`notifyClub` non filtrava per ruolo, e `organization_users` contiene anche
+genitori e allenatori. Il nome dichiarato da chi compila un modulo pubblico
+veniva diffuso a tutto il club, chiunque conoscesse lo slug — che e il link di
+iscrizione — aveva un canale di testo verso quelle bacheche, e una richiesta
+produceva N email.
+
+### Cosa l'audit ha trovato pulito
+
+- **L'autorizzazione dei cron.** Tutti e cinque i job passano da
+  `authorizeCronRequest`: segreto mancante e **rifiuto 503, non bypass**,
+  confronto a tempo costante, gemelli `POST` ciascuno con il proprio permesso.
+  Il riavvio ripetuto e innocuo — le consegne si reclamano in modo atomico, le
+  notifiche del lavoro sportivo sono per chiave, e nessun cron muove denaro.
+- **Il motore delle audience.** Il club si fissa dalla sessione e un club nel
+  corpo viene rifiutato; un criterio sconosciuto **solleva** invece di
+  allargare; `athlete_ids` si interseca con il club nella query; il criterio
+  economico e sorvegliato dal permesso al criterio, non alla pagina. Il client
+  non fornisce mai un elenco di destinatari.
+- **La bacheca.** Leggere un allegato di annuncio richiede il club dell'allegato
+  **e** una consegna reale verso chi chiede.
+- **L'invio email.** Nessuna iniezione di intestazioni (nodemailer toglie CR/LF),
+  mittente sempre dalla configurazione, nessun `replyTo`, template con escape e
+  segnaposto economici negati per difetto, errori normalizzati senza indirizzi.
+- **Il rollover di stagione.** Riservato a proprietario e gestore con audit del
+  rifiuto, club dalla sessione, doppia esecuzione idempotente, e nessuna riga di
+  denaro scritta — quindi un doppio giro non puo duplicare importi.
+
+### Una precisazione sulla tornata precedente
+
+La correzione sulla riconsegna dei webhook diceva di coprire anche «il timeout
+della funzione mentre si interroga il provider». **Non lo copriva.** La ripresa
+agisce sulle righe `failed`, e una riga finisce in `failed` solo se l'errore
+viene **catturato nel processo**: una funzione uccisa dalla piattaforma lascia
+la riga in `processed`, cioe indistinguibile da un evento concluso.
+
+La chiamata verso Stripe adesso ha un limite di tempo
+(`STRIPE_HTTP_TIMEOUT_MS`, 10 secondi), che trasforma la causa piu probabile —
+una chiamata appesa — in un errore gestibile, quindi in una riga `failed` che
+si riprende. Resta scoperto il caso in cui la funzione muoia per altro
+(esaurimento memoria, terminazione della piattaforma): e registrato in W4-R17
+insieme alle righe `failed` che nessuno rilegge.

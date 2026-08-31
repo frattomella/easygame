@@ -1,4 +1,6 @@
 import { randomUUID } from "crypto";
+import { createClubNotifications } from "@/lib/server/club-notifications";
+import { isManagementAccessRole } from "@/lib/access-roles";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
@@ -200,19 +202,27 @@ export async function POST(request: Request, context: Context) {
       },
     });
 
-    await prisma.notification.create({
+    /*
+      **Stessa correzione della richiesta di appuntamento.**
+
+      `user_id: null` significa «di tutti» per l'area genitore, e qui il
+      messaggio nomina il minore e porta il **titolo scritto dalla famiglia**
+      — testo libero, di lunghezza non controllata, che finiva nella bacheca
+      di ogni altra famiglia del club.
+
+      Il caricamento di un documento lo esamina l'area gestionale: segreteria compresa, allenatori e altre famiglie no.
+    */
+    await createClubNotifications({
+      clubId: dashboard.club.id,
+      title: "Documento parent caricato",
+      message: `${dashboard.athlete.name} ha caricato: ${documentRecord.title}`,
+      type: "document_uploaded",
       data: {
-        organization_id: dashboard.club.id,
-        user_id: null,
-        title: "Documento parent caricato",
-        message: `${dashboard.athlete.name} ha caricato: ${documentRecord.title}`,
-        type: "document_uploaded",
-        data: {
-          athleteId: dashboard.athlete.id,
-          documentId: documentRecord.id,
-          source: "shared_documents",
-        },
+        athleteId: dashboard.athlete.id,
+        documentId: documentRecord.id,
+        source: "shared_documents",
       },
+      audience: (role) => isManagementAccessRole(role),
     });
 
     return NextResponse.json({

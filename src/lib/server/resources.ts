@@ -2340,6 +2340,77 @@ const RECIPIENT_SCOPED_RESOURCES = new Set([
   "simplified_notifications",
 ]);
 
+/**
+ * **Il destinatario di una notifica non lo sceglie chi scrive.**
+ *
+ * `applyRecipientScope` qui sotto chiude la **lettura**; questa chiude la
+ * scrittura, che era rimasta aperta del tutto. `notifications` sta fra le
+ * risorse che un allenatore puo creare (`TRAINER_WRITE_RESOURCES`), il CRUD
+ * generico forza `organization_id` al club attivo — e non guardava `user_id`.
+ *
+ * Ne uscivano due cose, entrambe da un ruolo che non ha `communications.send`:
+ *
+ * - `{"user_id": null}` — che il prodotto legge come «di tutti» — recapitava
+ *   testo arbitrario a **ogni** account del club, proprietario, segreteria,
+ *   genitori e atleti compresi: lo stesso pubblico del motore delle audience,
+ *   senza il motore, senza registro delle consegne e senza una riga di audit;
+ * - `{"user_id": "<uuid di chiunque>"}` — la rotta chiama poi
+ *   `sendNotificationEmails`, che risolve l'utente **senza filtro di club**:
+ *   una email vera, dal server del club, verso un account di un'altra societa.
+ *
+ * La regola: si scrive a una persona, e quella persona deve stare nel club in
+ * cui si sta scrivendo. Le notifiche «di societa» non passano di qui — le
+ * scrive `club-notifications.ts`, che le indirizza una per destinatario.
+ */
+const guardNotificationRecipient = async (
+  resource: string,
+  data: Record<string, any>,
+  scope?: ResourceAccessScope,
+) => {
+  if (!RECIPIENT_SCOPED_RESOURCES.has(resource)) return;
+  if (!("user_id" in data)) return;
+
+  const destinatario = String(data.user_id ?? "").trim();
+
+  if (!destinatario) {
+    throw new Error(
+      "Accesso negato: una notifica si indirizza a una persona. " +
+        "Le notifiche di societa non si scrivono da questa rotta.",
+    );
+  }
+
+  const clubId = String(
+    data.organization_id || scope?.activeOrganizationId || "",
+  ).trim();
+
+  if (!clubId) {
+    throw new Error("Accesso negato: club non risolto per la notifica");
+  }
+
+  const [membership, club] = await Promise.all([
+    prisma.organizationUser.findFirst({
+      where: { organization_id: clubId, user_id: destinatario },
+      select: { id: true },
+    }),
+    /*
+      Il proprietario di un club puo esistere solo in `clubs.creator_id`: la
+      creazione valorizza quella colonna **senza** scrivere una riga di
+      appartenenza, e `resolveOrganizationScopeForUser` lo riconosce da li.
+    */
+    prisma.club.findUnique({
+      where: { id: clubId },
+      select: { creator_id: true },
+    }),
+  ]);
+
+  if (membership) return;
+  if (String(club?.creator_id || "").trim() === destinatario) return;
+
+  throw new Error(
+    "Accesso negato: il destinatario di una notifica deve appartenere al club",
+  );
+};
+
 const applyRecipientScope = (
   resource: string,
   where: Record<string, any>,
@@ -3907,6 +3978,8 @@ export const createResource = async (
     modifica. In `upsert` la riga puo gia esistere, e allora il confronto va
     fatto con cio che c'e.
   */
+  await guardNotificationRecipient(resource, normalized, scope);
+
   const existingCharge =
     (resource === "payments" || resource === "simplified_payments") && normalized.id
       ? await delegate.findUnique({ where: { id: String(normalized.id) } })
@@ -4552,6 +4625,26 @@ export const updateResource = async (
     include: getModelInclude(resource),
   });
   assertRecordAccess(resource, existing, scope);
+
+  /*
+    Anche la modifica: spostare una notifica gia scritta su un altro
+    destinatario e la stessa cosa che scriverla li, e passerebbe da qui invece
+    che dalla creazione. Il perimetro e lo stesso — una persona, e di questo
+    club — e si controlla solo se il `PATCH` tocca davvero il destinatario:
+    una modifica che non lo nomina non deve dover ridichiarare il club.
+  */
+  if ("user_id" in normalized) {
+    await guardNotificationRecipient(
+      resource,
+      {
+        user_id: normalized.user_id,
+        organization_id:
+          normalized.organization_id || existing?.organization_id || null,
+      },
+      scope,
+    );
+  }
+
   /*
     Il tipo lo dice la **riga**, non chi chiede: `club_resource_items` e una
     risorsa di **modello**, quindi passa di qui e non dal ramo delle risorse di

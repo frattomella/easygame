@@ -965,3 +965,18 @@ chi cambia la topologia davanti all'applicazione.
 > limiti diventano troppo stretti — fastidioso, ma visibile. Dichiararne **piu**
 > di quanti ce ne sono fa risalire dentro la parte della catena che scrive il
 > client, e li i limiti tornano aggirabili. Nel dubbio, il numero piu basso.
+
+### `STRIPE_HTTP_TIMEOUT_MS` (2026-08-31)
+
+Millisecondi, default **10000**. Limita ogni chiamata HTTP verso Stripe.
+
+Va tenuto **ben sotto** il tempo massimo della funzione serverless, e la
+ragione non e la latenza percepita: nel gestore del webhook quella chiamata sta
+fra la riga di deduplica — gia scritta e confermata — e la scrittura del
+movimento. Una chiamata che non torna mai fa uccidere la funzione dalla
+piattaforma, e una funzione uccisa non passa da nessun `catch`: la riga resta
+`processed`, cioe indistinguibile da un evento concluso, e alla riconsegna il
+provider riceve «gia ricevuto» e smette di ritentare.
+
+Un errore si gestisce; una funzione uccisa no. Il limite serve a trasformare il
+secondo caso nel primo.

@@ -128,9 +128,51 @@ export const rememberBillingCustomer = async (input: {
 export const applySubscriptionSnapshot = async (input: {
   organizationId: string;
   snapshot: PlatformSubscriptionSnapshot;
+  /**
+   * Quando il provider ha emesso l'evento da cui viene questa fotografia.
+   *
+   * Serve a non far vincere un evento **vecchio** arrivato tardi: vedi la
+   * guardia qui sotto. Assente per le scritture che non nascono da un evento
+   * (Platform Admin), che sono per definizione le piu recenti.
+   */
+  eventAt?: Date | string | null;
 }): Promise<PlatformBillingRecord> => {
   const id = asText(input.organizationId);
   const snapshot = input.snapshot;
+
+  /*
+    **Una fotografia vecchia non deve sovrascriverne una nuova.**
+
+    Questo era un `upsert` che scrive e basta: `last_event_at` si valorizzava e
+    non si confrontava mai. Stripe non garantisce l'ordine di consegna, quindi
+    il rischio c'era gia — ma la ripresa dei tentativi falliti lo ha allargato
+    dai secondi alle **72 ore** della finestra di riconsegna.
+
+    Lo scenario: `customer.subscription.updated` (stato `active`) fallisce e
+    resta `failed`; poco dopo arriva `customer.subscription.deleted`, riesce, e
+    il club scende a `free`. Stripe continua a ritentare il primo per tre
+    giorni; quel tentativo adesso **riprende** e riapplica la fotografia
+    `active`, rimettendo il club su `plus`. Il piano di una societa tornerebbe
+    indietro nel tempo, e nessuna riga direbbe perche.
+
+    L'evento piu recente vince. A parita di istante vince chi scrive dopo, che
+    e il comportamento di prima e va bene: due eventi con lo stesso timestamp
+    descrivono lo stesso momento.
+  */
+  const eventAt = input.eventAt ? new Date(input.eventAt) : null;
+  if (eventAt && !Number.isNaN(eventAt.getTime())) {
+    const corrente = await billingClient().findUnique({
+      where: { organization_id: id },
+      select: { last_event_at: true },
+    });
+    const ultimo = corrente?.last_event_at
+      ? new Date(corrente.last_event_at)
+      : null;
+
+    if (ultimo && ultimo.getTime() > eventAt.getTime()) {
+      return getPlatformBillingAccount(id);
+    }
+  }
 
   /*
     Il piano segue lo stato, non il contrario. `trialing` da diritto al piano
@@ -159,7 +201,7 @@ export const applySubscriptionSnapshot = async (input: {
         ? new Date(snapshot.currentPeriodEnd)
         : null,
       cancel_at_period_end: snapshot.cancelAtPeriodEnd,
-      last_event_at: new Date(),
+      last_event_at: eventAt && !Number.isNaN(eventAt.getTime()) ? eventAt : new Date(),
       last_error: null,
     },
     update: {
@@ -172,7 +214,7 @@ export const applySubscriptionSnapshot = async (input: {
         ? new Date(snapshot.currentPeriodEnd)
         : null,
       cancel_at_period_end: snapshot.cancelAtPeriodEnd,
-      last_event_at: new Date(),
+      last_event_at: eventAt && !Number.isNaN(eventAt.getTime()) ? eventAt : new Date(),
       last_error: null,
     },
   });
@@ -326,6 +368,12 @@ export const handlePlatformBillingEvent = async (
     await applySubscriptionSnapshot({
       organizationId,
       snapshot: { ...snapshot, organizationId },
+      /*
+        L'istante dell'evento, non quello in cui lo stiamo elaborando: un
+        tentativo ripreso tre giorni dopo descrive comunque il momento in cui
+        Stripe lo ha emesso, ed e quello a decidere chi vince.
+      */
+      eventAt: event.createdAt,
     });
 
     return {

@@ -1045,3 +1045,149 @@ test("un modulo mai pubblicato non si compila dalla scheda", async () => {
     /non e ancora pubblicato/,
   );
 });
+
+/* =========================================================================
+ * Dodicesima tornata — chi viene avvisato di una compilazione pubblica
+ * ========================================================================= */
+
+/** Un modulo pubblicato che chiede di essere segnalato a ogni compilazione. */
+const templateCheAvvisa = async () => {
+  const created = await createTemplate();
+  await forms.updateFormTemplateDraft(scopeA(), created.id, {
+    ...schemaWithFields(ATHLETE_FIELDS),
+    settings: {
+      ...schemaWithFields(ATHLETE_FIELDS).settings,
+      notifyOnSubmit: true,
+    },
+  });
+  return forms.publishFormTemplate(scopeA(), created.id);
+};
+
+/**
+ * **Una compilazione anonima non raggiunge la bacheca di tutto il club.**
+ *
+ * `notifyClub` prendeva `club.creator_id` piu **ogni riga** di
+ * `organization_users`, senza filtro di ruolo — e quella tabella contiene
+ * anche genitori e allenatori, perche il riscatto di un token di accesso ci
+ * scrive dentro il ruolo che il token nomina.
+ *
+ * Erano tre cose insieme: il nome dichiarato da chi compila un modulo pubblico
+ * diffuso a **tutte le famiglie** invece che alla sola segreteria; un canale
+ * di testo verso quelle bacheche per chiunque conosca lo slug — che e il link
+ * di iscrizione, e si da a tutti; e una richiesta che produce N email, con la
+ * reputazione SMTP del club in gioco.
+ */
+test("della compilazione pubblica si avvisa chi puo esaminarla, non tutto il club", async () => {
+  const template = await templateCheAvvisa();
+
+  const SEGRETERIA = "99999999-0000-4000-8000-00000000000a";
+  const GENITORE = "99999999-0000-4000-8000-00000000000b";
+  const ALLENATORE = "99999999-0000-4000-8000-00000000000c";
+
+  /*
+    Il doppio di Prisma serve la relazione annidata dalla riga del club, non
+    dalla tabella: `notifyClub` legge `club.organization_users`, e la si semina
+    dove il codice la va a prendere.
+  */
+  const clubA = fake.rows("club").find((riga) => riga.id === CLUB_A);
+  clubA.organization_users = [
+    { user_id: SEGRETERIA, role: "staff" },
+    { user_id: GENITORE, role: "parent" },
+    { user_id: ALLENATORE, role: "trainer" },
+  ];
+
+  await submissions.submitPublicForm(template.publicSlug, {
+    answers: { f_nome: "Mario", f_cognome: "Rossi", f_tel: "3331234567" },
+    files: [],
+    respondentName: "Mario Rossi",
+  });
+
+  const destinatari = new Set(
+    fake.rows("notification").map((riga) => riga.user_id),
+  );
+
+  assert.ok(destinatari.has(SEGRETERIA), "la segreteria esamina le compilazioni");
+  assert.equal(
+    destinatari.has(GENITORE),
+    false,
+    "il nome di chi si iscrive non si diffonde alle altre famiglie",
+  );
+  assert.equal(
+    destinatari.has(ALLENATORE),
+    false,
+    "un allenatore non esamina le compilazioni",
+  );
+});
+
+/**
+ * **Il nome entra come una riga sola e corta.**
+ *
+ * Arriva dal corpo di una richiesta anonima: senza a capo non puo fingersi un
+ * messaggio del sistema, e accorciato non e piu lo spazio per scriverne uno.
+ */
+test("il nome del compilatore non porta a capo nella notifica", async () => {
+  const template = await templateCheAvvisa();
+
+  const clubPerNome = fake.rows("club").find((riga) => riga.id === CLUB_A);
+  clubPerNome.organization_users = [
+    { user_id: "99999999-0000-4000-8000-00000000000d", role: "staff" },
+  ];
+
+  await submissions.submitPublicForm(template.publicSlug, {
+    answers: { f_nome: "Mario", f_cognome: "Rossi", f_tel: "3331234567" },
+    files: [],
+    respondentName: `Mario\n\nAVVISO DELLA SEGRETERIA: ${"x".repeat(200)}`,
+  });
+
+  const riga = fake.rows("notification").find((r) => r.type === "form_submission");
+  assert.ok(riga, "la notifica deve esserci");
+  assert.equal(
+    /[\r\n]/.test(String(riga.message)),
+    false,
+    "nessun a capo: il messaggio resta una riga sola",
+  );
+  assert.ok(
+    String(riga.message).length < 200,
+    `il messaggio resta corto, misurato ${String(riga.message).length}`,
+  );
+});
+
+/**
+ * **Una firma e un'immagine, e il tipo si controlla.**
+ *
+ * Il controllo era saltato **del tutto** per i campi `signature`, con la
+ * ragione giusta — una firma disegnata dal browser non passa dal selettore di
+ * file, e confrontarla con l'elenco dei documenti (PDF, foto, scansioni) non
+ * avrebbe senso. Ma «non quell'elenco» non vuol dire «nessun elenco»: chi
+ * compila un modulo pubblico decide come si chiama la parte multipart, e
+ * bastava nominarla come il campo firma per dichiarare qualunque tipo.
+ *
+ * Non ne usciva uno stored XSS — `createAttachment` rivalida su un elenco che
+ * non contiene ne HTML ne SVG, e cio che non e visualizzabile in linea viene
+ * servito come allegato con `nosniff` — ma allargava i tipi accettati da sette
+ * a quindici passando da una porta che non doveva aprirsi.
+ */
+test("un campo firma accetta un'immagine e rifiuta il resto", async () => {
+  const template = await publishedTemplate([
+    ...ATHLETE_FIELDS,
+    { id: "f_firma", type: "signature", label: "Firma" },
+  ]);
+
+  const invia = (mimeType, fileName) =>
+    submissions.submitPublicForm(template.publicSlug, {
+      answers: { f_nome: "Mario", f_cognome: "Rossi" },
+      files: [
+        { fieldId: "f_firma", fileName, mimeType, content: Buffer.from("x") },
+      ],
+    });
+
+  // Il PNG e cio che produce davvero il pad di firma.
+  const esito = await invia("image/png", "firma.png");
+  assert.ok(esito.submissionId, "la firma vera deve passare");
+
+  await assert.rejects(
+    () => invia("application/pdf", "firma.pdf"),
+    /firma deve essere un'immagine/i,
+    "un tipo qualunque non passa piu dalla porta della firma",
+  );
+});

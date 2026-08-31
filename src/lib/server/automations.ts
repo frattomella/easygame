@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { createClubNotifications as scriviNotificaDiSocieta } from "./club-notifications";
 import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import {
   isEmailDeliveryConfigured,
@@ -939,99 +940,32 @@ const clubDigestAddress = (club: any) =>
 const CLUB_RECIPIENT_KEY = "club";
 
 /**
- * Gli account che possono ricevere una notifica **di societa**.
+ * La notifica di societa del giro delle automazioni.
  *
- * **Il difetto che questa funzione chiude.** Le notifiche verso la societa
- * nascevano con `user_id: null`, che nel modello `Notification` significa «di
- * club» e che il prodotto interpreta come «di tutti»: `parent-dashboard.ts`
- * legge `OR: [{ user_id: userId }, { user_id: null }]`, e `notifications` sta
- * fra le risorse che un allenatore puo elencare. Il contenuto pero e economico
- * e **nominativo** — «Rata scaduta: Mario Rossi — 130,00 € da versare» — e il
- * riepilogo giornaliero e l'elenco completo delle famiglie in arretrato.
+ * Il perimetro e quello economico: il contenuto e nominativo — «Rata scaduta:
+ * Mario Rossi — 130,00 EUR da versare» — e il riepilogo giornaliero e l elenco
+ * completo delle famiglie in arretrato. Lo vede chi quel dato potrebbe gia
+ * ottenerlo dal motore del pubblico, cioe chi ha
+ * `communications.audience_economic`: altrimenti il permesso verrebbe aggirato
+ * dal **canale di uscita** invece che dal criterio.
  *
- * Il risultato era che `communications.audience_economic`, il permesso che
- * esiste perche un allenatore non ottenga quell'elenco passando dal motore del
- * pubblico, veniva aggirato dal **canale di uscita** invece che dal criterio: il
- * giorno dopo ogni genitore lo leggeva nella propria area famiglia.
- *
- * La notifica di societa e quindi indirizzata, una per destinatario, e i
- * destinatari sono quelli che quel dato potrebbero gia vederlo.
+ * La meccanica — un destinatario per riga, mai `user_id: null` — vive in
+ * `club-notifications.ts`, che ne e il proprietario: la stessa regola era stata
+ * scritta qui e nello scheduler del lavoro sportivo, e i due scrittori dell area
+ * genitore non l avevano mai ricevuta.
  */
-const resolveClubNotificationRecipients = async (clubId: string) => {
-  const memberships = await (prisma as any).organizationUser.findMany({
-    where: { organization_id: clubId },
-    select: { user_id: true, role: true },
-  });
-
-  const destinatari = Array.from(
-    new Set(
-      memberships
-        .filter((row: any) =>
-          hasCommunicationPermission(row?.role, "communications.audience_economic"),
-        )
-        .map((row: any) => String(row?.user_id || "").trim())
-        .filter(Boolean),
-    ),
-  ) as string[];
-
-  if (destinatari.length > 0) return destinatari;
-
-  /*
-    **Un club il cui proprietario esiste solo in `clubs.creator_id`.**
-
-    Non e un caso di scuola: `resolveOrganizationScopeForUser` riconosce
-    l'`owner` anche da li, e la creazione di un club valorizza `creator_id`
-    **senza** scrivere una riga di appartenenza. Senza questo ripiego la
-    notifica di societa non arriverebbe a nessuno e il giro la chiuderebbe
-    `no_club_recipient` ogni notte, in silenzio: prima della correzione almeno
-    compariva.
-  */
-  const club = await (prisma as any).club.findUnique({
-    where: { id: clubId },
-    select: { creator_id: true },
-  });
-  const creatore = String(club?.creator_id || "").trim();
-
-  return creatore ? [creatore] : [];
-};
-
-/**
- * Scrive la notifica di societa **a ciascun destinatario**.
- *
- * Restituisce quanti ne ha raggiunti: zero significa che il club non ha nessun
- * account che possa vedere quel dato, e chi chiama deve poterlo dire invece di
- * dichiarare un successo.
- */
-const createClubNotifications = async ({
-  clubId,
-  title,
-  message,
-  type,
-  data,
-}: {
+const createClubNotifications = async (input: {
   clubId: string;
   title: string;
   message: string;
   type: string;
   data: Record<string, unknown>;
-}) => {
-  const recipients = await resolveClubNotificationRecipients(clubId);
-  if (recipients.length === 0) return 0;
-
-  await (prisma as any).notification.createMany({
-    data: recipients.map((userId) => ({
-      organization_id: clubId,
-      user_id: userId,
-      title,
-      message,
-      type,
-      read: false,
-      data,
-    })),
+}) =>
+  scriviNotificaDiSocieta({
+    ...input,
+    audience: (role) =>
+      hasCommunicationPermission(role, "communications.audience_economic"),
   });
-
-  return recipients.length;
-};
 
 /* -------------------------------------------------------------- il giro */
 

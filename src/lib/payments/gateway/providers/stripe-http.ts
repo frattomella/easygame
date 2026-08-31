@@ -93,17 +93,45 @@ export const callStripe = async (
 
   const method = options.method || (options.body ? "POST" : "GET");
 
+  /*
+    **Una chiamata che non finisce e peggio di una che fallisce.**
+
+    Non c'era nessun limite di tempo. Dentro il gestore del webhook questa
+    chiamata sta **fra** la riga di deduplica gia scritta e la scrittura del
+    movimento: se resta appesa finche la funzione viene uccisa dalla
+    piattaforma, il codice non riceve nessun errore — quindi non passa da
+    nessun `catch`, non segna il tentativo come fallito, e la riga resta come
+    se l'evento fosse stato elaborato. Alla riconsegna il provider si sente
+    rispondere «gia ricevuto» e smette di ritentare: l'incasso sparisce.
+
+    Un errore lo si puo gestire; una funzione uccisa no. Il limite serve a
+    trasformare il secondo caso nel primo.
+  */
+  const STRIPE_TIMEOUT_MS = Number(
+    process.env.STRIPE_HTTP_TIMEOUT_MS || 10_000,
+  );
+
   let response: Response;
+  const stopwatch = AbortSignal.timeout(
+    Number.isFinite(STRIPE_TIMEOUT_MS) && STRIPE_TIMEOUT_MS > 0
+      ? STRIPE_TIMEOUT_MS
+      : 10_000,
+  );
+
   try {
     response = await fetch(`${STRIPE_API_BASE}${path}`, {
       method,
       headers,
       body: options.body ? encodeStripeForm(options.body) : undefined,
+      signal: stopwatch,
     });
   } catch (error: any) {
+    const scaduta = error?.name === "TimeoutError" || stopwatch.aborted;
     throw new PaymentGatewayError(
       "provider_error",
-      `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
+      scaduta
+        ? "Stripe non ha risposto entro il tempo massimo"
+        : `Stripe non raggiungibile: ${error?.message || "errore di rete"}`,
       "stripe",
     );
   }
