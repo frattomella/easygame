@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { EasyGameLogo } from "@/components/brand/easygame-logo";
 import { FormRenderer } from "./form-renderer";
 import { normalizeFormField, type FormField } from "@/lib/forms/model";
+import { buildEnrollmentReceiptPath } from "@/lib/forms/enrollment-receipt";
 
 /**
  * Il modulo pubblico.
@@ -52,6 +53,14 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
+  /*
+    **Il riferimento della ricevuta esce una volta sola**, qui, nella risposta
+    all'invio: in archivio ne resta l'impronta (ADR-0085) e nessuno puo
+    ristamparlo. Percio va **consegnato adesso**, e non basta averlo ricevuto:
+    va messo in una schermata da cui si possa aprire e copiare, o e come non
+    averlo dato.
+  */
+  const [receiptPath, setReceiptPath] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +134,11 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
       }
 
       setSuccess(result.data.successMessage);
+      setReceiptPath(
+        result.data.receiptReference
+          ? buildEnrollmentReceiptPath(result.data.receiptReference)
+          : "",
+      );
     } catch {
       setFailure("Invio non riuscito. Controlla la connessione e riprova.");
     } finally {
@@ -172,6 +186,30 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
             Inviato
           </h1>
           <p className="mt-2 text-sm text-slate-600">{success}</p>
+
+          {receiptPath ? (
+            <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-left">
+              <p className="text-sm font-semibold text-slate-900">
+                Segui la tua domanda da qui
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                Salva questo link: e l&#8217;unico modo per rileggere lo stato della
+                domanda, e non puo essere ristampato.
+              </p>
+              {/*
+                `break-all` e non `truncate`: un link accorciato con i puntini
+                non si puo copiare a mano, e chi apre il modulo dal telefono di
+                un altro deve poterselo trascrivere.
+              */}
+              <a
+                href={receiptPath}
+                className="mt-3 block break-all rounded-md bg-white px-3 py-2 text-sm font-medium text-sky-700 underline decoration-sky-300 underline-offset-2"
+              >
+                {receiptPath}
+              </a>
+            </div>
+          ) : null}
+
           {payload.club.contactEmail ? (
             <p className="mt-4 text-xs text-slate-500">
               Per modifiche scrivi a {payload.club.contactEmail}.

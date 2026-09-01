@@ -685,3 +685,186 @@ test("i comandi di un appuntamento vanno a capo invece di uscire", () => {
     "il comando «Aggiorna» occupa la riga finche c'e poco spazio",
   );
 });
+
+/* ----------------- Wave 5, lane 5H e 5G — le superfici dell'area famiglia */
+
+/**
+ * **L'area famiglia entra negli invarianti.**
+ *
+ * La lane 5I aveva portato qui la dashboard allenatore; quella della famiglia
+ * era rimasta fuori, e ha lo stesso diritto di starci per la stessa ragione:
+ * un genitore non apre EasyGame da una scrivania. Accetta un consenso mentre
+ * accompagna il figlio, legge un avviso in bacheca a un semaforo, scarica una
+ * ricevuta dal telefono. La larghezza normale di queste pagine e 375 px, non
+ * 1280.
+ *
+ * Vale l'avvertenza di tutto il file: sono test statici, non sostituiscono
+ * l'apertura a 375 px. Presidiano la classe di difetti che si scrive senza
+ * accorgersene.
+ *
+ * Nota su cio che **non** e in elenco: `parent-dashboard-pages.tsx` e
+ * anteriore alla Wave 5 e la Wave 5 ne ha cambiato la sola pagina Pagamenti.
+ * Sta qui sotto con l'invariante mirata sulla riga della ricevuta, non nella
+ * lista generale: metterci un file di duemila righe che nessuno ha riscritto
+ * vorrebbe dire presidiare codice che non e stato guardato.
+ */
+const PARENT_DASHBOARD = [
+  "components/parent-dashboard/parent-family-pages.tsx",
+  "components/parent-dashboard/parent-dashboard-shell.tsx",
+  "components/parent-dashboard/ParentSidebar.tsx",
+  "components/payments/EnrollmentPaymentBreakdown.tsx",
+  /*
+    La pagina pubblica della ricevuta di iscrizione. Non e dentro l'area
+    famiglia — non ha sessione ne chrome — ma e la superficie **piu** mobile
+    del prodotto insieme al link di pagamento: si apre da un messaggio, e la
+    larghezza normale e quella del telefono su cui il messaggio e arrivato.
+  */
+  "components/enrollment/PublicEnrollmentStatusPage.tsx",
+];
+
+test("le pagine dell'area famiglia non restano a due colonne a 375 px", () => {
+  const offenders = [];
+
+  for (const file of PARENT_DASHBOARD) {
+    read(file)
+      .split(/\r?\n/)
+      .forEach((line, index) => {
+        if (!/(?<![a-z:])grid-cols-[234]\b/.test(line)) return;
+        /* Una barra di schede a due o tre etichette a 375 px ci sta. */
+        if (line.includes("TabsList")) return;
+        offenders.push(`${file}:${index + 1}`);
+      });
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "usare grid-cols-1 sm:grid-cols-2: a 375 px due colonne non ci stanno",
+  );
+});
+
+test("gli elenchi dell'area famiglia scrollano nel proprio contenitore", () => {
+  for (const file of PARENT_DASHBOARD) {
+    const source = read(file);
+    const tables = source.match(/<table[\s\S]{0,400}?>/g) || [];
+    if (!tables.length) continue;
+
+    assert.match(
+      source,
+      /overflow-x-auto/,
+      `${file}: una tabella senza contenitore scrollabile allarga il documento`,
+    );
+  }
+});
+
+/**
+ * **Le cinque voci nuove devono esistere in due elenchi, non in uno.**
+ *
+ * `ParentSidebar` sta dentro un `hidden md:block`: sotto i 768 px non e
+ * montata, e la navigazione e quella del `Header`, che riceve le proprie voci
+ * da `mobileNavSections` nel guscio. I due elenchi sono duplicati a mano — e
+ * questo il motivo dell'invariante: aggiungere una sezione ricordandosi di uno
+ * solo dei due la rende irraggiungibile esattamente sul dispositivo da cui una
+ * famiglia entra piu spesso.
+ *
+ * La terza verifica e la piu banale e la piu costosa se salta: la rotta deve
+ * esistere. Una voce di menu verso una pagina che non c'e e un 404 con
+ * l'aspetto di una funzione.
+ */
+test("le sezioni nuove della famiglia sono raggiungibili anche sotto i 768 px", () => {
+  const sidebar = read("components/parent-dashboard/ParentSidebar.tsx");
+  const shell = read("components/parent-dashboard/parent-dashboard-shell.tsx");
+
+  for (const voce of [
+    "calendar",
+    "enrollment",
+    "consents",
+    "board",
+    "notifications",
+  ]) {
+    const href = new RegExp(`\\$\\{basePath\\}/${voce}\``);
+
+    assert.match(
+      sidebar,
+      href,
+      `${voce}: manca dalla barra laterale, quindi da un tablet o da un desktop la sezione non si raggiunge`,
+    );
+    assert.match(
+      shell,
+      href,
+      `${voce}: manca dal menu mobile, quindi da un telefono la sezione non si raggiunge`,
+    );
+    assert.equal(
+      existsSync(path.join(SRC, "app", "parent-view", "[id]", voce, "page.tsx")),
+      true,
+      `${voce}: la voce di menu punta a una rotta che non esiste`,
+    );
+  }
+});
+
+/**
+ * Il guscio della famiglia e un elemento flex dentro una riga, come quello del
+ * club, e aveva `min-h-0` dove serve `min-w-0`: sono assi diversi.
+ *
+ * `overflow-hidden` da solo non basta — misurato su `/organization`, dove la
+ * barra delle schede allargava il guscio a 1022 px invece di scorrere. Qui il
+ * taglio c'era e la larghezza minima no, cioe la meta che non si vede finche
+ * non arriva un contenuto largo.
+ */
+test("il guscio della famiglia non cresce con il proprio contenuto", () => {
+  assert.match(
+    read("components/parent-dashboard/parent-dashboard-shell.tsx"),
+    /className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"/,
+    "senza min-w-0 il guscio si allarga con il contenuto invece di lasciarlo scorrere",
+  );
+});
+
+/**
+ * **La riga della ricevuta, che la Wave 5 ha portato da due blocchi a tre.**
+ *
+ * «Scarica» e nato accanto all'importo perche una famiglia vedeva la somma
+ * versata e non poteva stampare la carta che lo dimostra. Il contenitore
+ * dell'elenco ha `overflow-hidden`: quando la riga non ci sta, il pulsante non
+ * sporge — viene **tagliato**, e la ricevuta torna a non essere scaricabile.
+ * A 375 px basta una descrizione con una parola lunga.
+ */
+test("la riga di una ricevuta va a capo invece di tagliare «Scarica»", () => {
+  assert.match(
+    read("components/parent-dashboard/parent-dashboard-pages.tsx"),
+    /className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"/,
+    "descrizione, importo e «Scarica» su una riga fissa non stanno a 375 px",
+  );
+});
+
+/**
+ * I due comandi di un consenso — «Accetto» e «Revoco» — hanno entrambi
+ * un'icona, e il secondo e l'unico modo che una famiglia ha di cambiare idea
+ * senza telefonare al club. Se esce dal riquadro, la revoca non si puo premere.
+ */
+test("i comandi di un consenso vanno a capo invece di uscire", () => {
+  const source = read("components/parent-dashboard/parent-family-pages.tsx");
+
+  assert.match(source, /className="mt-3 flex flex-wrap gap-2"/);
+  assert.match(
+    source,
+    /flex flex-wrap items-start justify-between gap-3/,
+    "titolo del consenso e pastiglia di stato devono poter andare a capo",
+  );
+});
+
+/**
+ * Il pulsante «Paga ora» del riepilogo iscrizione: la Wave 5 lo ha acceso, e
+ * un pulsante acceso che a 375 px non si preme non vale piu di uno spento.
+ * Occupa la riga finche c'e poco spazio, e i quattro riquadri dei totali
+ * partono da una colonna.
+ */
+test("il riepilogo dell'iscrizione parte da una colonna e il comando occupa la riga", () => {
+  const source = read("components/payments/EnrollmentPaymentBreakdown.tsx");
+
+  assert.match(source, /className="w-full md:w-auto"/);
+  assert.match(
+    source,
+    /grid grid-cols-1 gap-3 md:grid-cols-4/,
+    "quattro totali affiancati a 375 px non ci stanno",
+  );
+});

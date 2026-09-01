@@ -28,9 +28,10 @@
  * atleta, un allenatore. Un genitore con **tre figli** — due nel club A in
  * categorie e sedi diverse, uno nel club B.
  *
- * Copre U-01…U-05, U-06, U-09…U-14. U-07 e U-08 (iscrizione e rinnovo) sono
- * eseguiti nella parte finale attraverso il motore dei moduli. U-15 e U-16
- * stanno in `wave-5-security-probe.mjs`, U-17 in
+ * Copre U-01…U-14: i due club e le loro sedi, i tre figli, il perimetro
+ * dell'allenatore, il dato clinico, **l'iscrizione e il rinnovo** attraverso il
+ * motore dei moduli, il fascicolo documentale, gli appuntamenti, il calendario
+ * e l'RSVP. U-15 e U-16 stanno in `wave-5-security-probe.mjs`, U-17 in
  * `wave-5-concurrency-probe.mjs`, U-18 nel test degli invarianti responsive.
  *
  * I due club vengono cancellati alla fine.
@@ -73,6 +74,10 @@ let appuntamenti;
 let rsvpService;
 let consensi;
 let risorse;
+let moduli;
+let iscrizioni;
+let iscrizioni2;
+let stagioniServizio;
 
 const esiti = [];
 
@@ -1106,6 +1111,277 @@ const u14 = async () => {
   );
 };
 
+/* ================== U-07 e U-08 — iscrizione e rinnovo =================== */
+
+/**
+ * **La domanda di iscrizione, dal modulo pubblico all'anagrafica.**
+ *
+ * I due scenari stanno insieme perche il rinnovo **e** l'iscrizione con un
+ * contesto: stesso motore, stessa coda, stessa approvazione umana. Provarli in
+ * due posti diversi avrebbe dato l'idea sbagliata — che siano due strade — che
+ * e esattamente cio che il codice ha evitato di diventare.
+ *
+ * La regola d'oro che questi controlli presidiano e ADR-0040: **l'anagrafica
+ * nasce solo all'approvazione umana**. Un modulo compilato da un anonimo non
+ * scrive niente in archivio finche una persona non decide.
+ */
+
+let MODULO = null;
+let DOMANDA = null;
+let RIFERIMENTO = "";
+
+const u07 = async () => {
+  console.log(`${NL}U-07 — iscrizione di un nuovo atleta`);
+  const scopeA = scope(CLUB_A, "owner", PROPRIETARIO_A.id);
+  const scopeStaff = scope(CLUB_A, "staff", PROPRIETARIO_A.id);
+
+  const creato = await moduli.createFormTemplate(scopeA, { starter: "blank" });
+  await moduli.updateFormTemplateDraft(scopeA, creato.id, {
+    title: "Iscrizione 2026/27",
+    description: "",
+    fields: [
+      {
+        id: "f_nome",
+        type: "short_text",
+        label: "Nome",
+        binding: "athlete.firstName",
+        required: true,
+      },
+      {
+        id: "f_cognome",
+        type: "short_text",
+        label: "Cognome",
+        binding: "athlete.lastName",
+        required: true,
+      },
+      { id: "f_allegato", type: "file_upload", label: "Documento di identita" },
+    ],
+    settings: {
+      successMessage: "Grazie, ti faremo sapere",
+      closeAt: "",
+      collectRespondentEmail: true,
+      notifyOnSubmit: false,
+      documentTemplateId: "",
+    },
+  });
+  MODULO = await moduli.publishFormTemplate(scopeA, creato.id);
+
+  const atletiPrima = await prisma.athlete.count({
+    where: { organization_id: CLUB_A },
+  });
+
+  const ricevuta = await iscrizioni.submitPublicForm(MODULO.publicSlug, {
+    answers: { f_nome: "Elia", f_cognome: "Verdi" },
+    files: [
+      {
+        fieldId: "f_allegato",
+        fileName: "carta-identita.pdf",
+        mimeType: "application/pdf",
+        content: Buffer.from("%PDF-1.4 uat5"),
+      },
+    ],
+    respondentName: "Carla Verdi",
+    respondentEmail: "carla.verdi@example.invalid",
+  });
+  DOMANDA = ricevuta.submissionId;
+  RIFERIMENTO = ricevuta.receiptReference;
+
+  prova(
+    "U-07.1 l'invio anonimo restituisce un riferimento",
+    [true, 43],
+    [Boolean(RIFERIMENTO), RIFERIMENTO.length],
+    "trentadue byte in base64url: e una credenziale, non un identificativo",
+  );
+
+  const atletiDopo = await prisma.athlete.count({
+    where: { organization_id: CLUB_A },
+  });
+  prova(
+    "U-07.1bis l'invio non ha scritto nessuna anagrafica (ADR-0040)",
+    atletiPrima,
+    atletiDopo,
+    "l'atleta nasce all'approvazione umana, non all'invio",
+  );
+
+  const statoIniziale = await iscrizioni2.readPublicEnrollmentStatus(RIFERIMENTO);
+  prova(
+    "U-07.2 la famiglia consulta lo stato: inviata",
+    ["sent", "Iscrizione"],
+    [statoIniziale?.state, statoIniziale?.kindLabel],
+  );
+
+  prova(
+    "U-07.2bis la vista pubblica non porta le risposte del modulo",
+    [false, false],
+    ["answers" in (statoIniziale || {}), "files" in (statoIniziale || {})],
+    "chi ha la ricevuta ha diritto di sapere a che punto e, non di rileggersi l'anagrafica",
+  );
+
+  const allegati = await prisma.attachment.count({
+    where: { organization_id: CLUB_A, owner_type: "form" },
+  });
+  prova(
+    "U-07.3 l'allegato e in Attachment Core, non in Asset",
+    [1, 0],
+    [
+      allegati,
+      await prisma.asset
+        .count({ where: { path: { contains: String(MODULO.id) } } })
+        .catch(() => 0),
+    ],
+  );
+
+  const coda = await iscrizioni.listFormSubmissions(scopeStaff, {
+    status: "pending",
+  });
+  const righeCoda = Array.isArray(coda) ? coda : coda.records || coda.items || [];
+  prova(
+    "U-07.4 la domanda e nella coda della segreteria",
+    true,
+    righeCoda.some((riga) => riga.id === DOMANDA),
+  );
+
+  /*
+    **Il club chiede il documento mancante approvando, non respingendo.** E il
+    punto in cui iscrizione e fascicolo si saldano, e il §22 lo chiede
+    esattamente cosi: prima l'unica risposta a «manca il certificato» era
+    respingere, e la famiglia ricompilava tutto da capo.
+
+    La richiesta si intesta all'**atleta**, che prima dell'approvazione non
+    esiste: e la ragione per cui non c'e un passo intermedio «in lavorazione»
+    su una domanda di iscrizione nuova. Su un rinnovo, dove l'atleta c'e gia,
+    quello stato si raggiunge — ed e provato da U-09, che apre una richiesta su
+    un atleta esistente.
+  */
+  const esito = await iscrizioni.decideFormSubmission(scopeStaff, DOMANDA, {
+    decision: "approve",
+    documentRequests: [
+      {
+        documentKind: "medical_certificate",
+        title: "Certificato medico agonistico",
+        required: true,
+        dueDate: "2026-11-30",
+      },
+    ],
+  });
+  prova(
+    "U-07.5 all'approvazione l'atleta nasce",
+    [atletiPrima + 1, []],
+    [
+      await prisma.athlete.count({ where: { organization_id: CLUB_A } }),
+      esito.issues || [],
+    ],
+  );
+
+  const nato = await prisma.athlete.findFirst({
+    where: { organization_id: CLUB_A, first_name: "Elia" },
+  });
+  const richieste = await prisma.documentRequest.count({
+    where: {
+      organization_id: CLUB_A,
+      subject_kind: "athlete",
+      subject_id: nato?.id || "",
+      status: "open",
+    },
+  });
+  prova(
+    "U-07.6 e con lui nasce la richiesta del documento mancante",
+    [true, 1],
+    [Boolean(nato), richieste],
+  );
+
+  const statoFinale = await iscrizioni2.readPublicEnrollmentStatus(RIFERIMENTO);
+  prova(
+    "U-07.7 la famiglia legge «approvata», con accanto cio che manca",
+    ["approved", 1],
+    [statoFinale?.state, (statoFinale?.pendingDocuments || []).length],
+    "una decisione presa vince su cio che resta da consegnare, che si mostra accanto e non al posto",
+  );
+};
+
+const u08 = async () => {
+  console.log(`${NL}U-08 — rinnovo di un atleta esistente`);
+  const scopeStaff = scope(CLUB_A, "staff", PROPRIETARIO_A.id);
+
+  const bozza = await iscrizioni2.buildRenewalDraft(GENITORE.id, {
+    athleteId: FIGLIO_1,
+    publicSlug: MODULO.publicSlug,
+  });
+
+  prova(
+    "U-08.1 il modulo del rinnovo arriva precompilato dall'archivio",
+    ["Marco", true],
+    [
+      bozza?.answers?.f_nome ?? null,
+      (bozza?.prefilledFieldIds || []).includes("f_cognome"),
+    ],
+    "la precompilazione la fa buildPrefilledAnswers, che e gia il proprietario di quella regola",
+  );
+
+  prova(
+    "U-08.1bis la bozza cita la stagione attiva, e non la sceglie la famiglia",
+    "2026-27",
+    bozza?.seasonId ?? null,
+  );
+
+  /*
+    La famiglia corregge un dato prima di confermare: e il caso normale, ed e
+    anche cio che rende questo invio diverso da quello di U-07 agli occhi della
+    chiave del doppio invio.
+  */
+  const ricevutaRinnovo = await iscrizioni.submitRenewalForm(GENITORE.id, {
+    athleteId: FIGLIO_1,
+    publicSlug: MODULO.publicSlug,
+    answers: { ...bozza.answers, f_cognome: "Rossi Bianchi" },
+    files: [],
+    respondentName: "Carla Collaudo",
+    respondentEmail: "uat5-genitore@example.invalid",
+  });
+
+  const rigaRinnovo = await prisma.formSubmission.findUnique({
+    where: { id: ricevutaRinnovo.submissionId },
+  });
+  prova(
+    "U-08.2 il rinnovo entra in coda come rinnovo, e dichiara la stagione",
+    ["renewal", "pending", "2026-27", GENITORE.id],
+    [
+      rigaRinnovo?.kind,
+      rigaRinnovo?.status,
+      rigaRinnovo?.season_id,
+      rigaRinnovo?.submitted_by,
+    ],
+  );
+
+  const atletiPrima = await prisma.athlete.count({
+    where: { organization_id: CLUB_A },
+  });
+
+  const esito = await iscrizioni.decideFormSubmission(
+    scopeStaff,
+    ricevutaRinnovo.submissionId,
+    { decision: "approve" },
+  );
+
+  const figlio = await prisma.athlete.findUnique({ where: { id: FIGLIO_1 } });
+  prova(
+    "U-08.3 l'approvazione aggiorna l'atleta e non ne crea un secondo",
+    [atletiPrima, "Rossi Bianchi", []],
+    [
+      await prisma.athlete.count({ where: { organization_id: CLUB_A } }),
+      figlio?.last_name ?? null,
+      esito.issues || [],
+    ],
+    "il rinnovo cita l'atleta fra i soggetti, quindi l'approvazione aggiorna invece di creare",
+  );
+
+  const stagioni = await stagioniServizio.readClubSeasonState(CLUB_A);
+  prova(
+    "U-08.4 il riporto stagionale gestionale non e stato toccato",
+    ["2026-27", 2],
+    [stagioni.activeSeasonId, (stagioni.seasons || []).length],
+  );
+};
+
 /* ======================= U-06bis — i consensi della famiglia ============= */
 
 const uConsensi = async () => {
@@ -1193,6 +1469,10 @@ try {
   rsvpService = await import("../src/lib/server/rsvp.ts");
   consensi = await import("../src/lib/server/consents.ts");
   risorse = await import("../src/lib/server/resources.ts");
+  moduli = await import("../src/lib/server/forms.ts");
+  iscrizioni = await import("../src/lib/server/form-submissions.ts");
+  iscrizioni2 = await import("../src/lib/server/enrollment-requests.ts");
+  stagioniServizio = await import("../src/lib/server/seasons.ts");
 
   console.log(`${NL}Semina dei due club di collaudo...`);
   await semina();
@@ -1202,6 +1482,8 @@ try {
   await u03();
   await u05();
   await u06();
+  await u07();
+  await u08();
   await u09();
   await u13();
   await u14();

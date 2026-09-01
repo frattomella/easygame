@@ -99,7 +99,14 @@ export default function ParentDashboardShell({
         <ParentSidebar />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/*
+        `min-w-0` non e ridondante accanto a `overflow-hidden`: e la stessa
+        coppia che le altre quaranta schermate del club hanno gia. Senza, a
+        768 px il guscio si allarga fino alla larghezza del proprio contenuto
+        invece di lasciarlo scorrere — misurato su /organization, dove la barra
+        delle schede portava il guscio a 1022 px e con lui tutta la pagina.
+      */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Header
           title={resolvePageTitle(pathname || "")}
           showMobileHubLink={false}

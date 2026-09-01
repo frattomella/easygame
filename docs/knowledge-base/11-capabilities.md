@@ -371,7 +371,7 @@ di sessione vero: 72 controlli, 72 verdi.
 | Capability | Stato | Note |
 |-----------|-------|------|
 | Motore moduli online | COMPLETE | Gia corretto prima della Wave 5: pagina pubblica, limite di frequenza, versione immutabile, anagrafica solo all'approvazione umana (ADR-0040) |
-| Riscontro alla famiglia | COMPLETE | Riferimento opaco restituito una volta sola, stato leggibile da rotta pubblica con doppio rate limit e 404 unico |
+| Riscontro alla famiglia | COMPLETE | Riferimento opaco restituito una volta sola, stato leggibile da rotta pubblica con doppio rate limit e 404 unico. **La pagina che lo legge e nata in 5J**: fino a li c'erano l'API, il modello e il percorso dichiarato da `buildEnrollmentReceiptPath`, e **nessuna schermata che li usasse** — il riferimento usciva nella risposta all'invio e non c'era nessun posto in cui portarlo. Adesso `/iscrizione/[reference]`, e il link si consegna sulla schermata di conferma dell'invio |
 | Domanda visibile nell'area genitore | COMPLETE | `/parent-view/[id]/enrollment` |
 | Rinnovo precompilato | COMPLETE | Stesso modulo con un contesto: dati esistenti e stagione di destinazione, decisa dal server |
 | Documento mancante all'approvazione | COMPLETE | Emette una richiesta documentale invece di respingere: e il punto in cui iscrizione e fascicolo si saldano |

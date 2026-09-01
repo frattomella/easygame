@@ -1179,12 +1179,20 @@ export function ParentPaymentsPage() {
             <EmptyState text="Nessuna ricevuta disponibile." />
           ) : (
             <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {/*
+                La riga e passata da due blocchi a tre quando «Scarica» si e
+                affiancato all'importo. A 375 px una descrizione con una parola
+                lunga la porta oltre il bordo, e il contenitore ha
+                `overflow-hidden`: il pulsante non sporge, viene **tagliato**.
+                Cioe la ricevuta torna a non essere scaricabile, che e
+                esattamente il difetto appena chiuso.
+              */}
               {data.payments.receipts.map((receipt) => (
                 <div
                   key={receipt.id}
-                  className="flex items-center justify-between px-4 py-3"
+                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-semibold text-slate-950">
                       {receipt.description || receipt.receipt_number || "Ricevuta"}
                     </p>

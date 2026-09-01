@@ -1982,3 +1982,80 @@ numero della circolare INPS 2026) e SW-13 (`CRON_SECRET` su staging) sono state
 chiuse il 2026-08-28. Le regole che attendono un professionista sono nel
 cap. 21 dell'analisi [28](28-lavoro-sportivo-e-compensi-analisi.md), e finche
 restano `PENDING` non producono calcoli definitivi.
+
+---
+
+## Wave 5 — attività sportiva, famiglia, documenti, appuntamenti — `DONE` (2026-09-01)
+
+Il piano è in [39](39-wave-5-planning.md), il consuntivo in
+[40](40-wave-5-implementation-uat.md). Quindici commit sul DAG approvato
+5A → 5B → {5C ‖ 5D ‖ 5E} → {5F ‖ 5G} → {5H ‖ 5I} → 5J.
+
+| Lane | Contenuto | Esito |
+|------|-----------|-------|
+| 5A | I cinque difetti che vengono prima del piano | **Fatta.** Quattro su cinque erano fra il clic e la rete |
+| 5B | Catalogo dei permessi, fine dell'allow-by-default | **Fatta.** Ha reso visibile la mappatura `staff` mancante |
+| 5C | `club_events` + `club_event_participants` (ADR-0098, ADR-0099) | **Fatta.** `clubs.trainings` / `clubs.matches` restano proiezione a un solo scrittore |
+| 5D | `document_requests` + `document_submissions`, byte in Attachment Core (ADR-0100) | **Fatta.** Travaso da `Asset` verificato con checksum |
+| 5E | `appointments` + `appointment_slots` | **Fatta.** La doppia prenotazione la impedisce l'indice, non il codice |
+| 5F | Calendario unico, gare al pari, RSVP con scadenza | **Fatta.** |
+| 5G | Il riscontro alla famiglia: ricevuta, stato derivato, rinnovo | **Fatta.** La ricevuta è una credenziale (ADR-0085) |
+| 5H | La dashboard della famiglia | **Fatta.** Le cinque cose che una famiglia non poteva fare |
+| 5I | La dashboard dell'allenatore | **Fatta.** Avvisi calcolati dal server, anagrafica dei colleghi ridotta |
+| 5J | Pulizia, registro API (191 → 205), tre collaudi di runtime | **Fatta.** Nove difetti trovati **dopo** i quattro gate verdi |
+
+Collaudi: UAT 62/62, sonda di sicurezza 91/91 (una deviazione dichiarata), sonda
+di concorrenza 10/10. Gate: 3.922 test, typecheck pulito, 36 warning di lint,
+build completa.
+
+**Cosa questa Wave ha deciso di non fare**, e va detto: i ruoli personalizzati
+non esistono, `/dashboard/access-management` è ancora un mock, la policy
+completa dei consensi non è chiusa, l'allenatore ha perso il dato clinico senza
+che esista il modo di restituirglielo, e i pagamenti online rispondono 501.
+
+---
+
+## Wave 6 — pre-production: i blocker
+
+Requisiti **obbligatori** prima della produzione, non desiderata. Il dettaglio
+è nella sezione 6 di [40](40-wave-5-implementation-uat.md).
+
+### W6-1 · Ruoli personalizzati — `BLOCKER`
+
+Owner, Club Manager, Collaborator, Staff, Trainer, Parent, Athlete come ruoli
+**predefiniti**, più ruoli creati dal club con permessi granulari e scope.
+Decisione di prodotto definitiva, presa durante la Wave 5.
+
+La base c'è: `src/lib/permissions/catalog.ts` è il catalogo delle chiavi, con il
+simbolo `⛓` che distingue i permessi di legame da quelli di ruolo, e ogni
+diniego lascia una riga di audit — che è ciò che permetterà a un club di capire
+perché un suo collaboratore non riesce a fare una cosa. Manca il motore che
+assegna e risolve.
+
+**Attenzione a una trappola specifica.** Le chiavi `⛓` — `consents.decide_own`,
+`documents.submit_own`, `rsvp.answer` — hanno un elenco di ruoli vuoto o
+ristretto **di proposito**: il loro gate è il legame con quell'atleta. Un motore
+di ruoli personalizzati che permettesse di concederle a un ruolo le renderebbe
+più larghe di quello che sembrano.
+
+### W6-2 · `/dashboard/access-management` non può restare un mock — `BLOCKER`
+
+È la schermata da cui un club amministra chi vede cosa. Una schermata finta su
+quel dominio è peggio di una schermata assente: promette un controllo che non
+c'è, e chi la usa crede di aver tolto un permesso che è rimasto.
+
+### W6-3 · W4-R7 — `BLOCKER`
+
+Confermato per la Wave 6 durante la Wave 5.
+
+### W6-4 · La policy completa dei consensi — `BLOCKER`
+
+La Wave 5 ha tenuto il presidio che impedisce di introdurre percorsi nuovi che
+ignorino i consensi. La definizione completa della policy resta da chiudere
+prima della produzione (W4-R18).
+
+### W6-5 · La concessione del dato clinico per singolo operatore — `BLOCKER`
+
+Senza, il taglio della Wave 5 resta una **perdita netta** per i club che quella
+visibilità la volevano: un allenatore non vede più allergie, farmaci e gruppo
+sanguigno, e non esiste modo di restituirglielo. Dipende da W6-1.
