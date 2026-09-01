@@ -48,6 +48,7 @@ import { normalizeAccessRole, type CanonicalAccessRole } from "@/lib/access-role
 
 export type PermissionDomain =
   | "accounting"
+  | "appointments"
   | "communications"
   | "consents"
   | "documents"
@@ -167,6 +168,76 @@ const ENTRIES: readonly PermissionEntry[] = [
     domain: "documents",
     label: "Caricare la copia firmata e portare avanti lo stato del documento",
     roles: GESTIONE,
+  },
+
+  /* ------------------------------- il fascicolo Club ↔ Parent (5D) ------- */
+  /*
+    Il workflow documentale esisteva gia per intero; cio che mancava e che
+    richiesta e decisione fossero **righe** con un permesso proprio. Il
+    genitore e l'atleta non compaiono fra i ruoli di `documents.submit_own` e
+    `documents.read_dossier`: il loro accesso nasce dal **legame** con
+    l'atleta, che non e un ruolo.
+  */
+  {
+    key: "documents.request",
+    domain: "documents",
+    label: "Chiedere un documento a una famiglia o a un collaboratore",
+    roles: GESTIONE,
+  },
+  {
+    key: "documents.review",
+    domain: "documents",
+    label: "Accettare o rifiutare un documento consegnato",
+    roles: GESTIONE,
+  },
+  {
+    key: "documents.submit_own",
+    domain: "documents",
+    label: "Consegnare un documento richiesto",
+    roles: [...GESTIONE, "trainer"],
+    byLink: true,
+  },
+  {
+    key: "documents.read_dossier",
+    domain: "documents",
+    label: "Vedere il fascicolo documentale di una persona",
+    roles: GESTIONE,
+    byLink: true,
+  },
+
+  /* ---------------------------------------- gli appuntamenti (5E) -------- */
+  /*
+    `appointments.read` e la **coda di lavoro della segreteria**: tutti gli
+    appuntamenti del club. `appointments.read_own` e piu stretto ed e cio che
+    ha l'allenatore — i soli appuntamenti che gli sono stati assegnati — e cio
+    che ha la famiglia per legame.
+  */
+  {
+    key: "appointments.read",
+    domain: "appointments",
+    label: "Vedere tutti gli appuntamenti del club",
+    roles: GESTIONE,
+  },
+  {
+    key: "appointments.read_own",
+    domain: "appointments",
+    label: "Vedere gli appuntamenti che mi riguardano",
+    roles: [...GESTIONE, "trainer"],
+    byLink: true,
+  },
+  {
+    key: "appointments.request",
+    domain: "appointments",
+    label: "Chiedere un appuntamento alla segreteria",
+    roles: GESTIONE,
+    byLink: true,
+  },
+  {
+    key: "appointments.manage",
+    domain: "appointments",
+    label:
+      "Confermare, rifiutare, riprogrammare o annullare un appuntamento, e configurare la disponibilita",
+    roles: [...GESTIONE, "trainer"],
   },
 
   /* -------------------------------------------------------- consensi ----- */
