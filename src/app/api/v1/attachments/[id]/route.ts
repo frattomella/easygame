@@ -159,7 +159,14 @@ const assertAttachmentPermission = (
   action: "read" | "update" | "delete",
 ) => {
   const ownerType = metadata?.ownerType || metadata?.owner_type;
-  if (!canAccessAttachmentOwner(scope?.activeRole, ownerType, action)) {
+  /*
+    La **categoria** viaggia insieme al tipo: un documento sanitario non si
+    apre solo perche si aprono gli atleti. La riga ce l'ha gia — non serve
+    una seconda lettura — e passarla qui chiude la porta dei byte che il
+    taglio di D-4 aveva lasciato aperta.
+  */
+  const category = metadata?.category;
+  if (!canAccessAttachmentOwner(scope?.activeRole, ownerType, action, category)) {
     throw attachmentDenied(ownerType);
   }
 };

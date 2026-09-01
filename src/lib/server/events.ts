@@ -170,7 +170,23 @@ const trainerEventFilter = async (
     );
   });
 
-  if (!profilo) return { categoryIds: [], groupIds: [] };
+  /*
+    **Un allenatore senza riga in `clubs.trainers` non legge tutto il club.**
+
+    Qui si restituiva l'insieme vuoto, e il chiamante applica il filtro solo
+    `if (categorie.size || gruppi.size)`: un utente con ruolo `trainer` ma
+    senza profilo JSON — un ruolo assegnato e la scheda mai compilata, che
+    capita — leggeva **l'intero calendario del club**. La funzione gemella di
+    `resources.ts`, sulla stessa domanda, restituisce `[]` e nega tutto: due
+    proprietari e due risposte opposte sullo stesso ingresso, che e la classe
+    del difetto D-3.
+
+    `null` dice «non lo so», e il chiamante lo tratta come «nessun evento».
+    Un perimetro che fallisce **chiuso** manda una segretaria a completare una
+    scheda; un perimetro che fallisce aperto non manda nessuno da nessuna
+    parte, perche nessuno se ne accorge.
+  */
+  if (!profilo) return null;
 
   const source =
     profilo?.data && typeof profilo.data === "object" ? profilo.data : {};
@@ -242,7 +258,18 @@ export const listClubEvents = async (
     );
     const gruppi = new Set(perimetro.groupIds);
 
-    if (categorie.size || gruppi.size) {
+    /*
+      **Un perimetro vuoto non e «nessun perimetro».**
+
+      La condizione era `if (categorie.size || gruppi.size)`: un allenatore con
+      una scheda esistente ma senza nessuna categoria dichiarata saltava il
+      filtro e leggeva l'intero calendario. E la stessa fuga del profilo
+      mancante, un passo piu in la, e va chiusa nello stesso verso — che e
+      anche quello che `filterTrainerDashboardRecords` applica gia sulla stessa
+      domanda: intersezione con un insieme vuoto e vuota, quindi non passa
+      niente.
+    */
+    {
       rows = rows.filter((row) => {
         const categoria = [row.category_id, row.category_name]
           .map((value) => asText(value).toLowerCase())

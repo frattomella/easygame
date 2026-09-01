@@ -31,6 +31,11 @@ import {
   type FormFieldChange,
   type FormSubjectChange,
 } from "@/lib/forms/changes";
+import {
+  MissingDocumentsField,
+  collectMissingDocuments,
+  type MissingDocumentDraft,
+} from "./missing-documents-field";
 import * as formsApi from "@/lib/api/forms";
 
 /**
@@ -48,6 +53,11 @@ import * as formsApi from "@/lib/api/forms";
  *   una domanda legittima anche per una domanda libera;
  * - non promette. L'elenco che si legge qui e calcolato dalla stessa funzione
  *   che poi scrive.
+ *
+ * Da questa finestra si chiedono anche i **documenti che mancano**, e si
+ * chiedono **approvando**: e il punto in cui l'iscrizione e il fascicolo
+ * documentale si saldano. Prima l'unica risposta a «manca il certificato» era
+ * il rifiuto — e il rifiuto rimanda indietro un'iscrizione buona.
  */
 
 type SubmissionReviewDialogProps = {
@@ -89,6 +99,11 @@ export function SubmissionReviewDialog({
     in un avviso passeggero invece che qui.
   */
   const [issues, setIssues] = useState<string[]>([]);
+
+  /* I documenti che mancano, da chiedere approvando. Vuoto: non si chiede nulla. */
+  const [missingDocuments, setMissingDocuments] = useState<
+    MissingDocumentDraft[]
+  >([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,6 +154,16 @@ export function SubmissionReviewDialog({
         action,
         note,
         subjects: review.submission.subjects,
+        /*
+          Solo approvando. Un documento si chiede a una pratica che va avanti:
+          allegarlo a un rifiuto vorrebbe dire chiedere un certificato a chi si
+          e appena sentito dire di no — e il server, che ricava l'atleta
+          dall'approvazione, non avrebbe comunque nessuno a cui intestarlo.
+        */
+        documentRequests:
+          action === "approve"
+            ? collectMissingDocuments(missingDocuments)
+            : undefined,
       });
       showToast(
         "success",
@@ -329,6 +354,25 @@ export function SubmissionReviewDialog({
                 </p>
               </section>
             ) : null}
+
+            <MissingDocumentsField
+              value={missingDocuments}
+              onChange={setMissingDocuments}
+              disabled={busy}
+              /*
+                L'atleta c'e se la compilazione ne indica gia uno o se
+                l'approvazione lo scrive: sono le stesse due strade da cui
+                `decideFormSubmission` ricava il soggetto della richiesta.
+              */
+              canRequest={
+                review.submission.subjects.some(
+                  (selection) => selection.subject === "athlete",
+                ) ||
+                review.changeSet.subjects.some(
+                  (subject) => subject.subject === "athlete",
+                )
+              }
+            />
 
             <div className="space-y-2">
               <Label htmlFor="review-note">Nota interna</Label>

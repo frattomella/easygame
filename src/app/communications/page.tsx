@@ -17,7 +17,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
 import { AUDIENCE_EXCLUSION_LABELS } from "@/lib/audience/recipients";
-import { AUDIENCE_CRITERION_LABELS } from "@/lib/audience/criteria";
+import {
+  AUDIENCE_CRITERION_LABELS,
+  type AudienceCriterionKind,
+} from "@/lib/audience/criteria";
+import {
+  audienceCriterionNeedsSelection,
+  eventAudienceOptions,
+  isEventAudienceKind,
+  loadSelectableEvents,
+  EVENT_AUDIENCE_WINDOW_DAYS,
+  type SelectableEvent,
+} from "@/components/communications/audience-events";
 import { AlertTriangle, Eye, Mail, Send, Users } from "lucide-react";
 
 /**
@@ -59,14 +70,37 @@ const TESTO_DI_PARTENZA = {
  * sta accanto a quello dei raggiunti invece che in fondo alla pagina.
  */
 
-type AudienceKind =
-  | "all_families"
-  | "category_ids"
-  | "group_ids"
-  | "site_ids"
-  | "overdue_payments"
-  | "certificate_missing_or_expiring"
-  | "no_account";
+/**
+ * I criteri che questa schermata offre, **nell'ordine in cui si scelgono**.
+ *
+ * E un elenco solo — non un elenco piu un tipo scritto a parte — perche era
+ * proprio la divergenza fra i due a rendere «Convocati a un evento» e «Senza
+ * risposta a un evento» irraggiungibili: il dominio li dichiarava, il tipo
+ * della pagina ne conosceva sette, e nessuno si accorgeva della differenza.
+ * `satisfies` fa fallire la compilazione se qui compare un criterio che il
+ * motore del pubblico non sa risolvere.
+ *
+ * **Nessuno di questi criteri e nascosto per ruolo, e non e una dimenticanza.**
+ * L'unico criterio protetto e `overdue_payments`
+ * (`ECONOMIC_AUDIENCE_CRITERIA` + `communications.audience_economic`); i due
+ * criteri di evento non lo sono, perche «chi e stato convocato» non dice nulla
+ * sui soldi di nessuno. E `/communications` e gia riservato a proprietario e
+ * gestore da `access-roles.ts`, cioe agli unici ruoli che hanno l'intera
+ * matrice: nessuna voce di questa tendina porta a un rifiuto del server.
+ */
+const CRITERI_OFFERTI = [
+  "all_families",
+  "category_ids",
+  "group_ids",
+  "site_ids",
+  "event_convocated",
+  "event_no_rsvp",
+  "overdue_payments",
+  "certificate_missing_or_expiring",
+  "no_account",
+] as const satisfies readonly AudienceCriterionKind[];
+
+type AudienceKind = (typeof CRITERI_OFFERTI)[number];
 
 type Preview = {
   clubName: string;
@@ -124,6 +158,7 @@ export default function CommunicationsPage() {
   const [categories, setCategories] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [sites, setSites] = useState<Option[]>([]);
+  const [events, setEvents] = useState<SelectableEvent[]>([]);
 
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -183,10 +218,18 @@ export default function CommunicationsPage() {
     let annullato = false;
 
     const carica = async () => {
-      const [categorie, gruppi, sedi] = await Promise.all([
+      /*
+        Gli eventi arrivano dalla **stessa** strada di categorie, gruppi e sedi
+        — `apiRequest` sulla rotta di lettura del dominio — invece che da un
+        caricamento inventato qui: quale evento si possa offrire lo decide
+        `audience-events.ts`, in un posto solo per questa pagina e per la
+        bacheca.
+      */
+      const [categorie, gruppi, sedi, eventi] = await Promise.all([
         apiRequest<any[]>("/api/v1/categories"),
         apiRequest<any[]>("/api/v1/category_groups"),
         apiRequest<any[]>("/api/v1/club_sites"),
+        loadSelectableEvents(),
       ]);
 
       if (annullato) return;
@@ -200,6 +243,7 @@ export default function CommunicationsPage() {
       setCategories(mappa(categorie));
       setGroups(mappa(gruppi));
       setSites(mappa(sedi));
+      setEvents(eventi);
     };
 
     carica().catch(() => undefined);
@@ -213,19 +257,25 @@ export default function CommunicationsPage() {
     if (kind === "category_ids") return categories;
     if (kind === "group_ids") return groups;
     if (kind === "site_ids") return sites;
+    if (isEventAudienceKind(kind)) return eventAudienceOptions(events, kind);
     return [];
-  }, [kind, categories, groups, sites]);
+  }, [kind, categories, groups, sites, events]);
 
-  const criteria = useMemo(() => {
-    if (
-      kind === "category_ids" ||
-      kind === "group_ids" ||
-      kind === "site_ids"
-    ) {
-      return [{ kind, values: selected }];
-    }
-    return [{ kind }];
-  }, [kind, selected]);
+  /*
+    **Se un criterio pretende una selezione lo dice il dominio**, non la
+    tendina. Prima l'elenco dei criteri con valori era scritto qui una seconda
+    volta, e un criterio nuovo — i due di evento sono proprio questo caso —
+    sarebbe partito con `[{ kind }]` e il server lo avrebbe rifiutato.
+  */
+  const richiedeSelezione = useMemo(
+    () => audienceCriterionNeedsSelection(kind),
+    [kind],
+  );
+
+  const criteria = useMemo(
+    () => (richiedeSelezione ? [{ kind, values: selected }] : [{ kind }]),
+    [kind, selected, richiedeSelezione],
+  );
 
   const richiedi = useCallback(
     async (modalita: "preview" | "send") => {
@@ -233,8 +283,19 @@ export default function CommunicationsPage() {
         showToast("error", "Oggetto e testo del messaggio sono obbligatori");
         return;
       }
-      if (opzioni.length > 0 && selected.length === 0) {
-        showToast("error", "Seleziona almeno una voce per questo criterio");
+      /*
+        Il controllo guarda **il criterio**, non quante opzioni sono arrivate:
+        legato all'elenco, un criterio con zero opzioni — «Convocati a un
+        evento» senza eventi in programma — passava il controllo e finiva in
+        un errore del server che non spiega cosa fare.
+      */
+      if (richiedeSelezione && selected.length === 0) {
+        showToast(
+          "error",
+          opzioni.length === 0
+            ? "Nessuna voce disponibile per questo criterio: scegline un altro"
+            : "Seleziona almeno una voce per questo criterio",
+        );
         return;
       }
 
@@ -273,7 +334,16 @@ export default function CommunicationsPage() {
           : "Nessun messaggio inviato: leggi l'esito per destinatario",
       );
     },
-    [subject, body, criteria, communicationId, opzioni, selected, showToast],
+    [
+      subject,
+      body,
+      criteria,
+      communicationId,
+      opzioni,
+      richiedeSelezione,
+      selected,
+      showToast,
+    ],
   );
 
   const nuovaComunicazione = () => {
@@ -346,17 +416,7 @@ export default function CommunicationsPage() {
                         setPreview(null);
                       }}
                     >
-                      {(
-                        [
-                          "all_families",
-                          "category_ids",
-                          "group_ids",
-                          "site_ids",
-                          "overdue_payments",
-                          "certificate_missing_or_expiring",
-                          "no_account",
-                        ] as AudienceKind[]
-                      ).map((value) => (
+                      {CRITERI_OFFERTI.map((value) => (
                         <option key={value} value={value}>
                           {AUDIENCE_CRITERION_LABELS[value]}
                         </option>
@@ -364,31 +424,57 @@ export default function CommunicationsPage() {
                     </select>
                   </div>
 
-                  {opzioni.length > 0 ? (
+                  {richiedeSelezione ? (
                     <div className="space-y-2">
                       <Label>Seleziona</Label>
-                      <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
-                        {opzioni.map((opzione) => (
-                          <label
-                            key={opzione.id}
-                            className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selected.includes(opzione.id)}
-                              onChange={(event) => {
-                                setPreview(null);
-                                setSelected((current) =>
-                                  event.target.checked
-                                    ? [...current, opzione.id]
-                                    : current.filter((id) => id !== opzione.id),
-                                );
-                              }}
-                            />
-                            <span>{opzione.label}</span>
-                          </label>
-                        ))}
-                      </div>
+                      {opzioni.length > 0 ? (
+                        <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
+                          {opzioni.map((opzione) => (
+                            <label
+                              key={opzione.id}
+                              className="flex items-start gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 shrink-0"
+                                checked={selected.includes(opzione.id)}
+                                onChange={(event) => {
+                                  setPreview(null);
+                                  setSelected((current) =>
+                                    event.target.checked
+                                      ? [...current, opzione.id]
+                                      : current.filter(
+                                          (id) => id !== opzione.id,
+                                        ),
+                                  );
+                                }}
+                              />
+                              {/*
+                                A 375 px l'etichetta di un evento — data, ora,
+                                nome, categoria — e piu larga della colonna:
+                                senza `min-w-0` il testo non va a capo, allarga
+                                il riquadro e con lui la pagina.
+                              */}
+                              <span className="min-w-0 flex-1 break-words">
+                                {opzione.label}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        /*
+                          Vuoto e diverso da «non ancora scelto»: senza questa
+                          riga la schermata mostrava un criterio, nessuna
+                          opzione e nessuna spiegazione.
+                        */
+                        <p className="rounded-md border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+                          {isEventAudienceKind(kind)
+                            ? kind === "event_no_rsvp"
+                              ? "Nessun evento in programma con la conferma di presenza attiva: accendila sull'evento per poter scrivere a chi non ha risposto."
+                              : `Nessun evento in programma nei prossimi ${EVENT_AUDIENCE_WINDOW_DAYS} giorni.`
+                            : "Nessuna voce disponibile per questo criterio."}
+                        </p>
+                      )}
                     </div>
                   ) : null}
 

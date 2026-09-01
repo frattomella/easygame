@@ -27,6 +27,15 @@ const SESSION_COOKIE_NAME = "easygame_session";
 const PROTECTED_PREFIXES = [
   "/account",
   "/athletes",
+  /*
+    **La terza volta che questo elenco dimentica una pagina.** `/consensi` e
+    `/sport-work` sono gia documentati qui sotto; `/calendar` — la pagina
+    nuova del calendario unico (5F) — rispondeva **200 senza sessione**, mentre
+    la sorella `/matches` risponde 307. Le API rifiutano comunque, quindi non
+    usciva un dato: usciva la struttura di una pagina gestionale a chiunque
+    passasse. Questo elenco esiste perche non succeda.
+  */
+  "/calendar",
   "/categories",
   "/clothing",
   "/communications",

@@ -129,6 +129,33 @@ const requireActiveOrganization = (scope: AppointmentsScope) => {
  * l'agenda della segreteria no. Senza questa riga il simbolo della matrice
  * sarebbe una promessa che nessuno mantiene.
  */
+/**
+ * **La disponibilita del club non e l'agenda di un allenatore.**
+ *
+ * `appointments.manage` e concesso anche al trainer, e con ragione: il
+ * colloquio con la famiglia di un atleta del proprio gruppo lo conferma e lo
+ * riprogramma lui, e `assertPerimetro` lo tiene sulle proprie righe.
+ *
+ * Ma gli **slot** non sono righe di nessuno: sono la configurazione di quando
+ * la societa riceve. L'audit indipendente della Wave 5 ha misurato che
+ * `createAppointmentSlot`, `updateAppointmentSlot` e `deleteAppointmentSlot`
+ * chiedevano solo la chiave e **non** chiamavano `assertPerimetro`: un
+ * allenatore poteva cancellare tutti gli orari di ricevimento del club, o
+ * crearsene di assegnati a se. Il commento di `assertPerimetro` prometteva gia
+ * il contrario — «l'agenda della segreteria no» — e questa e la riga che lo
+ * mantiene.
+ *
+ * Non e una restrizione nuova sul trainer: e la stessa distinzione fra lavorare
+ * su una riga e configurare il club che vale ovunque nel prodotto.
+ */
+const assertPuoConfigurareLaDisponibilita = (scope: AppointmentsScope) => {
+  if (!isManagementAccessRole(scope.activeRole)) {
+    throw negato(
+      "gli orari di ricevimento del club li configura chi lo amministra",
+    );
+  }
+};
+
 const assertPerimetro = (scope: AppointmentsScope, row: { assigned_to_user_id: string | null }) => {
   if (normalizeAccessRole(scope.activeRole) !== "trainer") return;
   if (!asText(row.assigned_to_user_id) || asText(row.assigned_to_user_id) !== asText(scope.userId)) {
@@ -1064,6 +1091,7 @@ export const createAppointmentSlot = async (
   attore: Attore = {},
 ) => {
   await assertAppointmentsPermission(scope, "appointments.manage");
+  assertPuoConfigurareLaDisponibilita(scope);
   const organizationId = requireActiveOrganization(scope);
 
   const row = await prisma.appointmentSlot.create({
@@ -1088,6 +1116,7 @@ export const updateAppointmentSlot = async (
   attore: Attore = {},
 ) => {
   await assertAppointmentsPermission(scope, "appointments.manage");
+  assertPuoConfigurareLaDisponibilita(scope);
   const organizationId = requireActiveOrganization(scope);
 
   const esistente = await prisma.appointmentSlot.findFirst({
@@ -1138,6 +1167,7 @@ export const deleteAppointmentSlot = async (
   attore: Attore = {},
 ) => {
   await assertAppointmentsPermission(scope, "appointments.manage");
+  assertPuoConfigurareLaDisponibilita(scope);
   const organizationId = requireActiveOrganization(scope);
 
   const esistente = await prisma.appointmentSlot.findFirst({
@@ -1277,6 +1307,30 @@ export const requestFamilyAppointment = async (
   const chiave = chiaveIdempotenza(input.idempotencyKey, ctx.athleteId, startsAt);
   const gia = await trovaPerChiave(ctx.organizationId, chiave);
   if (gia) {
+    /*
+      **La riga trovata dev'essere del proprio atleta.**
+
+      La chiave di idempotenza arriva dal corpo della richiesta, e la ricerca
+      era per solo club: una famiglia che indovinasse la chiave di un'altra si
+      faceva restituire il **suo** appuntamento — motivo, note, nota della
+      decisione e stato — con sopra il nome del proprio figlio, che e il modo
+      piu confondente possibile di consegnare il dato di qualcun altro.
+
+      Oggi la chiave derivata (`auto:<athleteId>:<istante>`) non compare in
+      nessuna proiezione e andrebbe indovinata; ma l'appartenenza va verificata
+      lo stesso, perche e cio che le altre tre funzioni della famiglia gia
+      fanno con `assertRigaDellaFamiglia`, e una difesa che vale solo finche
+      nessuno indovina non e una difesa.
+
+      Il rifiuto e volutamente identico a «non trovata»: dire «esiste ma non e
+      tua» confermerebbe di aver indovinato.
+    */
+    if (asText((gia as any).athlete_id) !== asText(ctx.athleteId)) {
+      throw negato(
+        "questa richiesta non e stata trovata, o non e di questo atleta",
+      );
+    }
+
     return toFamilyAppointment(gia as any, {
       athleteName: ctx.athleteName,
       person: ctx.personName,

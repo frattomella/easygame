@@ -10,7 +10,7 @@ import {
 } from "@/components/parent/AttendanceConfirmation";
 
 /**
- * Gli inviti di partecipazione della famiglia, sulla pagina degli allenamenti.
+ * Gli inviti di partecipazione della famiglia.
  *
  * **Perche una sezione che si legge da sola il server.** L'elenco degli
  * allenamenti dell'area genitore arriva da `/api/parent-dashboard/[id]`, che
@@ -20,14 +20,25 @@ import {
  * stessa lettura che vede la scadenza e l'evento annullato con le stesse
  * regole dello staff.
  *
- * **Quando non compare.** Se non c'e nessun allenamento con conferma richiesta
- * nei prossimi giorni, la sezione non si disegna: uno spazio vuoto con un
- * titolo racconta un problema che non c'e.
+ * **Perche filtra per tipo.** La stessa lettura porta ormai allenamenti e
+ * gare, e le due cose vivono su due pagine diverse dell'area famiglia. Gli
+ * inviti stanno dove sta l'evento a cui appartengono: un invito a una gara in
+ * fondo alla pagina «Allenamenti» e un invito che si legge nel posto
+ * sbagliato, e il tipo predefinito e l'allenamento perche e quello il montaggio
+ * che esisteva prima.
+ *
+ * **Quando non compare.** Se non c'e nessun evento di quel tipo con conferma
+ * richiesta nei prossimi giorni, la sezione non si disegna: uno spazio vuoto
+ * con un titolo racconta un problema che non c'e.
  */
+
+type RsvpInvitationKind = "training" | "match";
 
 type RsvpInvitation = {
   trainingId: string;
   athleteId: string;
+  kind: RsvpInvitationKind;
+  opponent: string;
   title: string;
   categoryLabel: string;
   location: string;
@@ -41,7 +52,16 @@ type RsvpInvitation = {
   blockedMessage: string;
 };
 
-export function ParentRsvpSection() {
+const SECTION_TITLES: Record<RsvpInvitationKind, string> = {
+  training: "Conferme di partecipazione",
+  match: "Conferme per le gare",
+};
+
+export function ParentRsvpSection({
+  kind = "training",
+}: {
+  kind?: RsvpInvitationKind;
+} = {}) {
   const { data } = useParentDashboard();
   const athleteId = data?.athlete?.id ? String(data.athlete.id) : "";
   const [invitations, setInvitations] = useState<RsvpInvitation[]>([]);
@@ -59,13 +79,24 @@ export function ParentRsvpSection() {
       leggibili anche se gli inviti non arrivano. Si smette di mostrare la
       sezione, non si rompe la schermata.
     */
-    setInvitations(
+    const ricevuti =
       response.error || !Array.isArray(response.data?.invitations)
         ? []
-        : response.data.invitations,
+        : response.data.invitations;
+
+    /*
+      Un invito senza `kind` e un invito letto da un server piu vecchio di
+      questa schermata: si considera un allenamento, che e cio che l'elenco
+      conteneva prima che le gare vi entrassero. Meglio mostrarlo dove stava
+      che non mostrarlo affatto.
+    */
+    setInvitations(
+      ricevuti.filter(
+        (invitation) => (invitation.kind || "training") === kind,
+      ),
     );
     setLoaded(true);
-  }, [athleteId]);
+  }, [athleteId, kind]);
 
   useEffect(() => {
     void load();
@@ -81,7 +112,7 @@ export function ParentRsvpSection() {
     <Card className="border-slate-200 shadow-sm">
       <CardHeader>
         <CardTitle>
-          Conferme di partecipazione
+          {SECTION_TITLES[kind]}
           {pending > 0 ? (
             <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
               {pending} da confermare
@@ -96,10 +127,18 @@ export function ParentRsvpSection() {
               key={`${invitation.trainingId}-${invitation.athleteId}`}
               trainingId={invitation.trainingId}
               athleteId={invitation.athleteId}
+              /*
+                Il titolo dice **che cosa** si conferma: il server lo compone
+                gia con l'avversario quando la gara non ha un titolo suo, e
+                qui si aggiunge la categoria. Il ripiego segue il tipo, perche
+                chiamare «Allenamento» una gara e la stessa confusione da cui
+                nasceva il difetto.
+              */
               trainingTitle={
                 [invitation.title, invitation.categoryLabel]
                   .filter(Boolean)
-                  .join(" · ") || "Allenamento"
+                  .join(" · ") ||
+                (kind === "match" ? "Gara" : "Allenamento")
               }
               trainingDate={invitation.startsAt || ""}
               trainingTime={invitation.time}

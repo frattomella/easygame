@@ -51,7 +51,6 @@ import {
   getMedicalCertificateAvailability,
   getMedicalCertificateAvailabilityLabel,
 } from "@/lib/medical-certificates";
-import { readEventRsvpConfig } from "@/lib/rsvp/model";
 import { listExpiringAttachments } from "./attachments";
 import {
   isMedicalCertificateAttachmentCategory,
@@ -640,16 +639,31 @@ const evaluateRsvp = async ({
 
   const horizonDays = Math.max(...rule.offsetDays) + 1;
 
-  const club = await (prisma as any).club.findUnique({
-    where: { id: organizationId },
-    select: { trainings: true },
-  });
+  /*
+    **Il pre-controllo si fa sulle righe, non sulla proiezione.**
 
-  const trainings = Array.isArray(club?.trainings) ? club.trainings : [];
-  const anyRequiresRsvp = trainings.some(
-    (training: unknown) => readEventRsvpConfig(training, now).required,
-  );
-  if (!anyRequiresRsvp) return [];
+    Leggeva `clubs.trainings` — la proiezione in sola lettura — e da quando gli
+    inviti si costruiscono dalle righe di `club_events` (ADR-0098) le due fonti
+    potevano rispondere cose diverse: le gare non erano nemmeno nella colonna,
+    quindi una convocazione a una gara non ha **mai** fatto partire un invito.
+
+    Serve solo a evitare il giro per atleta quando nel club non c'e niente da
+    confermare, quindi si chiede la cosa piu piccola possibile: esiste **almeno
+    un** evento vivo con l'RSVP acceso nella finestra della regola.
+  */
+  const conRsvp = await (prisma as any).clubEvent.findFirst({
+    where: {
+      organization_id: organizationId,
+      status: { not: "archived" },
+      rsvp_required: true,
+      starts_at: {
+        gte: now,
+        lte: new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000),
+      },
+    },
+    select: { id: true },
+  });
+  if (!conRsvp) return [];
 
   const hits: AutomationHit[] = [];
 

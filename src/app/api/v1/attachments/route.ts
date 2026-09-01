@@ -15,6 +15,8 @@ import {
   canAccessAttachmentOwner,
 } from "@/lib/server/attachment-permissions";
 import { hasCommunicationPermission } from "@/lib/communications/permissions";
+import { hasHealthPermission } from "@/lib/health/permissions";
+import { isMedicalCertificateDocumentKind } from "@/lib/documents/request-model";
 
 /**
  * Allegati: elenco e caricamento.
@@ -146,7 +148,28 @@ export async function GET(request: Request) {
             String(allegato?.ownerType || "").toLowerCase() !== "announcement",
         );
 
-    return NextResponse.json({ data: visibili, error: null });
+    /*
+      **Il documento sanitario esce dall'elenco, non solo dai byte.**
+
+      Il controllo per `owner_type` qui sopra non lo copre: la categoria di
+      una riga la conosce la riga, non il parametro che il client ha
+      mandato. Senza questo passaggio un allenatore, che gli atleti li legge
+      legittimamente, otterrebbe l'elenco dei certificati medici del club —
+      nome del file, data, identificativo — e da un identificativo si bussa
+      alla porta dei byte. Il taglio di D-4 vale su ogni strada che porta al
+      campo (ADR-0058), e questa e una strada.
+    */
+    const senzaDatoClinico = hasHealthPermission(
+      scope.activeRole,
+      "clinical.read",
+    )
+      ? visibili
+      : visibili.filter(
+          (allegato: { category?: string }) =>
+            !isMedicalCertificateDocumentKind(allegato?.category),
+        );
+
+    return NextResponse.json({ data: senzaDatoClinico, error: null });
   } catch (error: any) {
     return failure(error, "Errore nella lettura degli allegati");
   }

@@ -1768,3 +1768,110 @@ che non esiste.
 ### Esito finale
 
 **91 controlli su 91**, con una deviazione dichiarata (`clinical.read`).
+
+## Wave 5 — l'audit indipendente, e le tredici cose che ha trovato (2026-09-01)
+
+Due revisioni ostili indipendenti sul diff completo della Wave (`f92c9b6..HEAD`,
+15 commit, 34.091 righe): una sul confine e sui permessi, una sulla
+**raggiungibilita** di cio che era stato dichiarato COMPLETE.
+
+Il confine multi-tenant ha retto: nessuna riga di un club leggibile dalla
+sessione di un altro. Il resto no.
+
+### C-1 — I byte di un certificato medico uscivano verso l'allenatore — RISOLTO
+
+Il taglio di D-4 toglie `attachment_id`, `file_url` e `certificate_url` dalla
+proiezione del certificato, e `GET /api/athletes/:id/documents` rifiuta un
+allenatore. Ma i **byte** stavano dietro un cancello piu vecchio: il fascicolo
+deposita ogni documento con `ownerType: "athlete"`, e `athlete` eredita da
+`athletes`, che l'allenatore legge legittimamente.
+
+Tre porte sullo stesso certificato di un minore, due aperte e una chiusa —
+`/api/v1/attachments` in elenco, `/api/v1/attachments/:id` per i byte,
+`/api/athletes/:id/documents/:id/file` per gli stessi byte — e **nessun
+perimetro di gruppo**: valeva per ogni atleta del club.
+
+La regola dell'ereditarieta resta e resta giusta; quello che si e aggiunto e che
+su un documento **sanitario** l'eredita non basta, perche il permesso di vedere
+gli atleti non e il permesso di vedere il loro dato clinico.
+`canAccessAttachmentOwner` accetta ora la **categoria** e pretende
+`clinical.read` quando `isMedicalCertificateDocumentKind` la riconosce — un solo
+elenco di nomi, quello del fascicolo. L'elenco filtra le righe cliniche, perche
+un identificativo e gia il primo passo verso i byte.
+
+Va detto per intero: **la porta non era nuova.** `medical_certificates` stava in
+`TRAINER_READ_RESOURCES` da prima della Wave 5. La Wave 5 ha creato la regola e
+l'ha applicata a una porta su tre, e nel farlo ci ha spostato dentro i byte del
+fascicolo nuovo.
+
+### H-1 — Due NULL non collidono, e lo slot senza operatore non era protetto — RISOLTO
+
+`appointments.ts` dichiara che la doppia prenotazione la impedisce il database.
+L'indice era `UNIQUE (organization_id, assigned_to_user_id, starts_at) WHERE
+status IN ('requested','confirmed')`, e in PostgreSQL due `NULL` non sono uguali
+fra loro. `assigned_to_user_id` e nullo in due configurazioni tutt'altro che rare
+— uno slot senza titolare, e il **ripiego sugli orari di apertura**, che il
+modello stesso definisce «la forma piu diffusa fra i club che non hanno mai
+aperto quella schermata».
+
+Per quei club l'indice non scattava mai e restava una lettura seguita da una
+scrittura, fuori transazione: due famiglie che confermano lo stesso orario nello
+stesso istante ottenevano due appuntamenti, senza errore e senza traccia.
+
+Migrazione `20260901150000_wave5_slot_senza_operatore`: l'indice diventa su
+espressione, con `COALESCE(assigned_to_user_id, '00000000-…-000000000000')`. La
+colonna resta nullabile perche il nullo **significa** qualcosa — «questo posto e
+della segreteria, chiunque risponda» — e un valore fittizio sulla colonna
+renderebbe illeggibile quel fatto a ogni lettura futura, per proteggere una
+scrittura.
+
+> **La sonda lo sapeva e non lo diceva.** `wave-5-concurrency-probe.mjs`
+> configurava di proposito lo slot **con** un operatore, con il commento «in
+> Postgres due NULL non collidono». Misurava la configurazione in cui il vincolo
+> funziona; il prodotto permetteva l'altra. E una lezione sul collaudo, non sul
+> codice: una prova che sceglie i dati in cui la difesa funziona non misura la
+> difesa.
+
+### H-2 — Tre oracoli di esistenza cross-tenant — RISOLTO
+
+`loadRequest` e `loadSubmission` cercavano la riga **senza** filtro di club e la
+facevano poi cadere su `assertActiveClub`. La difesa reggeva — nessun contenuto
+usciva — ma le due frasi non erano la stessa: «non e stata trovata» per un
+identificativo inventato, «non appartiene al club attivo, o non esiste» per uno
+di un altro club. Distinguibili, quindi un oracolo: chiunque crei la propria
+societa poteva chiedere se un UUID fosse una richiesta documentale viva **da
+qualche parte sulla piattaforma**.
+
+Il terzo: `POST /api/parent-dashboard/:id/consents` **non** chiamava
+`canParentAccessAthlete`, a differenza del `GET`. Distinguibile per stato e per
+messaggio, e con un corollario peggiore — lo scope veniva costruito con
+`activeOrganizationId` **preso dalla riga nominata dall'attaccante**, quindi ogni
+diniego scriveva una riga `permission.denied` nel registro di sicurezza di un
+club a cui l'attaccante non appartiene. Un registro rumoroso nasconde un attacco
+vero, ed e l'argomento che questa Wave usa altrove.
+
+Il club sta adesso dentro il `where` in tutti e tre i casi, e il legame si
+verifica prima di leggere la riga.
+
+### I Medium chiusi nello stesso passaggio
+
+| Difetto | Cosa succedeva |
+|---|---|
+| Perimetro allenatore sulle risorse nuove | `TRAINER_DASHBOARD_FILTERED_RESOURCES` nominava ancora `trainings` e `matches` — che da 5C **non sono piu risorse** — e non le due nuove: `GET /api/v1/club_event_participants` restituiva a qualunque allenatore ogni convocazione, ogni presenza e ogni `rsvp_note` di tutte le squadre. La nota dell'RSVP e il testo con cui un genitore spiega perche il figlio non ci sara |
+| L'allenatore configurava l'agenda del club | `createAppointmentSlot`, `updateAppointmentSlot` e `deleteAppointmentSlot` chiedevano solo la chiave e non il perimetro: un allenatore poteva cancellare tutti gli orari di ricevimento del club. Il commento di `assertPerimetro` prometteva gia il contrario |
+| Il perimetro degli eventi falliva **aperto** | Un utente con ruolo `trainer` ma senza riga in `clubs.trainers`, o con la riga e nessuna categoria, leggeva l'intero calendario. La funzione gemella di `resources.ts`, sulla stessa domanda, nega tutto: due proprietari e due risposte opposte, la classe di D-3 |
+| L'idempotenza restituiva l'appuntamento di un'altra famiglia | La chiave arriva dal corpo e la ricerca era per solo club: chi indovinasse la chiave altrui riceveva motivo, note e stato di quell'appuntamento, con sopra il nome del **proprio** figlio |
+| `documents.submit_own` senza «own» | Un allenatore poteva depositare un file nel fascicolo di qualunque atleta o collega. Non lo rileggeva, ma la riga e l'allegato erano scritti — e un documento falso nel fascicolo di un minore non ha bisogno di essere riletto per fare danno |
+| `/calendar` rispondeva 200 senza sessione | Terza occorrenza della stessa dimenticanza gia documentata per `/consensi` e `/sport-work`: la pagina nuova non era in `PROTECTED_PREFIXES` |
+| `canParentAccessAthlete` accettava un id di **club** | Rispondeva `true` a una domanda diversa da quella fatta. Inerte oggi — tutti e dieci i chiamanti rileggono poi la riga — ma e la funzione sbagliata su cui correre quel rischio |
+| Due rami senza confine in `resources.ts` | Uno su `allowedOrganizationIds` (la forma che ADR-0094 vieta) e uno senza nessun filtro di club. Irraggiungibili, e tolti: un ramo irraggiungibile e un ramo che qualcuno un giorno rende raggiungibile |
+
+### Cosa l'audit ha trovato pulito
+
+Tutte le query Prisma dei dodici moduli nuovi; le 89 occorrenze di
+`allowedOrganizationIds` classificate una per una; **36 guardie, 236 chiamate,
+tutte attese**; `assertScopeIsCoherent` verificato come non riapertura di
+ADR-0094; la superficie pubblica della ricevuta di iscrizione, senza niente da
+segnalare; i byte dei documenti verso genitore e atleta, tre porte tutte
+pinnate; le migrazioni, senza perdita di dati e con il travaso che ricostruisce
+invece di scartare.

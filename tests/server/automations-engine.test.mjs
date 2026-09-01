@@ -661,6 +661,13 @@ test("AUT-04: l'invito parte due giorni prima dell'evento", async () => {
           category_groups: [],
           trainers: [],
           settings: {},
+          /*
+            La colonna resta perche il club di collaudo la dichiara, ma **non e
+            piu la fonte**: da ADR-0098 l'evento e una riga, e sia gli inviti
+            sia il pre-controllo dell'automazione leggono `club_events`. Senza
+            la riga qui sotto questo test misurerebbe la proiezione, cioe
+            esattamente cio che non decide piu niente.
+          */
           trainings: [
             {
               id: "t1",
@@ -670,6 +677,22 @@ test("AUT-04: l'invito parte due giorni prima dell'evento", async () => {
               rsvpRequired: true,
             },
           ],
+        },
+      ],
+      clubEvent: [
+        {
+          id: "t1",
+          organization_id: CLUB,
+          kind: "training",
+          status: "scheduled",
+          title: "Allenamento Under 14",
+          starts_at: new Date("2026-11-25T18:30:00.000Z"),
+          ends_at: new Date("2026-11-25T20:00:00.000Z"),
+          rsvp_required: true,
+          rsvp_deadline: null,
+          group_ids: [],
+          category_id: null,
+          site_id: null,
         },
       ],
       clubResourceItem: [

@@ -598,14 +598,24 @@ const u15 = async () => {
   /* 7 — leggere una richiesta documentale altrui. */
   const t7 = await tenta(() => documenti.getDocumentRequest(B, RICHIESTA_A.id));
   /*
-    `loadRequest` cerca la riga **senza** filtro di club e poi la fa cadere su
-    `assertActiveClub`: la difesa regge, ma la strada e diversa da quella degli
-    eventi, dove la query stessa non trova nulla. L'esito atteso e quindi
-    `ambiguo`, la formula deliberata del confine, e non `inesistente`.
+    Qui l'esito atteso e cambiato, e vale la pena dire perche.
+
+    `loadRequest` cercava la riga **senza** filtro di club e la faceva poi
+    cadere su `assertActiveClub`: la difesa reggeva — nessun contenuto usciva —
+    ma le due frasi non erano la stessa, e un audit indipendente l'ha misurato.
+    Un identificativo inventato riceveva «non e stata trovata»; un
+    identificativo **di un altro club** riceveva la formula del confine, «non
+    appartiene al club attivo, o non esiste». Due risposte distinguibili sono un
+    oracolo di esistenza: chiunque crei la propria societa poteva chiedere se un
+    UUID fosse una richiesta viva da qualche parte sulla piattaforma.
+
+    Adesso il club sta **dentro** il `where`, come per gli eventi e gli
+    appuntamenti, e l'esito e `inesistente` — cioe cio che il §22 chiede a una
+    lettura cross-tenant.
   */
   prova(
     "7. leggere una richiesta documentale altrui",
-    "ambiguo",
+    "inesistente",
     t7.esito,
     t7.messaggio,
   );
@@ -618,7 +628,7 @@ const u15 = async () => {
   );
   prova(
     "8. decidere su un deposito documentale altrui",
-    "ambiguo",
+    "inesistente",
     t8.esito,
     t8.messaggio,
   );

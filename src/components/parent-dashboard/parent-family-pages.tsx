@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   FileSignature,
   Megaphone,
+  RefreshCw,
   ShieldCheck,
   Trophy,
   XCircle,
@@ -15,8 +16,21 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { useToast } from "@/components/ui/toast-notification";
+import {
+  RenewalForm,
+  readRenewalSlug,
+} from "@/components/enrollment/renewal-form";
+import * as formsApi from "@/lib/api/forms";
 import { useParentDashboard } from "./parent-dashboard-context";
 
 /**
@@ -533,14 +547,83 @@ export function ParentCalendarPage() {
  * domanda ancora in attesa su cui pende almeno una richiesta documentale. Cio
  * che manca si mostra accanto, perche e l'unica cosa su cui la famiglia puo
  * fare qualcosa.
+ *
+ * **Il rinnovo si apre da qui.** La pagina sapeva gia *leggere* una pratica
+ * con `kind === "renewal"` e non sapeva crearne una: la rotta, la bozza
+ * precompilata e i loro test esistevano senza nessun pulsante che li
+ * accendesse. Il modulo lo disegna `RenewalForm`, che riusa `FormRenderer`.
+ *
+ * **Quale modulo si rinnova lo dice il club.** L'elenco arriva da
+ * `fetchRenewalForms` — la stessa rotta del rinnovo, interrogata senza slug —
+ * e porta solo titolo e slug pubblico. Il link ricevuto dalla societa resta
+ * una scorciatoia (`?modulo=…`), non l'unica strada: finche lo era, il rinnovo
+ * esisteva soltanto per chi sapeva gia che esisteva.
  */
 export function ParentEnrollmentPage() {
   const { data, athleteRouteId } = useParentDashboard();
   const { showToast } = useToast();
   const [pratiche, setPratiche] = useState<any[]>([]);
   const [caricamento, setCaricamento] = useState(true);
+  /* I moduli che il club ha pubblicato, quello scelto, e se e aperto. */
+  const [moduli, setModuli] = useState<formsApi.RenewalFormOption[]>([]);
+  const [statoModuli, setStatoModuli] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [erroreModuli, setErroreModuli] = useState("");
+  const [slugRinnovo, setSlugRinnovo] = useState("");
+  const [rinnovoAperto, setRinnovoAperto] = useState(false);
+  /*
+    Cambia dopo un invio riuscito, e basta a rileggere l'elenco: la pratica
+    appena inviata deve comparire subito, altrimenti la famiglia non ha nessun
+    riscontro — che e esattamente il vuoto che questa pagina esiste per
+    chiudere.
+  */
+  const [versione, setVersione] = useState(0);
 
   const athleteId = data?.athlete.id || athleteRouteId;
+
+  /*
+    La query si legge da `window.location`, non con `useSearchParams`: quel
+    hook obbliga a una barriera `Suspense` attorno alla pagina, e qui serve un
+    valore solo, una volta, dopo il montaggio.
+  */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const parametri = new URLSearchParams(window.location.search);
+    const dalLink = readRenewalSlug(
+      parametri.get("modulo") || parametri.get("slug"),
+    );
+    if (!dalLink) return;
+    setSlugRinnovo(dalLink);
+    setRinnovoAperto(true);
+  }, []);
+
+  const caricaModuli = useCallback(async () => {
+    if (!athleteId) return;
+    setStatoModuli("loading");
+    try {
+      const elenco = await formsApi.fetchRenewalForms(athleteId);
+      setModuli(elenco);
+      setErroreModuli("");
+      setStatoModuli("ready");
+      /*
+        Con **un** modulo solo non si sceglie: un menu con una voce sola non
+        informa e occupa una riga che a 375 px serve al resto. Con lo slug gia
+        arrivato dal link non si tocca cio che la famiglia ha in mano.
+      */
+      setSlugRinnovo((corrente) =>
+        corrente || (elenco.length === 1 ? elenco[0].publicSlug : ""),
+      );
+    } catch (errore: any) {
+      setModuli([]);
+      setErroreModuli(errore?.message || "Moduli di rinnovo non disponibili");
+      setStatoModuli("error");
+    }
+  }, [athleteId]);
+
+  useEffect(() => {
+    void caricaModuli();
+  }, [caricaModuli]);
 
   useEffect(() => {
     if (!athleteId) return;
@@ -576,7 +659,7 @@ export function ParentEnrollmentPage() {
     return () => {
       annullato = true;
     };
-  }, [athleteId, showToast]);
+  }, [athleteId, showToast, versione]);
 
   const etichetta = (stato: string) => {
     switch (String(stato || "").toLowerCase()) {
@@ -610,6 +693,110 @@ export function ParentEnrollmentPage() {
         title="Iscrizione e rinnovo"
         subtitle="A che punto e la tua domanda, e cosa manca."
       />
+
+      {rinnovoAperto && athleteId && slugRinnovo ? (
+        <RenewalForm
+          athleteId={athleteId}
+          publicSlug={slugRinnovo}
+          onClose={() => setRinnovoAperto(false)}
+          onSent={(messaggio) => {
+            setRinnovoAperto(false);
+            showToast("success", messaggio);
+            setVersione((corrente) => corrente + 1);
+          }}
+        />
+      ) : (
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-blue-600" />
+              Rinnova l&#8217;iscrizione
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Il rinnovo e lo stesso modulo dell&#8217;iscrizione, gia compilato
+              con i dati che la societa ha in archivio: si controlla, si
+              corregge cio che e cambiato e si invia. La stagione la decide la
+              societa.
+            </p>
+
+            {/*
+              Tre stati, non due (10 — UI/UX): un elenco che non arriva non si
+              racconta come «la societa non ha pubblicato niente», o una
+              famiglia smette di cercare il rinnovo che le hanno chiesto.
+            */}
+            {statoModuli === "loading" ? (
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-sm text-slate-500"
+              >
+                Cerco i moduli di rinnovo…
+              </p>
+            ) : statoModuli === "error" ? (
+              <div className="space-y-2">
+                <p role="alert" className="text-sm text-red-700">
+                  {erroreModuli}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-[44px] w-full sm:w-auto"
+                  onClick={() => void caricaModuli()}
+                >
+                  Riprova
+                </Button>
+              </div>
+            ) : moduli.length === 0 && !slugRinnovo ? (
+              <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+                La societa non ha pubblicato nessun modulo di rinnovo. Quando lo
+                fara lo trovi qui: non serve nessun link.
+              </p>
+            ) : (
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
+                {/* Con un modulo solo non si sceglie: si apre. */}
+                {moduli.length > 1 ? (
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <Label htmlFor="modulo-rinnovo">Quale modulo</Label>
+                    <Select
+                      value={slugRinnovo || undefined}
+                      onValueChange={setSlugRinnovo}
+                    >
+                      <SelectTrigger
+                        id="modulo-rinnovo"
+                        className="min-h-[44px] bg-white"
+                      >
+                        <SelectValue placeholder="Scegli il modulo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {moduli.map((modulo) => (
+                          <SelectItem
+                            key={modulo.publicSlug}
+                            value={modulo.publicSlug}
+                          >
+                            {modulo.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
+                <Button
+                  type="button"
+                  className="min-h-[44px] w-full sm:w-auto"
+                  disabled={!athleteId || !slugRinnovo}
+                  onClick={() => setRinnovoAperto(true)}
+                >
+                  Apri il rinnovo
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

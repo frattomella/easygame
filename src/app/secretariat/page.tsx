@@ -45,6 +45,14 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  cancelClubAppointment,
+  confirmClubAppointment,
+  createClubAppointment,
+  listClubAppointments,
+  rejectClubAppointment,
+  type ClubAppointment,
+} from "@/lib/api/appointments-client";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -100,6 +108,12 @@ type ReminderTargetOption = {
   label: string;
 };
 
+/** Il club su cui si sta lavorando viaggia nell'intestazione, come ovunque. */
+const intestazioniClub = (
+  organizationId?: string | null,
+): Record<string, string> =>
+  organizationId ? { "x-active-club-id": String(organizationId) } : {};
+
 export default function SecretariatPage() {
   const { showToast } = useToast();
   const { user, activeClub } = useAuth();
@@ -113,17 +127,23 @@ export default function SecretariatPage() {
     if (!date) setDate(new Date());
     if (!appointmentDate) setAppointmentDate(new Date());
   }, []);
-  const [appointments, setAppointments] = useState<
-    Array<{
-      id: string;
-      title: string;
-      date: Date;
-      time: string;
-      description: string;
-      person?: string;
-      athlete?: string;
-    }>
-  >([]);
+  /*
+    **Gli appuntamenti arrivano dal dominio, non da `clubs.appointments`.**
+
+    La lane 5E aveva promosso l'appuntamento a tabella con un solo scrittore, e
+    questa pagina era rimasta sulla colonna JSON: da quel momento la richiesta
+    di una famiglia finiva in una riga che **nessuna schermata del club
+    leggeva**. Non e un difetto di visualizzazione — e la funzione che sparisce:
+    una famiglia chiedeva un colloquio e in segreteria non compariva niente.
+
+    Con la riga arrivano tre cose che la colonna non aveva: lo **stato** vero
+    (una richiesta in attesa si distingue da un appuntamento confermato), la
+    **versione** per il controllo ottimistico, e le **transizioni permesse**,
+    che le decide il dominio e non questa schermata.
+  */
+  const [appointments, setAppointments] = useState<ClubAppointment[]>([]);
+  const [decisione, setDecisione] = useState("");
+  const [decidendo, setDecidendo] = useState(false);
   const [notes, setNotes] = useState<
     Array<{
       id: string;
@@ -226,7 +246,7 @@ export default function SecretariatPage() {
           trainersData,
           membersData,
         ] = await Promise.all([
-          getClubData(activeClub.id, "appointments"),
+          listClubAppointments(intestazioniClub(activeClub.id)),
           getClubData(activeClub.id, "secretariat_notes"),
           getClubData(activeClub.id, "opening_hours"),
           getClubStaff(activeClub.id),
@@ -256,11 +276,15 @@ export default function SecretariatPage() {
           Array.isArray(staffData) ? staffData.length : "N/A",
         );
 
-        // Convert date strings back to Date objects for appointments
-        const processedAppointments = (appointmentsData || []).map((app) => ({
-          ...app,
-          date: new Date(app.date),
-        }));
+        /*
+          Nessuna conversione: la proiezione del dominio porta gia `date` e
+          `time` nel fuso del club (`toClubAppointment`). Convertirle qui con
+          `new Date` le riporterebbe nel fuso del browser, che e il modo in cui
+          un appuntamento delle 09:00 diventa delle 08:00 per chi guarda da
+          un'altra nazione.
+        */
+        const processedAppointments = (appointmentsData ||
+          []) as ClubAppointment[];
 
         // Convert date strings back to Date objects for notes
         const processedNotes = (notesData || []).map((note) => ({
@@ -647,20 +671,30 @@ export default function SecretariatPage() {
     }
 
     try {
-      const appointment = {
-        id: `appointment-${Date.now()}`,
-        title: newAppointment.title,
-        date: appointmentDate,
-        time: newAppointment.time,
-        description: newAppointment.description,
-        person: newAppointment.person,
-        athlete: newAppointment.athlete,
-      };
+      /*
+        `outsideAvailability` e il colloquio preso al telefono: la
+        disponibilita configurata vale per chi prenota da casa, non per chi sta
+        parlando con la segretaria. Non e un modo di aggirare il controllo — e
+        il modo di dichiarare che lo si sta scavalcando **con il permesso di
+        farlo** (`appointments.manage`, verificato dal server), e resta scritto
+        nell'audit.
+      */
+      const creato = await createClubAppointment(
+        {
+          date: appointmentDate.toISOString().split("T")[0],
+          time: newAppointment.time,
+          reason: newAppointment.title,
+          notes: newAppointment.description,
+          internalNotes: newAppointment.person
+            ? `Nominativo: ${newAppointment.person}`
+            : null,
+          outsideAvailability: true,
+          idempotencyKey: `desk-${activeClub.id}-${appointmentDate.toISOString().split("T")[0]}-${newAppointment.time}-${newAppointment.title}`,
+        },
+        intestazioniClub(activeClub.id),
+      );
 
-      // Save to database
-      await addClubData(activeClub.id, "appointments", appointment);
-
-      setAppointments([...appointments, appointment]);
+      if (creato) setAppointments((prev) => [...prev, creato]);
       setNewAppointment({
         title: "",
         time: "",
@@ -671,7 +705,15 @@ export default function SecretariatPage() {
       showToast("success", "Appuntamento aggiunto con successo");
     } catch (error) {
       console.error("Error adding appointment:", error);
-      showToast("error", "Errore nel salvare l'appuntamento");
+      /*
+        Il messaggio del dominio arriva fino a qui invece di essere sostituito
+        con «Errore nel salvare»: «quell'orario e appena stato preso» dice a una
+        segretaria che cosa fare, «errore» no.
+      */
+      showToast(
+        "error",
+        String((error as Error)?.message || "Errore nel salvare l'appuntamento"),
+      );
     }
   };
 
@@ -808,16 +850,101 @@ export default function SecretariatPage() {
     }
   };
 
+  /**
+   * **Un appuntamento non si cancella: si annulla.**
+   *
+   * E il difetto D-1 misurato al contrario. Prima questa funzione toglieva la
+   * riga dall'array JSON e non restava niente — ne la richiesta, ne il motivo,
+   * ne il fatto che una famiglia l'avesse mai chiesta, che e il modo piu
+   * silenzioso di dire di no a qualcuno. Adesso la riga resta, la famiglia
+   * legge «Annullato dalla segreteria» e il motivo, e l'audit conserva chi ha
+   * deciso.
+   */
   const deleteAppointment = async (id: string) => {
     if (!activeClub?.id) return;
 
     try {
-      await deleteClubDataItem(activeClub.id, "appointments", id);
-      setAppointments(appointments.filter((app) => app.id !== id));
-      showToast("success", "Appuntamento eliminato con successo");
+      const aggiornato = await cancelClubAppointment(
+        id,
+        {
+          note: decisione.trim() || null,
+          version: appointments.find((app) => app.id === id)?.version ?? null,
+        },
+        intestazioniClub(activeClub.id),
+      );
+      setAppointments((prev) =>
+        prev.map((app) => (app.id === id && aggiornato ? aggiornato : app)),
+      );
+      setDecisione("");
+      showToast("success", "Appuntamento annullato: la famiglia lo vedra");
     } catch (error) {
-      console.error("Error deleting appointment:", error);
-      showToast("error", "Errore nell'eliminare l'appuntamento");
+      console.error("Error cancelling appointment:", error);
+      showToast(
+        "error",
+        String((error as Error)?.message || "Errore nell'annullare l'appuntamento"),
+      );
+    }
+  };
+
+  /**
+   * **Le due risposte che nessuno poteva dare.**
+   *
+   * Fino alla Wave 5 nessuna riga di codice scriveva `confirmed` ne
+   * `rejected`: una richiesta di famiglia restava in attesa per sempre, e
+   * l'unica risposta possibile era cancellarla senza avvisare nessuno. Il
+   * dominio le sa fare da 5E; questa e la schermata da cui si esercitano.
+   *
+   * La **versione** viaggia con la decisione: due operatori che rispondono
+   * insieme non si sovrascrivono, il secondo riceve un rifiuto e ricarica —
+   * che su una conferma vuol dire non mandare due orari diversi alla stessa
+   * famiglia.
+   */
+  const decidiAppuntamento = async (
+    appuntamento: ClubAppointment,
+    azione: "confirm" | "reject",
+  ) => {
+    if (!activeClub?.id || decidendo) return;
+    setDecidendo(true);
+
+    try {
+      const input = {
+        note: decisione.trim() || null,
+        version: appuntamento.version ?? null,
+      };
+      const aggiornato =
+        azione === "confirm"
+          ? await confirmClubAppointment(
+              appuntamento.id,
+              input,
+              intestazioniClub(activeClub.id),
+            )
+          : await rejectClubAppointment(
+              appuntamento.id,
+              input,
+              intestazioniClub(activeClub.id),
+            );
+
+      if (aggiornato) {
+        setAppointments((prev) =>
+          prev.map((app) => (app.id === appuntamento.id ? aggiornato : app)),
+        );
+        setSelectedAppointment(aggiornato);
+      }
+      setDecisione("");
+      showToast(
+        "success",
+        azione === "confirm"
+          ? "Appuntamento confermato: la famiglia riceve la notifica"
+          : "Richiesta rifiutata: alla famiglia arriva il motivo",
+      );
+    } catch (error) {
+      console.error("Error deciding appointment:", error);
+      showToast(
+        "error",
+        String((error as Error)?.message || "Non riesco a rispondere adesso"),
+      );
+    } finally {
+      setDecidendo(false);
     }
   };
 
@@ -1241,7 +1368,7 @@ export default function SecretariatPage() {
                                       setIsViewAppointmentOpen(true);
                                     }}
                                   >
-                                    {appointment.time} - {appointment.person}
+                                    {appointment.time} — {appointment.title}
                                   </div>
                                 ))}
                               </div>
@@ -1473,11 +1600,23 @@ export default function SecretariatPage() {
                                       <p className="text-sm text-muted-foreground">
                                         Orario: {appointment.time}
                                       </p>
-                                      {appointment.description && (
+                                      {/*
+                                        Lo **stato** e la cosa che la colonna
+                                        JSON non aveva e che la segreteria deve
+                                        vedere per prima: una richiesta in
+                                        attesa di risposta non e un
+                                        appuntamento confermato, e finche le due
+                                        cose si somigliavano nessuno rispondeva
+                                        a nessuno.
+                                      */}
+                                      <p className="text-sm text-muted-foreground">
+                                        {appointment.status_label}
+                                      </p>
+                                      {appointment.notes ? (
                                         <p className="text-sm mt-2">
-                                          {appointment.description}
+                                          {appointment.notes}
                                         </p>
-                                      )}
+                                      ) : null}
                                     </div>
                                     <Button
                                       variant="ghost"
@@ -1975,24 +2114,93 @@ export default function SecretariatPage() {
                   </div>
                 </div>
                 <div>
-                  <p className="text-sm font-medium">Nominativo</p>
-                  <p className="text-sm">{selectedAppointment.person}</p>
+                  <p className="text-sm font-medium">Stato</p>
+                  <p className="text-sm">{selectedAppointment.status_label}</p>
                 </div>
-                {selectedAppointment.athlete && (
+                {selectedAppointment.notes ? (
                   <div>
-                    <p className="text-sm font-medium">Atleta collegato</p>
-                    <p className="text-sm">{selectedAppointment.athlete}</p>
-                  </div>
-                )}
-                {selectedAppointment.description && (
-                  <div>
-                    <p className="text-sm font-medium">Descrizione</p>
+                    <p className="text-sm font-medium">Motivo</p>
                     <p className="text-sm whitespace-pre-wrap">
-                      {selectedAppointment.description}
+                      {selectedAppointment.notes}
                     </p>
                   </div>
-                )}
-                <div className="flex justify-end gap-2 pt-4">
+                ) : null}
+                {selectedAppointment.decision_note ? (
+                  <div>
+                    <p className="text-sm font-medium">Nota della decisione</p>
+                    <p className="text-sm whitespace-pre-wrap">
+                      {selectedAppointment.decision_note}
+                    </p>
+                  </div>
+                ) : null}
+
+                {/*
+                  **Le mosse le dichiara il dominio, non questa schermata.**
+                  `transitions` arriva da `listAppointmentTransitions`, che
+                  conosce la macchina a stati: un appuntamento gia rifiutato non
+                  mostra «Conferma», e non perche qui ci sia un `if` che se lo
+                  ricorda. Una schermata che decidesse da se quali pulsanti
+                  mostrare sarebbe una seconda macchina a stati, e prima o poi
+                  direbbe qualcosa di diverso dalla prima.
+                */}
+                {(selectedAppointment.transitions || []).some((t: string) =>
+                  ["confirm", "reject", "cancel"].includes(t),
+                ) ? (
+                  <div className="space-y-2 border-t pt-4">
+                    <Label htmlFor="appointment-decision">
+                      Nota per la famiglia
+                    </Label>
+                    <Textarea
+                      id="appointment-decision"
+                      value={decisione}
+                      onChange={(event) => setDecisione(event.target.value)}
+                      placeholder="Il motivo, se rifiuti o annulli: la famiglia lo legge"
+                      rows={2}
+                    />
+                  </div>
+                ) : null}
+
+                {/*
+                  `flex-wrap`: a 375 px tre comandi in fila non ci stanno, e
+                  senza il ritorno a capo l'ultimo — che qui e «Chiudi» — esce
+                  dal dialogo.
+                */}
+                <div className="flex flex-wrap justify-end gap-2 pt-4">
+                  {(selectedAppointment.transitions || []).includes(
+                    "confirm",
+                  ) ? (
+                    <Button
+                      disabled={decidendo}
+                      onClick={() =>
+                        decidiAppuntamento(selectedAppointment, "confirm")
+                      }
+                    >
+                      Conferma
+                    </Button>
+                  ) : null}
+                  {(selectedAppointment.transitions || []).includes("reject") ? (
+                    <Button
+                      variant="outline"
+                      disabled={decidendo}
+                      onClick={() =>
+                        decidiAppuntamento(selectedAppointment, "reject")
+                      }
+                    >
+                      Rifiuta
+                    </Button>
+                  ) : null}
+                  {(selectedAppointment.transitions || []).includes("cancel") ? (
+                    <Button
+                      variant="outline"
+                      disabled={decidendo}
+                      onClick={() => {
+                        void deleteAppointment(selectedAppointment.id);
+                        setIsViewAppointmentOpen(false);
+                      }}
+                    >
+                      Annulla l&#8217;appuntamento
+                    </Button>
+                  ) : null}
                   <Button
                     variant="outline"
                     onClick={() => setIsViewAppointmentOpen(false)}

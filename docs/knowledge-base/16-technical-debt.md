@@ -1706,3 +1706,100 @@ duplicato, e i duplicati in questo repository divergono: e stato cancellato.
   non scrive piu in tre posti, `clearUpcomingGeneratedTrainings` e
   `generateTrainingsFromWeeklySchedule` non riscrivono piu l'intera collezione —
   e che resta in riduzione (WP-07).
+
+## Wave 5 — cosa l'audit indipendente ha lasciato aperto (2026-09-01)
+
+Chiusi tutti i Critical e gli High, e i Medium che perdevano dati o permettevano
+atti fuori perimetro (vedi [14 — Sicurezza](14-security.md)). Resta questo.
+
+### W5-D01 · Nove chiavi del catalogo non le chiede nessuno, e cinque collassano su una
+
+`documents.templates.manage`, `documents.generate`, `documents.generated.read`,
+`documents.generated.advance`, `consents.definitions.manage`,
+`consents.decide_for_others`, `consents.records.read`,
+`members.register.manage`, `sport_work.read_own` non hanno riferimenti sotto
+`src/lib/server/**` ne `src/app/api/**`.
+
+Peggio: cinque di esse sono decise a runtime da un unico interruttore,
+`documents.templates.read` (`src/lib/documents/permissions.ts`) — fra cui
+`consents.decide_for_others`, cioè una chiave del dominio *documenti* che decide
+un atto sui *consensi*. Togliere `staff` da quella chiave nel catalogo oggi non
+cambia niente.
+
+**Perché blocca la Wave 6 e non la Wave 5**: il motore dei ruoli personalizzati
+mostrerebbe cinque caselle che agiscono su un bit solo, cioè prometterebbe una
+configurabilità che non c'è. Va risolto **prima** di W6-1, non dopo.
+
+`tests/lib/catalogo-permessi.test.mjs` verifica etichette, duplicati e
+appartenenza ai ruoli — mai che una chiave sia **chiesta** da qualche parte.
+Quel test è il posto in cui aggiungere il presidio.
+
+### W5-D02 · Il test delle guardie attese copre 5 guardie su 11
+
+`tests/server/guardie-attese.test.mjs` verifica 27 chiamate su 236. Fuori:
+`assertSubjectAccess`, `assertSubjectMayDecide`, `assertFieldIsOpen`,
+`assertNoOverlap`, `assertClinicalPermission`, `requireLinkedAthlete` — e le
+prime due scrivono la propria riga di diniego.
+
+Due buchi nel test stesso: il filtro scarta le chiamate scritte come
+assegnazione (`const x = assertX(...)` — non attesa, promessa truthy, non ferma
+niente **e** non alza il contatore), e il regex pretende `await` sulla stessa
+riga fisica.
+
+L'audit ha verificato a mano tutte e 236 le chiamate: **oggi sono tutte
+attese**. Il debito è il presidio, non lo stato.
+
+### W5-D03 · Il perimetro dell'allenatore sugli eventi è applicato in 1 punto su 9
+
+`trainerEventFilter` è chiamata solo da `listClubEvents`. `readClubEvent`,
+`updateClubEvent`, `deleteClubEvent`, `saveEventConvocations`,
+`saveEventAttendance`, `listEventParticipants` e `createClubEventsBatch` si
+fermano alla chiave di ruolo, che l'allenatore ha su tutte.
+
+Il commento in testa a `events.ts` promette il perimetro riga per riga
+(punto 3); `trainerEventFilter` dice che il gruppo «è un filtro e non un
+confine». **Le due frasi sono nello stesso file e non dicono la stessa cosa**, e
+va deciso quale delle due è la regola prima di scrivere il codice che la applica.
+
+### W5-D04 · `capacity` di uno slot è inerte o attivamente sbagliata
+
+`computeFreeAppointmentSlots` calcola `residui = capienza - presi`, quindi con
+`capacity: 2` propone due prenotazioni sullo stesso istante. Ma l'indice unico
+non conosce la capienza: la seconda prenotazione legittima riceve P2002, tradotto
+in «quell'orario è appena stato preso». In nessuna configurazione `capacity` fa
+quello che dice. O la si rende vera nel vincolo, o si toglie dal modello.
+
+### W5-D05 · Minori
+
+- La disponibilità restituita alla famiglia porta `assignedToUserId`, cioè
+  l'UUID interno degli operatori del club.
+- `stripClinicalCertificateFields` non conosce `CLINICAL_CERTIFICATE_FIELDS` sul
+  `data` annidato: un `data.file_url` sopravvivrebbe. Nessuno scrive lì oggi.
+- `POST /api/parent-dashboard/:id/documents` decodifica il base64 e **poi**
+  misura; il ramo multipart misura prima. Nessun limite di frequenza su
+  `POST /api/v1/document-submissions`.
+- `riprogramma` filtra la disponibilità con l'`assigned_to_user_id` della riga
+  esistente, mentre la `GET` della famiglia non filtra per operatore: uno slot
+  offerto può essere rifiutato allo spostamento.
+- `AttendanceConfirmation.tsx` e `DENIAL_MESSAGES` dicono «allenamento» a mano:
+  su una gara si leggono sbagliati.
+- `parent-dashboard-types.ts` non dichiara `availableSlots` benché il server lo
+  mandi nel payload aggregato: due fonti per lo stesso dato, e va tolta una.
+- L'upload della famiglia manda ancora **JSON base64** e non multipart, benché il
+  commento della rotta dica «il ramo sparisce con la lane 5J».
+
+### Difetti **precedenti** alla Wave 5, trovati dall'audit
+
+- `member: "collaborator"` in `ROLE_ALIASES` più `const role = access?.role || "member"`
+  in `resources.ts`: una `club_access` senza ruolo, scritta intendendo «socio»,
+  produce un **collaboratore** con lettura e scrittura su anagrafica atleti,
+  certificati e note di segreteria.
+- `viewAthleteContacts` ha default `true`, è l'unico gate della scheda contatti
+  e ha **zero** occorrenze lato server: la stessa forma di D-4.
+  `RISORSE_CON_ANAGRAFICA_PERSONALE` copre `trainers` e `staff_members`, non gli
+  atleti — la Wave 5 ha aggiunto quell'allowlist e si è fermata prima.
+- `GET /api/v1/documents/:kind/:id` risponde 404 **prima** di ogni
+  autorizzazione: 404 contro 403 distingue un id inesistente da uno altrui.
+- `src/app/api/forms/assets/[assetId]/route.ts` autorizza con
+  `allowedOrganizationIds.includes(...)`: l'ultima porta di byte non migrata ad
+  `assertActiveClub`.

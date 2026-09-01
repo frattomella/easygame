@@ -30,6 +30,7 @@ const T_APERTO = "training-aperto";
 const T_SCADUTO = "training-scaduto";
 const T_ANNULLATO = "training-annullato";
 const T_SENZA_RSVP = "training-senza-rsvp";
+const GARA = "gara-aperta";
 
 let service;
 let misura;
@@ -63,6 +64,34 @@ const eventi = (organizationId) =>
     title: training.title ?? null,
     payload: training,
   }));
+
+/**
+ * **Una gara che chiede conferma.**
+ *
+ * Esiste solo fra le righe di `club_events`, e non nella proiezione
+ * `clubs.trainings` — che di gare non ne contiene per definizione. Era questa
+ * la ragione per cui l'invito non arrivava mai a nessuno: l'elenco che la
+ * famiglia legge iterava la proiezione degli allenamenti, quindi il servizio
+ * rispondeva a una gara e nessuna schermata gliela chiedeva.
+ *
+ * Non ha titolo di proposito: e la forma con cui una gara viene creata quasi
+ * sempre, ed e quella su cui il ripiego «Allenamento» era piu visibile.
+ */
+const gara = (organizationId) => ({
+  id: `evento-${organizationId.slice(0, 4)}-${GARA}`,
+  organization_id: organizationId,
+  kind: "match",
+  legacy_id: GARA,
+  status: "scheduled",
+  starts_at: new Date("2026-09-08T15:00:00.000Z"),
+  rsvp_required: true,
+  rsvp_deadline: new Date("2026-09-07T18:00:00.000Z"),
+  category_name: "Pulcini",
+  title: null,
+  opponent: "ASD Rivale",
+  location: "Campo comunale",
+  payload: {},
+});
 
 const trainings = () => [
   {
@@ -200,7 +229,12 @@ const seed = () => ({
     },
   ],
   athleteCategoryMembership: [],
-  clubEvent: [...eventi(CLUB), ...eventi(ALTRO_CLUB)],
+  clubEvent: [
+    ...eventi(CLUB),
+    gara(CLUB),
+    ...eventi(ALTRO_CLUB),
+    gara(ALTRO_CLUB),
+  ],
   clubEventParticipant: [],
   auditLog: [],
 });
@@ -437,10 +471,14 @@ test("gli inviti pendenti sono solo quelli a cui si puo ancora rispondere", asyn
     Restano fuori: quello scaduto, quello annullato e quello che non chiede
     conferma. Un promemoria su una porta gia chiusa e solo un messaggio in piu
     che nessuno puo seguire.
+
+    La gara invece **c'e**, ed e in ordine di data dopo l'allenamento: un
+    sollecito automatico che dimenticasse le gare lascerebbe senza risposta
+    proprio le convocazioni.
   */
   assert.deepEqual(
     pendenti.map((invito) => invito.trainingId),
-    [T_APERTO],
+    [T_APERTO, GARA],
   );
   assert.equal(pendenti[0].state, "no_response");
   assert.equal(pendenti[0].canAnswer, true);
@@ -454,7 +492,14 @@ test("un invito gia risposto esce dai pendenti ma resta fra gli inviti", async (
     athleteId: ATLETA,
     now: ADESSO,
   });
-  assert.equal(pendenti.length, 0);
+  /*
+    L'allenamento a cui si e appena risposto esce dai pendenti; la gara, a cui
+    nessuno ha risposto, resta. Un sollecito si manda su cio che manca.
+  */
+  assert.deepEqual(
+    pendenti.map((invito) => invito.trainingId),
+    [GARA],
+  );
 
   /*
     L'area genitore vede anche gli inviti chiusi: la famiglia deve poter
@@ -475,6 +520,91 @@ test("un invito gia risposto esce dai pendenti ma resta fra gli inviti", async (
   assert.equal(chiuso.state, "no_response");
   assert.equal(chiuso.canAnswer, false);
   assert.match(chiuso.blockedMessage, /scaduto/i);
+});
+
+/* ------------------------------------------------- gli inviti sono di due tipi */
+
+/**
+ * **La gara fra gli inviti: la meta della capability che non arrivava.**
+ *
+ * La Wave 5 aveva dichiarato completo l'RSVP su partite e convocazioni, e il
+ * servizio lo reggeva davvero — `findTraining` trova entrambi i tipi. Ma
+ * l'elenco che la famiglia legge iterava `clubs.trainings`, la proiezione dei
+ * soli allenamenti: il backend rispondeva a una gara e **nessuna schermata
+ * gliela chiedeva mai**. E la forma di difetto descritta in CLAUDE.md §11.8 —
+ * non codice mancante, codice irraggiungibile.
+ */
+test("gli inviti della famiglia comprendono le gare", async () => {
+  const inviti = await service.readAthleteRsvpInvitations({
+    athleteId: ATLETA,
+    userId: GENITORE,
+    now: ADESSO,
+  });
+
+  const invito = inviti.find((riga) => riga.trainingId === GARA);
+  assert.ok(invito, "una gara che chiede conferma deve comparire fra gli inviti");
+  assert.equal(invito.kind, "match");
+  assert.equal(invito.opponent, "ASD Rivale");
+  assert.equal(invito.canAnswer, true);
+  assert.equal(invito.state, "no_response");
+});
+
+/**
+ * Un invito deve dire **che cosa** si sta confermando. Il ripiego era
+ * «Allenamento» per tutti: una gara senza titolo — cioe quasi ogni gara —
+ * arrivava alla famiglia con il nome dell'altra cosa, e le due non costano lo
+ * stesso pomeriggio.
+ */
+test("una gara senza titolo non si chiama «Allenamento»", async () => {
+  const inviti = await service.readAthleteRsvpInvitations({
+    athleteId: ATLETA,
+    userId: GENITORE,
+    now: ADESSO,
+  });
+
+  const gara_ = inviti.find((riga) => riga.trainingId === GARA);
+  assert.equal(gara_.title, "Gara con ASD Rivale");
+
+  const allenamento = inviti.find((riga) => riga.trainingId === T_APERTO);
+  assert.equal(allenamento.kind, "training");
+  assert.equal(allenamento.opponent, "");
+});
+
+/**
+ * Si risponde a una gara **con lo stesso gesto** di un allenamento, e la
+ * risposta si appoggia alla riga della gara: la strada che il difetto rendeva
+ * impercorribile dall'interfaccia era gia percorribile qui.
+ */
+test("si risponde a una gara come a un allenamento", async () => {
+  const esito = await rispondi({ trainingId: GARA, status: "yes" });
+
+  assert.equal(esito.trainingId, GARA);
+  assert.equal(righe().length, 1);
+  assert.equal(righe()[0].event_id, gara(CLUB).id);
+  assert.equal(righe()[0].rsvp_status, "yes");
+});
+
+/**
+ * **La proiezione non e piu la fonte.**
+ *
+ * Il presidio che se ne accorge se qualcuno rimettesse `clubs.trainings` fra
+ * le colonne lette: svuotata la proiezione, gli inviti restano — perche a
+ * produrli sono le righe di `club_events` (ADR-0098).
+ */
+test("gli inviti non dipendono piu dalla proiezione degli allenamenti", async () => {
+  const club = fake.rows("club").find((riga) => riga.id === CLUB);
+  club.trainings = [];
+
+  const inviti = await service.readAthleteRsvpInvitations({
+    athleteId: ATLETA,
+    userId: GENITORE,
+    now: ADESSO,
+  });
+
+  assert.deepEqual(
+    inviti.map((invito) => invito.trainingId).sort(),
+    [GARA, T_APERTO, T_SCADUTO].sort(),
+  );
 });
 
 /**

@@ -12,12 +12,44 @@ import {
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
+import { apiRequest } from "@/lib/api/client";
 import type { ParentDashboardData } from "./parent-dashboard-types";
+
+/**
+ * Uno **slot libero** cosi come il server lo calcola e lo serializza.
+ *
+ * Non e una comodita: e il contratto. `findFreeSlotAt` confronta l'istante di
+ * inizio con `getTime() === getTime()` su una griglia di trenta minuti, quindi
+ * un orario digitato a mano che non cade esattamente su uno slot viene
+ * rifiutato. La famiglia deve poter scegliere fra questi, non comporne uno.
+ */
+export type AppointmentSlot = {
+  slotId: string | null;
+  source: "slot" | "opening_hours";
+  siteId: string | null;
+  assignedToUserId: string | null;
+  /** L'istante di inizio in ISO: e il solo campo che il server confronta. */
+  startsAt: string;
+  endsAt: string;
+  /** Giorno `YYYY-MM-DD` e ora `HH:MM` gia risolti nel fuso del club. */
+  day: string;
+  time: string;
+  durationMinutes: number;
+  capacity: number;
+  taken: number;
+  remaining: number;
+};
 
 type AppointmentInput = {
   reason: string;
-  date: string;
-  time: string;
+  /**
+   * L'istante dello slot scelto. Sostituisce il giorno e l'ora liberi: erano
+   * due campi che producevano quasi sempre un orario fuori griglia, e un
+   * rifiuto che rimandava a un elenco che nessuna schermata mostrava.
+   */
+  startsAt: string;
+  slotId?: string | null;
+  siteId?: string | null;
   notes?: string;
 };
 
@@ -42,6 +74,7 @@ type ParentDashboardContextValue = {
   error: string | null;
   athleteRouteId: string;
   refresh: () => Promise<void>;
+  loadAppointmentSlots: () => Promise<AppointmentSlot[]>;
   bookAppointment: (input: AppointmentInput) => Promise<void>;
   updateAppointment: (id: string, input: AppointmentInput) => Promise<void>;
   cancelAppointment: (id: string) => Promise<void>;
@@ -55,6 +88,9 @@ const missingProviderContext: ParentDashboardContextValue = {
   error: "Dashboard genitore non inizializzata",
   athleteRouteId: "",
   refresh: async () => {},
+  loadAppointmentSlots: async () => {
+    throw new Error("Dashboard genitore non inizializzata");
+  },
   bookAppointment: async () => {
     throw new Error("Dashboard genitore non inizializzata");
   },
@@ -261,21 +297,53 @@ export function ParentDashboardProvider({
     void refresh();
   }, [refresh]);
 
+  /**
+   * Gli orari su cui si puo davvero chiedere un appuntamento.
+   *
+   * La rotta li calcolava gia — regole di disponibilita del club, orari di
+   * apertura come ripiego, slot gia occupati tolti — e **nessuno li leggeva**:
+   * la schermata offriva un giorno e un'ora liberi, il server pretendeva la
+   * corrispondenza esatta con uno slot, e la famiglia riceveva un rifiuto che
+   * la rimandava a un elenco che non aveva mai visto.
+   *
+   * La lettura sta qui, accanto alle tre scritture, perche chi propone gli
+   * orari e chi prenota devono parlare della stessa griglia.
+   */
+  const loadAppointmentSlots = useCallback(async () => {
+    const athleteId = data?.athlete.id || athleteRouteId;
+    if (!athleteId) return [];
+
+    const response = await apiRequest<{ availableSlots: AppointmentSlot[] }>(
+      `/api/parent-dashboard/${encodeURIComponent(String(athleteId))}/appointments`,
+    );
+
+    if (response.error) {
+      throw new Error(
+        response.error.message || "Impossibile leggere gli orari disponibili",
+      );
+    }
+
+    return Array.isArray(response.data?.availableSlots)
+      ? response.data.availableSlots
+      : [];
+  }, [athleteRouteId, data?.athlete.id]);
+
   const bookAppointment = useCallback(
     async (input: AppointmentInput) => {
-      const response = await fetch(
+      /*
+        `apiRequest` serializza da se: passargli un corpo gia serializzato
+        manderebbe una stringa e ogni campo risulterebbe assente al server. E
+        anche la regola di CLAUDE.md §2 — nessun `fetch` diretto a `/api` da un
+        componente — che questi cinque punti violavano dalla loro nascita.
+      */
+      const payload = await apiRequest<unknown>(
         `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/appointments`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
-        },
+        { method: "POST", body: input },
       );
-      const payload = await response.json().catch(() => ({}));
 
-      if (!response.ok || payload?.error) {
+      if (payload?.error) {
         throw new Error(
-          payload?.error?.message || "Impossibile prenotare l'appuntamento",
+          payload.error.message || "Impossibile prenotare l'appuntamento",
         );
       }
 
@@ -287,19 +355,20 @@ export function ParentDashboardProvider({
 
   const updateAppointment = useCallback(
     async (id: string, input: AppointmentInput) => {
-      const response = await fetch(
+      /*
+        `apiRequest` serializza da se: passargli un corpo gia serializzato
+        manderebbe una stringa e ogni campo risulterebbe assente al server. E
+        anche la regola di CLAUDE.md §2 — nessun `fetch` diretto a `/api` da un
+        componente — che questi cinque punti violavano dalla loro nascita.
+      */
+      const payload = await apiRequest<unknown>(
         `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/appointments`,
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id, ...input }),
-        },
+        { method: "PATCH", body: { id, ...input } },
       );
-      const payload = await response.json().catch(() => ({}));
 
-      if (!response.ok || payload?.error) {
+      if (payload?.error) {
         throw new Error(
-          payload?.error?.message || "Impossibile modificare l'appuntamento",
+          payload.error.message || "Impossibile modificare l'appuntamento",
         );
       }
 
@@ -311,19 +380,20 @@ export function ParentDashboardProvider({
 
   const cancelAppointment = useCallback(
     async (id: string) => {
-      const response = await fetch(
+      /*
+        `apiRequest` serializza da se: passargli un corpo gia serializzato
+        manderebbe una stringa e ogni campo risulterebbe assente al server. E
+        anche la regola di CLAUDE.md §2 — nessun `fetch` diretto a `/api` da un
+        componente — che questi cinque punti violavano dalla loro nascita.
+      */
+      const payload = await apiRequest<unknown>(
         `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/appointments`,
-        {
-          method: "DELETE",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id }),
-        },
+        { method: "DELETE", body: { id } },
       );
-      const payload = await response.json().catch(() => ({}));
 
-      if (!response.ok || payload?.error) {
+      if (payload?.error) {
         throw new Error(
-          payload?.error?.message || "Impossibile cancellare l'appuntamento",
+          payload.error.message || "Impossibile cancellare l'appuntamento",
         );
       }
 
@@ -336,25 +406,26 @@ export function ParentDashboardProvider({
   const uploadDocument = useCallback(
     async (input: DocumentInput) => {
       const dataBase64 = await fileToBase64(input.file);
-      const response = await fetch(
+      /*
+        `apiRequest` serializza da se: passargli un corpo gia serializzato
+        manderebbe una stringa e ogni campo risulterebbe assente al server. E
+        anche la regola di CLAUDE.md §2 — nessun `fetch` diretto a `/api` da un
+        componente — che questi cinque punti violavano dalla loro nascita.
+      */
+      const payload = await apiRequest<unknown>(
         `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/documents`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
+        { method: "POST", body: {
             templateId: input.templateId,
             title: input.title,
             fileName: input.file.name,
             mimeType: input.file.type,
             dataBase64,
-          }),
-        },
+          } },
       );
-      const payload = await response.json().catch(() => ({}));
 
-      if (!response.ok || payload?.error) {
+      if (payload?.error) {
         throw new Error(
-          payload?.error?.message || "Impossibile caricare il documento",
+          payload.error.message || "Impossibile caricare il documento",
         );
       }
 
@@ -366,19 +437,20 @@ export function ParentDashboardProvider({
 
   const bookStructure = useCallback(
     async (input: StructureBookingInput) => {
-      const response = await fetch(
+      /*
+        `apiRequest` serializza da se: passargli un corpo gia serializzato
+        manderebbe una stringa e ogni campo risulterebbe assente al server. E
+        anche la regola di CLAUDE.md §2 — nessun `fetch` diretto a `/api` da un
+        componente — che questi cinque punti violavano dalla loro nascita.
+      */
+      const payload = await apiRequest<unknown>(
         `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/structures`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
-        },
+        { method: "POST", body: input },
       );
-      const payload = await response.json().catch(() => ({}));
 
-      if (!response.ok || payload?.error) {
+      if (payload?.error) {
         throw new Error(
-          payload?.error?.message || "Impossibile richiedere la prenotazione",
+          payload.error.message || "Impossibile richiedere la prenotazione",
         );
       }
 
@@ -395,6 +467,7 @@ export function ParentDashboardProvider({
       error,
       athleteRouteId: data?.athlete.id || athleteRouteId,
       refresh,
+      loadAppointmentSlots,
       bookAppointment,
       updateAppointment,
       cancelAppointment,
@@ -409,6 +482,7 @@ export function ParentDashboardProvider({
       cancelAppointment,
       data,
       error,
+      loadAppointmentSlots,
       loading,
       refresh,
       uploadDocument,

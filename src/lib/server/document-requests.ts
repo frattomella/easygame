@@ -357,19 +357,40 @@ const serializeEntry = (
 
 /* ------------------------------------------------------- lettura di base */
 
+/**
+ * La richiesta, **cercata dentro il club attivo**.
+ *
+ * Il commento diceva che la riga inesistente e la riga altrui danno lo stesso
+ * messaggio; l'audit indipendente della Wave 5 ha misurato che **non era vero**.
+ * La lettura era senza club, quindi:
+ *
+ * - un identificativo inventato usciva da qui — «non e stata trovata, o non e
+ *   di questo club»;
+ * - un identificativo **di un altro club** arrivava fino ad `assertActiveClub`
+ *   e usciva con la sua formula — «non appartiene al club attivo, o non esiste».
+ *
+ * Due frasi diverse per due casi che dovevano essere indistinguibili: chiunque
+ * si registri e crei la propria societa poteva chiedere se un UUID fosse una
+ * richiesta documentale viva **da qualche parte sulla piattaforma**. Nessun
+ * contenuto attraversava il confine, ma un oracolo di esistenza e la prima
+ * meta di un attacco, ed e la classe che ADR-0094 esiste per chiudere.
+ *
+ * La correzione e la forma che `readAppointment` e `findClubEvent` gia usano:
+ * il club **dentro** il `where`, e un solo esito. `assertActiveClub` resta
+ * dopo, e non e ridondante — regge il caso in cui lo scope non abbia un club
+ * attivo, dove il filtro sarebbe stato costruito su una stringa vuota.
+ */
 const loadRequest = async (
   scope: DocumentDossierScope,
   requestId: string,
 ): Promise<RequestRow> => {
-  const row = (await prisma.documentRequest.findUnique({
-    where: { id: asText(requestId) },
-  })) as RequestRow | null;
+  const organizationId = asText(scope?.activeOrganizationId);
+  const row = organizationId
+    ? ((await prisma.documentRequest.findFirst({
+        where: { id: asText(requestId), organization_id: organizationId },
+      })) as RequestRow | null)
+    : null;
 
-  /*
-    La riga che non c'e e la riga di un altro club danno lo stesso messaggio, di
-    proposito: distinguerle direbbe a chi indovina un identificativo che quella
-    richiesta esiste davvero.
-  */
   if (!row) throw denied("la richiesta non e stata trovata, o non e di questo club");
   assertActiveClub(scope, row.organization_id, "la richiesta");
   return row;
@@ -909,19 +930,31 @@ const loadSubmission = async (
   submissionId: string,
 ): Promise<SubmissionRow> => {
   const id = asText(submissionId);
+  const organizationId = asText(scope?.activeOrganizationId);
 
-  let row = (await prisma.documentSubmission.findUnique({
-    where: { id },
-  })) as SubmissionRow | null;
+  /*
+    **Il club sta dentro il `where`, in entrambe le letture.**
+
+    Erano due oracoli di esistenza invece di uno: la prima diceva se un UUID
+    fosse un deposito vivo da qualche parte sulla piattaforma, la seconda —
+    il ripiego per identificativo di richiesta — allargava la domanda agli
+    identificativi delle richieste. Stessa correzione di `loadRequest`, stesso
+    motivo.
+  */
+  let row = organizationId
+    ? ((await prisma.documentSubmission.findFirst({
+        where: { id, organization_id: organizationId },
+      })) as SubmissionRow | null)
+    : null;
 
   /*
     Si accetta anche l'identificativo della **richiesta**, e non per comodita:
     e cio che la schermata ha in mano quando mostra una riga del fascicolo. In
     quel caso si decide sull'ultimo deposito, che e l'unico in verifica.
   */
-  if (!row) {
+  if (!row && organizationId) {
     const perRichiesta = (await prisma.documentSubmission.findMany({
-      where: { request_id: id },
+      where: { request_id: id, organization_id: organizationId },
       orderBy: { submitted_at: "desc" },
       take: 1,
     })) as unknown as SubmissionRow[];

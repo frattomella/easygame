@@ -16,12 +16,12 @@ import {
   getAthleteDisplayName,
 } from "@/components/trainer/trainer-dashboard-shared";
 import {
-  confirmTrainerAppointment,
-  listTrainerAppointments,
-  rejectTrainerAppointment,
-  rescheduleTrainerAppointment,
-  type TrainerAppointment,
-} from "@/lib/trainer-appointments-client";
+  confirmClubAppointment,
+  listClubAppointments,
+  rejectClubAppointment,
+  rescheduleClubAppointment,
+  type ClubAppointment,
+} from "@/lib/api/appointments-client";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,10 +62,10 @@ const STATUS_BADGE_CLASSES: Record<string, string> = {
 
 const APERTI = new Set(["requested", "confirmed", "rescheduled"]);
 
-export default function TrainerAppointmentsDashboardPage() {
+export default function ClubAppointmentsDashboardPage() {
   const { activeClub, assignedAthletes, permissions } = useTrainerDashboard();
   const { showToast } = useToast();
-  const [appointments, setAppointments] = useState<TrainerAppointment[]>([]);
+  const [appointments, setAppointments] = useState<ClubAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reschedulingId, setReschedulingId] = useState<string | null>(null);
@@ -89,7 +89,7 @@ export default function TrainerAppointmentsDashboardPage() {
 
     setLoading(true);
     try {
-      setAppointments(await listTrainerAppointments(headers));
+      setAppointments(await listClubAppointments(headers));
     } catch (error) {
       console.error("Errore lettura appuntamenti allenatore:", error);
       /*
@@ -158,7 +158,7 @@ export default function TrainerAppointmentsDashboardPage() {
   const aperti = appointments.filter((entry) => APERTI.has(entry.status));
   const chiusi = appointments.filter((entry) => !APERTI.has(entry.status));
 
-  const renderCard = (appointment: TrainerAppointment) => {
+  const renderCard = (appointment: ClubAppointment) => {
     const transizioni = Array.isArray(appointment.transitions)
       ? appointment.transitions
       : [];
@@ -243,7 +243,7 @@ export default function TrainerAppointmentsDashboardPage() {
                   esegui(
                     appointment.id,
                     () =>
-                      rescheduleTrainerAppointment(
+                      rescheduleClubAppointment(
                         appointment.id,
                         {
                           date: nuovaData,
@@ -281,7 +281,7 @@ export default function TrainerAppointmentsDashboardPage() {
                   esegui(
                     appointment.id,
                     () =>
-                      confirmTrainerAppointment(
+                      confirmClubAppointment(
                         appointment.id,
                         { version: appointment.version },
                         headers,
@@ -320,7 +320,7 @@ export default function TrainerAppointmentsDashboardPage() {
                   esegui(
                     appointment.id,
                     () =>
-                      rejectTrainerAppointment(
+                      rejectClubAppointment(
                         appointment.id,
                         { version: appointment.version },
                         headers,

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { publicErrorMessage } from "@/lib/server/api-errors";
-import { buildRenewalDraft } from "@/lib/server/enrollment-requests";
+import {
+  buildRenewalDraft,
+  listFamilyRenewalForms,
+} from "@/lib/server/enrollment-requests";
 import {
   FormSubmissionError,
   submitRenewalForm,
@@ -75,8 +78,23 @@ export async function GET(request: Request) {
     if (!session) return jsonError("Sessione non valida", 401);
 
     const { athleteId, publicSlug } = readContext(request);
-    if (!athleteId || !publicSlug) {
-      return jsonError("Indica l'atleta e il modulo di rinnovo", 400);
+    if (!athleteId) {
+      return jsonError("Indica l'atleta", 400);
+    }
+
+    /*
+      **Senza slug si risponde «cosa puoi rinnovare», non con un errore.**
+
+      Il rinnovo pretendeva lo slug e nessuna rotta lo diceva a una famiglia:
+      si poteva rinnovare solo avendo ricevuto il link dalla societa, cioe la
+      funzione esisteva per chi gia sapeva che esisteva. Le due risposte stanno
+      sulla stessa rotta perche sono la stessa domanda in due momenti — «cosa
+      posso rinnovare» e «aprimi questo» — e separarle avrebbe voluto dire due
+      rotte con lo stesso gate di legame da tenere allineate.
+    */
+    if (!publicSlug) {
+      const moduli = await listFamilyRenewalForms(session.db.user_id, athleteId);
+      return NextResponse.json({ data: { forms: moduli }, error: null });
     }
 
     const data = await buildRenewalDraft(session.db.user_id, {

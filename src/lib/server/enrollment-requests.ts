@@ -429,6 +429,58 @@ export type RenewalDraftView = RenewalDraft & {
  * serve la pagina pubblica. Due percorsi di lettura sarebbero due occasioni
  * perche un giorno smettano di coincidere.
  */
+/**
+ * **I moduli di rinnovo che il club ha pubblicato**, per una famiglia.
+ *
+ * Mancava, e la mancanza era la meta invisibile del difetto: il rinnovo aveva
+ * il servizio, la rotta, i test e il collaudo, e nessuna schermata sapeva
+ * **quale slug citare**. Una famiglia poteva rinnovare solo se il club le
+ * mandava il link — cioe la funzione esisteva per chi gia sapeva che esisteva.
+ *
+ * **Perche il gate e il legame e non il ruolo.** Chi chiede e un genitore, che
+ * nel club puo non avere nessuna appartenenza: `resolveLinkedFamilyScope`
+ * risolve il club **dalla riga dell'atleta**, dopo aver verificato il legame, e
+ * non crede a niente che arrivi dal client.
+ *
+ * **Cosa esce, e cosa no.** Slug e titolo, e nient'altro. Non escono
+ * l'identificativo interno del modello, la sua versione, ne lo schema dei
+ * campi: quelli li serve gia `buildRenewalDraft` quando la famiglia apre il
+ * modulo, e un elenco e una risposta alla domanda «cosa posso rinnovare», non
+ * un modo di leggere la modulistica del club.
+ *
+ * Solo i moduli **pubblicati e aperti al link pubblico**: sono le stesse tre
+ * condizioni che `findPublicFormBySlug` applica una per una, e sono qui nella
+ * clausola `where` per la stessa ragione per cui il club sta nel `where` e non
+ * in un filtro dopo.
+ */
+export const listFamilyRenewalForms = async (
+  userId: string,
+  athleteId: string,
+): Promise<Array<{ publicSlug: string; title: string }>> => {
+  const scope = await resolveLinkedFamilyScope(asText(userId), asText(athleteId));
+  const organizationId = asText(scope.activeOrganizationId);
+  if (!organizationId) return [];
+
+  const righe = (await (prisma as any).formTemplate.findMany({
+    where: {
+      organization_id: organizationId,
+      status: "published",
+      public_enabled: true,
+      published_version: { not: null },
+    },
+    select: { public_slug: true, title: true },
+    orderBy: { title: "asc" },
+    take: 50,
+  })) as Array<{ public_slug: string | null; title: string | null }>;
+
+  return righe
+    .filter((riga) => asText(riga.public_slug))
+    .map((riga) => ({
+      publicSlug: asText(riga.public_slug),
+      title: asText(riga.title) || "Modulo di rinnovo",
+    }));
+};
+
 export const buildRenewalDraft = async (
   userId: string,
   input: { athleteId: string; publicSlug: string },

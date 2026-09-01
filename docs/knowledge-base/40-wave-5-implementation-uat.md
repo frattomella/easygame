@@ -304,3 +304,64 @@ ricevuta che a 375 px tagliava il pulsante «Scarica», cioè rendeva di nuovo n
 scaricabile la ricevuta che 5H aveva appena reso scaricabile — sono presidiate
 da sei invarianti nuove in `tests/ui/responsive-invariants.test.mjs` (36
 controlli, erano 30).
+
+---
+
+## 9. L'audit di raggiungibilità, e le sei capability che non lo erano
+
+La sezione 8 raccontava un caso isolato. Non lo era.
+
+Un audit indipendente ha percorso ogni riga dichiarata COMPLETE nelle sezioni
+Wave 5 di [11 — Capability](11-capabilities.md) **all'indietro dalla persona** —
+esiste una pagina? è raggiungibile dalla navigazione di quel ruolo? il
+componente chiama davvero l'endpoint? il ruolo passa i controlli? il risultato
+viene disegnato? — e ne ha trovate **sei** che non lo erano. Cinque hanno
+esattamente la forma di 5G: dominio, rotta, test e collaudo verdi, e nessuna
+schermata che li usi.
+
+| Capability | Dove si spezzava | Chiusa con |
+|---|---|---|
+| **Rinnovo precompilato** | Zero chiamanti nella UI. La pagina si intitolava «Iscrizione e rinnovo» e sapeva **leggere** una pratica di rinnovo; nessuna schermata sapeva crearne una | Sezione «Rinnova l'iscrizione» nell'area famiglia, con il modulo precompilato che riusa `FormRenderer` |
+| **Documento mancante all'approvazione** | Il client `decideSubmission` accettava solo `{action, note, subjects}`: `documentRequests` non era nel tipo e non partiva mai. `requestMissingDocuments` restituiva `[]` **ogni volta** | Controllo dei documenti mancanti nel dialogo di revisione, e il campo che arriva al server |
+| **Comunicazioni per evento** | I due criteri `event_convocated` e `event_no_rsvp` esistevano nel dominio; il tipo `AudienceKind` delle due schermate non li conteneva, e nessuna caricava gli eventi | Criteri selezionabili con l'evento come parametro, in un modulo condiviso fra le due pagine |
+| **RSVP su partite** | `buildInvitations` iterava `clubs.trainings`, la proiezione dei **soli allenamenti**: il servizio rispondeva a una gara e nessuna schermata gliela chiedeva mai | Gli inviti si leggono dalle righe di `club_events` (ADR-0098), con il tipo e l'avversario; il controllo di risposta montato anche sulla pagina Gare |
+| **Appuntamenti, ciclo di vita** | `/secretariat` leggeva e scriveva ancora `clubs.appointments`: dalla lane 5E la richiesta di una famiglia finiva in una riga che **nessuna schermata del club leggeva** | La segreteria passa dal dominio, e ha finalmente le due risposte che nessuno poteva dare: conferma e rifiuto |
+| **Appuntamenti su slot** | La rotta calcolava `availableSlots` e li produceva in due punti; **zero** componenti li leggevano. La famiglia digitava un orario libero e il server pretende la corrispondenza esatta di istante: «scegli uno slot fra quelli liberi», da un elenco che nessuno mostrava | La famiglia sceglie fra gli slot che il server calcola, con i tre stati distinti — caricamento, errore, nessuno slot |
+
+### Un settimo, trovato correggendo il primo
+
+Il rinnovo, una volta acceso, restava utilizzabile **solo da chi aveva ricevuto
+il link**: nessuna rotta diceva a una famiglia quali moduli di rinnovo il suo
+club avesse pubblicato. `listFamilyRenewalForms` lo dice adesso, con il gate sul
+legame e restituendo solo slug e titolo; il `GET` del rinnovo senza slug
+risponde «cosa puoi rinnovare» invece di un errore.
+
+### La regola che ne esce
+
+> Una capability è completa quando **una persona ci arriva**, non quando il
+> servizio risponde. Sono due domande diverse, e la prima ha una risposta verde
+> anche quando la seconda ha una risposta no.
+
+Il modo di verificarlo che ha funzionato è percorrere la catena **all'indietro
+dalla persona** — pagina, navigazione, componente, endpoint, ruolo, disegno — e
+non in avanti dal servizio. L'impronta più rapida da cercare, che ha trovato
+cinque casi su sei: **una funzione esportata da un modulo della Wave con zero
+chiamanti fuori dai test.**
+
+### Due difetti responsive veri, sulle stesse superfici
+
+Il guscio dell'area famiglia dichiarava `min-h-0` dove serve `min-w-0` — l'asse
+sbagliato — e la riga di una ricevuta non andava a capo: a 375 px il contenitore
+tagliava il pulsante «Scarica», cioè la ricevuta tornava non scaricabile, il
+difetto che 5H aveva appena chiuso. Stesso `min-w-0` mancante corretto anche sul
+guscio dell'allenatore.
+
+### Esito dopo le correzioni
+
+3.966 test, typecheck pulito, 0 errori e 36 warning di lint, build completa.
+UAT 62/62, sonda di sicurezza **91/91**, sonda di concorrenza 10/10 — e le due
+prove del confine documentale sono passate da `ambiguo` a `inesistente`, cioè
+alla risposta che il §22 chiede a una lettura cross-tenant.
+
+**Nessun Critical e nessun High resta aperto.** I Low e i difetti precedenti
+alla Wave che l'audit ha elencato sono in [16 — Debito tecnico](16-technical-debt.md).

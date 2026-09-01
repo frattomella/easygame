@@ -204,10 +204,28 @@ const ENTRIES: readonly PermissionEntry[] = [
     roles: GESTIONE,
   },
   {
+    /*
+      **Il nome dice «own» e il controllo non lo chiedeva.**
+
+      `assertSubjectAccess` esce subito se il ruolo ha la chiave, per qualunque
+      soggetto: con `trainer` in elenco, un allenatore poteva depositare un file
+      nel fascicolo di **qualunque** atleta o collega del club. Poi non lo
+      rileggeva — `documents.read_dossier` e solo della gestione — ma la riga e
+      l'allegato erano stati scritti, e un documento falso nel fascicolo di un
+      minore e un danno che non ha bisogno di essere riletto per essere fatto.
+
+      La segreteria resta, e non e un'incoerenza: protocollare il certificato
+      che una famiglia porta a mano **e** il suo lavoro, ed e la ragione per cui
+      `source` distingue `club` da `parent`. L'allenatore non protocolla niente.
+
+      Se un domani un allenatore dovra consegnare un **proprio** documento, la
+      strada e il lavoro sportivo, che ha il suo dominio e le sue chiavi: non
+      questa, allargata di nuovo.
+    */
     key: "documents.submit_own",
     domain: "documents",
     label: "Consegnare un documento richiesto",
-    roles: [...GESTIONE, "trainer"],
+    roles: GESTIONE,
     byLink: true,
   },
   {

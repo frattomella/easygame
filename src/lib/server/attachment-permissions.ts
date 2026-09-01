@@ -1,4 +1,6 @@
 import { canAccessClubResource, type ResourceAction } from "@/lib/access-roles";
+import { hasHealthPermission } from "@/lib/health/permissions";
+import { isMedicalCertificateDocumentKind } from "@/lib/documents/request-model";
 
 /**
  * **Il permesso di un allegato e quello della cosa a cui e attaccato.**
@@ -92,8 +94,33 @@ export const canAccessAttachmentOwner = (
   activeRole: string | null | undefined,
   ownerType: unknown,
   action: ResourceAction,
+  category?: unknown,
 ) => {
   const tipo = String(ownerType ?? "").trim().toLowerCase();
+
+  /*
+    **Il contenuto clinico non eredita: si aggiunge.**
+
+    Il difetto misurato dall'audit indipendente della Wave 5: il taglio di D-4
+    toglie `attachment_id`, `file_url` e `certificate_url` dalla proiezione
+    del certificato, e `GET /api/athletes/:id/documents` rifiuta un allenatore
+    — ma i **byte** stavano dietro un cancello piu vecchio. Il fascicolo
+    deposita ogni documento con `ownerType: "athlete"`, e `athlete` eredita da
+    `athletes`, che l'allenatore legge. Tre porte sullo stesso certificato
+    medico di un minore, due aperte e una chiusa, e nessun perimetro di gruppo:
+    valeva per ogni atleta del club.
+
+    La regola dell'ereditarieta resta giusta e resta scritta sopra; qui si dice
+    che su un documento **sanitario** l'eredita non basta, perche il permesso
+    di vedere gli atleti non e il permesso di vedere il loro dato clinico. La
+    categoria e quella con cui il fascicolo deposita (`category: documentKind`),
+    e `isMedicalCertificateDocumentKind` e il proprietario di quell'elenco:
+    nessuna seconda lista di nomi da tenere allineata a mano.
+  */
+  if (isMedicalCertificateDocumentKind(category)) {
+    if (!hasHealthPermission(activeRole, "clinical.read")) return false;
+  }
+
   if (tipo === "club" || tipo === "announcement") return true;
 
   const risorsa = RISORSA_PER_TIPO[tipo];

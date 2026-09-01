@@ -16,7 +16,19 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
-import { AUDIENCE_CRITERION_LABELS } from "@/lib/audience/criteria";
+import {
+  AUDIENCE_CRITERION_LABELS,
+  type AudienceCriterionKind,
+} from "@/lib/audience/criteria";
+import {
+  audienceCriterionNeedsSelection,
+  eventAudienceOptions,
+  isEventAudienceKind,
+  loadSelectableEvents,
+  EVENT_AUDIENCE_WINDOW_DAYS,
+  type AudienceOption,
+  type SelectableEvent,
+} from "@/components/communications/audience-events";
 import { CalendarClock, Eye, Megaphone, Send, Undo2 } from "lucide-react";
 
 /**
@@ -48,11 +60,31 @@ type Announcement = {
   readCount: number;
 };
 
-type CriterionKind =
-  | "all_families"
-  | "category_ids"
-  | "group_ids"
-  | "site_ids";
+/**
+ * I criteri che la bacheca offre, **nell'ordine in cui si scelgono**.
+ *
+ * Un elenco solo, e non un elenco piu un tipo scritto a parte: era proprio la
+ * distanza fra i due a tenere «Convocati a un evento» e «Senza risposta a un
+ * evento» fuori da questa schermata mentre il motore del pubblico gia li
+ * risolveva. `satisfies` fa fallire la compilazione se qui compare un criterio
+ * che il dominio non conosce.
+ *
+ * **Perche la bacheca ne offre meno delle comunicazioni.** Non e una svista:
+ * un avviso in bacheca lo legge chi ha un account, e i criteri economici o
+ * sanitari — «con quote da versare», «certificato in scadenza» — appenderebbero
+ * a una bacheca condivisa una selezione che dice qualcosa di privato su chi la
+ * legge. Un evento no: essere convocati non e un dato riservato.
+ */
+const CRITERI_OFFERTI = [
+  "all_families",
+  "category_ids",
+  "group_ids",
+  "site_ids",
+  "event_convocated",
+  "event_no_rsvp",
+] as const satisfies readonly AudienceCriterionKind[];
+
+type CriterionKind = (typeof CRITERI_OFFERTI)[number];
 
 const SCAFFALI: Array<{ key: Shelf; label: string }> = [
   { key: "draft", label: "Bozze" },
@@ -87,9 +119,10 @@ export default function BachecaPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [publishAt, setPublishAt] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
-  const [opzioni, setOpzioni] = useState<
-    Record<CriterionKind, Array<{ id: string; label: string }>>
-  >({ all_families: [], category_ids: [], group_ids: [], site_ids: [] });
+  const [categorie, setCategorie] = useState<AudienceOption[]>([]);
+  const [gruppi, setGruppi] = useState<AudienceOption[]>([]);
+  const [sedi, setSedi] = useState<AudienceOption[]>([]);
+  const [eventi, setEventi] = useState<SelectableEvent[]>([]);
   const [busy, setBusy] = useState(false);
 
   const carica = useCallback(async () => {
@@ -109,28 +142,54 @@ export default function BachecaPage() {
 
   useEffect(() => {
     const caricaOpzioni = async () => {
-      const [categorie, gruppi, sedi] = await Promise.all([
-        apiRequest<any[]>("/api/v1/categories"),
-        apiRequest<any[]>("/api/v1/category_groups"),
-        apiRequest<any[]>("/api/v1/club_sites"),
-      ]);
+      /*
+        Gli eventi arrivano dalla **stessa** strada di categorie, gruppi e sedi
+        — `apiRequest` sulla rotta di lettura del dominio — e quali eventi si
+        possano offrire lo decide `audience-events.ts`, condiviso con la pagina
+        delle comunicazioni: due schermate con due idee di «evento scegliibile»
+        divergerebbero alla prima modifica.
+      */
+      const [risposteCategorie, risposteGruppi, risposteSedi, risposteEventi] =
+        await Promise.all([
+          apiRequest<any[]>("/api/v1/categories"),
+          apiRequest<any[]>("/api/v1/category_groups"),
+          apiRequest<any[]>("/api/v1/club_sites"),
+          loadSelectableEvents(),
+        ]);
 
-      const mappa = (response: { data?: any }) =>
+      const mappa = (response: { data?: any }): AudienceOption[] =>
         asArray(response?.data).map((record) => ({
           id: String(record?.id || ""),
           label: String(record?.name || record?.label || record?.id || ""),
         }));
 
-      setOpzioni({
-        all_families: [],
-        category_ids: mappa(categorie),
-        group_ids: mappa(gruppi),
-        site_ids: mappa(sedi),
-      });
+      setCategorie(mappa(risposteCategorie));
+      setGruppi(mappa(risposteGruppi));
+      setSedi(mappa(risposteSedi));
+      setEventi(risposteEventi);
     };
 
     caricaOpzioni().catch(() => undefined);
   }, []);
+
+  const opzioni = useMemo<AudienceOption[]>(() => {
+    if (kind === "category_ids") return categorie;
+    if (kind === "group_ids") return gruppi;
+    if (kind === "site_ids") return sedi;
+    if (isEventAudienceKind(kind)) return eventAudienceOptions(eventi, kind);
+    return [];
+  }, [kind, categorie, gruppi, sedi, eventi]);
+
+  /*
+    **Se un criterio pretende una selezione lo dice il dominio**, non la
+    tendina: legarlo all'elenco delle opzioni faceva passare un criterio con
+    zero voci — «Convocati a un evento» senza eventi in programma — dritto in
+    un errore del server che non spiega cosa fare.
+  */
+  const richiedeSelezione = useMemo(
+    () => audienceCriterionNeedsSelection(kind),
+    [kind],
+  );
 
   const perScaffale = useMemo(() => {
     const gruppi: Record<Shelf, Announcement[]> = {
@@ -146,8 +205,13 @@ export default function BachecaPage() {
   }, [announcements]);
 
   const crea = async () => {
-    if (opzioni[kind].length > 0 && selected.length === 0) {
-      showToast("error", "Seleziona almeno una voce per questo criterio");
+    if (richiedeSelezione && selected.length === 0) {
+      showToast(
+        "error",
+        opzioni.length === 0
+          ? "Nessuna voce disponibile per questo criterio: scegline un altro"
+          : "Seleziona almeno una voce per questo criterio",
+      );
       return;
     }
 
@@ -157,10 +221,9 @@ export default function BachecaPage() {
       body: {
         title,
         body,
-        criteria:
-          kind === "all_families"
-            ? [{ kind }]
-            : [{ kind, values: selected }],
+        criteria: richiedeSelezione
+          ? [{ kind, values: selected }]
+          : [{ kind }],
         publishAt: publishAt || null,
         expiresAt: expiresAt || null,
       },
@@ -264,14 +327,7 @@ export default function BachecaPage() {
                         setSelected([]);
                       }}
                     >
-                      {(
-                        [
-                          "all_families",
-                          "category_ids",
-                          "group_ids",
-                          "site_ids",
-                        ] as CriterionKind[]
-                      ).map((value) => (
+                      {CRITERI_OFFERTI.map((value) => (
                         <option key={value} value={value}>
                           {AUDIENCE_CRITERION_LABELS[value]}
                         </option>
@@ -279,28 +335,52 @@ export default function BachecaPage() {
                     </select>
                   </div>
 
-                  {opzioni[kind].length > 0 ? (
-                    <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
-                      {opzioni[kind].map((opzione) => (
-                        <label
-                          key={opzione.id}
-                          className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(opzione.id)}
-                            onChange={(event) =>
-                              setSelected((current) =>
-                                event.target.checked
-                                  ? [...current, opzione.id]
-                                  : current.filter((id) => id !== opzione.id),
-                              )
-                            }
-                          />
-                          <span>{opzione.label}</span>
-                        </label>
-                      ))}
-                    </div>
+                  {richiedeSelezione ? (
+                    opzioni.length > 0 ? (
+                      <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
+                        {opzioni.map((opzione) => (
+                          <label
+                            key={opzione.id}
+                            className="flex items-start gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 shrink-0"
+                              checked={selected.includes(opzione.id)}
+                              onChange={(event) =>
+                                setSelected((current) =>
+                                  event.target.checked
+                                    ? [...current, opzione.id]
+                                    : current.filter((id) => id !== opzione.id),
+                                )
+                              }
+                            />
+                            {/*
+                              A 375 px l'etichetta di un evento — data, ora,
+                              nome, categoria — e piu larga della colonna: senza
+                              `min-w-0` il testo non va a capo, allarga il
+                              riquadro e con lui la pagina.
+                            */}
+                            <span className="min-w-0 flex-1 break-words">
+                              {opzione.label}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      /*
+                        Vuoto e diverso da «non ancora scelto»: senza questa
+                        riga la schermata mostrava un criterio, nessuna opzione
+                        e nessuna spiegazione.
+                      */
+                      <p className="rounded-md border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+                        {isEventAudienceKind(kind)
+                          ? kind === "event_no_rsvp"
+                            ? "Nessun evento in programma con la conferma di presenza attiva: accendila sull'evento per poter scrivere a chi non ha risposto."
+                            : `Nessun evento in programma nei prossimi ${EVENT_AUDIENCE_WINDOW_DAYS} giorni.`
+                          : "Nessuna voce disponibile per questo criterio."}
+                      </p>
+                    )
                   ) : null}
 
                   <div className="grid gap-3 sm:grid-cols-2">

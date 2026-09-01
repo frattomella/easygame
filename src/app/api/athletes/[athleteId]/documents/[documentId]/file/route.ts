@@ -12,6 +12,8 @@ import { prisma } from "@/lib/server/prisma";
 import { readAttachment } from "@/lib/server/attachments";
 import { resolveDossierAttachmentId } from "@/lib/server/document-dossier-legacy";
 import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
+import { hasHealthPermission } from "@/lib/health/permissions";
+import { isMedicalCertificateDocumentKind } from "@/lib/documents/request-model";
 
 type Context = {
   params: {
@@ -73,6 +75,29 @@ export async function GET(request: Request, context: Context) {
     if (attachmentId) {
       const allegato = await readAttachment(attachmentId, scope);
       if (!allegato) return jsonError("File non disponibile", 404);
+
+      /*
+        **Il permesso dei certificati non e il permesso del dato clinico.**
+
+        Il controllo in cima chiede `canAccessClubResource(…, "medical_certificates")`,
+        che l'allenatore ha: e la porta da cui, secondo l'audit indipendente
+        della Wave 5, uscivano i byte di un certificato medico di un minore
+        verso un ruolo che il taglio di D-4 aveva escluso — e senza nemmeno il
+        perimetro di gruppo, quindi per ogni atleta del club.
+
+        Il tipo del documento lo dice la **categoria con cui e stato
+        depositato**, e la decide `isMedicalCertificateDocumentKind`: un solo
+        elenco di nomi, quello del fascicolo.
+      */
+      if (
+        isMedicalCertificateDocumentKind(allegato.metadata.category) &&
+        !hasHealthPermission(scope.activeRole, "clinical.read")
+      ) {
+        return jsonError(
+          "Accesso negato: il contenuto di un documento sanitario lo vede chi ha il permesso sul dato clinico",
+          403,
+        );
+      }
 
       return buildStoredFileResponse({
         content: allegato.content,

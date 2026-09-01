@@ -4,6 +4,7 @@ import {
   ChangeEvent,
   FormEvent,
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -32,6 +33,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
+import { ParentRsvpSection } from "@/components/parent/ParentRsvpSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,13 +51,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { downloadAttachment } from "@/lib/client-files";
 import { useToast } from "@/components/ui/toast-notification";
+/*
+  `isDateTimeWithinOpeningHours` non si importa piu: gli orari di apertura sono
+  il **ripiego** con cui il server calcola gli slot quando il club non ha
+  dichiarato regole di disponibilita, non una seconda regola da applicare qui.
+  Ricontrollarli sul client rifiutava slot che il server offriva, e comunque
+  non diceva niente sull'unica cosa che conta — se quell'istante e libero.
+*/
 import {
   formatOpeningHourSlots,
-  isDateTimeWithinOpeningHours,
   normalizeOpeningHours,
 } from "@/lib/opening-hours-utils";
 import { getTrainingStableKey } from "@/lib/training-utils";
-import { useParentDashboard } from "./parent-dashboard-context";
+import {
+  useParentDashboard,
+  type AppointmentSlot,
+} from "./parent-dashboard-context";
 
 const formatDate = (value?: unknown) => {
   if (!value) return "-";
@@ -1002,6 +1013,16 @@ export function ParentTrainingsPage() {
   );
 }
 
+/**
+ * Le gare della famiglia, e — da qui — anche le conferme che chiedono.
+ *
+ * Questa pagina era in **sola lettura**: il servizio RSVP rispondeva gia a una
+ * gara, ma l'unico controllo di risposta stava sulla pagina degli allenamenti
+ * e la famiglia non aveva nessun modo di confermare una convocazione. Gli
+ * inviti stanno **sopra** l'elenco per la stessa ragione per cui ci stanno
+ * negli allenamenti: sono l'unica cosa della pagina su cui c'e da fare
+ * qualcosa, il resto e consultazione.
+ */
 export function ParentMatchesPage() {
   const { data } = useParentDashboard();
   const [query, setQuery] = useState("");
@@ -1017,6 +1038,7 @@ export function ParentMatchesPage() {
   return (
     <div className="space-y-6">
       <PageHeading title="Gare" subtitle="Programma, storico e convocazioni." />
+      <ParentRsvpSection kind="match" />
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
@@ -1438,59 +1460,177 @@ export function ParentDocumentsPage() {
   );
 }
 
+/**
+ * Il giorno di uno slot, scritto come lo legge una persona.
+ *
+ * Si formatta `slot.day` — il giorno gia risolto nel fuso del club — e non
+ * l'istante: ricostruire la data dall'istante nel fuso del browser puo
+ * spostare di un giorno chi apre l'area famiglia da un altro paese.
+ */
+const formatSlotDay = (day: string) => {
+  const date = new Date(`${day}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return day;
+
+  return date.toLocaleDateString("it-IT", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+};
+
+/**
+ * Gli slot liberi raccolti per giorno.
+ *
+ * **Un istante compare una volta sola.** Un club con due sedi o due operatori
+ * puo avere due slot alla stessa ora: alla famiglia sarebbero due pulsanti
+ * identici fra cui non ha modo di scegliere, e il server accetta comunque il
+ * primo libero a quell'istante.
+ */
+const groupSlotsByDay = (slots: AppointmentSlot[]) => {
+  const perDay = new Map<string, Map<string, AppointmentSlot>>();
+
+  for (const slot of slots) {
+    const day = String(slot?.day || "").trim();
+    const startsAt = String(slot?.startsAt || "").trim();
+    if (!day || !startsAt) continue;
+
+    const orari = perDay.get(day) || new Map<string, AppointmentSlot>();
+    if (!orari.has(startsAt)) orari.set(startsAt, slot);
+    perDay.set(day, orari);
+  }
+
+  return Array.from(perDay.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([day, orari]) => ({
+      day,
+      label: formatSlotDay(day),
+      slots: Array.from(orari.values()).sort((left, right) =>
+        String(left.startsAt).localeCompare(String(right.startsAt)),
+      ),
+    }));
+};
+
+/**
+ * La segreteria vista dalla famiglia: orari, richiesta di appuntamento, elenco.
+ *
+ * **Perche non ci sono piu un campo data e un campo ora.** Il server accetta
+ * solo un istante che cada **esattamente** su uno slot libero
+ * (`findFreeSlotAt` confronta `getTime()` su una griglia di trenta minuti):
+ * chi scriveva 09:15 riceveva «scegli uno slot fra quelli liberi» da un elenco
+ * che nessuna schermata gli aveva mai mostrato. Adesso l'elenco e la
+ * schermata: un giorno fra quelli che hanno posto, e gli orari liberi di quel
+ * giorno come pulsanti.
+ *
+ * **E se non c'e nessuno slot** non si disegna un modulo che fallira: si dice
+ * che non ci sono orari e perche.
+ */
 export function ParentSecretariatPage() {
   const {
     data,
+    loadAppointmentSlots,
     bookAppointment,
     updateAppointment,
     cancelAppointment,
   } = useParentDashboard();
   const { showToast } = useToast();
-  const [form, setForm] = useState({
-    reason: "",
-    date: "",
-    time: "",
-    notes: "",
-  });
+  const [form, setForm] = useState({ reason: "", notes: "" });
+  const [slots, setSlots] = useState<AppointmentSlot[]>([]);
+  const [slotsState, setSlotsState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [slotsError, setSlotsError] = useState("");
+  const [selectedDay, setSelectedDay] = useState("");
+  /** L'istante ISO dello slot scelto: e la chiave con cui il server lo cerca. */
+  const [selectedStartsAt, setSelectedStartsAt] = useState("");
   const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(
     null,
   );
   const [saving, setSaving] = useState(false);
+
+  const refreshSlots = useCallback(async () => {
+    setSlotsState("loading");
+    try {
+      const disponibili = await loadAppointmentSlots();
+      setSlots(disponibili);
+      setSlotsError("");
+      setSlotsState("ready");
+    } catch (error: any) {
+      /*
+        Tre stati, non due: un errore di rete raccontato come «nessun orario
+        disponibile» fa credere che la segreteria non riceva nessuno.
+      */
+      setSlots([]);
+      setSlotsError(
+        error?.message || "Impossibile leggere gli orari disponibili",
+      );
+      setSlotsState("error");
+    }
+  }, [loadAppointmentSlots]);
+
+  useEffect(() => {
+    void refreshSlots();
+  }, [refreshSlots]);
+
+  const days = useMemo(() => groupSlotsByDay(slots), [slots]);
+
   if (!data) return null;
 
+  /*
+    Il giorno scelto vale finche esiste: quando gli slot si rileggono — dopo
+    una prenotazione, o perche un'altra famiglia ha preso l'ultimo orario — si
+    ricade sul primo giorno con posto, invece di mostrare un elenco vuoto sotto
+    un giorno che non c'e piu.
+  */
+  const activeDay =
+    days.find((entry) => entry.day === selectedDay) || days[0] || null;
+  const selectedSlot =
+    activeDay?.slots.find((slot) => slot.startsAt === selectedStartsAt) || null;
+
   const resetForm = () => {
-    setForm({ reason: "", date: "", time: "", notes: "" });
+    setForm({ reason: "", notes: "" });
+    setSelectedStartsAt("");
     setEditingAppointmentId(null);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const validation = isDateTimeWithinOpeningHours(
-      data.appointments.openingHours,
-      form.date,
-      form.time,
-    );
-    if (!validation.valid) {
-      showToast(
-        "error",
-        validation.reason ||
-          "L'orario selezionato e fuori dagli orari di apertura della segreteria.",
-      );
+
+    if (!form.reason.trim()) {
+      showToast("error", "Indica il motivo dell'appuntamento.");
       return;
     }
+
+    if (!selectedSlot) {
+      showToast("error", "Scegli uno degli orari disponibili.");
+      return;
+    }
+
+    const richiesta = {
+      reason: form.reason,
+      notes: form.notes,
+      startsAt: selectedSlot.startsAt,
+      slotId: selectedSlot.slotId,
+      siteId: selectedSlot.siteId,
+    };
 
     try {
       setSaving(true);
       if (editingAppointmentId) {
-        await updateAppointment(editingAppointmentId, form);
+        await updateAppointment(editingAppointmentId, richiesta);
       } else {
-        await bookAppointment(form);
+        await bookAppointment(richiesta);
       }
       resetForm();
     } catch (error: any) {
       showToast("error", error?.message || "Errore prenotazione");
     } finally {
       setSaving(false);
+      /*
+        L'orario appena preso non e piu libero — e se la richiesta e fallita,
+        spesso e fallita proprio perche l'ha preso qualcun altro. La griglia si
+        rilegge in entrambi i casi.
+      */
+      void refreshSlots();
     }
   };
 
@@ -1498,10 +1638,15 @@ export function ParentSecretariatPage() {
     setEditingAppointmentId(String(appointment.id));
     setForm({
       reason: appointment.reason || appointment.title || "",
-      date: appointment.date ? String(appointment.date).slice(0, 10) : "",
-      time: appointment.time || "",
       notes: appointment.notes || "",
     });
+    /*
+      Spostare un appuntamento vuol dire sceglierne un altro orario: quello di
+      adesso non e fra i liberi, perche lo occupa la richiesta stessa. La
+      selezione riparte vuota invece di proporre un orario che verrebbe
+      rifiutato.
+    */
+    setSelectedStartsAt("");
   };
 
   const handleCancelAppointment = async (appointment: Record<string, any>) => {
@@ -1536,74 +1681,184 @@ export function ParentSecretariatPage() {
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>
-              {editingAppointmentId ? "Modifica appuntamento" : "Prenota appuntamento"}
+              {editingAppointmentId ? "Sposta appuntamento" : "Prenota appuntamento"}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <Input
-                value={form.reason}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    reason: event.target.value,
-                  }))
-                }
-                placeholder="Motivo"
-              />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  type="date"
-                  value={form.date}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      date: event.target.value,
-                    }))
-                  }
-                />
-                <Input
-                  type="time"
-                  value={form.time}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      time: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <Textarea
-                value={form.notes}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    notes: event.target.value,
-                  }))
-                }
-                placeholder="Note"
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="submit" disabled={saving} className="flex-1">
-                  <Send className="mr-2 h-4 w-4" />
-                  {saving
-                    ? "Salvataggio..."
-                    : editingAppointmentId
-                      ? "Salva modifica"
-                      : "Invia richiesta"}
+            {slotsState === "loading" ? (
+              <p
+                className="text-sm text-slate-500"
+                role="status"
+                aria-live="polite"
+              >
+                Caricamento degli orari disponibili...
+              </p>
+            ) : slotsState === "error" ? (
+              <div className="space-y-3" role="alert">
+                <p className="text-sm text-slate-600">{slotsError}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => void refreshSlots()}
+                >
+                  Riprova
                 </Button>
-                {editingAppointmentId ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={resetForm}
-                  >
-                    Annulla
-                  </Button>
-                ) : null}
               </div>
-            </form>
+            ) : days.length === 0 ? (
+              <div className="space-y-3 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">
+                  Nessun orario disponibile per un appuntamento.
+                </p>
+                <p>
+                  La segreteria non ha ancora aperto orari prenotabili, oppure
+                  quelli delle prossime settimane sono gia stati presi tutti.
+                  Puoi contattarla negli orari indicati in questa pagina.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => void refreshSlots()}
+                >
+                  Aggiorna
+                </Button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="appointment-reason">Motivo</Label>
+                  <Input
+                    id="appointment-reason"
+                    value={form.reason}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        reason: event.target.value,
+                      }))
+                    }
+                    placeholder="Es. consegna del certificato medico"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="appointment-day">Giorno</Label>
+                  <Select
+                    value={activeDay?.day || ""}
+                    onValueChange={(value) => {
+                      setSelectedDay(value);
+                      // Cambiando giorno l'orario scelto non esiste piu.
+                      setSelectedStartsAt("");
+                    }}
+                  >
+                    <SelectTrigger id="appointment-day">
+                      <SelectValue placeholder="Scegli un giorno" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {days.map((entry) => (
+                        <SelectItem key={entry.day} value={entry.day}>
+                          {entry.label} ·{" "}
+                          {entry.slots.length === 1
+                            ? "1 orario libero"
+                            : `${entry.slots.length} orari liberi`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <fieldset className="space-y-2">
+                  <legend className="text-sm font-medium text-slate-700">
+                    Orario
+                  </legend>
+                  <div className="flex flex-wrap gap-2">
+                    {(activeDay?.slots || []).map((slot) => {
+                      const scelto = slot.startsAt === selectedStartsAt;
+
+                      return (
+                        <Button
+                          key={slot.startsAt}
+                          type="button"
+                          size="sm"
+                          variant={scelto ? "default" : "outline"}
+                          aria-pressed={scelto}
+                          className="eg-tabular"
+                          onClick={() => setSelectedStartsAt(slot.startsAt)}
+                        >
+                          {slot.time}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <p
+                    className="text-xs text-slate-500"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {selectedSlot
+                      ? `Hai scelto ${activeDay?.label} alle ${selectedSlot.time} (${selectedSlot.durationMinutes} minuti).`
+                      : "Scegli uno degli orari liberi: la segreteria riceve solo in questi."}
+                  </p>
+                </fieldset>
+
+                <div className="space-y-2">
+                  <Label htmlFor="appointment-notes">Note (facoltative)</Label>
+                  <Textarea
+                    id="appointment-notes"
+                    value={form.notes}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        notes: event.target.value,
+                      }))
+                    }
+                    placeholder="Qualcosa che la segreteria deve sapere prima"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    type="submit"
+                    disabled={saving || !selectedSlot}
+                    className="flex-1"
+                  >
+                    <Send className="mr-2 h-4 w-4" />
+                    {saving
+                      ? "Salvataggio..."
+                      : editingAppointmentId
+                        ? "Sposta a questo orario"
+                        : "Invia richiesta"}
+                  </Button>
+                  {editingAppointmentId ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={resetForm}
+                    >
+                      Annulla
+                    </Button>
+                  ) : null}
+                </div>
+              </form>
+            )}
+
+            {/*
+              Chi ha premuto «Modifica» e si trova davanti un caricamento, un
+              errore o nessun orario libero non avrebbe altrimenti nessun modo
+              di uscire dallo spostamento: il pulsante «Annulla» vive dentro il
+              modulo, e in quei tre casi il modulo non c'e.
+            */}
+            {editingAppointmentId && (slotsState !== "ready" || days.length === 0) ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="mt-3 w-full sm:w-auto"
+                onClick={resetForm}
+              >
+                Annulla lo spostamento
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       </div>

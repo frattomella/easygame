@@ -691,15 +691,29 @@ export const getParentLinkedAthletes = async (userId: string) => {
   return Array.from(uniqueAthletes.values());
 };
 
+/**
+ * **Questo genitore puo accedere a questo atleta?**
+ *
+ * E l'unica funzione che risponde a quella domanda, e per questo la risposta
+ * deve essere esattamente quella: la riga confrontava anche
+ * `athlete.organization_id`, quindi rispondeva `true` a chi le passava
+ * l'identificativo di un **club** invece di quello di un atleta.
+ *
+ * Nessuno dei dieci chiamanti ne era danneggiato — ognuno rilegge poi la riga
+ * dell'atleta e fallisce — ma un contratto che risponde di si a una domanda
+ * diversa da quella che gli e stata fatta e a un chiamante distratto
+ * dall'essere un buco, ed e la funzione sbagliata su cui correre quel rischio.
+ *
+ * La forma storica `/parent-view/<idClub>` continua a funzionare: chi la
+ * risolve e `getParentDashboardData`, che accetta esplicitamente l'uno o
+ * l'altro e lo dice nel nome del parametro.
+ */
 export const canParentAccessAthlete = async (
   userId: string,
   athleteId: string,
 ) => {
   const linkedAthletes = await getParentLinkedAthletes(userId);
-  return linkedAthletes.some(
-    (athlete) =>
-      sameId(athlete.id, athleteId) || sameId(athlete.organization_id, athleteId),
-  );
+  return linkedAthletes.some((athlete) => sameId(athlete.id, athleteId));
 };
 
 export const getParentDashboardData = async (

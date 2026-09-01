@@ -35,12 +35,36 @@ type Context = { params: { athleteId: string } };
 const errorStatus = (error: any) =>
   String(error?.message || "").includes("Accesso negato") ? 403 : 400;
 
+/**
+ * Lo scope della famiglia, **dopo** aver verificato il legame.
+ *
+ * L'audit indipendente della Wave 5 ha misurato che il `POST` non chiamava
+ * `canParentAccessAthlete`, a differenza del `GET`. Ne usciva un oracolo di
+ * esistenza distinguibile per stato **e** per messaggio: un identificativo
+ * inventato riceveva `400 "Atleta non trovato"`, un atleta di un altro club
+ * riceveva `403 "Accesso negato: questo atleta non risulta collegato…"`. La
+ * scrittura era comunque fermata a valle da `assertSubjectMayDecide` — nessun
+ * dato attraversava il confine — ma un utente qualunque poteva enumerare gli
+ * atleti della piattaforma, e far comparire righe `permission.denied` nel
+ * registro di sicurezza di un club a cui non appartiene: un registro rumoroso
+ * nasconde un attacco vero, ed e l'argomento che questa Wave usa altrove.
+ *
+ * Il legame si verifica **prima** di leggere la riga, cosi il rifiuto non
+ * dipende dall'esistenza dell'atleta e non racconta niente. Resta poi
+ * `assertSubjectMayDecide` nel dominio: due controlli, e nessuno dei due e
+ * ridondante — questo protegge la lettura, quello protegge la scrittura anche
+ * per chi arrivasse da una rotta scritta domani.
+ */
 const scopeFor = async (userId: string, athleteId: string) => {
+  if (!(await canParentAccessAthlete(userId, athleteId))) {
+    throw new Error("Accesso negato: atleta non collegato");
+  }
+
   const athlete = await prisma.athlete.findUnique({
     where: { id: athleteId },
     select: { id: true, organization_id: true, first_name: true, last_name: true },
   });
-  if (!athlete) throw new Error("Atleta non trovato");
+  if (!athlete) throw new Error("Accesso negato: atleta non collegato");
 
   return {
     scope: {

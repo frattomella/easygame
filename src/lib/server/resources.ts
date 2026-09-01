@@ -2678,11 +2678,32 @@ const findClubResourceRecord = async (
   const directId = isUuid(trimmedIdentifier)
     ? normalizeUuid(trimmedIdentifier)
     : undefined;
+  /*
+    **Il club attivo, o niente.**
+
+    Qui c'erano altri due rami: uno su `allowedOrganizationIds` — la forma
+    testuale che ADR-0094 vieta — e uno completamente **senza** filtro di club.
+    Nessuno dei due era raggiungibile (`resolveOrganizationScopeForUser` non
+    produce mai quello stato) e `assertRecordAccess` li avrebbe comunque
+    intercettati a valle. Ma un ramo irraggiungibile e un ramo che qualcuno un
+    giorno rende raggiungibile senza sapere cosa gli sta aprendo, e questa Wave
+    ha gia visto la forma `in: allowedOrganizationIds` far leggere l'IBAN di
+    un'altra societa.
+
+    Uno scope senza club attivo non cerca: esce con `null`, e non con una
+    clausola inventata — un valore fittizio su una colonna `uuid` non
+    restituisce zero righe, fa fallire la query con l'errore del driver, che e
+    proprio cio che `api-errors.ts` esiste per non far uscire.
+
+    Il ramo senza filtro resta per il solo caso **senza scope**: sono le
+    chiamate interne del server, che non hanno una sessione e non stanno
+    autorizzando nessuno.
+  */
+  if (scope && !scope.activeOrganizationId) return null;
+
   const organizationFilter = scope?.activeOrganizationId
     ? { organization_id: scope.activeOrganizationId }
-    : scope?.allowedOrganizationIds?.length
-      ? { organization_id: { in: scope.allowedOrganizationIds } }
-      : {};
+    : {};
 
   return prisma.clubResourceItem.findFirst({
     where: {
@@ -3710,11 +3731,30 @@ const applyListView = (
   return records.map((record) => toAthleteSummaryRecord(record));
 };
 
+/**
+ * Le risorse che l'allenatore legge **ristrette al proprio perimetro**.
+ *
+ * L'elenco nominava ancora `trainings` e `matches`, che dalla lane 5C **non
+ * sono piu risorse**: l'evento e una riga, e le due colonne del club sono una
+ * proiezione che il registro generico non serve piu. Restavano quindi due nomi
+ * che non corrispondevano a niente, e le due risorse nuove non c'erano.
+ *
+ * L'audit indipendente ha misurato la conseguenza: `GET
+ * /api/v1/club_event_participants?club_id=X` restituiva a **qualunque**
+ * allenatore ogni convocazione, ogni presenza e ogni `rsvp_note` di tutte le
+ * squadre del club — e la nota dell'RSVP e il testo libero con cui un genitore
+ * spiega perche il figlio non ci sara.
+ *
+ * Il calendario resta filtrato per categoria e non per gruppo, perche il
+ * calendario di una squadra non e il dato di nessuno (W5-69). La
+ * **partecipazione** invece lo e, e segue il perimetro dell'evento a cui
+ * appartiene.
+ */
 const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
   "athletes",
   "simplified_athletes",
-  "trainings",
-  "matches",
+  "club_events",
+  "club_event_participants",
 ]);
 
 const toArrayValue = (value: unknown): any[] =>
@@ -4125,6 +4165,48 @@ const filterTrainerDashboardRecords = async (
 
     Si caricano le appartenenze delle righe in mano, con **una** query.
   */
+  /*
+    **La partecipazione non porta la categoria: la porta il suo evento.**
+
+    Una riga di `club_event_participants` ha `event_id` e nient'altro con cui
+    giudicarla, quindi il perimetro si applica all'evento e ricade sulla riga.
+    Una query sola per l'intera pagina: risolverlo riga per riga
+    trasformerebbe l'appello di una giornata in centinaia di letture.
+  */
+  if (resource === "club_event_participants") {
+    const eventiId = Array.from(
+      new Set(
+        records
+          .map((record) => String(record?.event_id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!eventiId.length) return records;
+
+    const eventi = await prisma.clubEvent.findMany({
+      where: {
+        organization_id: scope!.activeOrganizationId as string,
+        id: { in: eventiId },
+      },
+    });
+
+    const ammessi = new Set(
+      eventi
+        .filter((evento: Record<string, any>) =>
+          hasTokenIntersection(
+            extractRecordCategoryTokens(evento, context.categoryOptions),
+            context.assignedCategoryTokens,
+          ),
+        )
+        .map((evento: { id: string }) => String(evento.id)),
+    );
+
+    return records.filter((record) =>
+      ammessi.has(String(record?.event_id || "")),
+    );
+  }
+
   let appartenenzePerAtleta = new Map<string, any[]>();
   if (perGruppo) {
     const atletiId = records
@@ -4171,7 +4253,7 @@ const filterTrainerDashboardRecords = async (
       return true;
     }
 
-    if (resource === "trainings" || resource === "matches") {
+    if (resource === "club_events") {
       return hasTokenIntersection(
         extractRecordTrainerTokens(record),
         context.trainerTokens,

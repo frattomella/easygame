@@ -17,7 +17,11 @@ import {
   buildClubCategoryOptions,
 } from "@/lib/category-utils";
 import { findClubEvent } from "./events";
-import { toEventLegacyShape } from "@/lib/events/model";
+import {
+  normalizeEventKind,
+  toEventLegacyShape,
+  type EventKind,
+} from "@/lib/events/model";
 import {
   athleteMatchesGroup,
   buildCategoryGroups,
@@ -131,10 +135,19 @@ type ClubEventContext = {
   groups: CategoryGroup[];
 };
 
+/*
+  **La proiezione non e piu fra le colonne lette.**
+
+  `trainings` stava qui per un solo lettore, `buildInvitations`, e portava con
+  se il difetto: la colonna contiene i soli allenamenti, quindi l'elenco degli
+  inviti non poteva contenere una gara nemmeno quando l'evento la chiedeva.
+  Adesso gli eventi si leggono dalle righe (ADR-0098) e di questo club servono
+  solo l'identita e cio che serve a collocare un atleta in una categoria o in
+  un gruppo.
+*/
 const CLUB_SELECTION = {
   id: true,
   name: true,
-  trainings: true,
   categories: true,
   club_sites: true,
   category_groups: true,
@@ -762,6 +775,17 @@ export type RsvpInvitation = {
   organizationId: string;
   trainingId: string;
   athleteId: string;
+  /**
+   * Allenamento o gara.
+   *
+   * La famiglia deve sapere **che cosa** sta confermando: le due cose costano
+   * un pomeriggio diverso, e un invito che non lo dice si conferma alla
+   * leggera. Il campo esiste perche l'elenco ne contiene ormai di entrambi i
+   * tipi, e chi lo mostra possa separarli senza indovinare dal titolo.
+   */
+  kind: EventKind;
+  /** L'avversario, quando l'evento e una gara. Stringa vuota altrimenti. */
+  opponent: string;
   title: string;
   categoryLabel: string;
   location: string;
@@ -778,14 +802,38 @@ export type RsvpInvitation = {
   blockedMessage: string;
 };
 
+/**
+ * Come si chiama, per la famiglia, l'evento a cui e invitata.
+ *
+ * Il titolo di un evento e facoltativo, e il ripiego era «Allenamento» per
+ * tutti: una gara senza titolo — cioe la forma con cui la maggior parte delle
+ * gare viene creata, perche il titolo lo si scrive di rado — arrivava alla
+ * famiglia con il nome dell'altra cosa. L'avversario e la parte che rende
+ * riconoscibile una gara, quindi entra nel ripiego quando c'e.
+ */
+const eventInvitationTitle = (
+  event: Record<string, any>,
+  kind: EventKind,
+) => {
+  const declared = asText(event.title);
+  if (declared) return declared;
+  if (kind !== "match") return "Allenamento";
+
+  const opponent = asText(event.opponent);
+  return opponent ? `Gara con ${opponent}` : "Gara";
+};
+
 const buildInvitations = ({
   club,
+  events,
   athleteId,
   rows,
   now,
   horizonDays,
 }: {
   club: Record<string, any>;
+  /** Gli eventi del club nella forma storica, allenamenti **e** gare. */
+  events: Record<string, any>[];
   athleteId: string;
   rows: Array<{
     training_id: string;
@@ -802,7 +850,7 @@ const buildInvitations = ({
     clubCategories: club.categories,
   });
 
-  return asArray(club.trainings)
+  return asArray(events)
     .map((raw) => asRecord(raw))
     .filter((training) => {
       const config = readEventRsvpConfig(training, now);
@@ -828,12 +876,15 @@ const buildInvitations = ({
         eventStatus: training.status,
       });
       const startsAt = eventStartsAt(training);
+      const kind = normalizeEventKind(training.kind);
 
       return {
         organizationId: asText(club.id),
         trainingId,
         athleteId,
-        title: asText(training.title) || "Allenamento",
+        kind,
+        opponent: kind === "match" ? asText(training.opponent) : "",
+        title: eventInvitationTitle(training, kind),
         categoryLabel: resolveCategoryLabelForTraining(training, categoryOptions),
         location: asText(training.location),
         startsAt: startsAt ? startsAt.toISOString() : null,
@@ -847,6 +898,54 @@ const buildInvitations = ({
       };
     })
     .sort((left, right) => asText(left.startsAt).localeCompare(asText(right.startsAt)));
+};
+
+/**
+ * Il margine con cui si allarga la finestra chiesta al database.
+ *
+ * A decidere quali inviti la famiglia vede resta `eventStartsAt`, che
+ * ricostruisce l'istante dal **giorno e dall'ora** della forma storica: la
+ * riga porta invece un istante vero. Le due letture della stessa riga possono
+ * discostarsi del fuso del processo che le legge, e una finestra stretta
+ * quanto l'orizzonte farebbe sparire l'evento che ci sta appena dentro.
+ * Un giorno per parte e piu della differenza massima possibile.
+ */
+const FINESTRA_MARGINE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * **Gli eventi su cui rispondere, letti dalle righe.**
+ *
+ * Qui si leggeva `club.trainings`, cioe la proiezione dei soli allenamenti: il
+ * dominio sapeva gia rispondere a una gara — `findTraining` le trova entrambe
+ * dalla Wave 5 — ma l'elenco che la famiglia legge non gliene mostrava mai
+ * una, quindi nessuna schermata poteva chiederlo. Leggere le righe e la
+ * direzione di ADR-0098 e chiude la differenza fra i due tipi in un punto
+ * solo, invece di aggiungere `matches` accanto a `trainings` e doverli poi
+ * tenere allineati.
+ *
+ * `archived` resta fuori: e lo stato di un evento ricostruito perche una
+ * presenza lo citava, e non e un invito che qualcuno abbia mandato.
+ */
+const loadRsvpEvents = async (
+  organizationId: string,
+  now: Date,
+  horizonDays: number,
+) => {
+  const rows = await prisma.clubEvent.findMany({
+    where: {
+      organization_id: organizationId,
+      status: { not: "archived" },
+      starts_at: {
+        gte: new Date(now.getTime() - FINESTRA_MARGINE_MS),
+        lte: new Date(
+          now.getTime() + horizonDays * 24 * 60 * 60 * 1000 + FINESTRA_MARGINE_MS,
+        ),
+      },
+    },
+    orderBy: { starts_at: "asc" },
+  });
+
+  return rows.map((row) => toEventLegacyShape(row));
 };
 
 const loadAthleteRsvpRows = async (
@@ -895,6 +994,11 @@ const loadAthleteRsvpRows = async (
 /**
  * Gli inviti RSVP di un atleta, per l'**area genitore**.
  *
+ * Comprende **allenamenti e gare**: la Wave 5 aveva dichiarato completo l'RSVP
+ * sulle gare e il servizio lo reggeva, ma questo elenco leggeva la proiezione
+ * dei soli allenamenti — una gara che chiedeva conferma non arrivava a
+ * nessuna schermata, e la capability era irraggiungibile dal lato che conta.
+ *
  * Comprende anche quelli gia risposti, perche la famiglia deve poter vedere
  * cosa ha detto e cambiare idea finche la scadenza non passa: mostrare solo i
  * pendenti farebbe sparire la risposta appena data, che e il modo piu rapido
@@ -919,13 +1023,15 @@ export const readAthleteRsvpInvitations = async ({
   const { athlete } = await authorizeAnsweringUser(userId, wantedAthleteId);
   const organizationId = asText(athlete.organization_id);
 
-  const [club, rows] = await Promise.all([
+  const [club, events, rows] = await Promise.all([
     loadClub(organizationId),
+    loadRsvpEvents(organizationId, now, horizonDays),
     loadAthleteRsvpRows(organizationId, wantedAthleteId),
   ]);
 
   return buildInvitations({
     club,
+    events,
     athleteId: wantedAthleteId,
     rows,
     now,
@@ -980,13 +1086,15 @@ export const listPendingRsvpForAthlete = async ({
     resolvedOrganizationId = asText(athlete.organization_id);
   }
 
-  const [club, rows] = await Promise.all([
+  const [club, events, rows] = await Promise.all([
     loadClub(resolvedOrganizationId),
+    loadRsvpEvents(resolvedOrganizationId, now, horizonDays),
     loadAthleteRsvpRows(resolvedOrganizationId, wantedAthleteId),
   ]);
 
   return buildInvitations({
     club,
+    events,
     athleteId: wantedAthleteId,
     rows,
     now,
