@@ -13,7 +13,23 @@ export type ParentDashboardData = {
     address?: string | null;
     city?: string | null;
     province?: string | null;
-    settings?: any;
+    /**
+     * La stagione attiva del club, gia risolta dal server (W6-09).
+     *
+     * Prima l'area famiglia non la risolveva affatto: l'etichetta arrivava dal
+     * `localStorage`, e per un tutore senza riga di membership quel
+     * `localStorage` non l'aveva mai vista.
+     */
+    activeSeasonId?: string | null;
+    activeSeasonLabel?: string | null;
+    /**
+     * L'indirizzo del sito del club.
+     *
+     * Era l'unico campo che la famiglia leggesse da `settings`, e per averlo
+     * usciva `settings` **intero** — stagioni, categorie, sconti, piani. Adesso
+     * esce solo questo, e un campo nuovo su `settings` nasce non visibile.
+     */
+    website?: string | null;
     opening_hours?: any;
   };
   athlete: {
@@ -25,6 +41,19 @@ export type ParentDashboardData = {
     birth_date?: string | null;
     category_id?: string | null;
     category_name?: string | null;
+    /**
+     * **Tutte** le appartenenze, non la sola primaria (W6-14).
+     *
+     * La relazione non veniva nemmeno caricata dalla query dell area
+     * famiglia, quindi il calendario — che da queste dipende — perdeva le
+     * attivita della seconda squadra.
+     */
+    categories?: Array<{
+      id: string;
+      name: string;
+      siteId: string | null;
+      isPrimary: boolean;
+    }>;
     status?: string | null;
     jersey_number?: string | null;
     email?: string | null;
@@ -50,7 +79,15 @@ export type ParentDashboardData = {
   };
   health: {
     certificates: Array<Record<string, any>>;
-    status: "valid" | "expired" | "missing";
+    /**
+     * W6-16. `expiring` mancava: il club lo vede da sempre, e la famiglia — che
+     * e quella che deve andare a rifare il certificato — scopriva la scadenza
+     * il giorno dopo.
+     */
+    status: "valid" | "expiring" | "expired" | "missing";
+    statusLabel: string;
+    /** La scadenza del certificato che **governa**, non del primo in elenco. */
+    expiryDate: string | null;
     allergies: any[];
     notes: string;
   };
@@ -96,6 +133,8 @@ export type ParentDashboardData = {
     bookings: Array<Record<string, any>>;
   };
   notifications: Array<Record<string, any>>;
+  /** Quante fra quelle mostrate non sono ancora state lette (W6-20). */
+  notificationsUnread: number;
   analytics: {
     attendanceRate: number;
     lastAttendance: Array<Record<string, any>>;

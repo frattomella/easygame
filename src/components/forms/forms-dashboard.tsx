@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   Copy,
@@ -9,6 +10,8 @@ import {
   Inbox,
   MoreVertical,
   Plus,
+  RefreshCw,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -33,16 +36,31 @@ import {
   type FormTemplateSummary,
 } from "@/lib/forms/model";
 import { FORM_SUBJECTS } from "@/lib/forms/dynamic-fields";
-import { STARTER_TEMPLATES } from "@/lib/forms/starter-templates";
+import { DISTRIBUTABLE_FORM_CATALOG, FORM_CATALOG } from "@/lib/forms/catalog";
 import * as formsApi from "@/lib/api/forms";
 
 /**
- * Modulistica: i moduli del club e la coda della segreteria.
+ * Modulistica: i moduli del club, la coda della segreteria, i modelli.
  *
- * Due schede e nient'altro, perche sono le due domande che si fanno aprendo
- * questa pagina: «che moduli ho?» e «cosa e arrivato?». Il secondo numero e
- * quello che conta ed e sull'etichetta della scheda: una compilazione che
- * resta in coda per tre settimane e un'iscrizione persa.
+ * Le prime due schede sono le due domande che si fanno aprendo questa pagina:
+ * «che moduli ho?» e «cosa e arrivato?». Il secondo numero e quello che conta
+ * ed e sull'etichetta della scheda: una compilazione che resta in coda per tre
+ * settimane e un'iscrizione persa.
+ *
+ * **La terza scheda risponde a una domanda diversa** (W6-45): «cosa potrei
+ * prendere?». I modelli consigliati erano voci di un menu a tendina sotto
+ * «Nuovo modulo», e un modulo nato da «Iscrizione online» era poi
+ * indistinguibile da uno scritto a mano. Adesso sono un **catalogo**, con la
+ * stessa forma di quello dei modelli di documento (ADR-0092): si vede di che
+ * classe e una voce, chi ne risponde e quando e stata riletta, e la copia che
+ * il club adotta dice da quale modello viene.
+ *
+ * **Tre stati, non due** (W6-44). Il fallimento della lettura mostrava un
+ * toast e lasciava l'elenco vuoto: chi arrivava leggeva «Nessun modulo, per
+ * ora», che e la stessa frase di un club che davvero non ne ha. Un errore di
+ * rete e un 403 diventavano «non c'e niente», cioe una bugia. Caricamento,
+ * errore ed elenco vuoto sono adesso tre schermate distinte, e l'errore ha un
+ * «Riprova» perche l'unica azione utile e quella.
  */
 
 const STATUS_TONES: Record<string, string> = {
@@ -50,6 +68,24 @@ const STATUS_TONES: Record<string, string> = {
   draft: "border-amber-200 bg-amber-50 text-amber-700",
   archived: "border-slate-200 bg-slate-100 text-slate-600",
 };
+
+/**
+ * La classe redazionale di una voce, detta a chi la adotta.
+ *
+ * Non e una sigla da nascondere: dice **chi puo mantenere quel contenuto**.
+ * Oggi escono solo le `A`; le altre due sono qui perche il giorno in cui una
+ * `B` o una `C` venisse validata l'elenco non debba imparare una parola nuova.
+ */
+const FORM_CATALOG_CLASS_LABELS: Record<string, string> = {
+  A: "Classe A — campi che EasyGame sa gia leggere e scrivere",
+  B: "Classe B — modulo di un ente terzo",
+  C: "Classe C — contenuto legale o fiscale",
+};
+
+/** I titoli delle voci, per dire da quale modello viene un modulo del club. */
+const catalogTitleByKey = new Map(
+  FORM_CATALOG.map((entry) => [entry.key, entry.title]),
+);
 
 const SUBMISSION_TONES: Record<string, string> = {
   pending: "border-amber-200 bg-amber-50 text-amber-700",
@@ -69,6 +105,49 @@ const formatDate = (value: string) => {
       });
 };
 
+/**
+ * Lo stato di una lettura: **tre valori, non un booleano**.
+ *
+ * Un `loading` piu una lista vuota non sa dire «ho provato e non ci sono
+ * riuscito», ed e esattamente cio che serve dire.
+ */
+type LoadState = { status: "loading" | "ready" | "error"; error: string };
+
+const LOADING: LoadState = { status: "loading", error: "" };
+const READY: LoadState = { status: "ready", error: "" };
+
+/**
+ * Errore ed elenco vuoto sono due schermate diverse: questa e la prima.
+ *
+ * L'unica azione che ha senso offrire e riprovare — la lettura e fallita, non
+ * ha risposto «non hai il permesso di vedere un pulsante».
+ */
+const LoadFailure = ({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) => (
+  <Card className="border-red-200 bg-red-50">
+    <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+      <AlertTriangle className="h-8 w-8 text-red-500" aria-hidden />
+      <p role="alert" className="font-medium text-red-900">
+        {message}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-[44px] bg-white"
+        onClick={onRetry}
+      >
+        <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
+        Riprova
+      </Button>
+    </CardContent>
+  </Card>
+);
+
 export function FormsDashboard() {
   const { showToast } = useToast();
   const [templates, setTemplates] = useState<FormTemplateSummary[]>([]);
@@ -78,54 +157,93 @@ export function FormsDashboard() {
   );
   const [reviewing, setReviewing] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState("pending");
-  const [loading, setLoading] = useState(true);
+  const [templatesState, setTemplatesState] = useState<LoadState>(LOADING);
+  const [submissionsState, setSubmissionsState] = useState<LoadState>(LOADING);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [adoptingKey, setAdoptingKey] = useState("");
 
   const loadTemplates = useCallback(async () => {
+    setTemplatesState(LOADING);
     try {
       setTemplates(await formsApi.fetchFormTemplates({ includeArchived }));
+      setTemplatesState(READY);
     } catch (error: any) {
-      showToast("error", error?.message || "Non riesco a leggere i moduli");
+      /*
+        L'elenco precedente si **butta**: tenerlo accanto a un messaggio di
+        errore direbbe «questi sono i tuoi moduli» di una lista che potrebbe
+        essere di dieci minuti fa.
+      */
+      setTemplates([]);
+      setTemplatesState({
+        status: "error",
+        error: error?.message || "Non riesco a leggere i moduli",
+      });
     }
-  }, [includeArchived, showToast]);
+  }, [includeArchived]);
 
   const loadSubmissions = useCallback(async () => {
+    setSubmissionsState(LOADING);
     try {
       const result = await formsApi.fetchFormSubmissions({
         status: statusFilter,
         limit: 50,
       });
       setSubmissions(result.items);
+      setSubmissionsState(READY);
     } catch (error: any) {
-      showToast("error", error?.message || "Non riesco a leggere la coda");
+      setSubmissions([]);
+      setSubmissionsState({
+        status: "error",
+        error: error?.message || "Non riesco a leggere la coda",
+      });
     }
-  }, [statusFilter, showToast]);
+  }, [statusFilter]);
 
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    void Promise.all([loadTemplates(), loadSubmissions()]).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => {
-      active = false;
-    };
-  }, [loadTemplates, loadSubmissions]);
+    void loadTemplates();
+  }, [loadTemplates]);
+
+  useEffect(() => {
+    void loadSubmissions();
+  }, [loadSubmissions]);
 
   const pendingTotal = useMemo(
     () => templates.reduce((total, template) => total + template.pendingCount, 0),
     [templates],
   );
 
+  /*
+    Creare un modulo vuoto e adottare un modello sono lo **stesso** gesto e la
+    stessa rotta: cambia solo cosa si cita. Due strade per creare un modulo
+    sarebbero due modi di finire con impostazioni diverse.
+  */
   const create = async (starter: string) => {
+    setAdoptingKey(starter);
     try {
       const created = await formsApi.createFormTemplate(starter);
       await loadTemplates();
       setOpenTemplate(created);
     } catch (error: any) {
       showToast("error", error?.message || "Non riesco a creare il modulo");
+    } finally {
+      setAdoptingKey("");
     }
   };
+
+  /*
+    Cio che il club ha gia preso. Le voci adottate restano in elenco, dette
+    come tali: sparire vorrebbe dire lasciare chi cerca «l'iscrizione online»
+    davanti a un catalogo che non la nomina piu.
+  */
+  const adoptedCatalogKeys = useMemo(
+    () =>
+      new Set(
+        templates
+          .map((template) => template.catalogKey)
+          .filter((key): key is string => Boolean(key)),
+      ),
+    [templates],
+  );
 
   const open = async (id: string) => {
     try {
@@ -167,38 +285,32 @@ export function FormsDashboard() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="moduli" className="space-y-4">
-        {/* Due etichette affiancate stanno anche a 375 px. */}
-        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-flex">
+        {/* Tre etichette che vanno a capo: a 375 px non stanno su una riga. */}
+        <TabsList className="h-auto w-full flex-wrap justify-start">
           <TabsTrigger value="moduli">Moduli</TabsTrigger>
           <TabsTrigger value="coda">
             Da esaminare{pendingTotal ? ` (${pendingTotal})` : ""}
           </TabsTrigger>
+          <TabsTrigger value="modelli">Modelli consigliati</TabsTrigger>
         </TabsList>
 
         <TabsContent value="moduli" className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nuovo modulo
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-72">
-                {STARTER_TEMPLATES.map((starter) => (
-                  <DropdownMenuItem
-                    key={starter.key}
-                    onSelect={() => void create(starter.key)}
-                    className="flex-col items-start gap-0.5"
-                  >
-                    <span className="font-medium">{starter.label}</span>
-                    <span className="text-xs text-slate-500">
-                      {starter.description}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/*
+              **Un pulsante solo, e fa una cosa sola**: apre un modulo vuoto.
+              I due modelli scritti da EasyGame non sono voci di questo menu —
+              stanno in «Modelli consigliati», che e dove si sceglie cosa
+              prendere. Mescolare le due domande e cio che rendeva un modulo
+              adottato indistinguibile da uno scritto a mano (W6-45).
+            */}
+            <Button
+              type="button"
+              onClick={() => void create("blank")}
+              disabled={Boolean(adoptingKey)}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Nuovo modulo
+            </Button>
 
             <Button
               type="button"
@@ -211,8 +323,13 @@ export function FormsDashboard() {
             </Button>
           </div>
 
-          {loading ? (
+          {templatesState.status === "loading" ? (
             <ListSkeleton rows={3} />
+          ) : templatesState.status === "error" ? (
+            <LoadFailure
+              message={templatesState.error}
+              onRetry={() => void loadTemplates()}
+            />
           ) : templates.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
@@ -221,7 +338,8 @@ export function FormsDashboard() {
                   Nessun modulo, per ora
                 </p>
                 <p className="max-w-sm text-sm text-slate-600">
-                  «Iscrizione online» e gia scritto: link pubblico, dati
+                  «Iscrizione online» e gia scritto: lo trovi in{" "}
+                  <strong>Modelli consigliati</strong>, con link pubblico, dati
                   dell&apos;atleta, contatti del genitore, documenti e consenso.
                 </p>
               </CardContent>
@@ -255,6 +373,20 @@ export function FormsDashboard() {
                         ) : null}
                         <span>aggiornato il {formatDate(template.updatedAt)}</span>
                       </p>
+                      {/*
+                        **Da dove viene**, quando viene da qualche parte. Un
+                        modulo adottato resta del club e si modifica
+                        liberamente: questa riga non e una proprieta del
+                        catalogo sul modulo, e la risposta alla domanda «da
+                        quale modello e nato?», che prima non aveva risposta.
+                      */}
+                      {catalogTitleByKey.get(template.catalogKey) ? (
+                        <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
+                          <Sparkles className="h-3 w-3" aria-hidden />
+                          Da modello EasyGame:{" "}
+                          {catalogTitleByKey.get(template.catalogKey)}
+                        </p>
+                      ) : null}
                     </button>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -383,8 +515,13 @@ export function FormsDashboard() {
             ))}
           </div>
 
-          {loading ? (
+          {submissionsState.status === "loading" ? (
             <ListSkeleton rows={3} />
+          ) : submissionsState.status === "error" ? (
+            <LoadFailure
+              message={submissionsState.error}
+              onRetry={() => void loadSubmissions()}
+            />
           ) : submissions.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
@@ -446,6 +583,88 @@ export function FormsDashboard() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        {/*
+          **Modelli consigliati EasyGame.**
+
+          Non e un elenco di moduli del club: e cio che il club **puo**
+          prendere, con la sua provenienza. Di ogni voce si dicono le tre cose
+          che il catalogo dei documenti esiste per non tacere (ADR-0092): di
+          che classe e, chi risponde del contenuto, quando e stato riletto
+          l'ultima volta. Adottarne uno ne crea una **copia del club**, che da
+          quel momento si modifica liberamente.
+        */}
+        <TabsContent value="modelli" className="space-y-4">
+          <Card>
+            <CardContent className="space-y-4 py-5">
+              <div>
+                <p className="font-display font-semibold text-slate-900">
+                  Modelli consigliati EasyGame
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Moduli gia scritti che il club puo adottare. Adottarne uno ne
+                  crea una <strong>copia del club</strong>: da quel momento si
+                  modifica liberamente e il catalogo non la tocca piu.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {DISTRIBUTABLE_FORM_CATALOG.map((entry) => {
+                  const adottato = adoptedCatalogKeys.has(entry.key);
+
+                  return (
+                    <div
+                      key={entry.key}
+                      className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <p className="break-words font-semibold text-slate-900">
+                          {entry.title}
+                        </p>
+                        <p className="break-words text-sm text-slate-600">
+                          {entry.description}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
+                            {FORM_CATALOG_CLASS_LABELS[entry.catalogClass] ||
+                              `Classe ${entry.catalogClass}`}
+                          </span>
+                          {entry.purpose === "enrollment" ? (
+                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
+                              Iscrizione e rinnovo
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="break-words text-xs text-slate-500">
+                          Del contenuto risponde {entry.editorialOwner} —
+                          riletto il {formatDate(entry.lastReviewedAt)}
+                        </p>
+                      </div>
+                      <div className="shrink-0">
+                        {adottato ? (
+                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                            Gia fra i moduli del club
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="min-h-[44px]"
+                            onClick={() => void create(entry.key)}
+                            disabled={Boolean(adoptingKey)}
+                          >
+                            <Plus className="mr-2 h-4 w-4" />
+                            {adoptingKey === entry.key ? "Adozione..." : "Adotta"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

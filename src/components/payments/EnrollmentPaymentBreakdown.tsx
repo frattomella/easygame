@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertCircle, CheckCircle2, CreditCard, FileText } from "lucide-react";
+import { isPayableAthletePayment } from "@/lib/athlete-payment-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,6 +80,7 @@ export function EnrollmentPaymentBreakdown({
   mode = "club",
   showPayNow = false,
   onPayNow,
+  onPayInstalment,
   payNowPending = false,
   showPaymentHistory = true,
   showSettlementTotals = true,
@@ -89,6 +91,18 @@ export function EnrollmentPaymentBreakdown({
   showPayNow?: boolean;
   /** Quando manca, il pulsante resta disabilitato: non c'e una rata da pagare. */
   onPayNow?: () => void;
+  /**
+   * Paga **questa** rata.
+   *
+   * W6-08. `onPayNow` apre la prima rata aperta, ed e cio che una famiglia
+   * intende premendo il pulsante in cima. Ma con un piano a piu rate «la
+   * prima» non e sempre quella che si vuole saldare, e la riga sa gia di
+   * quale rata parla: chiederlo altrove sarebbe una domanda con la risposta
+   * gia sotto gli occhi.
+   *
+   * Chi non la passa — la scheda del club — non vede nessun pulsante in riga.
+   */
+  onPayInstalment?: (payment: Record<string, any>) => void;
   payNowPending?: boolean;
   showPaymentHistory?: boolean;
   /**
@@ -405,6 +419,25 @@ export function EnrollmentPaymentBreakdown({
                             ? "Saldato"
                             : "Da incassare"}
                       </Badge>
+                      {/*
+                        W6-08. Il pulsante compare solo dove qualcuno puo
+                        davvero pagare — cioe quando `onPayInstalment` e
+                        stato passato — e solo sulle righe che il dominio
+                        dichiara pagabili. Non e la schermata a decidere
+                        cosa e aperto: quel giudizio, ricostruito qui, e
+                        esattamente il difetto che questa riga chiude.
+                      */}
+                      {onPayInstalment &&
+                      isPayableAthletePayment(payment) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={payNowPending}
+                          onClick={() => onPayInstalment(payment)}
+                        >
+                          Paga
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 );

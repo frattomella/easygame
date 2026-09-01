@@ -46,10 +46,12 @@ import {
   createFieldId,
   FORM_FIELD_TYPES,
   getSchemaSubjects,
+  isEnrollmentForm,
   normalizeFormSchema,
   schemasAreEqual,
   type FormField,
   type FormFieldType,
+  type FormPurpose,
   type FormSchema,
   type FormTemplateDetail,
 } from "@/lib/forms/model";
@@ -528,12 +530,74 @@ function FormSettingsPanel({
           </div>
         </div>
 
+        <FormPurposeSetting
+          schema={schema}
+          onChange={(purpose) => onChange({ purpose })}
+        />
+
         <DocumentTemplateSetting
           value={schema.settings.documentTemplateId}
           onChange={(documentTemplateId) => onChange({ documentTemplateId })}
         />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * **A cosa serve questo modulo**, e cosa cambia dichiararlo.
+ *
+ * **Perche esiste (W6-46).** Il menu «quale modulo vuoi rinnovare» della
+ * famiglia elencava ogni modulo pubblicato e pubblico del club: un
+ * questionario di gradimento compariva accanto all'iscrizione. Il filtro
+ * doveva esserci, e doveva essere **configurazione** e non un elenco di titoli
+ * cablato nel codice.
+ *
+ * **Perche tre voci e non una casella.** «Non dichiarato» non e «altro»: i
+ * moduli scritti prima di questa impostazione non hanno detto niente, e
+ * trattarli come «altro» li farebbe sparire tutti insieme dal menu del
+ * rinnovo. Per quelli si deduce dai campi, e la schermata dice **cosa** la
+ * deduzione ha concluso — un valore dedotto che non si vede e un valore che
+ * non si puo correggere.
+ */
+function FormPurposeSetting({
+  schema,
+  onChange,
+}: {
+  schema: FormSchema;
+  onChange: (purpose: FormPurpose) => void;
+}) {
+  const dedotto = isEnrollmentForm({
+    ...schema,
+    settings: { ...schema.settings, purpose: "" },
+  });
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="form-purpose">A cosa serve questo modulo</Label>
+      <Select
+        value={schema.settings.purpose || "auto"}
+        onValueChange={(value) =>
+          onChange(value === "auto" ? "" : (value as FormPurpose))
+        }
+      >
+        <SelectTrigger id="form-purpose" className="min-h-[44px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="auto">
+            Lo deduco dai campi{dedotto ? " (oggi: iscrizione)" : " (oggi: altro)"}
+          </SelectItem>
+          <SelectItem value="enrollment">Iscrizione o rinnovo</SelectItem>
+          <SelectItem value="generic">Altro modulo</SelectItem>
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-slate-500">
+        Solo i moduli di iscrizione compaiono alla famiglia sotto «cosa vuoi
+        rinnovare». Un questionario o una raccolta di adesioni non ci deve
+        stare.
+      </p>
+    </div>
   );
 }
 

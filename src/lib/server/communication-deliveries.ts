@@ -439,11 +439,24 @@ export const listDeliveriesForRecipient = async ({
   sourceKind,
   channel,
   userId,
+  athleteId,
 }: {
   organizationId: string;
   sourceKind: DeliverySourceKind;
   channel: DeliveryChannel;
   userId: string;
+  /**
+   * Restringe al figlio scelto, senza nascondere cio che riguarda il club.
+   *
+   * W6-13. Un genitore con due figli vedeva in bacheca gli avvisi di
+   * **entrambi**, mescolati e senza dire di chi: la consegna sa gia per chi era
+   * — `athlete_ids` esiste apposta — e nessuno glielo chiedeva.
+   *
+   * Le consegne **senza** atleti nominati restano visibili sempre: un avviso
+   * che non nomina un figlio non parla dell'altro figlio, parla del club.
+   * Nasconderlo scegliendo un figlio sarebbe una perdita, non un filtro.
+   */
+  athleteId?: string | null;
 }) =>
   deliveryClient().findMany({
     where: {
@@ -452,6 +465,14 @@ export const listDeliveriesForRecipient = async ({
       channel,
       recipient_user_id: userId,
       status: "sent",
+      ...(athleteId
+        ? {
+            OR: [
+              { athlete_ids: { isEmpty: true } },
+              { athlete_ids: { has: athleteId } },
+            ],
+          }
+        : {}),
     },
   });
 

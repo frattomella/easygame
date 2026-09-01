@@ -371,15 +371,31 @@ test("un certificato valido non finisce nell'elenco delle scadenze", () => {
 
 /* ============================== la navigazione, e cio che si puo spegnere = */
 
-test("le categorie restano spente anche se il club le accende", () => {
-  const risolti = resolveTrainerDashboardPermissions({
+/**
+ * **La forzatura e caduta con la rotta orfana** (W6-31).
+ *
+ * Questo test difendeva un tappo: `categories` veniva riscritta a `false`
+ * dopo la fusione, perche la rotta faceva `redirect("/trainer-dashboard")` e
+ * accenderla avrebbe portato a una pagina che rimandava altrove. Adesso la
+ * pagina mostra le squadre del perimetro, quindi cio che va difeso e
+ * l'opposto: **la scelta del club conta**, in tutte e due le direzioni.
+ *
+ * Leggere una preferenza e buttarla via una riga dopo e peggio che non
+ * offrirla: il club crede di aver acceso qualcosa.
+ */
+test("W6-31 · la scelta del club sulle categorie viene rispettata", () => {
+  const accese = resolveTrainerDashboardPermissions({
     trainerDashboardPermissions: { navigation: { categories: true } },
   });
+  assert.equal(accese.navigation.categories, true);
 
+  const spente = resolveTrainerDashboardPermissions({
+    trainerDashboardPermissions: { navigation: { categories: false } },
+  });
   assert.equal(
-    risolti.navigation.categories,
+    spente.navigation.categories,
     false,
-    "la sezione Categorie non ha una schermata mantenuta: accenderla porterebbe a una rotta orfana",
+    "una preferenza che vale in un verso solo non e una preferenza",
   );
 });
 
@@ -405,14 +421,23 @@ test("le tre sezioni nuove nascono accese e si possono spegnere", () => {
 test("un allenatore senza nessuna sezione non resta dentro l'area", () => {
   const nessuna = resolveTrainerDashboardPermissions({
     trainerDashboardPermissions: {
+      /*
+        L'elenco cresce con le voci: `categories` non e piu forzata a `false`
+        (W6-31), e `notifications` e `compensation` sono le due rotte che il
+        menu non nominava (W6-30, W6-32). Spegnerle tutte deve continuare a
+        portare fuori dall'area, non a una pagina bianca dentro.
+      */
       navigation: {
         home: false,
         trainings: false,
         matches: false,
         athletes: false,
+        categories: false,
         board: false,
         documents: false,
         appointments: false,
+        notifications: false,
+        compensation: false,
       },
     },
   });

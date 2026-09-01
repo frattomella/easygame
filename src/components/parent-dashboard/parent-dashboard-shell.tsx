@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
@@ -115,6 +116,36 @@ export default function ParentDashboardShell({
 
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
+            {/*
+              W6-12. **Di chi stiamo parlando, e come si cambia.**
+
+              Con piu figli collegati ogni pagina dell'area famiglia parla di
+              uno solo, e fin qui non lo diceva: il nome compariva nel
+              sottotitolo della Home e in nessun altro posto. Su Pagamenti,
+              Documenti e Certificati — dove si leggono importi e dati
+              sanitari — era un'ambiguita che il prodotto non puo permettersi.
+
+              Sta nel guscio, non nelle tredici pagine: un selettore per
+              pagina moltiplicherebbe per tredici i posti in cui la scelta puo
+              diventare incoerente. Il cambio riporta alla schermata di
+              scelta, che e l'unico posto dove la scelta si fa.
+            */}
+            {data && (data.athlete.linkedAthletes?.length || 0) > 1 ? (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <p className="min-w-0 text-sm text-slate-600">
+                  Stai vedendo{" "}
+                  <span className="font-semibold text-slate-950">
+                    {data.athlete.name}
+                  </span>
+                </p>
+                <Link
+                  href="/parent-view"
+                  className="shrink-0 rounded-full border border-slate-200 px-4 py-1.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  Cambia figlio
+                </Link>
+              </div>
+            ) : null}
             {isBlockingLoad ? (
               <div className="flex min-h-[55vh] items-center justify-center">
                 <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-center text-slate-600 shadow-sm">

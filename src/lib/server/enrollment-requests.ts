@@ -21,7 +21,11 @@ import {
   type PublicEnrollmentView,
   type RenewalDraft,
 } from "@/lib/forms/enrollment-receipt";
-import type { FormSchema } from "@/lib/forms/model";
+import {
+  isEnrollmentForm,
+  normalizeFormSchema,
+  type FormSchema,
+} from "@/lib/forms/model";
 import type { SubjectRecords } from "@/lib/forms/prefill";
 
 /**
@@ -452,6 +456,24 @@ export type RenewalDraftView = RenewalDraft & {
  * condizioni che `findPublicFormBySlug` applica una per una, e sono qui nella
  * clausola `where` per la stessa ragione per cui il club sta nel `where` e non
  * in un filtro dopo.
+ *
+ * **I due difetti che questa funzione aveva (W6-46), e perche erano lo stesso
+ * difetto.** Il menu offriva moduli che non si potevano compilare, e moduli
+ * che non c'era ragione di rinnovare:
+ *
+ * - `published_version: { not: null }` era **sempre vero**: la colonna e
+ *   `Int @default(0)` e non e nullable, quindi un modulo `published` con
+ *   versione zero passava il filtro, compariva nel menu, e
+ *   `findPublicFormBySlug` poi non trovava niente da far compilare. Adesso la
+ *   condizione e `> 0`, ed e la stessa che quella funzione applica;
+ * - e la riga della versione veniva data per esistente. Si legge davvero:
+ *   e la stessa lettura che serve al filtro sul tipo, quindi non costa un
+ *   viaggio in piu, e chiude anche il caso della versione mancante;
+ * - **nessun filtro sul tipo**: usciva ogni modulo pubblicato e pubblico del
+ *   club, e un questionario di gradimento si presentava alla famiglia sotto
+ *   «quale modulo vuoi rinnovare». Adesso passa solo cio che `isEnrollmentForm`
+ *   riconosce sulla **versione pubblicata** — cioe su cio che la famiglia
+ *   compilerebbe davvero, non sulla bozza che la segreteria sta modificando.
  */
 export const listFamilyRenewalForms = async (
   userId: string,
@@ -466,18 +488,59 @@ export const listFamilyRenewalForms = async (
       organization_id: organizationId,
       status: "published",
       public_enabled: true,
-      published_version: { not: null },
+      published_version: { gt: 0 },
     },
-    select: { public_slug: true, title: true },
+    select: {
+      id: true,
+      public_slug: true,
+      title: true,
+      published_version: true,
+    },
     orderBy: { title: "asc" },
     take: 50,
-  })) as Array<{ public_slug: string | null; title: string | null }>;
+  })) as Array<{
+    id: string;
+    public_slug: string | null;
+    title: string | null;
+    published_version: number;
+  }>;
 
-  return righe
-    .filter((riga) => asText(riga.public_slug))
-    .map((riga) => ({
+  const candidati = righe.filter((riga) => asText(riga.public_slug));
+  if (!candidati.length) return [];
+
+  /* Le versioni pubblicate in una lettura sola, non una per modulo. */
+  const versioni = (await (prisma as any).formTemplateVersion.findMany({
+    where: {
+      organization_id: organizationId,
+      OR: candidati.map((riga) => ({
+        template_id: riga.id,
+        version: riga.published_version,
+      })),
+    },
+    select: { template_id: true, schema_json: true },
+  })) as Array<{ template_id: string; schema_json: unknown }>;
+
+  const schemi = new Map(
+    versioni.map((versione) => [
+      versione.template_id,
+      normalizeFormSchema(versione.schema_json),
+    ]),
+  );
+
+  return candidati
+    .map((riga) => ({ riga, schema: schemi.get(riga.id) }))
+    .filter(
+      (voce): voce is { riga: (typeof candidati)[number]; schema: FormSchema } =>
+        Boolean(voce.schema) && isEnrollmentForm(voce.schema as FormSchema),
+    )
+    .map(({ riga, schema }) => ({
       publicSlug: asText(riga.public_slug),
-      title: asText(riga.title) || "Modulo di rinnovo",
+      /*
+        Il titolo della **versione pubblicata**: e quello che la famiglia
+        leggera in cima al modulo quando lo aprira. Quello della riga puo
+        essere gia stato cambiato da una bozza non pubblicata.
+      */
+      title: schema.title || asText(riga.title) || "Modulo di rinnovo",
     }));
 };
 

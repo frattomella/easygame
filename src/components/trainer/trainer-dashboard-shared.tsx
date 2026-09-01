@@ -138,10 +138,12 @@ export function SectionBlockedState({
     trainings: "Allenamenti",
     matches: "Gare",
     athletes: "Atleti",
-    categories: "Categorie",
+    categories: "Squadre e categorie",
     board: "Bacheca",
     documents: "Documenti",
     appointments: "Appuntamenti",
+    notifications: "Notifiche",
+    compensation: "I miei compensi",
   };
 
   return (

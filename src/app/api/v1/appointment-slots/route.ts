@@ -87,7 +87,6 @@ export async function POST(request: Request) {
           startTime: payload?.start_time ?? payload?.startTime,
           endTime: payload?.end_time ?? payload?.endTime,
           durationMinutes: payload?.duration_minutes ?? payload?.durationMinutes,
-          capacity: payload?.capacity,
           validFrom: payload?.valid_from ?? payload?.validFrom,
           validUntil: payload?.valid_until ?? payload?.validUntil,
           active: payload?.active,

@@ -5,9 +5,12 @@ import {
   CalendarDays,
   ClipboardCheck,
   Clock3,
+  LayoutGrid,
   ListChecks,
   MapPin,
   Trophy,
+  UserCircle,
+  Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
@@ -19,9 +22,11 @@ import {
   CompactEntityCard,
   SectionBlockedState,
   SectionEmptyState,
+  SummaryCard,
   SurfacePanel,
   formatDate,
   formatTimeRange,
+  getAthleteDisplayName,
   getStatusBadgeClasses,
 } from "@/components/trainer/trainer-dashboard-shared";
 import {
@@ -111,6 +116,47 @@ export default function TrainerDashboardHomeV2Page() {
           Hai tutto pronto per presenze e convocazioni.
         </p>
       </section>
+
+      {/*
+        **Le cinque chiavi `permissions.widgets.*`, finalmente lette** (W6-29).
+
+        Erano configurabili in `/permissions` e non le interrogava nessuno: un
+        club poteva spuntarle e non succedeva niente — e tre di loro nominavano
+        riquadri che la home V2 aveva **smesso di disegnare**, quindi non
+        sarebbe bastato leggerle. Qui i riquadri tornano, e le chiavi decidono
+        se compaiono.
+      */}
+      {permissions.widgets.summary ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard
+            icon={Users}
+            label="Squadre seguite"
+            value={assignedCategories.length}
+            accentClassName="bg-blue-50 text-blue-600"
+          />
+          <SummaryCard
+            icon={UserCircle}
+            label="Atleti nel perimetro"
+            value={assignedAthletes.length}
+            accentClassName="bg-emerald-50 text-emerald-600"
+            topBarClassName="from-emerald-500 to-emerald-600"
+          />
+          <SummaryCard
+            icon={CalendarDays}
+            label="Allenamenti di oggi"
+            value={todayTrainings.length}
+            accentClassName="bg-purple-50 text-purple-600"
+            topBarClassName="from-purple-500 to-purple-600"
+          />
+          <SummaryCard
+            icon={Trophy}
+            label="Gare di oggi"
+            value={todayMatches.length}
+            accentClassName="bg-orange-50 text-orange-600"
+            topBarClassName="from-orange-500 to-orange-600"
+          />
+        </div>
+      ) : null}
 
       {matchOfTheDay ? (
         <section className="overflow-hidden rounded-[30px] border border-blue-100 bg-gradient-to-br from-white via-blue-50/70 to-slate-50 p-5 shadow-sm md:p-6">
@@ -246,6 +292,7 @@ export default function TrainerDashboardHomeV2Page() {
       ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        {permissions.widgets.upcomingTrainings ? (
         <SurfacePanel
           title="Allenamenti di oggi"
           icon={CalendarDays}
@@ -346,7 +393,9 @@ export default function TrainerDashboardHomeV2Page() {
             />
           )}
         </SurfacePanel>
+        ) : null}
 
+        {permissions.widgets.upcomingMatches ? (
         <SurfacePanel
           title="Agenda gare settimanale"
           icon={Trophy}
@@ -436,8 +485,88 @@ export default function TrainerDashboardHomeV2Page() {
           )}
           </div>
         </SurfacePanel>
+        ) : null}
       </div>
 
+      {permissions.widgets.assignedCategories ||
+      permissions.widgets.assignedAthletes ? (
+        <div className="grid gap-6 xl:grid-cols-2">
+          {permissions.widgets.assignedCategories ? (
+            <SurfacePanel
+              title="Le mie squadre"
+              description="Le categorie e i gruppi che il club ti ha assegnato."
+              icon={LayoutGrid}
+              action={
+                <Button
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={() => router.push("/trainer-dashboard/categories")}
+                >
+                  Apri squadre
+                </Button>
+              }
+            >
+              {assignedCategories.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {assignedCategories.map((category: any) => (
+                    <Badge
+                      key={category?.id || category?.name}
+                      className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
+                    >
+                      {category?.name || category?.id}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <SectionEmptyState
+                  title="Nessuna squadra assegnata"
+                  description="Finché il club non completa la tua scheda non vedi né atleti né calendario."
+                />
+              )}
+            </SurfacePanel>
+          ) : null}
+
+          {permissions.widgets.assignedAthletes ? (
+            <SurfacePanel
+              title="I miei atleti"
+              description="Anteprima del roster nel tuo perimetro."
+              icon={UserCircle}
+              action={
+                <Button
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={() => router.push("/trainer-dashboard/athletes")}
+                >
+                  Apri atleti
+                </Button>
+              }
+            >
+              {assignedAthletes.length > 0 ? (
+                <ul className="space-y-1 text-sm text-slate-700">
+                  {assignedAthletes.slice(0, 8).map((athlete: any) => (
+                    <li
+                      key={athlete?.id}
+                      className="rounded-xl border border-slate-100 bg-white px-3 py-2"
+                    >
+                      {getAthleteDisplayName(athlete)}
+                    </li>
+                  ))}
+                  {assignedAthletes.length > 8 ? (
+                    <li className="px-3 py-1 text-xs text-slate-500">
+                      e altri {assignedAthletes.length - 8}
+                    </li>
+                  ) : null}
+                </ul>
+              ) : (
+                <SectionEmptyState
+                  title="Nessun atleta"
+                  description="Il tuo perimetro non contiene ancora atleti."
+                />
+              )}
+            </SurfacePanel>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

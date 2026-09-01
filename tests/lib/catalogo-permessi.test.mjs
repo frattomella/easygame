@@ -343,10 +343,21 @@ const chiaveInterrogata = (chiave) => {
  * che la consuma nasce, la riga sparisce da qui.
  */
 const NON_ANCORA_CHIESTE = new Map([
-  [
-    "sport_work.read_own",
-    "Non esiste ancora la schermata «i miei compensi»: la chiave protegge un atto che nessuno puo compiere. Nasce con la lane 6C.",
-  ],
+  /*
+    **L'elenco e vuoto, ed e il punto.**
+
+    `sport_work.read_own` era l'ultima voce: la superficie «i miei compensi»
+    non esisteva e la chiave proteggeva un atto che nessuno poteva compiere.
+    La lane 6C l'ha costruita — `/trainer-dashboard/compensi` e
+    `GET /api/v1/sport-work/me`, che chiede questa chiave e non
+    `sport_work.read` — e la riga e sparita da qui, come il commento di sopra
+    prometteva.
+
+    Chi aggiunge una chiave al catalogo senza innestarla in una guardia trova
+    ora un test rosso e nessuna eccezione da imitare. Se ne serve una,
+    aggiungerla qui e dichiarare **perche**: un debito con un nome sopra e
+    un'altra cosa da una svista.
+  */
 ]);
 
 test("W5-D01 · ogni chiave del catalogo e chiesta da qualcuno", () => {

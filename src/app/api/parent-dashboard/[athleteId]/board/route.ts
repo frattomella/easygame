@@ -58,14 +58,21 @@ export async function GET(request: Request, context: Context) {
       );
     }
 
+    const athleteId = String(context.params.athleteId || "").trim();
     const organizationId = await requireLinkedAthlete(
       session.db.user_id,
-      String(context.params.athleteId || "").trim(),
+      athleteId,
     );
 
+    /*
+      W6-13. La bacheca e del **figlio scelto**: un genitore con due figli
+      vedeva gli avvisi di entrambi mescolati, senza che niente dicesse di chi.
+      Cio che non nomina nessun figlio resta visibile: parla del club.
+    */
     const annunci = await readAnnouncementsForUser({
       organizationId,
       userId: session.db.user_id,
+      athleteId,
     });
 
     return NextResponse.json({ data: annunci, error: null });

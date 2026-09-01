@@ -9,6 +9,14 @@
  *
  * Restano **modelli**, non moduli speciali: appena creati diventano una bozza
  * come le altre, modificabile e cancellabile.
+ *
+ * **Cosa e cambiato con W6-45, e cosa no.** Questo file resta il **vocabolario
+ * degli schemi di partenza** — cioe cosa `createStarterSchema` sa costruire —
+ * e non e piu cio che la schermata elenca. La vetrina di cio che il club puo
+ * prendere e `src/lib/forms/catalog.ts`, che a queste voci aggiunge le tre
+ * cose che un catalogo deve dichiarare (classe, chi risponde del contenuto,
+ * ultima rilettura) e la provenienza che finisce sulla copia adottata. Qui
+ * dentro non c'e nessuna decisione editoriale: solo i campi.
  */
 
 import {

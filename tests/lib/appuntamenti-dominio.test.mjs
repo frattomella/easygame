@@ -257,17 +257,36 @@ test("un appuntamento vivo toglie il posto, uno rifiutato lo restituisce", () =>
   );
 });
 
-test("la capienza e un conteggio, non un interruttore", () => {
+/**
+ * **La capienza non c'e piu, e questo test dice perche.**
+ *
+ * Diceva «la capienza e un conteggio, non un interruttore», e provava che con
+ * `capacity: 2` un istante gia occupato veniva proposto una seconda volta. Era
+ * vero, ed era il difetto: l'indice unico parziale `appointments_slot_vivo_unico`
+ * sta su (club, operatore, inizio) e **non conosce la capienza**, quindi la
+ * seconda prenotazione — legittima secondo questo calcolo — veniva rifiutata
+ * dal database e tradotta in «quell'orario e appena stato preso». Il conteggio
+ * non era una funzione: era una promessa che il presidio non manteneva (W6-56).
+ *
+ * La prova che la rimozione e sicura — nessun risultato osservabile cambia con
+ * capienza 1 — sta in `tests/lib/appuntamenti-capienza-e-privacy.test.mjs`.
+ */
+test("un istante occupato non si propone, qualunque cosa dichiari la regola", () => {
   const liberi = dominio.computeFreeAppointmentSlots({
     rules: [regola({ capacity: 2 })],
     busy: [{ starts_at: new Date("2026-09-07T07:00:00.000Z"), status: "requested" }],
     ...finestra,
   });
 
-  const primo = liberi.find((slot) => slot.time === "09:00");
-  assert.equal(primo.capacity, 2);
-  assert.equal(primo.taken, 1);
-  assert.equal(primo.remaining, 1, "resta un posto, e va proposto");
+  assert.equal(
+    liberi.some((slot) => slot.time === "09:00"),
+    false,
+    "prima quel posto veniva offerto, e il database lo rifiutava",
+  );
+  for (const slot of liberi) {
+    assert.equal(slot.taken, false);
+    assert.equal("capacity" in slot, false);
+  }
 });
 
 test("gli occupati di un altro operatore non tolgono il posto a questo", () => {

@@ -16,7 +16,11 @@ import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
 } from "@/lib/category-utils";
-import { findClubEvent } from "./events";
+import {
+  eventWithinTrainerPerimeter,
+  findClubEvent,
+  readTrainerEventPerimeter,
+} from "./events";
 import {
   normalizeEventKind,
   toEventLegacyShape,
@@ -36,11 +40,12 @@ import {
   getTrainingStartTime,
   resolveCategoryLabelForTraining,
 } from "@/lib/training-utils";
-import {
-  normalizeTrainerList,
-  trainerFollowsGroup,
-  trainerHasCategory,
-} from "@/lib/trainer-utils";
+/*
+  `normalizeTrainerList`, `trainerFollowsGroup` e `trainerHasCategory` non si
+  importano piu: erano la **seconda** implementazione del perimetro
+  dell'allenatore, quella che leggeva solo `clubs.trainers`. La risposta ora
+  arriva da `events.ts` (W6-24).
+*/
 import {
   canAnswerRsvp,
   isCancelledEventStatus,
@@ -561,77 +566,71 @@ export type EventRsvpSummary = {
  * dei permessi a dire che puo leggere, e questa funzione a dire *quali*
  * (`communications/permissions.ts` lo dichiara esplicitamente). Chi gestisce
  * il club non passa di qui: vede tutto il club per definizione.
+ *
+ * ---
+ *
+ * **Perche non decide piu da sola** (W6-24).
+ *
+ * Qui si cercava chi sta guardando in `clubs.trainers` e basta, mentre il
+ * filtro degli eventi lo cercava **anche** in `clubs.staff_members`. Un club
+ * su tre registra i propri allenatori come staff: quelli vedevano
+ * l'allenamento nel calendario e si sentivano rispondere «non risulti fra gli
+ * allenatori di questo club» sull'RSVP dello stesso allenamento. Due
+ * proprietari della stessa domanda, e due risposte opposte sullo stesso
+ * ingresso.
+ *
+ * Adesso la domanda ha un proprietario solo — `events.ts` — e questa funzione
+ * si limita a comporre il candidato e a tradurre il no in un rifiuto con la
+ * riga di audit che prima non c'era.
  */
-const assertTrainerCanSeeEvent = (
+const assertTrainerCanSeeEvent = async (
   context: ClubEventContext,
   scope: OrganizationAccessScope,
-  actorEmail?: string | null,
+  evento: { id?: string | null } | null,
 ) => {
-  const trainers = normalizeTrainerList(
-    context.club.trainers,
-    context.categoryOptions,
+  const organizationId = asText(scope.activeOrganizationId);
+  const perimetro = await readTrainerEventPerimeter(
+    organizationId,
+    asText(scope.userId),
   );
-  const email = asText(actorEmail).toLowerCase();
-  const me = trainers.find(
-    (trainer) =>
-      sameId(trainer.id, scope.userId) || (email && trainer.email === email),
-  );
-
-  if (!me) {
-    throw accessDenied(
-      "non risulti fra gli allenatori di questo club",
-    );
-  }
-
-  const declaredGroupIds = readTrainingGroupIds(context.training);
 
   /*
-    Un allenamento **senza** gruppi dichiarati e un dato precedente ai gruppi
-    operativi: si ricade sulla categoria, che e il comportamento di prima. Non
-    si passa da `trainerFollowsGroup` in questo ramo, perche quella funzione
-    con un gruppo dal nome vuoto direbbe di no a ogni allenatore che i suoi
-    gruppi li ha dichiarati — cioe negherebbe l'accesso proprio a chi ha
-    configurato meglio il club.
+    Si giudica la **riga** quando c'e (ADR-0098) e si ricade sulla forma
+    storica quando l'allenamento e piu vecchio delle righe: le due portano lo
+    stesso fatto — categoria e gruppi — con due grafie diverse.
   */
-  if (!declaredGroupIds.length) {
-    const references = getTrainingCategoryReferences(context.training)
-      .map(asText)
-      .filter(Boolean);
+  const candidato = evento
+    ? (evento as Record<string, any>)
+    : {
+        category_id: getTrainingCategoryReferences(context.training)
+          .map(asText)
+          .filter(Boolean)[0],
+        group_ids: readTrainingGroupIds(context.training),
+      };
 
-    // Nessuna categoria dichiarata: l'allenamento riguarda tutti, come altrove.
-    if (!references.length) return;
+  if (eventWithinTrainerPerimeter(perimetro, candidato)) return;
 
-    const follows = references.some((reference) =>
-      trainerHasCategory(
-        me,
-        { id: reference, name: reference },
-        context.categoryOptions,
-      ),
-    );
+  await recordPermissionDenied({
+    scope: {
+      userId: scope?.userId,
+      activeRole: scope?.activeRole,
+      activeOrganizationId: scope?.activeOrganizationId,
+    },
+    permission: "rsvp.read",
+    resource: "club_events",
+    resourceId: asText(evento?.id) || null,
+    metadata: {
+      motivo: perimetro
+        ? "evento fuori dal perimetro dell'allenatore"
+        : "nessun profilo allenatore in questo club",
+    },
+  });
 
-    if (!follows) {
-      throw accessDenied("questo allenamento non e di una tua categoria");
-    }
-
-    return;
-  }
-
-  const groups = declaredGroupIds.map(
-    (id) =>
-      context.groups.find((group) => group.id === id) || {
-        id,
-        categoryId: "",
-        categoryName: "",
-      },
+  throw accessDenied(
+    perimetro
+      ? "questo allenamento non e di una tua categoria ne di un tuo gruppo"
+      : "non risulti fra gli allenatori di questo club",
   );
-
-  const follows = groups.some((group) =>
-    trainerFollowsGroup(me, group, context.categoryOptions),
-  );
-
-  if (!follows) {
-    throw accessDenied("questo allenamento non e di un tuo gruppo");
-  }
 };
 
 /**
@@ -645,12 +644,18 @@ export const readEventRsvpSummary = async ({
   organizationId,
   trainingId,
   scope,
-  actorEmail,
   now = new Date(),
 }: {
   organizationId?: string | null;
   trainingId: string;
   scope: OrganizationAccessScope;
+  /**
+   * **Accettato e ignorato.** L'email di chi agisce serviva a riconoscere
+   * l'allenatore nel profilo del club, e arrivava da chi chiama: adesso la
+   * risolve il perimetro leggendo l'utenza dal database. Un'identita che il
+   * chiamante puo dettare non e un'identita, e la firma resta solo per non
+   * costringere le rotte a cambiare nello stesso commit.
+   */
   actorEmail?: string | null;
   now?: Date;
 }): Promise<EventRsvpSummary> => {
@@ -716,11 +721,12 @@ export const readEventRsvpSummary = async ({
 
   const context = buildEventContext(club, asRecord(training));
 
+  const evento = await findClubEvent(wanted, wantedTrainingId);
+
   if (isTrainerAccessRole(scope.activeRole)) {
-    assertTrainerCanSeeEvent(context, scope, actorEmail);
+    await assertTrainerCanSeeEvent(context, scope, evento);
   }
 
-  const evento = await findClubEvent(wanted, wantedTrainingId);
   const [athletes, rows] = await Promise.all([
     loadClubAthletes(wanted),
     evento

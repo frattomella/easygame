@@ -403,7 +403,6 @@ export type AppointmentSlotRule = {
   start_time: string;
   end_time: string;
   duration_minutes?: number | null;
-  capacity?: number | null;
   valid_from?: Date | string | null;
   valid_until?: Date | string | null;
   active?: boolean | null;
@@ -417,6 +416,26 @@ export type BusyAppointment = {
   slot_id?: string | null;
 };
 
+/**
+ * **W6-56: un posto e preso oppure e libero. Non c'e un terzo caso.**
+ *
+ * Qui c'erano `capacity`, `taken` e `remaining`, e i residui si calcolavano
+ * come `capienza - presi`. Il conto era **inerte** con `capacity = 1` — il
+ * default, e in produzione l'unico valore esistente, perche nessuna schermata
+ * ne ha mai scritta un'altra — e **bugiardo** con valori maggiori: l'indice
+ * unico parziale `appointments_slot_vivo_unico` sta su
+ * `(club, operatore, inizio)` e non conosce la capienza, quindi con
+ * `capacity: 2` questo modulo proponeva due prenotazioni sullo stesso istante
+ * e la seconda, legittima, riceveva un `P2002` tradotto in «quell'orario e
+ * appena stato preso» — che era falso, e detto a chi aveva appena visto il
+ * posto libero.
+ *
+ * Rendere vera la capienza avrebbe voluto dire toccare **il presidio piu
+ * delicato del dominio** (ADR-0101: la doppia prenotazione la impedisce il
+ * database, non il codice) per abilitare una funzione che nessuna schermata sa
+ * ancora chiedere. Si toglie: con `1` i due comportamenti coincidono, e la
+ * rimozione non cambia nessun risultato osservabile.
+ */
 export type FreeAppointmentSlot = {
   slotId: string | null;
   /** `slot` quando la regola e configurata, `opening_hours` quando e il ripiego. */
@@ -428,9 +447,8 @@ export type FreeAppointmentSlot = {
   day: string;
   time: string;
   durationMinutes: number;
-  capacity: number;
-  taken: number;
-  remaining: number;
+  /** Vero quando un appuntamento **vivo** occupa gia questo istante. */
+  taken: boolean;
 };
 
 const DURATA_PREDEFINITA = 30;
@@ -452,13 +470,12 @@ const sameOperator = (left: unknown, right: unknown) =>
  */
 export const openingHoursToSlotRules = (
   openingHours: unknown,
-  options: { durationMinutes?: number; capacity?: number; siteId?: string | null } = {},
+  options: { durationMinutes?: number; siteId?: string | null } = {},
 ): AppointmentSlotRule[] => {
   const giorni = normalizeOpeningHours(openingHours);
   const durata = Number(options.durationMinutes) > 0
     ? Number(options.durationMinutes)
     : DURATA_PREDEFINITA;
-  const capienza = Number(options.capacity) > 0 ? Number(options.capacity) : 1;
 
   const regole: AppointmentSlotRule[] = [];
 
@@ -486,7 +503,6 @@ export const openingHoursToSlotRules = (
           start_time: fascia.start,
           end_time: fascia.end,
           duration_minutes: durata,
-          capacity: capienza,
           active: true,
         });
       }
@@ -633,7 +649,6 @@ export const computeFreeAppointmentSlots = (input: {
         Number(regola.duration_minutes) > 0
           ? Number(regola.duration_minutes)
           : DURATA_PREDEFINITA;
-      const capienza = Number(regola.capacity) > 0 ? Number(regola.capacity) : 1;
 
       for (let minuto = inizio; minuto + durata <= fine; minuto += durata) {
         const startsAt = toAppointmentInstant(giorno, minutesToTime(minuto), timeZone);
@@ -641,16 +656,21 @@ export const computeFreeAppointmentSlots = (input: {
         if (startsAt < da || startsAt > a) continue;
         if (input.now && startsAt <= input.now) continue;
 
-        const presi = occupati.filter((riga) => {
+        /*
+          `some` e non `filter(...).length`: la domanda che l'indice unico
+          parziale sa rispondere e «c'e gia una riga viva su questo istante per
+          questo operatore?», e quella e la sola domanda a cui questo calcolo
+          deve dare la stessa risposta del database (W6-56).
+        */
+        const preso = occupati.some((riga) => {
           const quando =
             riga.starts_at instanceof Date ? riga.starts_at : new Date(riga.starts_at);
           if (Number.isNaN(quando.getTime())) return false;
           if (quando.getTime() !== startsAt.getTime()) return false;
           return sameOperator(riga.assigned_to_user_id, regola.assigned_to_user_id);
-        }).length;
+        });
 
-        const residui = capienza - presi;
-        if (residui <= 0 && !input.includeFull) continue;
+        if (preso && !input.includeFull) continue;
 
         liberi.push({
           slotId: asText(regola.id) || null,
@@ -662,9 +682,7 @@ export const computeFreeAppointmentSlots = (input: {
           day: giorno,
           time: minutesToTime(minuto),
           durationMinutes: durata,
-          capacity: capienza,
-          taken: presi,
-          remaining: Math.max(0, residui),
+          taken: preso,
         });
       }
     }

@@ -30,6 +30,18 @@ const SORGENTI = [
     guardia: "assertEventsPermission",
     attese: 9,
   },
+  /*
+    Il perimetro dell'allenatore corre lo stesso rischio, e su un atto che
+    tocca gli atleti di un altro: e diventata `async` per scrivere il diniego,
+    e una sola delle otto chiamate lasciata senza `await` rimetterebbe in piedi
+    W6-23 — convocazioni e appello su un evento fuori perimetro — senza che il
+    compilatore dica niente.
+  */
+  {
+    file: "src/lib/server/events.ts",
+    guardia: "assertTrainerEventPerimeter",
+    attese: 8,
+  },
   {
     file: "src/lib/server/appointments.ts",
     guardia: "assertAppointmentsPermission",

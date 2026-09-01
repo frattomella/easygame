@@ -232,35 +232,24 @@ const MobileHeader = ({ className }: MobileHeaderProps) => {
     },
   ];
 
-  // Parent menu sections
-  const parentSections = [
-    {
-      id: "parent",
-      label: "GENITORE",
-      items: [
-        {
-          href: "/parent-view",
-          icon: <User size={18} />,
-          label: "Profilo Atleta",
-        },
-        {
-          href: "/parent-view/calendar",
-          icon: <Calendar size={18} />,
-          label: "Calendario",
-        },
-        {
-          href: "/parent-view/messages",
-          icon: <MessageCircle size={18} />,
-          label: "Messaggi",
-        },
-        {
-          href: "/parent-view/documents",
-          icon: <FileText size={18} />,
-          label: "Documenti",
-        },
-      ],
-    },
-  ];
+  /*
+    W6-21. **Quattro voci che non portavano da nessuna parte.**
+
+    Erano `/parent-view`, `/parent-view/calendar`, `/parent-view/messages` e
+    `/parent-view/documents`: tre di esse **senza** l'identificativo del
+    figlio, che e il segmento da cui l'intera area famiglia dipende, e la
+    quarta — «Messaggi» — verso una rotta che non esiste, perche la
+    messaggistica uno-a-uno non e mai stata costruita.
+
+    Non si vedevano solo perche `mobile-layout-wrapper` esclude
+    `/parent-view` da questa intestazione: erano codice inerte tenuto in vita
+    da un'esclusione altrove. L'area famiglia ha il proprio guscio, con la
+    propria navigazione mobile, e le voci le costruisce da `athleteRouteId`.
+
+    Una voce di menu che promette una pagina inesistente e la stessa forma di
+    difetto di una schermata finta: promette e non mantiene.
+  */
+  const parentSections: typeof trainerSections = [];
 
   // Determine which sections to display based on menu type
   const sections =

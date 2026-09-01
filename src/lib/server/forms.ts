@@ -7,6 +7,7 @@ import {
   buildPublicSlug,
   getAnswerableFields,
   getSchemaSubjects,
+  isEnrollmentForm,
   isFormClosed,
   normalizeFormSchema,
   PUBLIC_SLUG_SUFFIX_LENGTH,
@@ -33,6 +34,11 @@ import {
   isStarterTemplateKey,
   type StarterTemplateKey,
 } from "@/lib/forms/starter-templates";
+import {
+  buildFormFromCatalog,
+  findFormCatalogEntry,
+  isDistributableFormEntry,
+} from "@/lib/forms/catalog";
 
 /**
  * Il servizio dei moduli: **l'unico** punto in cui EasyGame legge o scrive un
@@ -211,6 +217,45 @@ const loadPublishedSchema = async (
   return row ? normalizeFormSchema(row.schema_json) : null;
 };
 
+/**
+ * Le versioni pubblicate di **piu** moduli, in una lettura sola.
+ *
+ * **Il difetto che chiude (W6-49).** L'elenco dei moduli chiamava
+ * `loadPublishedSchema` dentro un `for` sequenziale: venti moduli erano venti
+ * viaggi verso Neon uno dopo l'altro, sommati in latenza — la stessa forma di
+ * difetto che i conteggi qui sopra evitavano gia con una `groupBy`. Il
+ * risultato non cambia: la mappa risponde esattamente cio che rispondeva la
+ * lettura per riga, `null` compreso per una versione che manca.
+ */
+const loadPublishedSchemas = async (
+  organizationId: string,
+  rows: Array<{ id: string; published_version: number }>,
+): Promise<Map<string, FormSchema | null>> => {
+  const mappa = new Map<string, FormSchema | null>();
+  const dapubblicate = rows.filter((row) => row.published_version > 0);
+  for (const row of rows) mappa.set(row.id, null);
+  if (!dapubblicate.length) return mappa;
+
+  const versioni: Array<{ template_id: string; schema_json: unknown }> = await (
+    prisma as any
+  ).formTemplateVersion.findMany({
+    where: {
+      organization_id: organizationId,
+      OR: dapubblicate.map((row) => ({
+        template_id: row.id,
+        version: row.published_version,
+      })),
+    },
+    select: { template_id: true, schema_json: true },
+  });
+
+  for (const versione of versioni) {
+    mappa.set(versione.template_id, normalizeFormSchema(versione.schema_json));
+  }
+
+  return mappa;
+};
+
 const summarize = (
   row: TemplateRow,
   counts: { submissions: number; pending: number },
@@ -234,6 +279,14 @@ const summarize = (
     fieldCount: getAnswerableFields(draft).length,
     submissionCount: counts.submissions,
     pendingCount: counts.pending,
+    /*
+      Provenienza e destinazione d'uso si leggono dalla **bozza**, come il
+      titolo e i soggetti qui sopra: e cio che il club sta modificando, ed e
+      quello che la sua schermata deve mostrargli. Cosa valga per chi compila
+      lo dice la versione pubblicata, e a quella guarda il menu del rinnovo.
+    */
+    catalogKey: draft.settings.catalogKey,
+    isEnrollment: isEnrollmentForm(draft),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
     publishedAt: toIso(row.published_at),
@@ -285,19 +338,16 @@ export const listFormTemplates = async (
     countsByTemplate.set(entry.template_id, current);
   }
 
-  const summaries: FormTemplateSummary[] = [];
-  for (const row of rows) {
-    const published = await loadPublishedSchema(row.id, row.published_version);
-    summaries.push(
-      summarize(
-        row,
-        countsByTemplate.get(row.id) || { submissions: 0, pending: 0 },
-        published,
-      ),
-    );
-  }
+  /* Una lettura sola per tutte le versioni pubblicate, non una per riga. */
+  const publishedByTemplate = await loadPublishedSchemas(organizationId, rows);
 
-  return summaries;
+  return rows.map((row) =>
+    summarize(
+      row,
+      countsByTemplate.get(row.id) || { submissions: 0, pending: 0 },
+      publishedByTemplate.get(row.id) || null,
+    ),
+  );
 };
 
 const loadTemplateRow = async (
@@ -350,11 +400,32 @@ export const createFormTemplate = async (
   options: { organizationId?: string | null; starter?: string | null } = {},
 ): Promise<FormTemplateDetail> => {
   const organizationId = resolveOrganizationId(scope, options.organizationId);
-  const starter: StarterTemplateKey = isStarterTemplateKey(options.starter)
-    ? options.starter
-    : "blank";
 
-  const draft = normalizeFormSchema(createStarterSchema(starter));
+  /*
+    **Adottare una voce di catalogo e creare un modulo vuoto sono lo stesso
+    gesto**, e passano di qui entrambi (W6-45).
+
+    La differenza sta in cio che finisce nelle impostazioni: una copia adottata
+    porta la chiave della voce da cui viene e la sua destinazione d'uso, un
+    modulo vuoto non porta niente. Non serve una seconda rotta — la copia e del
+    club dal primo istante, e il catalogo non la tocca piu.
+
+    Una voce ferma o inesistente ricade sul modulo vuoto invece di fallire: il
+    corpo della richiesta dice al massimo «da cosa partire», e un nome che non
+    conosciamo non e un errore di chi crea un modulo.
+  */
+  const entry = findFormCatalogEntry(options.starter);
+  const draft =
+    entry && isDistributableFormEntry(entry)
+      ? buildFormFromCatalog(entry)
+      : normalizeFormSchema(
+          createStarterSchema(
+            isStarterTemplateKey(options.starter)
+              ? (options.starter as StarterTemplateKey)
+              : "blank",
+          ),
+        );
+
   const id = randomUUID();
 
   await (prisma as any).formTemplate.create({

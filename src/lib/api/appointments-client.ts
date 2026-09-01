@@ -194,6 +194,51 @@ export const cancelClubAppointment = async (
 };
 
 /**
+ * **La chiusura: concluso, oppure assente.**
+ *
+ * W6-52. La rotta accetta `complete` e `no-show` da quando esiste, il dominio
+ * ha `closeAppointment`, e **questo file non aveva la funzione**: la segreteria
+ * non aveva nessun modo di dire che un colloquio era avvenuto, e la coda di
+ * lavoro restava piena di appuntamenti confermati di mesi prima. Erano due
+ * capability dichiarate complete e irraggiungibili — la forma di CLAUDE.md
+ * §11.8.
+ *
+ * `no_show` non e un giudizio sulla famiglia ed e per questo che la nota
+ * finisce in `internal_notes` e non parte nessuna notifica: la constata chi era
+ * in segreteria, e resta un fatto interno.
+ */
+export const closeClubAppointment = async (
+  id: string,
+  input: {
+    outcome: "complete" | "no-show";
+    note?: string | null;
+    version?: number | null;
+  },
+  headers: Record<string, string> = {},
+) => {
+  const response = await apiRequest<ClubAppointment>(
+    `/api/v1/appointments/${encodeURIComponent(id)}`,
+    {
+      method: "POST",
+      headers,
+      body: {
+        data: {
+          action: input.outcome,
+          note: input.note ?? null,
+          version: input.version ?? null,
+        },
+      },
+    },
+  );
+  return unwrap(
+    response,
+    input.outcome === "complete"
+      ? "Impossibile chiudere l'appuntamento"
+      : "Impossibile segnare l'assenza",
+  );
+};
+
+/**
  * L'appuntamento messo in agenda **dallo sportello**.
  *
  * `outsideAvailability` e il colloquio preso al telefono: senza, la chiamata
@@ -224,4 +269,126 @@ export const createClubAppointment = async (
     body: { data: input },
   });
   return unwrap(response, "Impossibile creare l'appuntamento");
+};
+
+/* ============================== la disponibilita configurata (W6-53) ===== */
+
+/**
+ * **La regola di disponibilita, e perche il suo trasporto sta qui.**
+ *
+ * Le quattro rotte di `/api/v1/appointment-slots` esistono dalla Wave 5 e
+ * **nessun componente le chiamava**: `grep -l appointment-slots` non trovava
+ * un solo `.tsx`. La conseguenza non era che mancasse una schermata di
+ * comodo — era che *ogni club del prodotto* stava in configurazione di
+ * ripiego, cioe che la disponibilita mostrata alle famiglie veniva dedotta
+ * dagli orari di apertura: colloqui di trenta minuti, nessun operatore, e la
+ * stessa fascia replicata su tutti e sette i giorni della settimana.
+ *
+ * Il trasporto sta in questo file e non accanto alla pagina per la stessa
+ * ragione per cui ci sta quello degli appuntamenti: le rotte sono le stesse,
+ * e un secondo client sarebbe l'errore numero uno di CLAUDE.md §11.
+ */
+export type AppointmentSlotRow = {
+  id: string;
+  organization_id: string;
+  site_id: string | null;
+  assigned_to_user_id: string | null;
+  weekday: number | null;
+  specific_date: string | null;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+  valid_from: string | null;
+  valid_until: string | null;
+  active: boolean;
+  notes: string | null;
+  [key: string]: unknown;
+};
+
+/**
+ * I campi che una regola dichiara.
+ *
+ * Non c'e `capacity`: W6-56 l'ha tolta. L'indice unico parziale che impedisce
+ * la doppia prenotazione non conosce la capienza, quindi un valore maggiore di
+ * uno prometteva posti che il database rifiutava.
+ */
+export type AppointmentSlotInputBody = {
+  siteId?: string | null;
+  assignedToUserId?: string | null;
+  weekday?: number | null;
+  specificDate?: string | null;
+  startTime: string;
+  endTime: string;
+  durationMinutes?: number | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  active?: boolean;
+  notes?: string | null;
+};
+
+const corpoSlot = (input: AppointmentSlotInputBody) => ({
+  site_id: input.siteId ?? null,
+  assigned_to: input.assignedToUserId ?? null,
+  weekday: input.weekday ?? null,
+  specific_date: input.specificDate ?? null,
+  start_time: input.startTime,
+  end_time: input.endTime,
+  duration_minutes: input.durationMinutes ?? null,
+  valid_from: input.validFrom ?? null,
+  valid_until: input.validUntil ?? null,
+  active: input.active ?? true,
+  notes: input.notes ?? null,
+});
+
+export const listAppointmentSlots = async (
+  headers: Record<string, string> = {},
+) => {
+  const response = await apiRequest<AppointmentSlotRow[]>(
+    "/api/v1/appointment-slots",
+    { method: "GET", headers },
+  );
+  return (unwrap(response, "Impossibile leggere la disponibilita configurata") ||
+    []) as AppointmentSlotRow[];
+};
+
+export const createAppointmentSlot = async (
+  input: AppointmentSlotInputBody,
+  headers: Record<string, string> = {},
+) => {
+  const response = await apiRequest<AppointmentSlotRow>(
+    "/api/v1/appointment-slots",
+    { method: "POST", headers, body: { data: corpoSlot(input) } },
+  );
+  return unwrap(response, "Impossibile creare la fascia di ricevimento");
+};
+
+export const updateAppointmentSlot = async (
+  id: string,
+  input: AppointmentSlotInputBody,
+  headers: Record<string, string> = {},
+) => {
+  const response = await apiRequest<AppointmentSlotRow>(
+    `/api/v1/appointment-slots/${encodeURIComponent(id)}`,
+    { method: "PATCH", headers, body: { data: corpoSlot(input) } },
+  );
+  return unwrap(response, "Impossibile modificare la fascia di ricevimento");
+};
+
+/**
+ * La rimozione.
+ *
+ * **Non** cancella gli appuntamenti gia presi su quella fascia: la chiave
+ * esterna e `SET NULL`, e chi ha un colloquio in agenda non lo perde perche la
+ * segreteria ha cambiato orario di ricevimento. Per smettere di proporre una
+ * fascia senza toglierla dalla storia basta disattivarla.
+ */
+export const deleteAppointmentSlot = async (
+  id: string,
+  headers: Record<string, string> = {},
+) => {
+  const response = await apiRequest<{ id: string }>(
+    `/api/v1/appointment-slots/${encodeURIComponent(id)}`,
+    { method: "DELETE", headers },
+  );
+  return unwrap(response, "Impossibile rimuovere la fascia di ricevimento");
 };

@@ -75,7 +75,50 @@ export async function GET(request: Request, context: Context) {
       qui come club preferito, quindi il ruolo viene risolto per **quello** e i
       due controlli parlano dello stesso club.
     */
-    assertActiveClub(scope, row.organization_id, "il documento");
+    /*
+      **Chi e il confine, per una famiglia.**
+
+      W6-11. `assertActiveClub` girava **prima** di ogni altra cosa, e per un
+      tutore legato attraverso `athletes.data.guardians` — senza riga in
+      `organization_users` — `allowedOrganizationIds` e vuoto:
+      `activeOrganizationId` resta nullo e la guardia solleva «Accesso negato»
+      prima che il ramo del legame venga anche solo valutato. Per quella
+      categoria di genitori — che
+      non e un caso limite: e il modo normale in cui un club registra un
+      tutore — la ricevuta restava non scaricabile. Cioe il difetto che la
+      Wave 5 aveva appena dichiarato chiuso lo era solo per meta.
+
+      La correzione non allarga il confine: **ne riconosce due**. Chi lavora
+      nel club passa dal club attivo, come prima. Una famiglia passa dal
+      legame con quell'atleta, che e un confine piu stretto — vale per un
+      documento solo — e non deriva da nessuna appartenenza dichiarabile dal
+      client.
+
+      Il legame da solo non basta pero a dire **di quale club** e il documento:
+      va verificato che l'atleta citato dalla riga appartenga davvero
+      all'organizzazione della riga, altrimenti un legame in un club
+      autorizzerebbe la lettura di un documento in un altro.
+    */
+    const atletaDelDocumento = row.athlete_id
+      ? await (prisma as any).athlete.findFirst({
+          where: {
+            id: String(row.athlete_id),
+            organization_id: row.organization_id,
+          },
+          select: { id: true },
+        })
+      : null;
+
+    const perLegame =
+      Boolean(atletaDelDocumento) &&
+      (await canParentAccessAthlete(
+        session.db.user_id,
+        String(row.athlete_id),
+      ));
+
+    if (!perLegame) {
+      assertActiveClub(scope, row.organization_id, "il documento");
+    }
 
     /*
       **Il gate di ruolo che mancava.** Il foglio porta il codice fiscale di
@@ -100,11 +143,6 @@ export async function GET(request: Request, context: Context) {
       kind === "receipt" ? "receipts" : "invoices",
       "read",
     );
-    const perLegame =
-      !perRuolo &&
-      Boolean(row.athlete_id) &&
-      (await canParentAccessAthlete(session.db.user_id, String(row.athlete_id)));
-
     if (!perRuolo && !perLegame) {
       return denied(403, "Accesso negato per il ruolo attivo");
     }

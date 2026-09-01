@@ -1,0 +1,27 @@
+-- Wave 6 — W6-56: la capienza di uno slot era inerte, oppure bugiarda.
+--
+-- `appointment_slots.capacity` prometteva di poter ricevere piu persone nello
+-- stesso istante. Il calcolo della disponibilita ci credeva — proponeva
+-- `capacity - presi` posti — ma il presidio che impedisce davvero la doppia
+-- prenotazione e l'indice unico parziale `appointments_slot_vivo_unico`, che
+-- sta su (organization_id, assigned_to_user_id, starts_at) per i soli stati
+-- vivi e **non conosce la capienza**. Con `capacity = 2` il prodotto offriva
+-- due prenotazioni sullo stesso orario e la seconda, legittima, riceveva un
+-- P2002 tradotto in «quell'orario e appena stato preso»: una frase falsa,
+-- detta a chi aveva appena visto il posto libero.
+--
+-- Delle due strade si e presa questa. Rendere vera la capienza avrebbe
+-- richiesto di toccare il presidio piu delicato del dominio — ADR-0101: la
+-- doppia prenotazione la impedisce il database, non il codice — per abilitare
+-- una funzione che nessuna schermata sa ancora chiedere: nessuna UI ha mai
+-- scritto questa colonna, quindi in archivio ogni riga porta il default 1.
+--
+-- Con 1 i due comportamenti coincidono: **la rimozione non cambia nessun
+-- risultato osservabile**. E la ragione per cui e sicura, ed e anche la
+-- ragione per cui la colonna non serviva.
+--
+-- Non e reversibile, ed e dichiarato (docs/knowledge-base/41-wave-6-planning.md
+-- §9.5, §14): ripristinare la colonna significherebbe ripristinare il default,
+-- cioe l'unico valore che ha mai avuto.
+
+ALTER TABLE "appointment_slots" DROP COLUMN IF EXISTS "capacity";

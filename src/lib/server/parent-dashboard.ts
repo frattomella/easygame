@@ -5,6 +5,13 @@ import {
   type NormalizedCategoryOption,
 } from "@/lib/category-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
+import { normalizeActiveClubSeason } from "@/lib/club-seasons";
+import {
+  getLatestMedicalCertificateExpiry,
+  getMedicalCertificateAvailability,
+  getMedicalCertificateAvailabilityLabel,
+} from "@/lib/medical-certificates";
+import { toFamilyFreeSlot } from "@/lib/appointments/projection";
 import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
 import { dedupeTrainings } from "@/lib/training-utils";
 import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
@@ -564,6 +571,19 @@ const serializeAthleteCard = (athlete: any) => {
     birth_date: toIso(athlete.birth_date),
     category_id: athlete.category_id,
     category_name: athlete.category_name,
+    /*
+      W6-14. Tutte le appartenenze, con la primaria dichiarata invece che
+      dedotta. La famiglia deve poterle vedere tutte: e la squadra del
+      proprio figlio, non un dettaglio amministrativo.
+    */
+    categories: asArray(athlete.category_memberships).map(
+      (membership: any) => ({
+        id: membership.category_id,
+        name: membership.category_name || membership.category_id,
+        siteId: membership.site_id || null,
+        isPrimary: Boolean(membership.is_primary),
+      }),
+    ),
     status: athlete.status,
     jersey_number: firstText(athlete.jersey_number, data.jerseyNumber, data.jersey_number),
     email: firstText(data.email, data.athleteEmail, data.athlete_email),
@@ -677,6 +697,23 @@ export const getParentLinkedAthletes = async (userId: string) => {
     },
     include: {
       organization: true,
+      /*
+        W6-14. **Le appartenenze non venivano nemmeno caricate.**
+
+        Un atleta puo stare in piu categorie — la tabella esiste, ha
+        `is_primary` e `site_id`, e il dominio sa gia leggerla — e la
+        famiglia ne vedeva **una**: i due campi piatti `category_id` e
+        `category_name`, cioe la primaria.
+
+        Non era solo un'etichetta mancante: `getAthleteCategoryTokens`
+        legge `athlete.category_memberships` per decidere quali allenamenti
+        e quali gare riguardano questo figlio. Con la relazione mai
+        popolata ricadeva sulla sola categoria primaria, quindi **il
+        calendario perdeva le attivita della seconda squadra**. Un ragazzo
+        che si allena con l'Under 15 e gioca con la prima squadra vedeva
+        meta dei propri impegni.
+      */
+      category_memberships: true,
     },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
   });
@@ -775,15 +812,41 @@ export const getParentDashboardData = async (
       where: { organization_id: organizationId, athlete_id: selectedAthlete.id },
       orderBy: { updated_at: "desc" },
     }),
+    /*
+      W6-13 e W6-20. Se ne leggono cinquanta e se ne mostrano venti, perche
+      il vaglio per figlio avviene **dopo**: chiederne otto e poi scartarne
+      meta significherebbe mostrarne quattro e chiamarle «le ultime otto».
+      Prima erano otto secche, senza vaglio e senza modo di segnarle lette:
+      la nona notifica di un club spingeva fuori la prima e nessuno se ne
+      accorgeva.
+    */
     prisma.notification.findMany({
       where: {
         organization_id: organizationId,
         OR: [{ user_id: userId }, { user_id: null }],
       },
       orderBy: { created_at: "desc" },
-      take: 8,
+      take: 50,
     }),
   ]);
+
+  /*
+    W6-13. **Le notifiche sono del figlio scelto.**
+
+    Un genitore con due figli le vedeva tutte mescolate: «Certificato in
+    scadenza» senza dire di chi, su una schermata che nel titolo nomina un
+    figlio solo. Alcune notifiche l'atleta lo nominano gia — i promemoria
+    sui certificati scrivono `data.athleteId` — e nessuno lo leggeva.
+
+    Quelle che **non** nominano nessun atleta restano: non parlano
+    dell'altro figlio, parlano del club. Nasconderle scegliendo un figlio
+    sarebbe una perdita, non un filtro.
+  */
+  const notificheDelFiglio = notifications.filter((notification) => {
+    const citato = asRecord(notification.data).athleteId;
+    if (!citato) return true;
+    return sameId(String(citato), selectedAthlete.id);
+  });
 
   const club = selectedAthlete.organization;
 
@@ -939,14 +1002,32 @@ export const getParentDashboardData = async (
     created_at: toIso(certificate.created_at),
     updated_at: toIso(certificate.updated_at),
   }));
-  const validCertificate = certificates.find((certificate) => {
-    if (!certificate.expiry_date) return false;
-    return new Date(certificate.expiry_date).getTime() >= now;
-  });
-  const expiredCertificate = certificates.find((certificate) => {
-    if (!certificate.expiry_date) return false;
-    return new Date(certificate.expiry_date).getTime() < now;
-  });
+  /*
+    W6-16 e W6-17. **Lo stato del certificato lo dice il dominio, e la data
+    esce insieme allo stato.**
+
+    Qui c'erano due `find` scritti a mano su un elenco ordinato per scadenza
+    **crescente**, e producevano tre stati soli: valido, scaduto, mancante.
+    Due conseguenze, entrambe visibili a una famiglia:
+
+    - «in scadenza» non esisteva. Il club lo vede da sempre — c'e una
+      finestra di preavviso in `src/lib/medical-certificates.ts` — e la
+      famiglia, che e quella che deve **andare a rifarlo**, scopriva la
+      scadenza il giorno dopo;
+    - `certificates[0]` e il certificato che scade **prima**, cioe
+      tipicamente quello vecchio. La Home accostava «Certificato valido»
+      alla data di uno gia scaduto.
+
+    Il dominio sa gia rispondere a tutte e due le domande, e ha la finestra
+    di preavviso in un posto solo. Ricostruirla qui l'avrebbe fatta
+    divergere: e appena successo.
+  */
+  const scadenzaCertificato =
+    getLatestMedicalCertificateExpiry(certificates) || null;
+  const disponibilitaCertificato = getMedicalCertificateAvailability(
+    scadenzaCertificato,
+    new Date(now),
+  );
   const athleteData = asRecord(selectedAthlete.data);
   const enrollmentSummary = getAthleteEnrollmentSummary({
     athlete: selectedAthlete,
@@ -971,14 +1052,25 @@ export const getParentDashboardData = async (
     (payment) => payment.statusKey === "paid",
   );
   const visibleStructures = getVisibleBookableStructures(asArray(club.structures));
+  /*
+    W6-13. Le prenotazioni erano «del figlio **oppure** fatte da me», e la
+    seconda meta portava dentro le prenotazioni fatte per **un altro figlio**:
+    la schermata di Marco elencava il campo prenotato per Giulia.
+
+    Restano le proprie prenotazioni **senza** atleta indicato — quelle le ha
+    fatte questo genitore per se, e non appartengono a nessun figlio.
+  */
   const parentStructureBookings = visibleStructures.flatMap((structure) =>
     asArray(structure.bookings)
-      .filter(
-        (booking) =>
-          sameId(booking?.athleteId, selectedAthlete.id) ||
+      .filter((booking) => {
+        if (booking?.athleteId) {
+          return sameId(booking.athleteId, selectedAthlete.id);
+        }
+        return (
           sameId(booking?.parentId, userId) ||
-          sameId(booking?.bookedById, userId),
-      )
+          sameId(booking?.bookedById, userId)
+        );
+      })
       .map((booking) => serializeParentStructureBooking(booking, structure)),
   );
 
@@ -1000,7 +1092,31 @@ export const getParentDashboardData = async (
       address: club.address,
       city: club.city,
       province: club.province,
-      settings: club.settings,
+      /*
+        W6-09 e W6-10. **La stagione si risolve qui, e `settings` non esce.**
+
+        Fino alla Wave 6 questo oggetto portava `settings` intero — stagioni,
+        categorie, sconti, piani, e qualunque cosa un club ci scriva domani —
+        nel browser di ogni genitore, per un campo solo: l'indirizzo del sito.
+        E la stagione, che pure e li dentro, non la normalizzava nessuno:
+        l'etichetta arrivava dal `localStorage`, e per un tutore legato
+        attraverso `athletes.data.guardians` — senza riga di membership —
+        quel `localStorage` non l'aveva mai vista. Da qui «Nessuna stagione
+        attiva» su un club che ne ha una.
+
+        Adesso e un elenco chiuso di campi: cio che serve alla famiglia si
+        dichiara, e un campo nuovo su `settings` nasce **non** visibile. E la
+        stessa regola della lane 5I sull'anagrafica dei colleghi.
+
+        `normalizeClubSeasons` non restituisce mai vuoto: sintetizza una
+        stagione di ripiego. Quindi se questa etichetta e assente il difetto e
+        nel trasporto, non nel dominio delle stagioni.
+      */
+      ...normalizeActiveClubSeason(club),
+      website:
+        String(
+          asRecord(club.settings).website ?? asRecord(club.settings).site ?? "",
+        ).trim() || null,
       opening_hours: club.opening_hours,
     },
     athlete: {
@@ -1012,11 +1128,17 @@ export const getParentDashboardData = async (
     },
     health: {
       certificates,
-      status: validCertificate
-        ? "valid"
-        : expiredCertificate
-          ? "expired"
-          : "missing",
+      /** `valid` | `expiring` | `expired` | `missing` (W6-16). */
+      status: disponibilitaCertificato,
+      statusLabel: getMedicalCertificateAvailabilityLabel(
+        disponibilitaCertificato,
+      ),
+      /*
+        La data del certificato che governa, non del primo dell'elenco. E
+        `null` quando nessun certificato ne dichiara una: la schermata deve
+        poter dire «Data di scadenza non disponibile» invece di tacere.
+      */
+      expiryDate: scadenzaCertificato,
       allergies: asArray(athleteData.allergies).concat(asArray(athleteData.allergie)),
       notes: firstText(
         athleteData.medicalNotes,
@@ -1109,22 +1231,26 @@ export const getParentDashboardData = async (
         from: appointmentWindowStart,
         to: appointmentWindowEnd,
         now: appointmentWindowStart,
-      }).map((slot) => ({
-        ...slot,
-        startsAt: slot.startsAt.toISOString(),
-        endsAt: slot.endsAt.toISOString(),
-      })),
+        /*
+          W6-57. Vedi la gemella in
+          `api/parent-dashboard/[athleteId]/appointments/route.ts`: lo spread
+          faceva uscire gli identificativi interni degli operatori.
+        */
+      }).map(toFamilyFreeSlot),
       openingHours: club.opening_hours,
     },
     structures: {
       items: visibleStructures.map(serializeParentStructure),
       bookings: parentStructureBookings,
     },
-    notifications: notifications.map((notification) => ({
+    notifications: notificheDelFiglio.slice(0, 20).map((notification) => ({
       ...notification,
       created_at: toIso(notification.created_at),
       updated_at: toIso(notification.updated_at),
     })),
+    notificationsUnread: notificheDelFiglio.filter(
+      (notification) => !notification.read,
+    ).length,
     analytics: {
       attendanceRate: attendanceTotal
         ? Math.round((presentCount / attendanceTotal) * 100)
@@ -1141,4 +1267,32 @@ export const getParentDashboardData = async (
       nextMatch: upcomingMatches[0] || null,
     },
   };
+};
+
+/**
+ * **I figli fra cui un genitore sceglie.**
+ *
+ * W6-12. La schermata di scelta deve poter esistere **prima** che un figlio sia
+ * stato scelto, quindi non puo passare da `getParentDashboardData`, che di un
+ * figlio ha bisogno per definizione.
+ *
+ * E un elenco chiuso di campi, non una scheda ridotta: qui serve riconoscere il
+ * proprio figlio in una lista: nome, club, categoria. Non serve — e non deve
+ * uscire — niente di clinico, niente di economico, niente di documentale. Un
+ * campo nuovo sulla riga dell'atleta nasce cosi **invisibile** a questa
+ * schermata, che e la regola con cui la lane 5I ha chiuso l'anagrafica dei
+ * colleghi.
+ */
+export const listParentChildren = async (userId: string) => {
+  const athletes = await getParentLinkedAthletes(userId);
+
+  return athletes.map((athlete) => ({
+    id: athlete.id,
+    name: getAthleteDisplayName(athlete),
+    clubId: athlete.organization_id,
+    clubName: (athlete as any).organization?.name || "",
+    clubLogoUrl: (athlete as any).organization?.logo_url || null,
+    categoryName: athlete.category_name || null,
+    avatarUrl: athlete.avatar_url || null,
+  }));
 };

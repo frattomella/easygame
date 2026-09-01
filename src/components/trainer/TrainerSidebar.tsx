@@ -9,6 +9,7 @@ import { SidebarItemTooltip } from "@/components/navigation/sidebar-item-tooltip
 import { Button } from "@/components/ui/button";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
+  Bell,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -16,6 +17,8 @@ import {
   Home,
   Megaphone,
   UserCircle,
+  Users,
+  Wallet,
   CalendarDays,
   Trophy,
   LogOut,
@@ -72,6 +75,19 @@ const TrainerSidebar = memo(() => {
               href: "/trainer-dashboard/athletes",
               label: "Atleti",
               icon: UserCircle,
+            }
+          : null,
+        /*
+          **Le proprie squadre** (W6-31). La rotta esisteva e rimandava alla
+          home, e la chiave di navigazione era forzata a `false`: una porta
+          chiusa a chiave davanti a una stanza vuota. Adesso la stanza c'e — i
+          gruppi del perimetro — e la porta si apre.
+        */
+        permissions.navigation.categories
+          ? {
+              href: "/trainer-dashboard/categories",
+              label: "Squadre",
+              icon: Users,
             }
           : null,
       ].filter(Boolean) as Array<{
@@ -135,6 +151,32 @@ const TrainerSidebar = memo(() => {
               href: "/trainer-dashboard/documents",
               label: "Documenti",
               icon: FolderOpen,
+            }
+          : null,
+        /*
+          **La pagina che il menu non nominava** (W6-30).
+          `/trainer-dashboard/notifications` era completa e raggiungibile solo
+          dalla campanella: chi chiudeva quel pannello non aveva piu un modo di
+          tornarci, e una notifica che non si puo rileggere e una notifica che
+          non e stata data.
+        */
+        permissions.navigation.notifications
+          ? {
+              href: "/trainer-dashboard/notifications",
+              label: "Notifiche",
+              icon: Bell,
+            }
+          : null,
+        /*
+          **«I miei compensi»** (W6-32): la prima superficie che interroga
+          `sport_work.read_own`. Sta fra le voci personali perche e l'unica
+          domanda economica che l'allenatore puo fare — la sua.
+        */
+        permissions.navigation.compensation
+          ? {
+              href: "/trainer-dashboard/compensi",
+              label: "I miei compensi",
+              icon: Wallet,
             }
           : null,
       ].filter(Boolean) as Array<{

@@ -10,6 +10,14 @@ import {
 import { createClubNotifications } from "./club-notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { canParentAccessAthlete } from "./parent-dashboard";
+/*
+  I tutori di un atleta li sa risolvere una funzione sola, e sta li: e la
+  stessa che i promemoria dei certificati usano per decidere a chi scrivere.
+  Riscriverla qui sarebbe la seconda implementazione della stessa domanda
+  (CLAUDE.md §11.1), e le due divergerebbero sulla forma storica
+  `parent1`/`parent2` alla prima anagrafica vecchia.
+*/
+import { resolveGuardianRecipientIds } from "./medical-certificate-reminders";
 import {
   assertAppointmentTransition,
   computeFreeAppointmentSlots,
@@ -26,6 +34,7 @@ import {
 import {
   toClubAppointment,
   toFamilyAppointment,
+  toFamilyFreeSlot,
 } from "@/lib/appointments/projection";
 
 /**
@@ -533,35 +542,34 @@ const traccia = async (
  * `internal_notes` non compare nel `data`: la proiezione verso la famiglia non
  * ha quel campo, e questa notifica usa la proiezione.
  */
-const avvisaFamiglia = async (
+const scriviNotificheFamiglia = async (
   row: any,
+  destinatari: readonly string[],
   titolo: string,
   messaggio: string,
   options: { email?: boolean } = {},
 ) => {
-  const destinatario = asText(row?.requested_by_user_id);
-  if (!destinatario) return 0;
+  const elenco = Array.from(new Set(destinatari.map(asText).filter(Boolean)));
+  if (elenco.length === 0) return 0;
 
   await prisma.notification.createMany({
-    data: [
-      {
-        organization_id: row.organization_id,
-        user_id: destinatario,
-        title: titolo,
-        message: messaggio,
-        type: "appointment_update",
-        read: false,
-        data: {
-          appointmentId: row.id,
-          status: normalizeAppointmentStatus(row.status),
-          startsAt:
-            row.starts_at instanceof Date
-              ? row.starts_at.toISOString()
-              : String(row.starts_at || ""),
-          decisionNote: asText(row.decision_note) || null,
-        } as any,
-      },
-    ],
+    data: elenco.map((destinatario) => ({
+      organization_id: row.organization_id,
+      user_id: destinatario,
+      title: titolo,
+      message: messaggio,
+      type: "appointment_update",
+      read: false,
+      data: {
+        appointmentId: row.id,
+        status: normalizeAppointmentStatus(row.status),
+        startsAt:
+          row.starts_at instanceof Date
+            ? row.starts_at.toISOString()
+            : String(row.starts_at || ""),
+        decisionNote: asText(row.decision_note) || null,
+      } as any,
+    })),
   });
 
   /*
@@ -572,10 +580,75 @@ const avvisaFamiglia = async (
     sulla bacheca.
   */
   if (options.email) {
-    await sendNotificationEmails([destinatario]).catch(() => undefined);
+    await sendNotificationEmails(elenco).catch(() => undefined);
   }
 
-  return 1;
+  return elenco.length;
+};
+
+const avvisaFamiglia = async (
+  row: any,
+  titolo: string,
+  messaggio: string,
+  options: { email?: boolean } = {},
+) =>
+  scriviNotificheFamiglia(
+    row,
+    [asText(row?.requested_by_user_id)],
+    titolo,
+    messaggio,
+    options,
+  );
+
+/**
+ * **W6-59: l'appuntamento che il desk mette in agenda, e che nessuno sapeva.**
+ *
+ * `createAppointment` con `confirmed` crea una riga gia confermata e scriveva
+ * **solo** l'audit: la famiglia non riceveva niente. Era la sola transizione
+ * verso uno stato vivo che non avvisava la parte che non l'aveva decisa —
+ * conferma, rifiuto, annullo e riprogrammazione lo fanno tutte da 5E — e la
+ * conseguenza pratica e che un colloquio preso al telefono esisteva solo
+ * nell'agenda della segreteria: chi doveva presentarsi non aveva modo di
+ * saperlo dall'applicazione, ne di annullarlo.
+ *
+ * Il destinatario **non** e `requested_by_user_id`: su una riga nata dal desk
+ * quel campo porta l'operatore che l'ha scritta, e avvisare lui sarebbe
+ * scriversi un promemoria da soli. Sono i tutori dell'atleta, risolti con
+ * l'unica funzione che il prodotto ha per questa domanda
+ * (`resolveGuardianRecipientIds`, CLAUDE.md §11.1: non se ne scrive una
+ * seconda) e vincolati al club della riga — la stessa email in due societa non
+ * porta l'agenda di una nell'altra.
+ *
+ * Chi ha creato la riga si esclude sempre: un genitore che prenota per se
+ * riceverebbe la notifica del proprio stesso gesto.
+ */
+const avvisaLaFamigliaDelMinore = async (
+  row: any,
+  titolo: string,
+  messaggio: string,
+  options: { email?: boolean; escludi?: string | null } = {},
+) => {
+  const atleta = asText(row?.athlete_id);
+  if (!atleta) return 0;
+
+  const anagrafica = await prisma.athlete.findFirst({
+    where: { id: atleta, organization_id: row.organization_id },
+    select: { id: true, data: true },
+  });
+  if (!anagrafica) return 0;
+
+  const destinatari = await resolveGuardianRecipientIds(anagrafica, {
+    organizationId: asText(row.organization_id),
+  });
+
+  const escluso = asText(options.escludi);
+  return scriviNotificheFamiglia(
+    row,
+    destinatari.filter((destinatario) => asText(destinatario) !== escluso),
+    titolo,
+    messaggio,
+    { email: options.email },
+  );
 };
 
 const avvisaClub = async (
@@ -692,6 +765,27 @@ export const createAppointment = async (
     startsAt: startsAt.toISOString(),
     dalDesk: true,
   });
+
+  /*
+    W6-59. Si avvisa quando la riga nasce **confermata**, cioe quando e il desk
+    che mette in agenda: e un impegno gia preso, non una richiesta in attesa di
+    risposta, e la famiglia deve poterlo leggere e disdire. Una riga che nasce
+    `requested` non produce invece nessuna notifica alla famiglia, perche la
+    famiglia e chi l'ha appena chiesta: la notifica in quel caso va al club, e
+    la manda `requestFamilyAppointment`.
+
+    L'email c'e per la stessa ragione della conferma — e un appuntamento in
+    agenda che nessuno ha chiesto — e con lo stesso riguardo: il testo che
+    parte e quello cieco, senza il nome del minore ne l'orario.
+  */
+  if (confermato) {
+    await avvisaLaFamigliaDelMinore(
+      row,
+      "Appuntamento fissato dalla segreteria",
+      `La segreteria ha fissato un appuntamento per il ${toZonedDay(startsAt, timezone)} alle ${toZonedTime(startsAt, timezone)}.`,
+      { email: true, escludi: asText(attore.userId) },
+    );
+  }
 
   return row;
 };
@@ -911,9 +1005,37 @@ const riprogramma = async (
           ) || 30,
         );
 
-  const assegnato =
+  /**
+   * **W6-58: spostare un appuntamento puo cambiare l'operatore.**
+   *
+   * Qui si filtrava la disponibilita con l'operatore della riga esistente, e
+   * si chiedeva a `findFreeSlotAt` di ritrovarlo. La lettura della famiglia
+   * (`listFamilyFreeSlots`) invece **non filtra per operatore**, e non e una
+   * svista: al genitore si mostra quando la societa riceve, non con chi. Le
+   * due strade dicevano quindi due cose diverse sullo stesso orario — se
+   * l'appuntamento era di Rossi e la famiglia sceglieva uno slot di Bianchi,
+   * la risposta era «L'orario scelto non e fra quelli disponibili» su un
+   * orario che l'applicazione aveva appena mostrato come libero.
+   *
+   * Si allinea la riprogrammazione alla lettura, e non il contrario, per la
+   * stessa ragione per cui `requestFamilyAppointment` fa gia cosi (cerca lo
+   * slot senza operatore e poi ne **copia** l'operatore): il vincolo vero e
+   * che l'istante sia libero, e chi lo tiene libero e un dato dello slot, non
+   * una scelta di chi prenota. Filtrare in lettura avrebbe nascosto alla
+   * famiglia meta della disponibilita del club per conservare un abbinamento
+   * che nessuno aveva chiesto.
+   *
+   * Un operatore **dichiarato dal chiamante** resta invece vincolante: e la
+   * segreteria che assegna, e li la domanda e un'altra.
+   */
+  const operatoreChiesto =
     input.assignedToUserId !== undefined
       ? asText(input.assignedToUserId) || null
+      : null;
+
+  let assegnato =
+    input.assignedToUserId !== undefined
+      ? operatoreChiesto
       : row.assigned_to_user_id || null;
 
   if (!input.outsideAvailability) {
@@ -921,14 +1043,28 @@ const riprogramma = async (
       from: startsAt,
       to: new Date(startsAt.getTime() + 60000),
       siteId: input.siteId ?? row.site_id ?? null,
-      assignedToUserId: assegnato,
+      assignedToUserId: operatoreChiesto,
       timezone,
       excludeAppointmentId: row.id,
     });
-    if (!findFreeSlotAt(liberi, startsAt, { assignedToUserId: assegnato })) {
+    const slot = findFreeSlotAt(liberi, startsAt, {
+      assignedToUserId: operatoreChiesto,
+    });
+    if (!slot) {
       throw new Error(
         "L'orario scelto non e fra quelli disponibili: scegli uno slot libero",
       );
+    }
+
+    /*
+      L'operatore della riga nuova e quello **dello slot scelto**. Quando lo
+      slot non ne dichiara uno — il ripiego sugli orari di apertura, o una
+      regola di segreteria — si conserva quello di prima: cosi un colloquio
+      assegnato a un allenatore non gli sparisce dal perimetro per il solo
+      fatto di essere stato spostato.
+    */
+    if (!operatoreChiesto) {
+      assegnato = slot.assignedToUserId || row.assigned_to_user_id || null;
     }
   }
 
@@ -1020,7 +1156,6 @@ export type AppointmentSlotInput = {
   startTime?: string | null;
   endTime?: string | null;
   durationMinutes?: number | null;
-  capacity?: number | null;
   validFrom?: Date | string | null;
   validUntil?: Date | string | null;
   active?: boolean;
@@ -1077,7 +1212,6 @@ const colonneSlot = (input: AppointmentSlotInput) => {
     end_time: end,
     duration_minutes:
       Number(input.durationMinutes) > 0 ? Number(input.durationMinutes) : 30,
-    capacity: Number(input.capacity) > 0 ? Number(input.capacity) : 1,
     valid_from: input.validFrom ? new Date(input.validFrom) : null,
     valid_until: input.validUntil ? new Date(input.validUntil) : null,
     active: input.active === undefined ? true : Boolean(input.active),
@@ -1127,21 +1261,30 @@ export const updateAppointmentSlot = async (
 
   await prisma.appointmentSlot.updateMany({
     where: { id: esistente.id, organization_id: organizationId },
+    /*
+      **Assente non e vuoto.** Con `??` un `null` esplicito valeva «non
+      fornito», e togliere la sede o l'operatore da una fascia era impossibile:
+      il valore di prima tornava al suo posto. Restano su `??` i tre campi che
+      nella riga non possono essere nulli — orari e durata — dove `null` non
+      vuol dire «svuota» ma solo «non lo tocco».
+    */
     data: colonneSlot({
-      siteId: input.siteId ?? esistente.site_id,
-      assignedToUserId: input.assignedToUserId ?? esistente.assigned_to_user_id,
+      siteId: input.siteId === undefined ? esistente.site_id : input.siteId,
+      assignedToUserId:
+        input.assignedToUserId === undefined
+          ? esistente.assigned_to_user_id
+          : input.assignedToUserId,
       weekday: input.weekday === undefined ? esistente.weekday : input.weekday,
       specificDate:
         input.specificDate === undefined ? esistente.specific_date : input.specificDate,
       startTime: input.startTime ?? esistente.start_time,
       endTime: input.endTime ?? esistente.end_time,
       durationMinutes: input.durationMinutes ?? esistente.duration_minutes,
-      capacity: input.capacity ?? esistente.capacity,
       validFrom: input.validFrom === undefined ? esistente.valid_from : input.validFrom,
       validUntil:
         input.validUntil === undefined ? esistente.valid_until : input.validUntil,
       active: input.active === undefined ? esistente.active : input.active,
-      notes: input.notes ?? esistente.notes,
+      notes: input.notes === undefined ? esistente.notes : input.notes,
     }) as any,
   });
 
@@ -1463,4 +1606,4 @@ export const cancelFamilyAppointment = async (
   });
 };
 
-export { toClubAppointment, toFamilyAppointment };
+export { toClubAppointment, toFamilyAppointment, toFamilyFreeSlot };

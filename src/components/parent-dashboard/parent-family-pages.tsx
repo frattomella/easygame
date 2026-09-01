@@ -30,6 +30,7 @@ import {
   RenewalForm,
   readRenewalSlug,
 } from "@/components/enrollment/renewal-form";
+import { apiRequest } from "@/lib/api/client";
 import * as formsApi from "@/lib/api/forms";
 import { useParentDashboard } from "./parent-dashboard-context";
 
@@ -120,11 +121,16 @@ export function ParentBoardPage() {
 
   const segnaLetto = async (deliveryId: string) => {
     if (!athleteId || !deliveryId) return;
-    await fetch(`/api/parent-dashboard/${athleteId}/board`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deliveryId }),
-    }).catch(() => undefined);
+    /*
+      Passa da `apiRequest`, come la regola di CLAUDE.md §2 chiede: nessun
+      `fetch` diretto a `/api` da un componente. E `apiRequest` serializza da
+      se — passargli un corpo gia serializzato manderebbe una stringa e ogni
+      campo risulterebbe assente al server.
+    */
+    await apiRequest<unknown>(
+      `/api/parent-dashboard/${athleteId}/board`,
+      { method: "POST", body: { deliveryId } },
+    ).catch(() => undefined);
     void carica();
   };
 
@@ -190,14 +196,55 @@ export function ParentBoardPage() {
 /* ================================================ le notifiche =========== */
 
 export function ParentNotificationsPage() {
-  const { data } = useParentDashboard();
+  const { data, athleteRouteId, refresh } = useParentDashboard();
+  const { showToast } = useToast();
+  const [inCorso, setInCorso] = useState(false);
   const notifiche = data?.notifications || [];
+  const daLeggere = data?.notificationsUnread || 0;
+
+  /*
+    W6-20. Fino alla Wave 6 questa pagina elencava otto notifiche e non
+    permetteva di **chiuderne** nessuna: la campanella restava accesa per
+    sempre, e da quel momento il numero smetteva di voler dire qualcosa. Una
+    notifica che non si puo chiudere e rumore, e il rumore insegna a
+    ignorare anche cio che conta.
+  */
+  const segnaTutteLette = async () => {
+    setInCorso(true);
+    try {
+      const esito = await apiRequest<unknown>(
+        `/api/parent-dashboard/${athleteRouteId}/notifications`,
+        { method: "PATCH", body: { all: true } },
+      );
+      if (esito?.error) {
+        throw new Error(esito.error.message || "Errore aggiornamento");
+      }
+      await refresh();
+    } catch (problema: any) {
+      showToast("error", problema?.message || "Errore aggiornamento");
+    } finally {
+      setInCorso(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <PageHeading
         title="Notifiche"
         subtitle="Cio che il club ti ha segnalato."
+        actions={
+          daLeggere > 0 ? (
+            <Button
+              variant="outline"
+              disabled={inCorso}
+              onClick={() => void segnaTutteLette()}
+            >
+              {inCorso
+                ? "Aggiorno…"
+                : `Segna tutte come lette (${daLeggere})`}
+            </Button>
+          ) : undefined
+        }
       />
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
@@ -224,6 +271,11 @@ export function ParentNotificationsPage() {
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-slate-700">{notifica.message}</p>
+                {!notifica.read ? (
+                  <span className="mt-2 inline-block rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                    Da leggere
+                  </span>
+                ) : null}
               </div>
             ))
           )}
@@ -273,17 +325,12 @@ export function ParentConsentsPage() {
     if (!athleteId) return;
     setInCorso(`${definitionId}:${status}`);
     try {
-      const risposta = await fetch(
+      const payload = await apiRequest<unknown>(
         `/api/parent-dashboard/${athleteId}/consents`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ definitionId, status }),
-        },
+        { method: "POST", body: { definitionId, status } },
       );
-      const payload = await risposta.json().catch(() => ({}));
-      if (!risposta.ok || payload?.error) {
-        throw new Error(payload?.error?.message || "Decisione non registrata");
+      if (payload?.error) {
+        throw new Error(payload.error.message || "Decisione non registrata");
       }
       showToast(
         "success",
@@ -436,24 +483,10 @@ export function ParentCalendarPage() {
         subtitle="Allenamenti e gare insieme, in un elenco solo."
       />
 
-      {figli.length > 1 ? (
-        <Card className="border-slate-200 shadow-sm">
-          <CardContent className="flex flex-wrap gap-2 p-4">
-            {figli.map((figlio: any) => (
-              <Button
-                key={figlio.id}
-                asChild
-                size="sm"
-                variant={figlio.id === athleteRouteId ? "default" : "outline"}
-              >
-                <Link href={`/parent-view/${figlio.id}/calendar`}>
-                  {figlio.name}
-                </Link>
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
+      {/*
+        W6-12. Il terzo e ultimo selettore sparso: era l'unica altra pagina che
+        sapesse di avere piu figli. Adesso lo dice il guscio, su tutte.
+      */}
 
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">

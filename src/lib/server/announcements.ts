@@ -449,10 +449,13 @@ export const publishScheduledAnnouncements = async ({
 export const readAnnouncementsForUser = async ({
   organizationId,
   userId,
+  athleteId,
   now = new Date(),
 }: {
   organizationId: string;
   userId: string;
+  /** Il figlio scelto: vedi `listDeliveriesForRecipient` (W6-13). */
+  athleteId?: string | null;
   now?: Date;
 }) => {
   const deliveries = await listDeliveriesForRecipient({
@@ -460,6 +463,7 @@ export const readAnnouncementsForUser = async ({
     sourceKind: "board",
     channel: "board",
     userId,
+    athleteId,
   });
 
   if (deliveries.length === 0) return [];

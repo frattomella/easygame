@@ -57,6 +57,16 @@ type DocumentInput = {
   templateId?: string;
   title: string;
   file: File;
+  /**
+   * Che **tipo** di documento e.
+   *
+   * W6-18. La rotta lo accetta da sempre — `documentType`, con ripiego su
+   * `other` — e nessun client glielo mandava. Conseguenza: un certificato
+   * medico caricato dalla famiglia entrava in archivio come «altro», e non
+   * muoveva lo stato sanitario dell'atleta. Il genitore vedeva «Certificato
+   * scaduto» il giorno dopo averlo caricato, e aveva ragione lui.
+   */
+  documentType?: string;
 };
 
 export type StructureBookingInput = {
@@ -265,11 +275,30 @@ export function ParentDashboardProvider({
               .filter(Boolean)
           : [];
 
+        /*
+          W6-09. **Le due righe che dicevano «Nessuna stagione attiva».**
+
+          Questo oggetto veniva ricostruito senza i due campi della stagione, e
+          poi scritto nel `localStorage` e annunciato con l'evento
+          `club-updated`. L'intestazione ascolta quell'evento e fa
+          `setActiveSeasonLabel(nextSeasonLabel || null)`: cioe **azzerava**
+          l'etichetta che `AuthProvider` aveva calcolato, e la schermata della
+          famiglia annunciava che il club non ha una stagione mentre ce l'ha.
+
+          Peggio per un tutore legato attraverso `athletes.data.guardians` senza
+          riga di membership: per lui `stored` e vuoto e `AuthProvider` non
+          popola niente, quindi l'etichetta non esisteva **in nessun momento**.
+
+          Adesso la stagione la risolve il server e viaggia nel payload: qui si
+          trasporta, non si ricalcola.
+        */
         const activeClub = {
           ...stored,
           id: payload.data.club.id,
           name: payload.data.club.name,
           logo_url: payload.data.club.logo_url,
+          activeSeasonId: payload.data.club.activeSeasonId ?? null,
+          activeSeasonLabel: payload.data.club.activeSeasonLabel ?? null,
           role: "parent",
           roleLabel: "Genitore",
           linkedAthleteIds,
@@ -417,6 +446,7 @@ export function ParentDashboardProvider({
         { method: "POST", body: {
             templateId: input.templateId,
             title: input.title,
+            documentType: input.documentType,
             fileName: input.file.name,
             mimeType: input.file.type,
             dataBase64,

@@ -442,6 +442,22 @@ export const getAccessRedirectPath = (
   }
   if (normalizedRole === "trainer") return "/trainer-dashboard";
   if (normalizedRole === "parent") {
+    /*
+      W6-12. **Con piu figli si sceglie, non si indovina.**
+
+      Fin qui l'ingresso portava sempre al **primo** figlio, e per cambiarlo
+      bisognava sapere che esistevano due chip sulla Home e due pulsanti sul
+      Calendario: le altre undici pagine non avevano nessun selettore. Una
+      famiglia con due figli si trovava dentro l'esperienza di uno dei due
+      senza che nessuno glielo avesse chiesto, e le pagine che parlano di
+      denaro e di salute non dicevano di chi stavano parlando piu di quanto
+      lo dicesse il titolo.
+
+      Con un figlio solo la scelta non esiste, e chiederla sarebbe un clic
+      in piu tutti i giorni.
+    */
+    const figli = collectLinkedAthleteIds(context);
+    if (figli.length > 1) return "/parent-view";
     return linkedAthleteId
       ? `/parent-view/${encodeURIComponent(linkedAthleteId)}`
       : "/account";
@@ -500,6 +516,16 @@ export const canAccessPath = (
   if (requiredArea === "trainer") return normalizedRole === "trainer";
   if (requiredArea === "parent") {
     if (normalizedRole !== "parent") return false;
+    /*
+      W6-12. La scelta del figlio e una schermata dell'area famiglia, e non
+      parla di nessun figlio in particolare: e la pagina da cui si sceglie di
+      quale parlare. Deve essere raggiungibile da un genitore che ne ha uno
+      come da uno che ne ha quattro — altrimenti «cambia figlio» rimanderebbe
+      su una porta chiusa.
+    */
+    if (pathname === "/parent-view" || pathname === "/parent-view/") {
+      return true;
+    }
     return collectLinkedAthleteIds(context).some((athleteId) =>
       matchesPathPrefix(pathname, `/parent-view/${athleteId}`),
     );

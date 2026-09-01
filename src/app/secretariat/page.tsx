@@ -46,12 +46,15 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   cancelClubAppointment,
+  closeClubAppointment,
   confirmClubAppointment,
   createClubAppointment,
   listClubAppointments,
   rejectClubAppointment,
+  rescheduleClubAppointment,
   type ClubAppointment,
 } from "@/lib/api/appointments-client";
+import Link from "next/link";
 import {
   Dialog,
   DialogContent,
@@ -144,6 +147,18 @@ export default function SecretariatPage() {
   const [appointments, setAppointments] = useState<ClubAppointment[]>([]);
   const [decisione, setDecisione] = useState("");
   const [decidendo, setDecidendo] = useState(false);
+  /*
+    W6-52. Lo spostamento e la chiusura erano le due risposte che la segreteria
+    non poteva dare: `rescheduleClubAppointment` esisteva nel trasporto ed era
+    importata **solo** dalla dashboard dell'allenatore, e per «concluso» e
+    «assente» il trasporto non aveva nemmeno la funzione, benche la rotta le
+    accettasse da sempre. Il risultato era una coda che si poteva solo
+    confermare, rifiutare o annullare: un colloquio avvenuto restava
+    «Confermato» per sempre, e spostarlo voleva dire annullarlo e ricrearlo,
+    perdendo il legame fra le due righe.
+  */
+  const [nuovaData, setNuovaData] = useState("");
+  const [nuovaOra, setNuovaOra] = useState("");
   const [notes, setNotes] = useState<
     Array<{
       id: string;
@@ -948,6 +963,109 @@ export default function SecretariatPage() {
     }
   };
 
+  /**
+   * **Spostare non e modificare la data.**
+   *
+   * Il dominio chiude la riga vecchia e ne crea una nuova collegata
+   * (ADR-0101), quindi la risposta porta **due** righe e questa schermata non
+   * puo aggiornarne una sola: la riga che aveva in mano ora e chiusa, e quella
+   * nuova non esiste nell'elenco. Si ricarica dalla sorgente, che e anche il
+   * solo modo per vedere la riga nuova con le sue transizioni.
+   */
+  const riprogrammaAppuntamento = async (appuntamento: ClubAppointment) => {
+    if (!activeClub?.id || decidendo) return;
+    if (!nuovaData || !nuovaOra) {
+      showToast("error", "Indica il nuovo giorno e il nuovo orario");
+      return;
+    }
+
+    setDecidendo(true);
+    try {
+      await rescheduleClubAppointment(
+        appuntamento.id,
+        {
+          date: nuovaData,
+          time: nuovaOra,
+          note: decisione.trim() || null,
+          version: appuntamento.version ?? null,
+        },
+        intestazioniClub(activeClub.id),
+      );
+
+      const aggiornati = await listClubAppointments(
+        intestazioniClub(activeClub.id),
+      );
+      setAppointments(aggiornati);
+      setDecisione("");
+      setNuovaData("");
+      setNuovaOra("");
+      setIsViewAppointmentOpen(false);
+      setSelectedAppointment(null);
+      showToast(
+        "success",
+        "Appuntamento spostato: la famiglia riceve il nuovo orario",
+      );
+    } catch (error) {
+      console.error("Error rescheduling appointment:", error);
+      showToast(
+        "error",
+        String((error as Error)?.message || "Non riesco a spostarlo adesso"),
+      );
+    } finally {
+      setDecidendo(false);
+    }
+  };
+
+  /**
+   * **La chiusura di un appuntamento avvenuto, o mancato.**
+   *
+   * La nota qui non e per la famiglia: `closeAppointment` la scrive in
+   * `internal_notes`, e la proiezione verso la famiglia non ha quel campo. E
+   * la ragione per cui non parte nessuna notifica — «assente» e una constatazione
+   * di chi era in segreteria, non un messaggio da mandare a qualcuno.
+   */
+  const chiudiAppuntamento = async (
+    appuntamento: ClubAppointment,
+    esito: "complete" | "no-show",
+  ) => {
+    if (!activeClub?.id || decidendo) return;
+    setDecidendo(true);
+
+    try {
+      const aggiornato = await closeClubAppointment(
+        appuntamento.id,
+        {
+          outcome: esito,
+          note: decisione.trim() || null,
+          version: appuntamento.version ?? null,
+        },
+        intestazioniClub(activeClub.id),
+      );
+
+      if (aggiornato) {
+        setAppointments((prev) =>
+          prev.map((app) => (app.id === appuntamento.id ? aggiornato : app)),
+        );
+        setSelectedAppointment(aggiornato);
+      }
+      setDecisione("");
+      showToast(
+        "success",
+        esito === "complete"
+          ? "Appuntamento concluso"
+          : "Assenza registrata: resta una nota interna",
+      );
+    } catch (error) {
+      console.error("Error closing appointment:", error);
+      showToast(
+        "error",
+        String((error as Error)?.message || "Non riesco a chiuderlo adesso"),
+      );
+    } finally {
+      setDecidendo(false);
+    }
+  };
+
   const filteredAppointments = appointments.filter((app) => {
     if (!date) return false;
     const appDate = new Date(app.date);
@@ -1247,6 +1365,28 @@ export default function SecretariatPage() {
               </TabsContent>
 
               <TabsContent value="appointments" className="space-y-4 mt-4">
+                {/*
+                  **L'ingresso alla configurazione della disponibilita.**
+
+                  W6-53: la pagina esiste ma non ha una voce di menu, perche le
+                  sidebar sono di un'altra lane. Senza questo collegamento
+                  sarebbe l'errore di CLAUDE.md §11.8 ripetuto una riga piu in
+                  la — codice raggiungibile solo da chi ne conosce l'indirizzo.
+                  Sta qui perche e da qui che una segretaria se ne accorge: il
+                  calendario mostra gli appuntamenti, e la domanda «quando
+                  possono prenotarmi?» nasce guardandolo.
+                */}
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 p-3">
+                  <p className="text-sm text-muted-foreground">
+                    Quando la societa riceve — giorni, orari, durata del
+                    colloquio, sede e operatore — si dichiara nella
+                    disponibilita. Senza fasce dichiarate si ricade
+                    sull&apos;orario di apertura.
+                  </p>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/appuntamenti">Configura la disponibilita</Link>
+                  </Button>
+                </div>
                 <div className="grid grid-cols-1 gap-6">
                   <Card>
                     <CardHeader className="flex flex-row justify-between items-center">
@@ -1365,6 +1505,16 @@ export default function SecretariatPage() {
                                     className="text-xs p-1 bg-blue-100 dark:bg-blue-900 rounded mb-1 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
                                     onClick={() => {
                                       setSelectedAppointment(appointment);
+                                      /*
+                                        I campi dello spostamento si azzerano
+                                        all'apertura: restando pieni, il giorno
+                                        digitato per un appuntamento comparirebbe
+                                        gia scritto sul successivo, e basta un
+                                        clic per spostare quello sbagliato.
+                                      */
+                                      setNuovaData("");
+                                      setNuovaOra("");
+                                      setDecisione("");
                                       setIsViewAppointmentOpen(true);
                                     }}
                                   >
@@ -2153,13 +2303,9 @@ export default function SecretariatPage() {
                   solo «Chiudi». Il dominio sapeva confermare e rifiutare, la
                   rotta rispondeva, e la segreteria non aveva un pulsante.
                 */}
-                {(selectedAppointment.actions || []).some((t: string) =>
-                  ["confirm", "reject", "cancel"].includes(t),
-                ) ? (
+                {(selectedAppointment.actions || []).length > 0 ? (
                   <div className="space-y-2 border-t pt-4">
-                    <Label htmlFor="appointment-decision">
-                      Nota per la famiglia
-                    </Label>
+                    <Label htmlFor="appointment-decision">Nota</Label>
                     <Textarea
                       id="appointment-decision"
                       value={decisione}
@@ -2167,6 +2313,67 @@ export default function SecretariatPage() {
                       placeholder="Il motivo, se rifiuti o annulli: la famiglia lo legge"
                       rows={2}
                     />
+                    {/*
+                      La stessa casella scrive in due campi diversi, e va detto:
+                      su rifiuto, annullo e spostamento diventa `decision_note`
+                      e la famiglia la legge; su «Concluso» e «Assente» diventa
+                      `internal_notes`, che la proiezione verso la famiglia non
+                      ha. Chi scrive deve sapere chi legge.
+                    */}
+                    <p className="text-xs text-muted-foreground">
+                      Su «Concluso» e «Assente» la nota resta interna: la
+                      famiglia non la vede e non riceve nessun avviso.
+                    </p>
+                  </div>
+                ) : null}
+
+                {/*
+                  W6-52. Lo spostamento **crea una riga nuova e chiude questa**
+                  (ADR-0101): non e la modifica della data, ed e per questo che
+                  il dialogo si chiude e l'elenco si ricarica invece di
+                  aggiornare la riga che si aveva davanti.
+                */}
+                {(selectedAppointment.actions || []).includes("reschedule") ? (
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <p className="text-sm font-medium">Sposta l&apos;appuntamento</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="appointment-new-date">Nuovo giorno</Label>
+                        <Input
+                          id="appointment-new-date"
+                          type="date"
+                          value={nuovaData}
+                          onChange={(event) => setNuovaData(event.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="appointment-new-time">Nuovo orario</Label>
+                        <Input
+                          id="appointment-new-time"
+                          type="time"
+                          value={nuovaOra}
+                          onChange={(event) => setNuovaOra(event.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      L&apos;orario deve cadere su uno slot libero: configura le
+                      fasce dalla{" "}
+                      <Link className="underline" href="/appuntamenti">
+                        disponibilita appuntamenti
+                      </Link>
+                      .
+                    </p>
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      disabled={decidendo || !nuovaData || !nuovaOra}
+                      onClick={() =>
+                        void riprogrammaAppuntamento(selectedAppointment)
+                      }
+                    >
+                      Conferma lo spostamento
+                    </Button>
                   </div>
                 ) : null}
 
@@ -2176,9 +2383,7 @@ export default function SecretariatPage() {
                   dal dialogo.
                 */}
                 <div className="flex flex-wrap justify-end gap-2 pt-4">
-                  {(selectedAppointment.actions || []).includes(
-                    "confirm",
-                  ) ? (
+                  {(selectedAppointment.actions || []).includes("confirm") ? (
                     <Button
                       disabled={decidendo}
                       onClick={() =>
@@ -2197,6 +2402,28 @@ export default function SecretariatPage() {
                       }
                     >
                       Rifiuta
+                    </Button>
+                  ) : null}
+                  {(selectedAppointment.actions || []).includes("complete") ? (
+                    <Button
+                      variant="outline"
+                      disabled={decidendo}
+                      onClick={() =>
+                        void chiudiAppuntamento(selectedAppointment, "complete")
+                      }
+                    >
+                      Concluso
+                    </Button>
+                  ) : null}
+                  {(selectedAppointment.actions || []).includes("no-show") ? (
+                    <Button
+                      variant="outline"
+                      disabled={decidendo}
+                      onClick={() =>
+                        void chiudiAppuntamento(selectedAppointment, "no-show")
+                      }
+                    >
+                      Assente
                     </Button>
                   ) : null}
                   {(selectedAppointment.actions || []).includes("cancel") ? (

@@ -179,6 +179,17 @@ const NON_CLUB_SCOPED = new Map([
   ["parent-dashboard/[athleteId]/board", "legame genitore-atleta"],
   ["parent-dashboard/[athleteId]/checkout", "legame genitore-atleta, e la rata comanda sul club"],
   ["parent-dashboard/[athleteId]/consents", "legame genitore-atleta, verificato nel dominio"],
+  /*
+    Wave 6. Stessa famiglia, stessa ragione — e con un vincolo in piu che vale
+    la pena scrivere: la rotta **non** si fida del legame per sapere di quale
+    club parla. Il club lo rilegge dalla riga dell atleta e lo mette nel
+    `where`, perche un genitore con figli in due societa che preme «segna
+    tutte come lette» non deve chiudere le notifiche dell altra.
+  */
+  [
+    "parent-dashboard/[athleteId]/notifications",
+    "legame genitore-atleta; il club si rilegge dalla riga dell atleta",
+  ],
   ["public/forms/[publicSlug]", "modulo pubblico per slug"],
 ]);
 

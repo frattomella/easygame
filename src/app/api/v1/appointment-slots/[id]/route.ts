@@ -36,6 +36,19 @@ const errorStatus = (error: any) => {
   return 400;
 };
 
+/**
+ * **Assente non e vuoto**, e su un `PATCH` la differenza e tutta la funzione.
+ *
+ * I due nomi di ogni campo — `site_id` e `siteId` — si sceglievano con `??`,
+ * che tratta `null` come «non fornito». Su una modifica parziale questo
+ * rendeva **impossibile svuotare** un campo: chi toglieva la sede o
+ * l'operatore da una fascia mandava `null`, il valore diventava `undefined` e
+ * il dominio conservava quello di prima. La schermata diceva una cosa e la
+ * riga ne conservava un'altra.
+ */
+const scegli = (...valori: unknown[]) =>
+  valori.find((valore) => valore !== undefined);
+
 export async function PATCH(request: Request, context: Context) {
   try {
     const session = await requireAuthenticatedUser(request);
@@ -54,16 +67,28 @@ export async function PATCH(request: Request, context: Context) {
       scope,
       context.params.id,
       {
-        siteId: payload?.site_id ?? payload?.siteId,
-        assignedToUserId: payload?.assigned_to ?? payload?.assignedToUserId,
+        siteId: scegli(payload?.site_id, payload?.siteId) as string | null,
+        assignedToUserId: scegli(
+          payload?.assigned_to,
+          payload?.assignedToUserId,
+        ) as string | null,
         weekday: payload?.weekday,
-        specificDate: payload?.specific_date ?? payload?.specificDate,
-        startTime: payload?.start_time ?? payload?.startTime,
-        endTime: payload?.end_time ?? payload?.endTime,
-        durationMinutes: payload?.duration_minutes ?? payload?.durationMinutes,
-        capacity: payload?.capacity,
-        validFrom: payload?.valid_from ?? payload?.validFrom,
-        validUntil: payload?.valid_until ?? payload?.validUntil,
+        specificDate: scegli(
+          payload?.specific_date,
+          payload?.specificDate,
+        ) as string | null,
+        startTime: scegli(payload?.start_time, payload?.startTime) as string,
+        endTime: scegli(payload?.end_time, payload?.endTime) as string,
+        durationMinutes: scegli(
+          payload?.duration_minutes,
+          payload?.durationMinutes,
+        ) as number | null,
+        validFrom: scegli(payload?.valid_from, payload?.validFrom) as
+          | string
+          | null,
+        validUntil: scegli(payload?.valid_until, payload?.validUntil) as
+          | string
+          | null,
         active: payload?.active,
         notes: payload?.notes,
       },

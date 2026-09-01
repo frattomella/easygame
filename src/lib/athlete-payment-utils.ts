@@ -133,7 +133,16 @@ const buildPaymentIdentityKey = (payment: NormalizedPaymentRecord) =>
     .filter(Boolean)
     .join("|");
 
-const normalizePaymentStatus = (
+/**
+ * Le **due forme** dello stato di una rata, prodotte insieme.
+ *
+ * `status` e l etichetta italiana che una persona legge; `statusKey` e il
+ * campo macchina su cui il codice decide. Sono esportate insieme perche il
+ * difetto W6-08 nasceva proprio dall averle scambiate: la schermata della
+ * famiglia confrontava l etichetta con dei token inglesi, e non corrispondeva
+ * mai.
+ */
+export const resolveAthletePaymentStatus = (
   value: unknown,
   paidAt?: unknown,
   data?: Record<string, any>,
@@ -232,7 +241,7 @@ const normalizeStoredPayment = (
     return null;
   }
 
-  const normalizedStatus = normalizePaymentStatus(record.status, paidAt, data);
+  const normalizedStatus = resolveAthletePaymentStatus(record.status, paidAt, data);
 
   return {
     id:
@@ -668,3 +677,62 @@ export const calculateAthleteExpectedIncome = ({
 
 export const calculateAthleteEnrollmentPaymentSummary =
   calculateAthleteExpectedIncome;
+
+/**
+ * **Questa rata si puo pagare adesso?**
+ *
+ * W6-08. La domanda ha una risposta sola, e fino alla Wave 6 la schermata della
+ * famiglia se la dava da sola — sbagliando:
+ *
+ * ```ts
+ * items.find((rata) =>
+ *   ["pending", "overdue", "partial", "unpaid"].includes(
+ *     String(rata?.status || "").toLowerCase(),
+ *   ),
+ * )
+ * ```
+ *
+ * `status` non e un campo macchina: e l'**etichetta italiana** che questo
+ * modulo produce — «Da incassare», «Scaduto», «Parzialmente pagato», «Pagato»,
+ * «Annullato». Nessuno di quei quattro token inglesi poteva mai corrispondere,
+ * quindi la ricerca restituiva **sempre** `null`, il pulsante «Paga ora» era
+ * **sempre** disabilitato, e il messaggio d'aiuto diceva «Nessuna rata da
+ * saldare» a una famiglia che di rate aperte ne aveva tre.
+ *
+ * Il campo macchina si chiama `statusKey`, e il server lo usa correttamente due
+ * righe piu sotto per contare le rate in attesa. Era un difetto **fra il clic e
+ * la rete**: il dominio funzionava, il checkout funzionava, la rotta della
+ * famiglia esisteva e il client la chiamava gia. Mancava solo che qualcuno
+ * gliela desse da chiamare.
+ *
+ * Sta qui, accanto a chi produce le due forme, perche una schermata che
+ * ricostruisce il vocabolario di un dominio prima o poi lo ricostruisce
+ * diverso: e appena successo.
+ */
+export const isPayableAthletePayment = (payment: any): boolean => {
+  if (!payment) return false;
+
+  const chiave = toLowerText(payment.statusKey);
+
+  /*
+    Le righe che arrivano da un payload vecchio possono non avere `statusKey`.
+    In quel caso si legge l'etichetta, che e cio che c'e: e il ripiego, non la
+    strada principale.
+  */
+  const stato = chiave || toLowerText(payment.status);
+  if (!stato) return false;
+  if (stato === "paid" || stato === "pagato") return false;
+  if (stato === "cancelled" || stato === "annullato") return false;
+  if (payment?.data?.excludedFromTotals === true) return false;
+
+  /*
+    Una rata di importo nullo non si paga: aprire un checkout da zero euro
+    manda la famiglia su una pagina che non puo concludere.
+  */
+  return Number(payment.amount ?? 0) > 0;
+};
+
+/** La prima rata che una famiglia puo saldare, o `null`. */
+export const findFirstPayableAthletePayment = (payments: any): any =>
+  (Array.isArray(payments) ? payments : []).find(isPayableAthletePayment) ||
+  null;

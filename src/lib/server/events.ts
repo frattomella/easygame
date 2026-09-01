@@ -123,17 +123,103 @@ export type ListEventsFilters = {
   take?: number;
 };
 
+export type TrainerEventPerimeter = {
+  categoryIds: string[];
+  groupIds: string[];
+};
+
 /**
- * Il perimetro dell'allenatore sugli eventi.
+ * **Il perimetro dell'allenatore: una domanda, una funzione, un proprietario.**
  *
- * Un allenamento non e il dato di nessuno — e il calendario di una squadra —
- * quindi qui il gruppo resta un **filtro** e non un confine (W5-69): la
- * distinzione fra le due cose la fa la natura del dato, non l'abitudine.
+ * ---
+ *
+ * ## La contraddizione che questa funzione chiude
+ *
+ * Il preambolo di questo file (punto 3) prometteva il perimetro riga per riga
+ * su **ogni** funzione pubblica; il commento che stava qui diceva l'opposto —
+ * «il gruppo resta un filtro e non un confine» — e la seconda frase vinceva,
+ * perche era quella scritta nel codice: il perimetro lo applicava
+ * `listClubEvents` e nessun'altra delle nove funzioni. Un allenatore che
+ * conoscesse un `eventId` fuori dal proprio perimetro poteva farci appello e
+ * convocazioni, perche la chiave di ruolo `events.convoke` ce l'ha (W6-22,
+ * W6-23).
+ *
+ * **La regola e una sola, ed e questa**: in *lettura di elenco* il perimetro e
+ * un **filtro** — un calendario piu corto non e un rifiuto — ma su ogni
+ * **atto** (leggere una singola riga, creare, modificare, convocare, fare
+ * l'appello, cancellare) e un **confine**. La ragione non e simmetria: un atto
+ * fuori perimetro e un atto su atleti che non sono suoi, e la convocazione di
+ * un ragazzo di un'altra squadra non e un errore di visualizzazione.
+ *
+ * ## Perche vive qui e non in quattro posti
+ *
+ * La stessa domanda — «cosa vede questo allenatore» — aveva **quattro**
+ * risposte, e due divergevano: `assertTrainerCanSeeEvent` in `rsvp.ts` leggeva
+ * solo `clubs.trainers`, questa leggeva anche `clubs.staff_members`. Un club
+ * su tre registra i propri allenatori come staff: quelli passavano il filtro
+ * degli eventi e venivano **respinti sull'RSVP dello stesso allenamento**
+ * (W6-24). Adesso `rsvp.ts` e `trainer-area.ts` chiamano questa.
  */
-const trainerEventFilter = async (
+/**
+ * **Quale scheda del club e questa utenza.**
+ *
+ * Cerca in `clubs.trainers` **e** in `clubs.staff_members`, perche un club su
+ * tre registra i propri allenatori come staff con ruolo «allenatore»:
+ * cercarli in un posto solo vuol dice che meta degli allenatori non ha
+ * perimetro e vede zero eventi — un silenzio che sembra «tutto a posto».
+ *
+ * Esportata perche il legame utenza ↔ scheda serve anche fuori dagli eventi:
+ * il perimetro degli avvisi e «i miei compensi» chiedono la stessa cosa, e la
+ * chiedono a questa (W6-24, W6-32).
+ */
+export const findClubTrainerProfile = (
+  club: { trainers?: unknown; staff_members?: unknown } | null | undefined,
+  userId: string,
+  email?: string | null,
+): Record<string, any> | null => {
+  const pool = [
+    ...(Array.isArray(club?.trainers) ? (club.trainers as any[]) : []),
+    ...(Array.isArray(club?.staff_members) ? (club.staff_members as any[]) : []),
+  ];
+
+  const cercata = asText(email).toLowerCase();
+
+  return (
+    pool.find((entry) => {
+      const source =
+        entry?.data && typeof entry.data === "object" ? entry.data : {};
+      const identita = [
+        /*
+          `entry.id` e la terza forma di legame, e mancava: un club che scrive
+          la scheda dell'allenatore usando **l'identificativo dell'utenza** come
+          id del profilo non veniva riconosciuto qui, mentre `rsvp.ts` lo
+          riconosceva. Due proprietari, due risposte opposte sullo stesso
+          ingresso.
+        */
+        entry?.id,
+        entry?.linkedUserId,
+        entry?.linked_user_id,
+        entry?.userId,
+        entry?.user_id,
+        source?.linkedUserId,
+        source?.userId,
+      ].map(asText);
+      const emails = [entry?.email, entry?.linkedUserEmail, source?.email].map(
+        (value) => asText(value).toLowerCase(),
+      );
+
+      return (
+        identita.includes(asText(userId)) ||
+        (Boolean(cercata) && emails.includes(cercata))
+      );
+    }) || null
+  );
+};
+
+export const readTrainerEventPerimeter = async (
   organizationId: string,
   userId: string,
-): Promise<{ categoryIds: string[]; groupIds: string[] } | null> => {
+): Promise<TrainerEventPerimeter | null> => {
   const club = await prisma.club.findUnique({
     where: { id: organizationId },
     select: { trainers: true, staff_members: true, categories: true },
@@ -145,30 +231,7 @@ const trainerEventFilter = async (
     select: { email: true },
   });
 
-  const pool = [
-    ...(Array.isArray(club.trainers) ? club.trainers : []),
-    ...(Array.isArray(club.staff_members) ? club.staff_members : []),
-  ] as any[];
-
-  const profilo = pool.find((entry) => {
-    const source = entry?.data && typeof entry.data === "object" ? entry.data : {};
-    const identita = [
-      entry?.linkedUserId,
-      entry?.linked_user_id,
-      entry?.userId,
-      entry?.user_id,
-      source?.linkedUserId,
-      source?.userId,
-    ].map(asText);
-    const emails = [entry?.email, entry?.linkedUserEmail, source?.email].map(
-      (value) => asText(value).toLowerCase(),
-    );
-
-    return (
-      identita.includes(asText(userId)) ||
-      (Boolean(user?.email) && emails.includes(asText(user?.email).toLowerCase()))
-    );
-  });
+  const profilo = findClubTrainerProfile(club, userId, user?.email);
 
   /*
     **Un allenatore senza riga in `clubs.trainers` non legge tutto il club.**
@@ -219,6 +282,118 @@ const trainerEventFilter = async (
   };
 };
 
+/**
+ * La forma minima di un evento su cui si giudica il perimetro.
+ *
+ * E la riga, oppure — nella creazione — le **colonne candidate**: il perimetro
+ * si verifica su cio che si sta per scrivere, non su cio che e stato scritto,
+ * altrimenti un allenatore creerebbe l'allenamento della squadra di un altro e
+ * lo scoprirebbe solo chi lo legge.
+ */
+export type TrainerPerimeterCandidate = {
+  id?: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  group_ids?: unknown;
+};
+
+/**
+ * **Il gruppo vince sulla categoria quando l'evento lo dichiara** (ADR-0055).
+ *
+ * Tre casi, in quest'ordine, ed e la regola che `trainerFollowsGroup` scrive
+ * gia per l'RSVP:
+ *
+ * 1. l'evento dichiara gruppi **e** l'allenatore ne dichiara: decide
+ *    l'intersezione dei gruppi. E il caso del club multi-sede, dove il mister
+ *    dei `Pulcini · Scauri` non e quello dei `Pulcini · Santi Cosma`;
+ * 2. uno dei due non dichiara gruppi: si ricade sulla **categoria**, che e il
+ *    comportamento precedente — un club che non ha configurato le sedi non
+ *    deve perdere l'accesso da un giorno all'altro;
+ * 3. niente in comune: **falso**. Un evento senza categoria e senza gruppi non
+ *    e «di tutti»: e di nessuno, e un perimetro che fallisce chiuso manda una
+ *    segretaria a completare una scheda, mentre uno che fallisce aperto non
+ *    manda nessuno da nessuna parte.
+ */
+export const eventWithinTrainerPerimeter = (
+  perimetro: TrainerEventPerimeter | null,
+  evento: TrainerPerimeterCandidate,
+) => {
+  if (!perimetro) return false;
+
+  const gruppiEvento = (
+    Array.isArray(evento.group_ids) ? (evento.group_ids as unknown[]) : []
+  )
+    .map(asText)
+    .filter(Boolean);
+
+  if (gruppiEvento.length && perimetro.groupIds.length) {
+    const suoi = new Set(perimetro.groupIds);
+    return gruppiEvento.some((value) => suoi.has(value));
+  }
+
+  const categorie = new Set(
+    perimetro.categoryIds.map((value) => value.toLowerCase()),
+  );
+
+  return [evento.category_id, evento.category_name]
+    .map((value) => asText(value).toLowerCase())
+    .filter(Boolean)
+    .some((value) => categorie.has(value));
+};
+
+/**
+ * Il perimetro applicato a un **atto**, e la riga che il rifiuto lascia.
+ *
+ * E `async` per la stessa ragione di `assertEventsPermission`: il diniego si
+ * **scrive** prima di essere lanciato. Vale quindi lo stesso pericolo — una
+ * guardia attesa a meta non ferma niente — e lo stesso presidio,
+ * `tests/server/guardie-attese.test.mjs`.
+ *
+ * Accetta **piu** candidati perche la creazione in blocco ne ha molti e il
+ * perimetro va letto una volta sola: la generazione di un mese di allenamenti
+ * non deve rileggere il club trenta volte. Basta un candidato fuori perche
+ * l'intero atto sia rifiutato — un blocco accettato a meta lascerebbe
+ * l'allenatore a indovinare quali righe sono nate.
+ */
+const assertTrainerEventPerimeter = async (
+  scope: EventsScope,
+  candidati: readonly TrainerPerimeterCandidate[],
+  permesso: string,
+) => {
+  if (normalizeAccessRole(scope.activeRole) !== "trainer") return;
+
+  const organizationId = requireActiveOrganization(scope);
+  const userId = asText(scope.userId);
+
+  const perimetro = userId
+    ? await readTrainerEventPerimeter(organizationId, userId)
+    : null;
+
+  const fuori = candidati.filter(
+    (candidato) => !eventWithinTrainerPerimeter(perimetro, candidato),
+  );
+  if (!fuori.length) return;
+
+  await recordPermissionDenied({
+    scope,
+    permission: permesso,
+    resource: "club_events",
+    resourceId: asText(fuori[0]?.id) || null,
+    metadata: {
+      motivo: perimetro
+        ? "evento fuori dal perimetro dell'allenatore"
+        : "nessun profilo allenatore in questo club",
+      fuoriPerimetro: fuori.length,
+    },
+  });
+
+  throw negato(
+    perimetro
+      ? "questo evento non e di una tua categoria ne di un tuo gruppo"
+      : "non risulti fra gli allenatori di questo club",
+  );
+};
+
 export const listClubEvents = async (
   scope: EventsScope,
   filters: ListEventsFilters = {},
@@ -250,40 +425,22 @@ export const listClubEvents = async (
   });
 
   if (normalizeAccessRole(scope.activeRole) === "trainer" && scope.userId) {
-    const perimetro = await trainerEventFilter(organizationId, scope.userId);
-    if (!perimetro) return [];
-
-    const categorie = new Set(
-      perimetro.categoryIds.map((value) => value.toLowerCase()),
+    const perimetro = await readTrainerEventPerimeter(
+      organizationId,
+      scope.userId,
     );
-    const gruppi = new Set(perimetro.groupIds);
-
     /*
       **Un perimetro vuoto non e «nessun perimetro».**
 
-      La condizione era `if (categorie.size || gruppi.size)`: un allenatore con
-      una scheda esistente ma senza nessuna categoria dichiarata saltava il
-      filtro e leggeva l'intero calendario. E la stessa fuga del profilo
-      mancante, un passo piu in la, e va chiusa nello stesso verso — che e
-      anche quello che `filterTrainerDashboardRecords` applica gia sulla stessa
-      domanda: intersezione con un insieme vuoto e vuota, quindi non passa
-      niente.
+      Qui l'elenco resta un **filtro** — un calendario piu corto non e un
+      rifiuto — ma il filtro non si spegne mai: un allenatore senza profilo, o
+      con un profilo senza categorie ne gruppi, legge zero eventi e non
+      l'intero calendario del club. Il giudizio riga per riga e lo stesso che
+      la guardia applica agli atti: una funzione sola, cosi il calendario che
+      l'allenatore vede e l'insieme degli eventi su cui puo agire.
     */
-    {
-      rows = rows.filter((row) => {
-        const categoria = [row.category_id, row.category_name]
-          .map((value) => asText(value).toLowerCase())
-          .filter(Boolean);
-        const suoiGruppi = Array.isArray(row.group_ids)
-          ? (row.group_ids as string[])
-          : [];
-
-        return (
-          categoria.some((value) => categorie.has(value)) ||
-          suoiGruppi.some((value) => gruppi.has(value))
-        );
-      });
-    }
+    if (!perimetro) return [];
+    rows = rows.filter((row) => eventWithinTrainerPerimeter(perimetro, row));
   }
 
   if (filters.groupId) {
@@ -348,6 +505,7 @@ export const readClubEvent = async (
   if (!row) return null;
 
   assertActiveClub(scope, row.organization_id, "l'evento");
+  await assertTrainerEventPerimeter(scope, [row], "events.read");
   return row;
 };
 
@@ -493,6 +651,15 @@ export const createClubEvent = async (
   const organizationId = requireActiveOrganization(scope);
   const colonne = toEventColumns(normalizeEventKind(kind), input);
 
+  /*
+    Il caso legittimo resta legittimo: l'allenatore che crea l'allenamento del
+    **proprio** gruppo passa di qui senza accorgersene. Cio che non passa piu e
+    l'allenamento creato per la squadra di un altro — che nessuna delle nove
+    funzioni fermava, e che `listClubEvents` avrebbe poi nascosto a chi l'ha
+    creato, lasciandolo visibile a tutti gli altri.
+  */
+  await assertTrainerEventPerimeter(scope, [colonne], "events.manage");
+
   await assertFieldIsOpen(organizationId, {
     structure_id: colonne.structure_id,
     field_id: colonne.field_id,
@@ -569,6 +736,18 @@ export const updateClubEvent = async (
 
   const colonne = toEventColumns(existing.kind as EventKind, merged);
   assertEventTransition(existing.status, colonne.status);
+
+  /*
+    **Si giudicano tutte e due le forme**: la riga com'e e la riga come
+    diventerebbe. Controllare solo la prima lascerebbe spostare un proprio
+    allenamento nel gruppo di un altro; controllare solo la seconda lascerebbe
+    prendere l'allenamento di un altro e portarselo nel proprio.
+  */
+  await assertTrainerEventPerimeter(
+    scope,
+    [existing, colonne],
+    "events.manage",
+  );
 
   await assertFieldIsOpen(organizationId, {
     structure_id: colonne.structure_id,
@@ -663,6 +842,7 @@ export const saveEventConvocations = async (
   const event = await findClubEvent(organizationId, idOrLegacyId);
   if (!event) throw new Error("Evento non trovato");
   assertActiveClub(scope, event.organization_id, "l'evento");
+  await assertTrainerEventPerimeter(scope, [event], "events.convoke");
 
   const normalizzate = entries
     .map((entry) => ({
@@ -780,6 +960,7 @@ export const saveEventAttendance = async (
   const event = await findClubEvent(organizationId, idOrLegacyId);
   if (!event) throw new Error("Evento non trovato");
   assertActiveClub(scope, event.organization_id, "l'evento");
+  await assertTrainerEventPerimeter(scope, [event], "events.attendance");
 
   const normalizzate = entries
     .map((entry) => ({
@@ -839,6 +1020,7 @@ export const listEventParticipants = async (
   const event = await findClubEvent(organizationId, idOrLegacyId);
   if (!event) return [];
   assertActiveClub(scope, event.organization_id, "l'evento");
+  await assertTrainerEventPerimeter(scope, [event], "events.read");
 
   return prisma.clubEventParticipant.findMany({
     where: { organization_id: organizationId, event_id: event.id },
@@ -869,6 +1051,7 @@ export const deleteClubEvent = async (
   const event = await findClubEvent(organizationId, idOrLegacyId);
   if (!event) throw new Error("Evento non trovato");
   assertActiveClub(scope, event.organization_id, "l'evento");
+  await assertTrainerEventPerimeter(scope, [event], "events.manage");
 
   const partecipanti = await prisma.clubEventParticipant.count({
     where: { organization_id: organizationId, event_id: event.id },
@@ -927,6 +1110,14 @@ export const createClubEventsBatch = async (
   }
 
   if (!righe.length) return [];
+
+  /*
+    Il perimetro si legge **una volta** per l'intero blocco: e la ragione per
+    cui la guardia accetta un elenco invece di un candidato solo. Generare un
+    mese di allenamenti non deve rileggere trenta volte la scheda
+    dell'allenatore.
+  */
+  await assertTrainerEventPerimeter(scope, righe, "events.manage");
 
   /*
     `skipDuplicates` sulla chiave (club, tipo, identificativo storico): la

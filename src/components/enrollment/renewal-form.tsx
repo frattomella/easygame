@@ -7,6 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormRenderer } from "@/components/forms/form-renderer";
 import { normalizeFormField } from "@/lib/forms/model";
+import {
+  clearFormDraft,
+  formDraftKey,
+  readFormDraft,
+  saveFormDraft,
+  type FormDraft,
+} from "@/lib/forms/draft-storage";
 import * as formsApi from "@/lib/api/forms";
 
 /**
@@ -40,6 +47,12 @@ import * as formsApi from "@/lib/api/forms";
  *
  * **Una colonna a ogni larghezza**, comandi alti almeno 44 px: e un modulo che
  * si compila dal telefono, come quello pubblico.
+ *
+ * **Salva e riprendi** (W6-48), con la stessa forma del modulo pubblico e lo
+ * stesso archivio locale — regole e limiti in
+ * `src/lib/forms/draft-storage.ts`. La chiave porta anche l'atleta: due figli
+ * sullo stesso modulo sono due pratiche diverse, e ripescare la bozza del
+ * fratello sarebbe peggio di non averne nessuna.
  */
 
 type RenewalFormProps = {
@@ -86,6 +99,16 @@ export function RenewalForm({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState("");
+  const [foundDraft, setFoundDraft] = useState<FormDraft | null>(null);
+  /*
+    Si salva solo dopo che il genitore ha scritto qualcosa: qui il modulo
+    arriva **gia precompilato** dal server, e salvarlo al montaggio
+    scriverebbe una bozza che nessuno ha compilato — e cancellerebbe quella
+    vera prima che l'avviso qui sotto possa essere letto.
+  */
+  const [touched, setTouched] = useState(false);
+
+  const draftKey = formDraftKey(publicSlug, athleteId);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,6 +142,37 @@ export function RenewalForm({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    setFoundDraft(readFormDraft(draftKey));
+  }, [draftKey]);
+
+  /*
+    Si salva a ogni modifica, mai prima che la bozza del server sia arrivata:
+    scrivere in archivio locale un modulo ancora vuoto cancellerebbe cio che
+    c'era, che e l'unica cosa che questa funzione esiste per non fare.
+  */
+  useEffect(() => {
+    if (!draft || !touched) return;
+    saveFormDraft(draftKey, draft.form.fields, {
+      answers: values,
+      respondentName,
+      respondentEmail,
+    });
+  }, [draftKey, draft, touched, values, respondentName, respondentEmail]);
+
+  const resumeDraft = () => {
+    if (!foundDraft) return;
+    setValues((current) => ({ ...current, ...foundDraft.answers }));
+    setRespondentName(foundDraft.respondentName);
+    setRespondentEmail(foundDraft.respondentEmail);
+    setFoundDraft(null);
+  };
+
+  const discardDraft = () => {
+    clearFormDraft(draftKey);
+    setFoundDraft(null);
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!draft || sending) return;
@@ -143,6 +197,8 @@ export function RenewalForm({
         return;
       }
 
+      /* Solo l'invio riuscito cancella la bozza: vedi il modulo pubblico. */
+      clearFormDraft(draftKey);
       onSent(esito.receipt.successMessage || "Rinnovo inviato");
     } finally {
       setSending(false);
@@ -235,6 +291,36 @@ export function RenewalForm({
       </header>
 
       <form onSubmit={submit} className="space-y-6 p-5">
+        {/* Si propone, non si ripristina: come sul modulo pubblico. */}
+        {foundDraft ? (
+          <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-900">
+              Avevi gia iniziato a compilare questo rinnovo
+            </p>
+            <p className="text-sm text-amber-900">
+              E rimasto su questo dispositivo e non e stato inviato. Allegati e
+              consensi vanno rifatti.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                className="min-h-[44px] w-full sm:w-auto"
+                onClick={resumeDraft}
+              >
+                Riprendi
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-[44px] w-full bg-white sm:w-auto"
+                onClick={discardDraft}
+              >
+                Ricomincia
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         <p className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           Abbiamo gia compilato cio che il club sa di te: controlla, correggi
@@ -249,7 +335,10 @@ export function RenewalForm({
                 id="renewal-respondent-name"
                 className="min-h-[44px] bg-white"
                 value={respondentName}
-                onChange={(event) => setRespondentName(event.target.value)}
+                onChange={(event) => {
+                  setTouched(true);
+                  setRespondentName(event.target.value);
+                }}
                 placeholder="Nome e cognome"
               />
             </div>
@@ -262,7 +351,10 @@ export function RenewalForm({
                 type="email"
                 className="min-h-[44px] bg-white"
                 value={respondentEmail}
-                onChange={(event) => setRespondentEmail(event.target.value)}
+                onChange={(event) => {
+                  setTouched(true);
+                  setRespondentEmail(event.target.value);
+                }}
                 placeholder="per essere ricontattati"
               />
               {errors.respondentEmail ? (
@@ -281,6 +373,7 @@ export function RenewalForm({
           errors={errors}
           prefilledFieldIds={draft.prefilledFieldIds}
           onChange={(fieldId, value) => {
+            setTouched(true);
             setValues((current) => ({ ...current, [fieldId]: value }));
             setErrors((current) => ({ ...current, [fieldId]: "" }));
           }}

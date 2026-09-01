@@ -165,5 +165,47 @@ export const toFamilyAppointment = (
   };
 };
 
+/**
+ * **Lo slot libero come lo vede la famiglia: un elenco chiuso di campi.**
+ *
+ * W6-57. `FreeAppointmentSlot` e un oggetto di calcolo, e i due punti che lo
+ * mandavano al genitore lo mandavano **con lo spread**. Cosi la famiglia
+ * riceveva `assignedToUserId` — l'identificativo interno degli operatori del
+ * club, cioe l'elenco di chi ci lavora e di chi riceve quel giorno — e
+ * `taken`, cioe quante altre famiglie avevano gia prenotato quell'ora. Nessuno
+ * dei due serve a scegliere un orario.
+ *
+ * La forma e quella della lane 5I e la stessa di `toFamilyAppointment` qui
+ * sopra: **si dichiara cosa puo uscire**, non cosa va tolto. Un elenco di
+ * esclusioni protegge i campi di oggi; un elenco di inclusioni protegge anche
+ * quelli che qualcuno aggiungera domani al modello, che e l'unico modo perche
+ * la regola duri piu della riga che la scrive.
+ *
+ * `startsAt` resta il **solo** campo che il server confronta quando la
+ * famiglia prenota (`findFreeSlotAt` su `getTime()`): toglierlo renderebbe
+ * l'elenco inservibile. `slotId` e `siteId` sono identificativi di
+ * configurazione del club, non di persone, e la schermata li rimanda indietro.
+ */
+export const toFamilyFreeSlot = (slot: {
+  slotId: string | null;
+  source: "slot" | "opening_hours";
+  siteId: string | null;
+  startsAt: Date;
+  endsAt: Date;
+  day: string;
+  time: string;
+  durationMinutes: number;
+}) => ({
+  slotId: slot.slotId ?? null,
+  source: slot.source,
+  siteId: slot.siteId ?? null,
+  startsAt: slot.startsAt.toISOString(),
+  endsAt: slot.endsAt.toISOString(),
+  day: slot.day,
+  time: slot.time,
+  durationMinutes: slot.durationMinutes,
+});
+
 export type ClubAppointmentView = ReturnType<typeof toClubAppointment>;
 export type FamilyAppointmentView = ReturnType<typeof toFamilyAppointment>;
+export type FamilyFreeSlotView = ReturnType<typeof toFamilyFreeSlot>;

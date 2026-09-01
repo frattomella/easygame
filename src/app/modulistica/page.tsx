@@ -79,6 +79,7 @@ import {
   canManageDocumentTemplates,
   canReadDocumentTemplates,
 } from "@/lib/documents/permissions";
+import { canReadClubForms } from "@/lib/forms/permissions";
 import {
   applyPlaceholderValues,
   describePlaceholderKey,
@@ -339,9 +340,21 @@ function ModulisticaPage() {
     Il server decide comunque: qui il permesso serve solo a non mostrare un
     pulsante che risponderebbe «Accesso negato», che e un difetto quanto una
     porta aperta.
+
+    **Due domini in una pagina sola, e quindi due cancelli** (W6-42). Questa
+    schermata ospita i **modelli di documento** che il club stampa e i
+    **moduli online** che la famiglia compila: sono due domini distinti, con
+    due proprietari e due matrici. Fino a ieri la guardia della pagina usava
+    solo `canReadDocumentTemplates`, e un ruolo autorizzato ai moduli ma non
+    ai modelli di stampa leggeva «I modelli di documento li vede chi lavora
+    nella segreteria del club» e non vedeva mai la scheda «Moduli online».
+    Ogni scheda porta adesso il permesso del suo dominio.
   */
   const canManage = canManageDocumentTemplates(activeRole);
   const canRead = canReadDocumentTemplates(activeRole);
+  const canReadForms = canReadClubForms(activeRole);
+  /* Si entra nella pagina se **almeno uno** dei due domini e aperto. */
+  const canOpenPage = canRead || canReadForms;
 
   const { showToast } = useToast();
 
@@ -416,8 +429,18 @@ function ModulisticaPage() {
     warnings: string[];
   } | null>(null);
 
+  /*
+    **Carica i modelli di documento, e nient'altro** (W6-43).
+
+    Questa funzione non deve piu sapere niente dei moduli online: `loading`
+    riguarda le schede documentali, e la scheda «Moduli online» si carica da
+    sola dentro `FormsDashboard`. Finche l'uscita anticipata su `loading` stava
+    prima dei Tabs, ogni ri-risoluzione del club **smontava** il cruscotto dei
+    moduli e ne perdeva l'elenco, la coda e il filtro — e con una chiamata
+    lenta o pendente la scheda non era raggiungibile affatto.
+  */
   const loadAll = useCallback(async () => {
-    if (!clubId) {
+    if (!clubId || !canRead) {
       setLoading(false);
       return;
     }
@@ -451,7 +474,7 @@ function ModulisticaPage() {
     // `showToast` cambia identita a ogni render: includerlo qui rifarebbe
     // partire il caricamento a ogni render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clubId, canManage]);
+  }, [clubId, canManage, canRead]);
 
   useEffect(() => {
     void loadAll();
@@ -527,6 +550,28 @@ function ModulisticaPage() {
     () => catalog.filter((entry) => !entry.adopted),
     [catalog],
   );
+
+  /*
+    **Le schede che questo ruolo puo davvero aprire**, in ordine.
+
+    Serve anche a scegliere quale mostrare per prima: `documents` era il valore
+    iniziale fisso, e chi non ha i modelli di stampa sarebbe atterrato su una
+    scheda che non esiste per lui — cioe su una pagina vuota. La scheda attiva
+    si **ricava** invece di essere sincronizzata da un effetto: un `useState`
+    che insegue un permesso e un fotogramma in cui i due non coincidono.
+  */
+  const availableTabs = useMemo<PageTab[]>(() => {
+    const tabs: PageTab[] = [];
+    if (canRead) tabs.push("documents");
+    if (canManage) tabs.push("catalog");
+    if (canReadForms) tabs.push("online-forms");
+    if (canRead) tabs.push("retired", "generated");
+    return tabs;
+  }, [canRead, canManage, canReadForms]);
+
+  const currentTab: PageTab = availableTabs.includes(activeTab)
+    ? activeTab
+    : availableTabs[0] || "documents";
 
   /* ------------------------------------------------------------- l'editor */
 
@@ -1006,22 +1051,28 @@ function ModulisticaPage() {
     setGeneratedDocuments(generatedResult.documents);
   };
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-4xl space-y-6 py-6">
-        <div className="flex min-h-[50vh] items-center justify-center">
-          <AppLoadingScreen subtitle="Caricamento documenti del club..." />
-        </div>
-      </div>
-    );
-  }
+  /*
+    **Lo stato di caricamento di una sezione non smonta le altre** (W6-43).
+
+    Qui stava `if (loading) return <AppLoadingScreen …/>`, **prima** dei Tabs.
+    `loadAll` rimette `loading` a vero a ogni ri-risoluzione del club, quindi
+    ogni volta l'intera pagina spariva e `FormsDashboard` con lei: elenco,
+    coda e filtro ripartivano da zero, e finche una chiamata documentale
+    restava pendente la scheda «Moduli online» non era raggiungibile affatto.
+    E il sintomo che il cliente descrive come «i moduli online non vengono
+    sempre caricati».
+
+    Il caricamento adesso vive **dentro** le schede che lo aspettano, e sotto
+    ognuna c'e il suo `documentsLoading`.
+  */
+  const documentsLoading = loading;
 
   /*
     Senza club attivo non c'e niente da dire sui permessi: e un'altra cosa, e
     dirla come un diniego manderebbe a chiamare l'assistenza chi doveva solo
     scegliere una societa.
   */
-  if (!clubId || !canRead) {
+  if (!clubId || !canOpenPage) {
     return (
       <DashboardPageContainer>
         <SharedPageHeader
@@ -1031,7 +1082,7 @@ function ModulisticaPage() {
         <Card>
           <CardContent className="py-10 text-center text-sm text-slate-500">
             {clubId
-              ? "I modelli di documento li vede chi lavora nella segreteria del club."
+              ? "I modelli di documento e i moduli online li vede chi lavora nella segreteria del club."
               : "Nessun club attivo: scegline uno dal menu in alto."}
           </CardContent>
         </Card>
@@ -1166,7 +1217,7 @@ function ModulisticaPage() {
         title="Modulistica"
         subtitle="Gestisci documenti, moduli e file condivisi del club."
         actions={
-          activeView === "list" && activeTab === "documents" && canManage ? (
+          activeView === "list" && currentTab === "documents" && canManage ? (
             /*
               Un'azione sola: «Aggiungi attestazione di pagamento» non e piu
               qui, perche l'attestazione e la prima voce del catalogo e si
@@ -1185,7 +1236,7 @@ function ModulisticaPage() {
 
       {activeView === "list" ? (
         <Tabs
-          value={activeTab}
+          value={currentTab}
           onValueChange={(value) => setActiveTab(value as PageTab)}
           className="space-y-5"
         >
@@ -1195,8 +1246,17 @@ function ModulisticaPage() {
             a capo. A 375 px «Archivio» finiva quarantanove pixel oltre il
             bordo e veniva tagliata via.
           */}
+          {/*
+            Ogni scheda compare solo se il **suo** dominio e aperto: le quattro
+            documentali con `documents.templates.read`, «Moduli online» con la
+            risorsa `forms`. Una scheda che si vede e poi risponde «Accesso
+            negato» e un difetto quanto una porta aperta — e una scheda che non
+            si vede benche il permesso ci sia lo e altrettanto (W6-42).
+          */}
           <TabsList className="h-auto w-full flex-wrap justify-start">
-            <TabsTrigger value="documents">Documenti / Template</TabsTrigger>
+            {canRead ? (
+              <TabsTrigger value="documents">Documenti / Template</TabsTrigger>
+            ) : null}
             {/*
               La scheda la vede solo chi puo adottare: la pagina e aperta anche
               a collaboratori e staff, e una vetrina con sei pulsanti che
@@ -1205,9 +1265,15 @@ function ModulisticaPage() {
             {canManage ? (
               <TabsTrigger value="catalog">Catalogo</TabsTrigger>
             ) : null}
-            <TabsTrigger value="online-forms">Moduli online</TabsTrigger>
-            <TabsTrigger value="retired">Ritirati</TabsTrigger>
-            <TabsTrigger value="generated">Documenti generati</TabsTrigger>
+            {canReadForms ? (
+              <TabsTrigger value="online-forms">Moduli online</TabsTrigger>
+            ) : null}
+            {canRead ? (
+              <TabsTrigger value="retired">Ritirati</TabsTrigger>
+            ) : null}
+            {canRead ? (
+              <TabsTrigger value="generated">Documenti generati</TabsTrigger>
+            ) : null}
           </TabsList>
 
           <TabsContent value="documents" className="space-y-4">
@@ -1248,7 +1314,11 @@ function ModulisticaPage() {
               </Card>
             ) : null}
 
-            {listedTemplates.length > 0 ? (
+            {documentsLoading ? (
+              <div className="flex min-h-[280px] items-center justify-center">
+                <AppLoadingScreen subtitle="Caricamento documenti del club..." />
+              </div>
+            ) : listedTemplates.length > 0 ? (
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {listedTemplates.map(renderTemplateCard)}
               </div>
@@ -1295,7 +1365,11 @@ function ModulisticaPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {catalog.length > 0 ? (
+                  {documentsLoading ? (
+                    <p className="text-sm text-slate-500">
+                      Caricamento del catalogo...
+                    </p>
+                  ) : catalog.length > 0 ? (
                     <div className="space-y-3">
                       {catalog.map((entry) => (
                         <div
@@ -1362,9 +1436,15 @@ function ModulisticaPage() {
             </TabsContent>
           ) : null}
 
-          <TabsContent value="online-forms">
-            <FormsDashboard />
-          </TabsContent>
+          {/*
+            Non dipende da `loading`: si carica da sola, e non deve essere
+            smontata da cio che stanno facendo le schede documentali (W6-43).
+          */}
+          {canReadForms ? (
+            <TabsContent value="online-forms">
+              <FormsDashboard />
+            </TabsContent>
+          ) : null}
 
           <TabsContent value="retired" className="space-y-4">
             <Card>
@@ -1377,7 +1457,9 @@ function ModulisticaPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {retiredTemplates.length > 0 ? (
+                {documentsLoading ? (
+                  <p className="text-sm text-slate-500">Caricamento...</p>
+                ) : retiredTemplates.length > 0 ? (
                   <div className="space-y-3">
                     {retiredTemplates.map((template) => (
                       <div
@@ -1436,7 +1518,9 @@ function ModulisticaPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {generatedDocuments.length > 0 ? (
+                {documentsLoading ? (
+                  <p className="text-sm text-slate-500">Caricamento...</p>
+                ) : generatedDocuments.length > 0 ? (
                   /*
                     Una `<table>` non si restringe: senza contenitore
                     scrollabile allargherebbe il documento e a 375 px

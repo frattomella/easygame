@@ -10,6 +10,13 @@ import { EasyGameLogo } from "@/components/brand/easygame-logo";
 import { FormRenderer } from "./form-renderer";
 import { normalizeFormField, type FormField } from "@/lib/forms/model";
 import { buildEnrollmentReceiptPath } from "@/lib/forms/enrollment-receipt";
+import {
+  clearFormDraft,
+  formDraftKey,
+  readFormDraft,
+  saveFormDraft,
+  type FormDraft,
+} from "@/lib/forms/draft-storage";
 
 /**
  * Il modulo pubblico.
@@ -22,6 +29,13 @@ import { buildEnrollmentReceiptPath } from "@/lib/forms/enrollment-receipt";
  * **Non e una pagina dell'applicazione.** Non monta la chrome del club, non
  * ha sidebar, non chiede una sessione. Chi la apre non e nessuno: vede il
  * modulo, il nome della societa e nient'altro dell'archivio.
+ *
+ * **Salva e riprendi** (W6-48). Premere F5 a meta compilazione perdeva tutto,
+ * e su un telefono a meta iscrizione non si ricomincia: si abbandona. La
+ * bozza vive nel **browser di chi compila** — regole, limiti e scadenza in
+ * `src/lib/forms/draft-storage.ts` — e non viene mai ripristinata di
+ * nascosto: chi torna vede un avviso e sceglie se riprendere o ricominciare.
+ * Un modulo che si presenta pieno senza dire perche sembra gia inviato.
  */
 
 type PublicFormPayload = {
@@ -61,6 +75,22 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
     averlo dato.
   */
   const [receiptPath, setReceiptPath] = useState("");
+  /*
+    La bozza ritrovata, finche chi compila non ha deciso cosa farne. Non entra
+    nei valori da sola: vedi il commento in testa al file.
+  */
+  const [foundDraft, setFoundDraft] = useState<FormDraft | null>(null);
+  /*
+    **Si salva solo dopo che qualcuno ha scritto qualcosa.**
+
+    Senza questa guardia il primo salvataggio partirebbe al montaggio con il
+    modulo ancora vuoto e **cancellerebbe** la bozza appena ritrovata, prima
+    ancora che chi legge l'avviso possa dire «riprendi». Sul rinnovo, dove il
+    server precompila, salverebbe per giunta una bozza che nessuno ha scritto.
+  */
+  const [touched, setTouched] = useState(false);
+
+  const draftKey = formDraftKey(publicSlug);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,6 +123,50 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+    Si cerca una bozza **una volta**, al montaggio: rileggerla a ogni render
+    riproporrebbe l'avviso a chi lo ha appena scartato.
+  */
+  useEffect(() => {
+    setFoundDraft(readFormDraft(draftKey));
+  }, [draftKey]);
+
+  /*
+    **Si salva a ogni modifica**, non a intervalli: chi chiude la scheda non
+    avvisa, e una bozza salvata «fra dieci secondi» e una bozza che non c'e.
+    La scrittura e locale e su un oggetto piccolo — non c'e niente da
+    ammortizzare, e un `debounce` sarebbe la finestra in cui si perde tutto.
+  */
+  useEffect(() => {
+    if (!payload || success || !touched) return;
+    saveFormDraft(draftKey, payload.form.fields, {
+      answers: values,
+      respondentName,
+      respondentEmail,
+    });
+  }, [
+    draftKey,
+    payload,
+    success,
+    touched,
+    values,
+    respondentName,
+    respondentEmail,
+  ]);
+
+  const resumeDraft = () => {
+    if (!foundDraft) return;
+    setValues((current) => ({ ...current, ...foundDraft.answers }));
+    setRespondentName(foundDraft.respondentName);
+    setRespondentEmail(foundDraft.respondentEmail);
+    setFoundDraft(null);
+  };
+
+  const discardDraft = () => {
+    clearFormDraft(draftKey);
+    setFoundDraft(null);
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -133,6 +207,13 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
         return;
       }
 
+      /*
+        **La bozza si cancella all'invio riuscito**, e solo li: un invio
+        rifiutato per un campo sbagliato deve poter essere corretto e
+        rimandato, e cancellare la bozza a quel punto sarebbe il modo peggiore
+        di dire «controlla i campi segnalati».
+      */
+      clearFormDraft(draftKey);
       setSuccess(result.data.successMessage);
       setReceiptPath(
         result.data.receiptReference
@@ -255,6 +336,41 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           onSubmit={submit}
           className="space-y-6 rounded-b-lg border border-slate-200 bg-white p-5"
         >
+          {/*
+            **Si propone, non si ripristina.** Chi torna deve sapere che quello
+            che vede lo ha scritto lui prima, e deve poter ricominciare: un
+            modulo che si presenta pieno senza dire perche sembra gia inviato.
+            I due limiti si dicono qui, non in una nota a fondo pagina.
+          */}
+          {foundDraft ? (
+            <div className="space-y-3 rounded-md border border-sky-200 bg-sky-50 p-4">
+              <p className="text-sm font-semibold text-sky-900">
+                Abbiamo ritrovato quello che avevi iniziato a compilare
+              </p>
+              <p className="text-sm text-sky-900">
+                E rimasto su questo telefono e non e stato inviato. Allegati e
+                consensi vanno rifatti.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  type="button"
+                  className="min-h-[44px] w-full sm:w-auto"
+                  onClick={resumeDraft}
+                >
+                  Riprendi
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-[44px] w-full bg-white sm:w-auto"
+                  onClick={discardDraft}
+                >
+                  Ricomincia
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           {payload.form.collectRespondentEmail ? (
             <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
               <div className="space-y-2">
@@ -263,7 +379,10 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
                   id="respondent-name"
                   className="min-h-[44px] bg-white"
                   value={respondentName}
-                  onChange={(event) => setRespondentName(event.target.value)}
+                  onChange={(event) => {
+                    setTouched(true);
+                    setRespondentName(event.target.value);
+                  }}
                   placeholder="Nome e cognome"
                 />
               </div>
@@ -276,7 +395,10 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
                   type="email"
                   className="min-h-[44px] bg-white"
                   value={respondentEmail}
-                  onChange={(event) => setRespondentEmail(event.target.value)}
+                  onChange={(event) => {
+                    setTouched(true);
+                    setRespondentEmail(event.target.value);
+                  }}
                   placeholder="per essere ricontattati"
                 />
                 {errors.respondentEmail ? (
@@ -294,6 +416,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
             files={files}
             errors={errors}
             onChange={(fieldId, value) => {
+              setTouched(true);
               setValues((current) => ({ ...current, [fieldId]: value }));
               setErrors((current) => ({ ...current, [fieldId]: "" }));
             }}

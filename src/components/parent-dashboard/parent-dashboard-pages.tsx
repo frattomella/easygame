@@ -8,7 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Building2,
@@ -35,6 +35,7 @@ import {
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { ParentRsvpSection } from "@/components/parent/ParentRsvpSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
+import { findFirstPayableAthletePayment } from "@/lib/athlete-payment-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -530,12 +531,16 @@ export function ParentDashboardHome() {
   const missingDocuments = data.documents.required.filter(
     (document) => normalizeText(document.status) === "richiesto",
   ).length;
-  const certificateLabel =
-    data.health.status === "valid"
-      ? "Certificato valido"
-      : data.health.status === "expired"
-        ? "Certificato scaduto"
-        : "Certificato mancante";
+  /*
+    W6-16, W6-17, W6-18. L'etichetta la dice il server, che la ricava dal
+    dominio: qui c'era una terza scrittura degli stessi tre nomi, e non
+    conosceva «in scadenza».
+  */
+  const certificateLabel = data.health.statusLabel;
+  const certificatoDaRifare =
+    data.health.status === "expiring" ||
+    data.health.status === "expired" ||
+    data.health.status === "missing";
 
   return (
     <div className="space-y-6">
@@ -545,32 +550,36 @@ export function ParentDashboardHome() {
         subtitle={`Tutto quello che serve per ${data.athlete.name}.`}
       />
 
-      {data.athlete.linkedAthletes.length > 1 ? (
-        <div className="flex flex-wrap gap-2">
-          {data.athlete.linkedAthletes.map((athlete) => (
-            <button
-              key={athlete.id}
-              type="button"
-              onClick={() => router.push(`/parent-view/${athlete.id}`)}
-              className={cn(
-                "rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
-                athlete.id === data.athlete.id
-                  ? "border-blue-600 bg-blue-600 text-white"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-              )}
-            >
-              {athlete.name}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {/*
+        W6-12. Le pastiglie di scelta figlio stavano qui, e su una pagina
+        sola: le altre dodici non avevano nessun selettore. Adesso la scelta si
+        fa in una schermata sua e il guscio dice sempre di chi si sta
+        parlando — cioe su tutte e tredici, non su una.
+      */}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={UserCircle}
           title="Atleta"
           value={data.athlete.name}
-          note={data.athlete.category_name || "Categoria da assegnare"}
+          /*
+            W6-14. Un atleta puo stare in piu categorie, e la famiglia ne
+            vedeva una: la primaria. Un ragazzo che si allena con l Under 15
+            e gioca con la prima squadra leggeva meta della propria vita
+            sportiva — e il calendario, che dalle stesse appartenenze
+            dipende, gli mostrava meta degli impegni.
+          */
+          note={
+            data.athlete.categories?.length
+              ? data.athlete.categories
+                  .map((categoria: any) =>
+                    categoria.isPrimary
+                      ? `${categoria.name} (principale)`
+                      : categoria.name,
+                  )
+                  .join(" · ")
+              : data.athlete.category_name || "Categoria da assegnare"
+          }
         />
         <MetricCard
           icon={HeartPulse}
@@ -640,11 +649,44 @@ export function ParentDashboardHome() {
             <CardContent className="space-y-3">
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="font-semibold text-slate-950">{certificateLabel}</p>
+                {/*
+                  W6-17. La data e quella del certificato che **governa**, e
+                  arriva dal server: qui si leggeva `certificates[0]`, cioe la
+                  prima riga di un elenco ordinato per scadenza crescente —
+                  tipicamente il certificato piu vecchio. La Home accostava
+                  «Certificato valido» alla data di uno gia scaduto.
+
+                  W6-16. La data si mostra **sempre**, in tutti e quattro gli
+                  stati: e la cosa che una famiglia deve poter leggere per
+                  sapere se ha tempo.
+                */}
                 <p className="mt-1 text-sm text-slate-500">
-                  {data.health.certificates[0]?.expiry_date
-                    ? `Scadenza ${formatDate(data.health.certificates[0].expiry_date)}`
-                    : "Nessuna scadenza registrata"}
+                  {data.health.expiryDate
+                    ? data.health.status === "expired"
+                      ? `Scaduto il ${formatDate(data.health.expiryDate)}`
+                      : `Scade il ${formatDate(data.health.expiryDate)}`
+                    : "Data di scadenza non disponibile"}
                 </p>
+                {/*
+                  W6-18. Sapere che il certificato scade fra dieci giorni e
+                  non avere un posto dove portarlo e meta informazione. Il
+                  caricamento esiste gia: mancava la strada che ci arriva
+                  **da dove il problema si vede**.
+                */}
+                {certificatoDaRifare ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() =>
+                      router.push(
+                        `/parent-view/${data.athlete.id}/documents?tipo=medical_certificate`,
+                      )
+                    }
+                  >
+                    Aggiorna il certificato
+                  </Button>
+                ) : null}
               </div>
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="font-semibold text-slate-950">Segreteria</p>
@@ -1096,19 +1138,30 @@ export function ParentPaymentsPage() {
     premendo il pulsante, e chiederle quale sarebbe una domanda a cui non ha
     modo di rispondere meglio del prodotto.
   */
-  const rataDaPagare = useMemo(() => {
-    const items = Array.isArray(data?.payments.items) ? data.payments.items : [];
-    return (
-      items.find((rata: any) =>
-        ["pending", "overdue", "partial", "unpaid"].includes(
-          String(rata?.status || "").toLowerCase(),
-        ),
-      ) || null
-    );
-  }, [data?.payments.items]);
+  /*
+    W6-08. Qui c'era un elenco di token inglesi confrontato con `rata.status`,
+    che e l'**etichetta italiana** («Da incassare», «Scaduto», «Parzialmente
+    pagato»). Non corrispondeva mai: `rataDaPagare` era sempre `null`, il
+    pulsante sempre disabilitato, e il messaggio d'aiuto diceva «Nessuna rata
+    da saldare» a chi ne aveva tre aperte.
 
-  const apriPagamento = useCallback(async () => {
-    if (!data?.athlete.id || !rataDaPagare?.id) return;
+    Adesso la domanda la fa il dominio, che possiede entrambe le forme.
+  */
+  const rataDaPagare = useMemo(
+    () => findFirstPayableAthletePayment(data?.payments.items),
+    [data?.payments.items],
+  );
+
+  /*
+    Una rata per volta, scelta da chi paga. Il pulsante in cima resta e apre
+    la **prima** aperta — e cio che una famiglia intende premendolo — ma con un
+    piano a piu rate «la prima» non e sempre quella che si vuole saldare, e
+    chiederlo con un elenco a tendina sarebbe una domanda a cui il prodotto
+    sa gia rispondere riga per riga.
+  */
+  const apriPagamento = useCallback(async (rataScelta?: any) => {
+    const rata = rataScelta || rataDaPagare;
+    if (!data?.athlete.id || !rata?.id) return;
     setPagamentoInCorso(true);
     try {
       const risposta = await fetch(
@@ -1116,7 +1169,7 @@ export function ParentPaymentsPage() {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ payment_id: rataDaPagare.id }),
+          body: JSON.stringify({ payment_id: rata.id }),
         },
       );
       const payload = await risposta.json().catch(() => ({}));
@@ -1135,7 +1188,7 @@ export function ParentPaymentsPage() {
     } finally {
       setPagamentoInCorso(false);
     }
-  }, [data?.athlete.id, rataDaPagare?.id, showToast]);
+  }, [data?.athlete.id, rataDaPagare, showToast]);
 
   if (!data) return null;
 
@@ -1187,7 +1240,8 @@ export function ParentPaymentsPage() {
             payments={data.payments.items}
             mode="parent"
             showPayNow
-            onPayNow={rataDaPagare ? apriPagamento : undefined}
+            onPayNow={rataDaPagare ? () => void apriPagamento() : undefined}
+            onPayInstalment={(rata) => void apriPagamento(rata)}
             payNowPending={pagamentoInCorso}
           />
         </CardContent>
@@ -1246,6 +1300,58 @@ export function ParentPaymentsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/*
+        W6-19. **Le fatture erano nel payload e non le disegnava nessuno.**
+
+        Il server le calcola, il tipo le dichiara, e il controllo di accesso
+        sul documento le prevede gia — `kind === "invoice"` passa dallo stesso
+        gate del legame delle ricevute. Mancava la card: una famiglia che
+        riceve fattura invece di ricevuta vedeva un elenco vuoto e nessuna
+        spiegazione.
+      */}
+      {data.payments.invoices.length > 0 ? (
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader>
+            <CardTitle>Fatture</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {data.payments.invoices.map((invoice) => (
+                <div
+                  key={invoice.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-950">
+                      {invoice.description ||
+                        invoice.invoice_number ||
+                        "Fattura"}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {formatDate(invoice.issue_date)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold">
+                      {formatCurrency(invoice.amount)}
+                    </span>
+                    <Button asChild size="sm" variant="outline">
+                      <a
+                        href={`/api/v1/documents/invoice/${invoice.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Scarica
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
@@ -1253,6 +1359,13 @@ export function ParentPaymentsPage() {
 export function ParentDocumentsPage() {
   const { data, uploadDocument } = useParentDashboard();
   const { showToast } = useToast();
+  const searchParams = useSearchParams();
+  /*
+    W6-18. Il tipo puo arrivare dall indirizzo: e cosi che «Aggiorna il
+    certificato», premuto dalla Home, dice a questa schermata di cosa si sta
+    parlando invece di lasciare il genitore davanti a una tendina.
+  */
+  const tipoRichiesto = String(searchParams?.get("tipo") || "").trim();
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -1274,6 +1387,17 @@ export function ParentDocumentsPage() {
       await uploadDocument({
         templateId: selectedTemplateId,
         title: selectedTemplate?.title || selectedFile.name,
+        /*
+          W6-18. Senza il tipo il documento entra come «altro», e un
+          certificato medico caricato dalla famiglia non muove lo stato
+          sanitario: il genitore continuava a leggere «scaduto» il giorno
+          dopo averlo caricato, e aveva ragione lui.
+        */
+        documentType:
+          (selectedTemplate as any)?.type ||
+          (selectedTemplate as any)?.documentType ||
+          tipoRichiesto ||
+          undefined,
         file: selectedFile,
       });
       setSelectedFile(null);
@@ -1988,7 +2112,7 @@ export function ParentStructuresPage() {
         fieldId: form.fieldId,
         start: start.toISOString(),
         end: end.toISOString(),
-        athleteId: form.athleteId || data.athlete.id,
+        athleteId: data.athlete.id,
         notes: form.notes,
       });
       patchForm({ notes: "" });
@@ -2136,26 +2260,19 @@ export function ParentStructuresPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                {linkedAthletes.length > 1 ? (
-                  <div className="space-y-2">
-                    <Label>Atleta collegato</Label>
-                    <Select
-                      value={form.athleteId || data.athlete.id}
-                      onValueChange={(value) => patchForm({ athleteId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {linkedAthletes.map((athlete) => (
-                          <SelectItem key={athlete.id} value={athlete.id}>
-                            {athlete.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
+                {/*
+                  W6-12 e W6-13. Qui si poteva prenotare **per un altro
+                  figlio**, restando nell area del figlio scelto.
+
+                  Da quando l elenco delle prenotazioni e filtrato per figlio
+                  — e deve esserlo: prima mostrava anche quelle degli altri —
+                  quel campo sarebbe diventato una trappola, perche la
+                  prenotazione appena creata sarebbe **sparita** dalla stessa
+                  schermata che l ha creata.
+
+                  Si prenota per il figlio scelto. Per l altro si cambia
+                  figlio, che e l unico posto dove la scelta si fa.
+                */}
                 <div className="space-y-2">
                   <Label>Data</Label>
                   <Input
@@ -2246,7 +2363,7 @@ export function ParentContactsPage() {
   const { data } = useParentDashboard();
   if (!data) return null;
 
-  const settings = data.club.settings || {};
+  const sitoDelClub = data.club.website;
 
   return (
     <div className="space-y-6">
@@ -2280,13 +2397,9 @@ export function ParentContactsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {renderOpeningHours(data.club.opening_hours)}
-            {settings.website || settings.site ? (
+            {sitoDelClub ? (
               <Button variant="outline" asChild>
-                <a
-                  href={settings.website || settings.site}
-                  target="_blank"
-                  rel="noreferrer"
-                >
+                <a href={sitoDelClub} target="_blank" rel="noreferrer">
                   Sito web
                 </a>
               </Button>

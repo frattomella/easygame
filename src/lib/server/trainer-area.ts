@@ -1,7 +1,12 @@
 import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { isTrainerAccessRole, normalizeAccessRole } from "@/lib/access-roles";
-import { listClubEvents } from "./events";
+import {
+  findClubTrainerProfile,
+  listClubEvents,
+  readTrainerEventPerimeter,
+} from "./events";
+import { assertSportWorkPermission } from "@/lib/sport-work/permissions";
 import { toEventLegacyShape } from "@/lib/events/model";
 import { sendNotificationEmails } from "./email/email-service";
 import {
@@ -113,77 +118,38 @@ const raccogliCategorie = (value: unknown): any[] =>
     : [];
 
 /**
- * Il profilo allenatore collegato a questa utenza.
+ * Il perimetro di chi sta guardando, **chiesto a chi lo possiede**.
  *
- * Cerca **sia** in `clubs.trainers` **sia** in `clubs.staff_members`: un club
- * su tre registra i propri allenatori come staff con ruolo «allenatore», e
- * cercarli in un posto solo vuol dire che meta degli allenatori non ha
- * perimetro e vede zero avvisi — un silenzio che sembra «tutto a posto».
+ * Qui viveva `trovaProfilo`, la terza copia della ricerca «quale scheda del
+ * club e questa utenza». Cercava negli stessi due posti di `events.ts` — e per
+ * la stessa buona ragione: un club su tre registra i propri allenatori come
+ * staff — ma essere d'accordo oggi non e la stessa cosa che avere un
+ * proprietario, e la quarta copia, quella dell'RSVP, era gia divergente
+ * (W6-24). Adesso la risposta e una sola e arriva da `readTrainerEventPerimeter`.
+ *
+ * Cio che resta qui e cio che agli **eventi** non serve: le categorie del club
+ * per risolvere le etichette, gli atleti, e la scadenza delle convocazioni.
  */
-const trovaProfilo = (club: any, userId: string, email: string | null) => {
-  const pool = [
-    ...(Array.isArray(club?.trainers) ? club.trainers : []),
-    ...(Array.isArray(club?.staff_members) ? club.staff_members : []),
-  ] as any[];
-
-  return (
-    pool.find((entry) => {
-      const source =
-        entry?.data && typeof entry.data === "object" ? entry.data : {};
-      const identita = [
-        entry?.linkedUserId,
-        entry?.linked_user_id,
-        entry?.userId,
-        entry?.user_id,
-        source?.linkedUserId,
-        source?.userId,
-      ].map(asText);
-      const emails = [entry?.email, entry?.linkedUserEmail, source?.email].map(
-        (value) => asText(value).toLowerCase(),
-      );
-
-      return (
-        identita.includes(asText(userId)) ||
-        (Boolean(email) && emails.includes(asText(email).toLowerCase()))
-      );
-    }) || null
-  );
-};
-
 const readTrainerPerimeter = async (
   organizationId: string,
   userId: string,
 ): Promise<TrainerPerimeter> => {
-  const [club, user] = await Promise.all([
+  const [club, perimetroEventi] = await Promise.all([
     prisma.club.findUnique({
       where: { id: organizationId },
       select: {
         id: true,
         categories: true,
-        trainers: true,
-        staff_members: true,
         settings: true,
       },
     }),
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    }),
+    readTrainerEventPerimeter(organizationId, userId),
   ]);
 
   if (!club) throw new Error("Club non trovato");
 
-  const profilo = trovaProfilo(club, userId, user?.email ?? null);
-  const source =
-    profilo?.data && typeof profilo.data === "object" ? profilo.data : {};
   const categories = raccogliCategorie(club.categories);
-  const assignedCategories = raccogliCategorie(
-    Array.isArray(profilo?.categories)
-      ? profilo.categories
-      : Array.isArray(source?.categories)
-        ? source.categories
-        : [],
-  );
+  const assignedCategories = raccogliCategorie(perimetroEventi?.categoryIds);
 
   /*
     Gli atleti si leggono **tutti quelli attivi del club** e si tagliano dopo
@@ -422,3 +388,225 @@ export const syncTrainerOperationalAlerts = async (
 /** Vero se il ruolo attivo e quello per cui questo modulo esiste. */
 export const isTrainerArea = (role?: string | null) =>
   normalizeAccessRole(role) === "trainer";
+
+/* ================================================ i miei compensi ======== */
+
+/**
+ * **«I miei compensi»: la superficie che mancava a una chiave** (W6-32).
+ *
+ * `sport_work.read_own` era in catalogo, concessa a chi lavora per il club, e
+ * **nessuno la interrogava**: era l'ultima chiave del catalogo senza un atto
+ * da proteggere, e il modulo dei permessi lo dichiarava per iscritto. Una
+ * chiave configurabile che non governa niente promette una configurabilita che
+ * non c'e — e la stessa forma del difetto W5-D01, in scala piu piccola.
+ *
+ * ## Il legame, e perche non e una colonna
+ *
+ * `sport_work_people` **non ha** `user_id`: ha `origin_type` + `origin_id`,
+ * cioe il collegamento debole alla scheda JSON del club da cui la persona e
+ * stata importata (`legacy-migration.ts`). Il legame utenza → compensi si
+ * ricostruisce quindi in due passi: la scheda del club che appartiene a questa
+ * utenza — chiesta a `findClubTrainerProfile`, che e l'unico posto dove quella
+ * domanda vive — e le persone del modulo che dichiarano quella scheda come
+ * origine. L'email dell'account e la seconda strada, per le anagrafiche
+ * inserite a mano prima che esistesse la scheda.
+ *
+ * ## La risposta e un elenco chiuso, non un oggetto ripulito
+ *
+ * Ogni campo che esce e nominato qui. Non si parte dalla riga togliendo cio
+ * che non deve uscire: e la regola della lane 5I, e la ragione e che una
+ * colonna aggiunta domani allo schema uscirebbe da sola. Restano dentro
+ * `iban`, `notes` e i dati contributivi: non servono a chi guarda i propri
+ * compensi, e cio che non serve non esce.
+ */
+export type OwnCompensationStatement = {
+  organizationId: string;
+  personId: string;
+  displayName: string;
+  relationships: Array<{
+    id: string;
+    role: string;
+    relationshipType: string;
+    status: string;
+    startDate: string;
+    endDate: string | null;
+    contractAmount: number | null;
+    currency: string;
+    compensationFrequency: string;
+    plan: { kind: string; totalAmount: number; currency: string } | null;
+  }>;
+  installments: Array<{
+    id: string;
+    relationshipId: string;
+    sequence: number;
+    label: string;
+    dueDate: string;
+    grossAmount: number;
+    accruedAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+    status: string;
+  }>;
+  declarations: Array<{
+    id: string;
+    fiscalYear: number;
+    externalAmount: number;
+    declarationDate: string;
+    status: string;
+    hasOtherCoverage: boolean;
+  }>;
+  position: {
+    year: number;
+    clubGross: number;
+    externalDeclared: number;
+    progressive: number;
+    paymentCount: number;
+    lastPaymentAt: string | null;
+    hasCurrentDeclaration: boolean;
+  } | null;
+};
+
+const iso = (value: unknown) =>
+  value instanceof Date ? value.toISOString() : null;
+
+export const readOwnCompensationStatement = async (
+  scope: TrainerAreaScope & { actorEmail?: string | null },
+  options: { year?: number } = {},
+): Promise<OwnCompensationStatement | null> => {
+  /*
+    **`sport_work.read_own` e non `sport_work.read`.** La seconda e della
+    direzione e da l'elenco di tutto il club; questa da una persona sola,
+    quella collegata alla sessione. Chiedere qui la chiave della direzione
+    avrebbe reso la pagina inaccessibile proprio a chi e stata scritta.
+  */
+  assertSportWorkPermission(scope.activeRole, "sport_work.read_own");
+
+  const organizationId = asText(scope.activeOrganizationId);
+  if (!organizationId) throw negato("nessun club attivo selezionato");
+  const userId = asText(scope.userId);
+  if (!userId) throw negato("sessione senza utente");
+
+  const [club, user] = await Promise.all([
+    prisma.club.findUnique({
+      where: { id: organizationId },
+      select: { trainers: true, staff_members: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    }),
+  ]);
+
+  const email = asText(user?.email || scope.actorEmail).toLowerCase();
+  const profilo = findClubTrainerProfile(club, userId, email);
+  const origini = [asText(profilo?.id)].filter(Boolean);
+
+  /*
+    Senza nessuna delle due strade non si cerca affatto: una query con
+    `origin_id: { in: [] }` e `email: null` restituirebbe la prima persona
+    dell'elenco, cioe i compensi di uno sconosciuto.
+  */
+  if (!origini.length && !email) return null;
+
+  const persone = await prisma.sportWorkPerson.findMany({
+    where: {
+      organization_id: organizationId,
+      OR: [
+        ...(origini.length ? [{ origin_id: { in: origini } }] : []),
+        ...(email ? [{ email }] : []),
+      ],
+    },
+  });
+
+  const persona = persone[0];
+  if (!persona) return null;
+
+  const [rapporti, rate, dichiarazioni, posizioni] = await Promise.all([
+    prisma.sportWorkRelationship.findMany({
+      where: { organization_id: organizationId, person_id: persona.id },
+      include: { plan: true },
+      orderBy: { start_date: "desc" },
+    }),
+    prisma.sportWorkInstallment.findMany({
+      where: { organization_id: organizationId },
+      orderBy: { due_date: "asc" },
+    }),
+    prisma.sportWorkExternalDeclaration.findMany({
+      where: { organization_id: organizationId, person_id: persona.id },
+      orderBy: { declaration_date: "desc" },
+    }),
+    prisma.sportWorkYearPosition.findMany({
+      where: { organization_id: organizationId, person_id: persona.id },
+      orderBy: { year: "desc" },
+    }),
+  ]);
+
+  /*
+    Le rate non hanno `person_id`: appartengono al **rapporto**. Si filtrano
+    quindi sui rapporti gia ristretti alla persona, e non sul club — una
+    lettura per club consegnata cosi com'e sarebbe il piano di pagamento di
+    tutti.
+  */
+  const suoi = new Set(rapporti.map((riga) => riga.id));
+  const anno = options.year ?? new Date().getFullYear();
+  const posizione =
+    posizioni.find((riga) => riga.year === anno) || posizioni[0] || null;
+
+  return {
+    organizationId,
+    personId: persona.id,
+    displayName:
+      `${asText(persona.first_name)} ${asText(persona.last_name)}`.trim(),
+    relationships: rapporti.map((riga) => ({
+      id: riga.id,
+      role: riga.role,
+      relationshipType: riga.relationship_type,
+      status: riga.status,
+      startDate: iso(riga.start_date) ?? "",
+      endDate: iso(riga.end_date),
+      contractAmount: riga.contract_amount ?? null,
+      currency: riga.currency,
+      compensationFrequency: riga.compensation_frequency,
+      plan: (riga as any).plan
+        ? {
+            kind: (riga as any).plan.kind,
+            totalAmount: (riga as any).plan.total_amount,
+            currency: (riga as any).plan.currency,
+          }
+        : null,
+    })),
+    installments: rate
+      .filter((riga) => suoi.has(riga.relationship_id))
+      .map((riga) => ({
+        id: riga.id,
+        relationshipId: riga.relationship_id,
+        sequence: riga.sequence,
+        label: riga.label,
+        dueDate: iso(riga.due_date) ?? "",
+        grossAmount: riga.gross_amount,
+        accruedAmount: riga.accrued_amount,
+        paidAmount: riga.paid_amount,
+        remainingAmount: riga.remaining_amount,
+        status: riga.status,
+      })),
+    declarations: dichiarazioni.map((riga) => ({
+      id: riga.id,
+      fiscalYear: riga.fiscal_year,
+      externalAmount: riga.external_amount,
+      declarationDate: iso(riga.declaration_date) ?? "",
+      status: riga.status,
+      hasOtherCoverage: riga.has_other_coverage,
+    })),
+    position: posizione
+      ? {
+          year: posizione.year,
+          clubGross: posizione.club_gross,
+          externalDeclared: posizione.external_declared,
+          progressive: posizione.progressive,
+          paymentCount: posizione.payment_count,
+          lastPaymentAt: iso(posizione.last_payment_at),
+          hasCurrentDeclaration: posizione.has_current_declaration,
+        }
+      : null,
+  };
+};

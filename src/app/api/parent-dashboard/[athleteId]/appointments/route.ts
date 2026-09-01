@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { toFamilyFreeSlot } from "@/lib/appointments/projection";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import {
   cancelFamilyAppointment,
@@ -114,11 +115,18 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json({
       data: {
         items,
-        availableSlots: slots.map((slot) => ({
-          ...slot,
-          startsAt: slot.startsAt.toISOString(),
-          endsAt: slot.endsAt.toISOString(),
-        })),
+        /*
+          W6-57. Era uno spread, e con lo spread usciva tutto: fra i campi
+          anche `assignedToUserId`, cioe l'**identificativo interno** degli
+          operatori del club, e `taken` — quante altre famiglie hanno gia
+          prenotato quell'ora.
+
+          La proiezione dichiara cosa puo uscire invece di togliere cio che non
+          deve: un campo nuovo sul modello nasce cosi **non** visibile alla
+          famiglia. E la regola con cui la lane 5I ha chiuso l'anagrafica dei
+          colleghi.
+        */
+        availableSlots: slots.map(toFamilyFreeSlot),
       },
       error: null,
     });

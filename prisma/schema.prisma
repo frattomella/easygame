@@ -3068,7 +3068,10 @@ model AppointmentSlot {
   start_time          String
   end_time            String
   duration_minutes    Int           @default(30)
-  capacity            Int           @default(1)
+  /// La **capienza non c'e piu** (W6-56): l'indice unico parziale
+  /// `appointments_slot_vivo_unico` sta su (club, operatore, inizio) e non la
+  /// conosce, quindi con un valore maggiore di 1 il calcolo proponeva posti
+  /// che il database rifiutava. Un posto e preso oppure e libero.
   valid_from          DateTime?
   valid_until         DateTime?
   active              Boolean       @default(true)

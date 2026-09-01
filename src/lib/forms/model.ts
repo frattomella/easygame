@@ -194,7 +194,44 @@ export type FormSettings = {
    * domani non deve riscrivere la storia di cio che e uscito ieri.
    */
   documentTemplateId: string;
+  /**
+   * **A cosa serve questo modulo**, quando il club lo dichiara.
+   *
+   * `""` significa «non dichiarato», e non e la stessa cosa di `"generic"`:
+   * i moduli scritti prima che questa impostazione esistesse non hanno detto
+   * niente, e trattarli come «altro» li farebbe sparire tutti insieme dal
+   * menu del rinnovo — cioe spegnerebbe una funzione che oggi lavora. Per
+   * quelli si **deduce** dai campi (`isEnrollmentForm`), e la deduzione e
+   * precisa: un modulo che non raccoglie l'atleta non ha niente da rinnovare.
+   *
+   * Sta nelle impostazioni — cioe **dentro la versione**, come
+   * `documentTemplateId` — perche «questa compilazione era un'iscrizione»
+   * fa parte di cio che quella compilazione significava. Non e una colonna
+   * nuova: `FormSubmission.kind` resta l'autorita sull'**atto**
+   * (`enrollment` contro `renewal`), questa dice a cosa serve il **modulo**.
+   */
+  purpose: FormPurpose;
+  /**
+   * La voce del catalogo EasyGame da cui il modulo e nato, o stringa vuota.
+   *
+   * **Provenienza, non proprieta**: un modulo adottato e del club, si
+   * modifica liberamente e il catalogo non lo tocca piu. La chiave resta per
+   * due ragioni sole — dire da quale modello viene, e non riproporre due
+   * volte la stessa cosa. E la stessa regola di `catalog_key` sui modelli di
+   * documento (ADR-0092).
+   */
+  catalogKey: string;
 };
+
+/**
+ * A cosa serve un modulo.
+ *
+ * Due valori e l'assenza, non tre stati equivalenti: vedi `FormSettings`.
+ * `enrollment` copre iscrizione **e** rinnovo, perche sono lo stesso modulo
+ * compilato in due momenti — la differenza la porta la compilazione.
+ */
+export const FORM_PURPOSES = ["", "enrollment", "generic"] as const;
+export type FormPurpose = (typeof FORM_PURPOSES)[number];
 
 /**
  * Il contenuto di un modulo: cio che si pubblica e cio di cui si conserva la
@@ -241,6 +278,8 @@ export const DEFAULT_FORM_SETTINGS: FormSettings = {
   collectRespondentEmail: true,
   notifyOnSubmit: true,
   documentTemplateId: "",
+  purpose: "",
+  catalogKey: "",
 };
 
 export const normalizeFormField = (value: unknown): FormField => {
@@ -301,6 +340,16 @@ export const normalizeFormSettings = (value: unknown): FormSettings => {
         ? DEFAULT_FORM_SETTINGS.notifyOnSubmit
         : Boolean(record.notifyOnSubmit),
     documentTemplateId: asText(record.documentTemplateId).slice(0, 120),
+    /*
+      Un valore sconosciuto torna a «non dichiarato», non a «altro»: e la
+      stessa politica del binding e della chiave di consenso qui sopra — cio
+      che non e nel vocabolario si scarta, e la deduzione riprende il suo
+      posto invece di lasciare in giro una dichiarazione inventata.
+    */
+    purpose: FORM_PURPOSES.includes(asText(record.purpose) as FormPurpose)
+      ? (asText(record.purpose) as FormPurpose)
+      : "",
+    catalogKey: asText(record.catalogKey).slice(0, 120),
   };
 };
 
@@ -411,6 +460,16 @@ export type FormTemplateSummary = {
   fieldCount: number;
   submissionCount: number;
   pendingCount: number;
+  /**
+   * Da quale modello consigliato viene, o stringa vuota.
+   *
+   * Serve alla scheda per dirlo — un modulo nato da un modello era
+   * indistinguibile da uno scritto a mano (W6-45) — e all'elenco dei modelli
+   * per non riproporre cio che il club ha gia adottato.
+   */
+  catalogKey: string;
+  /** Vero se il modulo serve a iscrivere o rinnovare: vedi `isEnrollmentForm`. */
+  isEnrollment: boolean;
   createdAt: string;
   updatedAt: string;
   publishedAt: string;
@@ -505,6 +564,31 @@ export type FormSubmissionRecord = {
 export const getSchemaSubjects = (schema: FormSchema): FormSubjectKey[] =>
   collectSubjectsFromBindings(schema.fields.map((field) => field.binding));
 
+/**
+ * **Questo modulo serve a iscrivere o a rinnovare un atleta?**
+ *
+ * E la domanda che il menu del rinnovo della famiglia deve saper fare: fino a
+ * ieri non la faceva, e un questionario di gradimento compariva fra i moduli
+ * «da rinnovare» (W6-46). La risposta ha due strade, in quest'ordine:
+ *
+ * 1. **cio che il club ha dichiarato**, se lo ha dichiarato. E configurazione,
+ *    non codice: nessun elenco di titoli, nessuna euristica sul nome;
+ * 2. **la deduzione**, per i moduli scritti prima che la dichiarazione
+ *    esistesse. Un modulo si puo rinnovare solo se raccoglie l'atleta —
+ *    altrimenti non c'e niente da precompilare e l'approvazione non ha una
+ *    riga di anagrafica da toccare. E la condizione minima, non una
+ *    somiglianza.
+ *
+ * Il verso in cui sbaglia e voluto: la deduzione puo far comparire un modulo
+ * di troppo, mai far sparire un rinnovo che oggi funziona. Chi vuole
+ * l'esattezza dichiara.
+ */
+export const isEnrollmentForm = (schema: FormSchema) => {
+  if (schema.settings.purpose === "enrollment") return true;
+  if (schema.settings.purpose === "generic") return false;
+  return getSchemaSubjects(schema).includes("athlete");
+};
+
 /** I campi che raccolgono una risposta: le sezioni restano fuori. */
 export const getAnswerableFields = (schema: FormSchema) =>
   schema.fields.filter((field) => fieldCollectsAnswer(field.type));
@@ -542,6 +626,8 @@ const serializeSchemaForComparison = (schema: FormSchema) =>
       schema.settings.collectRespondentEmail,
       schema.settings.notifyOnSubmit,
       schema.settings.documentTemplateId,
+      schema.settings.purpose,
+      schema.settings.catalogKey,
     ],
   ]);
 

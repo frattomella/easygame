@@ -100,13 +100,33 @@ test("l'atleta apre la propria scheda e non quella dei fratelli", () => {
   );
 });
 
-test("l'atterraggio dopo l'attivazione resta un percorso solo", () => {
+test("con piu figli l atterraggio chiede di scegliere, con uno solo entra", () => {
+  /*
+    W6-12. **Questo test descriveva il difetto, non la regola.**
+
+    «Un percorso solo» significava atterrare sul **primo** figlio senza aver
+    chiesto niente, e per cambiarlo bisognava sapere che esistevano due
+    pastiglie sulla Home e due pulsanti sul Calendario: le altre undici pagine
+    dell area famiglia non avevano nessun selettore. Un genitore con due figli
+    apriva «Pagamenti» e leggeva degli importi senza aver mai scelto di chi.
+
+    Con un figlio solo la scelta non esiste e non si chiede: sarebbe un clic in
+    piu tutti i giorni.
+  */
   assert.equal(
     getAccessRedirectPath("parent", {
       organizationId: "club-a",
       linkedAthleteIds: [SECONDO, PRIMO],
     }),
+    "/parent-view",
+  );
+  assert.equal(
+    getAccessRedirectPath("parent", {
+      organizationId: "club-a",
+      linkedAthleteIds: [SECONDO],
+    }),
     `/parent-view/${SECONDO}`,
+    "con un figlio solo non c e niente da scegliere",
   );
   assert.equal(
     getAccessRedirectPath("parent", { organizationId: "club-a" }),
