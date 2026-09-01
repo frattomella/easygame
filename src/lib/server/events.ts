@@ -2,7 +2,11 @@ import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
-import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import {
+  AUDIT_ACTIONS,
+  recordAuditEvent,
+  recordPermissionDenied,
+} from "./audit";
 import {
   assertEventHasRoom,
   assertEventTransition,
@@ -69,7 +73,15 @@ type Attore = {
   email?: string | null;
 };
 
-const assertEventsPermission = (
+/**
+ * Il permesso di ruolo su un evento — e la riga che il rifiuto lascia.
+ *
+ * E `async` perche il diniego si **scrive** prima di essere lanciato
+ * (`recordPermissionDenied`). Il prezzo e un `await` su ogni chiamata, e il
+ * rischio di dimenticarlo — una guardia attesa a meta non ferma niente — lo
+ * presidia `tests/server/guardie-attese.test.mjs`, che rilegge questo file.
+ */
+const assertEventsPermission = async (
   scope: EventsScope,
   permesso:
     | "events.read"
@@ -79,6 +91,11 @@ const assertEventsPermission = (
     | "rsvp.read",
 ) => {
   if (!roleHasPermission(scope.activeRole, permesso)) {
+    await recordPermissionDenied({
+      scope,
+      permission: permesso,
+      resource: "club_events",
+    });
     throw negato(`il ruolo attivo non puo ${permesso}`);
   }
 };
@@ -190,7 +207,7 @@ export const listClubEvents = async (
   scope: EventsScope,
   filters: ListEventsFilters = {},
 ) => {
-  assertEventsPermission(scope, "events.read");
+  await assertEventsPermission(scope, "events.read");
   const organizationId = requireActiveOrganization(scope);
 
   const where: Record<string, any> = { organization_id: organizationId };
@@ -298,7 +315,7 @@ export const readClubEvent = async (
   idOrLegacyId: string,
   kind?: EventKind,
 ) => {
-  assertEventsPermission(scope, "events.read");
+  await assertEventsPermission(scope, "events.read");
   const organizationId = requireActiveOrganization(scope);
   const row = await findClubEvent(organizationId, idOrLegacyId, kind);
   if (!row) return null;
@@ -445,7 +462,7 @@ export const createClubEvent = async (
   input: unknown,
   attore: Attore = {},
 ) => {
-  assertEventsPermission(scope, "events.manage");
+  await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
   const colonne = toEventColumns(normalizeEventKind(kind), input);
 
@@ -506,7 +523,7 @@ export const updateClubEvent = async (
   attore: Attore = {},
   options: { expectedVersion?: number | null } = {},
 ) => {
-  assertEventsPermission(scope, "events.manage");
+  await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
 
   const existing = await findClubEvent(organizationId, idOrLegacyId);
@@ -613,7 +630,7 @@ export const saveEventConvocations = async (
   entries: readonly ConvocationInput[],
   attore: Attore = {},
 ) => {
-  assertEventsPermission(scope, "events.convoke");
+  await assertEventsPermission(scope, "events.convoke");
   const organizationId = requireActiveOrganization(scope);
 
   const event = await findClubEvent(organizationId, idOrLegacyId);
@@ -730,7 +747,7 @@ export const saveEventAttendance = async (
   entries: readonly AttendanceInput[],
   attore: Attore = {},
 ) => {
-  assertEventsPermission(scope, "events.attendance");
+  await assertEventsPermission(scope, "events.attendance");
   const organizationId = requireActiveOrganization(scope);
 
   const event = await findClubEvent(organizationId, idOrLegacyId);
@@ -789,7 +806,7 @@ export const listEventParticipants = async (
   scope: EventsScope,
   idOrLegacyId: string,
 ) => {
-  assertEventsPermission(scope, "events.read");
+  await assertEventsPermission(scope, "events.read");
   const organizationId = requireActiveOrganization(scope);
 
   const event = await findClubEvent(organizationId, idOrLegacyId);
@@ -819,7 +836,7 @@ export const deleteClubEvent = async (
   idOrLegacyId: string,
   attore: Attore = {},
 ) => {
-  assertEventsPermission(scope, "events.manage");
+  await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
 
   const event = await findClubEvent(organizationId, idOrLegacyId);
@@ -866,7 +883,7 @@ export const createClubEventsBatch = async (
   inputs: readonly unknown[],
   attore: Attore = {},
 ) => {
-  assertEventsPermission(scope, "events.manage");
+  await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
 
   const righe = [] as any[];

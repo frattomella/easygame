@@ -83,6 +83,89 @@ export const enrollmentReceiptHashesMatch = (left: string, right: string) => {
   return difference === 0;
 };
 
+/* --------------------------------------------------- il doppio invio */
+
+/** La finestra dentro cui due invii identici sono **lo stesso** invio. */
+export const SUBMISSION_DEDUP_WINDOW_MS = 10 * 60 * 1000;
+
+export type SubmissionDedupInput = {
+  templateId: unknown;
+  versionId: unknown;
+  /** Chi compila: l'account se c'e, altrimenti l'indirizzo dichiarato. */
+  respondent: unknown;
+  answers: unknown;
+  /** Nome e dimensione degli allegati in arrivo, nell'ordine in cui arrivano. */
+  files?: ReadonlyArray<{ fieldId?: unknown; fileName?: unknown; sizeBytes?: unknown }>;
+  /** L'istante dell'invio, in millisecondi. */
+  nowMs: number;
+  windowMs?: number;
+};
+
+/**
+ * La chiave che rende **uno** un invio ripetuto.
+ *
+ * Il difetto misurato: due invii paralleli della stessa domanda producevano due
+ * pratiche `pending` e due copie di ogni allegato, perche niente le legava. La
+ * segreteria se le trovava entrambe in coda, e ADR-0040 dice che un duplicato si
+ * mostra e non si risolve da solo — quindi restavano.
+ *
+ * **Cosa entra nella chiave, e perche ognuna delle quattro cose.** Il modulo e
+ * la sua versione, perche lo stesso testo compilato su una versione nuova e una
+ * domanda nuova; chi compila, perche due famiglie possono inviare risposte
+ * identiche — due moduli quasi vuoti si somigliano — e non vanno fuse; **il
+ * contenuto**, perche una correzione inviata subito dopo e un invio diverso e
+ * deve passare; e gli allegati per nome e dimensione, perche cambiare solo il
+ * file caricato cambia la domanda.
+ *
+ * **Perche c'e una finestra.** Senza, la stessa famiglia non potrebbe piu
+ * reinviare quel modulo con quelle risposte — mai piu, nemmeno l'anno dopo. La
+ * finestra dice cosa stiamo davvero difendendo: non l'unicita della domanda, ma
+ * il **gesto ripetuto** — un doppio clic, due schede aperte, una richiesta che
+ * la rete ha ritentato.
+ *
+ * **Perche il tempo sta dentro la chiave e non in un controllo.** Con due
+ * richieste concorrenti un controllo in memoria non regge: leggono entrambe
+ * «non c'e» e scrivono entrambe. Solo un indice unico decide. Il prezzo e il
+ * bordo: due invii a cavallo di un intervallo cadono in due chiavi diverse e
+ * passano entrambi. Si sceglie un intervallo largo rispetto al gesto che si
+ * difende — un doppio clic dista millisecondi, non minuti — e il bordo diventa
+ * un caso raro che sbaglia **verso il permettere**, che e il verso giusto: una
+ * domanda in piu si scarta, una domanda persa no.
+ */
+export const buildSubmissionDedupKey = (input: SubmissionDedupInput) => {
+  const finestra = Number(input.windowMs) > 0
+    ? Number(input.windowMs)
+    : SUBMISSION_DEDUP_WINDOW_MS;
+
+  const intervallo = Math.floor(Number(input.nowMs || 0) / finestra);
+
+  const allegati = (input.files || []).map((file) =>
+    [
+      asText(file?.fieldId),
+      asText(file?.fileName),
+      String(Number(file?.sizeBytes) || 0),
+    ].join(":"),
+  );
+
+  /*
+    `JSON.stringify` sulle risposte: due oggetti con le stesse chiavi scritte
+    in ordine diverso darebbero chiavi diverse — ma le risposte arrivano dal
+    modulo, non da mani diverse, e l'ordine dei campi e quello dello schema.
+    Normalizzarlo costerebbe una ricorsione su una struttura che il chiamante
+    puo annidare a piacere, per un caso che nel gesto difeso non si presenta.
+  */
+  const materiale = [
+    asText(input.templateId),
+    asText(input.versionId),
+    asText(input.respondent).toLowerCase(),
+    String(intervallo),
+    JSON.stringify(input.answers ?? {}),
+    allegati.join("|"),
+  ].join("\n");
+
+  return createHash("sha256").update(materiale).digest("hex");
+};
+
 /** Il percorso pubblico di una ricevuta. Un posto solo per non sbagliarlo. */
 export const buildEnrollmentReceiptPath = (reference: string) =>
   `/iscrizione/${encodeURIComponent(asText(reference))}`;

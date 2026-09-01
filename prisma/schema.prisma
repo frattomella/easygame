@@ -1387,6 +1387,18 @@ model FormSubmission {
   kind               String              @default("enrollment")
   /// La stagione a cui la domanda si riferisce, quando la dichiara.
   season_id          String?
+  /// **La difesa contro il doppio invio.**
+  ///
+  /// Deterministica: modulo, versione, chi compila e **il contenuto**, dentro
+  /// una finestra di dieci minuti. Due invii identici in parallelo — due schede
+  /// aperte, un doppio clic, una richiesta ritentata dalla rete — collidono su
+  /// questo indice e producono **una** domanda; lo stesso modulo ricompilato
+  /// un'ora dopo, o con dati diversi, passa.
+  ///
+  /// La finestra e nella chiave e non in un controllo applicativo, perche e
+  /// proprio con due richieste concorrenti che un controllo in memoria non
+  /// regge: entrambe leggono «non c'e» e scrivono.
+  dedup_key          String?
   /// **La ricevuta di invio**, come impronta e non come valore.
   ///
   /// La famiglia inviava e poi non sapeva piu niente: nessun riscontro, nessuno
@@ -1415,6 +1427,7 @@ model FormSubmission {
   template           FormTemplate        @relation(fields: [template_id], references: [id], onDelete: Cascade)
   template_version   FormTemplateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
 
+  @@unique([organization_id, dedup_key])
   @@index([organization_id, status])
   @@index([organization_id, template_id, submitted_at])
   @@index([organization_id, kind, submitted_at])

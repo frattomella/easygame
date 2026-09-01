@@ -254,6 +254,20 @@ restrizione: rispondere all'invito e un atto della famiglia, e chi risponde al
 posto suo produrrebbe un dato che l'allenatore leggerebbe come una conferma
 ricevuta. Il gate vero e comunque il **legame con l'atleta**, non il ruolo.
 
+> **Il catalogo diceva il contrario, e diceva male** (2026-09-01, sonda di
+> sicurezza 5J). `src/lib/permissions/catalog.ts` marcava `rsvp.answer` come
+> permesso della gestione e la negava a genitore e atleta: due tabelle in
+> disaccordo su sei ruoli su sette, con questa — quella che `answerRsvp`
+> interroga davvero — nel ruolo di chi decide. Una schermata che avesse creduto
+> al catalogo avrebbe mostrato alla segreteria un pulsante che il server rifiuta,
+> e nascosto alla famiglia l'unica cosa che le e chiesto di fare. Il catalogo e
+> stato allineato a chi decide.
+>
+> Resta vero che su questa chiave **nessun ruolo puo essere negato**: il ruolo
+> con cui si risponde e derivato dal legame appena verificato, quindi e sempre
+> `parent` o `athlete`. La porta chiusa e il legame assente — provare a
+> rispondere per il figlio di un altro — e da 5J lascia una riga di audit.
+
 **Perche segreteria e collaboratori leggono ma non mandano.** Mandare un
 messaggio a nome della societa ha lo stesso perimetro che gia protegge il
 sollecito degli insoluti (Wave 1). Allargarlo e una decisione di prodotto, da
@@ -321,6 +335,27 @@ campo (ADR-0058).
 **Per genitore e atleta il gate e il legame, non il ruolo**: le loro rotte
 risolvono il legame e sono l'unico controllo. Questo modulo decide cosa vede chi
 guarda il fascicolo **di qualcun altro**.
+
+**Dove le tre chiavi vengono applicate** (2026-09-01, dopo la sonda di
+sicurezza). Fino a 5J erano dichiarate e mai chieste: si registrava un
+certificato medico senza passare da nessuna di esse. Adesso il registro generico
+le applica in `src/lib/server/resources.ts`:
+
+| Chiave | Dove |
+|---|---|
+| `clinical.status_read` | `listResourcePage` e `getResourceById` sulle risorse `medical_certificates` e `simplified_certificates` |
+| `clinical.manage` | `createResource`, `updateResource` e `deleteResource` sulle stesse risorse, **e** sulla scrittura di una scheda atleta che tocchi uno dei campi di `CLINICAL_ATHLETE_FIELDS` |
+| `clinical.read` | non nega: **proietta**, con `proiettaSenzaDatoClinico` |
+
+La scheda atleta e a condizione di proposito: scrivere l'anagrafica di un atleta
+non e un atto clinico, e chiedere la chiave su ogni scrittura vorrebbe dire che
+chi non puo vedere le allergie non puo piu correggere un cognome.
+
+Nessuna delle due guardie toglie qualcosa a qualcuno oggi — i ruoli che hanno le
+chiavi sono gli stessi che gia scrivevano e leggevano — ed e il punto: la
+chiave esiste **da applicare** il giorno dei ruoli personalizzati. Una chiave
+che nessuna strada applica non e un permesso, e una casella che si spunta senza
+che cambi niente e peggio di una casella che non c'e.
 
 **Cosa il club perde, e va detto:** un allenatore smette di vedere allergie,
 farmaci e gruppo sanguigno. Finche non esiste la concessione per singolo
@@ -440,3 +475,28 @@ categoria di un atleta si leggeva solo dal campo di comodita e non da
 vera restava invisibile al proprio allenatore.
 
 Copertura: `tests/auth/perimetro-gruppo-operativo.test.mjs`.
+
+---
+
+## `consents.decide_own`: una chiave che non si ottiene da nessun ruolo (2026-09-01, Wave 5 — 5J)
+
+Il §12 la elencava e il catalogo non l'aveva: c'era solo
+`consents.decide_for_others`, che e il permesso opposto — la segreteria che
+registra per conto di qualcuno. La capacita esisteva gia (una famiglia accetta e
+revoca dalla propria area, dalla lane 5H) ma **senza un nome**, e cio che non ha
+un nome non si elenca in una schermata ne si concede a un ruolo personalizzato.
+
+E in catalogo con `roles: []` e `byLink: true`. **L'elenco vuoto non e una
+dimenticanza**: questo permesso non si ottiene mai da un ruolo. Lo scope della
+famiglia porta `activeRole: null` proprio perche ogni controllo di ruolo
+risponda «no» e l'unica strada resti il legame, che `assertSubjectMayDecide`
+verifica in `src/lib/server/consents.ts`. Scrivere `parent` fra i ruoli non
+aprirebbe niente e **mentirebbe sul come**: direbbe che chiunque abbia il ruolo
+genitore puo decidere, mentre la verita e che puo decidere chi e legato a
+**quell'** atleta.
+
+E la stessa forma di `documents.submit_own` e `rsvp.answer`: tre chiavi il cui
+gate e il legame. Il simbolo `⛓` della matrice del §12 significa esattamente
+questo, e vale la pena leggerlo come un avviso — un permesso `⛓` che qualcuno
+«sistemasse» aggiungendogli dei ruoli diventerebbe un permesso piu largo di
+quello che sembra.

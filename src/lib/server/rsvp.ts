@@ -1,15 +1,23 @@
 import { prisma } from "./prisma";
 import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import { canParentAccessAthlete } from "./parent-dashboard";
-import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import {
+  AUDIT_ACTIONS,
+  recordAuditEvent,
+  recordPermissionDenied,
+} from "./audit";
 import type { OrganizationAccessScope } from "./auth";
-import { assertCommunicationPermission } from "@/lib/communications/permissions";
+import {
+  assertCommunicationPermission,
+  hasCommunicationPermission,
+} from "@/lib/communications/permissions";
 import { isTrainerAccessRole } from "@/lib/access-roles";
 import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
 } from "@/lib/category-utils";
 import { findClubEvent } from "./events";
+import { toEventLegacyShape } from "@/lib/events/model";
 import {
   athleteMatchesGroup,
   buildCategoryGroups,
@@ -133,10 +141,24 @@ const CLUB_SELECTION = {
   trainers: true,
 } as const;
 
-const findTraining = (club: { trainings?: unknown }, trainingId: string) =>
-  asArray(club?.trainings).find((training) =>
-    sameId(asRecord(training).id, trainingId),
-  ) || null;
+/**
+ * **L'evento a cui si risponde, letto dalla riga e non dalla proiezione.**
+ *
+ * Questa funzione leggeva `clubs.trainings`, che porta i soli **allenamenti**:
+ * una risposta a una **gara** falliva con «Allenamento non trovato», e il
+ * collaudo a runtime lo ha visto dove i test non potevano, perche il dominio
+ * RSVP era gia pronto a ospitarla (ADR-0099) e nessuno lo aveva mai chiesto a
+ * una gara.
+ *
+ * Adesso l'evento si cerca fra le righe — entrambi i tipi — e si restituisce
+ * nella forma storica, che e cio che `readEventRsvpConfig` e
+ * `buildEventContext` leggono. La proiezione resta per chi non e ancora
+ * passato; questa strada non ci passa piu.
+ */
+const findTraining = async (organizationId: string, trainingId: string) => {
+  const evento = await findClubEvent(organizationId, trainingId);
+  return evento ? toEventLegacyShape(evento) : null;
+};
 
 const loadClub = async (organizationId: string) => {
   const club = await prisma.club.findUnique({
@@ -343,6 +365,24 @@ const authorizeAnsweringUser = async (userId: string, athleteId: string) => {
 
   const linked = await canParentAccessAthlete(userId, athlete.id);
   if (!linked) {
+    /*
+      **Qui il permesso e il legame, e il legame e l'unica cosa che nega.** Il
+      controllo di ruolo che segue non puo rifiutare nessuno: il ruolo con cui
+      si risponde e **derivato** dal legame appena verificato, e sia `parent`
+      sia `athlete` hanno `rsvp.answer`. Percio la riga di audit del diniego
+      appartiene a questo punto e non a quello: e qui che qualcuno ha provato a
+      rispondere per il figlio di un altro.
+    */
+    await recordPermissionDenied({
+      scope: {
+        userId,
+        activeRole: null,
+        activeOrganizationId: athlete.organization_id || null,
+      },
+      permission: "rsvp.answer",
+      resource: "club_event_participants",
+      resourceId: athlete.id,
+    });
     throw accessDenied("questo atleta non e collegato al tuo account");
   }
 
@@ -394,8 +434,8 @@ export const answerRsvp = async ({
   }
 
   const club = await loadClub(resolvedOrganizationId);
-  const training = findTraining(club, wantedTrainingId);
-  if (!training) throw new Error("Allenamento non trovato");
+  const training = await findTraining(resolvedOrganizationId, wantedTrainingId);
+  if (!training) throw new Error("Evento non trovato");
 
   const config = readEventRsvpConfig(training, now);
   const answerability = canAnswerRsvp({
@@ -601,6 +641,25 @@ export const readEventRsvpSummary = async ({
   actorEmail?: string | null;
   now?: Date;
 }): Promise<EventRsvpSummary> => {
+  /*
+    Il diniego **lascia una riga** prima di essere lanciato: la sonda di
+    sicurezza della Wave 5 aveva misurato quattordici chiavi che rifiutavano
+    correttamente e non scrivevano niente. Qui non si puo mettere dentro la
+    guardia — `assertCommunicationPermission` e un modulo puro, e deve
+    restarlo — quindi si chiede prima, e si scrive.
+  */
+  if (!hasCommunicationPermission(scope?.activeRole, "rsvp.read")) {
+    await recordPermissionDenied({
+      scope: {
+        userId: scope?.userId,
+        activeRole: scope?.activeRole,
+        activeOrganizationId: scope?.activeOrganizationId,
+      },
+      permission: "rsvp.read",
+      resource: "club_events",
+      resourceId: trainingId,
+    });
+  }
   assertCommunicationPermission(scope?.activeRole, "rsvp.read");
 
   /*
@@ -639,8 +698,8 @@ export const readEventRsvpSummary = async ({
   if (!wantedTrainingId) throw new Error("Allenamento mancante");
 
   const club = await loadClub(wanted);
-  const training = findTraining(club, wantedTrainingId);
-  if (!training) throw new Error("Allenamento non trovato");
+  const training = await findTraining(wanted, wantedTrainingId);
+  if (!training) throw new Error("Evento non trovato");
 
   const context = buildEventContext(club, asRecord(training));
 

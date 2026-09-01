@@ -85,6 +85,45 @@ export const belongsToActiveClub = (
 };
 
 /**
+ * **Uno scope incoerente non e uno scope.**
+ *
+ * La sonda di sicurezza della Wave 5 ha provato l'undicesima strada del
+ * cross-tenant: non una riga altrui chiesta con il proprio club attivo — quella
+ * la ferma `belongsToActiveClub` — ma uno **scope contraffatto**, con
+ * `activeOrganizationId` di un club e `allowedOrganizationIds` di un altro. Le
+ * quattro chiamate sono riuscite tutte: titolo di un evento riscritto,
+ * appuntamento portato a `confirmed`. Nessuna guardia se ne accorgeva, perche
+ * per disegno nessuna guarda l'elenco.
+ *
+ * Non era sfruttabile via HTTP — `resolveOrganizationScopeForUser` resta
+ * l'unico costruttore di scope, e la sonda ha verificato che con l'utente del
+ * club B restituisce il club B — ma «non c'e oggi una seconda strada» e una
+ * proprieta che vale finche qualcuno non ne scrive una.
+ *
+ * **Questo non riapre ADR-0094.** Quella decisione dice che l'appartenenza di
+ * una **riga** non si giudica con `allowedOrganizationIds`, e resta intatta: la
+ * riga si confronta con il club attivo e basta. Qui si controlla una cosa
+ * diversa e prima — che lo scope stesso stia in piedi: **il club su cui sto
+ * lavorando deve essere fra quelli a cui appartengo**. Un elenco vuoto non
+ * dice niente e non blocca niente: lo scope della famiglia nasce dal legame e
+ * non dalla membership, e pretendere un elenco pieno negherebbe l'accesso al
+ * tutore che nel club non e iscritto.
+ */
+const assertScopeIsCoherent = (scope: ActiveClubScope | null | undefined) => {
+  const elenco = (scope?.allowedOrganizationIds || [])
+    .map((value) => asText(value))
+    .filter(Boolean);
+
+  if (elenco.length === 0) return;
+
+  if (!elenco.includes(asText(scope?.activeOrganizationId))) {
+    throw activeClubDenied(
+      "il club attivo non e fra quelli a cui questo account appartiene",
+    );
+  }
+};
+
+/**
  * Impone il confine, o lancia.
  *
  * `soggetto` compare nel messaggio: «la fattura non e stata trovata, o non
@@ -103,6 +142,7 @@ export const assertActiveClub = (
   if (!asText(scope?.activeOrganizationId)) {
     throw activeClubDenied("nessun club attivo selezionato");
   }
+  assertScopeIsCoherent(scope);
   if (!belongsToActiveClub(scope, organizationId)) {
     throw activeClubDenied(
       `${soggetto} non appartiene al club attivo, o non esiste`,

@@ -47,8 +47,20 @@ const eventi = (organizationId) =>
     organization_id: organizationId,
     kind: "training",
     legacy_id: training.id,
-    status: "scheduled",
+    status: ["cancelled", "annullato"].includes(String(training.status))
+      ? "cancelled"
+      : "scheduled",
     starts_at: new Date(`${training.date}T${training.time}:00.000Z`),
+    /*
+      **La riga e la verita, non il payload.** `toEventLegacyShape` ricostruisce
+      la forma storica **dalle colonne**: la richiesta di conferma e la scadenza
+      devono stare qui, altrimenti l'evento non chiede niente a nessuno — che e
+      esattamente cio che succedeva prima della Wave 5, e per la stessa ragione.
+    */
+    rsvp_required: Boolean(training.rsvpRequired),
+    rsvp_deadline: training.rsvpDeadline ? new Date(training.rsvpDeadline) : null,
+    category_name: training.category ?? null,
+    title: training.title ?? null,
     payload: training,
   }));
 

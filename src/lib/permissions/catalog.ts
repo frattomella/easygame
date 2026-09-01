@@ -134,7 +134,20 @@ const ENTRIES: readonly PermissionEntry[] = [
     key: "rsvp.answer",
     domain: "events",
     label: "Rispondere alla convocazione di un evento",
-    roles: GESTIONE,
+    /*
+      **La riga che diceva il contrario di chi decide.** Qui c'era `GESTIONE`;
+      la matrice che `answerRsvp` interroga davvero — quella delle
+      comunicazioni — concede questa chiave a **genitore e atleta** e la nega
+      alla segreteria. Due tabelle in disaccordo su sei ruoli su sette, e una
+      schermata che avesse creduto a questa avrebbe mostrato alla segreteria un
+      pulsante che il server rifiuta, e nascosto alla famiglia l'unica cosa che
+      le e chiesto di fare.
+      Chi risponde a una convocazione e chi e stato convocato. La segreteria non
+      risponde al posto suo: se un giorno dovra farlo — la telefonata di una
+      famiglia senza smartphone — sara una chiave nuova e dichiarata, non
+      questa allargata di nascosto.
+    */
+    roles: ["parent", "athlete"],
     byLink: true,
   },
 
@@ -252,6 +265,30 @@ const ENTRIES: readonly PermissionEntry[] = [
     domain: "consents",
     label: "Registrare un'accettazione o una revoca per conto di qualcuno",
     roles: GESTIONE,
+  },
+  {
+    /*
+      **La chiave che il §12 elencava e che il catalogo non aveva.** C'era
+      soltanto la sua opposta, `decide_for_others`, e la sonda di sicurezza
+      della Wave 5 l'ha misurata mancante: la capacita esisteva — una famiglia
+      accetta e revoca dalla propria area — ma **senza un nome**, e cio che non
+      ha un nome non si puo elencare in una schermata ne concedere a un ruolo
+      personalizzato.
+
+      `roles` e vuoto **di proposito, e non e una dimenticanza**: questo
+      permesso non si ottiene mai da un ruolo. Lo scope della famiglia porta
+      `activeRole: null` perche ogni controllo di ruolo risponda «no», e
+      l'unica strada resti il legame che `assertSubjectMayDecide` verifica —
+      «una famiglia decide sul proprio atleta». Aggiungere qui `parent` non
+      aprirebbe niente e mentirebbe sul come: direbbe che chiunque abbia il
+      ruolo genitore puo decidere, mentre la verita e che puo decidere chi e
+      legato a **quell'** atleta.
+    */
+    key: "consents.decide_own",
+    domain: "consents",
+    label: "Accettare o revocare un consenso per il proprio atleta",
+    roles: [],
+    byLink: true,
   },
   {
     key: "consents.records.read",

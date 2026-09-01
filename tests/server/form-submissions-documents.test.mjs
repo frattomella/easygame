@@ -409,9 +409,17 @@ test("una compilazione inviata due volte resta due compilazioni, ciascuna con il
     f_cognome: "Rossi",
     f_consenso: true,
   });
+  /*
+    **La seconda deve essere davvero una seconda.** Da quando il doppio invio
+    ha una chiave (`buildSubmissionDedupKey`), due compilazioni identiche dello
+    stesso modulo a pochi secondi di distanza sono *lo stesso gesto* e ne resta
+    una: qui il cognome corretto e cio che rende i due invii due fatti — che e
+    esattamente la forma in cui una famiglia reinvia davvero, accorgendosi di
+    un errore.
+  */
   const seconda = await invia(template, {
     f_nome: "Mario",
-    f_cognome: "Rossi",
+    f_cognome: "Rossini",
     f_consenso: true,
   });
 
@@ -439,6 +447,24 @@ test("una compilazione inviata due volte resta due compilazioni, ciascuna con il
   */
   assert.equal(fake.rows("generatedDocument").length, 2);
   assert.equal(fake.rows("consentRecord").length, 2);
+});
+
+test("lo stesso invio ripetuto identico resta una compilazione sola", async () => {
+  /*
+    Il rovescio del test qui sopra, e il difetto che la sonda di concorrenza
+    della Wave 5 ha misurato: due invii **identici** producevano due pratiche
+    `pending` e due copie di ogni allegato, che la segreteria si trovava in coda
+    e doveva scartare a mano.
+  */
+  const template = await moduloPubblicato({ fields: CAMPI() });
+  await consensoAttivo();
+
+  const risposte = { f_nome: "Luca", f_cognome: "Bianchi", f_consenso: true };
+  const prima = await invia(template, risposte);
+  const ripetuta = await invia(template, { ...risposte });
+
+  assert.equal(prima.id, ripetuta.id);
+  assert.equal(fake.rows("formSubmission").length, 1);
 });
 
 /* ------------------------------------------------------- il consenso negato */

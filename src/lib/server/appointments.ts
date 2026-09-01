@@ -2,7 +2,11 @@ import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { isManagementAccessRole, normalizeAccessRole } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
-import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import {
+  AUDIT_ACTIONS,
+  recordAuditEvent,
+  recordPermissionDenied,
+} from "./audit";
 import { createClubNotifications } from "./club-notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { canParentAccessAthlete } from "./parent-dashboard";
@@ -89,11 +93,23 @@ type ChiaveAppuntamento =
   | "appointments.request"
   | "appointments.manage";
 
-const assertAppointmentsPermission = (
+/**
+ * Il permesso di ruolo su un appuntamento — e la riga che il rifiuto lascia.
+ *
+ * `async` per la stessa ragione della guardia degli eventi: il diniego si
+ * scrive prima di essere lanciato, e `tests/server/guardie-attese.test.mjs`
+ * presidia l'`await` su ogni chiamata.
+ */
+const assertAppointmentsPermission = async (
   scope: AppointmentsScope,
   permesso: ChiaveAppuntamento,
 ) => {
   if (!roleHasPermission(scope.activeRole, permesso)) {
+    await recordPermissionDenied({
+      scope,
+      permission: permesso,
+      resource: "appointments",
+    });
     throw negato(`il ruolo attivo non puo ${permesso}`);
   }
 };
@@ -146,7 +162,7 @@ export const listAppointments = async (
 ) => {
   const puoLeggereTutto = roleHasPermission(scope.activeRole, "appointments.read");
   if (!puoLeggereTutto) {
-    assertAppointmentsPermission(scope, "appointments.read_own");
+    await assertAppointmentsPermission(scope, "appointments.read_own");
   }
   const organizationId = requireActiveOrganization(scope);
 
@@ -195,7 +211,7 @@ export const listAppointments = async (
 export const readAppointment = async (scope: AppointmentsScope, id: string) => {
   const puoLeggereTutto = roleHasPermission(scope.activeRole, "appointments.read");
   if (!puoLeggereTutto) {
-    assertAppointmentsPermission(scope, "appointments.read_own");
+    await assertAppointmentsPermission(scope, "appointments.read_own");
   }
   const organizationId = requireActiveOrganization(scope);
 
@@ -573,7 +589,7 @@ export const createAppointment = async (
   input: AppointmentInput,
   attore: Attore = {},
 ) => {
-  assertAppointmentsPermission(scope, "appointments.request");
+  await assertAppointmentsPermission(scope, "appointments.request");
   const organizationId = requireActiveOrganization(scope);
 
   const confermato = Boolean(input.confirmed);
@@ -654,7 +670,7 @@ export const createAppointment = async (
 };
 
 const caricaPerScrittura = async (scope: AppointmentsScope, id: string) => {
-  assertAppointmentsPermission(scope, "appointments.manage");
+  await assertAppointmentsPermission(scope, "appointments.manage");
   const organizationId = requireActiveOrganization(scope);
 
   const row = await prisma.appointment.findFirst({
@@ -1047,7 +1063,7 @@ export const createAppointmentSlot = async (
   input: AppointmentSlotInput,
   attore: Attore = {},
 ) => {
-  assertAppointmentsPermission(scope, "appointments.manage");
+  await assertAppointmentsPermission(scope, "appointments.manage");
   const organizationId = requireActiveOrganization(scope);
 
   const row = await prisma.appointmentSlot.create({
@@ -1071,7 +1087,7 @@ export const updateAppointmentSlot = async (
   input: AppointmentSlotInput,
   attore: Attore = {},
 ) => {
-  assertAppointmentsPermission(scope, "appointments.manage");
+  await assertAppointmentsPermission(scope, "appointments.manage");
   const organizationId = requireActiveOrganization(scope);
 
   const esistente = await prisma.appointmentSlot.findFirst({
@@ -1121,7 +1137,7 @@ export const deleteAppointmentSlot = async (
   id: string,
   attore: Attore = {},
 ) => {
-  assertAppointmentsPermission(scope, "appointments.manage");
+  await assertAppointmentsPermission(scope, "appointments.manage");
   const organizationId = requireActiveOrganization(scope);
 
   const esistente = await prisma.appointmentSlot.findFirst({

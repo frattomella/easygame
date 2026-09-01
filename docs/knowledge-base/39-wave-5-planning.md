@@ -1024,8 +1024,14 @@ dal **legame** (genitore-atleta, oppure assegnazione), non dal ruolo.
 | `enrollment.review` | — | ✔ | ✔ | ✔ | ✔ | ✖ | ✖ | ✖ |
 | `board.read` | — | ✔ | ✔ | ✔ | ✔ | ✔ | ⛓ | ⛓ |
 
-✱ = permesso nuovo introdotto dalla Wave 5. **17 chiavi nuove**, zero ruoli
+✱ = permesso nuovo introdotto dalla Wave 5. **16 chiavi nuove**, zero ruoli
 nuovi.
+
+> Il conto diceva 17 e la tabella ne marcava 16: l'ha misurato la sonda di
+> sicurezza, ed e stato corretto sul numero **che si puo contare**. Una
+> discrepanza fra il testo e la tabella non e una svista tipografica quando la
+> tabella e l'elenco di cio che va provato: chi collauda non sa quale delle due
+> credere, e la diciassettesima chiave la cerca senza trovarla.
 
 ### Il taglio sul dato clinico, e perché è quello giusto
 
@@ -1841,7 +1847,7 @@ chiamate con l'header `x-active-club-id` del club A.
 
 #### U-16 — Permessi negati
 
-Per ognuna delle **17 chiavi nuove** del §12, dalla sessione di un ruolo che
+Per ognuna delle **16 chiavi nuove** del §12, dalla sessione di un ruolo che
 non la possiede:
 
 1. La chiamata risponde `403` con `Accesso negato`.

@@ -1050,3 +1050,56 @@ il vecchio blob non dice su quale conto sia passato il denaro.
 > `scripts/wave-4-registro-riconciliazione.mjs` esiste per impedire. La sonda
 > semina apposta **un conto con una sede e uno senza**: senza il primo, il
 > confronto su quel campo sarebbe vacuo.
+
+---
+
+## `form_submissions.dedup_key`: il doppio invio produce una domanda sola (2026-09-01, Wave 5 — 5J)
+
+Migrazione `20260901140000_wave5_invio_idempotente`: colonna `dedup_key` piu
+l'unico `(organization_id, dedup_key)`.
+
+**Il difetto, misurato.** La sonda di concorrenza
+(`scripts/wave-5-concurrency-probe.mjs`) ha inviato due volte in parallelo la
+stessa domanda di iscrizione e ne ha contate **due** in `form_submissions`,
+entrambe in `pending`, con gli allegati caricati due volte. Niente lo impediva:
+`receipt_token_hash` e unico ma si genera nuovo a ogni chiamata, quindi non
+deduplica nulla. Il contrasto era gia dentro il prodotto — l'appuntamento una
+chiave di idempotenza ce l'ha, e la stessa prova sul doppio clic la supera.
+
+Il costo non e teorico: due domande identiche in coda per la stessa persona, che
+qualcuno deve leggere e scartare a mano — e ADR-0040 dice che i duplicati si
+**mostrano** e non si risolvono da soli, quindi restano li.
+
+**La chiave** (`buildSubmissionDedupKey`, in `src/lib/forms/enrollment-receipt.ts`,
+modulo puro) e deterministica su modulo, versione, chi compila, **il contenuto**
+e gli allegati per nome e dimensione, dentro una finestra di dieci minuti.
+
+Perche c'e una finestra: senza, la stessa famiglia non potrebbe piu reinviare
+quel modulo con quelle risposte mai piu, nemmeno l'anno dopo. La finestra dice
+cosa si sta davvero difendendo — non l'unicita della domanda, ma il **gesto
+ripetuto**.
+
+Perche il tempo sta **nella chiave** e non in un controllo applicativo: con due
+richieste concorrenti un controllo in memoria non regge, leggono entrambe «non
+c'e» e scrivono entrambe. Il codice fa comunque una lettura preventiva, ma
+soltanto per non far pagare al caso frequente il caricamento inutile degli
+allegati; a decidere e l'indice. Il prezzo e il bordo: due invii a cavallo di un
+intervallo cadono in due chiavi diverse e passano entrambi — un caso raro che
+sbaglia **verso il permettere**, che e il verso giusto, perche una domanda in
+piu si scarta e una domanda persa no.
+
+**Chi perde la corsa porta via i propri allegati** (`scartaAllegati`): lasciarli
+vorrebbe dire che ogni doppio clic deposita per sempre una copia di un
+certificato medico che nessuna pratica cita piu.
+
+**Le righe gia in archivio restano con la chiave nulla**, e in PostgreSQL due
+`NULL` non collidono: una domanda inviata prima di oggi non e mai stata protetta
+e non lo diventa retroattivamente.
+
+**Cosa riceve il secondo invio**: la stessa `submissionId`, lo stesso messaggio
+di successo, e `receiptReference` **vuoto**. Non e una dimenticanza: in archivio
+del riferimento vive solo l'impronta (ADR-0085), quindi il valore in chiaro del
+primo invio non e piu leggibile da nessuno — nemmeno da li. Fabbricarne un
+secondo darebbe due credenziali a una pratica sola; derivarlo dalla chiave lo
+renderebbe ricalcolabile da chiunque conosca le risposte. Il riferimento vuoto e
+gia una forma prevista dal tipo: escono cosi le compilazioni della segreteria.

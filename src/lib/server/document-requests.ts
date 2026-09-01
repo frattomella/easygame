@@ -3,7 +3,11 @@ import {
   assertActiveClub,
   resolveActiveClubId,
 } from "@/lib/auth/active-club-boundary";
-import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import {
+  AUDIT_ACTIONS,
+  recordAuditEvent,
+  recordPermissionDenied,
+} from "./audit";
 import { createAttachment, getAttachmentMetadata } from "./attachments";
 import { createClubNotifications } from "./club-notifications";
 import { sendNotificationEmails } from "./email/email-service";
@@ -90,17 +94,26 @@ const toIso = (value: unknown) =>
 /* --------------------------------------------------------------- permessi */
 
 /**
- * Il permesso **di ruolo**, e basta.
+ * Il permesso **di ruolo**, e basta — e la riga che il rifiuto lascia.
  *
  * Vale per chiedere e per decidere: sono atti della societa, e la matrice del
  * §12 non li concede per legame a nessuno.
+ *
+ * `async` per la stessa ragione delle guardie di eventi e appuntamenti: il
+ * diniego si scrive prima di essere lanciato. L'`await` su ogni chiamata lo
+ * presidia `tests/server/guardie-attese.test.mjs`.
  */
-const assertRolePermission = (
+const assertRolePermission = async (
   scope: DocumentDossierScope,
   key: string,
   spiegazione: string,
 ) => {
   if (!roleHasPermission(scope?.activeRole, key)) {
+    await recordPermissionDenied({
+      scope,
+      permission: key,
+      resource: "document_requests",
+    });
     throw denied(spiegazione);
   }
 };
@@ -131,6 +144,20 @@ const assertSubjectAccess = async (
     const legato = await canParentAccessAthlete(scope.userId, asText(subjectId));
     if (legato) return;
   }
+
+  /*
+    Anche il diniego **per legame** lascia una riga. E il piu importante da
+    tracciare dei due: chi prova il fascicolo di un atleta che non e suo sta
+    facendo qualcosa di piu deliberato di chi apre una pagina che il suo ruolo
+    non prevede, e prima di questa riga era l'unico a non lasciare traccia.
+  */
+  await recordPermissionDenied({
+    scope,
+    permission: key,
+    resource: "document_requests",
+    resourceId: asText(subjectId) || null,
+    metadata: { via: "legame", subjectKind: kind },
+  });
 
   throw denied(spiegazione);
 };
@@ -470,7 +497,7 @@ export const createDocumentRequest = async (
   input: CreateDocumentRequestInput,
   request?: Request,
 ): Promise<DocumentDossierEntry> => {
-  assertRolePermission(
+  await assertRolePermission(
     scope,
     "documents.request",
     "un documento lo chiede chi lavora nella segreteria del club",
@@ -571,7 +598,7 @@ export const cancelDocumentRequest = async (
   options: { reason?: string | null } = {},
   request?: Request,
 ): Promise<DocumentDossierEntry> => {
-  assertRolePermission(
+  await assertRolePermission(
     scope,
     "documents.request",
     "una richiesta di documento la ritira chi puo farla",
@@ -629,7 +656,7 @@ export const remindDocumentRequest = async (
   requestId: string,
   request?: Request,
 ): Promise<DocumentDossierEntry> => {
-  assertRolePermission(
+  await assertRolePermission(
     scope,
     "documents.request",
     "un documento lo sollecita chi lo ha chiesto",
@@ -922,7 +949,7 @@ export const decideDocumentSubmission = async (
   decisione: { decision: unknown; note?: string | null },
   request?: Request,
 ): Promise<DocumentDossierEntry> => {
-  assertRolePermission(
+  await assertRolePermission(
     scope,
     "documents.review",
     "un documento lo accetta o lo rifiuta chi lavora nella segreteria del club",
@@ -941,14 +968,35 @@ export const decideDocumentSubmission = async (
   const motivo = explainDocumentDecisionNoteDenial(decision, decisione?.note);
   if (motivo) throw new Error(motivo);
 
-  const updated = (await prisma.documentSubmission.update({
-    where: { id: row.id },
+  /*
+    **La decisione si scrive con un confronto, non con un aggiornamento cieco.**
+
+    La sonda di concorrenza della Wave 5 lo ha misurato: due clic sullo stesso
+    pulsante leggevano entrambi `under_review`, passavano entrambi il controllo
+    di transizione — che avviene **in memoria** — e scrivevano entrambi. Lo
+    stato finale era corretto, e le conseguenze no: due righe di audit, due
+    notifiche «Documento approvato» alla stessa famiglia, e soprattutto **due
+    certificati medici** per lo stesso file, cioe due scadenze e due promemoria
+    notturni.
+  */
+  const applicati = await prisma.documentSubmission.updateMany({
+    where: { id: row.id, status: row.status },
     data: {
       status: decision,
       decided_by: scope.userId || null,
       decided_at: new Date(),
       decision_note: asText(decisione?.note) || null,
     },
+  });
+
+  if (applicati.count === 0) {
+    throw new Error(
+      "Questo documento e stato appena deciso da qualcun altro: ricarica la pagina",
+    );
+  }
+
+  const updated = (await prisma.documentSubmission.findUnique({
+    where: { id: row.id },
   })) as unknown as SubmissionRow;
 
   /*
@@ -1192,7 +1240,7 @@ export const listDocumentRequests = async (
   options: { now?: Date } = {},
 ): Promise<DocumentDossierEntry[]> => {
   if (!asText(filter.subjectId)) {
-    assertRolePermission(
+    await assertRolePermission(
       scope,
       "documents.read_dossier",
       "l'elenco delle richieste del club lo vede chi ci lavora dentro",
@@ -1211,7 +1259,7 @@ export const listPendingDocumentSubmissions = async (
   scope: DocumentDossierScope,
   filter: { organizationId?: string | null; subjectId?: unknown } = {},
 ): Promise<DocumentSubmissionView[]> => {
-  assertRolePermission(
+  await assertRolePermission(
     scope,
     "documents.review",
     "la coda dei documenti da verificare la vede chi li verifica",

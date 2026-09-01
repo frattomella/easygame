@@ -1643,3 +1643,128 @@ ricevuta esiste.
 
 Il gate di legame **affianca** quello di ruolo, non lo sostituisce, e vale solo
 per i documenti del proprio figlio.
+
+## Wave 5 — 5J: cio che la sonda di sicurezza ha misurato (2026-09-01)
+
+`scripts/wave-5-security-probe.mjs` esegue U-15 (undici tentativi cross-tenant)
+e U-16 (le sedici chiavi nuove del §12, ognuna negata a un ruolo che non la
+possiede e concessa a uno che la possiede) contro il database di sviluppo.
+Prima esecuzione: **61 controlli su 93**. Cio che ha trovato, e come e stato
+chiuso.
+
+### Nessun diniego lasciava una riga — RISOLTO
+
+Quattordici chiavi su diciotto rifiutavano correttamente, e **zero** di esse
+scrivevano in `audit_logs`. Il `recordAuditEvent({outcome: "denied"})` che il
+§12 chiede viveva in **quattro route handler su diciassette**: il registro
+raccontava i dinieghi di quattro porte e taceva sulle altre tredici — il modo
+peggiore di avere un registro, perche si crede di sapere e si sa un quarto.
+
+La traccia e stata messa dove il diniego si **decide** — nelle guardie di
+dominio — e non dove si compone il 403: il 403 lo compone ognuna delle
+settantaquattro rotte per conto proprio, mentre la guardia e una per dominio.
+Chi aggiunge domani una funzione al dominio eredita la traccia senza sapere che
+esiste; chi aggiunge una rotta no.
+
+Le guardie sono diventate `async` per poterla **aspettare**: una scrittura
+lanciata e non attesa, su un runtime serverless, corre contro la fine della
+richiesta, e il tentativo che piu importa tracciare — quello ripetuto e sempre
+rifiutato — sarebbe anche quello che finisce prima.
+
+Il prezzo e un pericolo silenzioso: una guardia `async` chiamata senza `await`
+restituisce una promessa e **non lancia**, quindi non ferma niente, e il
+compilatore non se ne accorge. Lo presidia `tests/server/guardie-attese.test.mjs`,
+che rilegge i sorgenti e pretende l'`await` su ognuna delle ventisette chiamate.
+
+Tracciano il diniego: `events.ts`, `appointments.ts`, `document-requests.ts`
+(per ruolo **e** per legame), `rsvp.ts`, `consents.ts`, e le due guardie
+cliniche di `resources.ts`. L'azione e sempre `permission.denied`, con la
+chiave nel metadato.
+
+### `clinical.manage` e `clinical.status_read` erano dichiarate e mai chieste — RISOLTO
+
+`assertHealthPermission` non era chiamata da nessun modulo server: **registrare
+un certificato medico non passava da nessuna chiave**. `clinical.status_read`
+compariva solo in una schermata, che la usava per descriversi.
+
+Ora il registro generico le applica: `assertClinicalWrite` sulla creazione,
+modifica e cancellazione di una risorsa clinica — e sulla scrittura dei **campi**
+clinici di una scheda atleta, non su ogni scrittura di anagrafica —
+`assertClinicalRead` sulla lettura.
+
+**Oggi non tolgono niente a nessuno, ed e il punto**: i ruoli che hanno le
+chiavi sono esattamente quelli che gia scrivevano e leggevano. Cambia **da
+dove** si passa, cosi che il giorno dei ruoli personalizzati (Wave 6) la scelta
+di un club abbia un posto in cui essere applicata.
+
+### `clinical.read` non nega: proietta — DEVIAZIONE DICHIARATA
+
+Non e cio che il §22 chiede, e resta cosi deliberatamente: negare l'elenco degli
+atleti a un allenatore perche non puo vedere le allergie renderebbe inservibile
+la sua dashboard, mentre il dato clinico resta comunque fuori dalla risposta. Il
+§22 descrive la forma giusta per le chiavi che proteggono un **atto**; questa
+protegge un **campo**, e un campo si toglie. Il taglio e misurato sul dato vero
+nella sezione D-4 della sonda, che verifica anche il verso opposto — al
+collaboratore i campi arrivano.
+
+La sonda la registra come `DEVIA`, che non e ne un successo ne un difetto: una
+sonda che non puo essere portata a verde e una sonda in cui una regressione vera
+si confonde con il rumore, ma un `PASS` avrebbe nascosto una scelta che merita
+di essere riletta.
+
+### `rsvp.answer` aveva due matrici che si contraddicevano — RISOLTO
+
+Il catalogo la concedeva alla gestione e la negava a genitore e atleta;
+`communications/permissions.ts` — che e quella che **decide**, via
+`assertCommunicationPermission` dentro `answerRsvp` — faceva esattamente il
+contrario. Due tabelle in disaccordo su sei ruoli su sette: una schermata che
+avesse creduto al catalogo avrebbe mostrato alla segreteria un pulsante che il
+server rifiuta, e nascosto alla famiglia l'unica cosa che le e chiesto di fare.
+
+Il catalogo e stato allineato a chi decide: `roles: ["parent", "athlete"]`.
+Resta vero che su questa chiave **nessun ruolo puo essere negato**, perche il
+ruolo con cui si risponde e derivato dal legame appena verificato: la porta
+chiusa e il legame assente, e da questa Wave lascia la sua riga di audit.
+
+### `consents.decide_own` non esisteva — RISOLTO
+
+Il §12 la elencava; nel catalogo c'era solo `consents.decide_for_others`, che e
+il permesso opposto. La capacita esisteva — una famiglia accetta e revoca dalla
+propria area — ma **senza un nome**, e cio che non ha un nome non si elenca in
+una schermata ne si concede a un ruolo personalizzato.
+
+E in catalogo con `roles: []` e `byLink: true`, e l'elenco vuoto non e una
+dimenticanza: questo permesso non si ottiene mai da un ruolo. Lo scope della
+famiglia porta `activeRole: null` proprio perche ogni controllo di ruolo
+risponda «no» e l'unica strada resti il legame.
+
+### Uno scope contraffatto passava ogni confine — RISOLTO
+
+L'undicesimo tentativo di U-15 non chiede una riga altrui con il proprio club
+attivo — quella la ferma `belongsToActiveClub` — ma presenta uno **scope
+incoerente**: `activeOrganizationId` di un club, `allowedOrganizationIds` di un
+altro. Quattro chiamate su quattro riuscite: titolo di un evento del club A
+riscritto, appuntamento del club A portato a `confirmed`.
+
+Non era sfruttabile via HTTP — `resolveOrganizationScopeForUser` resta l'unico
+costruttore di scope, e la sonda ha verificato che con l'utente del club B
+restituisce il club B — ma «non c'e oggi una seconda strada» e una proprieta che
+vale finche qualcuno non ne scrive una.
+
+`assertActiveClub` verifica adesso, **prima** di guardare qualunque riga, che il
+club attivo sia fra quelli a cui l'account appartiene. **Non riapre ADR-0094**:
+quella decisione vieta di giudicare l'appartenenza di una **riga** con
+`allowedOrganizationIds`, e resta intatta. Qui si giudica la coerenza dello
+**scope**, che e una domanda diversa e precedente. Un elenco vuoto non blocca
+niente, perche lo scope della famiglia nasce dal legame e non dalla membership.
+
+### Il conto del §12 non tornava — RISOLTO
+
+Il testo diceva «17 chiavi nuove» e la tabella ne marcava 16. Corretto sul
+numero che si puo contare: quando la tabella e l'elenco di cio che va provato,
+chi collauda non sa quale delle due credere e cerca una diciassettesima chiave
+che non esiste.
+
+### Esito finale
+
+**91 controlli su 91**, con una deviazione dichiarata (`clinical.read`).

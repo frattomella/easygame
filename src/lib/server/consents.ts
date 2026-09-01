@@ -1,6 +1,10 @@
 import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
-import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import {
+  AUDIT_ACTIONS,
+  recordAuditEvent,
+  recordPermissionDenied,
+} from "./audit";
 import { canParentAccessAthlete } from "./parent-dashboard";
 import {
   canApplyConsentDecision,
@@ -101,10 +105,18 @@ const assertCanDecide = (scope: ConsentAccessScope) => {
  * Il soggetto puo decidere **solo su se stesso**: un consenso che riguarda un
  * altro atleta, o un socio, o un tutore, non passa di qui nemmeno se il tutore
  * ne ha uno collegato.
+ *
+ * **La chiave che questa funzione applica si chiama `consents.decide_own`**, ed
+ * e in catalogo con `roles: []` e `byLink: true`. Non si chiede a
+ * `roleHasPermission` perche non c'e nessun ruolo da interrogare: qui il
+ * permesso **e** il legame, e il controllo di ruolo e quello dell'altra strada
+ * — `consents.decide_for_others`, la segreteria che registra per conto di
+ * qualcuno.
  */
 const assertSubjectMayDecide = async (
   asSubject: { userId: string; athleteId: string },
   input: { subjectKind: string; subjectId: string },
+  organizationId?: string | null,
 ) => {
   const userId = asText(asSubject.userId);
   const athleteId = asText(asSubject.athleteId);
@@ -123,6 +135,26 @@ const assertSubjectMayDecide = async (
 
   const legato = await canParentAccessAthlete(userId, athleteId);
   if (!legato) {
+    /*
+      Il diniego lascia una riga. Provare a decidere un consenso sul figlio di
+      un'altra famiglia e un gesto deliberato, e prima di questa riga era anche
+      un gesto che non si vedeva da nessuna parte.
+    */
+    await recordPermissionDenied({
+      scope: {
+        userId,
+        activeRole: null,
+        /*
+          Il club sulla riga non e un dettaglio: una riga di audit senza club
+          non compare in nessuna delle viste che un club puo leggere, e sarebbe
+          scritta per non essere trovata.
+        */
+        activeOrganizationId: organizationId || null,
+      },
+      permission: "consents.decide_own",
+      resource: "consent_records",
+      resourceId: athleteId,
+    });
     throw denied("questo atleta non risulta collegato a questo account");
   }
 };
@@ -787,7 +819,11 @@ export const recordConsentDecision = async (
   },
 ): Promise<{ record: ConsentRecordSummary; state: ConsentSubjectState }> => {
   if (input.asSubject) {
-    await assertSubjectMayDecide(input.asSubject, input);
+    await assertSubjectMayDecide(
+      input.asSubject,
+      input,
+      scope?.activeOrganizationId,
+    );
   } else {
     assertCanDecide(scope);
   }

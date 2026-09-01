@@ -285,6 +285,13 @@ export const AUDIT_ACTIONS = {
   appointmentCancelled: "appointment.cancelled",
   appointmentClosed: "appointment.closed",
   appointmentSlotChanged: "appointment.slot.changed",
+
+  /**
+   * **Un permesso negato.** Una sola azione per tutti i domini, con la chiave
+   * nel metadato: `permission.denied` filtra in un colpo tutti i dinieghi, e
+   * `metadata.permission` distingue quale porta era.
+   */
+  permissionDenied: "permission.denied",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -526,6 +533,53 @@ export const recordAuditEvent = async (
     });
     return false;
   }
+};
+
+/**
+ * **La riga che un diniego lascia dietro di se.**
+ *
+ * Il difetto misurato dalla sonda di sicurezza della Wave 5: quattordici chiavi
+ * su diciotto rifiutavano correttamente, e **nessuna** delle quattordici
+ * scriveva una riga. Il `recordAuditEvent({outcome:"denied"})' viveva in quattro
+ * route handler su diciassette — quindi il registro raccontava i dinieghi di
+ * quattro porte e taceva sulle altre tredici, che e il modo peggiore di avere
+ * un registro: si crede di sapere, e si sa un quarto.
+ *
+ * **Perche sta nella guardia e non nella rotta.** Il 403 lo compone ognuna delle
+ * settantaquattro rotte per conto proprio — non c'e un punto unico su cui
+ * appendersi — mentre il diniego lo **decide** la guardia di dominio, che e una
+ * per dominio. Chi aggiunge domani una funzione al dominio eredita la traccia
+ * senza sapere che esiste; chi aggiunge una rotta no.
+ *
+ * **Perche si aspetta.** Una scrittura lanciata e non attesa, su un runtime
+ * serverless, corre contro la fine della richiesta: il tentativo che piu importa
+ * tracciare — quello ripetuto e sempre rifiutato — sarebbe anche quello che
+ * finisce prima, e la sua riga la si perderebbe piu spesso delle altre.
+ * `recordAuditEvent` non rilancia mai, quindi aspettarla non aggiunge modi di
+ * fallire: aggiunge solo qualche millisecondo a una richiesta che sta comunque
+ * per essere rifiutata.
+ */
+export const recordPermissionDenied = async (input: {
+  scope: {
+    userId?: string | null;
+    activeRole?: string | null;
+    activeOrganizationId?: string | null;
+  } | null | undefined;
+  permission: string;
+  resource: string;
+  resourceId?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): Promise<void> => {
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.permissionDenied,
+    outcome: "denied",
+    actorUserId: input.scope?.userId || null,
+    actorRole: input.scope?.activeRole || null,
+    organizationId: input.scope?.activeOrganizationId || null,
+    resource: input.resource,
+    resourceId: input.resourceId || null,
+    metadata: { permission: input.permission, ...(input.metadata || {}) },
+  });
 };
 
 /**

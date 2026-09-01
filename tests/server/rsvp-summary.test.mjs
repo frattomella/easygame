@@ -166,15 +166,56 @@ const seed = () => ({
     Gli allenamenti sono righe (ADR-0098): il riepilogo RSVP si appoggia alla
     riga dell'evento, e l'identificativo storico resta in `legacy_id`.
   */
-  clubEvent: [T_SCAURI, T_LEGACY, T_SANTI].map((legacyId) => ({
-    id: `evento-${legacyId}`,
-    organization_id: CLUB,
-    kind: "training",
-    legacy_id: legacyId,
-    status: "scheduled",
-    starts_at: new Date("2026-09-05T17:30:00.000Z"),
-    payload: { id: legacyId },
-  })),
+  /*
+    **La riga e la verita, non il payload.** Il riepilogo legge la
+    configurazione RSVP dalle **colonne** dell'evento (ADR-0098): i gruppi e la
+    categoria stanno li, e il payload conserva solo cio che non ha una colonna.
+  */
+  clubEvent: [
+    {
+      id: `evento-${T_SCAURI}`,
+      organization_id: CLUB,
+      kind: "training",
+      legacy_id: T_SCAURI,
+      status: "scheduled",
+      title: "Pulcini Scauri",
+      category_id: "cat-pulcini",
+      group_ids: [GRUPPO_SCAURI],
+      rsvp_required: true,
+      rsvp_deadline: new Date("2026-09-04T18:00:00.000Z"),
+      starts_at: new Date("2026-09-05T17:30:00.000Z"),
+      ends_at: new Date("2026-09-05T19:00:00.000Z"),
+      payload: { id: T_SCAURI },
+    },
+    {
+      /* Dato **precedente** ai gruppi: solo la categoria. */
+      id: `evento-${T_LEGACY}`,
+      organization_id: CLUB,
+      kind: "training",
+      legacy_id: T_LEGACY,
+      status: "scheduled",
+      title: "Pulcini (dato precedente ai gruppi)",
+      category_id: "cat-pulcini",
+      rsvp_required: true,
+      starts_at: new Date("2026-09-05T17:30:00.000Z"),
+      ends_at: new Date("2026-09-05T19:00:00.000Z"),
+      payload: { id: T_LEGACY },
+    },
+    {
+      id: `evento-${T_SANTI}`,
+      organization_id: CLUB,
+      kind: "training",
+      legacy_id: T_SANTI,
+      status: "scheduled",
+      title: "Pulcini Santi Cosma",
+      category_id: "cat-pulcini",
+      group_ids: [GRUPPO_SANTI],
+      rsvp_required: true,
+      starts_at: new Date("2026-09-05T17:30:00.000Z"),
+      ends_at: new Date("2026-09-05T19:00:00.000Z"),
+      payload: { id: T_SANTI },
+    },
+  ],
   clubEventParticipant: [
     {
       id: "riga-1",

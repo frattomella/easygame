@@ -2,7 +2,8 @@ import { randomUUID } from "crypto";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
-import { createAttachment } from "./attachments";
+import { createAttachment, deleteAttachment } from "./attachments";
+import { parseAttachmentReference } from "@/lib/attachments";
 import { createResource, updateResource } from "./resources";
 import { sendNotificationEmails } from "./email/email-service";
 import {
@@ -71,6 +72,7 @@ import {
   validateAnswers,
 } from "@/lib/forms/validation";
 import {
+  buildSubmissionDedupKey,
   generateEnrollmentReceiptReference,
   hashEnrollmentReceiptReference,
   type EnrollmentKind,
@@ -588,6 +590,51 @@ export type SubmissionReceipt = {
   receiptReference: string;
 };
 
+/** La pratica gia scritta con quella chiave, se c'e. */
+const trovaGemella = async (organizationId: string, dedupKey: string) =>
+  dedupKey
+    ? ((await (prisma as any).formSubmission.findFirst({
+        where: { organization_id: organizationId, dedup_key: dedupKey },
+        select: { id: true },
+      })) as { id: string } | null)
+    : null;
+
+/** Gli allegati caricati da un invio che poi ha perso la corsa. */
+const scartaAllegati = async (files: FormSubmissionFile[]) => {
+  for (const file of files) {
+    const id = parseAttachmentReference(file.reference);
+    if (!id) continue;
+    await deleteAttachment(id).catch((error) => {
+      // Un allegato orfano non deve far fallire un invio che e andato a buon fine.
+      console.error("Allegato del doppio invio non rimosso:", error);
+    });
+  }
+};
+
+/**
+ * Cosa si risponde al secondo invio dello stesso gesto: **che e andata bene**.
+ *
+ * Non un errore. Un doppio clic non e uno sbaglio di chi compila, e dirgli che
+ * ha sbagliato lo farebbe premere una terza volta — e la stessa ragione per cui
+ * `creaRiga` degli appuntamenti restituisce la riga invece di lamentarsi.
+ *
+ * **Il riferimento della ricevuta esce vuoto, e non e una dimenticanza.** In
+ * archivio ne vive solo l'impronta (ADR-0085): il valore in chiaro del primo
+ * invio non e piu leggibile da nessuno, nemmeno da qui. Fabbricarne un secondo
+ * significherebbe due credenziali per una pratica sola; derivarlo dalla chiave
+ * significherebbe una credenziale che chiunque conosca le risposte sa ricalcolare.
+ * Vuoto e gia una forma prevista — le compilazioni della segreteria escono cosi
+ * — e chi ha visto la prima risposta il riferimento ce l'ha.
+ */
+const riscontroDelDuplicato = (
+  gemella: { id: string },
+  match: PublicFormMatch,
+): SubmissionReceipt => ({
+  submissionId: gemella.id,
+  successMessage: match.schema.settings.successMessage,
+  receiptReference: "",
+});
+
 const storeSubmission = async ({
   match,
   input,
@@ -607,6 +654,29 @@ const storeSubmission = async ({
   kind?: EnrollmentKind;
   seasonId?: string | null;
 }): Promise<SubmissionReceipt> => {
+  /*
+    **La chiave del doppio invio si calcola prima di toccare qualunque cosa**,
+    perche il lavoro costoso — caricare gli allegati — e proprio quello che il
+    secondo invio non deve rifare. Si calcola sull'ingresso grezzo: le risposte
+    convalidate sarebbero identiche, e aspettare la convalida vorrebbe dire
+    aver gia scritto i file.
+  */
+  const dedupKey = buildSubmissionDedupKey({
+    templateId: match.templateId,
+    versionId: match.versionId,
+    respondent: submittedBy || asText(input.respondentEmail),
+    answers: input.answers,
+    files: (input.files || []).map((file) => ({
+      fieldId: file.fieldId,
+      fileName: file.fileName,
+      sizeBytes: file.content?.length || 0,
+    })),
+    nowMs: Date.now(),
+  });
+
+  const gemella = await trovaGemella(match.organizationId, dedupKey);
+  if (gemella) return riscontroDelDuplicato(gemella, match);
+
   const files = await storeSubmissionFiles({
     organizationId: match.organizationId,
     templateId: match.templateId,
@@ -653,26 +723,53 @@ const storeSubmission = async ({
   const receiptReference =
     source === "public" ? generateEnrollmentReceiptReference() : "";
 
-  await (prisma as any).formSubmission.create({
-    data: {
-      id: submissionId,
-      organization_id: match.organizationId,
-      template_id: match.templateId,
-      version_id: match.versionId,
-      source,
-      kind,
-      season_id: seasonId || null,
-      receipt_token_hash:
-        hashEnrollmentReceiptReference(receiptReference) || null,
-      status: "pending",
-      subjects: selections,
-      answers: validated.answers,
-      files,
-      respondent_name: asText(input.respondentName).slice(0, 200) || null,
-      respondent_email: respondentEmail.toLowerCase() || null,
-      submitted_by: submittedBy,
-    },
-  });
+  try {
+    await (prisma as any).formSubmission.create({
+      data: {
+        id: submissionId,
+        organization_id: match.organizationId,
+        template_id: match.templateId,
+        version_id: match.versionId,
+        source,
+        kind,
+        season_id: seasonId || null,
+        dedup_key: dedupKey,
+        receipt_token_hash:
+          hashEnrollmentReceiptReference(receiptReference) || null,
+        status: "pending",
+        subjects: selections,
+        answers: validated.answers,
+        files,
+        respondent_name: asText(input.respondentName).slice(0, 200) || null,
+        respondent_email: respondentEmail.toLowerCase() || null,
+        submitted_by: submittedBy,
+      },
+    });
+  } catch (error: any) {
+    /*
+      Il controllo di prima non basta da solo: due richieste **davvero
+      parallele** lo superano entrambe — leggono tutte e due «non c'e» — e solo
+      qui, sull'indice unico, una delle due perde. E la stessa lezione degli
+      appuntamenti: la difesa e l'indice, il controllo che lo precede serve
+      soltanto a non far pagare il lavoro inutile al caso frequente.
+    */
+    const bersaglio = Array.isArray(error?.meta?.target)
+      ? error.meta.target.join(",")
+      : String(error?.meta?.target || "");
+
+    if (error?.code !== "P2002" || !bersaglio.includes("dedup_key")) throw error;
+
+    /*
+      Chi perde ha gia caricato gli allegati, e li porta via con se: lasciarli
+      vorrebbe dire che ogni doppio clic deposita per sempre una copia di un
+      certificato medico che nessuna pratica cita piu.
+    */
+    await scartaAllegati(files);
+
+    const vincente = await trovaGemella(match.organizationId, dedupKey);
+    if (vincente) return riscontroDelDuplicato(vincente, match);
+    throw error;
+  }
 
   if (match.schema.settings.notifyOnSubmit) {
     await notifyClub({

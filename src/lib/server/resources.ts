@@ -13,6 +13,8 @@ import {
   type CategoryGroup,
 } from "@/lib/club-sites";
 import {
+  assertHealthPermission,
+  CLINICAL_ATHLETE_FIELDS,
   hasHealthPermission,
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
@@ -39,7 +41,11 @@ import {
 } from "../club-seasons";
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
-import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import {
+  AUDIT_ACTIONS,
+  recordAuditEvent,
+  recordPermissionDenied,
+} from "./audit";
 /*
   W4-E, modifica minima a un file non suo: due regole del dominio dei documenti
   fiscali mancavano di un chiamante proprio qui. Le funzioni vivono nel modulo
@@ -494,6 +500,102 @@ const assertResourceIsOpen = (resource: string) => {
 };
 
 assertOgniRisorsaDichiaraIPermessi();
+
+/* ------------------------------------------------------ il dato sanitario */
+
+/**
+ * Le due chiavi cliniche che erano **dichiarate e mai chieste**.
+ *
+ * La sonda di sicurezza della Wave 5 le ha misurate: `clinical.manage` non era
+ * chiamata da nessun modulo server — si poteva registrare un certificato senza
+ * passare da quella chiave — e `clinical.status_read` da nessuno tranne una
+ * schermata, che la usava per **descriversi**, non per difendersi.
+ *
+ * **Oggi non tolgono niente a nessuno, ed e il punto.** I ruoli che hanno
+ * `clinical.manage` sono esattamente quelli che gia scrivevano un certificato
+ * dal registro generico: la guardia non cambia chi passa, cambia **da dove**.
+ * Il giorno dei ruoli personalizzati (Wave 6) un club potra togliere il dato
+ * sanitario a un collaboratore, e quella scelta avra un posto in cui essere
+ * applicata; senza queste due righe, la chiave sarebbe rimasta una casella che
+ * si spunta senza che cambi niente — che e peggio di non averla.
+ *
+ * **Perche l'atleta e a condizione.** Scrivere la scheda di un atleta non e un
+ * atto clinico: lo diventa se e solo se il carico tocca uno dei campi che
+ * `CLINICAL_ATHLETE_FIELDS` dichiara contenuto sanitario. Chiedere la chiave su
+ * ogni scrittura di anagrafica vorrebbe dire che chi non puo vedere le allergie
+ * non puo piu correggere un cognome.
+ */
+const RISORSE_CLINICHE = new Set([
+  "medical_certificates",
+  "simplified_certificates",
+]);
+
+const RISORSE_CON_SCHEDA_ATLETA = new Set(["athletes", "simplified_athletes"]);
+
+const toccaCampiClinici = (input: unknown): boolean => {
+  if (!input || typeof input !== "object") return false;
+  const record = input as Record<string, any>;
+
+  const dentro = (oggetto: unknown) =>
+    Boolean(oggetto) &&
+    typeof oggetto === "object" &&
+    CLINICAL_ATHLETE_FIELDS.some((campo) =>
+      Object.prototype.hasOwnProperty.call(oggetto as object, campo),
+    );
+
+  return dentro(record) || dentro(record.data);
+};
+
+const assertClinicalPermission = async (
+  scope: ResourceAccessScope,
+  permission: "clinical.manage" | "clinical.status_read",
+  resource: string,
+) => {
+  if (hasHealthPermission(scope.activeRole, permission)) return;
+
+  /*
+    Il diniego lascia una riga prima di essere lanciato. Non puo farlo
+    `assertHealthPermission`, che vive in un modulo puro e deve restarci: qui
+    si chiede, si scrive, e poi si lascia lanciare a lui — cosi il messaggio
+    resta uno solo.
+  */
+  await recordPermissionDenied({
+    scope: {
+      userId: scope.userId,
+      activeRole: scope.activeRole,
+      activeOrganizationId: scope.activeOrganizationId,
+    },
+    permission,
+    resource,
+  });
+
+  assertHealthPermission(scope.activeRole, permission);
+};
+
+const assertClinicalWrite = async (
+  resource: string,
+  scope: ResourceAccessScope | undefined,
+  input?: unknown,
+) => {
+  if (!scope) return;
+
+  const clinico =
+    RISORSE_CLINICHE.has(resource) ||
+    (RISORSE_CON_SCHEDA_ATLETA.has(resource) && toccaCampiClinici(input));
+
+  if (!clinico) return;
+
+  await assertClinicalPermission(scope, "clinical.manage", resource);
+};
+
+const assertClinicalRead = async (
+  resource: string,
+  scope: ResourceAccessScope | undefined,
+) => {
+  if (!scope || !RISORSE_CLINICHE.has(resource)) return;
+
+  await assertClinicalPermission(scope, "clinical.status_read", resource);
+};
 
 /** Le risorse in cui una riga appartiene a **chi la chiede**. */
 const isPersonalResource = (resource: string) =>
@@ -4010,10 +4112,53 @@ const filterTrainerDashboardRecords = async (
     context.assignedGroups.length > 0 &&
     (resource === "athletes" || resource === "simplified_athletes");
 
+  /*
+    **Il gruppo di un atleta sta nelle sue appartenenze, e la lista non le
+    carica.**
+
+    `getAthleteGroupIds` legge `category_memberships`, che e una tabella a se
+    (ADR-0038): la lettura generica degli atleti non la include, quindi il
+    confronto rispondeva «nessun gruppo» per **tutti** e l'allenatore vedeva
+    zero atleti. Un confine che fallisce chiuso e meglio di uno che fallisce
+    aperto, ma resta una superficie rotta — e il collaudo a runtime lo ha visto
+    dove i test con il doppio di Prisma non potevano.
+
+    Si caricano le appartenenze delle righe in mano, con **una** query.
+  */
+  let appartenenzePerAtleta = new Map<string, any[]>();
+  if (perGruppo) {
+    const atletiId = records
+      .map((record) => String(record?.id || "").trim())
+      .filter(Boolean);
+
+    if (atletiId.length) {
+      const righe = await prisma.athleteCategoryMembership.findMany({
+        where: {
+          organization_id: scope!.activeOrganizationId as string,
+          athlete_id: { in: atletiId },
+        },
+      });
+      for (const riga of righe) {
+        const chiave = String(riga.athlete_id);
+        appartenenzePerAtleta.set(chiave, [
+          ...(appartenenzePerAtleta.get(chiave) || []),
+          riga,
+        ]);
+      }
+    }
+  }
+
   return records.filter((record) => {
     if (perGruppo) {
+      const conAppartenenze = {
+        ...record,
+        category_memberships:
+          appartenenzePerAtleta.get(String(record?.id || "")) ||
+          record.category_memberships ||
+          [],
+      };
       return context.assignedGroups.some((group) =>
-        athleteMatchesGroup(record, group, context.siteIndex),
+        athleteMatchesGroup(conAppartenenze, group, context.siteIndex),
       );
     }
 
@@ -4073,6 +4218,7 @@ export const listResourcePage = async (
   options?: ResourceRequestOptions,
 ): Promise<ListResourceResult> => {
   assertResourceIsOpen(resource);
+  await assertClinicalRead(resource, scope);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
   const where = buildWhereFromSearchParams(resource, searchParams);
@@ -4276,6 +4422,7 @@ export const getResourceById = async (
   scope?: ResourceAccessScope,
 ) => {
   assertResourceIsOpen(resource);
+  await assertClinicalRead(resource, scope);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 
@@ -4374,6 +4521,7 @@ export const createResource = async (
   assertResourceIsOpen(resource);
   assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
+  await assertClinicalWrite(resource, scope, input);
 
   if (config.kind === "club_resource") {
     const data = normalizeClubResourceInput(resource, input);
@@ -5103,6 +5251,7 @@ export const updateResource = async (
   assertResourceIsOpen(resource);
   assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
+  await assertClinicalWrite(resource, scope, input);
 
   if (config.kind === "club_resource") {
     const existing = await findClubResourceRecord(resource, id, scope);
@@ -5503,6 +5652,7 @@ export const deleteResource = async (
 ) => {
   assertResourceIsOpen(resource);
   assertNotDomainOwnedModel(resource);
+  await assertClinicalWrite(resource, scope);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 
