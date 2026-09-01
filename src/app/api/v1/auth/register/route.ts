@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  readRequestId,
+  reportServerError,
+} from "@/lib/server/observability";
 import { prisma } from "@/lib/server/prisma";
 import { hashPassword, verifyPassword } from "@/lib/server/auth";
 import {
@@ -237,7 +241,19 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
-    console.error("Registration error:", error);
+    /*
+      **Non l'errore intero** (ADR-0019: i log non devono contenere dati personali).
+      Il messaggio di un errore di validazione dell'ORM porta con se l'oggetto che
+      si stava scrivendo: su questi flussi vuol dire password, hash e codici di
+      verifica. Il punto unico lo riduce a nome, messaggio e codice, e ci mette
+      l'identificativo di richiesta perche due righe della stessa richiesta si
+      possano finalmente mettere in fila.
+    */
+    reportServerError(error, {
+      requestId: readRequestId(request),
+      route: "/api/v1/auth/register",
+      method: "POST",
+    });
     return NextResponse.json(
       {
         data: { user: null, session: null },

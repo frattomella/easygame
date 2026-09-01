@@ -114,6 +114,19 @@ test("le email partono solo da src/lib/server/email/", () => {
       canale proprio, non che esista un chiamante solo.
     */
     "lib/server/automations.ts",
+    /*
+      L'accesso atleta (Wave 6, lane 6C), e per la stessa ragione: chiama la
+      **stessa** `sendTransactionalEmail`, con la stessa configurazione SMTP e
+      la stessa politica di errore — se il provider non e configurato la
+      consegna e `skipped`, e la scheda lo dice invece di fingere un invio.
+
+      Non e nemmeno un secondo canale verso la famiglia: l'invito e una
+      comunicazione **transazionale** verso una persona sola, come il codice
+      di verifica e il link di reset, e non passa dall'audience engine perche
+      non ha un pubblico da risolvere. Il destinatario e l'indirizzo che la
+      segreteria ha appena digitato.
+    */
+    "lib/server/athlete-accounts.ts",
   ];
 
   assert.deepEqual(
@@ -138,6 +151,22 @@ test("la deduplica delle comunicazioni passa dal registro delle consegne", () =>
   assert.deepEqual(
     filesUsing("communicationDelivery", [
       "lib/server/communication-deliveries.ts",
+      /*
+        **L'eccezione dichiarata, e provvisoria** (Wave 6, lane 6I).
+
+        `data-subject.ts` legge e anonimizza il registro quando una persona
+        chiede la cancellazione dei propri dati: dopo la cancellazione una
+        consegna non deve piu portare il nome e l'indirizzo di chi non c'e
+        piu. Non e un invio e non tocca la deduplica — il vincolo che questo
+        test protegge e «un messaggio non parte due volte», e leggere per
+        anonimizzare non lo mette in discussione.
+
+        Resta comunque una deroga all'ownership, e la strada giusta e una
+        funzione nel proprietario — `anonymizeDeliveriesForSubject` in
+        `lib/server/communication-deliveries.ts`, che la lane 6I non possiede.
+        Quando esiste, questa riga si toglie.
+      */
+      "lib/server/data-subject.ts",
     ]),
     [],
     "solo il proprietario del registro tocca la tabella; gli altri passano dalle sue funzioni",

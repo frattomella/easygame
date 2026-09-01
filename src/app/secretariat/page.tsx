@@ -238,20 +238,14 @@ export default function SecretariatPage() {
   useEffect(() => {
     const loadData = async () => {
       if (!activeClub?.id) {
-        console.log("[SecretariatPage] No active club available:", activeClub);
         setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
-        console.log(
-          "[SecretariatPage] Starting data load for club:",
-          activeClub.id,
-        );
 
         // Load all secretariat data
-        console.log("[SecretariatPage] Starting parallel data loading...");
         const [
           appointmentsData,
           notesData,
@@ -270,26 +264,6 @@ export default function SecretariatPage() {
           getClubData(activeClub.id, "members"),
         ]);
 
-        console.log(
-          "[SecretariatPage] Loaded appointments data:",
-          appointmentsData,
-        );
-        console.log("[SecretariatPage] Loaded notes data:", notesData);
-        console.log(
-          "[SecretariatPage] Loaded opening hours data:",
-          openingHoursData,
-        );
-        console.log("[SecretariatPage] Loaded staff data:", staffData);
-        console.log("[SecretariatPage] Loaded athletes data:", athletesData);
-        console.log("[SecretariatPage] Loaded trainers data:", trainersData);
-        console.log(
-          "[SecretariatPage] Staff data type:",
-          typeof staffData,
-          "Is array:",
-          Array.isArray(staffData),
-          "Length:",
-          Array.isArray(staffData) ? staffData.length : "N/A",
-        );
 
         /*
           Nessuna conversione: la proiezione del dominio porta gia `date` e
@@ -338,19 +312,9 @@ export default function SecretariatPage() {
                 id: staff.id || `staff-${Date.now()}-${Math.random()}`,
                 name: staff.name || "Nome non disponibile",
               };
-              console.log(
-                "[SecretariatPage] Processing staff member:",
-                staff,
-                "-> ",
-                processedStaffMember,
-              );
               return processedStaffMember;
             })
           : [];
-        console.log(
-          "[SecretariatPage] Final processed staff members:",
-          processedStaff,
-        );
         setStaffMembers(processedStaff);
 
         const normalizedAthletes = Array.isArray(athletesData)
@@ -514,7 +478,6 @@ export default function SecretariatPage() {
           setOpeningHours(openingHoursData[0]);
         }
 
-        console.log("[SecretariatPage] Data loading completed successfully");
       } catch (error) {
         console.error(
           "[SecretariatPage] Error loading secretariat data:",
@@ -527,15 +490,8 @@ export default function SecretariatPage() {
     };
 
     if (user && activeClub) {
-      console.log(
-        "[SecretariatPage] User and active club available, starting data load",
-      );
       loadData();
     } else {
-      console.log("[SecretariatPage] Missing user or active club:", {
-        user: !!user,
-        activeClub: !!activeClub,
-      });
       setLoading(false);
     }
   }, [user, activeClub, showToast]);
@@ -659,13 +615,6 @@ export default function SecretariatPage() {
   };
 
   const addAppointment = async () => {
-    console.log("Adding appointment with data:", {
-      appointmentDate,
-      title: newAppointment.title,
-      time: newAppointment.time,
-      person: newAppointment.person,
-      activeClubId: activeClub?.id,
-    });
 
     if (!activeClub?.id) {
       showToast("error", "Nessun club attivo trovato. Ricarica la pagina.");
@@ -733,11 +682,6 @@ export default function SecretariatPage() {
   };
 
   const addNote = async () => {
-    console.log("Adding note with data:", {
-      newNote,
-      trimmed: newNote.trim(),
-      activeClubId: activeClub?.id,
-    });
 
     if (!activeClub?.id) {
       showToast("error", "Nessun club attivo trovato. Ricarica la pagina.");
@@ -1251,10 +1195,6 @@ export default function SecretariatPage() {
                                   {Array.isArray(staffMembers) &&
                                   staffMembers.length > 0 ? (
                                     staffMembers.map((staff) => {
-                                      console.log(
-                                        "[SecretariatPage] Rendering morning staff option:",
-                                        staff,
-                                      );
                                       return (
                                         <option
                                           key={staff.id}
@@ -1324,10 +1264,6 @@ export default function SecretariatPage() {
                                   {Array.isArray(staffMembers) &&
                                   staffMembers.length > 0 ? (
                                     staffMembers.map((staff) => {
-                                      console.log(
-                                        "[SecretariatPage] Rendering afternoon staff option:",
-                                        staff,
-                                      );
                                       return (
                                         <option
                                           key={staff.id}

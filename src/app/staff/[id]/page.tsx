@@ -148,7 +148,6 @@ export default function StaffMemberDetailsPage() {
 
       setIsLoading(true);
       try {
-        console.log("Fetching club data for clubId:", clubId);
         
         const { data: clubData, error: clubError } = await supabase
           .from("clubs")
@@ -159,7 +158,6 @@ export default function StaffMemberDetailsPage() {
         if (clubError) {
           // Handle network errors with retry
           if (clubError.message?.includes("Failed to fetch") && retryCount < 3) {
-            console.log(`Retry attempt ${retryCount + 1} for fetching club data...`);
             setTimeout(() => fetchStaffData(retryCount + 1), 1000 * (retryCount + 1));
             return;
           }
@@ -176,7 +174,6 @@ export default function StaffMemberDetailsPage() {
           return;
         }
 
-        console.log("Club data loaded successfully:", clubData);
 
         // Find staff member in staff_members array
         const members = Array.isArray(clubData?.staff_members)
@@ -196,7 +193,6 @@ export default function StaffMemberDetailsPage() {
 
         if (!staffData) {
           console.error("Staff member not found in club data. StaffId:", staffId);
-          console.log("Available staff members:", clubData?.staff_members);
           showToast("error", "Membro dello staff non trovato");
           setIsLoading(false);
           return;

@@ -1,11 +1,25 @@
 export type SharedDocumentRole = "club" | "parent";
 
+/**
+ * W6-50. **«Scaduto» mancava, e il dominio lo calcolava da sempre.**
+ *
+ * `deriveDocumentDueState` (`src/lib/documents/request-model.ts`) restituisce
+ * `overdue` dal giorno in cui il termine passa, e nessuna delle etichette di
+ * questo file sapeva nominarlo: la scheda atleta mostrava «Richiesto» su un
+ * documento chiesto per il 30 settembre, il 15 ottobre. La segreteria leggeva
+ * lo stesso badge del giorno in cui aveva chiesto.
+ *
+ * Il valore entra qui e non altrove perche questo e il vocabolario che la
+ * scheda atleta legge oggi (`src/app/athletes/[id]/page.tsx`): il fascicolo
+ * nuovo ha il suo, in `src/lib/documents/family-dossier.ts`.
+ */
 export type SharedDocumentStatus =
   | "required"
   | "uploaded"
   | "under_review"
   | "approved"
-  | "rejected";
+  | "rejected"
+  | "expired";
 
 export type SharedDocumentType =
   | "medical_certificate"
@@ -107,6 +121,15 @@ export const normalizeSharedDocumentStatus = (
     return "rejected";
   }
 
+  /*
+    W6-50. `overdue` e il nome che il dominio usa, `expired` quello che usa
+    Attachment Core per la validita di un file: sono due strade diverse verso lo
+    stesso badge, e riconoscerne una sola avrebbe lasciato l'altra muta.
+  */
+  if (["expired", "scaduto", "overdue", "in_ritardo"].includes(token)) {
+    return "expired";
+  }
+
   return "uploaded";
 };
 
@@ -152,6 +175,8 @@ export const getSharedDocumentStatusLabel = (status: unknown) => {
       return "Approvato";
     case "rejected":
       return "Rifiutato";
+    case "expired":
+      return "Scaduto";
     default:
       return "Caricato";
   }
@@ -168,6 +193,9 @@ export const getSharedDocumentStatusClassName = (status: unknown) => {
     case "approved":
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "rejected":
+      return "border-red-200 bg-red-50 text-red-700";
+    /* Scaduto e rifiutato hanno lo stesso peso: tutti e due chiedono di rifare. */
+    case "expired":
       return "border-red-200 bg-red-50 text-red-700";
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";

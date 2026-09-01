@@ -67,7 +67,7 @@ const EMPTY_CERTIFICATION_ALERTS: CertificationAlert[] = [];
 const CertificationAlerts = ({
   alerts = EMPTY_CERTIFICATION_ALERTS,
   source = "self",
-  onViewAll = () => console.log("View all alerts"),
+  onViewAll = () => {},
   onViewAthlete,
   onSendReminder,
   isLoading = false,

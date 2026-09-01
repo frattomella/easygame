@@ -79,7 +79,6 @@ export default function SettingsPage() {
       }
 
       const currentClubId = activeClub.id;
-      console.log("Loading settings for club ID:", currentClubId);
       setClubId(currentClubId);
 
       // Load settings from database
@@ -116,7 +115,6 @@ export default function SettingsPage() {
         return;
       }
 
-      console.log("Saving notification settings for club:", clubId);
       await saveClubSettings(clubId, {
         notifications: settings.notifications,
       });
@@ -136,7 +134,6 @@ export default function SettingsPage() {
         return;
       }
 
-      console.log("Saving system settings for club:", clubId);
       await saveClubSettings(clubId, {
         system: settings.system,
       });
@@ -189,7 +186,6 @@ export default function SettingsPage() {
         return;
       }
 
-      console.log("Saving security settings for club:", clubId);
       // Save security settings (excluding actual passwords for security)
       await saveClubSettings(clubId, {
         security: {

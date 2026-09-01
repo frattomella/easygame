@@ -41,6 +41,7 @@ import {
 } from "../club-seasons";
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
+import { assertPersonalDataDisposed } from "./data-subject";
 import {
   athleteStatusQueryValues,
   normalizeAthleteStatus,
@@ -5835,6 +5836,18 @@ export const deleteResource = async (
   await assertPaymentHasNoEconomicHistory(resource, existing?.id);
   await assertDocumentNotIssued(resource, existing);
   await assertAthleteHasNoSettledFunding(resource, existing?.id);
+  /*
+    ADR-0019. Le guardie qui sopra sono tutte **fiscali**: proteggono il denaro
+    e i documenti emessi. Nessuna proteggeva la **persona**, e cancellare un
+    atleta distruggeva in cascata i suoi certificati medici lasciando invece
+    vivi allegati, consensi e compilazioni — righe con i dati di un minore che
+    nessun indice legava piu a niente, quindi irrintracciabili.
+
+    Questa guardia non vieta la cancellazione: pretende che i dati personali
+    siano stati **smaltiti** prima, con il percorso che li attraversa tutti
+    (src/lib/server/data-subject.ts).
+  */
+  await assertPersonalDataDisposed(resource, existing?.id);
   await assertClubHasNoFiscalHistory(resource, existing?.id);
 
   const record = await delegate.delete({

@@ -88,7 +88,6 @@ export function AddCategoryForm({
       return;
     }
 
-    console.log("Form submission started:", formData);
 
     try {
       // Show loading state
@@ -113,7 +112,6 @@ export function AddCategoryForm({
         trainingsPerWeek: 0,
       });
 
-      console.log("Form submission completed successfully");
 
       // Reset form only after successful submission
       setFormData({

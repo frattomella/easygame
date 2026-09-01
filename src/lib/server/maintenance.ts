@@ -31,8 +31,13 @@
  */
 
 import { prisma } from "./prisma";
-import { purgeExpiredAuditEvents } from "./audit";
+import {
+  AUDIT_ACTIONS,
+  purgeExpiredAuditEvents,
+  recordAuditEvent,
+} from "./audit";
 import { backfillProviderFees } from "./payment-gateway";
+import { reportServerError, sanitizeErrorMessage } from "./observability";
 
 export type MaintenanceStep = {
   name: string;
@@ -55,15 +60,49 @@ export type MaintenanceReport = {
   failed: number;
 };
 
+/**
+ * **Un passo fallito lascia una riga.**
+ *
+ * Il rapporto che questa funzione produce e il **corpo HTTP** della risposta, e
+ * a invocarla e il cron: nessuna persona lo legge mai. Un passo che fallisce
+ * ogni notte per tre settimane era quindi invisibile fino alla telefonata di un
+ * club — ed e il difetto piu economico da chiudere di tutto il piano, perche il
+ * registro degli eventi esiste gia, e una riga in piu a giro notturno non lo
+ * appesantisce.
+ *
+ * Il messaggio passa da `sanitizeErrorMessage`: un errore dell'ORM porta con se
+ * cio che si stava scrivendo, e `audit_logs` e un archivio permanente.
+ */
+const tracciaFallimento = async (step: MaintenanceStep) => {
+  if (!step.error) return;
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.maintenanceStepFailed,
+    outcome: "failure",
+    resource: "maintenance",
+    resourceId: step.name,
+    metadata: { step: step.name, message: step.error },
+  });
+};
+
+const spiega = (error: unknown, name: string) => {
+  /*
+    Non `console.error(..., error)`: l'errore intero porta con se cio che il
+    passo stava toccando (ADR-0019). Il punto unico lo riduce a nome, messaggio
+    e codice.
+  */
+  reportServerError(error, { route: `maintenance/${name}` });
+  return sanitizeErrorMessage(error) || "Errore non descritto";
+};
+
 const runStep = async (
   name: string,
   run: () => Promise<number>,
 ): Promise<MaintenanceStep> => {
   try {
     return { name, removed: await run() };
-  } catch (error: any) {
-    console.error(`[maintenance] ${name}`, error?.message || error);
-    return { name, removed: 0, error: String(error?.message || error) };
+  } catch (error: unknown) {
+    return { name, removed: 0, error: spiega(error, name) };
   }
 };
 
@@ -74,9 +113,8 @@ const runUpdateStep = async (
 ): Promise<MaintenanceStep> => {
   try {
     return { name, removed: 0, updated: await run() };
-  } catch (error: any) {
-    console.error(`[maintenance] ${name}`, error?.message || error);
-    return { name, removed: 0, updated: 0, error: String(error?.message || error) };
+  } catch (error: unknown) {
+    return { name, removed: 0, updated: 0, error: spiega(error, name) };
   }
 };
 
@@ -150,6 +188,16 @@ export const runScheduledMaintenance = async (
       return esito.aggiornati;
     }),
   ];
+
+  /*
+    In sequenza e non in parallelo: i fallimenti sono pochi per definizione, e
+    una scrittura per volta non fa competere il giro di pulizia con se stesso
+    sulla stessa connessione. `recordAuditEvent` non solleva mai, quindi
+    aspettarle non aggiunge modi di fallire.
+  */
+  for (const step of steps) {
+    await tracciaFallimento(step);
+  }
 
   return {
     startedAt,

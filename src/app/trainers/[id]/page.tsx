@@ -299,7 +299,6 @@ export default function TrainerDetailsPage() {
 
       setIsLoading(true);
       try {
-        console.log("Fetching club data for clubId:", clubId);
         
         // Fetch club data - removed trainer_payments from select
         const { data: clubData, error: clubError } = await supabase
@@ -322,7 +321,6 @@ export default function TrainerDetailsPage() {
           return;
         }
 
-        console.log("Club data loaded successfully:", clubData);
 
         // Set payment pin
 
@@ -362,8 +360,6 @@ export default function TrainerDetailsPage() {
 
         if (!trainerData) {
           console.error("Trainer not found in club data. TrainerId:", trainerId);
-          console.log("Available trainers:", clubData?.trainers);
-          console.log("Available staff members:", clubData?.staff_members);
           showToast("error", "Allenatore non trovato");
           setIsLoading(false);
           return;

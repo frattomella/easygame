@@ -121,14 +121,6 @@ const missingProviderContext: ParentDashboardContextValue = {
 const ParentDashboardContext =
   createContext<ParentDashboardContextValue>(missingProviderContext);
 
-const fileToBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-
 const getParentDashboardCacheKey = (athleteId: string) =>
   athleteId ? `easygame:parent-dashboard:${athleteId}` : "";
 
@@ -434,23 +426,35 @@ export function ParentDashboardProvider({
 
   const uploadDocument = useCallback(
     async (input: DocumentInput) => {
-      const dataBase64 = await fileToBase64(input.file);
       /*
-        `apiRequest` serializza da se: passargli un corpo gia serializzato
-        manderebbe una stringa e ogni campo risulterebbe assente al server. E
-        anche la regola di CLAUDE.md §2 — nessun `fetch` diretto a `/api` da un
-        componente — che questi cinque punti violavano dalla loro nascita.
+        **Il file viaggia come file, non come testo.**
+
+        Fino alla Wave 6 la famiglia mandava base64 dentro un corpo JSON, e il
+        ramo multipart esisteva gia sul server senza che nessuno lo usasse: il
+        commento della rotta prometteva che sarebbe sparito con la lane 5J, e
+        non e sparito.
+
+        Base64 costa il 33% in piu, e su una foto di documento fatta col
+        telefono non e poco: e la differenza fra un caricamento che riesce in
+        palestra e uno che va in timeout. In piu la rotta decodificava **e
+        poi** misurava, cioe il limite di dimensione arrivava dopo aver
+        allocato il file.
+
+        `apiRequest` riconosce `FormData` e non la serializza: e il motivo per
+        cui questa chiamata non ha bisogno di un `fetch` diretto, che la regola
+        di CLAUDE.md §2 vieta.
       */
+      const modulo = new FormData();
+      modulo.append("file", input.file, input.file.name);
+      modulo.append("title", input.title);
+      if (input.templateId) modulo.append("templateId", input.templateId);
+      if (input.documentType) {
+        modulo.append("documentType", input.documentType);
+      }
+
       const payload = await apiRequest<unknown>(
         `/api/parent-dashboard/${data?.athlete.id || athleteRouteId}/documents`,
-        { method: "POST", body: {
-            templateId: input.templateId,
-            title: input.title,
-            documentType: input.documentType,
-            fileName: input.file.name,
-            mimeType: input.file.type,
-            dataBase64,
-          } },
+        { method: "POST", body: modulo },
       );
 
       if (payload?.error) {

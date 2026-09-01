@@ -120,14 +120,6 @@ const firstNonEmptyText = (...values: unknown[]) => {
   return "";
 };
 
-const isDevelopment = process.env.NODE_ENV !== "production";
-
-const debugDeleteCategory = (message: string, payload?: unknown) => {
-  if (isDevelopment) {
-    console.debug(`[delete-category] ${message}`, payload);
-  }
-};
-
 const normalizeCategoryToken = (value: unknown): string =>
   String(value ?? "")
     .trim()
@@ -487,18 +479,12 @@ export default function CategoriesPage() {
       }
 
       if (!user || !activeClub) {
-        console.log("Categories page - missing user or activeClub:", {
-          user: !!user,
-          activeClub: !!activeClub,
-          authLoading,
-        });
         setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
-        console.log("Loading categories for club:", activeClub.id);
 
         const [{ data: categoriesData, error: categoriesError }, { data: athletesData }, { data: clubData }] =
           await Promise.all([
@@ -520,10 +506,6 @@ export default function CategoriesPage() {
               .single(),
           ]);
 
-        console.log("Categories loaded from resource:", {
-          categoriesData,
-          categoriesError,
-        });
 
         if (categoriesError) {
           throw categoriesError;
@@ -638,13 +620,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
 
   const handleAddCategory = async (categoryData: any) => {
     try {
-      console.log("handleAddCategory called with:", {
-        user: user ? { id: user.id, email: user.email } : null,
-        activeClub: activeClub
-          ? { id: activeClub.id, name: activeClub.name }
-          : null,
-        categoryData,
-      });
 
       if (!user || !activeClub) {
         console.error("Missing user or activeClub:", {
@@ -681,11 +656,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
         return false;
       }
 
-      console.log("Starting category operation:", {
-        editingCategory,
-        categoryData,
-        activeClub: activeClub.id,
-      });
       const trimmedDescription = categoryData.description?.trim() || "Sport";
       if (trimmedDescription.length > CATEGORY_DESCRIPTION_MAX_LENGTH) {
         showToast(
@@ -830,7 +800,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
     athletes: any[],
   ) => {
     const linkedAthletes = getAthletesInCategory(category, athletes);
-    debugDeleteCategory("fase 1 linked athletes", linkedAthletes);
 
     if (linkedAthletes.length === 0) {
       return {
@@ -843,7 +812,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
       athleteId: firstNonEmptyText(athlete?.id, athlete?.athlete_id),
       payload: buildAthleteCategoryClearPayload(athlete, category),
     }));
-    debugDeleteCategory("fase 2 payload atleti puliti", cleanedAthletePayloads);
 
     const updatedAthletes = [];
     for (const athlete of linkedAthletes) {
@@ -866,9 +834,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
       }
     }
 
-    debugDeleteCategory("fase 3 salvataggio atleti completato", {
-      count: updatedAthletes.length,
-    });
 
     return {
       linkedAthletes,
@@ -909,9 +874,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
         throw deleteError;
       }
 
-      debugDeleteCategory("fase 4 categoria eliminata", {
-        categoryId: categoryToDelete.id,
-      });
 
       setCategories((current) =>
         current.filter((category) => category.id !== categoryToDelete.id),

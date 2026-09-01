@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  readRequestId,
+  reportServerError,
+} from "@/lib/server/observability";
 import { findPublicFormBySlug } from "@/lib/server/forms";
 import {
   FormSubmissionError,
@@ -141,10 +145,20 @@ export async function POST(request: Request, context: Context) {
       raccontano gli errori interni — e nemmeno nei log. Il messaggio al
       pubblico resta generico; il motivo si scrive dove lo legge chi tiene su
       il servizio.
+
+      **`String(error?.message)` non bastava**, ed e il caso piu insidioso di
+      tutta la classe. Il messaggio non e un riassunto: un errore di
+      validazione dell'ORM su `formSubmission.create` porta con se, dentro il
+      messaggio stesso e su piu righe, l'argomento che si stava scrivendo —
+      cioe `answers` e `subjects`, cioe il modulo compilato da un minore, su
+      una rotta **pubblica**. `reportServerError` tiene la prima riga e butta
+      l'argomento.
     */
-    console.error("[public-form] invio fallito", {
-      slug: context.params.publicSlug,
-      message: String(error?.message || error),
+    reportServerError(error, {
+      requestId: readRequestId(request),
+      route: "/api/public/forms/[publicSlug]",
+      method: "POST",
+      metadata: { slug: context.params.publicSlug },
     });
 
     return NextResponse.json(

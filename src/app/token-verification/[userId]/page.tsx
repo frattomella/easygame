@@ -44,15 +44,9 @@ export default function TokenVerificationPage() {
       ? params?.userId[0]
       : (params?.userId as string)
     : user?.id || "";
-  console.log("Token verification page - userId:", userId);
-  console.log("User is club creator:", isClubCreator);
 
   // Function to handle successful club creation
   const handleClubCreationSuccess = (clubData: any) => {
-    console.log(
-      "Club created successfully in token verification page:",
-      clubData,
-    );
 
     // Add to user's clubs in local state
     setUserClubs((prev) => {
@@ -97,13 +91,10 @@ export default function TokenVerificationPage() {
     let redirectTimeout: NodeJS.Timeout;
 
     if (!userId) {
-      console.log("No userId available, setting redirect timeout");
       redirectTimeout = setTimeout(() => {
-        console.log("No user ID found after timeout, redirecting to login");
         router.push("/login");
       }, 3000); // 3 second timeout
     } else {
-      console.log("userId available, no redirect needed:", userId);
     }
 
     return () => {
@@ -132,9 +123,6 @@ export default function TokenVerificationPage() {
         try {
           const parsedClubs = JSON.parse(storedClubs);
           setUserClubs(parsedClubs);
-          console.log(
-            `Loaded ${parsedClubs.length} clubs from localStorage for user ${userId}`,
-          );
 
           // Hide token section if we have clubs
           if (parsedClubs.length > 0) {
@@ -158,9 +146,6 @@ export default function TokenVerificationPage() {
         user?.user_metadata?.role === "admin";
 
       if (isCreator) {
-        console.log(
-          "User is a club creator, loading clubs without auto-redirect",
-        );
 
         const fetchClubsWithRetry = async (
           retryCount = 0,
@@ -177,9 +162,6 @@ export default function TokenVerificationPage() {
                 clubsError.message?.includes("Failed to fetch") &&
                 retryCount < 3
               ) {
-                console.log(
-                  `Retry attempt ${retryCount + 1} for fetching clubs...`,
-                );
                 await new Promise((resolve) =>
                   setTimeout(resolve, 1000 * (retryCount + 1)),
                 );
@@ -191,9 +173,6 @@ export default function TokenVerificationPage() {
             return clubs;
           } catch (err) {
             if (retryCount < 3) {
-              console.log(
-                `Retry attempt ${retryCount + 1} for fetching clubs...`,
-              );
               await new Promise((resolve) =>
                 setTimeout(resolve, 1000 * (retryCount + 1)),
               );
@@ -213,7 +192,6 @@ export default function TokenVerificationPage() {
           }
 
           if (clubs && clubs.length > 0) {
-            console.log(`Found ${clubs.length} clubs for club creator`);
 
             // Process clubs and add them to userClubs state
             const creatorClubs = clubs.map((club) => ({
@@ -264,9 +242,6 @@ export default function TokenVerificationPage() {
           } else {
             // No clubs found, but user is a club creator
             // Check if user has any club associations in their profile
-            console.log(
-              "No clubs found for club creator, checking user profile",
-            );
 
             const { data: userData, error: userError } = await supabase
               .from("users")
@@ -282,9 +257,6 @@ export default function TokenVerificationPage() {
             const clubAccess = userData?.club_access || [];
 
             if (clubAccess.length > 0) {
-              console.log(
-                `Found ${clubAccess.length} club associations for user`,
-              );
 
               // Process all club associations
               for (const access of clubAccess) {
@@ -360,14 +332,12 @@ export default function TokenVerificationPage() {
   // Initialize user profile from database, metadata, and localStorage
   useEffect(() => {
     if (!userId) {
-      console.log("Skipping profile initialization - no userId available");
       return; // Don't proceed if no userId is available
     }
 
     // Don't show token section by default - only when user clicks the button
     setShowTokenSection(false);
 
-    console.log("Initializing user profile for userId:", userId);
 
     // First try to load from localStorage for immediate display
     const storedProfile = localStorage.getItem(`userProfile_${userId}`);
@@ -397,7 +367,6 @@ export default function TokenVerificationPage() {
     // Load user data from database (most authoritative)
     const loadUserData = async (retryCount = 0) => {
       try {
-        console.log(`Loading user data from database for user ${userId}`);
         const { data: userData, error: userError } = await supabase
           .from("users")
           .select("*")
@@ -411,9 +380,6 @@ export default function TokenVerificationPage() {
             userError.message?.includes("Failed to fetch") &&
             retryCount < 3
           ) {
-            console.log(
-              `Retry attempt ${retryCount + 1} for loading user data...`,
-            );
             setTimeout(
               () => loadUserData(retryCount + 1),
               1000 * (retryCount + 1),
@@ -424,7 +390,6 @@ export default function TokenVerificationPage() {
         }
 
         if (userData) {
-          console.log(`User data loaded from database:`, userData);
           setUserProfile((prev) => ({
             ...prev,
             firstName: userData.first_name || prev.firstName,
@@ -445,9 +410,6 @@ export default function TokenVerificationPage() {
       } catch (err: any) {
         // Handle network errors with retry
         if (err?.message?.includes("Failed to fetch") && retryCount < 3) {
-          console.log(
-            `Retry attempt ${retryCount + 1} for loading user data...`,
-          );
           setTimeout(
             () => loadUserData(retryCount + 1),
             1000 * (retryCount + 1),
@@ -679,9 +641,6 @@ export default function TokenVerificationPage() {
         throw new Error(`Inserisci tutti i ${tokenLength} caratteri del token`);
       }
 
-      console.log(
-        `Token verification started for user ${userId} with token length ${tokenLength}`,
-      );
 
       // Validate token based on type
       const tokenType = getTokenTypeFromLength(tokenLength);
@@ -700,9 +659,6 @@ export default function TokenVerificationPage() {
         return;
       }
 
-      console.log(
-        `Token validated successfully for user ${userId} with role ${tokenType}`,
-      );
 
       // Look for existing clubs that match this token
       // In a real implementation, tokens would be stored in the database with club associations
@@ -758,11 +714,9 @@ export default function TokenVerificationPage() {
       }
 
       if (existingClub) {
-        console.log(`Found existing club for token:`, existingClub);
         clubData = [existingClub];
       } else {
         // If no existing club found, reject the token
-        console.log(`No existing club found for token, rejecting`);
         throw new Error("Token non valido o non riconosciuto");
       }
 
@@ -796,7 +750,6 @@ export default function TokenVerificationPage() {
         logo_url: clubData && clubData[0] ? clubData[0].logo_url : null,
       };
 
-      console.log(`Club data for token verification:`, clubData);
 
       if (clubData && clubData[0]) {
         // Update user's club_access in the users table
@@ -839,7 +792,6 @@ export default function TokenVerificationPage() {
           .single();
 
         if (!existingDashboard) {
-          console.log(`Creating dashboard for club ${clubData[0].id}`);
 
           const { data: dashboardData, error: dashboardError } = await supabase
             .from("dashboards")
@@ -866,9 +818,6 @@ export default function TokenVerificationPage() {
             console.error("Error creating dashboard:", dashboardError);
             // Non-critical error, continue execution
           } else {
-            console.log(
-              `Dashboard created successfully for club ${clubData[0].id}`,
-            );
           }
         }
       }
@@ -878,7 +827,6 @@ export default function TokenVerificationPage() {
       setUserClubs(updatedClubs);
       localStorage.setItem(`userClubs_${userId}`, JSON.stringify(updatedClubs));
 
-      console.log(`Club access added successfully for user ${userId}`);
       showToast("success", `Accesso al club aggiunto con successo!`);
 
       // Reset form and hide token section
@@ -897,7 +845,6 @@ export default function TokenVerificationPage() {
   };
 
   const handleClubSelect = (club: any) => {
-    console.log("Club selected:", club);
     // Check if profile is complete before redirecting
     if (!userProfile.firstName || !userProfile.lastName) {
       showToast("error", "Completa il tuo profilo prima di accedere al club");
@@ -911,7 +858,6 @@ export default function TokenVerificationPage() {
     // First check if this club has a dashboard
     const checkAndRedirectToDashboard = async () => {
       try {
-        console.log(`Checking for dashboard for club ${club.id}`);
         const { data: dashboardData, error: dashboardError } = await supabase
           .from("dashboards")
           .select("id")
@@ -924,9 +870,6 @@ export default function TokenVerificationPage() {
 
         // If dashboard exists, use its ID in the redirect
         if (dashboardData && dashboardData.id) {
-          console.log(
-            `Found dashboard ${dashboardData.id} for club ${club.id}`,
-          );
 
           switch (club.role) {
             case "club_creator":
@@ -950,7 +893,6 @@ export default function TokenVerificationPage() {
           }
         } else {
           // If no dashboard exists, create one
-          console.log(`No dashboard found for club ${club.id}, creating one`);
           const { data: newDashboard, error: createError } = await supabase
             .from("dashboards")
             .insert([
@@ -996,9 +938,6 @@ export default function TokenVerificationPage() {
                 break;
             }
           } else if (newDashboard && newDashboard[0]) {
-            console.log(
-              `Created dashboard ${newDashboard[0].id} for club ${club.id}`,
-            );
             // Use the new dashboard ID in the redirect
             switch (club.role) {
               case "club_creator":
@@ -1027,14 +966,9 @@ export default function TokenVerificationPage() {
         if (userId) {
           localStorage.setItem(`activeClub_${userId}`, JSON.stringify(club));
           localStorage.setItem("activeClub", JSON.stringify(club)); // Keep for backward compatibility
-          console.log(
-            `Stored active club for user ${userId} in localStorage:`,
-            club.name,
-          );
         }
 
         // Redirect to the appropriate dashboard
-        console.log(`Redirecting to ${redirectPath}`);
         router.push(redirectPath);
       } catch (err) {
         console.error("Error in checkAndRedirectToDashboard:", err);
@@ -1054,9 +988,6 @@ export default function TokenVerificationPage() {
         throw new Error("User ID not available");
       }
 
-      console.log(
-        `Attempting to delete club access for club ${clubId} and user ${userId}`,
-      );
 
       // Check if the user is the creator of this club
       const clubToDelete = userClubs.find((club) => club.id === clubId);
@@ -1087,7 +1018,6 @@ export default function TokenVerificationPage() {
           // Non-critical error, continue execution
         }
 
-        console.log(`Club ${clubId} and associated data deleted successfully`);
       } else {
         // If user is not the creator, just remove their access
         // First get current user data
@@ -1120,12 +1050,6 @@ export default function TokenVerificationPage() {
           (access: any) => access.club_id !== clubId,
         );
 
-        console.log(
-          `Updating user club access from:`,
-          clubAccess,
-          `to:`,
-          updatedClubAccess,
-        );
 
         // Update or insert user record with updated club access
         const { error: updateError } = await supabase.from("users").upsert({
@@ -1168,7 +1092,6 @@ export default function TokenVerificationPage() {
           );
         }
 
-        console.log(`User access to club ${clubId} removed successfully`);
       }
 
       // Update local state

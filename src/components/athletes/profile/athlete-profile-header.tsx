@@ -3,10 +3,17 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
-import { Camera, Share2, Trash2 } from "lucide-react";
+import { Camera, Trash2 } from "lucide-react";
 
 /**
- * Intestazione della scheda atleta: foto, nome, categorie, tre azioni.
+ * Intestazione della scheda atleta: foto, nome, categorie, due azioni.
+ *
+ * **Le azioni erano tre** (W6-26). La terza, «Invia Credenziali», non chiamava
+ * niente: mostrava un errore, e prima ancora un messaggio verde che dichiarava
+ * un invio mai avvenuto. Non e stata riparata qui perche non e un pulsante:
+ * consegnare un accesso ha tre stati, una storia e quattro azioni, e vive ora
+ * nella sezione «Accesso EasyGame» della scheda
+ * (`src/components/athletes/profile/athlete-account-section.tsx`).
  *
  * **Perche e un componente** (WP-19, Blocco 8). Era la prima schermata di JSX
  * di `src/app/athletes/[id]/page.tsx`, che supera le 8.000 righe. Non e stata
@@ -36,7 +43,6 @@ export type AthleteProfileHeaderProps = {
   categories: AthleteProfileHeaderCategory[];
   onAvatarChange: (image: string | null) => void;
   onScanDocument: () => void;
-  onShareCredentials: () => void;
   onDelete: () => void;
 };
 
@@ -45,7 +51,6 @@ export function AthleteProfileHeader({
   categories,
   onAvatarChange,
   onScanDocument,
-  onShareCredentials,
   onDelete,
 }: AthleteProfileHeaderProps) {
   return (
@@ -88,14 +93,6 @@ export function AthleteProfileHeader({
         >
           <Camera className="h-4 w-4 mr-2" />
           Scansiona documento
-        </Button>
-        <Button
-          variant="outline"
-          className="flex-1 md:flex-none"
-          onClick={onShareCredentials}
-        >
-          <Share2 className="h-4 w-4 mr-2" />
-          Invia Credenziali
         </Button>
         <Button
           variant="destructive"

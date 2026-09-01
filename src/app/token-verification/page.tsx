@@ -17,7 +17,6 @@ export default function TokenVerificationRedirect() {
     const redirectTimeout = setTimeout(() => {
       if (!user?.id) {
         // If no user after 3 seconds, redirect to login
-        console.log("No user found after timeout, redirecting to login");
         router.push("/login");
         return;
       }
@@ -29,10 +28,6 @@ export default function TokenVerificationRedirect() {
         // First check localStorage for userId
         const storedUserId = localStorage.getItem("userId");
         if (storedUserId) {
-          console.log(
-            "Found stored userId in localStorage, redirecting:",
-            storedUserId,
-          );
           router.push(`/token-verification/${storedUserId}`);
           return;
         }
@@ -47,28 +42,18 @@ export default function TokenVerificationRedirect() {
 
             if (session?.user?.id) {
               // Redirect to the user-specific token verification page
-              console.log(
-                "Redirecting to user-specific token verification page",
-              );
               router.push(`/token-verification/${session.user.id}`);
             } else {
               // Fallback to the user ID from context if session is not available
-              console.log("Using fallback user ID for redirection");
               router.push(`/token-verification/${user.id}`);
             }
           } catch (error) {
             console.error("Error getting session:", error);
             // Fallback to the user ID from context if there's an error
-            console.log(
-              "Error occurred, using fallback user ID for redirection",
-            );
             router.push(`/token-verification/${user.id}`);
           }
         } else {
           // If we reach here and the timeout hasn't fired yet, we'll wait for it
-          console.log(
-            "No user ID found, waiting for timeout or auth state change",
-          );
           setError("Verifica dell'utente in corso...");
         }
       } catch (err) {

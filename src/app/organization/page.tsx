@@ -358,7 +358,6 @@ const [federations, setFederations] = useState<any[]>([]);
         }
 
         if (!activeClubId) {
-          console.log("No club ID found");
           return;
         }
 

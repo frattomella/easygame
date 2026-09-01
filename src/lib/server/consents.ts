@@ -1240,4 +1240,151 @@ export const listConsentStates = async (
   return states;
 };
 
+/* ------------------------------------------ il consenso prima dell'invio */
+
+export type ConsentEnforcementMode = "block_negative" | "require_explicit";
+
+export type ConsentEnforcement = {
+  /** La chiave chiesta, cosi come l'ha nominata la regola di prodotto. */
+  consentKey: string;
+  definitionId: string | null;
+  /**
+   * Falso quando **non c'e niente da applicare**: il club non ha definito quel
+   * consenso, oppure la definizione non e attiva. Un club che non ha ancora
+   * configurato i consensi non deve vedere il proprio pubblico svuotarsi.
+   */
+  enforced: boolean;
+  mode: ConsentEnforcementMode;
+  /** Chi ha revocato o negato. Solo identificativi, nessun contenuto. */
+  blockedSubjectIds: Set<string>;
+  /** Chi ha accettato. Conta solo in `require_explicit`. */
+  acceptedSubjectIds: Set<string>;
+};
+
+/**
+ * **Chi non si raggiunge perche ha revocato.**
+ *
+ * E l'unica lettura del registro dei consensi che non chiede
+ * `consents.records.read`, e la ragione va detta: non e una lettura *per*
+ * qualcuno. Nessuna persona la chiede e nessuna schermata la mostra; la fa il
+ * risolutore del pubblico (`resolveAudience`) subito prima di un invio, sul
+ * club che ha **gia** risolto e verificato, e cio che restituisce sono
+ * identificativi di soggetto — non una decisione, non una data, non un testo,
+ * non un'etichetta. Chiedere il permesso del registro significherebbe che un
+ * allenatore autorizzato a mandare un messaggio riesce comunque a mandarlo a
+ * chi ha revocato, perche quel permesso non ce l'ha: il presidio si
+ * spegnerebbe esattamente dove serve.
+ *
+ * **Cosa blocca, e cosa no.** Bloccano `revoked` e `rejected`: sono due
+ * decisioni esplicite di segno negativo e l'esito e lo stesso. **Non** blocca
+ * `missing`, ed e una scelta dichiarata: il registro e in adozione, e trattare
+ * l'assenza di una riga come un diniego spegnerebbe la comunicazione massiva
+ * di ogni club che non ha ancora raccolto niente — cioe di tutti. Il giorno in
+ * cui la validazione legale dira il contrario, `require_explicit` e gia qui e
+ * la differenza e un parametro, non una Wave.
+ */
+export const readConsentEnforcement = async (input: {
+  organizationId: string;
+  consentKey: string;
+  subjectKind?: string;
+  mode?: ConsentEnforcementMode;
+}): Promise<ConsentEnforcement> => {
+  const organizationId = asText(input.organizationId);
+  const consentKey = normalizeConsentKey(input.consentKey);
+  const subjectKind = asText(input.subjectKind || "athlete").toLowerCase();
+  const mode: ConsentEnforcementMode = input.mode || "block_negative";
+
+  const inerte: ConsentEnforcement = {
+    consentKey,
+    definitionId: null,
+    enforced: false,
+    mode,
+    blockedSubjectIds: new Set<string>(),
+    acceptedSubjectIds: new Set<string>(),
+  };
+
+  if (!organizationId || !consentKey) return inerte;
+
+  const definition = (await prisma.consentDefinition.findFirst({
+    where: { organization_id: organizationId, key: consentKey },
+  })) as DefinitionRow | null;
+
+  /*
+    Una definizione in bozza o ritirata non governa niente: nel primo caso il
+    club non ha ancora deciso che quel consenso si chiede, nel secondo ha
+    deciso di non chiederlo piu. Bloccare un invio sarebbe applicare una regola
+    che il club non ha in vigore.
+  */
+  if (!definition || asText(definition.status).toLowerCase() !== "active") {
+    return inerte;
+  }
+
+  const versionNumbers = await loadVersionNumbers(organizationId, [
+    definition.id,
+  ]);
+  const rows = await loadRecordRows(organizationId, {
+    definition_id: definition.id,
+    subject_kind: subjectKind,
+  });
+
+  const perSubject = new Map<string, RecordRow[]>();
+  for (const record of rows) {
+    const subjectId = asText(record.subject_id);
+    if (!subjectId) continue;
+    const bucket = perSubject.get(subjectId);
+    if (bucket) bucket.push(record);
+    else perSubject.set(subjectId, [record]);
+  }
+
+  const blockedSubjectIds = new Set<string>();
+  const acceptedSubjectIds = new Set<string>();
+
+  for (const [subjectId, history] of perSubject) {
+    /*
+      Lo stato non si legge da nessuna colonna: e l'ultima decisione dello
+      storico, ricavata dallo stesso `deriveConsentState` che alimenta la
+      schermata. Una seconda interpretazione qui sarebbe una seconda verita su
+      «questa persona ha revocato», e divergerebbe al primo caso limite.
+    */
+    const state = deriveConsentState(
+      history.map((record) => toDerivationInput(record, versionNumbers)),
+      { publishedVersion: definition.published_version },
+    );
+    if (state.status === "revoked" || state.status === "rejected") {
+      blockedSubjectIds.add(subjectId);
+    } else if (state.status === "accepted") {
+      acceptedSubjectIds.add(subjectId);
+    }
+  }
+
+  return {
+    consentKey,
+    definitionId: definition.id,
+    enforced: true,
+    mode,
+    blockedSubjectIds,
+    acceptedSubjectIds,
+  };
+};
+
+/**
+ * La domanda che il risolutore del pubblico fa una volta per soggetto.
+ *
+ * Sta accanto alla lettura e non dentro il risolutore perche «chi e escluso»
+ * dipende dalla modalita, e la modalita e una proprieta del consenso: se la
+ * decisione vivesse nel chiamante, cambiarla vorrebbe dire trovarne tutti.
+ */
+export const consentBlocksSubject = (
+  enforcement: ConsentEnforcement | null | undefined,
+  subjectId: unknown,
+): boolean => {
+  if (!enforcement?.enforced) return false;
+  const id = asText(subjectId);
+  if (!id) return false;
+
+  return enforcement.mode === "require_explicit"
+    ? !enforcement.acceptedSubjectIds.has(id)
+    : enforcement.blockedSubjectIds.has(id);
+};
+
 export type { ConsentStatus, ConsentSubjectKind };

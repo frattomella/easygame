@@ -284,10 +284,27 @@ test("il dialogo di revisione ha il controllo dei documenti mancanti", () => {
 test("i tipi di documento sono quelli che il club gia usa", () => {
   const source = stripComments(read(MISSING_FIELD));
 
+  /*
+    W6-47. L'invariante non cambia — **un solo vocabolario dei tipi** — cambia
+    dove vive.
+
+    Stava in `src/lib/shared-documents.ts`, che e il file destinato alla
+    cancellazione (lane 5J) e che non conosceva ne la tessera sanitaria ne la
+    delega: due dei documenti che una segreteria chiede piu spesso. Il catalogo
+    canonico e ora nel dominio documentale nuovo, con gli alias storici, e
+    sopravvive a quella cancellazione.
+
+    Il difetto che questo test presidia resta lo stesso: due «certificato
+    medico» diversi, di cui uno solo viene promosso nel fascicolo.
+  */
   assert.match(
     source,
-    /import\s*\{\s*SHARED_DOCUMENT_TYPES\s*\}\s*from\s*"@\/lib\/shared-documents"/,
+    /from\s*"@\/lib\/documents\/kind-catalog"/,
     "il controllo si e scritto un elenco di tipi tutto suo: due «certificato medico» diversi, e solo uno viene promosso nel fascicolo",
+  );
+  assert.ok(
+    source.includes("DOCUMENT_KIND_OPTIONS"),
+    "le voci proponibili vengono dal catalogo canonico",
   );
   assert.ok(
     !/const\s+\w*(TIPI|KINDS|TYPES)\w*\s*=\s*\[/.test(source),

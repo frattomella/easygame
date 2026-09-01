@@ -26,12 +26,19 @@ import {
   isDocumentSubjectKind,
   isDocumentSubmissionSource,
   isMedicalCertificateDocumentKind,
-  normalizeDocumentKind,
   validateDocumentRequestDraft,
   type DocumentRequestState,
   type DocumentSubjectKind,
   type DocumentSubmissionSource,
 } from "@/lib/documents/request-model";
+import {
+  getDocumentKindLabel,
+  resolveDocumentKind,
+} from "@/lib/documents/kind-catalog";
+import type {
+  DocumentReviewRow,
+  ReviewQueueState,
+} from "@/lib/documents/review-queue";
 
 /**
  * Il servizio del **fascicolo unico**: l'unico punto in cui EasyGame scrive una
@@ -566,7 +573,16 @@ export const createDocumentRequest = async (
       organization_id: organizationId,
       subject_kind: subjectKind,
       subject_id: subjectId,
-      document_kind: normalizeDocumentKind(input.documentKind),
+      /*
+        W6-47. **Il tipo si scrive canonico, non normalizzato e basta.**
+
+        `normalizeDocumentKind` riduce la stringa a un identificativo
+        confrontabile — «Certificato medico» e `certificato_medico` diventano lo
+        stesso — ma non la porta su una **chiave del catalogo**: `visita_medica`
+        restava `visita_medica`, e una coda filtrata per «Certificati» non lo
+        trovava. Il catalogo e l'unico posto in cui quella traduzione vive.
+      */
+      document_kind: resolveDocumentKind(input.documentKind),
       title: asText(input.title).slice(0, 200),
       description: asText(input.description) || null,
       required: input.required === undefined ? true : Boolean(input.required),
@@ -788,7 +804,8 @@ export const submitDocument = async (
     .trim()
     .toLowerCase();
   const subjectId = asText(richiesta?.subject_id ?? input.subjectId);
-  const documentKind = normalizeDocumentKind(
+  /* W6-47. Il tipo canonico anche in deposito: vedi `createDocumentRequest`. */
+  const documentKind = resolveDocumentKind(
     richiesta?.document_kind ?? input.documentKind,
   );
 
@@ -1202,7 +1219,8 @@ export const getDocumentDossier = async (
   if (subjectKind) where.subject_kind = subjectKind;
   if (subjectId) where.subject_id = subjectId;
   if (filter.documentKind) {
-    where.document_kind = normalizeDocumentKind(filter.documentKind);
+    /* Si filtra con la stessa chiave con cui si scrive, o non si trova niente. */
+    where.document_kind = resolveDocumentKind(filter.documentKind);
   }
 
   const [requests, submissions] = await Promise.all([
@@ -1320,6 +1338,171 @@ export const listPendingDocumentSubmissions = async (
   }
 
   return rows.map(serializeSubmission);
+};
+
+/* ------------------------------------------------- la coda della segreteria */
+
+/**
+ * I nomi delle persone che compaiono in una coda documentale.
+ *
+ * **Due letture, non una per riga.** La coda di un club con duecento atleti
+ * sono duecento righe: risolvere il nome dentro il ciclo sarebbe il classico
+ * N+1 che W6-49 nomina per i moduli. Qui si raccolgono gli identificativi
+ * distinti e si fanno due `findMany`.
+ *
+ * Il confine e nel `where`: gli atleti si cercano **dentro il club attivo**, e
+ * un identificativo che non e di questo club esce senza nome invece di uscire
+ * con quello giusto.
+ */
+const resolveQueueNames = async (
+  organizationId: string,
+  subjectIds: string[],
+  userIds: string[],
+) => {
+  const [athletes, users] = await Promise.all([
+    subjectIds.length
+      ? prisma.athlete.findMany({
+          where: { organization_id: organizationId, id: { in: subjectIds } },
+          select: { id: true, first_name: true, last_name: true },
+        })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, first_name: true, last_name: true, email: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const perAtleta = new Map<string, string>();
+  for (const row of athletes) {
+    perAtleta.set(
+      row.id,
+      `${asText(row.first_name)} ${asText(row.last_name)}`.trim() || "Atleta",
+    );
+  }
+
+  const perUtente = new Map<string, string>();
+  for (const row of users as any[]) {
+    perUtente.set(
+      row.id,
+      `${asText(row.first_name)} ${asText(row.last_name)}`.trim() ||
+        asText(row.email),
+    );
+  }
+
+  return { perAtleta, perUtente };
+};
+
+const toQueueState = (entry: DocumentDossierEntry): ReviewQueueState => {
+  switch (entry.state.dossier) {
+    case "under_review":
+      return "under_review";
+    case "approved":
+      return "approved";
+    case "rejected":
+      return "rejected";
+    default:
+      /* Senza deposito la riga e in attesa, e il ritardo la qualifica. */
+      return entry.state.overdue ? "overdue" : "missing";
+  }
+};
+
+/**
+ * **La coda «documenti da verificare» del club** (W6-39).
+ *
+ * La legge chi puo **decidere**, come `listPendingDocumentSubmissions`: e una
+ * coda di lavoro, non la lettura di un fascicolo. Senza `subjectId` e la coda
+ * di tutto il club — che e cio che il servizio sapeva gia fare e che nessuna
+ * schermata gli aveva mai chiesto.
+ *
+ * **Perche non si appoggia a `listPendingDocumentSubmissions`.** Quella
+ * restituisce solo i depositi `under_review`, e i sei filtri della schermata ne
+ * chiedono di piu: «da integrare» sono i rifiutati, «scaduti» sono le richieste
+ * senza file oltre il termine, «approvati» sono quelli chiusi. Una coda che
+ * mostra solo cio che aspetta non risponde a «cosa ho rifiutato ieri».
+ *
+ * Il filtro vero e poi della schermata, che lo applica con
+ * `src/lib/documents/review-queue.ts` — lo stesso modulo che qui tipizza la
+ * riga, cosi il conteggio della pastiglia e l'elenco sotto non possono
+ * divergere.
+ */
+export const listDocumentReviewQueue = async (
+  scope: DocumentDossierScope,
+  filter: DossierFilter = {},
+  options: { now?: Date } = {},
+): Promise<DocumentReviewRow[]> => {
+  await assertRolePermission(
+    scope,
+    "documents.review",
+    "la coda dei documenti da verificare la vede chi li verifica",
+  );
+
+  const entries = await getDocumentDossier(scope, filter, options);
+  const organizationId = resolveActiveClubId(
+    scope,
+    filter.organizationId,
+    "la coda dei documenti",
+  );
+
+  const subjectIds = Array.from(
+    new Set(
+      entries
+        .filter((entry) => entry.subjectKind === "athlete")
+        .map((entry) => entry.subjectId)
+        .filter(Boolean),
+    ),
+  );
+  const userIds = Array.from(
+    new Set(
+      entries
+        .flatMap((entry) => entry.submissions.map((row) => row.submittedBy))
+        .filter(Boolean) as string[],
+    ),
+  );
+
+  const { perAtleta, perUtente } = await resolveQueueNames(
+    organizationId,
+    subjectIds,
+    userIds,
+  );
+
+  return entries.map((entry) => {
+    const ultimo = entry.submissions[entry.submissions.length - 1] || null;
+
+    return {
+      id: entry.id,
+      requestId: entry.requestId,
+      submissionId: entry.state.submissionId,
+      subjectKind: entry.subjectKind,
+      subjectId: entry.subjectId,
+      subjectName:
+        (entry.subjectKind === "athlete"
+          ? perAtleta.get(entry.subjectId)
+          : "") || "",
+      documentKind: entry.documentKind,
+      documentKindLabel: getDocumentKindLabel(entry.documentKind),
+      title: entry.title,
+      state: toQueueState(entry),
+      source: ultimo?.source || "",
+      submittedByName:
+        (ultimo?.submittedBy ? perUtente.get(ultimo.submittedBy) : "") || "",
+      submittedAt: entry.state.submittedAt,
+      decidedAt: entry.state.decidedAt,
+      decisionNote: entry.state.decisionNote,
+      dueDate: entry.dueDate,
+      overdue: entry.state.overdue,
+      /*
+        L'indirizzo del file, e non i byte: la coda elenca sessanta righe, e
+        sessanta allegati letti per disegnare un elenco sarebbero sessanta blob
+        in memoria per mostrare sessanta nomi.
+      */
+      fileUrl: entry.state.attachmentId
+        ? buildAttachmentUrl(entry.state.attachmentId)
+        : "",
+      historyCount: entry.state.historyCount,
+    };
+  });
 };
 
 /** Una singola voce del fascicolo, per la rotta di dettaglio. */

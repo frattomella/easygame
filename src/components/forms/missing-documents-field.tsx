@@ -13,7 +13,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SHARED_DOCUMENT_TYPES } from "@/lib/shared-documents";
+/*
+  W6-47. Il catalogo dei tipi vive nel dominio documentale nuovo, non in
+  `shared-documents.ts` — che e il file destinato alla cancellazione, e che
+  non conosceva ne la tessera sanitaria ne la delega.
+*/
+import {
+  DOCUMENT_KIND_OPTIONS,
+  getDocumentKindLabel,
+} from "@/lib/documents/kind-catalog";
 import type { MissingDocumentRequest } from "@/lib/api/forms";
 
 /**
@@ -58,8 +66,7 @@ export const createMissingDocumentDraft = (): MissingDocumentDraft => ({
   required: true,
 });
 
-const labelOfKind = (kind: string) =>
-  SHARED_DOCUMENT_TYPES.find((type) => type.value === kind)?.label || "";
+const labelOfKind = (kind: string) => getDocumentKindLabel(kind);
 
 type MissingDocumentsFieldProps = {
   value: MissingDocumentDraft[];
@@ -143,7 +150,7 @@ export function MissingDocumentsField({
                       <SelectValue placeholder="Scegli il documento" />
                     </SelectTrigger>
                     <SelectContent>
-                      {SHARED_DOCUMENT_TYPES.map((type) => (
+                      {DOCUMENT_KIND_OPTIONS.map((type) => (
                         <SelectItem key={type.value} value={type.value}>
                           {type.label}
                         </SelectItem>

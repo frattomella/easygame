@@ -249,6 +249,13 @@ const DOCUMENT_GENERATORS = new Set([
   */
   "lib/documents/document-view.ts",
   "lib/server/auth-workflows.ts",
+  /*
+    L'email di invito all'accesso atleta (Wave 6, lane 6C). Stessa ragione di
+    `auth-workflows.ts`, accanto al quale sta: un client di posta non ha i
+    font dell'applicazione, e la dichiarazione di sistema e li per la stessa
+    ragione per cui quel messaggio non carica niente da fuori.
+  */
+  "lib/server/athlete-accounts.ts",
 ]);
 
 /**

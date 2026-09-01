@@ -751,7 +751,7 @@ export default function StaffPage() {
                     router.push(`/staff/${member.id}?clubId=${clubId}`)
                   }
                   onDelete={(id) => handleDelete(id)}
-                  onToggleStatus={(id) => console.log("Toggle status:", id)}
+                  onToggleStatus={() => {}}
                   formatDate={(date) => {
                     if (!date) return "N/A";
                     try {

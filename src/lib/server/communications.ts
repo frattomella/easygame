@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { prisma } from "./prisma";
+import { consentKeyForCommunication } from "@/lib/consents/catalog";
 import {
   isEmailDeliveryConfigured,
   sendTransactionalEmail,
@@ -326,6 +327,20 @@ const collect = async ({
       .map((composite) => composite.slice(prefix.length)),
   );
 
+  /*
+    W4-R18. **L unico canale a testo libero del prodotto, e quindi l unico
+    governato dal consenso.**
+
+    Quindici percorsi di invio su quindici ignoravano il registro dei
+    consensi: revocare non cambiava chi riceveva. La regola di prodotto del
+    piano (§15.1) e stretta apposta — sicurezza, amministrativa necessaria,
+    pagamento, sanitaria e sportiva **passano**, perche sono esecuzione del
+    servizio — e lascia governata la sola classe che un club puo usare per
+    qualunque cosa.
+
+    La chiave non e scritta qui: la dice il catalogo, cosi che una decisione
+    legale diversa sia una riga di configurazione e non una Wave.
+  */
   const audience = await resolveAudience({
     organizationId,
     criteria,
@@ -333,6 +348,7 @@ const collect = async ({
     actorRole: role,
     now,
     alreadySent,
+    requiredConsentKey: consentKeyForCommunication("club_broadcast"),
   });
 
   const club = await (prisma as any).club.findUnique({

@@ -463,9 +463,22 @@ export const getAccessRedirectPath = (
       : "/account";
   }
   if (normalizedRole === "athlete") {
-    return linkedAthleteId
-      ? `/athletes/${encodeURIComponent(linkedAthleteId)}/profile`
-      : "/account";
+    /*
+      W6-33. **L'atleta ha un'area, non una scheda gestionale.**
+
+      Fin qui l'ingresso portava su `/athletes/<id>/profile`, che monta la
+      **sidebar del club**: un atleta vedeva cliccabili Pagamenti, Movimenti,
+      Impostazioni e altre trenta voci, ci cliccava, e rimbalzava sulla
+      guardia senza una parola. Un menu che elenca cio che non si puo fare non
+      e un menu: e un elenco di porte chiuse.
+
+      L'area atleta non prende un identificativo nel percorso, e non e una
+      dimenticanza: l'atleta e **se stesso**, la scheda si risolve dal legame
+      `athletes.user_id`, e non esiste un parametro da cambiare per farla
+      diventare la scheda di un altro. Il genitore ha `/parent-view/<figlio>`
+      perche di figli puo averne piu d'uno; l'atleta no.
+    */
+    return linkedAthleteId ? "/athlete-dashboard" : "/account";
   }
   return "/account";
 };
@@ -474,6 +487,7 @@ export const getPathAccessArea = (pathname?: string | null): AccessArea => {
   const path = String(pathname || "").trim() || "/";
   if (matchesPathPrefix(path, "/trainer-dashboard")) return "trainer";
   if (matchesPathPrefix(path, "/parent-view")) return "parent";
+  if (matchesPathPrefix(path, "/athlete-dashboard")) return "athlete";
   if (/^\/athletes\/[^/]+\/profile(?:\/|$)/.test(path)) return "athlete";
   if (
     matchesPathPrefix(path, "/create-club") ||
@@ -531,6 +545,24 @@ export const canAccessPath = (
     );
   }
   if (requiredArea === "athlete") {
+    /*
+      **L'area atleta e dell'atleta.**
+
+      `/athlete-dashboard` non porta un identificativo nel percorso, quindi qui
+      non c'e niente da confrontare con l'elenco dei legami: il confine vero
+      resta sul server, dove `GET /api/v1/athlete-accounts/me` risolve la
+      scheda da `athletes.user_id` e non da un parametro. Questa guardia
+      governa solo quale percorso il browser puo aprire.
+
+      **E non ci entra la gestione.** Sulla scheda `/athletes/<id>/profile` un
+      ruolo gestionale passa — e la scheda di un atleta del suo club, che gia
+      legge — ma qui non c'e nessun atleta da guardare: c'e la propria area, e
+      per un dirigente sarebbe vuota. Aprirgliela vorrebbe dire prometterle un
+      contenuto che non puo avere.
+    */
+    if (matchesPathPrefix(pathname, "/athlete-dashboard")) {
+      return normalizedRole === "athlete";
+    }
     if (MANAGEMENT_ROLES.has(normalizedRole)) return true;
     if (normalizedRole !== "athlete") return false;
     return collectLinkedAthleteIds(context).some((athleteId) =>

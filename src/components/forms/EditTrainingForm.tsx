@@ -239,7 +239,6 @@ export function EditTrainingForm({
         );
 
         // Here you would trigger actual notifications to athletes, parents and trainers
-        console.log("Notification sent:", notificationMessage);
       }
     }
     onClose();

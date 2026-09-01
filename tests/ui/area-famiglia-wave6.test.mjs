@@ -260,11 +260,30 @@ test("W6-16/17/18 · la data si legge nei quattro stati, e c'e dove portare il n
   );
 });
 
-test("W6-18 · il tipo del documento arriva al server", () => {
+test("W6-18 · il tipo del documento arriva al server, e il file viaggia come file", () => {
   const contesto = leggi(CONTESTO);
+
   assert.ok(
-    contesto.includes("documentType: input.documentType,"),
-    "la rotta lo accetta da sempre, e nessun client glielo mandava: il certificato entrava come «altro»",
+    contesto.includes('modulo.append("documentType"'),
+    "la rotta lo accetta da sempre, e nessun client glielo mandava: il certificato entrava come «altro», e lo stato sanitario non si muoveva",
+  );
+
+  /*
+    E l'occasione in cui il ramo multipart — che esisteva sul server da una
+    Wave senza che nessuno lo usasse — smette di essere codice morto. Base64
+    costa il 33% in piu, e su una foto di documento fatta col telefono e la
+    differenza fra un caricamento che riesce in palestra e uno che va in
+    timeout. In piu il ramo JSON **decodificava e poi misurava**: il limite di
+    dimensione arrivava dopo aver allocato il file.
+  */
+  assert.ok(
+    contesto.includes("const modulo = new FormData();"),
+    "il file deve viaggiare come file",
+  );
+  assert.equal(
+    contesto.includes("fileToBase64"),
+    false,
+    "l'aiutante base64 non ha piu chiamanti: lasciarlo sarebbe una seconda strada per lo stesso atto",
   );
 
   const pagine = leggi(PAGINE);

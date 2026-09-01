@@ -59,6 +59,16 @@ const toLegacyStatus = (entry: DocumentDossierEntry): SharedDocumentStatus => {
       return "rejected";
     default:
       /*
+        W6-50. **Il ritardo ha un nome, e la scheda atleta non lo sapeva dire.**
+
+        `state.overdue` e vero solo quando il termine e passato **e** la
+        richiesta e ancora aperta: una richiesta gia soddisfatta non e in
+        ritardo per quanto la data sia passata, e mostrarla in rosso manderebbe
+        la segreteria a sollecitare chi ha gia consegnato. Il calcolo e del
+        dominio (`deriveDocumentRequestState`), qui c'e solo la traduzione.
+      */
+      if (entry.state.overdue) return "expired";
+      /*
         Una richiesta senza depositi e «richiesta»; una annullata pure, ma esce
         con `archived: true` e l'interfaccia non la mostra. Il vocabolario
         vecchio non ha un valore per l'annullamento, e inventarne uno qui

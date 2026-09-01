@@ -48,6 +48,7 @@ import { normalizeAccessRole, type CanonicalAccessRole } from "@/lib/access-role
 
 export type PermissionDomain =
   | "accounting"
+  | "accounts"
   | "appointments"
   | "communications"
   | "consents"
@@ -350,6 +351,33 @@ const ENTRIES: readonly PermissionEntry[] = [
     key: "clinical.manage",
     domain: "health",
     label: "Registrare e modificare certificati e dati sanitari",
+    roles: GESTIONE,
+  },
+
+  /* ------------------------------ l'accesso EasyGame di una persona ------ */
+  {
+    /*
+      **Consegnare un accesso non e leggere una scheda** (W6-25/26/27).
+
+      La chiave nasce con la sua superficie — la sezione «Accesso EasyGame»
+      della scheda atleta — e non prima: e la regola di W5-D01.
+
+      `GESTIONE` e non `DIREZIONE`, e la ragione e che questo atto **non
+      concede niente che chi lo compie non abbia gia**. Il ruolo dell'invito e
+      fisso — `athlete` — e il perimetro e la scheda di **quell'** atleta, che
+      segreteria e collaboratore leggono per intero tutti i giorni: non c'e
+      nessuna scalata di privilegio da difendere. Chiuderla alla direzione
+      avrebbe messo la consegna dell'accesso in un ufficio diverso da quello
+      che tiene l'anagrafica, cioe l'avrebbe resa una cosa che non si fa.
+
+      Il perimetro **vero** — un invito si manda a un atleta del proprio club —
+      non lo dice questa riga: lo applica `assertActiveClub` riga per riga
+      (ADR-0094). Qui si dice se il ruolo puo compiere l'atto, non dove.
+    */
+    key: "accounts.athlete.manage",
+    domain: "accounts",
+    label:
+      "Invitare un atleta ad accedere a EasyGame, reinviare l'invito e revocargli l'accesso",
     roles: GESTIONE,
   },
 

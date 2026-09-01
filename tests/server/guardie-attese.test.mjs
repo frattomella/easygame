@@ -50,7 +50,13 @@ const SORGENTI = [
   {
     file: "src/lib/server/document-requests.ts",
     guardia: "assertRolePermission",
-    attese: 6,
+    /*
+      Sette dalla Wave 6: la settima e `listDocumentReviewQueue`, la coda
+      «documenti da verificare» della segreteria (W6-39). Chiede
+      `documents.review` e non `documents.read_dossier`, come la coda dei
+      depositi: sono due domande diverse, e questa e una coda di lavoro.
+    */
+    attese: 7,
   },
   /*
     Le due guardie cliniche del registro generico corrono lo stesso rischio, e

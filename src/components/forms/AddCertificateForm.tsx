@@ -189,7 +189,6 @@ export function AddCertificateForm({
               id: athlete.id,
               name: getAthleteDisplayName(athlete) || "Atleta",
             }));
-          console.log("Fetched athletes:", fetchedAthletes);
           const nextAthletes = ensureLockedAthlete(fetchedAthletes);
           setLocalAthletes(nextAthletes);
           setFilteredAthletes(nextAthletes);

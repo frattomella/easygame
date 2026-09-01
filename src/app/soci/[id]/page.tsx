@@ -176,7 +176,6 @@ export default function MemberDetailsPage() {
 
       setIsLoading(true);
       try {
-        console.log("Fetching club data for clubId:", clubId);
         
         const { data: clubData, error: clubError } = await supabase
           .from("clubs")
@@ -202,7 +201,6 @@ export default function MemberDetailsPage() {
           return;
         }
 
-        console.log("Club data loaded successfully:", clubData);
 
         // Find member in members array
         let memberData = null;
@@ -214,7 +212,6 @@ export default function MemberDetailsPage() {
 
         if (!memberData) {
           console.error("Member not found in club data. MemberId:", memberId);
-          console.log("Available members:", clubData?.members);
           showToast("error", "Socio non trovato");
           setIsLoading(false);
           return;

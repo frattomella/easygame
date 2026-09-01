@@ -82,7 +82,6 @@ export default function NotificationsPage() {
           table: "simplified_notifications",
         },
         (payload) => {
-          console.log("New notification received:", payload);
           loadNotifications();
         },
       )
@@ -109,7 +108,6 @@ export default function NotificationsPage() {
       // Get club ID from localStorage only once
       const activeClubData = localStorage.getItem("activeClub");
       if (!activeClubData) {
-        console.log("No active club found in localStorage");
       }
 
       const { data: notificationsData, error } = await supabase

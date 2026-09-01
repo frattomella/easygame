@@ -859,7 +859,6 @@ export default function TrainingPage() {
         updated_at: new Date().toISOString(),
       };
 
-      console.log("Saving new training to database:", newTraining);
 
       // Save to database
       /*
@@ -867,7 +866,6 @@ export default function TrainingPage() {
         l'intera collezione del club per riscriverla con un elemento in piu.
       */
       const savedTraining = await createEvent("training", newTraining);
-      console.log("Training saved successfully:", savedTraining);
 
       // Calculate expected attendees
       const allAthletes = await getClubAthletes(activeClub.id);
@@ -2222,16 +2220,10 @@ export default function TrainingPage() {
                 updated_at: new Date().toISOString(),
               };
 
-              console.log(
-                "Updating training in database:",
-                updatedTraining.id,
-                updateData,
-              );
 
               // Save to database
               await updateEvent(updatedTraining.id, updateData);
 
-              console.log("Training updated successfully in database");
 
               // Update the training in the local state
               const updatedTrainings = trainings.map((t) =>

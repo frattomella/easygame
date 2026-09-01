@@ -1,5 +1,6 @@
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
 import {
+  listDocumentReviewQueue,
   listPendingDocumentSubmissions,
   submitDocument,
 } from "@/lib/server/document-requests";
@@ -13,6 +14,7 @@ import {
  * I depositi di documenti (Wave 5, lane 5D, §17).
  *
  *   GET  /api/v1/document-submissions?subject_id=…   la coda «da verificare»
+ *   GET  /api/v1/document-submissions?view=queue     la coda operativa (W6-39)
  *   POST /api/v1/document-submissions                multipart/form-data
  *
  * **Perche multipart e non JSON con base64.** E la stessa ragione di
@@ -42,6 +44,28 @@ export async function GET(request: Request) {
     const organizationId = url.searchParams.get("organization_id");
     const resolved = await resolveDossierScope(request, organizationId);
     if (resolved.response) return resolved.response;
+
+    /*
+      W6-39. **`view=queue` e la coda operativa della segreteria.**
+
+      La forma senza parametro resta quella della Wave 5 — i soli depositi che
+      aspettano una decisione — e non cambia per nessuno: e cio che il registro
+      dichiara e che i test coprono. La coda della schermata chiede di piu
+      (rifiutati, scaduti, approvati, piu il nome dell'atleta e di chi ha
+      caricato), e chiederlo con un parametro invece che con una rotta nuova
+      tiene una domanda sola — «cosa c'e da verificare in questo club» — in un
+      posto solo.
+    */
+    if (url.searchParams.get("view") === "queue") {
+      const queue = await listDocumentReviewQueue(resolved.scope, {
+        organizationId,
+        subjectKind: url.searchParams.get("subject_kind"),
+        subjectId: url.searchParams.get("subject_id"),
+        documentKind: url.searchParams.get("document_kind"),
+      });
+
+      return ok(queue);
+    }
 
     const data = await listPendingDocumentSubmissions(resolved.scope, {
       organizationId,

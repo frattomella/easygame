@@ -136,7 +136,6 @@ export default function SponsorDetailsPage() {
 
       setIsLoading(true);
       try {
-        console.log("Fetching club data for clubId:", clubId);
         
         const { data: clubData, error: clubError } = await supabase
           .from("clubs")
@@ -158,7 +157,6 @@ export default function SponsorDetailsPage() {
           return;
         }
 
-        console.log("Club data loaded successfully:", clubData);
 
         // Find sponsor in sponsors array
         let sponsorData = null;
@@ -170,7 +168,6 @@ export default function SponsorDetailsPage() {
 
         if (!sponsorData) {
           console.error("Sponsor not found in club data. SponsorId:", sponsorId);
-          console.log("Available sponsors:", clubData?.sponsors);
           showToast("error", "Sponsor/Fornitore non trovato");
           setIsLoading(false);
           return;

@@ -39,6 +39,7 @@ model User {
   notifications               Notification[]
   external_accounts           ExternalAccount[]
   verification_challenges     AuthVerificationChallenge[]
+  athlete_account_invites     AthleteAccountInvite[]
 
   @@map("users")
 }
@@ -280,6 +281,7 @@ model Club {
   financial_accounts           FinancialAccount[]
   accounting_entries           AccountingEntry[]
   membership_events            MembershipEvent[]
+  athlete_account_invites      AthleteAccountInvite[]
 
   @@map("clubs")
 }
@@ -340,10 +342,62 @@ model Athlete {
   medical_certificates MedicalCertificate[]
   category_memberships AthleteCategoryMembership[]
   appointments         Appointment[]
+  account_invites      AthleteAccountInvite[]
 
   @@index([organization_id])
   @@index([user_id])
   @@map("athletes")
+}
+
+/// **Il ciclo di vita dell'accesso EasyGame di un atleta** (W6-25/26/27).
+///
+/// Il ruolo `athlete` era modellato da capo a fondo — area, guardia di
+/// percorso, redirect, pagina — e **nessun percorso scriveva `athletes.user_id`**:
+/// `unlinkDirectAthleteProfile` lo slegava, e niente lo legava mai. Un ruolo
+/// irraggiungibile non e un ruolo, e «Invia credenziali» mostrava un errore.
+///
+/// I presidi che sono la ragione della tabella:
+///
+///   * `token_hash` e non il token: in archivio non c'e niente che riapra la
+///     porta se il database finisce nelle mani sbagliate (ADR-0085). Il token
+///     in chiaro esiste per il tempo di comporre l'email, e poi non esiste piu;
+///   * `athlete_account_invites_vivo_unico` — indice **unico parziale** su
+///     (club, atleta) per il solo stato `sent`: un invito vivo per atleta, e lo
+///     garantisce il database. E la stessa forma di
+///     `appointments_slot_vivo_unico`. Un reinvio revoca il precedente e ne
+///     crea uno nuovo, quindi la storia resta leggibile: gli inviti morti
+///     restano;
+///   * `user_id` — **non e nel piano di §9.4, ed e stato aggiunto**. Senza,
+///     l'accettazione dovrebbe ritrovare l'utenza dall'indirizzo, e fra l'invio
+///     e il clic quell'indirizzo puo essere cambiato o rioccupato: il token
+///     finirebbe per legare l'atleta a un'utenza diversa da quella invitata.
+///     L'invito porta con se **chi** ha invitato, e non solo dove.
+model AthleteAccountInvite {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  athlete_id      String    @db.Uuid
+  /// L'utenza destinataria, risolta o creata al momento dell'invito.
+  user_id         String?   @db.Uuid
+  email           String
+  /// SHA-256 del token consegnato via email. Mai il token.
+  token_hash      String
+  /// `sent` | `accepted` | `revoked` | `expired`.
+  status          String    @default("sent")
+  expires_at      DateTime
+  sent_at         DateTime  @default(now())
+  accepted_at     DateTime?
+  revoked_at      DateTime?
+  created_by      String?   @db.Uuid
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete   @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+  user            User?     @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@unique([token_hash])
+  @@index([organization_id, athlete_id])
+  @@index([organization_id, status])
+  @@map("athlete_account_invites")
 }
 
 model MedicalCertificate {

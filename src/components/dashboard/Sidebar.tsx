@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileSignature,
+  FileCheck,
   FileText,
   FileUp,
   GraduationCap,
@@ -147,6 +148,21 @@ const sidebarGroups: SidebarGroup[] = [
         label: "Segreteria",
         href: "/secretariat",
         icon: FileText,
+      },
+      /*
+        W6-39. La coda documentale del club. Senza questa voce la pagina
+        nascerebbe irraggiungibile — che e esattamente la forma di difetto
+        che la Wave 6 ha contato quattordici volte: dominio corretto, rotta
+        corretta, test verdi, e nessuna strada che ci arrivi.
+
+        Fino a qui la segreteria doveva aprire **scheda per scheda** per
+        sapere se qualcuno aveva caricato qualcosa.
+      */
+      {
+        id: "documents",
+        label: "Documenti",
+        href: "/documenti",
+        icon: FileCheck,
       },
       {
         id: "notifications",

@@ -158,41 +158,34 @@ const NewDashboard: React.FC<NewDashboardProps> = ({
 
   const handleViewAthletes = (categoryId: string) => {
     // Use e.preventDefault() to prevent navigation
-    console.log(`View athletes for category ${categoryId}`);
     // In a real app, we would use router.push here, but we're preventing it in the storyboard
     if (
       typeof window !== "undefined" &&
       !window.location.href.includes("storyboard=true")
     ) {
       // Only navigate if not in a storyboard
-      console.log(`Would navigate to /athletes?category=${categoryId}`);
     }
   };
 
   const handleViewInfo = (categoryId: string) => {
-    console.log(`View info for category ${categoryId}`);
     // Only navigate if not in a storyboard
     if (
       typeof window !== "undefined" &&
       !window.location.href.includes("storyboard=true")
     ) {
-      console.log(`Would navigate to /categories/${categoryId}`);
     }
   };
 
   const handleMoreOptions = (categoryId: string) => {
-    console.log(`More options for category ${categoryId}`);
     // This would typically open a dropdown, not navigate
   };
 
   const handleAddCategory = () => {
-    console.log("Add new category");
     // Only navigate if not in a storyboard
     if (
       typeof window !== "undefined" &&
       !window.location.href.includes("storyboard=true")
     ) {
-      console.log(`Would navigate to /categories/new`);
     }
   };
 

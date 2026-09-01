@@ -14,7 +14,20 @@ import {
 import { toFamilyFreeSlot } from "@/lib/appointments/projection";
 import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
 import { dedupeTrainings } from "@/lib/training-utils";
-import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
+/*
+  Percorso relativo come lo usa `document-requests.ts`: il servizio degli
+  allegati e server-only, e `tests/ui/attachment-contract.test.mjs` presidia che
+  nessuno lo raggiunga con l'alias `@/lib/server/**`, che e la forma che un
+  componente client copierebbe.
+*/
+import { listAttachments } from "./attachments";
+import {
+  buildFamilyDocumentAreas,
+  type FamilyDocumentAreas,
+  type FamilyDossierFile,
+  type FamilyDossierInput,
+} from "@/lib/documents/family-dossier";
+import { resolveDocumentKind } from "@/lib/documents/kind-catalog";
 import { computeFreeAppointmentSlots } from "@/lib/appointments/model";
 import { toFamilyAppointment } from "@/lib/appointments/projection";
 import {
@@ -512,51 +525,169 @@ const sortByStart = (left: any, right: any) =>
   (left?.startsAt ? new Date(left.startsAt).getTime() : Number.MAX_SAFE_INTEGER) -
   (right?.startsAt ? new Date(right.startsAt).getTime() : Number.MAX_SAFE_INTEGER);
 
-const resolveDocumentTemplates = (club: any, uploadedDocuments: any[]) =>
-  asArray(club?.document_templates).map((template, index) => {
-    const templateId =
-      firstText(template?.id, template?.templateId, template?.name, template?.title) ||
-      `document-template-${index}`;
-    const uploaded = uploadedDocuments.find(
-      (document) =>
-        sameId(document.templateId, templateId) ||
-        sameId(document.template_id, templateId),
-    );
+/**
+ * **I moduli da stampare che il club pubblica**, quando nessuno li ha ancora
+ * chiesti nel fascicolo.
+ *
+ * `clubs.document_templates` non e una richiesta: non ha un destinatario, non
+ * ha una scadenza e non ha uno stato. E un modulo in bianco da scaricare. Fino
+ * alla Wave 6 l'area famiglia lo mescolava con i caricamenti gia fatti — ed e
+ * meta di W6-40 — presentando la stessa carta due volte con due stati diversi.
+ *
+ * Qui resta, perche un club che li usa non deve perderli, ma **cede il posto**
+ * appena esiste una richiesta vera dello stesso tipo: quella ha una scadenza e
+ * uno stato, e il modulo in bianco no.
+ */
+const resolveClubTemplateTodo = (
+  club: any,
+  entries: readonly FamilyDossierInput[],
+): FamilyDocumentAreas["todo"] => {
+  const tipiGiaChiesti = new Set(
+    entries.map((entry) => resolveDocumentKind(entry.documentKind)),
+  );
 
-    return {
-      id: templateId,
-      title: firstText(template?.title, template?.name) || "Documento",
-      description: firstText(template?.description, template?.notes),
-      status: uploaded?.status || (uploaded ? "under_review" : "required"),
-      uploadedDocumentId: uploaded?.id || null,
-      assetId: uploaded?.assetId || null,
-      fileName: uploaded?.fileName || "",
-      dueDate: uploaded?.dueDate || "",
-      rejectionReason: uploaded?.rejectionReason || "",
-      fileUrl: firstText(template?.fileUrl, template?.file_url, template?.url),
+  return asArray(club?.document_templates)
+    .map((template, index) => {
+      const id =
+        firstText(
+          template?.id,
+          template?.templateId,
+          template?.name,
+          template?.title,
+        ) || `document-template-${index}`;
+      const titolo = firstText(template?.title, template?.name) || "Documento";
+      const kind = resolveDocumentKind(
+        firstText(
+          template?.documentType,
+          template?.document_type,
+          template?.type,
+          titolo,
+        ),
+      );
+
+      return { id, titolo, kind, template };
+    })
+    .filter((voce) => !tipiGiaChiesti.has(voce.kind))
+    .map((voce) => ({
+      id: voce.id,
+      requestId: null,
+      submissionId: null,
+      documentKind: voce.kind,
+      documentKindLabel: voce.titolo,
+      title: voce.titolo,
+      description: firstText(
+        voce.template?.description,
+        voce.template?.notes,
+      ),
+      state: "missing" as const,
+      stateLabel: "Da caricare",
       required: true,
-      documentType: uploaded?.documentType || "other",
-    };
+      dueDate: null,
+      daysLeft: null,
+      validUntil: null,
+      submittedAt: null,
+      decidedAt: null,
+      rejectionReason: null,
+      fileName: "",
+      /* Il modulo in bianco da scaricare, compilare e ricaricare firmato. */
+      fileUrl: firstText(
+        voce.template?.fileUrl,
+        voce.template?.file_url,
+        voce.template?.url,
+      ),
+      mimeType: "",
+      action: "upload" as const,
+      actionLabel: "Carica",
+      historyCount: 0,
+    }));
+};
+
+/**
+ * **Le due aree documentali della famiglia, lette dal fascicolo vero**
+ * (W6-37, W6-38, W6-40).
+ *
+ * ---
+ *
+ * ## Cosa cambia
+ *
+ * Prima questa funzione non esisteva e l'area famiglia leggeva
+ * `athletes.data.sharedDocuments` — l'array JSON dentro l'anagrafica. Una
+ * richiesta creata dalla segreteria nel fascicolo nuovo **non arrivava alla
+ * famiglia**: le quattro rotte della Wave 5 erano corrette e nessuno le
+ * chiamava. Adesso la sorgente e `document_requests` / `document_submissions`,
+ * cioe la stessa che vede il club.
+ *
+ * ## Il permesso e il legame, e passa dalla guardia del dominio
+ *
+ * Lo scope si costruisce con `activeRole: null` **di proposito**: cosi
+ * `roleHasPermission` risponde `false` e l'unica strada aperta dentro
+ * `getDocumentDossier` resta `canParentAccessAthlete`. E la stessa forma di
+ * `resolveLinkedFamilyScope`, e la ragione e la stessa: un tutore puo non avere
+ * nessuna appartenenza al club.
+ *
+ * ## Perche l'importazione e dinamica
+ *
+ * `document-requests.ts` importa `canParentAccessAthlete` da **questo** file.
+ * Un import statico chiuderebbe il cerchio: funzionerebbe in Node, dove le due
+ * funzioni si toccano solo a chiamata, ma metterebbe un ciclo dentro il grafo
+ * che il bundler risolve — e il costo di scoprirlo e un `undefined` in
+ * produzione. Una riga di `await import` costa meno.
+ */
+export const getFamilyDocumentAreas = async (
+  userId: string,
+  athlete: { id: string; organization_id: string },
+  club: any,
+  options: { now?: Date } = {},
+): Promise<FamilyDocumentAreas> => {
+  const organizationId = String(athlete?.organization_id || "");
+  const scope = {
+    userId: String(userId || ""),
+    activeOrganizationId: organizationId,
+    activeRole: null as string | null,
+    allowedOrganizationIds: [organizationId],
+  };
+
+  const { getDocumentDossier } = await import("./document-requests");
+
+  const entries = (await getDocumentDossier(
+    scope,
+    { subjectKind: "athlete", subjectId: athlete.id },
+    { now: options.now },
+  )) as unknown as FamilyDossierInput[];
+
+  /*
+    I metadati dei file in **una** lettura, da Attachment Core che ne e il
+    proprietario: nome, tipo, indirizzo e validita. Il fascicolo porta
+    l'identificativo dell'allegato e non sa niente del file, e chiederlo riga
+    per riga sarebbe una lettura per documento.
+  */
+  const allegati = organizationId
+    ? await listAttachments(
+        { organizationId, ownerType: "athlete", ownerId: athlete.id },
+        scope,
+      )
+    : [];
+
+  const perAllegato = new Map<string, FamilyDossierFile>(
+    allegati.map((allegato) => [
+      allegato.id,
+      {
+        fileName: allegato.fileName,
+        mimeType: allegato.mimeType,
+        url: allegato.url,
+        validUntil: allegato.validUntil,
+      },
+    ]),
+  );
+
+  const aree = buildFamilyDocumentAreas(entries, perAllegato, {
+    now: options.now,
   });
 
-const normalizeUploadedDocuments = (athlete: any) => {
-  return getSharedDocumentsFromAthlete(athlete)
-    .filter((document) => document.visibleToParent)
-    .map((document) => ({
-      id: document.id,
-      templateId: firstText(document.data?.templateId, document.data?.template_id),
-      title: document.title || "Documento caricato",
-      description: document.description || "",
-      documentType: document.documentType,
-      fileName: document.fileName || "",
-      status: document.status,
-      uploadedAt: toIso(document.uploadedAt),
-      assetId: document.assetId || "",
-      dueDate: document.dueDate || "",
-      rejectionReason: document.rejectionReason || "",
-      required: document.required,
-      uploadedByRole: document.uploadedByRole,
-    }));
+  return {
+    todo: [...aree.todo, ...resolveClubTemplateTodo(club, entries)],
+    archive: aree.archive,
+  };
 };
 
 const serializeAthleteCard = (athlete: any) => {
@@ -981,20 +1112,22 @@ export const getParentDashboardData = async (
     ),
   ).length;
   const attendanceTotal = presentCount + absentCount;
-  const uploadedDocuments = normalizeUploadedDocuments(selectedAthlete);
-  const templateRequiredDocuments = resolveDocumentTemplates(club, uploadedDocuments);
-  const requiredDocuments = [
-    ...templateRequiredDocuments,
-    ...uploadedDocuments.filter(
-      (document) =>
-        document.required &&
-        !templateRequiredDocuments.some(
-          (template) =>
-            sameId(template.id, document.id) ||
-            sameId(template.id, document.templateId),
-        ),
-    ),
-  ];
+  /*
+    W6-37, W6-38, W6-40. **Il fascicolo vero, e due elenchi che non si
+    ripetono.**
+
+    Qui c'erano tre righe che producevano `requiredDocuments` come «i modelli di
+    stampa del club **piu** i caricamenti gia fatti che risultano obbligatori»,
+    e `uploadedDocuments` dallo stesso array JSON: la stessa carta compariva in
+    tutte e due le card. E nessuna delle due leggeva `document_requests`, quindi
+    una richiesta della segreteria non arrivava mai alla famiglia.
+  */
+  const documentAreas = await getFamilyDocumentAreas(
+    userId,
+    selectedAthlete,
+    club,
+    { now: new Date(now) },
+  );
   const certificates = medicalCertificates.map((certificate) => ({
     ...certificate,
     issue_date: toIso(certificate.issue_date),
@@ -1169,9 +1302,22 @@ export const getParentDashboardData = async (
       })),
     },
     enrollment: enrollmentSummary,
+    /*
+      **Le due chiavi restano, e il significato cambia** (W6-40).
+
+      `required` non e piu «l'elenco di tutto cio che e obbligatorio»: e cio che
+      la famiglia deve **ancora fare**. `uploaded` non e piu «tutto cio che sta
+      nell'array JSON»: e l'archivio dei file consegnati che non chiedono
+      niente. Una voce sta in uno dei due, mai in tutti e due — la regola vive in
+      `src/lib/documents/family-dossier.ts`, dove un test la interroga.
+
+      I nomi non cambiano perche il contratto verso l'area famiglia e gia
+      pubblicato e la lane 6D lo legge: cambiarli qui avrebbe voluto dire
+      toccare file di un'altra lane per una rinomina.
+    */
     documents: {
-      required: requiredDocuments,
-      uploaded: uploadedDocuments,
+      required: documentAreas.todo,
+      uploaded: documentAreas.archive,
     },
     trainings: {
       upcoming: upcomingTrainings,

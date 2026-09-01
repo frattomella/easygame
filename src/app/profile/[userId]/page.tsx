@@ -79,7 +79,7 @@ export default function ProfilePage({
         }
 
         if (userData) {
-          console.log("User data loaded from database:", userData);
+
           // Set profile image
           if (userData.profile_image) {
             setProfileImage(userData.profile_image);

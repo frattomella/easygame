@@ -118,6 +118,7 @@ import {
   normalizeClubFederations,
 } from "@/lib/athlete-profile-fields";
 import { AthleteProfileHeader } from "@/components/athletes/profile/athlete-profile-header";
+import { AthleteAccountSection } from "@/components/athletes/profile/athlete-account-section";
 import { AthleteProfileTabsBar } from "@/components/athletes/profile/athlete-profile-tabs";
 import { PersonCompensationTab } from "@/components/sport-work/PersonCompensationTab";
 import { resolveAthleteProfileTab } from "@/lib/athlete-profile-tabs";
@@ -195,11 +196,17 @@ import {
 } from "@/lib/payment-plan-utils";
 import { loadActiveSeasonPeriod } from "@/lib/club-profile";
 import {
-  SHARED_DOCUMENT_TYPES,
   getSharedDocumentStatusClassName,
   getSharedDocumentStatusLabel,
   getSharedDocumentTypeLabel,
 } from "@/lib/shared-documents";
+/*
+  W6-47. I tipi canonici vengono dal dominio documentale nuovo. Il vecchio
+  elenco viveva in `shared-documents.ts` — il file che la lane 5J deve
+  cancellare — e non conosceva ne la tessera sanitaria ne la delega, che sono
+  due dei documenti che una segreteria chiede piu spesso.
+*/
+import { DOCUMENT_KIND_OPTIONS } from "@/lib/documents/kind-catalog";
 import { CompileFormDialog } from "@/components/forms/compile-form-dialog";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { apiRequest } from "@/lib/api/client";
@@ -1218,23 +1225,18 @@ export default function AthleteProfilePage() {
     }
   };
 
-  /**
-   * **Un messaggio verde che dice una cosa che non e successa.**
-   *
-   * Questo gestore non chiama niente: nessuna email parte, nessuna credenziale
-   * viene generata. La segreteria leggeva «Credenziali inviate», chiudeva la
-   * scheda, e l'atleta restava senza accesso senza che nessuno lo sapesse.
-   *
-   * La stessa correzione e gia stata fatta sulla scheda di un socio. Finche
-   * l'invito non esiste come funzione del prodotto, il pulsante lo dichiara:
-   * un'assenza dichiarata si puo pianificare, una promessa falsa no.
-   */
-  const handleShareCredentials = () => {
-    showToast(
-      "error",
-      "L'invio delle credenziali non e ancora disponibile: si consegnano dall'area riservata della persona, dove l'accesso viene creato davvero.",
-    );
-  };
+  /*
+    **«Invia credenziali» non c'e piu, ed e una buona notizia** (W6-26).
+
+    Qui viveva un gestore che non chiamava niente: mostrava un errore, e prima
+    ancora un messaggio **verde** che dichiarava un invio mai avvenuto. La
+    segreteria chiudeva la scheda convinta di aver fatto una cosa che non era
+    successa.
+
+    L'invito adesso esiste come funzione — token opaco, scadenza, revoca,
+    audit — e non entra in un pulsante: ha tre stati e quattro azioni, e sta
+    nella sezione «Accesso EasyGame» qui sotto.
+  */
 
   // Handle avatar upload
   const handleAvatarChange = async (imageData: string | null) => {
@@ -3600,9 +3602,21 @@ export default function AthleteProfilePage() {
               categories={athleteCategoryMemberships}
               onAvatarChange={handleAvatarChange}
               onScanDocument={() => setShowDocumentScannerModal(true)}
-              onShareCredentials={handleShareCredentials}
               onDelete={handleDeleteAthlete}
             />
+
+            {/*
+              L'accesso EasyGame dell'atleta (W6-25/26/27). Sta sopra le
+              schede e non dentro «Generale» perche non e un dato
+              dell'anagrafica: e una cosa che si **fa**, e finche non e stata
+              fatta l'atleta non puo entrare da nessuna parte.
+            */}
+            {athleteId ? (
+              <AthleteAccountSection
+                athleteId={athleteId}
+                suggestedEmail={athlete?.email || null}
+              />
+            ) : null}
 
             {/* Tabs */}
             <Tabs defaultValue={initialTab} className="min-w-0">
@@ -5553,7 +5567,7 @@ export default function AthleteProfilePage() {
                               <SelectValue placeholder="Tipo documento" />
                             </SelectTrigger>
                             <SelectContent>
-                              {SHARED_DOCUMENT_TYPES.map((type) => (
+                              {DOCUMENT_KIND_OPTIONS.map((type) => (
                                 <SelectItem key={type.value} value={type.value}>
                                   {type.label}
                                 </SelectItem>
@@ -5613,7 +5627,7 @@ export default function AthleteProfilePage() {
                               <SelectValue placeholder="Tipo documento" />
                             </SelectTrigger>
                             <SelectContent>
-                              {SHARED_DOCUMENT_TYPES.map((type) => (
+                              {DOCUMENT_KIND_OPTIONS.map((type) => (
                                 <SelectItem key={type.value} value={type.value}>
                                   {type.label}
                                 </SelectItem>
@@ -5766,7 +5780,15 @@ export default function AthleteProfilePage() {
                                     </Button>
                                   </>
                                 ) : null}
-                                {["required", "rejected"].includes(
+                                {/*
+                                  W6-50. `expired` mancava, e proprio le
+                                  richieste **scadute** sono quelle da
+                                  sollecitare: il pulsante spariva esattamente
+                                  dove serviva. Lo stato lo calcola il dominio
+                                  da quando `getSharedDocumentStatusLabel` lo
+                                  conosce.
+                                */}
+                                {["required", "rejected", "expired"].includes(
                                   String(document.status || ""),
                                 ) ? (
                                   <Button

@@ -204,6 +204,21 @@ const matchesWhere = (record, where) => {
         continue;
       }
       /*
+        `has`, cioe «questa colonna array contiene questo valore».
+
+        Serve a una colonna sola ma decisiva: `communication_deliveries.athlete_ids`,
+        che e il modo in cui il registro delle consegne dice **per chi** era un
+        messaggio. Senza questo ramo la condizione cadeva in «non supportata» —
+        che la considera soddisfatta — e la cancellazione dei dati di una
+        persona avrebbe anonimizzato le consegne di **tutti**, con il test
+        verde.
+      */
+      if ("has" in condition) {
+        const lista = Array.isArray(value) ? value : [];
+        if (!lista.includes(condition.has)) return false;
+        continue;
+      }
+      /*
         La **chiave unica composta**, cioe come Prisma la scrive in un `where`
         unico: `{ organization_id_training_id_athlete_id: { organization_id,
         training_id, athlete_id } }`. Il nome della chiave non e una colonna,
@@ -488,6 +503,27 @@ const UNIQUE_CONSTRAINTS = {
       quando: (row) =>
         row.idempotency_key !== null && row.idempotency_key !== undefined,
     },
+  ],
+  /*
+    Wave 6, accesso atleta. I due indici della tabella degli inviti:
+
+      * `athlete_account_invites_vivo_unico` — **parziale** sul solo stato
+        `sent`: un invito vivo per atleta, e a garantirlo e il database. Un
+        doppio che non lo facesse rispettare mostrerebbe due token validi per
+        la stessa persona come se fosse normale, e il test proverebbe il
+        contrario di cio che deve provare. A differenza di
+        `appointments_slot_vivo_unico`, le sue colonne sono tre stringhe: il
+        confronto con `===` e fedele;
+      * `athlete_account_invites_token_hash_key` — un token individua **un**
+        invito, ed e cio che rende il riscatto una ricerca per impronta e non
+        per atleta.
+  */
+  athleteAccountInvite: [
+    {
+      fields: ["organization_id", "athlete_id"],
+      quando: (row) => row.status === "sent",
+    },
+    ["token_hash"],
   ],
 };
 

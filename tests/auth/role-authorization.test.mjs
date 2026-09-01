@@ -49,9 +49,17 @@ test("risolve la dashboard corretta senza fallback atleta su parent-view", () =>
     getAccessRedirectPath("parent", { linkedAthleteId: "athlete-a" }),
     "/parent-view/athlete-a",
   );
+  /*
+    W6-33. **L'atleta entra nella sua area, non nella scheda gestionale.**
+    L'ingresso era `/athletes/<id>/profile`, che montava la sidebar del club:
+    trenta voci cliccabili che poi rimbalzavano sulla guardia. L'area atleta
+    non porta un identificativo nel percorso perche l'atleta e **se stesso**:
+    il legame lo risolve il server da `athletes.user_id`, e non c'e un
+    parametro da cambiare per farlo diventare un altro.
+  */
   assert.equal(
     getAccessRedirectPath("athlete", { linkedAthleteId: "athlete-a" }),
-    "/athletes/athlete-a/profile",
+    "/athlete-dashboard",
   );
   assert.equal(getAccessRedirectPath("athlete"), "/account");
   assert.equal(getAccessRedirectPath("unknown"), "/account");

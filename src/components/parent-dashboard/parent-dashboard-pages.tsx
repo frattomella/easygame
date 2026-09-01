@@ -64,6 +64,12 @@ import {
   normalizeOpeningHours,
 } from "@/lib/opening-hours-utils";
 import { getTrainingStableKey } from "@/lib/training-utils";
+/*
+  Le classi dello stato documentale arrivano dal dominio e non da una seconda
+  tabella scritta qui: e la stessa che il server usa per costruire l'etichetta,
+  e due copie sarebbero due badge diversi sullo stesso documento.
+*/
+import { getFamilyDocumentStateClassName } from "@/lib/documents/family-dossier";
 import {
   useParentDashboard,
   type AppointmentSlot,
@@ -528,9 +534,13 @@ export function ParentDashboardHome() {
 
   if (!data) return null;
 
-  const missingDocuments = data.documents.required.filter(
-    (document) => normalizeText(document.status) === "richiesto",
-  ).length;
+  /*
+    W6-40. Il conteggio filtrava `document.status === "richiesto"`, e quel
+    confronto era **gia sempre falso**: gli stati erano token inglesi. Adesso
+    il campo non esiste nemmeno piu — l area DA FARE e gia, per costruzione,
+    l elenco di cio che la famiglia deve ancora fare.
+  */
+  const missingDocuments = data.documents.required.length;
   /*
     W6-16, W6-17, W6-18. L'etichetta la dice il server, che la ricava dal
     dominio: qui c'era una terza scrittura degli stessi tre nomi, e non
@@ -1356,9 +1366,48 @@ export function ParentPaymentsPage() {
   );
 }
 
+/**
+ * **Le tre aree documentali del genitore** (Wave 6, lane 6E, §5.1).
+ *
+ * ---
+ *
+ * ## Cosa c'era prima, e perche non funzionava (W6-40)
+ *
+ * Due card, «Documenti richiesti» e «Documenti caricati», che erano **la stessa
+ * lista frullata due volte**: il server costruiva la prima come «i modelli di
+ * stampa del club **piu** i caricamenti gia fatti che risultano obbligatori».
+ * Un certificato consegnato a settembre compariva in tutte e due, con due stati
+ * che sembravano diversi, e il genitore lo ricaricava. Accanto, una terza card
+ * «Carica documento» con una tendina che ripeteva la prima lista una terza
+ * volta.
+ *
+ * ## Le tre aree, e cosa le distingue
+ *
+ * 1. **DA FARE** — cio che il club sta aspettando: cosa serve, entro quando,
+ *    perche e stato rifiutato se lo e stato, e **una** CTA. Non c'e piu una
+ *    tendina da cui scegliere il documento: la riga sa gia di cosa parla, e il
+ *    file si allega li.
+ * 2. **DOCUMENTI** — l'archivio di cio che e stato consegnato e non chiede
+ *    niente: in verifica, approvato. Con data, tipo e download.
+ * 3. **MODULI ONLINE** — non sono file. Sono compilazioni che il club pubblica
+ *    e il genitore riempie, e vivono nella pagina Iscrizione, che e la loro. Qui
+ *    c'e il rimando: fingere di ospitarli sarebbe la seconda implementazione di
+ *    un dominio che ne ha gia una.
+ *
+ * Una voce sta in **una** area sola. La regola — «la famiglia deve ancora fare
+ * qualcosa?» — vive in `src/lib/documents/family-dossier.ts`, dove un test la
+ * interroga, e non e riscritta qui.
+ *
+ * ## E soprattutto: la sorgente e il fascicolo vero
+ *
+ * `data.documents` non arriva piu da `athletes.data.sharedDocuments` ma da
+ * `document_requests` / `document_submissions` (W6-37). Una richiesta creata
+ * dalla segreteria adesso arriva.
+ */
 export function ParentDocumentsPage() {
   const { data, uploadDocument } = useParentDashboard();
   const { showToast } = useToast();
+  const router = useRouter();
   const searchParams = useSearchParams();
   /*
     W6-18. Il tipo puo arrivare dall indirizzo: e cosi che «Aggiorna il
@@ -1366,97 +1415,279 @@ export function ParentDocumentsPage() {
     parlando invece di lasciare il genitore davanti a una tendina.
   */
   const tipoRichiesto = String(searchParams?.get("tipo") || "").trim();
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
+  /* La riga su cui si sta caricando. Vuoto = il caricamento spontaneo. */
+  const [voceAperta, setVoceAperta] = useState("");
+  const [fileScelto, setFileScelto] = useState<File | null>(null);
+  const [inCaricamento, setInCaricamento] = useState(false);
   if (!data) return null;
 
-  const selectedTemplate = data.documents.required.find(
-    (document) => document.id === selectedTemplateId,
-  );
+  const daFare = data.documents.required;
+  const archivio = data.documents.uploaded;
+  const voceScelta = daFare.find((document) => document.id === voceAperta);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedFile) {
+  const carica = async (
+    voce: Record<string, any> | null,
+    file: File | null,
+  ) => {
+    if (!file) {
       showToast("error", "Seleziona un file");
       return;
     }
 
     try {
-      setUploading(true);
+      setInCaricamento(true);
       await uploadDocument({
-        templateId: selectedTemplateId,
-        title: selectedTemplate?.title || selectedFile.name,
+        /*
+          La richiesta a cui il file risponde. Vuota per un deposito
+          **spontaneo**, che il dominio accetta e mette nella stessa coda: non e
+          un caso degradato, e meta del traffico vero.
+        */
+        templateId: voce?.requestId || voce?.id || "",
+        title: voce?.title || file.name,
         /*
           W6-18. Senza il tipo il documento entra come «altro», e un
           certificato medico caricato dalla famiglia non muove lo stato
           sanitario: il genitore continuava a leggere «scaduto» il giorno
           dopo averlo caricato, e aveva ragione lui.
         */
-        documentType:
-          (selectedTemplate as any)?.type ||
-          (selectedTemplate as any)?.documentType ||
-          tipoRichiesto ||
-          undefined,
-        file: selectedFile,
+        documentType: voce?.documentKind || tipoRichiesto || undefined,
+        file,
       });
-      setSelectedFile(null);
-      setSelectedTemplateId("");
+      setFileScelto(null);
+      setVoceAperta("");
     } catch (error: any) {
       showToast("error", error?.message || "Errore caricamento documento");
     } finally {
-      setUploading(false);
+      setInCaricamento(false);
     }
   };
 
   return (
     <div className="space-y-6">
-      <PageHeading title="Documenti" subtitle="Moduli richiesti e caricamenti." />
+      <PageHeading
+        title="Documenti"
+        subtitle="Cosa serve al club, cosa hai gia consegnato, e i moduli da compilare online."
+      />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Documenti richiesti</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.documents.required.length === 0 ? (
-              <EmptyState text="Nessun documento richiesto dal club." />
-            ) : (
-              data.documents.required.map((document) => (
-                <div
-                  key={document.id}
-                  className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="font-semibold text-slate-950">
-                      {document.title}
+      {/* ------------------------------------------------------- DA FARE --- */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader>
+          <CardTitle>Da fare</CardTitle>
+          <p className="text-sm text-slate-500">
+            {daFare.length === 0
+              ? "Il club non sta aspettando niente da te."
+              : `Il club sta aspettando ${daFare.length} document${daFare.length === 1 ? "o" : "i"}.`}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {daFare.length === 0 ? (
+            <EmptyState text="Nessun documento da consegnare." />
+          ) : (
+            daFare.map((document) => (
+              <div
+                key={document.id}
+                className="rounded-2xl border border-slate-200 p-4"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-950">
+                        {document.title}
+                      </p>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "border",
+                          getFamilyDocumentStateClassName(document.state),
+                        )}
+                      >
+                        {document.stateLabel}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
+                      {document.documentKindLabel}
                     </p>
                     {document.description ? (
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="mt-2 text-sm text-slate-600">
                         {document.description}
                       </p>
                     ) : null}
                     {document.dueDate ? (
-                      <p className="mt-1 text-xs text-slate-500">
-                        Scadenza: {formatDate(document.dueDate)}
+                      <p
+                        className={cn(
+                          "mt-2 text-xs",
+                          Number(document.daysLeft) < 0
+                            ? "font-semibold text-red-600"
+                            : "text-slate-500",
+                        )}
+                      >
+                        {Number(document.daysLeft) < 0
+                          ? `Scaduto il ${formatDate(document.dueDate)}`
+                          : `Da consegnare entro il ${formatDate(document.dueDate)}`}
                       </p>
                     ) : null}
                     {document.rejectionReason ? (
-                      <p className="mt-1 text-xs font-medium text-red-600">
-                        Motivo rifiuto: {document.rejectionReason}
+                      <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                        Il club chiede di rifarlo: {document.rejectionReason}
                       </p>
                     ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={cn("border", getStatusClassName(document.status))}
-                    >
-                      {getStatusLabel(document.status)}
-                    </Badge>
                     {document.fileUrl ? (
                       // Un <a href="data:…"> non scarica niente su nessun
                       // browser recente: va convertito in object URL.
+                      <button
+                        type="button"
+                        className="mt-2 inline-flex items-center text-xs font-medium text-slate-600 underline"
+                        onClick={() =>
+                          downloadAttachment(document.fileUrl, {
+                            documentType: document.title || "Documento",
+                            fullName: data.athlete?.name,
+                            date: document.submittedAt,
+                            fileName: document.fileName,
+                            mimeType: document.mimeType,
+                          })
+                        }
+                      >
+                        <Download className="mr-1 h-3 w-3" />
+                        {document.submittedAt
+                          ? "Vedi il file che hai inviato"
+                          : "Scarica il modulo da compilare"}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {/*
+                    **Una CTA sola.** Prima ce n'erano fino a tre sulla stessa
+                    riga — «Scarica», «Carica», «Sostituisci» — e il genitore
+                    doveva dedurre quale fosse la sua. Il download resta, ma
+                    come collegamento dentro il testo: non e l'azione.
+                  */}
+                  <Button
+                    variant={voceAperta === document.id ? "secondary" : "default"}
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => {
+                      setFileScelto(null);
+                      setVoceAperta(
+                        voceAperta === document.id ? "" : String(document.id),
+                      );
+                    }}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    {document.actionLabel || "Carica"}
+                  </Button>
+                </div>
+
+                {voceAperta === document.id ? (
+                  <form
+                    className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center"
+                    onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                      event.preventDefault();
+                      void carica(voceScelta || document, fileScelto);
+                    }}
+                  >
+                    <Input
+                      type="file"
+                      accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        setFileScelto(event.target.files?.[0] || null)
+                      }
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={inCaricamento || !fileScelto}
+                    >
+                      {inCaricamento ? "Invio..." : "Invia al club"}
+                    </Button>
+                  </form>
+                ) : null}
+              </div>
+            ))
+          )}
+
+          {/*
+            Il caricamento **spontaneo**: la famiglia consegna qualcosa che
+            nessuno ha chiesto. Il dominio lo accetta da sempre e nessuna
+            schermata lo offriva senza costringere a scegliere una riga
+            dall'elenco delle richieste.
+          */}
+          <details className="rounded-2xl border border-dashed border-slate-200 p-4">
+            <summary className="cursor-pointer text-sm font-medium text-slate-700">
+              Devi consegnare qualcosa che non e in elenco?
+            </summary>
+            <form
+              className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center"
+              onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                event.preventDefault();
+                void carica(null, fileScelto);
+              }}
+            >
+              <Input
+                type="file"
+                accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setFileScelto(event.target.files?.[0] || null)
+                }
+              />
+              <Button
+                type="submit"
+                size="sm"
+                variant="outline"
+                disabled={inCaricamento || !fileScelto}
+              >
+                {inCaricamento ? "Invio..." : "Invia al club"}
+              </Button>
+            </form>
+          </details>
+        </CardContent>
+      </Card>
+
+      {/* ----------------------------------------------------- DOCUMENTI --- */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader>
+          <CardTitle>Documenti</CardTitle>
+          <p className="text-sm text-slate-500">
+            Cio che hai gia consegnato. Non serve fare altro.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {archivio.length === 0 ? (
+            <EmptyState text="Nessun documento consegnato." />
+          ) : (
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {archivio.map((document) => (
+                <div
+                  key={document.id}
+                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-950">
+                      {document.title}
+                    </p>
+                    <p className="truncate text-sm text-slate-500">
+                      {document.documentKindLabel}
+                      {document.fileName ? ` · ${document.fileName}` : ""}
+                      {document.submittedAt
+                        ? ` · ${formatDate(document.submittedAt)}`
+                        : ""}
+                    </p>
+                    {document.validUntil ? (
+                      <p className="text-xs text-slate-500">
+                        Valido fino al {formatDate(document.validUntil)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "border",
+                        getFamilyDocumentStateClassName(document.state),
+                      )}
+                    >
+                      {document.stateLabel}
+                    </Badge>
+                    {document.fileUrl ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1464,7 +1695,7 @@ export function ParentDocumentsPage() {
                           downloadAttachment(document.fileUrl, {
                             documentType: document.title || "Documento",
                             fullName: data.athlete?.name,
-                            date: document.uploadedAt || document.createdAt,
+                            date: document.submittedAt,
                             fileName: document.fileName,
                             mimeType: document.mimeType,
                           })
@@ -1474,110 +1705,39 @@ export function ParentDocumentsPage() {
                         Scarica
                       </Button>
                     ) : null}
-                    {["required", "rejected"].includes(String(document.status || "")) ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setSelectedTemplateId(document.id)}
-                      >
-                        <Upload className="mr-2 h-4 w-4" />
-                        {String(document.status || "") === "rejected"
-                          ? "Sostituisci"
-                          : "Carica"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Carica documento</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <label className="block text-sm font-medium text-slate-700">
-                Documento
-                <select
-                  value={selectedTemplateId}
-                  onChange={(event) => setSelectedTemplateId(event.target.value)}
-                  className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="">Documento generico</option>
-                  {data.documents.required.map((document) => (
-                    <option key={document.id} value={document.id}>
-                      {document.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                File
-                <Input
-                  type="file"
-                  accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
-                  className="mt-2"
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    setSelectedFile(event.target.files?.[0] || null)
-                  }
-                />
-              </label>
-              <Button type="submit" disabled={uploading} className="w-full">
-                <Upload className="mr-2 h-4 w-4" />
-                {uploading ? "Caricamento..." : "Carica documento"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle>Documenti caricati</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.documents.uploaded.length === 0 ? (
-            <EmptyState text="Nessun documento caricato." />
-          ) : (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              {data.documents.uploaded.map((document) => (
-                <div
-                  key={document.id}
-                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="font-semibold text-slate-950">
-                      {document.title}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {document.fileName || "File"} · {formatDate(document.uploadedAt)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={cn("border", getStatusClassName(document.status))}
-                    >
-                      {getStatusLabel(document.status)}
-                    </Badge>
-                    {document.assetId ? (
-                      <Button variant="outline" size="sm" asChild>
-                        <a
-                          href={`/api/parent-dashboard/${data.athlete.id}/documents/${document.assetId}?download=1`}
-                        >
-                          <Download className="mr-2 h-4 w-4" />
-                          Scarica
-                        </a>
-                      </Button>
-                    ) : null}
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* -------------------------------------------------- MODULI ONLINE --- */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader>
+          <CardTitle>Moduli online</CardTitle>
+          <p className="text-sm text-slate-500">
+            Non sono file da caricare: si compilano qui dentro, e il club li
+            riceve firmati.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-slate-600">
+            I moduli che il club ha pubblicato — iscrizione, rinnovo,
+            questionari — stanno nella pagina Iscrizione, insieme allo stato
+            della pratica. Un modulo gia compilato non si ricompila.
+          </p>
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={() =>
+              router.push(`/parent-view/${data.athlete.id}/enrollment`)
+            }
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Vai ai moduli
+          </Button>
         </CardContent>
       </Card>
     </div>

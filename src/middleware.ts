@@ -61,6 +61,20 @@ const PROTECTED_PREFIXES = [
   "/notifications",
   "/onboarding",
   "/organization",
+  /*
+    Wave 6. **La quarta volta.** Le tre aree nate in questa Wave —
+    l area atleta, la coda documentale e la configurazione degli
+    appuntamenti — erano tutte e tre fuori da questo elenco, come lo erano
+    state /calendar, /consensi e /sport-work prima di loro.
+
+    Non e piu una dimenticanza: e una classe. Percio adesso non lo presidia
+    solo la memoria di chi scrive, ma un test che **enumera le aree dal
+    filesystem** e pretende che ognuna sia qui — vedi
+    tests/auth/route-guards.test.mjs.
+  */
+  "/athlete-dashboard",
+  "/appuntamenti",
+  "/documenti",
   "/parent-view",
   "/payments",
   "/permissions",
@@ -97,36 +111,115 @@ const PROTECTED_PREFIXES = [
  * sotto un prefisso protetto: fanno parte dei flussi che una sessione la
  * devono ancora creare.
  */
-const PUBLIC_EXCEPTIONS = ["/auth/complete", "/token-verification"] as const;
+const PUBLIC_EXCEPTIONS = [
+  "/auth/complete",
+  "/token-verification",
+  /*
+    La porta dell area atleta: ci arriva chi ha appena ricevuto l invito,
+    quindi senza sessione e senza una password. Mandarlo su /login sarebbe
+    mandarlo dove non puo entrare.
+  */
+  "/athlete-dashboard/attiva",
+] as const;
 
 const matchesPrefix = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(`${prefix}/`);
 
+/**
+ * **L'identificativo di richiesta** (Wave 6, §16).
+ *
+ * Il difetto che chiude: due righe di log prodotte dalla **stessa** richiesta
+ * non erano correlabili. Chi indagava su un 500 aveva un messaggio e un
+ * orario, e su un runtime che serve molte richieste insieme un orario non
+ * distingue niente.
+ *
+ * Sta qui e non in un helper condiviso perche il middleware gira sul runtime
+ * **edge**: importare `src/lib/server/observability.ts` — che riusa
+ * `sanitizeMetadata` da `audit.ts`, che importa Prisma — trascinerebbe l'ORM
+ * dentro il bundle edge. La duplicazione e di sei righe, e dichiarata:
+ * l'alfabeto e i limiti sono gli stessi di `isValidRequestId`, e
+ * `tests/server/request-id.test.mjs` verifica che le due letture concordino.
+ *
+ * **Il valore puo arrivare da fuori**, ed e voluto: un identificativo generato
+ * dal browser lega la riga del server alla richiesta che si sta guardando in
+ * rete. Ma cio che arriva da fuori non si rimette in un'intestazione senza
+ * guardarlo — un valore con dentro un a capo spezzerebbe l'intestazione in
+ * due, e uno lunghissimo finirebbe in ogni riga di log della richiesta.
+ */
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{8,64}$/;
+export const REQUEST_ID_HEADER = "x-request-id";
+
+const resolveRequestId = (request: NextRequest) => {
+  const dichiarato = String(
+    request.headers.get(REQUEST_ID_HEADER) || "",
+  ).trim();
+  if (REQUEST_ID_PATTERN.test(dichiarato)) return dichiarato;
+
+  const generato = globalThis.crypto?.randomUUID?.();
+  return (
+    generato ||
+    `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  );
+};
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const requestId = resolveRequestId(request);
+
+  /*
+    L'identificativo viaggia in **due** direzioni, e servono entrambe: in
+    avanti verso il route handler, che lo mette nelle righe di log; indietro
+    verso il chiamante, perche un messaggio di errore possa citarlo e
+    l'assistenza trovare la riga senza chiedere di riprodurre il problema.
+  */
+  const headersInoltrate = new Headers(request.headers);
+  headersInoltrate.set(REQUEST_ID_HEADER, requestId);
+
+  const conIdentificativo = (response: NextResponse) => {
+    response.headers.set(REQUEST_ID_HEADER, requestId);
+    return response;
+  };
+
+  const prosegui = () =>
+    conIdentificativo(
+      NextResponse.next({ request: { headers: headersInoltrate } }),
+    );
+
+  /*
+    **Le API passano di qui solo per prendere l'identificativo.**
+
+    Il matcher le escludeva del tutto, e quindi le rotte — cioe il posto dove
+    gli errori nascono davvero — erano l'unica parte dell'applicazione senza
+    modo di correlare due righe. Adesso entrano, e il cancello di
+    autenticazione le lascia proseguire subito: devono continuare a rispondere
+    **401 JSON**, mai con un redirect a `/login`.
+  */
+  if (pathname === "/api" || pathname.startsWith("/api/")) return prosegui();
 
   if (PUBLIC_EXCEPTIONS.some((prefix) => matchesPrefix(pathname, prefix))) {
-    return NextResponse.next();
+    return prosegui();
   }
 
   if (!PROTECTED_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix))) {
-    return NextResponse.next();
+    return prosegui();
   }
 
   if (request.cookies.get(SESSION_COOKIE_NAME)?.value) {
-    return NextResponse.next();
+    return prosegui();
   }
 
   const loginUrl = new URL("/login", request.url);
   // Solo il percorso interno, mai un URL assoluto: evita open redirect.
   loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
-  return NextResponse.redirect(loginUrl);
+  return conIdentificativo(NextResponse.redirect(loginUrl));
 }
 
 export const config = {
   /**
-   * Esclude API, asset di Next e file statici. Le API devono continuare a
-   * rispondere con 401 JSON, non con un redirect.
+   * Esclude asset di Next e file statici. **Le API adesso sono incluse**: non
+   * per applicarci il cancello — il ramo `/api` prosegue sempre — ma perche e
+   * l'unico punto in cui l'identificativo di richiesta puo essere generato una
+   * volta sola per tutte le righe della stessa richiesta.
    */
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|images|.*\\.[\\w]+$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|images|.*\\.[\\w]+$).*)"],
 };

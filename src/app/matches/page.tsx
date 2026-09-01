@@ -1901,7 +1901,6 @@ export default function MatchesPage() {
                     <CardContent>
                       <MatchConvocationsList
                         convocationStats={categories.map((category) => {
-                          console.log("Processing category:", category);
                           let categoryAthletes = athletes.filter(
                             (athlete: any) => {
                               return athleteMatchesAnyCategory(athlete, [
@@ -1922,12 +1921,6 @@ export default function MatchesPage() {
                             );
                           }
 
-                          console.log(
-                            "Athletes for category",
-                            category.name,
-                            ":",
-                            categoryAthletes,
-                          );
                           return {
                             categoryId: category.id,
                             categoryName: category.name,

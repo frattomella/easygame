@@ -36,7 +36,14 @@
  * - `duplicate` — lo stesso indirizzo compare due volte **sulla stessa
  *   persona**. Fra persone diverse non e un'esclusione: e una fusione;
  * - `already_sent` — gia raggiunto per questa occorrenza, secondo il registro
- *   delle consegne.
+ *   delle consegne;
+ * - `consent_revoked` — il registro dei consensi dice che per **questa
+ *   persona** il consenso che governa questo messaggio non c'e piu. E il
+ *   motivo che la Wave 5 aveva dichiarato e mai scritto, e la ragione per cui
+ *   e un motivo di **esclusione** e non un filtro silenzioso: una segreteria
+ *   che vede sparire venti indirizzi deve sapere che li ha persi per una
+ *   revoca, non per un dato mancante, perche le due cose si correggono in modi
+ *   opposti (una si chiede di nuovo, l'altra non si chiede affatto).
  */
 export type AudienceExclusionReason =
   | "no_guardian"
@@ -44,7 +51,8 @@ export type AudienceExclusionReason =
   | "no_account"
   | "not_active"
   | "duplicate"
-  | "already_sent";
+  | "already_sent"
+  | "consent_revoked";
 
 export const AUDIENCE_EXCLUSION_LABELS: Record<AudienceExclusionReason, string> =
   {
@@ -54,6 +62,7 @@ export const AUDIENCE_EXCLUSION_LABELS: Record<AudienceExclusionReason, string> 
     not_active: "Anagrafica non attiva",
     duplicate: "Indirizzo gia presente per questa persona",
     already_sent: "Gia raggiunto per questo messaggio",
+    consent_revoked: "Consenso revocato o negato per questo tipo di messaggio",
   };
 
 /** Un contatto candidato, cosi come lo legge l'anagrafica. */
@@ -83,6 +92,16 @@ export type AudienceSubject = {
   athleteFirstName?: string;
   athleteLastName?: string;
   active?: boolean;
+  /**
+   * Vero quando il registro dei consensi dice che **questa persona** ha
+   * revocato (o negato) il consenso che governa questo invio.
+   *
+   * Non e il modulo puro a saperlo — qui non si legge nessuna tabella — ma e
+   * qui che deve produrre un'esclusione, perche l'insieme canonico e uno solo
+   * e un filtro applicato dal chiamante non comparirebbe nel conteggio degli
+   * esclusi.
+   */
+  consentRevoked?: boolean;
   contacts: AudienceContact[];
   /** Dati liberi che il chiamante vuole ritrovare accanto alla posizione. */
   context?: Record<string, unknown>;
@@ -168,6 +187,28 @@ export const buildAudienceSet = ({
         guardianName: null,
         email: null,
         reason: "not_active",
+      });
+      unreachableSubjects += 1;
+      continue;
+    }
+
+    /*
+      **La revoca viene prima dei contatti, e dopo lo stato dell'anagrafica.**
+
+      Dopo lo stato, perche di un'anagrafica archiviata il motivo utile e che e
+      archiviata. Prima dei contatti, perche a chi ha revocato non si scrive
+      nemmeno se ha tre indirizzi validi: elencare «nessun indirizzo» su una
+      persona che ha revocato manderebbe la segreteria a cercare un dato che
+      non deve trovare.
+    */
+    if (subject.consentRevoked === true) {
+      exclusions.push({
+        athleteId,
+        athleteName,
+        guardianId: null,
+        guardianName: null,
+        email: null,
+        reason: "consent_revoked",
       });
       unreachableSubjects += 1;
       continue;

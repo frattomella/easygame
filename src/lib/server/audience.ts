@@ -35,6 +35,11 @@ import {
   type AudienceSubject,
 } from "@/lib/audience/recipients";
 import { assertCommunicationPermission } from "@/lib/communications/permissions";
+import {
+  consentBlocksSubject,
+  readConsentEnforcement,
+  type ConsentEnforcementMode,
+} from "./consents";
 
 /**
  * **L'unico risolutore del pubblico** (Wave 2, W2-C, ADR-0087).
@@ -56,6 +61,23 @@ export type AudienceScope = {
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
   activeRole?: string | null;
+  /**
+   * **Il consenso e configurazione, non un filtro cablato** (Wave 6, §15.2).
+   *
+   * Quando e valorizzata, il risolutore chiede al registro dei consensi chi ha
+   * revocato quella chiave e lo esclude con il motivo `consent_revoked`.
+   * Quando e assente — che e il caso di sicurezza, amministrativa, pagamento,
+   * sanitaria e sportiva — non si legge nemmeno il registro.
+   *
+   * Il nome della chiave non lo sceglie chi manda: lo dice
+   * `consentKeyForCommunication(kind)` in `src/lib/consents/catalog.ts`, che e
+   * l'unico posto dove la mappa «natura della comunicazione → consenso» vive.
+   * Se una funzione di invio scrivesse `"marketing"` a mano, la regola di
+   * prodotto avrebbe due copie e la seconda resterebbe indietro.
+   */
+  requiredConsentKey?: string | null;
+  /** Vedi `readConsentEnforcement`: oggi solo `block_negative` e in uso. */
+  consentEnforcementMode?: ConsentEnforcementMode;
 };
 
 const asText = (value: unknown) => String(value ?? "").trim();
@@ -376,6 +398,14 @@ export type ResolvedAudience = AudienceSet & {
   clubName: string;
   criteriaLabel: string;
   athleteIds: string[];
+  /**
+   * La chiave di consenso applicata a questo pubblico, o `null`.
+   *
+   * Viaggia nel risultato perche l'anteprima deve poter spiegare **perche**
+   * mancano venti indirizzi, e «consenso revocato» senza dire *quale* consenso
+   * manda la segreteria a cercare nel posto sbagliato.
+   */
+  appliedConsentKey: string | null;
 };
 
 /**
@@ -392,6 +422,8 @@ export const resolveAudience = async ({
   actorRole,
   now = new Date(),
   alreadySent,
+  requiredConsentKey,
+  consentEnforcementMode,
 }: {
   organizationId?: string | null;
   criteria: unknown;
@@ -399,6 +431,13 @@ export const resolveAudience = async ({
   actorRole?: string | null;
   now?: Date;
   alreadySent?: ReadonlySet<string>;
+  /**
+   * Vince sullo scope. Serve alle funzioni di invio, che conoscono la
+   * **natura** del messaggio e non il ruolo di chi lo manda: passare da qui
+   * evita di dover ricomporre lo scope solo per aggiungere una chiave.
+   */
+  requiredConsentKey?: string | null;
+  consentEnforcementMode?: ConsentEnforcementMode;
 }): Promise<ResolvedAudience> => {
   const clubId = resolveAudienceOrganizationId(scope, organizationId);
   const normalized = normalizeAudienceCriteria(criteria);
@@ -559,13 +598,55 @@ export const resolveAudience = async ({
         .filter((subject) => subject.contacts.length > 0)
     : subjects;
 
-  const set = buildAudienceSet({ subjects: filtered, alreadySent });
+  /*
+    **Il consenso, una volta sola e alla fine.**
+
+    Una lettura per tutto il pubblico invece che una per atleta: il registro e
+    append-only e cresce, e una domanda per destinatario su un invio a
+    trecento famiglie sarebbe trecento interrogazioni per un fatto che si legge
+    in una.
+
+    Sta **dopo** i criteri e non prima, perche escludere chi ha revocato da un
+    insieme che poi si filtra per categoria non cambia il risultato e legge
+    righe che non servono; e sta **prima** di `buildAudienceSet` perche
+    l'esclusione deve comparire nell'insieme canonico, con il suo motivo, non
+    come un silenzio a monte.
+  */
+  const consentKey = asText(requiredConsentKey ?? scope?.requiredConsentKey);
+  const enforcement = consentKey
+    ? await readConsentEnforcement({
+        organizationId: clubId,
+        consentKey,
+        subjectKind: "athlete",
+        mode:
+          consentEnforcementMode ??
+          scope?.consentEnforcementMode ??
+          "block_negative",
+      })
+    : null;
+
+  const withConsent = enforcement?.enforced
+    ? filtered.map((subject) => ({
+        ...subject,
+        consentRevoked: consentBlocksSubject(enforcement, subject.athleteId),
+      }))
+    : filtered;
+
+  const set = buildAudienceSet({ subjects: withConsent, alreadySent });
 
   return {
     ...set,
     organizationId: clubId,
     clubName: asText(club.name) || "Il tuo club",
     criteriaLabel: describeAudienceCriteria(normalized),
-    athleteIds: filtered.map((subject) => subject.athleteId),
+    /*
+      `athleteIds` e l'elenco di chi il messaggio **riguarda**, e chi ha
+      revocato non lo riguarda piu: lasciarlo dentro farebbe scrivere il
+      registro delle consegne su una persona che non e stata raggiunta.
+    */
+    athleteIds: withConsent
+      .filter((subject) => subject.consentRevoked !== true)
+      .map((subject) => subject.athleteId),
+    appliedConsentKey: enforcement?.enforced ? enforcement.consentKey : null,
   };
 };

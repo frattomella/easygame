@@ -147,6 +147,23 @@ const PUBLIC_BY_DESIGN = new Map([
     "public/enrollment-status/[reference]",
     "stato della propria domanda: riferimento opaco, hashato a riposo, con rate limit",
   ],
+  /*
+    Il riscatto dell'invito di accesso di un atleta (Wave 6, lane 6C). Non ha
+    sessione **per progetto**: l'utenza dell'invitato nasce senza credenziali
+    note, perche la password la scegliera lui. Chiedere una sessione qui
+    vorrebbe dire chiedergli di accedere prima di avere una password.
+
+    Cio che lo difende e il presidio del link di pagamento: 32 byte casuali di
+    cui in archivio resta il solo SHA-256, una scadenza, uno stato che passa a
+    `accepted` al primo uso, e una risposta identica per token sconosciuto,
+    scaduto, revocato o gia usato. Il legame nasce verso l'utenza **invitata**
+    (`athlete_account_invites.user_id`), non verso chi apre il link: non c'e
+    niente da dirottare.
+  */
+  [
+    "v1/athlete-accounts/accept",
+    "riscatto dell'invito atleta: token opaco, hashato a riposo, monouso e con scadenza",
+  ],
   ["payments/webhook", "callback del PSP: firma verificata, evento deduplicato"],
   ["billing/webhook", "callback del billing di piattaforma: firma verificata, evento deduplicato"],
 ]);
@@ -356,9 +373,20 @@ test("la deroga pubblica resta piccola e giustificata", () => {
     Sono due e non una perche i due gesti costano in modo diverso — guardare
     e gratuito, aprire un checkout e una chiamata al PSP — e vanno contati a
     parte.
+    Da 19 a 20 nella Wave 6, per il riscatto dell'invito di accesso di un
+    atleta. La deroga e della stessa famiglia delle due precedenti — una
+    pagina che una persona apre da un messaggio — e porta lo stesso presidio:
+    32 byte casuali, il solo SHA-256 in archivio, una scadenza, un uso solo, e
+    una risposta identica per token sconosciuto, scaduto, revocato o gia
+    consumato.
+
+    La ragione per cui **non puo** avere una sessione e piu forte che altrove:
+    l'utenza dell'invitato nasce senza credenziali note, perche la password la
+    sceglie lui dopo. Chiedere una sessione qui vorrebbe dire chiedergli di
+    accedere prima di poterlo fare.
   */
   assert.ok(
-    PUBLIC_BY_DESIGN.size <= 19,
+    PUBLIC_BY_DESIGN.size <= 20,
     `troppi endpoint pubblici: ${PUBLIC_BY_DESIGN.size}`,
   );
   for (const [id, motivo] of PUBLIC_BY_DESIGN) {

@@ -286,12 +286,54 @@ export const AUDIT_ACTIONS = {
   appointmentClosed: "appointment.closed",
   appointmentSlotChanged: "appointment.slot.changed",
 
+  /*
+    L'accesso EasyGame di un atleta (Wave 6, lane 6C). Sono **tre** azioni e
+    non una `athlete_account.updated`, per la stessa ragione degli
+    appuntamenti: sono le righe che si vanno a cercare, e le domande sono
+    diverse. «Chi ha aperto un accesso a questo ragazzo, e verso quale
+    indirizzo» la fa un genitore che non capisce da dove arriva un'email;
+    «quando lo ha attivato» la fa chi deve stabilire da quando quella persona
+    vedeva quei dati; «chi gliel'ha tolto, e perche» la fa chi non riesce piu
+    a entrare.
+
+    L'accettazione ha come attore l'**invitato** e non chi ha invitato: e
+    l'unico atto dei tre che non compie il club.
+  */
+  athleteAccountInvited: "athlete_account.invite.sent",
+  athleteAccountAccepted: "athlete_account.invite.accepted",
+  athleteAccountRevoked: "athlete_account.access.revoked",
+
   /**
    * **Un permesso negato.** Una sola azione per tutti i domini, con la chiave
    * nel metadato: `permission.denied` filtra in un colpo tutti i dinieghi, e
    * `metadata.permission` distingue quale porta era.
    */
   permissionDenied: "permission.denied",
+  /*
+    **Un giro notturno che smette di girare** (Wave 6, lane 6I).
+
+    `runScheduledMaintenance` raccoglie l'errore di ogni passo e non lo
+    propaga, per una ragione giusta: una pulizia che si interrompe a meta non
+    deve far risultare rotto un sistema sano. Ma il rapporto e il **corpo HTTP**
+    della risposta, e a invocarla e il cron: nessuno lo legge. Un passo che
+    fallisce ogni notte per tre settimane era quindi invisibile fino alla
+    telefonata di un club.
+
+    Una riga di audit e un segnale persistente a costo zero, e la si va a
+    cercare per nome: cercarla fra le modifiche di risorsa non la troverebbe.
+  */
+  maintenanceStepFailed: "maintenance.step.failed",
+  /*
+    **I diritti dell'interessato** (ADR-0019, Wave 6, lane 6I).
+
+    Sono due azioni e non una perche rispondono a due domande che arrivano
+    separate: «chi ha portato fuori i dati di questa persona» e «chi li ha
+    cancellati, e cosa e stato distrutto». La seconda porta nel metadato il
+    conteggio per tabella, ed e l'unica traccia che resta di righe che non
+    esistono piu.
+  */
+  dataSubjectExported: "data_subject.exported",
+  dataSubjectErased: "data_subject.erased",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

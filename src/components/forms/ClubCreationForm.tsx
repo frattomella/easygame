@@ -107,11 +107,6 @@ export function ClubCreationForm({
         return;
       }
 
-      console.log("Creating club with data:", {
-        name: formData.name,
-        email: formData.email,
-        userId: userId,
-      });
 
       // Create the club in database
       const { data: clubData, error: clubError } = await supabase
@@ -166,7 +161,6 @@ export function ClubCreationForm({
       }
 
       if (clubData && clubData[0]) {
-        console.log("Club created successfully:", clubData[0]);
 
         // Update user's club_access in the users table
         const { data: userData, error: userError } = await supabase
@@ -220,7 +214,6 @@ export function ClubCreationForm({
         if (dashboardError) {
           console.error("Error creating dashboard:", dashboardError);
         } else {
-          console.log("Dashboard created successfully:", dashboardData);
         }
 
         // Upload logo if provided
@@ -262,10 +255,6 @@ export function ClubCreationForm({
           isPrimary: true,
         };
 
-        console.log(
-          "Club creation complete, calling onSuccess with:",
-          clubDataForUI,
-        );
         showToast("success", "Club creato con successo!");
         onSuccess(clubDataForUI);
       }

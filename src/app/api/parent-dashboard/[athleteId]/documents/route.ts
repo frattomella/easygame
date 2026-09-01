@@ -113,8 +113,33 @@ const readDeposito = async (
 
     return {
       deposito: {
-        requestId: firstText(form.get("request_id"), form.get("document_id")),
-        documentKind: firstText(form.get("document_kind"), "other"),
+        /*
+          W6-E. **Il ramo multipart accetta gli stessi nomi di campo del JSON.**
+
+          Il client della famiglia manda ancora base64 con `documentType` e
+          `templateId` (`parent-dashboard-context.tsx`, `uploadDocument`), e il
+          ramo multipart leggeva solo le forme `snake_case`: passare a multipart
+          avrebbe voluto dire cambiare **anche** i nomi, cioe due modifiche
+          invece di una, con il tipo che sarebbe silenziosamente diventato
+          «altro» se una delle due fosse stata dimenticata — che e esattamente
+          il difetto W6-18 appena chiuso.
+
+          Adesso il passaggio al multipart e una sostituzione sola: lo stesso
+          oggetto, dentro una `FormData` invece che dentro un JSON.
+        */
+        requestId: firstText(
+          form.get("request_id"),
+          form.get("document_id"),
+          form.get("requestId"),
+          form.get("templateId"),
+          form.get("template_id"),
+        ),
+        documentKind: firstText(
+          form.get("document_kind"),
+          form.get("documentType"),
+          form.get("document_type"),
+          "other",
+        ),
         fileName: firstText(form.get("file_name"), file.name, "documento"),
         mimeType:
           firstText(form.get("mime_type"), file.type) ||
