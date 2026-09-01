@@ -568,3 +568,120 @@ test("la riga di intestazione degli Atleti va a capo invece di tagliare le azion
     "il gruppo con l'azione principale non si comprime sotto il suo contenuto",
   );
 });
+
+/* --------------- Wave 5, lane 5I — le superfici della dashboard allenatore */
+
+/**
+ * **La dashboard allenatore entra negli invarianti.**
+ *
+ * Nella verifica voce per voce della Wave 5 questa riga diceva: «responsive
+ * 375 px: corretto **di fatto**, zero invarianti a presidio». Cioe funzionava
+ * perche nessuno lo aveva ancora rotto — che non e una garanzia, e la ragione
+ * per cui esiste questo file.
+ *
+ * E la superficie con il maggior diritto a starci: un allenatore apre queste
+ * pagine **in palestra, dal telefono**, per prendere le presenze mentre venti
+ * ragazzi si cambiano. Non e il caso limite, e il caso normale.
+ */
+const TRAINER_DASHBOARD = [
+  "components/trainer/trainer-dashboard-club-shell.tsx",
+  "components/trainer/TrainerSidebar.tsx",
+  "components/trainer/trainer-dashboard-shared.tsx",
+  "components/trainer/trainer-dashboard-home-v2-page.tsx",
+  "components/trainer/trainer-trainings-dashboard-page.tsx",
+  "components/trainer/trainer-matches-dashboard-page.tsx",
+  "components/trainer/trainer-athletes-dashboard-page.tsx",
+  "components/trainer/trainer-athlete-profile-page.tsx",
+  "components/trainer/trainer-weekly-schedule-panel.tsx",
+  "components/trainer/trainer-board-dashboard-page.tsx",
+  "components/trainer/trainer-documents-dashboard-page.tsx",
+  "components/trainer/trainer-appointments-dashboard-page.tsx",
+  "app/trainer-dashboard/notifications/page.tsx",
+];
+
+test("le pagine trainer-dashboard non restano a due colonne a 375 px", () => {
+  const offenders = [];
+
+  for (const file of TRAINER_DASHBOARD) {
+    read(file)
+      .split(/\r?\n/)
+      .forEach((line, index) => {
+        if (!/(?<![a-z:])grid-cols-[234]\b/.test(line)) return;
+        /* Una barra di schede a due o tre etichette a 375 px ci sta. */
+        if (line.includes("TabsList")) return;
+        offenders.push(`${file}:${index + 1}`);
+      });
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "usare grid-cols-1 sm:grid-cols-2: a 375 px due colonne non ci stanno",
+  );
+});
+
+test("gli elenchi della dashboard allenatore scrollano nel proprio contenitore", () => {
+  for (const file of TRAINER_DASHBOARD) {
+    const source = read(file);
+    const tables = source.match(/<table[\s\S]{0,400}?>/g) || [];
+    if (!tables.length) continue;
+
+    assert.match(
+      source,
+      /overflow-x-auto/,
+      `${file}: una tabella senza contenitore scrollabile allarga il documento`,
+    );
+  }
+
+  /*
+    L'elenco dei certificati non e una `<table>` ma ha lo stesso difetto
+    potenziale: nome dell'atleta, categoria, data e pastiglia di stato su una
+    riga sola a 375 px. Scorre nel proprio contenitore invece di allargare la
+    pagina.
+  */
+  assert.match(
+    read("components/trainer/trainer-documents-dashboard-page.tsx"),
+    /overflow-x-auto/,
+  );
+});
+
+/**
+ * **Una sezione raggiungibile solo dalla barra laterale non esiste su un
+ * telefono.**
+ *
+ * `TrainerSidebar` e dentro un `hidden md:block`: sotto i 768 px la
+ * navigazione e quella del `Header`. Le tre sezioni nuove — bacheca,
+ * appuntamenti, documenti — devono comparire in **entrambe**, o l'allenatore
+ * che apre l'applicazione dal campo non le trova.
+ */
+test("le sezioni nuove sono raggiungibili anche sotto i 768 px", () => {
+  const shell = read("components/trainer/trainer-dashboard-club-shell.tsx");
+
+  for (const voce of ["board", "appointments", "documents"]) {
+    assert.match(
+      shell,
+      new RegExp(
+        `TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY\.${voce}`,
+      ),
+      `${voce}: manca dal menu mobile, quindi da un telefono la sezione non si raggiunge`,
+    );
+  }
+});
+
+test("i comandi di un appuntamento vanno a capo invece di uscire", () => {
+  const source = read(
+    "components/trainer/trainer-appointments-dashboard-page.tsx",
+  );
+
+  /*
+    Conferma, Riprogramma e Rifiuta sono tre pulsanti con icona: a 375 px in
+    riga fissa il terzo esce dal contenitore, e il terzo e quello che chiude la
+    richiesta.
+  */
+  assert.match(source, /flex flex-wrap gap-2/);
+  assert.match(
+    source,
+    /w-full justify-center gap-2 rounded-2xl sm:w-auto/,
+    "il comando «Aggiorna» occupa la riga finche c'e poco spazio",
+  );
+});

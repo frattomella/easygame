@@ -2,7 +2,15 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarDays, Home, Trophy, Users } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarDays,
+  FolderOpen,
+  Home,
+  Megaphone,
+  Trophy,
+  Users,
+} from "lucide-react";
 import Header from "@/components/dashboard/Header";
 import {
   DashboardPageContainer,
@@ -22,6 +30,9 @@ const PAGE_TITLES: Record<string, string> = {
   "/trainer-dashboard/trainings": "Allenamenti",
   "/trainer-dashboard/matches": "Gare",
   "/trainer-dashboard/athletes": "Atleti",
+  "/trainer-dashboard/board": "Bacheca",
+  "/trainer-dashboard/documents": "Documenti",
+  "/trainer-dashboard/appointments": "Appuntamenti",
 };
 
 const resolvePageTitle = (pathname: string) => {
@@ -37,6 +48,11 @@ const resolveNavigationKey = (pathname: string) => {
   if (pathname.startsWith("/trainer-dashboard/trainings")) return "trainings";
   if (pathname.startsWith("/trainer-dashboard/matches")) return "matches";
   if (pathname.startsWith("/trainer-dashboard/athletes")) return "athletes";
+  if (pathname.startsWith("/trainer-dashboard/board")) return "board";
+  if (pathname.startsWith("/trainer-dashboard/documents")) return "documents";
+  if (pathname.startsWith("/trainer-dashboard/appointments")) {
+    return "appointments";
+  }
   return null;
 };
 
@@ -81,6 +97,33 @@ export default function TrainerDashboardClubShell({
               href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.athletes,
               label: "Atleti",
               icon: Users,
+            }
+          : null,
+        /*
+          Le tre voci della Wave 5 stanno **anche** nel menu di uno schermo
+          stretto. Una sezione raggiungibile solo dalla barra laterale, che
+          sotto i 768 px non esiste, e una sezione che su un telefono non c'e:
+          e il difetto che questa lista ha gia avuto con «Notifiche».
+        */
+        permissions.navigation.board
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.board,
+              label: "Bacheca",
+              icon: Megaphone,
+            }
+          : null,
+        permissions.navigation.appointments
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.appointments,
+              label: "Appuntamenti",
+              icon: CalendarClock,
+            }
+          : null,
+        permissions.navigation.documents
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.documents,
+              label: "Documenti",
+              icon: FolderOpen,
             }
           : null,
       ].filter(Boolean) as MobileNavSection["items"],

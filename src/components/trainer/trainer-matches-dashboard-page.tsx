@@ -2,16 +2,35 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, CalendarDays, ListChecks, Search, Trophy } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ClipboardCheck,
+  ListChecks,
+  Search,
+  Trophy,
+} from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
+import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
 import { ResponsiveMatchesCalendar } from "@/components/trainer/ResponsiveMatchesCalendar";
-import { saveEventConvocations } from "@/lib/events/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  listEventParticipants,
+  saveEventAttendance,
+  saveEventConvocations,
+} from "@/lib/events/client";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   CompactEntityCard,
@@ -56,6 +75,17 @@ export default function TrainerMatchesDashboardPage() {
   } = useTrainerDashboard();
   const { showToast } = useToast();
   const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
+  /*
+    **L'appello anche sulla gara** (W5, §14).
+
+    La presenza a una gara era irraggiungibile: c'era la convocazione — chi
+    doveva esserci — e non c'era chi c'e stato davvero. Da quando l'evento e
+    una riga, presenza e convocazione sono due colonne dello stesso fatto
+    (ADR-0099), quindi la gara puo avere l'appello **senza** che questo tocchi
+    le convocazioni gia salvate: sono due scrittori distinti.
+  */
+  const [attendanceMatch, setAttendanceMatch] = useState<any | null>(null);
+  const [attendanceRows, setAttendanceRows] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const focusedMatchId = searchParams.get("focus");
@@ -124,6 +154,52 @@ export default function TrainerMatchesDashboardPage() {
           athlete?.data?.category_name ||
           null,
       }));
+  };
+
+  /**
+   * Apre l'appello leggendo le **righe**, non la copia dentro il payload.
+   *
+   * La forma storica della gara puo portarsi dietro un `attendance` scritto
+   * quando le presenze vivevano nel JSON: rileggerlo da li vorrebbe dire
+   * mostrare all'allenatore una lista che il rendiconto dei contributi
+   * pubblici non riconosce. Le righe di `club_event_participants` sono l'unica
+   * verita sull'appello, e sono quelle che si aprono.
+   */
+  const openAttendance = async (match: any) => {
+    setAttendanceMatch(match);
+    setAttendanceRows([]);
+    try {
+      setAttendanceRows(await listEventParticipants(String(match?.id || "")));
+    } catch (error) {
+      console.error("Errore lettura partecipanti gara:", error);
+      showToast("error", "Errore nel caricamento dell'appello");
+    }
+  };
+
+  const getMatchAttendanceAthletes = (match: any) => {
+    const perAtleta = new Map(
+      (Array.isArray(attendanceRows) ? attendanceRows : []).map((row: any) => [
+        String(row?.athlete_id || ""),
+        row,
+      ]),
+    );
+
+    return getMatchAthletes(match).map((athlete) => {
+      const riga = perAtleta.get(String(athlete.id));
+      const stato = String(riga?.status || "").toLowerCase();
+
+      return {
+        ...athlete,
+        /*
+          `pending` e lo stato delle righe **nate da una risposta della
+          famiglia** e mai passate dall'appello: non e una presenza, e non
+          deve arrivare alla casella gia spuntata. Una promessa non diventa
+          mai una presenza (ADR-0086).
+        */
+        present: stato === "present",
+        notes: String(riga?.notes || ""),
+      };
+    });
   };
 
   const getTrainerAthleteOptions = () =>
@@ -244,18 +320,39 @@ export default function TrainerMatchesDashboardPage() {
                 ) : null
               }
               actions={
-                permissions.actions.manageConvocations ? (
-                  <Button
-                    size="sm"
-                    className="bg-blue-600 hover:bg-blue-700"
-                    onClick={() => setSelectedMatch(match)}
-                  >
-                    <ListChecks className="mr-2 h-4 w-4" />
-                    {hasSavedConvocations
-                      ? "Modifica Convocazioni"
-                      : "Convocazioni"}
-                  </Button>
-                ) : undefined
+                <>
+                  {permissions.actions.manageConvocations ? (
+                    <Button
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                      onClick={() => setSelectedMatch(match)}
+                    >
+                      <ListChecks className="mr-2 h-4 w-4" />
+                      {hasSavedConvocations
+                        ? "Modifica Convocazioni"
+                        : "Convocazioni"}
+                    </Button>
+                  ) : null}
+                  {/*
+                    L'appello compare solo su una gara **gia iniziata**: prima
+                    non c'e niente da registrare, e un pulsante che si puo
+                    premere ma non ha senso premere insegna che l'applicazione
+                    e imprecisa.
+                  */}
+                  {permissions.actions.manageAttendance &&
+                  match?.startsAt &&
+                  match.startsAt <= now ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={() => void openAttendance(match)}
+                    >
+                      <ClipboardCheck className="mr-2 h-4 w-4" />
+                      Appello
+                    </Button>
+                  ) : null}
+                </>
               }
             />
           );
@@ -411,6 +508,73 @@ export default function TrainerMatchesDashboardPage() {
             []
           }
         />
+      ) : null}
+
+      {attendanceMatch ? (
+        <Dialog
+          open={Boolean(attendanceMatch)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAttendanceMatch(null);
+              setAttendanceRows([]);
+            }
+          }}
+        >
+          <DialogContent className="max-w-4xl border-none bg-transparent p-0 shadow-none">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Presenze gara</DialogTitle>
+              <DialogDescription>
+                Registra chi e sceso in campo per questa gara.
+              </DialogDescription>
+            </DialogHeader>
+            <AttendanceSheet
+              trainingId={attendanceMatch.id}
+              trainingTitle={attendanceMatch.title || "Gara"}
+              trainingDate={attendanceMatch.date}
+              trainingTime={formatTimeRange(attendanceMatch.time)}
+              categoryName={
+                attendanceMatch.displayCategory ||
+                attendanceMatch.category ||
+                "Categoria"
+              }
+              location={formatMatchLocationLabel(attendanceMatch)}
+              athletes={getMatchAttendanceAthletes(attendanceMatch)}
+              clubAthletes={getTrainerAthleteOptions()}
+              onSave={async ({ attendance }) => {
+                try {
+                  /*
+                    `present` diventa `present` / `absent`: lo stato e una
+                    parola, non un booleano, perche `pending` deve poter
+                    esistere accanto ai due — ed e cio che distingue «non ha
+                    giocato» da «nessuno ha ancora fatto l'appello».
+                  */
+                  await saveEventAttendance(
+                    String(attendanceMatch.id),
+                    (attendance || []).map((entry: any) => ({
+                      athleteId: String(entry?.athleteId || ""),
+                      status: entry?.present ? "present" : "absent",
+                      notes: entry?.notes || null,
+                    })),
+                  );
+                  await reload();
+                  showToast("success", "Presenze gara salvate correttamente");
+                  setAttendanceMatch(null);
+                  setAttendanceRows([]);
+                } catch (error) {
+                  console.error("Errore salvataggio presenze gara:", error);
+                  showToast(
+                    "error",
+                    "Errore nel salvataggio delle presenze di gara",
+                  );
+                }
+              }}
+              onClose={() => {
+                setAttendanceMatch(null);
+                setAttendanceRows([]);
+              }}
+            />
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

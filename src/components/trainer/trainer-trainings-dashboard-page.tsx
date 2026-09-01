@@ -83,6 +83,16 @@ export default function TrainerTrainingsDashboardPage() {
     new Date(),
   );
   const [historySearch, setHistorySearch] = useState("");
+  /*
+    **Il pannello «Programmazione» era sempre vuoto, e poi era sempre chiuso.**
+
+    Corretta la lettura (D-2), restava un secondo modo di non vederlo: il
+    riquadro nasceva richiuso, quindi l'allenatore trovava una riga di titolo e
+    doveva sapere che c'era qualcosa sotto. Adesso nasce aperto e resta dove lo
+    lascia chi lo usa — che e la differenza fra «e configurabile» e «bisogna
+    scoprirlo».
+  */
+  const [scheduleOpen, setScheduleOpen] = useState(true);
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -600,7 +610,13 @@ export default function TrainerTrainingsDashboardPage() {
         </div>
       )}
 
-      <details className="group rounded-[30px] border border-slate-200 bg-white/95 shadow-sm">
+      <details
+        className="group rounded-[30px] border border-slate-200 bg-white/95 shadow-sm"
+        open={scheduleOpen}
+        onToggle={(event) =>
+          setScheduleOpen((event.currentTarget as HTMLDetailsElement).open)
+        }
+      >
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
           <span>
             <span className="block text-base font-semibold text-slate-950">

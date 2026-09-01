@@ -395,16 +395,31 @@ export function TrainerWeeklySchedulePanel({
           description="Sto recuperando il programma settimanale salvato."
         />
       ) : filteredSchedule.length === 0 ? (
+        /*
+          **Tre vuoti diversi, tre frasi diverse.**
+
+          Il pannello diceva «vuoto» in tutti i casi, e con la lettura rotta
+          (D-2) quel messaggio era anche falso: il programma c'era, la risposta
+          era un 403 inghiottito. Adesso che il dato arriva, i tre vuoti sono
+          situazioni distinte e chi legge deve poter capire **di chi e la
+          prossima mossa**: il club non ha configurato niente, il club ha
+          configurato ma non per le sue categorie, oppure lui non ha ancora
+          categorie assegnate. Dire «vuoto» e vero e inutile.
+        */
         <SectionEmptyState
           title={
-            mode === "mine"
-              ? "Nessun allenamento per le tue categorie"
-              : "Programma settimanale vuoto"
+            normalizedSchedule.length === 0
+              ? "Programma settimanale non configurato"
+              : assignedCategories.length === 0
+                ? "Nessuna categoria assegnata"
+                : "Nessuna sessione per le tue categorie"
           }
           description={
-            mode === "mine"
-              ? "Le categorie assegnate non hanno sessioni nel programma fisso."
-              : "Il club non ha ancora salvato sessioni nel programma settimanale."
+            normalizedSchedule.length === 0
+              ? "Il club non ha ancora salvato il programma fisso. Chiedi alla segreteria di compilarlo da Organizzazione, sezione Programma settimanale: da li nascono gli allenamenti ricorrenti."
+              : assignedCategories.length === 0
+                ? "La tua scheda allenatore non ha categorie assegnate: chiedi al club di assegnartele, oppure passa a «Tutto il club» per vedere il programma completo."
+                : "Le tue categorie non hanno sessioni nel programma fisso. Passa a «Tutto il club» per vedere il resto della settimana."
           }
         />
       ) : (

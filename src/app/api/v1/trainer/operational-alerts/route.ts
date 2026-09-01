@@ -3,188 +3,128 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { prisma } from "@/lib/server/prisma";
-import { sendNotificationEmails } from "@/lib/server/email/email-service";
 import { isTrainerAccessRole } from "@/lib/access-roles";
+import {
+  computeTrainerOperationalAlerts,
+  syncTrainerOperationalAlerts,
+} from "@/lib/server/trainer-area";
 
-const TRAINER_OPERATIONAL_NOTIFICATION_TYPES = [
-  "missing_attendance",
-  "missing_convocations",
-];
+/**
+ * **Gli avvisi operativi dell'allenatore: adesso la rotta calcola, non riceve.**
+ *
+ * Prima il corpo della richiesta portava gli avvisi gia confezionati —
+ * `{ alerts: [{ key, type, title, message, recordId, actionHref }] }` — e
+ * questa rotta li normalizzava e li persisteva. L'unico controllo era che il
+ * `type` fosse uno dei due ammessi: **titolo, testo, record e link li dettava
+ * il client**. Da li discendevano tre cose, tutte vere insieme:
+ *
+ * - una notifica con il testo che si vuole, riferita a un evento qualsiasi;
+ * - un avviso vero **spento** semplicemente non mandandolo, perche la rotta
+ *   segna risolto tutto cio che non riceve;
+ * - e, meno appariscente ma peggiore, il fatto che l'unica copia della regola
+ *   «questa presenza manca» vivesse nel browser: chi non apriva la dashboard
+ *   non aveva notifiche, e il club non aveva modo di saperlo.
+ *
+ * Adesso il contenuto lo calcola `src/lib/server/trainer-area.ts` dai dati del
+ * club, con il perimetro applicato da `listClubEvents`. Il corpo della
+ * richiesta **non viene letto**: non e ignorato per pigrizia, e che non esiste
+ * piu niente che il client possa dire su questo fatto.
+ *
+ *   GET   ...  calcola e restituisce, senza scrivere
+ *   POST  ...  calcola, allinea le notifiche persistite, e restituisce
+ *
+ * La risposta conserva `synced`, che era l'unico campo che il contesto
+ * leggeva, e vi affianca `alerts`: cosi la dashboard disegna cio che il server
+ * ha calcolato invece della propria copia.
+ */
 
-const normalizeAlert = (alert: any) => {
-  const key = String(alert?.key || "").trim();
-  const type = String(alert?.type || "").trim();
-  const title = String(alert?.title || "").trim();
-  const message = String(alert?.message || "").trim();
-
-  if (
-    !key ||
-    !title ||
-    !message ||
-    !TRAINER_OPERATIONAL_NOTIFICATION_TYPES.includes(type)
-  ) {
-    return null;
-  }
-
-  return {
-    key,
-    type,
-    title,
-    message,
-    recordId: String(alert?.recordId || "").trim(),
-    actionHref: String(alert?.actionHref || "").trim(),
-  };
-};
-
-const getNotificationKey = (notification: { data?: any }) => {
-  const data =
-    notification?.data && typeof notification.data === "object"
-      ? notification.data
-      : {};
-
-  return String(data.key || data.notificationKey || "").trim();
-};
-
-export async function POST(request: Request) {
-  const session = await requireAuthenticatedUser(request);
-  if (!session) {
-    return NextResponse.json(
-      { data: null, error: { message: "Non autenticato" } },
-      { status: 401 },
-    );
-  }
-
-  const requestedOrganizationId =
+const scopeFrom = async (request: Request, userId: string) =>
+  resolveOrganizationScopeForUser(
+    userId,
     request.headers.get("x-active-club-id") ||
-    request.headers.get("x-organization-id");
-  const scope = await resolveOrganizationScopeForUser(
-    session.db.user.id,
-    requestedOrganizationId,
+      request.headers.get("x-organization-id"),
     request.headers.get("x-active-access-role"),
   );
 
-  if (!scope.activeOrganizationId || !isTrainerAccessRole(scope.activeRole)) {
+const errorStatus = (error: any) =>
+  String(error?.message || "").includes("Accesso negato") ? 403 : 400;
+
+export async function GET(request: Request) {
+  try {
+    const session = await requireAuthenticatedUser(request);
+    if (!session) {
+      return NextResponse.json(
+        { data: null, error: { message: "Sessione non valida" } },
+        { status: 401 },
+      );
+    }
+
+    const scope = await scopeFrom(request, session.db.user_id);
+    if (!scope.activeOrganizationId || !isTrainerAccessRole(scope.activeRole)) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Accesso negato: area allenatore" },
+        },
+        { status: 403 },
+      );
+    }
+
+    const alerts = await computeTrainerOperationalAlerts(scope);
+
+    return NextResponse.json({
+      data: { alerts, synced: 0 },
+      error: null,
+    });
+  } catch (error: any) {
     return NextResponse.json(
-      { data: null, error: { message: "Accesso allenatore non autorizzato" } },
-      { status: 403 },
+      {
+        data: null,
+        error: {
+          message: error?.message || "Errore calcolo avvisi allenatore",
+        },
+      },
+      { status: errorStatus(error) },
     );
   }
+}
 
-  const payload = await request.json().catch(() => ({}));
-  const rawAlerts: unknown[] = Array.isArray(payload?.alerts)
-    ? payload.alerts
-    : [];
-  const alerts = rawAlerts
-    .map(normalizeAlert)
-    .filter((alert): alert is NonNullable<ReturnType<typeof normalizeAlert>> =>
-      Boolean(alert),
+export async function POST(request: Request) {
+  try {
+    const session = await requireAuthenticatedUser(request);
+    if (!session) {
+      return NextResponse.json(
+        { data: null, error: { message: "Non autenticato" } },
+        { status: 401 },
+      );
+    }
+
+    const scope = await scopeFrom(request, session.db.user_id);
+    if (!scope.activeOrganizationId || !isTrainerAccessRole(scope.activeRole)) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Accesso negato: area allenatore" },
+        },
+        { status: 403 },
+      );
+    }
+
+    const esito = await syncTrainerOperationalAlerts(scope);
+
+    return NextResponse.json({
+      data: { synced: esito.synced, alerts: esito.alerts },
+      error: null,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        data: null,
+        error: {
+          message: error?.message || "Errore aggiornamento avvisi allenatore",
+        },
+      },
+      { status: errorStatus(error) },
     );
-  const activeKeys = new Set(alerts.map((alert) => alert.key));
-
-  const existingNotifications = await prisma.notification.findMany({
-    where: {
-      organization_id: scope.activeOrganizationId,
-      user_id: session.db.user.id,
-      type: { in: TRAINER_OPERATIONAL_NOTIFICATION_TYPES },
-    },
-    orderBy: { created_at: "asc" },
-  });
-
-  const existingByKey = new Map<
-    string,
-    (typeof existingNotifications)[number]
-  >();
-
-  for (const notification of existingNotifications) {
-    const key = getNotificationKey(notification);
-    if (!key) {
-      continue;
-    }
-
-    if (!existingByKey.has(key)) {
-      existingByKey.set(key, notification);
-      continue;
-    }
-
-    await prisma.notification.update({
-      where: { id: notification.id },
-      data: {
-        read: true,
-        data: {
-          ...(notification.data && typeof notification.data === "object"
-            ? notification.data
-            : {}),
-          resolved: true,
-          resolvedAt: new Date().toISOString(),
-          duplicate: true,
-        },
-      },
-    });
   }
-
-  for (const alert of alerts) {
-    const existing = existingByKey.get(alert.key);
-    const data = {
-      key: alert.key,
-      recordId: alert.recordId,
-      actionHref: alert.actionHref,
-      resolved: false,
-    };
-
-    if (existing) {
-      await prisma.notification.update({
-        where: { id: existing.id },
-        data: {
-          title: alert.title,
-          message: alert.message,
-          type: alert.type,
-          read: false,
-          data,
-        },
-      });
-      continue;
-    }
-
-    await prisma.notification.create({
-      data: {
-        organization_id: scope.activeOrganizationId,
-        user_id: session.db.user.id,
-        title: alert.title,
-        message: alert.message,
-        type: alert.type,
-        read: false,
-        data,
-      },
-    });
-    await sendNotificationEmails([session.db.user.id]);
-  }
-
-  for (const notification of existingNotifications) {
-    const key = getNotificationKey(notification);
-    if (!key || activeKeys.has(key)) {
-      continue;
-    }
-
-    await prisma.notification.update({
-      where: { id: notification.id },
-      data: {
-        read: true,
-        data: {
-          ...(notification.data && typeof notification.data === "object"
-            ? notification.data
-            : {}),
-          resolved: true,
-          resolvedAt: new Date().toISOString(),
-        },
-      },
-    });
-  }
-
-  return NextResponse.json({
-    data: {
-      synced: alerts.length,
-    },
-    error: null,
-  });
 }

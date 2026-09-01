@@ -1,4 +1,14 @@
-"use client";
+/*
+  **Questo modulo non e piu dichiarato client.**
+
+  Portava `"use client"` per abitudine, non per necessita: non ha un hook, non
+  tocca il DOM e non legge `window`. La direttiva aveva pero una conseguenza
+  vera: `trainer-operational-alerts.ts` importa `recordMatchesCategory` da qui,
+  quindi **l'intero calcolo degli avvisi restava confinato al browser**. Era il
+  difetto: la notifica la scriveva il client e il server la persisteva cosi
+  come arrivava. Tolta la direttiva, la stessa regola vale nei due posti — e
+  ce n'e uno solo che decide.
+*/
 
 import { resolveCategoryId, resolveCategoryLabel } from "@/lib/category-utils";
 

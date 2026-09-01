@@ -18,6 +18,19 @@ export type TrainerOperationalAlert = {
   actionHref: string;
 };
 
+/**
+ * I due soli tipi di notifica che questo calcolo produce.
+ *
+ * Sta qui e non nella rotta perche adesso l'elenco serve a **due** cose: dire
+ * cosa si scrive, e dire cosa si va a rileggere per spegnerlo. Quando erano
+ * due elenchi, uno dei due poteva restare indietro e un avviso risolto non si
+ * sarebbe mai chiuso.
+ */
+export const TRAINER_OPERATIONAL_ALERT_TYPES = [
+  "missing_attendance",
+  "missing_convocations",
+] as const;
+
 const DEFAULT_MATCH_CONVOCATION_DEADLINE_DAYS = 2;
 
 const normalizeValue = (value: unknown) =>
@@ -293,6 +306,100 @@ export const getMatchDayPhrase = (match: any) => {
     MATCH_DAY_PHRASES.length;
 
   return MATCH_DAY_PHRASES[index];
+};
+
+export type EventParticipationRow = {
+  athlete_id?: unknown;
+  athleteId?: unknown;
+  status?: unknown;
+  notes?: unknown;
+  convocation_status?: unknown;
+  convocationStatus?: unknown;
+};
+
+/**
+ * Le righe di partecipazione riportate sulla forma storica dell'evento.
+ *
+ * **Perche serve, e perche e qui.** Le funzioni sopra leggono `attendance` e
+ * i convocati dal payload dell'evento, cioe dalla forma che il browser ha
+ * sempre avuto. Sul server la verita non e quella: sono le righe di
+ * `club_event_participants` — tre colonne, tre scrittori (ADR-0099) — e il
+ * payload ne conserva una copia che puo essere rimasta indietro.
+ *
+ * Questa proiezione **sovrascrive** la copia con le righe, cosi che la stessa
+ * regola, chiamata dal server e chiamata dal browser, risponda la stessa cosa.
+ * E l'alternativa a scrivere una seconda volta le regole di «presenza
+ * mancante» e «convocazione mancante» in forma SQL, che e esattamente il modo
+ * in cui due verita sullo stesso appello sono gia nate una volta.
+ *
+ * `pending` non e una presenza: e lo stato delle righe **nate da una risposta
+ * della famiglia** e mai passate dall'appello. Esce dalla proiezione con quel
+ * nome, e `isAttendanceEntryRecorded` la scarta — che e cio che deve fare, se
+ * no una promessa varrebbe un appello.
+ */
+export const attachEventParticipation = <T extends Record<string, any>>(
+  event: T,
+  rows: readonly EventParticipationRow[],
+) => {
+  const entries = (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      athleteId: String(row?.athlete_id ?? row?.athleteId ?? "").trim(),
+      status: String(row?.status ?? "").trim(),
+      notes: String(row?.notes ?? "").trim(),
+      convocationStatus: String(
+        row?.convocation_status ?? row?.convocationStatus ?? "",
+      ).trim(),
+    }))
+    .filter((entry) => entry.athleteId);
+
+  /*
+    **Le dieci grafie storiche della convocazione vengono azzerate.**
+
+    `getConvocatedAthleteIdsFromMatch` legge l'unione di quattordici chiavi:
+    lasciarne anche una sola piena vorrebbe dire che una convocazione
+    cancellata dalle righe continua a comparire come fatta, e l'avviso
+    «convocazioni mancanti» non si accende mai su una gara che ne ha bisogno.
+    Sovrascrivere solo `convocatedAthleteIds` non basta: l'unione le somma.
+  */
+  const grafieStoriche = Object.fromEntries(
+    [
+      "convocations",
+      "convocationEntries",
+      "convocation_entries",
+      "convocatedAthleteIds",
+      "convocated_athlete_ids",
+      "convocatedAthletes",
+      "convocated_athletes",
+      "calledAthletes",
+      "called_athletes",
+      "selectedAthletes",
+      "selected_athletes",
+      "selectedAthleteIds",
+      "selected_athlete_ids",
+      "participants",
+    ].map((chiave) => [chiave, []]),
+  );
+
+  return {
+    ...event,
+    ...grafieStoriche,
+    payload: undefined,
+    data: undefined,
+    attendance: entries.map((entry) => ({
+      athleteId: entry.athleteId,
+      status: entry.status,
+      notes: entry.notes,
+    })),
+    /*
+      `convocated` e l'unico stato che conta come convocazione: `excluded` e
+      una decisione presa — «non giochi» — e `null` significa che nessuno ha
+      deciso. Contarli insieme direbbe «convocazioni fatte» a una gara in cui
+      l'allenatore ha soltanto escluso qualcuno.
+    */
+    convocatedAthleteIds: entries
+      .filter((entry) => entry.convocationStatus.toLowerCase() === "convocated")
+      .map((entry) => entry.athleteId),
+  };
 };
 
 export const buildTrainerOperationalAlerts = ({

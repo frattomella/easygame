@@ -139,6 +139,9 @@ export function SectionBlockedState({
     matches: "Gare",
     athletes: "Atleti",
     categories: "Categorie",
+    board: "Bacheca",
+    documents: "Documenti",
+    appointments: "Appuntamenti",
   };
 
   return (

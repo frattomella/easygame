@@ -8,9 +8,12 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
+  FolderOpen,
   Home,
+  Megaphone,
   UserCircle,
   CalendarDays,
   Trophy,
@@ -91,6 +94,46 @@ const TrainerSidebar = memo(() => {
               href: "/trainer-dashboard/matches",
               label: "Gare",
               icon: Trophy,
+            }
+          : null,
+      ].filter(Boolean) as Array<{
+        href: string;
+        label: string;
+        icon: typeof Home;
+      }>,
+    },
+    /*
+      **Le tre sezioni che l'allenatore non aveva.**
+
+      La bacheca: `board.read` era concesso al ruolo da sempre e non esisteva
+      una schermata da cui leggerla. Gli appuntamenti: `appointments.read_own`
+      e `appointments.manage` esistono, ristretti a cio che gli e assegnato, e
+      il caso d'uso non era raggiungibile in nessun modo. I documenti: i suoi
+      erano visibili **solo** dall'area gestionale, cioe da nessuno che sia
+      soltanto allenatore.
+    */
+    {
+      label: "PERSONALE",
+      items: [
+        permissions.navigation.board
+          ? {
+              href: "/trainer-dashboard/board",
+              label: "Bacheca",
+              icon: Megaphone,
+            }
+          : null,
+        permissions.navigation.appointments
+          ? {
+              href: "/trainer-dashboard/appointments",
+              label: "Appuntamenti",
+              icon: CalendarClock,
+            }
+          : null,
+        permissions.navigation.documents
+          ? {
+              href: "/trainer-dashboard/documents",
+              label: "Documenti",
+              icon: FolderOpen,
             }
           : null,
       ].filter(Boolean) as Array<{

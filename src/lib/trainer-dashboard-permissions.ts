@@ -1,9 +1,25 @@
+/**
+ * Le sezioni della dashboard allenatore.
+ *
+ * `board`, `documents` e `appointments` sono le tre voci che la Wave 5
+ * aggiunge, e nascono **accese**. Non e una svista: sono le tre superfici che
+ * mostrano all'allenatore soltanto **cio che lo riguarda gia** — gli avvisi che
+ * gli sono stati mandati, i propri documenti, gli appuntamenti che gli sono
+ * stati assegnati — e il dato che ci passa e filtrato dal server sul suo
+ * legame, non su questo interruttore. Un club che le spegnesse nasconderebbe
+ * la schermata, non il dato: e quello che questo file ha gia sbagliato una
+ * volta con `viewMedicalStatus`, che nascondeva le schede mentre il contenuto
+ * clinico usciva comunque dalle API (D-4).
+ */
 export type TrainerNavigationPermissionKey =
   | "home"
   | "trainings"
   | "matches"
   | "athletes"
-  | "categories";
+  | "categories"
+  | "board"
+  | "documents"
+  | "appointments";
 
 export type TrainerWidgetPermissionKey =
   | "summary"
@@ -38,6 +54,9 @@ export const DEFAULT_TRAINER_DASHBOARD_PERMISSIONS: TrainerDashboardPermissions 
       matches: true,
       athletes: true,
       categories: false,
+      board: true,
+      documents: true,
+      appointments: true,
     },
     widgets: {
       summary: true,
@@ -134,6 +153,9 @@ export const TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY: Record<
   matches: "/trainer-dashboard/matches",
   athletes: "/trainer-dashboard/athletes",
   categories: "/trainer-dashboard/categories",
+  board: "/trainer-dashboard/board",
+  documents: "/trainer-dashboard/documents",
+  appointments: "/trainer-dashboard/appointments",
 };
 
 export const getFirstAccessibleTrainerRoute = (
@@ -144,6 +166,9 @@ export const getFirstAccessibleTrainerRoute = (
     "trainings",
     "matches",
     "athletes",
+    "board",
+    "documents",
+    "appointments",
   ];
 
   const enabledKey = orderedKeys.find((key) => permissions.navigation[key]);

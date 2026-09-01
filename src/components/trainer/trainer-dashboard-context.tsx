@@ -32,11 +32,9 @@ import {
   isReminderVisibleToTrainer,
 } from "@/lib/reminder-targeting";
 import { dedupeTrainings } from "@/lib/training-utils";
-import {
-  buildTrainerOperationalAlerts,
-  getMatchConvocationDeadlineDays,
-  type TrainerOperationalAlert,
-} from "@/lib/trainer-operational-alerts";
+import { getMatchConvocationDeadlineDays } from "@/lib/trainer-operational-alerts";
+import type { TrainerOperationalAlert } from "@/lib/trainer-operational-alerts";
+import { getTrainerDocumentsFromRecord } from "@/lib/trainer-documents";
 
 type TrainerDashboardContextValue = {
   loading: boolean;
@@ -49,6 +47,16 @@ type TrainerDashboardContextValue = {
   visibleTrainings: any[];
   visibleMatches: any[];
   visibleReminders: any[];
+  /**
+   * Gli avvisi della bacheca del club destinati a chi sta guardando.
+   *
+   * Arrivano da `GET /api/v1/announcements?mine=1`, che filtra sulle consegne
+   * e toglie i criteri di scelta del pubblico. L'allenatore ha `board.read` da
+   * sempre e **non aveva una schermata**: il permesso c'era, la bacheca no.
+   */
+  announcements: any[];
+  /** I documenti dell'allenatore che sta guardando, e solo i suoi. */
+  ownDocuments: any[];
   operationalAlerts: TrainerOperationalAlert[];
   matchConvocationDeadlineDays: number;
   permissions: TrainerDashboardPermissions;
@@ -464,6 +472,8 @@ export function TrainerDashboardProvider({
   const [visibleTrainings, setVisibleTrainings] = useState<any[]>([]);
   const [visibleMatches, setVisibleMatches] = useState<any[]>([]);
   const [visibleReminders, setVisibleReminders] = useState<any[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [ownDocuments, setOwnDocuments] = useState<any[]>([]);
   const [operationalAlerts, setOperationalAlerts] = useState<
     TrainerOperationalAlert[]
   >([]);
@@ -520,6 +530,8 @@ export function TrainerDashboardProvider({
         apiMatches,
         apiSecretariatNotes,
         trainerPreferences,
+        apiAnnouncements,
+        apiOperationalAlerts,
       ] = await Promise.all([
         apiRequest<any[]>("/api/v1/categories", {
           method: "GET",
@@ -557,6 +569,34 @@ export function TrainerDashboardProvider({
         apiRequest<any>("/api/v1/trainer/preferences", {
           method: "GET",
           headers: activeClubHeaders,
+        }),
+        /*
+          **La bacheca del club, dal lato del destinatario** (W5, §14).
+
+          `?mine=1` e la stessa rotta che usa la famiglia: filtra sulle consegne
+          e toglie i criteri con cui il pubblico e stato scelto. Non serviva una
+          seconda rotta «per l'allenatore» — sarebbe stata una seconda idea di
+          «scaduto», e la prima volta che le due divergono qualcuno legge un
+          avviso che il club considera chiuso.
+        */
+        apiRequest<any[]>("/api/v1/announcements?mine=1", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        /*
+          **Gli avvisi operativi li calcola il server** (W5, §14).
+
+          Prima `buildTrainerOperationalAlerts` girava qui e il risultato veniva
+          spedito a `POST /api/v1/trainer/operational-alerts`, che lo persisteva
+          cosi come arrivava: il contenuto della notifica lo dettava il browser.
+          Adesso la rotta calcola e restituisce, e questa chiamata e insieme la
+          lettura e la sincronizzazione — un giro di rete solo, e una sola copia
+          della regola.
+        */
+        apiRequest<any>("/api/v1/trainer/operational-alerts", {
+          method: "POST",
+          headers: activeClubHeaders,
+          body: {},
         }),
       ]);
 
@@ -730,26 +770,20 @@ export function TrainerDashboardProvider({
       )
         ? Number(preferences?.matchConvocationDeadlineDays)
         : getMatchConvocationDeadlineDays({});
-      const nextAssignedCategories = (() => {
-        const categoryEntries = mergedCategories.filter((category) =>
-          categoryIdSet.has(normalizeValue(category?.id)),
-        );
+      /*
+        **Gli avvisi non si ricalcolano qui.**
 
-        return categoryEntries.length > 0
-          ? categoryEntries
-          : normalizeTrainerCategories(
-              nextTrainerProfile?.categories,
-              mergedCategories,
-            );
-      })();
-      const nextOperationalAlerts = buildTrainerOperationalAlerts({
-        trainings: nextVisibleTrainings,
-        matches: nextVisibleMatches,
-        assignedAthletes: nextAssignedAthletes,
-        assignedCategories: nextAssignedCategories,
-        categories: mergedCategories,
-        matchConvocationDeadlineDays: nextDeadlineDays,
-      });
+        Erano l'unico posto in cui il browser produceva un fatto che poi il
+        server persisteva senza verificarlo. Se la rotta non risponde l'elenco
+        resta vuoto: e la scelta giusta rispetto a rimettere in piedi la copia
+        locale, perche due copie della stessa regola tornerebbero a divergere e
+        nessuno saprebbe quale delle due sta guardando.
+      */
+      const nextOperationalAlerts: TrainerOperationalAlert[] =
+        !apiOperationalAlerts?.error &&
+        Array.isArray(apiOperationalAlerts?.data?.alerts)
+          ? (apiOperationalAlerts.data.alerts as TrainerOperationalAlert[])
+          : [];
 
       setCategories(mergedCategories);
       setTrainers(normalizedTrainerPool);
@@ -758,6 +792,14 @@ export function TrainerDashboardProvider({
       setVisibleTrainings(nextVisibleTrainings);
       setVisibleMatches(nextVisibleMatches);
       setVisibleReminders(nextVisibleReminders);
+      setAnnouncements(toApiList(apiAnnouncements));
+      /*
+        I documenti dell'allenatore sono quelli del **suo** record, non quelli
+        di `GET /api/v1/trainers`: la rotta porta l'elenco di tutti gli
+        allenatori del club, e disegnare quella lista vorrebbe dire mostrare a
+        un mister i contratti dei colleghi.
+      */
+      setOwnDocuments(getTrainerDocumentsFromRecord(nextTrainerProfile));
       setOperationalAlerts(nextOperationalAlerts);
       setMatchConvocationDeadlineDays(nextDeadlineDays);
       setPermissions(
@@ -776,14 +818,6 @@ export function TrainerDashboardProvider({
       setClinical({
         statusRead: preferences?.clinical?.statusRead !== false,
         read: preferences?.clinical?.read === true,
-      });
-
-      void apiRequest("/api/v1/trainer/operational-alerts", {
-        method: "POST",
-        headers: activeClubHeaders,
-        body: {
-          alerts: nextOperationalAlerts,
-        },
       });
     } catch (error) {
       console.error("Error loading trainer dashboard:", error);
@@ -826,6 +860,8 @@ export function TrainerDashboardProvider({
       visibleTrainings,
       visibleMatches,
       visibleReminders,
+      announcements,
+      ownDocuments,
       operationalAlerts,
       matchConvocationDeadlineDays,
       permissions,
@@ -838,10 +874,12 @@ export function TrainerDashboardProvider({
     }),
     [
       activeClub,
+      announcements,
       assignedAthletes,
       assignedCategories,
       categories,
       clinical,
+      ownDocuments,
       loadDashboardData,
       loading,
       matchConvocationDeadlineDays,
