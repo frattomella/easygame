@@ -485,6 +485,42 @@ export const resolveAudience = async ({
       case "no_account":
         /* Risolto dopo, quando gli account sono noti. */
         break;
+      /*
+        **I convocati, e chi non ha risposto** (W5-14, ADR-0098).
+
+        Due criteri che prima erano inesprimibili: la convocazione viveva dentro
+        il payload della gara in dieci grafie, e la risposta della famiglia non
+        aveva un evento a cui appoggiarsi. Adesso sono due colonne della stessa
+        riga, e la domanda diventa una query.
+
+        «Senza risposta» significa **convocato e silenzioso**, non «non
+        convocato»: scrivere a chi non e stato chiamato per chiedergli se viene
+        e il modo piu rapido per far arrivare al campo qualcuno che non doveva
+        esserci.
+      */
+      case "event_convocated":
+      case "event_no_rsvp": {
+        const righe = await (prisma as any).clubEventParticipant.findMany({
+          where: {
+            organization_id: clubId,
+            event_id: { in: criterion.values },
+            convocation_status: "convocated",
+            ...(criterion.kind === "event_no_rsvp"
+              ? { rsvp_status: null }
+              : {}),
+          },
+          select: { athlete_id: true },
+        });
+        const wanted = new Set(
+          (Array.isArray(righe) ? righe : []).map((riga: any) =>
+            asText(riga.athlete_id),
+          ),
+        );
+        selected = selected.filter((athlete) =>
+          wanted.has(asText(athlete.id)),
+        );
+        break;
+      }
       case "overdue_payments": {
         const withOverdue = await readAthletesWithOverdue({
           organizationId: clubId,

@@ -18,6 +18,12 @@ import {
   type TrainingGroupOption,
 } from "@/components/training/TrainingGroupSelector";
 import { isValidTimeRange } from "@/lib/training-utils";
+import {
+  EMPTY_EVENT_RSVP,
+  EventRsvpFields,
+  toEventRsvpPayload,
+  type EventRsvpValue,
+} from "@/components/events/event-rsvp-fields";
 
 interface AddTrainingFormProps {
   isOpen: boolean;
@@ -67,6 +73,11 @@ export function AddTrainingForm({
     athleteName: "",
     description: "",
   });
+  /*
+    L'RSVP esisteva da due Wave e **nessun evento lo richiedeva mai**, perche
+    non compariva in nessun form (W5-05).
+  */
+  const [rsvp, setRsvp] = React.useState<EventRsvpValue>(EMPTY_EVENT_RSVP);
   const previousAutoTrainerIdsRef = React.useRef<string[]>([]);
 
   const structureOptions = React.useMemo(() => {
@@ -314,6 +325,7 @@ export function AddTrainingForm({
     // Submit form
     onSubmit({
       ...formData,
+      ...toEventRsvpPayload(rsvp),
       trainers: formData.trainerIds,
       status: "upcoming",
       attendees: 0,
@@ -337,6 +349,7 @@ export function AddTrainingForm({
       athleteName: "",
       description: "",
     });
+    setRsvp(EMPTY_EVENT_RSVP);
     previousAutoTrainerIdsRef.current = [];
 
     // Close modal
@@ -455,6 +468,12 @@ export function AddTrainingForm({
 
         {!isAppointment ? (
           <>
+            <EventRsvpFields
+              value={rsvp}
+              onChange={setRsvp}
+              idPrefix="add-training"
+            />
+
             <TrainingGroupSelector
               groups={groupOptions}
               selectedGroupIds={formData.groupIds}

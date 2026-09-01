@@ -1113,3 +1113,35 @@ dominio, sulla scheda persona e su Movimenti: nessun trabocco orizzontale. Le
 barre di sezione e le tabelle larghe scorrono dentro il proprio contenitore,
 non spingono la pagina.
 
+
+
+---
+
+## La pagina calendario, e perche le due pagine restano (2026-09-01, Wave 5 — 5F)
+
+`/calendar` elenca allenamenti e gare insieme, filtrabili per tipo, sede,
+categoria, gruppo e intervallo. E la prima cosa che ADR-0098 rende possibile:
+prima non c'era niente da unire, perche non c'era un'entita comune da elencare.
+
+**`/training` e `/matches` restano**, ed e una scelta. Servono a **operare** su
+un tipo — l'appello, le convocazioni, la generazione dal programma settimanale
+— mentre il calendario serve a **vedere**. Sostituirle vorrebbe dire mettere in
+una schermata sola due mestieri diversi, e la schermata risultante sarebbe
+peggiore di entrambe.
+
+Il filtro per **sede** e cio che rende leggibile un club multi-sede, dove «i
+Pulcini» sono due squadre diverse in due posti diversi (ADR-0055).
+
+## I tre campi che accendono l'RSVP (W5-05)
+
+`src/components/events/event-rsvp-fields.tsx` e **un** componente per
+allenamenti e gare, non due: l'evento e uno solo, e due copie divergono — come
+e successo a ogni altra coppia in questo repository.
+
+Il difetto che chiude non e «manca un campo»: il dominio RSVP esisteva da due
+Wave, completo e testato, e **nessun evento lo richiedeva mai** perche
+`rsvpRequired` non compariva in nessun form. Una funzione che nessuna schermata
+sa accendere non e una funzione.
+
+La scadenza senza la richiesta di conferma non viene scritta: sarebbe uno stato
+in cui nessuno sa cosa succede al passaggio della data.

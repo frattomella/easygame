@@ -64,6 +64,8 @@ const MANAGEMENT_ROLES = new Set<CanonicalAccessRole>([
 ]);
 
 const MANAGEMENT_PATH_PREFIXES = [
+  /* Il calendario unico: allenamenti e gare insieme (ADR-0098). */
+  "/calendar",
   "/dashboard",
   "/athletes",
   "/categories",

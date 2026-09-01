@@ -7,6 +7,7 @@ import {
   assertEventHasRoom,
   assertEventTransition,
   findEventOverlaps,
+  isWithinFieldAvailability,
   normalizeConvocationStatus,
   normalizeEventKind,
   normalizeEventStatus,
@@ -341,6 +342,54 @@ export const reprojectClubEvents = async (organizationId: string) => {
 
 /* ========================================================= scritture ===== */
 
+/**
+ * **Il campo aperto a quell'ora** (W5-11).
+ *
+ * La disponibilita per giorno della settimana era dichiarata dalle strutture e
+ * non la leggeva nessuno: si poteva fissare un allenamento delle 23:00 su un
+ * campo che chiude alle 20:00, e a scoprirlo era chi ci andava.
+ */
+const assertFieldIsOpen = async (
+  organizationId: string,
+  candidate: {
+    structure_id: string | null;
+    field_id: string | null;
+    starts_at: Date;
+    ends_at: Date | null;
+  },
+) => {
+  if (!candidate.structure_id && !candidate.field_id) return;
+
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { structures: true },
+  });
+  const strutture = Array.isArray(club?.structures) ? club.structures : [];
+
+  const struttura = (strutture as any[]).find(
+    (voce) => asText(voce?.id) === asText(candidate.structure_id),
+  );
+  if (!struttura) return;
+
+  const campi = Array.isArray(struttura.fields) ? struttura.fields : [];
+  const campo = candidate.field_id
+    ? campi.find((voce: any) => asText(voce?.id) === asText(candidate.field_id))
+    : campi[0];
+  if (!campo) return;
+
+  if (
+    !isWithinFieldAvailability(
+      campo.availability,
+      candidate.starts_at,
+      candidate.ends_at,
+    )
+  ) {
+    throw new Error(
+      `Il campo «${asText(campo.name) || "selezionato"}» non e disponibile in quel giorno e a quell'ora`,
+    );
+  }
+};
+
 const assertNoOverlap = async (
   organizationId: string,
   candidate: {
@@ -399,6 +448,13 @@ export const createClubEvent = async (
   assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
   const colonne = toEventColumns(normalizeEventKind(kind), input);
+
+  await assertFieldIsOpen(organizationId, {
+    structure_id: colonne.structure_id,
+    field_id: colonne.field_id,
+    starts_at: colonne.starts_at,
+    ends_at: colonne.ends_at,
+  });
 
   await assertNoOverlap(organizationId, {
     structure_id: colonne.structure_id,
@@ -469,6 +525,13 @@ export const updateClubEvent = async (
 
   const colonne = toEventColumns(existing.kind as EventKind, merged);
   assertEventTransition(existing.status, colonne.status);
+
+  await assertFieldIsOpen(organizationId, {
+    structure_id: colonne.structure_id,
+    field_id: colonne.field_id,
+    starts_at: colonne.starts_at,
+    ends_at: colonne.ends_at,
+  });
 
   await assertNoOverlap(organizationId, {
     id: existing.id,

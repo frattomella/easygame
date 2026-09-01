@@ -236,7 +236,7 @@ function CategoryAthleteTable({ report }: { report: CategoryReport }) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full min-w-[820px] text-sm">
+      <table className="w-full min-w-[960px] text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
           <tr>
             <th className="px-4 py-3 font-semibold">Atleta</th>
@@ -245,6 +245,7 @@ function CategoryAthleteTable({ report }: { report: CategoryReport }) {
             <th className="px-4 py-3 font-semibold">
               Presenze / allenamenti
             </th>
+            <th className="px-4 py-3 font-semibold">Senza risposta</th>
             <th className="px-4 py-3 font-semibold">% convocazione</th>
             <th className="px-4 py-3 font-semibold">% presenza</th>
           </tr>
@@ -261,6 +262,11 @@ function CategoryAthleteTable({ report }: { report: CategoryReport }) {
               </td>
               <td className="px-4 py-3 text-slate-600">
                 {row.presences}/{row.totalTrainings}
+              </td>
+              <td className="px-4 py-3 text-slate-600">
+                {row.rsvpRequested
+                  ? `${row.noResponse}/${row.rsvpRequested}`
+                  : "—"}
               </td>
               <td className="px-4 py-3">
                 <Badge variant="outline">{row.convocationRate}%</Badge>

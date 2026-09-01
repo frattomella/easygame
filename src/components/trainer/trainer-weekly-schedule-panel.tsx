@@ -176,6 +176,7 @@ const buildEffectiveLocations = (
       fieldId,
       fieldName,
       name: `${structureName} - ${fieldName}`,
+      siteId: null,
       label: `${structureName} / ${fieldName}`,
     });
   });

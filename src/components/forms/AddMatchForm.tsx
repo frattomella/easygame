@@ -14,6 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import {
+  EMPTY_EVENT_RSVP,
+  EventRsvpFields,
+  fromEventRsvpPayload,
+  toEventRsvpPayload,
+  type EventRsvpValue,
+} from "@/components/events/event-rsvp-fields";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -98,6 +105,15 @@ export function AddMatchForm({
     notes: initialData?.notes || "",
     matchNumber: initialData?.matchNumber || "",
   });
+  /*
+    **La gara ottiene cio che l'allenamento aveva gia** (W5-03, W5-05, W5-12).
+    Il dominio RSVP era cablato sull'allenamento perche una gara non aveva dove
+    ospitare una risposta: adesso l'evento e uno solo, e la conferma della
+    famiglia vale per entrambi.
+  */
+  const [rsvp, setRsvp] = React.useState<EventRsvpValue>(
+    initialData ? fromEventRsvpPayload(initialData) : EMPTY_EVENT_RSVP,
+  );
 
   const categoryOptions = React.useMemo(
     () =>
@@ -337,6 +353,7 @@ export function AddMatchForm({
     }
     onSubmit({
       ...formData,
+      ...toEventRsvpPayload(rsvp),
       location: resolvedLocation,
       isHome: formData.venueMode === "home",
     });
@@ -598,6 +615,8 @@ export function AddMatchForm({
               proposti automaticamente. Puoi modificarli manualmente.
             </p>
           </div>
+
+          <EventRsvpFields value={rsvp} onChange={setRsvp} idPrefix="add-match" />
 
           <div className="space-y-2">
             <Label htmlFor="notes">Note</Label>

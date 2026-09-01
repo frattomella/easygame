@@ -475,6 +475,72 @@ export const assertEventHasRoom = (
   );
 };
 
+/**
+ * **Il campo e aperto a quell'ora?** (W5-11)
+ *
+ * Le strutture dichiarano gia la disponibilita per giorno della settimana
+ * (`normalizeAvailability` in `structures-utils.ts`), e nessuno la leggeva mai
+ * al momento di creare un allenamento: si poteva fissare un allenamento delle
+ * 23:00 su un campo che chiude alle 20:00, e a scoprirlo era chi ci andava.
+ *
+ * **Un campo che non dichiara nessuna fascia non e un campo chiuso**: e un
+ * campo su cui il club non ha detto niente, e restringere a zero un dato
+ * assente e il modo piu rapido per rendere inutilizzabile una funzione nuova.
+ *
+ * Le chiavi dei giorni sono quelle di `WEEK_DAYS` — `Lun`…`Dom` — e restano
+ * dove sono: questo modulo le riceve, non le conosce.
+ */
+const CHIAVI_GIORNO = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+
+export const weekdayKeyOf = (value: Date | string) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return CHIAVI_GIORNO[date.getUTCDay()] || "";
+};
+
+const minutiDi = (orario: string) => {
+  const match = TIME_ONLY.exec(asText(orario));
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+};
+
+export const isWithinFieldAvailability = (
+  availability: unknown,
+  startsAt: Date | string,
+  endsAt?: Date | string | null,
+) => {
+  const giorno = weekdayKeyOf(startsAt);
+  if (!giorno) return true;
+
+  const mappa = asRecord(availability);
+  const fasce = Array.isArray(mappa[giorno]) ? mappa[giorno] : [];
+
+  const dichiarataQualcosa = CHIAVI_GIORNO.some(
+    (chiave) => Array.isArray(mappa[chiave]) && mappa[chiave].length > 0,
+  );
+  if (!dichiarataQualcosa) return true;
+
+  const inizio = minutiDi(toEventTime(startsAt));
+  if (inizio === null) return true;
+  const fine = endsAt ? minutiDi(toEventTime(endsAt)) : null;
+
+  /*
+    Una fascia di un campo non scavalca la mezzanotte: se la fine e **prima**
+    dell'inizio, l'evento la scavalca, e nessuna fascia lo contiene. Senza
+    questa riga un allenamento 23:00-00:30 passava per un campo che chiude alle
+    20:00, perche l'ora di fine tornava a essere un numero piccolo.
+  */
+  if (fine !== null && fine < inizio) return false;
+
+  return fasce.some((fascia: any) => {
+    const apre = minutiDi(fascia?.start);
+    const chiude = minutiDi(fascia?.end);
+    if (apre === null || chiude === null) return false;
+    if (inizio < apre) return false;
+    return (fine ?? inizio) <= chiude;
+  });
+};
+
 export const normalizeConvocationStatus = (
   value: unknown,
 ): ConvocationStatus | null => {

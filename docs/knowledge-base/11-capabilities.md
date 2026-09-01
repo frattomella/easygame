@@ -324,3 +324,22 @@ di sessione vero: 72 controlli, 72 verdi.
 | **Migrazione dei dati legacy** | **Rapporto, non conversione.** Si importano solo le anagrafiche; promemoria di pagamento e procure restano dove sono (ADR-0076) |
 | **Volontari e rimborsi forfettari** | **NON IMPLEMENTATI in V1.** Il tetto mensile e in regola, ma le condizioni di legittimita (evento riconosciuto, delibera, autodichiarazione) attendono validazione |
 | **Compensazione fra compensi e quote** | **NON IMPLEMENTATA, per scelta.** Un compenso non paga una quota, un contributo non salda una rata, un rimborso non e un compenso |
+
+---
+
+## Wave 5 — 5C e 5F: attivita sportiva (2026-09-01)
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Calendario unico | COMPLETE | `/calendar`: allenamenti e gare insieme, filtrabili per tipo, sede, categoria, gruppo e intervallo. Prima non esisteva niente da unire, perche non esisteva un'entita comune da elencare (ADR-0098) |
+| Evento sportivo come riga | COMPLETE | `club_events`, `src/lib/server/events.ts` unico scrittore, `GET/POST /api/v1/events` |
+| RSVP configurabile dalla schermata | COMPLETE | Il toggle «chiedi conferma», la scadenza e la capienza entrano nei form di allenamento e gara. Il dominio RSVP esisteva da due Wave e **nessun evento lo richiedeva mai**: era una funzione che nessuna schermata sapeva accendere (W5-05) |
+| RSVP sulle gare | COMPLETE | Il dominio era cablato su `trainings`; adesso l'evento e uno solo |
+| Convocazione come fatto | COMPLETE | Colonna su `club_event_participants`, con permesso, audit e notifica. Prima era un campo nel payload della gara in dieci grafie |
+| Presenze sulle gare | COMPLETE | Stessa riga della convocazione e della risposta (ADR-0099) |
+| Capienza dell'evento | PARTIAL | Il numero e il conteggio ci sono e il limite e vero. **Nessuna lista d'attesa**: una coda ha regole di priorita che nessuno ha dichiarato |
+| Sede sulla gara | COMPLETE | Derivata dalla struttura scelta, come gia faceva l'allenamento |
+| Validazione contro la disponibilita del campo | COMPLETE | Un allenamento delle 23:00 su un campo che chiude alle 20:00 viene respinto (W5-11) |
+| Comunicazioni per evento | COMPLETE | Due criteri nuovi nel risolutore del pubblico: «convocati a un evento» e «senza risposta a un evento» (W5-14) |
+| Colonna «senza risposta» nel rendiconto | COMPLETE | `/reports`, contata sui soli eventi che una conferma l'hanno chiesta (W5-09) |
+| Perimetro per gruppo sulla convocazione | COMPLETE | La gara che dichiara i suoi gruppi mostra solo quegli atleti; senza gruppi ricade sulla categoria (W5-16) |

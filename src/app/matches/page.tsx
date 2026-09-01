@@ -72,6 +72,12 @@ import {
 } from "@/lib/simplified-db";
 import { athleteMatchesAnyCategory } from "@/lib/category-utils";
 import {
+  buildSiteIndex,
+  getAthleteGroupIds,
+  normalizeClubSites,
+  readTrainingGroupIds,
+} from "@/lib/club-sites";
+import {
   getParticipationCategoryBadgeLabel,
   getParticipationCategoryContext,
   getPrimaryAthleteCategoryMembership,
@@ -254,6 +260,16 @@ export default function MatchesPage() {
   const [categories, setCategories] = React.useState<any[]>([]);
   const [trainers, setTrainers] = React.useState<any[]>([]);
   const [athletes, setAthletes] = React.useState<any[]>([]);
+  /*
+    **Le sedi servono anche alla gara** (W5-16, W4-R20).
+
+    La convocazione mostrava tutti gli atleti della categoria, e in un club
+    multi-sede «i Pulcini» sono due squadre in due posti diversi: chi convoca
+    si trovava davanti trenta nomi di cui meta a trenta chilometri. E la stessa
+    correzione che l'appello dell'allenamento ha gia avuto, sulla schermata che
+    era rimasta indietro.
+  */
+  const [clubSites, setClubSites] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [showAddMatchModal, setShowAddMatchModal] = useState(false);
   const [showMultipleAddMatchModal, setShowMultipleAddMatchModal] =
@@ -379,8 +395,10 @@ export default function MatchesPage() {
 
         // Load athletes from club data
         const athletesData = await getClubAthletes(activeClub.id);
-        console.log("Loaded athletes:", athletesData);
         setAthletes(athletesData);
+
+        const sitesData = await getClubData(activeClub.id, "club_sites");
+        setClubSites(Array.isArray(sitesData) ? sitesData : []);
       } catch (error) {
         console.error("Error loading matches data:", error);
         showToast("error", "Errore nel caricamento dei dati");
@@ -583,6 +601,11 @@ export default function MatchesPage() {
             convocationsStatus: "none",
             convocatedAthletes: [],
             convocationEntries: [],
+            /* La gara ottiene cio che l allenamento aveva gia (W5-03, W5-05). */
+            rsvpRequired: matchData.rsvpRequired ?? false,
+            rsvpDeadline: matchData.rsvpDeadline ?? null,
+            capacity: matchData.capacity ?? null,
+            siteId: selectedHomeLocation?.siteId || matchData.siteId || null,
           };
 
           /* La gara nasce come **riga**, come l'allenamento (ADR-0098). */
@@ -2145,12 +2168,31 @@ export default function MatchesPage() {
           opponent={selectedMatch.opponent}
           location={formatMatchLocationLabel(selectedMatch)}
           athletes={(() => {
-            const baseAthletes = athletes.filter((athlete: any) =>
-              athleteMatchesAnyCategory(athlete, [
-                selectedMatch.categoryId,
-                selectedMatch.category,
-              ]),
-            );
+            /*
+              **Prima il gruppo operativo, poi la categoria** (ADR-0055).
+
+              Una gara che dichiara i suoi gruppi riguarda solo gli atleti di
+              quelle squadre. Una gara che non li dichiara e un dato precedente
+              e ricade sulla categoria, cioe sul comportamento di prima.
+            */
+            const gruppiDellaGara = readTrainingGroupIds(selectedMatch);
+            const indiceSedi = buildSiteIndex(normalizeClubSites(clubSites));
+            const perGruppo = gruppiDellaGara.length
+              ? athletes.filter((athlete: any) =>
+                  getAthleteGroupIds(athlete, indiceSedi).some((groupId) =>
+                    gruppiDellaGara.includes(groupId),
+                  ),
+                )
+              : null;
+
+            const baseAthletes =
+              perGruppo ??
+              athletes.filter((athlete: any) =>
+                athleteMatchesAnyCategory(athlete, [
+                  selectedMatch.categoryId,
+                  selectedMatch.category,
+                ]),
+              );
             const savedConvocationEntries =
               normalizeMatchConvocationEntries(selectedMatch);
             const savedExtraAthletes = athletes.filter(

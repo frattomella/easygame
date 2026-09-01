@@ -26,6 +26,20 @@ export const AUDIENCE_CRITERION_KINDS = [
   "overdue_payments",
   "certificate_missing_or_expiring",
   "no_account",
+  /*
+    **I due criteri che l'evento come riga rende esprimibili** (ADR-0098).
+
+    «Scrivi ai convocati» e «scrivi a chi non ha risposto» erano domande che il
+    prodotto non sapeva fare: la convocazione era un campo dentro il payload
+    della gara, in dieci grafie diverse, e la risposta della famiglia non aveva
+    un evento a cui appoggiarsi. Non era un criterio mancante: era un criterio
+    **inesprimibile**.
+
+    Restano due criteri e non uno perche rispondono a due domande diverse, e la
+    seconda e quella che si va a cercare la sera prima: «chi devo chiamare».
+  */
+  "event_convocated",
+  "event_no_rsvp",
 ] as const;
 
 export type AudienceCriterionKind = (typeof AUDIENCE_CRITERION_KINDS)[number];
@@ -38,7 +52,9 @@ export type AudienceCriterion =
   | { kind: "athlete_ids"; values: string[] }
   | { kind: "overdue_payments" }
   | { kind: "certificate_missing_or_expiring"; withinDays?: number }
-  | { kind: "no_account" };
+  | { kind: "no_account" }
+  | { kind: "event_convocated"; values: string[] }
+  | { kind: "event_no_rsvp"; values: string[] };
 
 export const AUDIENCE_CRITERION_LABELS: Record<AudienceCriterionKind, string> = {
   all_families: "Tutte le famiglie",
@@ -49,6 +65,8 @@ export const AUDIENCE_CRITERION_LABELS: Record<AudienceCriterionKind, string> = 
   overdue_payments: "Con quote da versare",
   certificate_missing_or_expiring: "Certificato mancante o in scadenza",
   no_account: "Senza account collegato",
+  event_convocated: "Convocati a un evento",
+  event_no_rsvp: "Senza risposta a un evento",
 };
 
 /**
@@ -118,7 +136,9 @@ export const normalizeAudienceCriteria = (
       case "category_ids":
       case "group_ids":
       case "site_ids":
-      case "athlete_ids": {
+      case "athlete_ids":
+      case "event_convocated":
+      case "event_no_rsvp": {
         const values = asIdList((entry as any)?.values);
         if (values.length === 0) {
           throw new Error(

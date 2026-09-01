@@ -98,6 +98,12 @@ const sidebarGroups: SidebarGroup[] = [
     label: "ATTIVITÀ SPORTIVA",
     items: [
       {
+        id: "calendar",
+        label: "Calendario",
+        href: "/calendar",
+        icon: CalendarDays,
+      },
+      {
         id: "training",
         label: "Allenamenti",
         href: "/training",

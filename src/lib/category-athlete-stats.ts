@@ -18,6 +18,16 @@ export type CategoryAthleteStat = {
   totalTrainings: number;
   convocationRate: number;
   presenceRate: number;
+  /**
+   * **Gli eventi che chiedevano una conferma e non l'hanno ricevuta** (W5-09).
+   *
+   * Non e «assente»: e il silenzio, che e un fatto diverso e piu urgente —
+   * l'assente lo sai, il silenzioso e quello che devi chiamare. Prima non era
+   * calcolabile affatto, perche nessun evento chiedeva mai una conferma
+   * (W5-05) e la risposta non aveva un evento a cui appoggiarsi (ADR-0098).
+   */
+  noResponse: number;
+  rsvpRequested: number;
 };
 
 const PRESENT_STATUSES = new Set(["present", "presente", "yes", "true"]);
@@ -169,6 +179,30 @@ export function calculateCategoryAthleteStats(
     }
   });
 
+  /*
+    Il silenzio si conta sugli eventi che una conferma l'hanno **chiesta**:
+    contarlo su tutti direbbe che ogni famiglia tace su ogni allenamento, che e
+    vero e non serve a nessuno.
+  */
+  const eventiConRsvp = categoryTrainings.filter((training: any) =>
+    Boolean(training?.rsvpRequired ?? training?.rsvp_required ?? false),
+  );
+  const rispostiPerAtleta = new Map<string, Set<string>>();
+  eventiConRsvp.forEach((training: any, index: number) => {
+    const trainingKey = getTrainingId(training) || `#rsvp-${index}`;
+    for (const entry of getTrainingAttendanceEntries(training, attendance)) {
+      const stato = normalizeValue(entry?.rsvp_status ?? entry?.rsvpStatus);
+      if (!stato) continue;
+
+      const entryAthleteId = getAttendanceAthleteId(entry);
+      if (!entryAthleteId) continue;
+
+      const bucket = rispostiPerAtleta.get(entryAthleteId);
+      if (bucket) bucket.add(trainingKey);
+      else rispostiPerAtleta.set(entryAthleteId, new Set([trainingKey]));
+    }
+  });
+
   const convocationsByAthlete = new Map<string, number>();
   for (const match of categoryMatches) {
     for (const convocatedId of new Set(getConvocatedAthleteIdsFromMatch(match))) {
@@ -202,6 +236,11 @@ export function calculateCategoryAthleteStats(
       presenceRate: totalTrainings
         ? Math.round((presences / totalTrainings) * 100)
         : 0,
+      rsvpRequested: eventiConRsvp.length,
+      noResponse: Math.max(
+        0,
+        eventiConRsvp.length - (rispostiPerAtleta.get(athleteId)?.size || 0),
+      ),
     };
   });
 }

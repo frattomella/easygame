@@ -11,6 +11,16 @@ export type TrainingLocationOption = {
   fieldName: string;
   name: string;
   label: string;
+  /**
+   * La sede a cui la struttura appartiene.
+   *
+   * **La gara non aveva una sede affatto** — zero occorrenze di `site` nella
+   * pagina delle gare — mentre l'allenamento la derivava dalla struttura. La
+   * struttura la sa gia: portarla qui la rende disponibile a chiunque scelga un
+   * campo, e chiude la meta piu semplice di W5-03 senza chiedere niente in piu
+   * a chi compila il form.
+   */
+  siteId: string | null;
 };
 
 const normalizeText = (value: any, fallback = "") =>
@@ -42,6 +52,7 @@ export const buildTrainingLocationOptions = (
           fieldName: fallbackFieldName,
           name: `${structureName} - ${fallbackFieldName}`,
           label: `${structureName} / ${fallbackFieldName}`,
+          siteId: normalizeText(structure?.siteId || structure?.site_id) || null,
         },
       ];
     }
@@ -61,6 +72,7 @@ export const buildTrainingLocationOptions = (
           fieldName,
           name: `${structureName} - ${fieldName}`,
           label: `${structureName} / ${fieldName}`,
+          siteId: normalizeText(structure?.siteId || structure?.site_id) || null,
         };
       })
       .filter((option: TrainingLocationOption) =>
@@ -80,6 +92,7 @@ export const getFallbackTrainingLocationOptions = (): TrainingLocationOption[] =
     fieldName: "Campo Principale",
     name: "Struttura Principale - Campo Principale",
     label: "Struttura Principale / Campo Principale",
+    siteId: null,
   },
   {
     id: "fallback-structure-secondary",
@@ -89,6 +102,7 @@ export const getFallbackTrainingLocationOptions = (): TrainingLocationOption[] =
     fieldName: "Campo Secondario",
     name: "Struttura Principale - Campo Secondario",
     label: "Struttura Principale / Campo Secondario",
+    siteId: null,
   },
 ];
 

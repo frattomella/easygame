@@ -1665,3 +1665,14 @@ cambia il modello.
 
 Si chiude quando il mobile passa a `club_event_participants` — cioe non prima
 che ADR-0025 venga rivista.
+
+## Wave 5 — 5F: la pagina gare legge ancora la proiezione
+
+`src/app/matches/page.tsx` carica le gare con `getClubData(clubId, "matches")`,
+cioe dalla **proiezione** JSON e non da `GET /api/v1/events`. Le scritture
+passano gia dal dominio (creazione, convocazioni, annullamento); la lettura no.
+
+Sta qui e non e nascosto: e uno dei 92 lettori della forma storica, ed e uno
+dei primi che 5J o la Wave 6 devono spostare, perche e la schermata su cui la
+differenza si vede — la gara letta dalla riga porta con se capienza, RSVP,
+versione e sede, che la proiezione ricostruisce ma nessuno usa.
