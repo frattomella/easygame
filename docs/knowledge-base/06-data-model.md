@@ -128,14 +128,21 @@ Non sono chiavi esterne: l'origine puo essere cancellata senza rompere nulla.
 | `Athlete` | `athletes` | `organization_id`, `user_id?` (collegamento all'account), `category_id`/`category_name` denormalizzati, `data` JSON per il resto |
 | `AthleteCategoryMembership` | `athlete_category_memberships` | Multi-categoria per atleta. Unique `(organization_id, athlete_id, category_id)`, flag `is_primary`, `site_id?` (sede in cui l'atleta svolge **quella** categoria, [ADR-0038](18-decision-log.md)) |
 | `MedicalCertificate` | `medical_certificates` | `issue_date`, `expiry_date`, `status` |
-| `TrainingAttendance` | `training_attendance` | Presenze **e** RSVP sulla stessa riga. `training_id` e `athlete_id` sono **stringhe non vincolate** (no FK), perche gli allenamenti vivono in `club_resource_items`. Chiave unica `(organization_id, training_id, athlete_id)` |
+| `ClubEvent` | `club_events` | **L'evento sportivo: una riga** ([ADR-0098](18-decision-log.md#adr-0098--levento-sportivo-e-una-riga-non-un-elemento-di-un-array)). `kind` — `training` oppure `match` — assorbe allenamenti e gare. `starts_at` e un **istante assoluto** con `timezone` accanto; `legacy_id` conserva l'identificativo della vecchia collezione JSON, unico per `(organization_id, kind, legacy_id)`. `version` per il controllo ottimistico, `capacity`, `rsvp_required`, `rsvp_deadline`, `payload` per cio che non ha ancora una colonna |
+| `ClubEventParticipant` | `club_event_participants` | **Non e una tabella nuova**: e `training_attendance` portata dall'allenamento all'evento ([ADR-0099](18-decision-log.md#adr-0099--la-partecipazione-a-un-evento-e-una-riga-sola-convocazione-risposta-e-presenza-sono-tre-colonne)). Chiave unica `(organization_id, event_id, athlete_id)`, con `event_id` **chiave esterna vera** verso `club_events`. `legacy_training_id` resta per leggibilita, e non e una chiave |
 
-**`training_attendance` porta due fatti diversi, e non si scrivono a vicenda.**
+**`club_event_participants` porta tre fatti diversi, e non si scrivono a vicenda.**
 
 | Colonne | Cos'e | Chi le scrive |
 |---------|-------|---------------|
-| `status`, `notes` | La **presenza**: un fatto verificato | L'appello dell'allenatore (`saveTrainingAttendance` in `simplified-db.ts`) |
-| `rsvp_status`, `rsvp_note`, `rsvp_at`, `rsvp_by_user_id` | L'**intenzione** dichiarata dalla famiglia | Solo `src/lib/server/rsvp.ts` |
+| `convocation_status`, `convocated_at`, `convocated_by`, `is_extra_category` | La **convocazione**: il club chiama, o esclude | `src/lib/server/events.ts`, con `events.convoke` |
+| `rsvp_status`, `rsvp_note`, `rsvp_at`, `rsvp_by_user_id` | L'**intenzione** dichiarata dalla famiglia | Solo `src/lib/server/rsvp.ts`, con il **legame** |
+| `status`, `notes` | La **presenza**: un fatto verificato | `src/lib/server/events.ts`, con `events.attendance` |
+
+La convocazione prima viveva dentro il payload della gara in **dieci grafie**
+diverse, normalizzate a ogni lettura: la migrazione le normalizza una volta
+sola. «Nessuna decisione» (`null`) non e «non convocato» (`excluded`): togliere
+un nome da una lista non e la stessa cosa che dire a un ragazzo che non gioca.
 
 `src/lib/funding/attendance-measure.ts` legge `status` per rendicontare i
 contributi pubblici: se un «si» della famiglia scrivesse `status = "present"`,
@@ -356,7 +363,7 @@ l'applicazione rispetta.
 Lo stesso vale, per la stessa ragione, su altre quattro righe che il diff emette
 e che questo elenco per un po' non ha nominato: i `DROP DEFAULT` su
 `document_number_sequences` e `payment_webhook_events`, e i `RenameIndex` su
-`communication_deliveries`, `training_attendance` e `generated_documents`. Sono
+`communication_deliveries`, `club_event_participants` e `generated_documents`. Sono
 state trovate rileggendo l'elenco contro l'uscita vera del comando: chi lo usa
 come lista di controllo deve trovarci **tutto** cio che il diff dice, altrimenti
 una riga in piu sembra una novita da applicare.

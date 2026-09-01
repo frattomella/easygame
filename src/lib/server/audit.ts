@@ -214,6 +214,26 @@ export const AUDIT_ACTIONS = {
   memberAdmitted: "member.admitted",
   memberCeased: "member.ceased",
   memberReinstated: "member.reinstated",
+  /*
+    Eventi sportivi (Wave 5, ADR-0098). Finche allenamenti e gare erano un array
+    JSON, la modifica di un evento era indistinguibile dalla riscrittura
+    dell'intera collezione: non c'era niente da tracciare che qualcuno potesse
+    poi leggere. Adesso ogni evento e una riga con un identificativo.
+
+    L'**annullamento** ha un'azione propria per la stessa ragione della
+    cessazione di un socio: e la riga che si va a cercare quando una famiglia
+    chiede perche l'allenamento del figlio non c'era, e cercarla fra tutte le
+    modifiche non la trova.
+
+    La **convocazione** e un fatto verso una persona: dice a un ragazzo che
+    domenica gioca, o che non gioca. Prima era un campo dentro il payload della
+    gara, e a un campo di dizionario non si puo dare un audit.
+  */
+  eventCreated: "event.created",
+  eventUpdated: "event.updated",
+  eventCancelled: "event.cancelled",
+  eventConvocationsSaved: "event.convocations.saved",
+  eventAttendanceRecorded: "event.attendance.recorded",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

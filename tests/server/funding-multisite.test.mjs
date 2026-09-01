@@ -67,7 +67,12 @@ const programma = () => ({
 const allenamento = (id, date, groupIds) => ({
   id: `row-${id}`,
   organization_id: CLUB,
-  resource_type: "trainings",
+  kind: "training",
+  legacy_id: id,
+  status: "scheduled",
+  starts_at: new Date(`${date}T17:00:00.000Z`),
+  ends_at: new Date(`${date}T19:00:00.000Z`),
+  group_ids: groupIds,
   payload: {
     id,
     date,
@@ -75,13 +80,13 @@ const allenamento = (id, date, groupIds) => ({
     endTime: "19:00",
     groupIds,
   },
-  date,
 });
 
 const presenza = (trainingId) => ({
   id: `att-${trainingId}`,
   organization_id: CLUB,
-  training_id: trainingId,
+  event_id: `row-${trainingId}`,
+  legacy_training_id: trainingId,
   athlete_id: MARIO,
   status: "present",
 });
@@ -120,13 +125,13 @@ const seed = ({ marioSiteId = SITE_SCAURI, trainingGroups = true } = {}) => ({
   fundingAccrual: [],
   fundingSettlement: [],
   fundingSettlementLine: [],
-  clubResourceItem: [
+  clubEvent: [
     allenamento("sc1", "2026-09-02", trainingGroups ? [GRUPPO_SCAURI] : undefined),
     allenamento("sc2", "2026-09-09", trainingGroups ? [GRUPPO_SCAURI] : undefined),
     allenamento("sa1", "2026-09-03", trainingGroups ? [GRUPPO_SANTI] : undefined),
     allenamento("sa2", "2026-09-10", trainingGroups ? [GRUPPO_SANTI] : undefined),
   ],
-  trainingAttendance: [
+  clubEventParticipant: [
     presenza("sc1"),
     presenza("sc2"),
     presenza("sa1"),

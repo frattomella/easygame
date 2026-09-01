@@ -27,6 +27,13 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
+import {
+  cancelEvent,
+  createEvent,
+  deleteEventIfEmpty,
+  restoreEvent,
+  updateEvent,
+} from "@/lib/events/client";
 import { useAuth } from "@/components/providers/AuthProvider";
 import {
   AlertDialog,
@@ -57,10 +64,7 @@ import {
   getClubWeeklySchedule,
   getClubData,
   getClubStructures,
-  addClubData,
   cleanupOrphanScheduledTrainings,
-  updateClubDataItem,
-  deleteClubDataItem,
   saveTrainingAttendance,
   getClubAthletes,
 } from "@/lib/simplified-db";
@@ -858,11 +862,11 @@ export default function TrainingPage() {
       console.log("Saving new training to database:", newTraining);
 
       // Save to database
-      const savedTraining = await addClubData(
-        activeClub.id,
-        "trainings",
-        newTraining,
-      );
+      /*
+        L'allenamento nasce come **riga** (ADR-0098): non si rilegge piu
+        l'intera collezione del club per riscriverla con un elemento in piu.
+      */
+      const savedTraining = await createEvent("training", newTraining);
       console.log("Training saved successfully:", savedTraining);
 
       // Calculate expected attendees
@@ -1574,12 +1578,7 @@ export default function TrainingPage() {
                                         }
 
                                         try {
-                                          await updateClubDataItem(
-                                            activeClub.id,
-                                            "trainings",
-                                            training.id,
-                                            { status: "annullato" },
-                                          );
+                                          await cancelEvent(training.id);
 
                                           const updatedTrainings = trainings.map((t) =>
                                             t.id === training.id
@@ -1624,12 +1623,7 @@ export default function TrainingPage() {
                                         }
 
                                         try {
-                                          await updateClubDataItem(
-                                            activeClub.id,
-                                            "trainings",
-                                            training.id,
-                                            { status: "upcoming" },
-                                          );
+                                          await restoreEvent(training.id);
 
                                           const updatedTrainings = trainings.map((t) =>
                                             t.id === training.id
@@ -2235,12 +2229,7 @@ export default function TrainingPage() {
               );
 
               // Save to database
-              await updateClubDataItem(
-                activeClub.id,
-                "trainings",
-                updatedTraining.id,
-                updateData,
-              );
+              await updateEvent(updatedTraining.id, updateData);
 
               console.log("Training updated successfully in database");
 
@@ -2332,11 +2321,12 @@ export default function TrainingPage() {
                 if (!trainingToDelete || !activeClub?.id) return;
 
                 try {
-                  await deleteClubDataItem(
-                    activeClub.id,
-                    "trainings",
-                    trainingToDelete.id,
-                  );
+                  /*
+                    Cancellare, ma solo se non ha lasciato una traccia: un
+                    allenamento con presenze o risposte si annulla, e il
+                    dominio lo rifiuta con un messaggio che lo dice.
+                  */
+                  await deleteEventIfEmpty(trainingToDelete.id);
 
                   setTrainings(
                     trainings.filter((t) => t.id !== trainingToDelete.id),

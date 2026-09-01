@@ -210,7 +210,7 @@ test("una risorsa non dichiarata e chiusa a segreteria e collaboratore", () => {
 test("le risorse dichiarate continuano a funzionare come prima", () => {
   assert.equal(canAccessClubResource("staff", "athletes", "read"), true);
   assert.equal(canAccessClubResource("staff", "athletes", "write"), true);
-  assert.equal(canAccessClubResource("collaborator", "trainings", "write"), true);
+  assert.equal(canAccessClubResource("collaborator", "club_events", "read"), true);
   assert.equal(canAccessClubResource("collaborator", "staff_members", "read"), true);
   assert.equal(canAccessClubResource("staff", "forms", "write"), true);
 });

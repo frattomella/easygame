@@ -21,6 +21,7 @@ import {
   type FundingPeriod,
 } from "@/lib/funding/funding-model";
 import { measureAttendanceByPeriod } from "@/lib/funding/attendance-measure";
+import { toEventLegacyShape } from "@/lib/events/model";
 import {
   matchConfirmationsToPeriods,
   parseConfirmationImport,
@@ -411,12 +412,20 @@ export const loadAttendanceInputs = async (
   organizationId: string,
   athleteId: string,
 ) => {
-  const [attendance, trainingItems, club, memberships] = await Promise.all([
-    (prisma as any).trainingAttendance.findMany({
+  /*
+    **La fonte della presenza e la riga, non la copia JSON** (ADR-0098).
+
+    Prima si leggevano `training_attendance` e `club_resource_items`: la prima
+    era la tabella, la seconda la copia che il salvataggio scriveva accanto. Da
+    quando l'evento e una riga, l'allenamento e la presenza vengono dalla stessa
+    fonte e non possono piu dire due cose diverse.
+  */
+  const [attendanceRows, eventRows, club, memberships] = await Promise.all([
+    (prisma as any).clubEventParticipant.findMany({
       where: { organization_id: organizationId, athlete_id: athleteId },
     }),
-    (prisma as any).clubResourceItem.findMany({
-      where: { organization_id: organizationId, resource_type: "trainings" },
+    (prisma as any).clubEvent.findMany({
+      where: { organization_id: organizationId, kind: "training" },
     }),
     (prisma as any).club.findUnique({
       where: { id: organizationId },
@@ -427,17 +436,28 @@ export const loadAttendanceInputs = async (
     }),
   ]);
 
-  const allTrainings = (Array.isArray(trainingItems) ? trainingItems : []).map(
-    (item: any) => {
-      const payload = asRecord(item.payload);
-      return {
-        ...payload,
-        // L'id logico dell'allenamento sta nel payload; la riga ne ha uno
-        // proprio, e le presenze puntano al primo.
-        id: asText(payload.id) || asText(item.id),
-        date: payload.date ?? item.date,
-      };
-    },
+  const allTrainings = (Array.isArray(eventRows) ? eventRows : []).map(
+    (row: any) => toEventLegacyShape(row),
+  );
+
+  /*
+    La misura incrocia presenza e allenamento per identificativo: si usa quello
+    **storico** finche la proiezione esiste, perche e quello che
+    `toEventLegacyShape` mette in `id`.
+  */
+  const legacyIdPerEvento = new Map(
+    (Array.isArray(eventRows) ? eventRows : []).map((row: any) => [
+      asText(row.id),
+      asText(row.legacy_id || row.id),
+    ]),
+  );
+  const attendance = (Array.isArray(attendanceRows) ? attendanceRows : []).map(
+    (row: any) => ({
+      ...row,
+      training_id:
+        legacyIdPerEvento.get(asText(row.event_id)) ||
+        asText(row.legacy_training_id || row.event_id),
+    }),
   );
 
   const siteIndex = buildSiteIndex(normalizeClubSites(club?.club_sites));

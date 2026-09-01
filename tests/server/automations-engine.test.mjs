@@ -123,7 +123,8 @@ const seed = (overrides = {}) => ({
   communicationDelivery: [],
   notification: [],
   auditLog: [],
-  trainingAttendance: [],
+  clubEvent: [],
+  clubEventParticipant: [],
   paymentLink: [],
   ...overrides,
 });
@@ -555,7 +556,7 @@ test("dopo un giro il dominio e byte per byte quello di prima", async () => {
     JSON.stringify({
       rate: fake.rows("athletePayment"),
       incassi: fake.rows("paymentTransaction"),
-      presenze: fake.rows("trainingAttendance"),
+      presenze: fake.rows("clubEventParticipant"),
       atleti: fake.rows("athlete"),
     });
 

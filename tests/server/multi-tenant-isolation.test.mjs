@@ -52,8 +52,8 @@ const seed = () => ({
     { id: CLUB_B, slug: "club-b", name: "Club B" },
   ],
   clubResourceItem: [
-    { id: MATCH_A, organization_id: CLUB_A, resource_type: "matches", payload: { id: MATCH_A, name: "Partita A" }, name: "Partita A" },
-    { id: MATCH_B, organization_id: CLUB_B, resource_type: "matches", payload: { id: MATCH_B, name: "Partita B" }, name: "Partita B" },
+    { id: MATCH_A, organization_id: CLUB_A, resource_type: "secretariat_notes", payload: { id: MATCH_A, name: "Partita A" }, name: "Partita A" },
+    { id: MATCH_B, organization_id: CLUB_B, resource_type: "secretariat_notes", payload: { id: MATCH_B, name: "Partita B" }, name: "Partita B" },
   ],
   athletePayment: [
     { id: "pay-a", organization_id: CLUB_A, athlete_id: ATHLETE_A, amount: 100, description: "Quota A" },
@@ -140,7 +140,7 @@ test("lista: anche l'alias club_id viene validato", async () => {
 
 test("lista: le risorse generiche di club sono filtrate per organizzazione", async () => {
   const risultato = await resources.listResource(
-    "matches",
+    "secretariat_notes",
     new URLSearchParams(),
     scopeA(),
   );
@@ -149,7 +149,7 @@ test("lista: le risorse generiche di club sono filtrate per organizzazione", asy
 
   const query = fake.lastCall("clubResourceItem", "findMany");
   assert.equal(query.args.where.organization_id, CLUB_A);
-  assert.equal(query.args.where.resource_type, "matches");
+  assert.equal(query.args.where.resource_type, "secretariat_notes");
 });
 
 test("lista club: mostra solo i club consentiti, mai tutti", async () => {
@@ -198,16 +198,16 @@ test("dettaglio: il record del proprio club e leggibile", async () => {
 test("dettaglio: una risorsa di club altrui risulta inesistente, non negata", async () => {
   // Il filtro per organizzazione e dentro la query: il record non viene
   // proprio letto, quindi la risposta e null e non conferma che esista.
-  const record = await resources.getResourceById("matches", MATCH_B, scopeA());
+  const record = await resources.getResourceById("secretariat_notes", MATCH_B, scopeA());
   assert.equal(record, null);
 
   const query = fake.lastCall("clubResourceItem", "findFirst");
   assert.equal(query.args.where.organization_id, CLUB_A);
-  assert.equal(query.args.where.resource_type, "matches");
+  assert.equal(query.args.where.resource_type, "secretariat_notes");
 });
 
 test("dettaglio: la risorsa di club del proprio club e leggibile", async () => {
-  const record = await resources.getResourceById("matches", MATCH_A, scopeA());
+  const record = await resources.getResourceById("secretariat_notes", MATCH_A, scopeA());
   assert.ok(record, "la partita del proprio club deve essere leggibile");
 });
 
@@ -251,7 +251,7 @@ test("creazione: senza club attivo l'operazione non procede", async () => {
 
 test("creazione: risorsa generica di club legata al club attivo", async () => {
   await resources.createResource(
-    "matches",
+    "secretariat_notes",
     { name: "Nuova partita" },
     "create",
     scopeA(),
@@ -259,7 +259,7 @@ test("creazione: risorsa generica di club legata al club attivo", async () => {
 
   const query = fake.lastCall("clubResourceItem", "create");
   assert.equal(query.args.data.organization_id, CLUB_A);
-  assert.equal(query.args.data.resource_type, "matches");
+  assert.equal(query.args.data.resource_type, "secretariat_notes");
 });
 
 /* ------------------------------- UPDATE -------------------------------- */
@@ -298,7 +298,7 @@ test("update: non si puo spostare un record in un altro club", async () => {
 
 test("update: una risorsa di club altrui non e modificabile", async () => {
   await attendeRifiuto(
-    resources.updateResource("matches", MATCH_B, { name: "Violata" }, scopeA()),
+    resources.updateResource("secretariat_notes", MATCH_B, { name: "Violata" }, scopeA()),
     "update partita di un altro club",
   );
 
@@ -327,7 +327,7 @@ test("delete: il record del proprio club e cancellabile", async () => {
 
 test("delete: una risorsa di club altrui non e cancellabile", async () => {
   await attendeRifiuto(
-    resources.deleteResource("matches", MATCH_B, scopeA()),
+    resources.deleteResource("secretariat_notes", MATCH_B, scopeA()),
     "delete partita di un altro club",
   );
   assert.ok(
@@ -337,7 +337,7 @@ test("delete: una risorsa di club altrui non e cancellabile", async () => {
 });
 
 test("delete: la risorsa di club del proprio club e cancellabile", async () => {
-  await resources.deleteResource("matches", MATCH_A, scopeA());
+  await resources.deleteResource("secretariat_notes", MATCH_A, scopeA());
   assert.ok(!fake.rows("clubResourceItem").some((r) => r.id === MATCH_A));
 });
 
@@ -345,11 +345,11 @@ test("nessun percorso cross-tenant distingue 'non esiste' da 'non tuo'", async (
   // Un id del tutto inventato e un id reale di un altro club devono produrre
   // la stessa risposta, altrimenti l'API diventa un oracolo di esistenza.
   const inventato = await resources.getResourceById(
-    "matches",
+    "secretariat_notes",
     "99999999-0000-4000-8000-000000000099",
     scopeA(),
   );
-  const altrui = await resources.getResourceById("matches", MATCH_B, scopeA());
+  const altrui = await resources.getResourceById("secretariat_notes", MATCH_B, scopeA());
   assert.equal(inventato, altrui);
   assert.equal(altrui, null);
 });
@@ -440,7 +440,7 @@ test("ogni risorsa organization-scoped filtra davvero per organizzazione", async
 test("nessuna risorsa organization-scoped accetta un club non consentito", async () => {
   const passate = [];
 
-  for (const resource of ["athletes", "payments", "matches", "trainings", "categories"]) {
+  for (const resource of ["athletes", "payments", "secretariat_notes", "trainings", "categories"]) {
     fake = createFakePrisma(seed());
     setPrismaClientForTests(fake.client);
 

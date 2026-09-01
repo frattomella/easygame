@@ -108,7 +108,7 @@ export type PeriodMeasure = {
 /**
  * Quante ore o presenze valide ha un atleta in ciascun periodo.
  *
- * `attendance` sono le righe di `training_attendance` dell'atleta;
+ * `attendance` sono le righe di `club_event_participants` dell'atleta;
  * `trainings` sono gli allenamenti del club, da cui si ricavano data e durata.
  * Gli allenamenti vengono indicizzati una volta sola: con una stagione intera
  * e dieci periodi, cercarli linearmente a ogni periodo costerebbe un ordine di
@@ -147,7 +147,16 @@ export const measureAttendanceByPeriod = ({
     const record = asRecord(raw);
     if (!isPresentAttendance(record)) continue;
 
-    const trainingId = asText(record.training_id ?? record.trainingId);
+    /*
+      Da ADR-0098 la riga della presenza cita l'evento con `event_id` e
+      conserva l'identificativo storico in `legacy_training_id`. Le tre grafie
+      convivono finche l'ultimo lettore della collezione JSON non e sparito:
+      leggerne una sola vorrebbe dire non contare le ore di chi non e ancora
+      passato — cioe dichiarare a un ente meno di quanto e stato fatto.
+    */
+    const trainingId = asText(
+      record.training_id ?? record.trainingId ?? record.legacy_training_id,
+    );
     if (!trainingId) continue;
 
     /*

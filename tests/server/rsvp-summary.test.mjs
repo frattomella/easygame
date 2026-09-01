@@ -162,11 +162,25 @@ const seed = () => ({
       site_id: "sede-santi",
     },
   ],
-  trainingAttendance: [
+  /*
+    Gli allenamenti sono righe (ADR-0098): il riepilogo RSVP si appoggia alla
+    riga dell'evento, e l'identificativo storico resta in `legacy_id`.
+  */
+  clubEvent: [T_SCAURI, T_LEGACY, T_SANTI].map((legacyId) => ({
+    id: `evento-${legacyId}`,
+    organization_id: CLUB,
+    kind: "training",
+    legacy_id: legacyId,
+    status: "scheduled",
+    starts_at: new Date("2026-09-05T17:30:00.000Z"),
+    payload: { id: legacyId },
+  })),
+  clubEventParticipant: [
     {
       id: "riga-1",
       organization_id: CLUB,
-      training_id: T_SCAURI,
+      event_id: `evento-${T_SCAURI}`,
+      legacy_training_id: T_SCAURI,
       athlete_id: A1,
       status: "pending",
       rsvp_status: "yes",

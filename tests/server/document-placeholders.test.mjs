@@ -133,18 +133,23 @@ const incasso = (id, organizationId, athleteId, paymentId, amount) => ({
   data: {},
 });
 
+/* L'allenamento e una **riga** (ADR-0098), non un elemento di un array. */
 const allenamento = (id, organizationId, date, start, end) => ({
   id: `row-${id}`,
   organization_id: organizationId,
-  resource_type: "trainings",
+  kind: "training",
+  legacy_id: id,
+  status: "scheduled",
+  starts_at: new Date(`${date}T${start}:00.000Z`),
+  ends_at: new Date(`${date}T${end}:00.000Z`),
   payload: { id, date, startTime: start, endTime: end },
-  date,
 });
 
 const presenza = (trainingId, organizationId, athleteId = ATLETA_A) => ({
   id: `att-${trainingId}`,
   organization_id: organizationId,
-  training_id: trainingId,
+  event_id: `row-${trainingId}`,
+  legacy_training_id: trainingId,
   athlete_id: athleteId,
   status: "present",
 });
@@ -156,11 +161,12 @@ const seed = () => ({
   paymentTransaction: [
     incasso("inc-1", CLUB_A, ATLETA_A, "rata-1", 80),
   ],
-  clubResourceItem: [
+  clubResourceItem: [],
+  clubEvent: [
     allenamento("t1", CLUB_A, "2025-10-01", "18:00", "19:30"),
     allenamento("t2", CLUB_A, "2025-10-08", "18:00", "19:30"),
   ],
-  trainingAttendance: [presenza("t1", CLUB_A), presenza("t2", CLUB_A)],
+  clubEventParticipant: [presenza("t1", CLUB_A), presenza("t2", CLUB_A)],
   athleteCategoryMembership: [],
   attachment: [],
   attachmentBlob: [],

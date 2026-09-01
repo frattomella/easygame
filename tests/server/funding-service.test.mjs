@@ -68,18 +68,23 @@ const programma = (id, organizationId, overrides = {}) => ({
   ...overrides,
 });
 
+/* L'allenamento e una **riga** (ADR-0098). */
 const allenamento = (id, organizationId, date, start, end) => ({
   id: `row-${id}`,
   organization_id: organizationId,
-  resource_type: "trainings",
+  kind: "training",
+  legacy_id: id,
+  status: "scheduled",
+  starts_at: new Date(`${date}T${start}:00.000Z`),
+  ends_at: new Date(`${date}T${end}:00.000Z`),
   payload: { id, date, startTime: start, endTime: end },
-  date,
 });
 
 const presenza = (trainingId, organizationId, athleteId = ATLETA_A) => ({
-  id: `att-${trainingId}`,
+  id: `att-${trainingId}-${athleteId}`,
   organization_id: organizationId,
-  training_id: trainingId,
+  event_id: `row-${trainingId}`,
+  legacy_training_id: trainingId,
   athlete_id: athleteId,
   status: "present",
 });
@@ -91,7 +96,7 @@ const seed = () => ({
   fundingAccrual: [],
   fundingSettlement: [],
   fundingSettlementLine: [],
-  clubResourceItem: [
+  clubEvent: [
     allenamento("s1", CLUB_A, "2025-09-02", "17:00", "19:00"),
     allenamento("s2", CLUB_A, "2025-09-09", "17:00", "19:00"),
     allenamento("s3", CLUB_A, "2025-09-16", "17:00", "19:00"),
@@ -99,7 +104,7 @@ const seed = () => ({
     allenamento("o1", CLUB_A, "2025-10-07", "17:00", "19:00"),
     allenamento("o2", CLUB_A, "2025-10-14", "17:00", "19:00"),
   ],
-  trainingAttendance: [
+  clubEventParticipant: [
     presenza("s1", CLUB_A),
     presenza("s2", CLUB_A),
     presenza("s3", CLUB_A),
@@ -282,12 +287,12 @@ test("correggere un appello cambia il maturato al ricalcolo successivo", async (
   assert.equal(accrualsOf(enrollment.id)[1].accrued_amount, 0);
 
   // La segreteria registra due allenamenti di ottobre dimenticati.
-  fake.rows("clubResourceItem").push(
+  fake.rows("clubEvent").push(
     allenamento("o3", CLUB_A, "2025-10-21", "17:00", "19:00"),
     allenamento("o4", CLUB_A, "2025-10-28", "17:00", "19:00"),
   );
   fake
-    .rows("trainingAttendance")
+    .rows("clubEventParticipant")
     .push(presenza("o3", CLUB_A), presenza("o4", CLUB_A));
 
   await service.recomputeEnrollmentAccruals(enrollment.id, scopeA(), {
@@ -301,7 +306,7 @@ test("correggere un appello cambia il maturato al ricalcolo successivo", async (
 
 test("le presenze di un altro atleta non fanno maturare questo", async () => {
   fake
-    .rows("trainingAttendance")
+    .rows("clubEventParticipant")
     .push(presenza("o1", CLUB_A, "altro-atleta"), presenza("o2", CLUB_A, "altro-atleta"));
 
   const enrollment = await iscrivi();
@@ -311,7 +316,7 @@ test("le presenze di un altro atleta non fanno maturare questo", async () => {
 
   assert.equal(accrualsOf(enrollment.id)[0].measured_value, 8);
   assert.equal(
-    fake.lastCall("trainingAttendance", "findMany").args.where.athlete_id,
+    fake.lastCall("clubEventParticipant", "findMany").args.where.athlete_id,
     ATLETA_A,
   );
 });
@@ -356,7 +361,7 @@ test("un periodo rendicontato torna «maturato» se il ricalcolo ne cambia l'imp
   await service.markAccrualsReported([righe[0].id], scopeA());
 
   // Un appello di settembre viene corretto: l'atleta non c'era.
-  fake.rows("trainingAttendance").splice(0, 1);
+  fake.rows("clubEventParticipant").splice(0, 1);
 
   await service.recomputeEnrollmentAccruals(enrollment.id, scopeA(), {
     until: "2025-11-30",
@@ -544,7 +549,7 @@ test("il ricalcolo non tocca un periodo gia liquidato, ma ne conta il plafond", 
   );
 
   // Settembre viene svuotato: senza la protezione il maturato tornerebbe a 0.
-  fake.rows("trainingAttendance").splice(0, 4);
+  fake.rows("clubEventParticipant").splice(0, 4);
 
   const risultato = await service.recomputeEnrollmentAccruals(
     enrollment.id,

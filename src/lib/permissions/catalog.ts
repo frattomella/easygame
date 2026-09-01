@@ -87,6 +87,56 @@ const GESTIONE: readonly CanonicalAccessRole[] = [
  * `clinical.*` nascono qui come chiavi, ed erano predicati senza nome.
  */
 const ENTRIES: readonly PermissionEntry[] = [
+  /* ------------------------------------------------------- eventi -------- */
+  /*
+    Per l'allenatore queste chiavi sono concesse **ristrette al perimetro** —
+    i propri gruppi operativi — e il perimetro lo applica `events.ts` riga per
+    riga, non questa tabella. Qui si dice se il ruolo puo fare quella cosa;
+    dove la possa fare e una domanda diversa, e mescolarle produrrebbe una
+    matrice che nessuno riesce piu a leggere.
+
+    Genitore e atleta **non compaiono**: il loro accesso a un evento nasce dal
+    legame con l'atleta convocato, e il legame non e un ruolo.
+  */
+  {
+    key: "events.read",
+    domain: "events",
+    label: "Vedere allenamenti, gare e il calendario del club",
+    roles: [...GESTIONE, "trainer"],
+    byLink: true,
+  },
+  {
+    key: "events.manage",
+    domain: "events",
+    label: "Creare, modificare e annullare un evento",
+    roles: [...GESTIONE, "trainer"],
+  },
+  {
+    key: "events.convoke",
+    domain: "events",
+    label: "Convocare gli atleti a un evento",
+    roles: [...GESTIONE, "trainer"],
+  },
+  {
+    key: "events.attendance",
+    domain: "events",
+    label: "Registrare l'appello di un evento",
+    roles: [...GESTIONE, "trainer"],
+  },
+  {
+    key: "rsvp.read",
+    domain: "events",
+    label: "Vedere le risposte delle famiglie a un evento",
+    roles: [...GESTIONE, "trainer"],
+  },
+  {
+    key: "rsvp.answer",
+    domain: "events",
+    label: "Rispondere alla convocazione di un evento",
+    roles: GESTIONE,
+    byLink: true,
+  },
+
   /* ------------------------------------------------ documenti e modelli --- */
   {
     key: "documents.templates.manage",

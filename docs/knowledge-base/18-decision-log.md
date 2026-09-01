@@ -5167,3 +5167,139 @@ casi:
 rotte lo risolvevano e lo passavano; questo modulo non poteva leggerlo nemmeno
 volendo. Un campo assente da un tipo strutturale non e un errore per il
 compilatore: e un campo che non esiste.
+
+---
+
+## ADR-0098 — L'evento sportivo e una **riga**, non un elemento di un array
+
+**Data:** 2026-09-01 · **Contesto:** Wave 5, lane 5C
+
+**Il fatto.** In `prisma/schema.prisma` non esisteva `Training`, non esisteva
+`Match`, non esisteva `Event`. Allenamenti e gare erano due collezioni JSON
+indipendenti — `clubs.trainings` e `clubs.matches` — con payload di forma
+diversa, due semantiche di stato, due pagine e due percorsi di lettura.
+
+Sette gap distinti, che sembravano indipendenti, poggiavano su quel solo
+mattone mancante:
+
+1. **calendario unico**: non c'era niente da unire, perche non c'era un'entita
+   comune da elencare;
+2. **RSVP sulle gare**: il dominio RSVP era cablato su `trainings`, e una gara
+   non aveva dove ospitare una risposta;
+3. **convocazione come fatto**: era un campo dentro il payload della gara,
+   letto con **dieci grafie alternative**. A una chiave di dizionario non si
+   puo dare un permesso, un audit o una notifica;
+4. **presenze sulle gare**: non esistevano, perche `TrainingAttendance` aveva
+   `training_id` e nessuno ci metteva l'identificativo di una gara;
+5. **comunicazioni per evento**: «scrivi ai convocati» non era esprimibile,
+   perche nessun criterio del risolutore del pubblico poteva nominare un
+   evento;
+6. **capienza**: non c'era la riga su cui metterla;
+7. **sede sulla gara**: zero occorrenze in tutta la pagina delle gare.
+
+E tre difetti misurabili discendevano dalla **riscrittura per intero**:
+
+- ogni operazione era «leggi l'array, modificalo, riscrivilo». Due richieste
+  concorrenti: l'ultima vince, l'altra sparisce senza un errore;
+- le presenze si scrivevano **tre volte** — la tabella,
+  `clubs.trainings[].attendance` e `club_resource_items.payload.attendance` — e
+  le due schermate dell'allenatore rileggevano la copia JSON mentre la
+  rendicontazione dei contributi pubblici leggeva la tabella. Due verita sullo
+  stesso appello;
+- l'aggregato si rigenerava e cancellava (D-1).
+
+**La decisione.** L'evento diventa una riga: `club_events`, con `kind` che
+assorbe allenamenti e gare e lascia la porta aperta a un terzo tipo senza una
+terza tabella. `src/lib/server/events.ts` e l'**unico scrittore**;
+`src/lib/events/` e il dominio puro.
+
+**Cosa NON diventa una riga**, e perche. Restano JSON categorie, gruppi
+operativi, sedi, strutture, programma settimanale e orari di apertura: sono
+*configurazione* del club, a bassa frequenza di scrittura e con un dominio gia
+funzionante. Diventa una riga cio che e un *fatto* con partecipanti, permessi,
+notifiche e audit.
+
+Il precedente e esplicito e recente: ADR-0039 ha fatto uscire i moduli da
+`clubs.document_templates`, ADR-0088 i modelli di documento dalla stessa
+colonna. Nessuno dei due ha svuotato `clubs`.
+
+**Le due colonne restano, come proiezione.** Novantadue punti del codice le
+leggono ancora nella forma storica. Diventano una **copia in sola lettura con un
+solo scrittore** — `events.ts` — e `resources.ts` rifiuta chiunque altro provi a
+scriverle, anche passando da `PATCH /api/v1/clubs`.
+
+Non e la doppia scrittura di prima, e la differenza non e sottile: prima
+c'erano **due scrittori indipendenti** e l'ultimo vinceva in silenzio; adesso
+c'e una fonte e una copia che qualcuno mantiene. La copia sparisce a scaglioni,
+man mano che i lettori passano agli eventi — non in un commit solo, perche un
+diff di migliaia di righe e un diff in cui nessun errore e visibile.
+
+**I quattro presidi che una colonna JSON non poteva avere:**
+
+1. `version`, controllo ottimistico: la seconda scrittura concorrente
+   **fallisce** invece di vincere;
+2. una chiave esterna vera da `club_event_participants.event_id`: una presenza
+   non puo piu citare un allenamento che qualcuno ha fatto sparire riscrivendo
+   l'array;
+3. il controllo di **sovrapposizione sul campo**, che sta nel dominio e non nel
+   database perche «stesso campo» dipende da una configurazione che i club
+   scrivono in modi diversi;
+4. la **capienza**: il numero e il conteggio, non la coda. Una lista d'attesa ha
+   regole di priorita che nessuno ha ancora dichiarato, e inventarle qui
+   vorrebbe dire deciderle di nascosto.
+
+**L'evento che non si cancella.** Un evento con presenze, convocazioni o
+risposte delle famiglie **si annulla**, non si distrugge: e la stessa regola con
+cui la Wave 4 ha difeso le rate con storia economica. La distinzione non e fra
+i ruoli, e fra cio che ha lasciato una traccia e cio che non ne ha lasciata.
+
+**L'evento senza una data leggibile.** La migrazione conserva il payload e mette
+`starts_at` al 1970-01-01; una scrittura nuova invece **fallisce**. E
+deliberato: un dato rotto gia in archivio va reso visibile, non buttato via ne
+indovinato — ma un evento nuovo senza un istante non e un evento.
+
+---
+
+## ADR-0099 — La partecipazione a un evento e **una riga sola**: convocazione, risposta e presenza sono tre colonne
+
+**Data:** 2026-09-01 · **Contesto:** Wave 5, lane 5C
+
+**Contesto.** ADR-0086 aveva gia deciso la cosa giusta per gli allenamenti: la
+risposta della famiglia e la presenza registrata dall'allenatore stanno sulla
+**stessa riga** e non si scrivono mai a vicenda. Una promessa non diventa mai
+una presenza, e la rendicontazione dei contributi pubblici legge solo la
+seconda.
+
+Mancavano due cose. La prima: quella riga valeva solo per gli **allenamenti**,
+perche la chiave era `training_id`. La seconda: la **convocazione** non era su
+quella riga affatto — era un campo dentro il payload della gara, in dieci
+grafie diverse, normalizzate a ogni lettura.
+
+**La decisione.** `training_attendance` **non genera una seconda tabella**: e la
+stessa, portata dall'allenamento all'evento. Diventa
+`club_event_participants`, la chiave passa da `training_id` a `event_id`, e la
+convocazione entra come terza colonna del fatto:
+
+| Colonna | Chi la scrive | Cosa dice |
+|---|---|---|
+| `convocation_status` | `events.ts`, con `events.convoke` | il club chiama, o esclude |
+| `rsvp_status` | `rsvp.ts`, con il **legame** alla famiglia | la famiglia dice se viene |
+| `status` | `events.ts`, con `events.attendance` | l'allenatore dice chi c'era |
+
+**Tre scrittori, nessuna scrittura incrociata.** L'appello non tocca la
+convocazione; la convocazione non tocca la presenza; la risposta non tocca
+nessuna delle due. E la regola che tiene insieme una riga su cui insistono tre
+domande diverse, e i test la provano una per una.
+
+**Le dieci grafie si normalizzano una volta sola, nella migrazione**, e da li in
+avanti la convocazione e una colonna. Nessun runtime le interpreta piu.
+
+**«Nessuna decisione» non e «non convocato».** Chi esce dall'elenco delle
+convocazioni torna a `null`, non a `excluded`: togliere un nome da una lista non
+e la stessa cosa che dire a un ragazzo che non gioca, e uno stato che non sa
+distinguere le due cose non serve a chi deve poi spiegarlo a una famiglia.
+
+**Perche si classifica `NEW` e non `EXTEND`.** Cambia la chiave, e una chiave
+che cambia e un modello nuovo. Ma il codice che la usa — e i tre test che la
+coprono — sopravvive quasi intatto, ed e la prova che la decisione di ADR-0086
+era gia quella giusta: mancava solo il soggetto a cui applicarla.

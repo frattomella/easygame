@@ -27,6 +27,8 @@ const resourceNames = [
   "notifications",
   "simplified_notifications",
   "training_attendance",
+  "club_events",
+  "club_event_participants",
   "assets",
   "access_tokens",
   "appointments",
@@ -44,7 +46,6 @@ const resourceNames = [
   "jersey_assignments",
   "jersey_groups",
   "kit_assignments",
-  "matches",
   "members",
   "opening_hours",
   "payment_plans",
@@ -54,7 +55,6 @@ const resourceNames = [
   "sponsors",
   "staff_members",
   "trainers",
-  "trainings",
   "transactions",
   "transfers",
   "weekly_schedule",
@@ -90,6 +90,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     path: "/api/v1/clubs/:id/signature",
     description:
       "Firma del presidente e timbro della societa. Senza `?kind=` restituisce i metadati di entrambi; con `?kind=signature|stamp` i byte dell'immagine. Legge chi appartiene al club, scrive solo proprietario e gestore",
+    mobile_ready: false,
+  },
+  {
+    name: "events.list",
+    method: "GET|POST",
+    path: "/api/v1/events",
+    description:
+      "Il calendario del club: allenamenti e gare sulla stessa rotta, con il tipo come parametro. In POST crea un evento, o un blocco di eventi con {events: [...]}. Sostituisce /api/v1/trainings e /api/v1/matches, che scrivevano due colonne JSON del club",
+    mobile_ready: false,
+  },
+  {
+    name: "events.item",
+    method: "GET|PATCH|DELETE",
+    path: "/api/v1/events/:id",
+    description:
+      "Un evento. Il PATCH porta la versione su cui si sta lavorando: due salvataggi concorrenti non si sovrascrivono, il secondo riceve 409. Il DELETE vale solo per un evento senza presenze, convocazioni o risposte: gli altri si annullano",
+    mobile_ready: false,
+  },
+  {
+    name: "events.participants",
+    method: "GET|POST",
+    path: "/api/v1/events/:id/participants",
+    description:
+      "Convocazione (action: convoke) e appello (action: attendance) di un evento. La risposta della famiglia non passa di qui: ha la sua rotta e il suo gate, che e il legame e non il ruolo",
     mobile_ready: false,
   },
   {

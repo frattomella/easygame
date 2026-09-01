@@ -241,6 +241,8 @@ const MANAGEMENT_OPEN_RESOURCES = new Set([
   "clothing_inventory",
   "clothing_kits",
   "clothing_products",
+  "club_event_participants",
+  "club_events",
   "club_resource_items",
   "club_sites",
   "dashboards",
@@ -253,7 +255,6 @@ const MANAGEMENT_OPEN_RESOURCES = new Set([
   "jersey_assignments",
   "jersey_groups",
   "kit_assignments",
-  "matches",
   "medical_certificates",
   "members",
   "notifications",
@@ -273,7 +274,6 @@ const MANAGEMENT_OPEN_RESOURCES = new Set([
   "trainer_payments",
   "trainers",
   "training_attendance",
-  "trainings",
   "transactions",
   "transfers",
   "weekly_schedule",
@@ -301,8 +301,9 @@ const TRAINER_READ_RESOURCES = new Set([
   "athlete_category_memberships",
   "athletes",
   "categories",
+  "club_event_participants",
+  "club_events",
   "club_resource_items",
-  "matches",
   "medical_certificates",
   "notifications",
   "secretariat_notes",
@@ -312,15 +313,17 @@ const TRAINER_READ_RESOURCES = new Set([
   "staff_members",
   "trainers",
   "training_attendance",
-  "trainings",
 ]);
 
 const TRAINER_WRITE_RESOURCES = new Set([
-  "matches",
+  /*
+    `club_events` non compare: un evento si scrive dal suo dominio
+    (`src/lib/server/events.ts`), che applica la macchina a stati, il perimetro
+    e il controllo ottimistico. Il registro generico lo serve in **lettura**.
+  */
   "notifications",
   "simplified_notifications",
   "training_attendance",
-  "trainings",
 ]);
 
 const matchesPathPrefix = (pathname: string, prefix: string) =>

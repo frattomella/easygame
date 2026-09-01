@@ -77,7 +77,6 @@ const CLUB_RESOURCE_TYPES = [
   "jersey_assignments",
   "jersey_groups",
   "kit_assignments",
-  "matches",
   "members",
   "opening_hours",
   "payment_plans",
@@ -87,20 +86,42 @@ const CLUB_RESOURCE_TYPES = [
   "sponsors",
   "staff_members",
   "trainers",
-  "trainings",
   "transactions",
   "transfers",
   "weekly_schedule",
 ];
 
+/**
+ * I campi JSON del club, **compresi i due che sono diventati una proiezione**.
+ *
+ * `trainings` e `matches` sono usciti da `CLUB_RESOURCE_TYPES` — non hanno piu
+ * una rotta generica, e nessuno li scrive dal registro (ADR-0098) — ma restano
+ * campi del club: novantadue punti del codice li leggono ancora, e la
+ * proiezione di `src/lib/server/events.ts` li tiene allineati alle righe.
+ * Toglierli anche da qui li renderebbe illeggibili con `?fields=`, che e una
+ * cosa diversa dal renderli non scrivibili.
+ */
 const CLUB_JSON_FIELDS = Array.from(
   new Set([
     ...CLUB_RESOURCE_TYPES.filter((resource) => resource !== "access_tokens"),
     "structures",
     "members",
     "dashboard_data",
+    "trainings",
+    "matches",
   ]),
 );
+
+/**
+ * **Le due proiezioni non si scrivono da fuori.**
+ *
+ * Sono la copia in forma storica delle righe di `club_events`, e hanno un solo
+ * scrittore: `src/lib/server/events.ts`. Un `PATCH /api/v1/clubs` che portasse
+ * l'array intero — la strada da cui una sonda di concorrenza ha gia fatto
+ * sparire un socio — riscriverebbe la copia lasciando le righe dov'erano, e
+ * alla prima proiezione successiva la modifica sparirebbe senza un errore.
+ */
+const CLUB_PROJECTED_FIELDS = new Set(["trainings", "matches"]);
 
 const MODEL_RESOURCES: Record<string, ResourceConfig> = {
   users: {
@@ -217,11 +238,32 @@ const MODEL_RESOURCES: Record<string, ResourceConfig> = {
     description: "Alias compatibilita notifiche",
     mobile_ready: true,
   },
+  /*
+    **Il nome storico resta, il delegato cambia** (ADR-0099).
+
+    La tabella `training_attendance` e diventata `club_event_participants`: non
+    e una seconda tabella, e la stessa portata dall'allenamento all'evento. Il
+    nome della risorsa resta perche il mobile e le due schermate che la
+    interrogano non devono cambiare contratto nello stesso commit in cui cambia
+    il modello — e la regola di CLAUDE.md §6 sul cambio di contratto API.
+  */
   training_attendance: {
     kind: "model",
-    delegate: "trainingAttendance",
-    description: "Presenze allenamenti",
+    delegate: "clubEventParticipant",
+    description: "Partecipazione a un evento: convocazione, risposta, presenza",
     mobile_ready: true,
+  },
+  club_event_participants: {
+    kind: "model",
+    delegate: "clubEventParticipant",
+    description: "Partecipazione a un evento: convocazione, risposta, presenza",
+    mobile_ready: false,
+  },
+  club_events: {
+    kind: "model",
+    delegate: "clubEvent",
+    description: "Eventi sportivi: allenamenti e gare",
+    mobile_ready: false,
   },
   assets: {
     kind: "model",
@@ -321,6 +363,18 @@ const RESOURCE_BOUNDARIES: Record<string, "club" | "persona" | "chiuso"> = {
   notifications: "club",
   simplified_notifications: "club",
   training_attendance: "club",
+  club_event_participants: "club",
+
+  /**
+   * **Gli eventi non si scrivono dal registro generico** (ADR-0098).
+   *
+   * Un evento ha una macchina a stati, un controllo ottimistico, un controllo
+   * di sovrapposizione sul campo e una capienza: quattro cose che il CRUD
+   * generico non sa e non deve sapere. Il registro serve la **lettura** — la
+   * pagina calendario e le liste passano di qui — e ogni scrittura passa da
+   * `src/lib/server/events.ts`, che e l'unica strada.
+   */
+  club_events: "club",
 
   /**
    * **L'utente vede se stesso, e nessun altro.**
@@ -676,6 +730,14 @@ const MODEL_DATE_FIELDS: Record<string, string[]> = {
   trainer_payments: ["date", "created_at", "updated_at"],
   notifications: ["created_at", "updated_at"],
   training_attendance: ["created_at", "updated_at"],
+  club_event_participants: ["created_at", "updated_at", "convocated_at", "rsvp_at"],
+  club_events: [
+    "starts_at",
+    "ends_at",
+    "rsvp_deadline",
+    "created_at",
+    "updated_at",
+  ],
   clubs: ["created_at", "updated_at"],
   organizations: ["created_at", "updated_at"],
   dashboards: ["created_at", "updated_at"],
@@ -851,6 +913,24 @@ const withCompatibilityAliases = (
 
   if ((resource === "clubs" || resource === "organizations") && next.id) {
     next.organization_id = next.id;
+  }
+
+  /*
+    **Il nome storico della chiave, per chi non e ancora passato all'evento.**
+
+    `training_attendance.training_id` e diventato
+    `club_event_participants.event_id`, e l'identificativo storico vive in
+    `legacy_training_id`. Le schermate che incrociano le presenze con la
+    collezione JSON confrontano ancora quello: l'alias glielo restituisce
+    finche la proiezione esiste.
+  */
+  if (
+    resource === "training_attendance" ||
+    resource === "club_event_participants"
+  ) {
+    if (!next.training_id) {
+      next.training_id = next.legacy_training_id ?? next.event_id ?? null;
+    }
   }
 
   if (
@@ -1209,6 +1289,40 @@ const normalizeModelInput = async (
     next = normalizeAthletePaymentInput(next);
   }
 
+  /*
+    **Il contratto del mobile non cambia nello stesso commit in cui cambia il
+    modello** (CLAUDE.md §6).
+
+    `training_attendance` accettava `training_id`, una stringa. Adesso la
+    chiave e `event_id`, una chiave esterna vera. Chi manda ancora la vecchia
+    forma la vede tradotta qui, una volta sola: e la stessa cosa che fa
+    `findClubEvent`, e non c'e una seconda strada che la interpreti.
+  */
+  if (
+    (resource === "training_attendance" ||
+      resource === "club_event_participants") &&
+    !next.event_id
+  ) {
+    const legacyId = String(next.training_id || next.trainingId || "").trim();
+    const organizationId = String(next.organization_id || "").trim();
+    delete next.training_id;
+    delete next.trainingId;
+
+    if (legacyId && organizationId) {
+      const evento = await prisma.clubEvent.findFirst({
+        where: { organization_id: organizationId, legacy_id: legacyId },
+        select: { id: true, legacy_id: true },
+      });
+      if (!evento) {
+        throw new Error(
+          `Evento non trovato: la presenza cita «${legacyId}», che non esiste in questo club`,
+        );
+      }
+      next.event_id = evento.id;
+      next.legacy_training_id = evento.legacy_id;
+    }
+  }
+
   next = normalizeDates(resource, next);
   next.settings = parseJsonIfString(next.settings);
   if (next.settings_patch !== undefined) {
@@ -1219,6 +1333,14 @@ const normalizeModelInput = async (
   next.config = parseJsonIfString(next.config);
 
   if (resource === "clubs" || resource === "organizations") {
+    for (const campo of CLUB_PROJECTED_FIELDS) {
+      if (next[campo] !== undefined) {
+        throw new Error(
+          `Accesso negato: ${campo} e una proiezione degli eventi e si scrive da /api/v1/events, non dal club`,
+        );
+      }
+    }
+
     for (const field of CLUB_JSON_FIELDS) {
       next[field] = parseJsonIfString(next[field]);
     }
@@ -2670,6 +2792,31 @@ const assertNotDomainOwnedResourceItem = (
   );
 };
 
+/**
+ * **I modelli che hanno un proprietario di dominio.**
+ *
+ * Il registro generico li **legge** — la pagina calendario e le liste passano
+ * di qui, ed e giusto — e non li scrive: un evento ha una macchina a stati, un
+ * controllo ottimistico, un controllo di sovrapposizione sul campo e una
+ * capienza, e nessuna di quelle quattro cose puo vivere in un CRUD che serve
+ * cinquanta risorse.
+ *
+ * E la stessa distinzione fra i **verbi** gia fatta per le rate: leggere non e
+ * scrivere, e scrivere non e distruggere.
+ */
+const DOMAIN_OWNED_MODEL_RESOURCES = new Set([
+  "club_events",
+  "club_event_participants",
+]);
+
+const assertNotDomainOwnedModel = (resource: string) => {
+  if (!DOMAIN_OWNED_MODEL_RESOURCES.has(resource)) return;
+
+  throw new Error(
+    `Accesso negato: ${resource} si scrive dal suo dominio (src/lib/server/events.ts), non dal registro generico`,
+  );
+};
+
 const isDomainOwnedResourceItemType = (value: unknown) =>
   (DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
     String(value || "").trim(),
@@ -2679,6 +2826,23 @@ export const buildWhereFromSearchParams = (
   resource: string,
   searchParams: URLSearchParams,
 ) => {
+  /*
+    Chi filtra ancora per `training_id` cerca l'identificativo **storico**
+    dell'evento, che vive in `legacy_training_id`. La traduzione sta qui, una
+    volta sola, e non in ognuna delle schermate che non e ancora passata
+    all'evento.
+  */
+  if (
+    (resource === "training_attendance" ||
+      resource === "club_event_participants") &&
+    searchParams.has("training_id")
+  ) {
+    const tradotti = new URLSearchParams(searchParams);
+    const valore = tradotti.get("training_id") || "";
+    tradotti.delete("training_id");
+    tradotti.set("legacy_training_id", valore);
+    searchParams = tradotti;
+  }
   const where: Record<string, any> = {};
   const passthrough = [
     "id",
@@ -4101,6 +4265,7 @@ export const createResource = async (
   const config = RESOURCE_CONFIG[resource];
 
   assertResourceIsOpen(resource);
+  assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
 
   if (config.kind === "club_resource") {
@@ -4829,6 +4994,7 @@ export const updateResource = async (
   const config = RESOURCE_CONFIG[resource];
 
   assertResourceIsOpen(resource);
+  assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
 
   if (config.kind === "club_resource") {
@@ -5229,6 +5395,7 @@ export const deleteResource = async (
   scope?: ResourceAccessScope,
 ) => {
   assertResourceIsOpen(resource);
+  assertNotDomainOwnedModel(resource);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 

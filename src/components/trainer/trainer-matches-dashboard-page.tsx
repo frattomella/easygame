@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
 import { ResponsiveMatchesCalendar } from "@/components/trainer/ResponsiveMatchesCalendar";
-import { updateTrainerClubItem } from "@/lib/trainer-club-items";
+import { saveEventConvocations } from "@/lib/events/client";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   CompactEntityCard,
@@ -379,11 +379,23 @@ export default function TrainerMatchesDashboardPage() {
           onSave={async ({ convocatedAthletes, convocationEntries }) => {
             if (!activeClub?.id) return;
             try {
-              await updateTrainerClubItem("matches", selectedMatch.id, {
-                convocatedAthletes,
-                convocationEntries,
-                convocationsStatus: "completed",
-              });
+              /*
+                La convocazione e un **fatto**, non un campo dentro il payload
+                della gara (ADR-0099). Le voci portano gia il fuori quota: era
+                l'unica informazione che la vecchia forma sapeva dire, ed e
+                quella che il rendiconto deve distinguere.
+              */
+              await saveEventConvocations(
+                selectedMatch.id,
+                (convocationEntries?.length
+                  ? convocationEntries
+                  : (convocatedAthletes || []).map((id: any) => ({ athleteId: id }))
+                ).map((entry: any) => ({
+                  athleteId: String(entry?.athleteId || entry?.id || entry),
+                  status: "convocated",
+                  isExtraCategory: Boolean(entry?.isExtraCategory),
+                })),
+              );
               await reload();
               showToast("success", "Convocazioni salvate correttamente");
               setSelectedMatch(null);

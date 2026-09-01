@@ -71,11 +71,23 @@ const seed = () => ({
     { id: PROPRIETARIO_A, email: "anna@example.com" },
     { id: GENITORE, email: "genitore@example.com" },
   ],
-  trainingAttendance: [
+  clubEvent: [
+    {
+      id: "evento-b",
+      organization_id: CLUB_B,
+      kind: "training",
+      legacy_id: "training-b",
+      status: "scheduled",
+      starts_at: new Date("2026-09-05T17:30:00.000Z"),
+      payload: { id: "training-b" },
+    },
+  ],
+  clubEventParticipant: [
     {
       id: "ta1",
       organization_id: CLUB_B,
-      training_id: "training-b",
+      event_id: "evento-b",
+      legacy_training_id: "training-b",
       athlete_id: "b1",
       status: "pending",
       rsvp_status: "no",

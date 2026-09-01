@@ -36,6 +36,22 @@ let misura;
 let setPrismaClientForTests;
 let fake;
 
+/**
+ * Le righe di `club_events` corrispondenti agli allenamenti del fixture
+ * (ADR-0098): l'RSVP si appoggia adesso alla riga, e l'identificativo storico
+ * resta in `legacy_id` finche la proiezione esiste.
+ */
+const eventi = (organizationId) =>
+  trainings().map((training) => ({
+    id: `evento-${organizationId.slice(0, 4)}-${training.id}`,
+    organization_id: organizationId,
+    kind: "training",
+    legacy_id: training.id,
+    status: "scheduled",
+    starts_at: new Date(`${training.date}T${training.time}:00.000Z`),
+    payload: training,
+  }));
+
 const trainings = () => [
   {
     id: T_APERTO,
@@ -172,7 +188,8 @@ const seed = () => ({
     },
   ],
   athleteCategoryMembership: [],
-  trainingAttendance: [],
+  clubEvent: [...eventi(CLUB), ...eventi(ALTRO_CLUB)],
+  clubEventParticipant: [],
   auditLog: [],
 });
 
@@ -201,7 +218,7 @@ const rispondi = (overrides = {}) =>
     ...overrides,
   });
 
-const righe = () => fake.rows("trainingAttendance");
+const righe = () => fake.rows("clubEventParticipant");
 
 test("un si crea una riga con la sola intenzione", async () => {
   const esito = await rispondi({ note: "arriva alle 17:45" });
@@ -246,11 +263,11 @@ test("la risposta duplicata resta una riga sola", async () => {
   assert.equal(righe().length, 1);
   assert.equal(righe()[0].rsvp_status, "yes");
 
-  const upsert = fake.lastCall("trainingAttendance", "upsert");
+  const upsert = fake.lastCall("clubEventParticipant", "upsert");
   assert.ok(upsert, "la scrittura deve passare da un upsert sulla chiave unica");
   assert.deepEqual(
     Object.keys(upsert.args.where),
-    ["organization_id_training_id_athlete_id"],
+    ["organization_id_event_id_athlete_id"],
   );
 });
 
@@ -325,10 +342,11 @@ test("un club dichiarato che non e quello dell'atleta viene rifiutato", async ()
  * cambiare**, e la misura dei bandi deve continuare a contarla.
  */
 test("rispondere non tocca la presenza gia registrata", async () => {
-  fake.rows("trainingAttendance").push({
+  fake.rows("clubEventParticipant").push({
     id: "riga-appello",
     organization_id: CLUB,
-    training_id: T_APERTO,
+    event_id: `evento-${CLUB.slice(0, 4)}-${T_APERTO}`,
+    legacy_training_id: T_APERTO,
     athlete_id: ATLETA,
     status: "present",
     notes: "appello dell'allenatore",

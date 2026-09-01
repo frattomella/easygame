@@ -69,15 +69,19 @@ const programma = (id, overrides = {}) => ({
 const allenamento = (id, date, start, end) => ({
   id: `row-${id}`,
   organization_id: CLUB,
-  resource_type: "trainings",
+  kind: "training",
+  legacy_id: id,
+  status: "scheduled",
+  starts_at: new Date(`${date}T${start}:00.000Z`),
+  ends_at: new Date(`${date}T${end}:00.000Z`),
   payload: { id, date, startTime: start, endTime: end },
-  date,
 });
 
 const presenza = (trainingId) => ({
   id: `att-${trainingId}`,
   organization_id: CLUB,
-  training_id: trainingId,
+  event_id: `row-${trainingId}`,
+  legacy_training_id: trainingId,
   athlete_id: ATLETA,
   status: "present",
 });
@@ -92,13 +96,13 @@ const seed = () => ({
   fundingAccrual: [],
   fundingSettlement: [],
   fundingSettlementLine: [],
-  clubResourceItem: [
+  clubEvent: [
     allenamento("s1", "2026-09-02", "17:00", "19:00"),
     allenamento("s2", "2026-09-09", "17:00", "19:00"),
     allenamento("s3", "2026-09-16", "17:00", "19:00"),
     allenamento("s4", "2026-09-23", "17:00", "19:00"),
   ],
-  trainingAttendance: [
+  clubEventParticipant: [
     presenza("s1"),
     presenza("s2"),
     presenza("s3"),

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
-import { updateTrainerClubItem } from "@/lib/trainer-club-items";
+import { saveEventConvocations } from "@/lib/events/client";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   SectionBlockedState,
@@ -232,10 +232,22 @@ export default function TrainerMatchesPage() {
           onSave={async ({ convocatedAthletes }) => {
             if (!activeClub?.id) return;
             try {
-              await updateTrainerClubItem("matches", selectedMatch.id, {
-                convocatedAthletes,
-                convocationsStatus: "completed",
-              });
+              /*
+                La convocazione e un **fatto**, non un campo dentro il payload
+                della gara (ADR-0099): ha un permesso, una traccia e una riga
+                per atleta, accanto alla risposta della famiglia e alla
+                presenza.
+              */
+              await saveEventConvocations(
+                selectedMatch.id,
+                (convocatedAthletes || []).map((athleteId: any) => ({
+                  athleteId: String(
+                    athleteId?.athleteId || athleteId?.id || athleteId,
+                  ),
+                  status: "convocated",
+                  isExtraCategory: Boolean(athleteId?.isExtraCategory),
+                })),
+              );
               await reload();
               showToast("success", "Convocazioni salvate correttamente");
               setSelectedMatch(null);

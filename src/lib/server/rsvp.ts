@@ -9,6 +9,7 @@ import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
 } from "@/lib/category-utils";
+import { findClubEvent } from "./events";
 import {
   athleteMatchesGroup,
   buildCategoryGroups,
@@ -415,11 +416,21 @@ export const answerRsvp = async ({
     presenza gia registrata dall'allenatore sopravvive alla risposta; `create`
     lo mette al valore neutro perche la colonna e obbligatoria.
   */
-  await prisma.trainingAttendance.upsert({
+  /*
+    **La risposta si appoggia alla riga dell'evento**, non piu a una stringa.
+
+    `event_id` e una chiave esterna vera: una risposta non puo piu citare un
+    allenamento che nel frattempo qualcuno ha fatto sparire riscrivendo l'array
+    (ADR-0098).
+  */
+  const evento = await findClubEvent(resolvedOrganizationId, wantedTrainingId);
+  if (!evento) throw new Error("Allenamento non trovato");
+
+  await prisma.clubEventParticipant.upsert({
     where: {
-      organization_id_training_id_athlete_id: {
+      organization_id_event_id_athlete_id: {
         organization_id: resolvedOrganizationId,
-        training_id: wantedTrainingId,
+        event_id: evento.id,
         athlete_id: wantedAthleteId,
       },
     },
@@ -431,7 +442,8 @@ export const answerRsvp = async ({
     },
     create: {
       organization_id: resolvedOrganizationId,
-      training_id: wantedTrainingId,
+      event_id: evento.id,
+      legacy_training_id: evento.legacy_id,
       athlete_id: wantedAthleteId,
       status: RSVP_NEUTRAL_ATTENDANCE_STATUS,
       notes: null,
@@ -448,7 +460,7 @@ export const answerRsvp = async ({
     actorEmail: actorEmail || null,
     actorRole: actingRole,
     organizationId: resolvedOrganizationId,
-    resource: "training_attendance",
+    resource: "club_event_participants",
     resourceId: `${wantedTrainingId}:${wantedAthleteId}`,
     metadata: {
       trainingId: wantedTrainingId,
@@ -636,17 +648,20 @@ export const readEventRsvpSummary = async ({
     assertTrainerCanSeeEvent(context, scope, actorEmail);
   }
 
+  const evento = await findClubEvent(wanted, wantedTrainingId);
   const [athletes, rows] = await Promise.all([
     loadClubAthletes(wanted),
-    prisma.trainingAttendance.findMany({
-      where: { organization_id: wanted, training_id: wantedTrainingId },
-      select: {
-        athlete_id: true,
-        rsvp_status: true,
-        rsvp_note: true,
-        rsvp_at: true,
-      },
-    }),
+    evento
+      ? prisma.clubEventParticipant.findMany({
+          where: { organization_id: wanted, event_id: evento.id },
+          select: {
+            athlete_id: true,
+            rsvp_status: true,
+            rsvp_note: true,
+            rsvp_at: true,
+          },
+        })
+      : Promise.resolve([]),
   ]);
 
   const expected = resolveExpectedAthletes(context, athletes);
@@ -775,16 +790,48 @@ const buildInvitations = ({
     .sort((left, right) => asText(left.startsAt).localeCompare(asText(right.startsAt)));
 };
 
-const loadAthleteRsvpRows = (organizationId: string, athleteId: string) =>
-  prisma.trainingAttendance.findMany({
+const loadAthleteRsvpRows = async (
+  organizationId: string,
+  athleteId: string,
+) => {
+  const rows = await prisma.clubEventParticipant.findMany({
     where: { organization_id: organizationId, athlete_id: athleteId },
     select: {
-      training_id: true,
+      event_id: true,
+      legacy_training_id: true,
       rsvp_status: true,
       rsvp_note: true,
       rsvp_at: true,
     },
   });
+
+  const eventi = rows.length
+    ? await prisma.clubEvent.findMany({
+        where: {
+          organization_id: organizationId,
+          id: { in: Array.from(new Set(rows.map((row) => row.event_id))) },
+        },
+        select: { id: true, legacy_id: true },
+      })
+    : [];
+  const legacyIdPerEvento = new Map(
+    eventi.map((evento) => [evento.id, String(evento.legacy_id || evento.id)]),
+  );
+
+  /*
+    Le schermate confrontano ancora l'identificativo storico dell'evento: la
+    proiezione lo scrive nella colonna JSON, e qui lo si rimette nella forma
+    che quelle attendono. Sparisce con l'ultimo lettore della colonna.
+  */
+  return rows.map((row) => ({
+    training_id:
+      legacyIdPerEvento.get(row.event_id) ||
+      String(row.legacy_training_id || row.event_id),
+    rsvp_status: row.rsvp_status,
+    rsvp_note: row.rsvp_note,
+    rsvp_at: row.rsvp_at,
+  }));
+};
 
 /**
  * Gli inviti RSVP di un atleta, per l'**area genitore**.

@@ -1631,3 +1631,37 @@ resta.
 | **W4-R27** | **Un evento di billing senza istante scavalca del tutto la guardia di ordinamento.** `applySubscriptionSnapshot` non confronta piu quando `eventAt` manca — che e meglio di prima, quando scriveva l'ora di elaborazione e avvelenava la chiave — ma una fotografia vecchia e senza timestamp puo ancora sovrascrivere uno stato piu recente | L'istante manca solo se l'evento del provider non porta `created`, cosa che Stripe non fa; la difesa vera sarebbe rifiutare l'evento, ma rifiutare un evento di abbonamento significa non applicarlo mai. Va deciso insieme al rigioco delle righe `failed` |
 | **W4-R28** | **La composizione del `where` contabile e coperta solo da una sonda con database.** `ledgerWhere` non e esportata e non ha nessun test puro sulla forma dell'oggetto che restituisce: la collisione fra due chiavi `OR` — che ha fatto sparire il filtro della sede per un commit — e presidiata oggi dalla UAT economica, che ha bisogno di Postgres. Un'asserzione pura sulla forma coglierebbe la stessa classe di difetto in millisecondi e senza ambiente | Esportare una funzione solo per collaudarla e un compromesso che questo repository ha finora evitato, e la sonda economica **e** nel gate. Vale la pena farlo quando quel modulo verra toccato di nuovo, non subito prima di un rilascio |
 | **W4-R29** | **La pulizia della UAT economica puo fallire chiusa e lasciare residui nel database di sviluppo.** `pulisci` cancella il club di prova, e ricade nell'ordine dei trigger descritto in W4-R26 quando lo scenario dei bandi ha lasciato righe di liquidazione: la sonda dichiara comunque i suoi controlli passati, perche i controlli sono passati davvero | Riguarda solo il database di sviluppo, e si risolve con la stessa procedura di smontaggio ordinata di W4-R26 — sono la stessa correzione vista da due parti |
+
+---
+
+## Wave 5 — 5C: la proiezione delle due colonne JSON
+
+`clubs.trainings` e `clubs.matches` restano, come **proiezione in sola lettura**
+delle righe di `club_events`, con un solo scrittore (`src/lib/server/events.ts`)
+e un rifiuto esplicito per chiunque altro provi a scriverle — anche da
+`PATCH /api/v1/clubs` (ADR-0098).
+
+Non e un compromesso nascosto: e dichiarato, ha un proprietario, ed e la
+condizione per non fare un diff di migliaia di righe in cui nessun errore
+sarebbe visibile. **Novantadue** punti del codice leggono ancora la forma
+storica.
+
+**Cosa serve per chiuderlo.** I lettori passano a `GET /api/v1/events` a
+scaglioni. Quando l'ultimo e passato, la proiezione sparisce e le due colonne si
+cancellano con una migrazione. La misura del debito e quel numero: si riporta a
+ogni lane che ne sposta una parte.
+
+**Cosa non va fatto.** Nessun altro modulo deve scrivere quelle colonne, e
+nessuno deve leggerle come **fonte** quando la riga e disponibile: la copia e
+per chi non e ancora passato, non un'alternativa.
+
+## Wave 5 — 5C: `training_attendance` come nome di risorsa
+
+La tabella e diventata `club_event_participants`, ma il nome della risorsa nel
+registro generico resta `training_attendance`, con la traduzione
+`training_id` → `legacy_training_id` in lettura e in filtro. La ragione e
+CLAUDE.md §6: il contratto API del mobile non cambia nello stesso commit in cui
+cambia il modello.
+
+Si chiude quando il mobile passa a `club_event_participants` — cioe non prima
+che ADR-0025 venga rivista.

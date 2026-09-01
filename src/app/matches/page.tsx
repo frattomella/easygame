@@ -51,6 +51,7 @@ import {
   Table2,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
+import { createEvent } from "@/lib/events/client";
 import { AddMatchForm } from "@/components/forms/AddMatchForm";
 import { MultipleAddMatchForm } from "@/components/forms/MultipleAddMatchForm";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
@@ -61,7 +62,6 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { useAuth } from "@/components/providers/AuthProvider";
 import {
   getClubData,
-  addClubData,
   updateClubData,
   getClubAthletes,
   getClubCategories,
@@ -585,11 +585,8 @@ export default function MatchesPage() {
             convocationEntries: [],
           };
 
-          const savedMatch = await addClubData(
-            activeClub.id,
-            "matches",
-            newMatchData,
-          );
+          /* La gara nasce come **riga**, come l'allenamento (ADR-0098). */
+          const savedMatch = await createEvent("match", newMatchData);
 
           return {
             ...savedMatch,

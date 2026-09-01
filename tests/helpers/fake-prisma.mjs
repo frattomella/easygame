@@ -379,14 +379,17 @@ const UNIQUE_CONSTRAINTS = {
         proprio con due esecuzioni concorrenti che un controllo applicativo non
         regge, quindi un doppio che non lo facesse rispettare mostrerebbe due
         messaggi come se fosse normale;
-      * `training_attendance_event_athlete_unique` — una riga per (club,
-        evento, atleta). Due righe significano due risposte contraddittorie
-        della stessa famiglia allo stesso invito.
+      * `club_event_participants_organization_id_event_id_athlete_id_key` —
+        una riga per (club, evento, atleta). Due righe significano due risposte
+        contraddittorie della stessa famiglia allo stesso invito, e da ADR-0099
+        anche due convocazioni e due presenze: e la chiave che tiene insieme i
+        tre fatti.
   */
   communicationDelivery: [
     ["organization_id", "dedup_key", "recipient_key", "channel"],
   ],
-  trainingAttendance: [["organization_id", "training_id", "athlete_id"]],
+  clubEventParticipant: [["organization_id", "event_id", "athlete_id"]],
+  clubEvent: [["organization_id", "kind", "legacy_id"]],
   paymentLink: [["token_hash"]],
   /*
     Wave 3. I tre vincoli su cui poggia il motore documentale:

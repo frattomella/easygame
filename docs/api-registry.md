@@ -498,8 +498,32 @@ Configurazione di club: solo `owner` e `club_manager`
 - `trainer_payments`
 - `notifications`
 - `simplified_notifications`
-- `training_attendance`
+- `training_attendance` — alias storico di `club_event_participants`
+- `club_events` — sola lettura: si scrive da /api/v1/events
+- `club_event_participants` — sola lettura: si scrive da /api/v1/events/:id/participants
 - ~~`assets`~~ — chiusa al registro generico: quattro rotte proprie
+
+## Eventi sportivi
+
+Allenamenti e gare non hanno piu due rotte separate su due colonne JSON: hanno
+una rotta sola su una tabella sola, e il tipo e un parametro (ADR-0098).
+
+- `GET /api/v1/events` — il calendario, filtrabile per `kind`, `from`, `to`,
+  `season_id`, `site_id`, `category_id`, `group_id`, `status`
+- `POST /api/v1/events` — crea un evento, o un blocco con `{events: [...]}`
+- `GET /api/v1/events/:id` — un evento e i suoi partecipanti
+- `PATCH /api/v1/events/:id` — modifica con **controllo ottimistico**: il corpo
+  porta `version`, e due salvataggi concorrenti non si sovrascrivono. Il secondo
+  riceve **409**
+- `DELETE /api/v1/events/:id` — solo per un evento **senza storia**: con
+  presenze, convocazioni o risposte si annulla con un `PATCH`
+- `GET|POST /api/v1/events/:id/participants` — convocazione
+  (`action: "convoke"`) e appello (`action: "attendance"`). La risposta della
+  famiglia non passa di qui
+
+Le rotte `/api/v1/trainings` e `/api/v1/matches` **non esistono piu**:
+`trainings` e `matches` sono usciti da `CLUB_RESOURCE_TYPES`. Le due colonne
+del club restano come **proiezione in sola lettura**, con un solo scrittore.
 
 ## Area allenatore
 
@@ -531,7 +555,6 @@ Configurazione di club: solo `owner` e `club_manager`
 - `jersey_assignments`
 - `jersey_groups`
 - `kit_assignments`
-- `matches`
 - `members`
 - `opening_hours`
 - `payment_plans`
@@ -541,7 +564,6 @@ Configurazione di club: solo `owner` e `club_manager`
 - `sponsors`
 - `staff_members`
 - `trainers`
-- `trainings`
 - `transactions`
 - `transfers`
 - `weekly_schedule`

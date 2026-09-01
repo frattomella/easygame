@@ -749,7 +749,13 @@ export const getParentDashboardData = async (
       where: { organization_id: organizationId, athlete_id: selectedAthlete.id },
       orderBy: { expiry_date: "asc" },
     }),
-    prisma.trainingAttendance.findMany({
+    /*
+      La partecipazione a un evento e una riga sola (ADR-0099): la presenza sta
+      accanto alla convocazione e alla risposta della famiglia, e la si legge da
+      `club_event_participants`. L'identificativo storico dell'evento serve
+      ancora a incrociare le collezioni JSON, e la relazione lo porta.
+    */
+    prisma.clubEventParticipant.findMany({
       where: { organization_id: organizationId, athlete_id: selectedAthlete.id },
       orderBy: { updated_at: "desc" },
     }),
@@ -770,8 +776,32 @@ export const getParentDashboardData = async (
   });
   const rawTrainings = asArray(club.trainings);
   const rawMatches = asArray(club.matches);
+  /*
+    L'identificativo **storico** dell'evento e quello con cui le collezioni JSON
+    incrociano le presenze. Si legge dalle righe degli eventi con una query in
+    piu, invece che con una relazione: una relazione qui vorrebbe dire che ogni
+    lettore delle presenze debba conoscere il modello dell'evento.
+  */
+  const eventiDellaPresenza = attendance.length
+    ? await prisma.clubEvent.findMany({
+        where: {
+          organization_id: organizationId,
+          id: { in: Array.from(new Set(attendance.map((item) => item.event_id))) },
+        },
+        select: { id: true, legacy_id: true },
+      })
+    : [];
+  const legacyIdPerEvento = new Map(
+    eventiDellaPresenza.map((evento) => [
+      evento.id,
+      String(evento.legacy_id || evento.id),
+    ]),
+  );
   const attendanceByTrainingId = new Map(
-    attendance.map((item) => [String(item.training_id || ""), item]),
+    attendance.map((item) => [
+      legacyIdPerEvento.get(item.event_id) || String(item.event_id),
+      item,
+    ]),
   );
   const attendanceTrainingIds = new Set(attendanceByTrainingId.keys());
 
@@ -1028,7 +1058,9 @@ export const getParentDashboardData = async (
         ? Math.round((presentCount / attendanceTotal) * 100)
         : 0,
       lastAttendance: attendance.slice(0, 5).map((item) => ({
-        training_id: item.training_id,
+        training_id:
+          legacyIdPerEvento.get(item.event_id) || String(item.event_id),
+        event_id: item.event_id,
         status: item.status,
         notes: item.notes,
         updated_at: toIso(item.updated_at),

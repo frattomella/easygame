@@ -48,6 +48,12 @@ import {
 } from "./payments/payment-status-utils";
 import { calculatePlatformFee } from "./payments/platform-fees";
 import {
+  createEventsBatch as createEventsBatchRemote,
+  deleteEventIfEmpty as deleteEventRemote,
+  listEvents as listEventsRemote,
+  saveEventAttendance as saveEventAttendanceRemote,
+} from "./events/client";
+import {
   getAvailableRegistrationPaymentMethods,
   normalizePaymentSettings,
 } from "./payments/payment-config-utils";
@@ -3375,6 +3381,20 @@ export async function getAthletesByCategories(
 /**
  * Salva le presenze di un allenamento
  */
+/**
+ * L'appello di un allenamento.
+ *
+ * **Una sola scrittura, in un solo posto** (ADR-0098). Prima questa funzione
+ * scriveva lo stesso fatto in tre posti — la tabella `training_attendance`,
+ * `clubs.trainings[].attendance` e `club_resource_items.payload.attendance` — e
+ * le due schermate dell'allenatore rileggevano la **copia JSON**, mentre la
+ * rendicontazione dei contributi pubblici leggeva la **tabella**. Erano due
+ * verita sullo stesso appello, e guardandone una non c'era modo di accorgersene.
+ *
+ * Adesso la scrittura e una sola, verso il dominio degli eventi, che aggiorna
+ * la proiezione. La firma resta identica: le tre schermate che la chiamano non
+ * devono cambiare nello stesso commit in cui cambia il modello.
+ */
 export async function saveTrainingAttendance(
   clubId: string,
   trainingId: string,
@@ -3388,226 +3408,64 @@ export async function saveTrainingAttendance(
   }[],
 ) {
   try {
-    const nowIso = new Date().toISOString();
-    const normalizedAttendance = attendanceData.map((entry) => ({
-      ...entry,
-      status: entry.present ? "present" : "absent",
-      notes: entry.notes || "",
-    }));
-
-    for (const entry of normalizedAttendance) {
-      const { data: existingRows, error: existingError } = await supabase
-        .from("training_attendance")
-        .select("id")
-        .eq("organization_id", clubId)
-        .eq("training_id", trainingId)
-        .eq("athlete_id", entry.athleteId)
-        .order("created_at", { ascending: true });
-
-      if (existingError) {
-        throw existingError;
-      }
-
-      const rowPayload = {
-        organization_id: clubId,
-        training_id: trainingId,
-        athlete_id: entry.athleteId,
-        status: entry.status,
+    await saveEventAttendanceRemote(
+      trainingId,
+      attendanceData.map((entry) => ({
+        athleteId: entry.athleteId,
+        status: entry.present ? "present" : "absent",
         notes: entry.notes || null,
-        updated_at: nowIso,
-      };
+      })),
+    );
 
-      if (Array.isArray(existingRows) && existingRows.length > 0) {
-        const [primaryRow] = existingRows;
-        const { error: updateAttendanceError } = await supabase
-          .from("training_attendance")
-          .update(rowPayload)
-          .eq("id", primaryRow.id);
-
-        if (updateAttendanceError) {
-          throw updateAttendanceError;
-        }
-
-        /*
-          **Le righe duplicate non si cancellano piu.**
-
-          Erano la compensazione a un difetto che adesso non esiste: dalla Wave
-          2 la chiave unica `(organization_id, training_id, athlete_id)` le
-          impedisce a monte. Continuare a cancellarle sarebbe un `DELETE` su
-          righe che oggi portano anche la **risposta della famiglia**, e la
-          prossima persona che tocca questo blocco non avrebbe modo di sapere
-          perche c'era.
-        */
-      } else {
-        const { error: insertAttendanceError } = await supabase
-          .from("training_attendance")
-          .insert(rowPayload);
-
-        /*
-          **Una chiave duplicata qui non e un errore dell'appello.**
-
-          Fra la lettura qui sopra e questo inserimento puo essersi infilata
-          un'altra scrittura sulla stessa terna: un secondo clic su «Salva
-          presenze», un altro allenatore, una richiesta ritentata dalla rete, o
-          la risposta RSVP di una famiglia che fa `upsert` sulla stessa riga.
-          Prima della chiave unica quella corsa produceva un doppione silenzioso;
-          adesso produrrebbe un `23505` che, risalendo, farebbe fallire **tutto
-          l'appello** invece della singola riga — si perderebbe il lavoro
-          dell'allenatore per una riga che nel frattempo qualcun altro ha gia
-          scritto.
-
-          Si riprova quindi come aggiornamento: e la stessa cosa che il ramo
-          sopra avrebbe fatto se la riga fosse esistita un istante prima.
-        */
-        if (insertAttendanceError) {
-          const codice = String((insertAttendanceError as any)?.code || "");
-          const messaggio = String((insertAttendanceError as any)?.message || "");
-          const duplicata =
-            codice === "23505" ||
-            codice === "P2002" ||
-            /duplicate key|unique constraint/i.test(messaggio);
-
-          if (!duplicata) {
-            throw insertAttendanceError;
-          }
-
-          const { error: retryError } = await supabase
-            .from("training_attendance")
-            .update(rowPayload)
-            .eq("organization_id", clubId)
-            .eq("training_id", trainingId)
-            .eq("athlete_id", entry.athleteId);
-
-          if (retryError) {
-            throw retryError;
-          }
-        }
-      }
-    }
-
-    // Get current club data
-    const { data: clubData, error: fetchError } = await supabase
-      .from("clubs")
-      .select("trainings")
-      .eq("id", clubId)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    const currentTrainings = clubData?.trainings || [];
-    const updatedTrainings = currentTrainings.map((training: any) => {
-      if (training.id === trainingId) {
-        return {
-          ...training,
-          attendance: normalizedAttendance,
-          attendees: normalizedAttendance.filter((entry) => entry.present)
-            .length,
-          updated_at: nowIso,
-        };
-      }
-      return training;
-    });
-
-    // Update the club data
-    const { error: updateError } = await supabase
-      .from("clubs")
-      .update({
-        trainings: updatedTrainings,
-      })
-      .eq("id", clubId);
-
-    if (updateError) throw updateError;
-
-    const { data: resourceItems, error: resourceFetchError } = await supabase
-      .from("club_resource_items")
-      .select("id, payload")
-      .eq("organization_id", clubId)
-      .eq("resource_type", "trainings");
-
-    if (!resourceFetchError && Array.isArray(resourceItems)) {
-      const resourceItem = resourceItems.find((item: any) => {
-        const payload = item?.payload;
-        return (
-          item?.id === trainingId ||
-          (payload && typeof payload === "object" && payload.id === trainingId)
-        );
-      });
-
-      if (resourceItem?.id) {
-        const payload =
-          resourceItem.payload && typeof resourceItem.payload === "object"
-            ? resourceItem.payload
-            : {};
-        const nextPayload = {
-          ...payload,
-          attendance: normalizedAttendance,
-          attendees: normalizedAttendance.filter((entry) => entry.present)
-            .length,
-          updated_at: nowIso,
-        };
-
-        const { error: resourceUpdateError } = await supabase
-          .from("club_resource_items")
-          .update({
-            payload: nextPayload,
-            updated_at: nowIso,
-          })
-          .eq("id", resourceItem.id);
-
-        if (resourceUpdateError) {
-          throw resourceUpdateError;
-        }
-      }
-    } else if (resourceFetchError) {
-      console.warn(
-        "Unable to sync training attendance resource item:",
-        resourceFetchError.message || resourceFetchError,
-      );
-    }
-
-    return updatedTrainings;
+    return await getClubData(clubId, "trainings");
   } catch (error) {
     console.error("Error saving training attendance:", error);
     throw error;
   }
 }
 
+/**
+ * Ripulisce gli allenamenti **generati** e non ancora avvenuti.
+ *
+ * Prima riscriveva l'intera colonna `clubs.trainings` togliendo gli elementi:
+ * un allenamento su cui qualcuno aveva gia fatto l'appello spariva insieme
+ * agli altri, e la presenza restava a citare un allenamento che non esisteva
+ * piu. Adesso ogni evento e una riga, e il dominio **rifiuta** di cancellarne
+ * uno che ha una storia: quelli si annullano, non si distruggono (ADR-0098).
+ */
 export async function clearUpcomingGeneratedTrainings(
   clubId: string,
   referenceDate = new Date(),
 ) {
   try {
-    const { data: clubData, error: fetchError } = await supabase
-      .from("clubs")
-      .select("trainings")
-      .eq("id", clubId)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    const currentTrainings = Array.isArray(clubData?.trainings)
-      ? clubData.trainings
-      : [];
-
-    const removedTrainings = currentTrainings.filter((training: any) =>
+    const eventi = await listEventsRemote({ kind: "training" });
+    const daRimuovere = eventi.filter((training: any) =>
       isUpcomingGeneratedTraining(training, referenceDate),
     );
-    const updatedTrainings = currentTrainings.filter(
-      (training: any) => !isUpcomingGeneratedTraining(training, referenceDate),
-    );
 
-    const { error: updateError } = await supabase
-      .from("clubs")
-      .update({
-        trainings: updatedTrainings,
-      })
-      .eq("id", clubId);
+    const removedTrainings: any[] = [];
+    const conservati: any[] = [];
 
-    if (updateError) throw updateError;
+    for (const training of daRimuovere) {
+      try {
+        await deleteEventRemote(String(training.eventId || training.id));
+        removedTrainings.push(training);
+      } catch {
+        /*
+          Un allenamento con presenze, convocazioni o risposte non si cancella.
+          Non e un errore della rigenerazione: e il dato di qualcuno che
+          continua a esistere, e chi rigenera deve saperlo.
+        */
+        conservati.push(training);
+      }
+    }
+
+    const updatedTrainings = await getClubData(clubId, "trainings");
 
     return {
       removedTrainings,
       updatedTrainings,
+      conservati,
     };
   } catch (error) {
     console.error("Error clearing upcoming generated trainings:", error);
@@ -3616,7 +3474,7 @@ export async function clearUpcomingGeneratedTrainings(
 }
 
 /**
- * Genera allenamenti automaticamente dal programma settimanale
+ * Genera gli allenamenti dal programma settimanale.
  */
 export async function generateTrainingsFromWeeklySchedule(
   clubId: string,
@@ -3658,7 +3516,9 @@ export async function generateTrainingsFromWeeklySchedule(
       structures,
       athletes,
     ] = await Promise.all([
-      supabase.from("clubs").select("trainings").eq("id", clubId).single(),
+      listEventsRemote({ kind: "training" }).then((trainings) => ({
+        data: { trainings },
+      })),
       getClubData(clubId, "categories"),
       getClubTrainers(clubId),
       getClubStructures(clubId),
@@ -3806,22 +3666,20 @@ export async function generateTrainingsFromWeeklySchedule(
       ...generatedTrainings,
     ]);
 
-    if (
-      generatedTrainings.length > 0 ||
-      updatedTrainings.length !== existingTrainings.length
-    ) {
-      // Add generated trainings to existing ones and persist the deduplicated list.
-      // Update the club data
-      const { error: updateError } = await supabase
-        .from("clubs")
-        .update({
-          trainings: updatedTrainings,
-        })
-        .eq("id", clubId);
+    /*
+      **Si scrivono solo gli allenamenti nuovi** (chiude STAG-02).
 
-      if (updateError) throw updateError;
+      Prima si riscriveva l'intera colonna con la lista deduplicata: un
+      allenamento modificato da qualcun altro fra la lettura e la scrittura
+      tornava indietro alla versione letta, e nessuno se ne accorgeva. Adesso
+      si creano le righe nuove, e la deduplicazione la fa la chiave unica del
+      database invece di una `Set` costruita nel browser.
+    */
+    if (generatedTrainings.length > 0) {
+      await createEventsBatchRemote("training", generatedTrainings);
     }
 
+    void updatedTrainings;
     return generatedTrainings;
   } catch (error) {
     console.error("Error generating trainings from weekly schedule:", error);

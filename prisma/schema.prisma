@@ -1,11 +1,11 @@
 generator client {
-  provider = "prisma-client-js"
-  /*
-    `views` serve alla sola `accounting_ledger_lines`: e una **vista**, non una
-    tabella, e Prisma deve saperlo per non provare a crearla o a cancellarla in
-    una migrazione. La definizione vive nel file SQL della migrazione, che e
-    l'unico posto dove puo stare per intero.
-  */
+  provider        = "prisma-client-js"
+  /**
+   * `views` serve alla sola `accounting_ledger_lines`: e una **vista**, non una
+   * tabella, e Prisma deve saperlo per non provare a crearla o a cancellarla in
+   * una migrazione. La definizione vive nel file SQL della migrazione, che e
+   * l'unico posto dove puo stare per intero.
+   */
   previewFeatures = ["views"]
 }
 
@@ -236,7 +236,12 @@ model Club {
   trainer_payments             TrainerPayment[]
   notifications                Notification[]
   resource_items               ClubResourceItem[]
-  training_attendance          TrainingAttendance[]
+  event_participants           ClubEventParticipant[]
+  club_events                  ClubEvent[]
+  document_requests            DocumentRequest[]
+  document_submissions         DocumentSubmission[]
+  appointment_rows             Appointment[]
+  appointment_slots            AppointmentSlot[]
   athlete_category_memberships AthleteCategoryMembership[]
   attachments                  Attachment[]
   funding_programs             FundingProgram[]
@@ -334,6 +339,7 @@ model Athlete {
   receipts             Receipt[]
   medical_certificates MedicalCertificate[]
   category_memberships AthleteCategoryMembership[]
+  appointments         Appointment[]
 
   @@index([organization_id])
   @@index([user_id])
@@ -386,31 +392,31 @@ model PaymentMethod {
 /// riscrive a ogni incasso registrato o stornato. La fonte di verita e la
 /// somma dei movimenti. Vedi ADR-0036.
 model AthletePayment {
-  id              String               @id @default(uuid()) @db.Uuid
-  organization_id String               @db.Uuid
-  athlete_id      String?              @db.Uuid
-  description     String
-  amount          Float
-  due_date        DateTime?
-  paid_at         DateTime?
-  status          String               @default("pending")
-  method          String?
-  reference       String?
-  notes           String?
+  id                 String               @id @default(uuid()) @db.Uuid
+  organization_id    String               @db.Uuid
+  athlete_id         String?              @db.Uuid
+  description        String
+  amount             Float
+  due_date           DateTime?
+  paid_at            DateTime?
+  status             String               @default("pending")
+  method             String?
+  reference          String?
+  notes              String?
   /// La controparte quando il debitore non e un atleta: un socio per la quota
   /// associativa, uno sponsor per una tranche di contratto. Vedi
   /// `PaymentTransaction.counterparty_kind`.
   counterparty_kind  String?
   counterparty_id    String?
   counterparty_label String?
-  data            Json?
-  created_at      DateTime             @default(now())
-  updated_at      DateTime             @updatedAt
-  organization    Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete         Athlete?             @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  invoices        Invoice[]
-  receipts        Receipt[]
-  transactions    PaymentTransaction[]
+  data               Json?
+  created_at         DateTime             @default(now())
+  updated_at         DateTime             @updatedAt
+  organization       Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete            Athlete?             @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  invoices           Invoice[]
+  receipts           Receipt[]
+  transactions       PaymentTransaction[]
 
   @@index([organization_id])
   @@index([athlete_id])
@@ -533,65 +539,64 @@ model PaymentTransaction {
 /// applicazione li legge; `snapshot` e la fotografia completa e autorevole.
 /// Vedi ADR-0052.
 model Invoice {
-  id                  String                @id @default(uuid()) @db.Uuid
-  organization_id     String                @db.Uuid
-  athlete_id          String?               @db.Uuid
+  id                   String                @id @default(uuid()) @db.Uuid
+  organization_id      String                @db.Uuid
+  athlete_id           String?               @db.Uuid
   /// Una rata saldata in due incassi ha due fatture: il collegamento resta, e
   /// l unicita che pretendeva una fattura per rata no. Vedi la migrazione
   /// 20260830190000_wave4_documento_annullato_riemettibile.
-  payment_id          String?               @db.Uuid
+  payment_id           String?               @db.Uuid
   /// L'incasso documentato. Prima viveva dentro `data.transactionId`.
-  transaction_id      String?               @db.Uuid
-  invoice_number      String
+  transaction_id       String?               @db.Uuid
+  invoice_number       String
   /// Il codice della serie. Vuoto = serie predefinita.
-  series              String                @default("")
+  series               String                @default("")
   /// Il progressivo dentro la serie e l'anno. Ridondante con il numero, e apposta.
-  sequence            Int?
-  document_year       Int?
+  sequence             Int?
+  document_year        Int?
   /// Vedi `FiscalOperationType.code`.
-  operation_type_code String?
+  operation_type_code  String?
   /// La fotografia dei dati fiscalmente rilevanti al momento dell'emissione.
-  snapshot            Json?
-  cancelled_at        DateTime?
-  cancelled_by        String?               @db.Uuid
-  cancellation_reason String?
+  snapshot             Json?
+  cancelled_at         DateTime?
+  cancelled_by         String?               @db.Uuid
+  cancellation_reason  String?
   /// Il documento che questo rettifica o annulla.
-  cancels_document_id String?               @db.Uuid
-  issued_by           String?               @db.Uuid
-  issue_date          DateTime
-  amount              Float
+  cancels_document_id  String?               @db.Uuid
+  issued_by            String?               @db.Uuid
+  issue_date           DateTime
+  amount               Float
   /**
    * **Imponibile e imposta, in centesimi.** Non esistevano: c'era un solo
    * `amount`, e nessuno poteva dire quanta parte fosse IVA.
-   *
    * Sono un **dato**, non un motore (§16 del piano). EasyGame li conserva e li
    * espone; non li usa per liquidazioni, saldi periodici o detraibilita, che
    * sono regole di classe C e non entrano in questa Wave.
    */
   taxable_amount_cents Int?
   vat_amount_cents     Int?
-  description         String
-  payment_method      String?
-  status              String                @default("issued")
-  is_electronic       Boolean               @default(false)
-  recipient_code      String?
-  vat_number          String?
-  fiscal_code         String?
-  address             String?
-  city                String?
-  postal_code         String?
-  province            String?
-  country             String?
-  notes               String?
-  data                Json?
-  created_at          DateTime              @default(now())
-  updated_at          DateTime              @updatedAt
-  organization        Club                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete             Athlete?              @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  payment             AthletePayment?       @relation(fields: [payment_id], references: [id], onDelete: SetNull)
-  transaction         PaymentTransaction?   @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
-  receipts            Receipt[]
-  einvoice            EInvoiceTransmission?
+  description          String
+  payment_method       String?
+  status               String                @default("issued")
+  is_electronic        Boolean               @default(false)
+  recipient_code       String?
+  vat_number           String?
+  fiscal_code          String?
+  address              String?
+  city                 String?
+  postal_code          String?
+  province             String?
+  country              String?
+  notes                String?
+  data                 Json?
+  created_at           DateTime              @default(now())
+  updated_at           DateTime              @updatedAt
+  organization         Club                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete              Athlete?              @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment              AthletePayment?       @relation(fields: [payment_id], references: [id], onDelete: SetNull)
+  transaction          PaymentTransaction?   @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  receipts             Receipt[]
+  einvoice             EInvoiceTransmission?
 
   @@unique([organization_id, invoice_number])
   @@index([organization_id])
@@ -609,45 +614,45 @@ model Invoice {
 /// emesse prima del registro degli incassi e **non e piu univoco**: una rata
 /// incassata a rate ha piu ricevute (ADR-0036).
 model Receipt {
-  id                  String              @id @default(uuid()) @db.Uuid
-  organization_id     String              @db.Uuid
-  athlete_id          String?             @db.Uuid
-  payment_id          String?             @db.Uuid
+  id                   String              @id @default(uuid()) @db.Uuid
+  organization_id      String              @db.Uuid
+  athlete_id           String?             @db.Uuid
+  payment_id           String?             @db.Uuid
   /// L unicita e sui documenti **vivi**: un indice parziale su cancelled_at.
   /// Un documento annullato smette di rappresentare quell incasso, che torna
   /// documentabile. Vedi la stessa migrazione.
-  transaction_id      String?             @db.Uuid
-  invoice_id          String?             @db.Uuid
-  receipt_number      String?
+  transaction_id       String?             @db.Uuid
+  invoice_id           String?             @db.Uuid
+  receipt_number       String?
   /// Il codice della serie. Vuoto = serie predefinita.
-  series              String              @default("")
-  sequence            Int?
-  document_year       Int?
-  operation_type_code String?
+  series               String              @default("")
+  sequence             Int?
+  document_year        Int?
+  operation_type_code  String?
   /// La fotografia dei dati al momento dell'emissione: vedi la nota su Invoice.
-  snapshot            Json?
-  cancelled_at        DateTime?
-  cancelled_by        String?             @db.Uuid
-  cancellation_reason String?
-  cancels_document_id String?             @db.Uuid
-  issued_by           String?             @db.Uuid
-  issue_date          DateTime
-  amount              Float
+  snapshot             Json?
+  cancelled_at         DateTime?
+  cancelled_by         String?             @db.Uuid
+  cancellation_reason  String?
+  cancels_document_id  String?             @db.Uuid
+  issued_by            String?             @db.Uuid
+  issue_date           DateTime
+  amount               Float
   /// Imponibile e imposta, in centesimi. Vedi la nota su `Invoice`.
   taxable_amount_cents Int?
   vat_amount_cents     Int?
-  description         String
-  status              String              @default("issued")
-  method              String?
-  file_url            String?
-  data                Json?
-  created_at          DateTime            @default(now())
-  updated_at          DateTime            @updatedAt
-  organization        Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete             Athlete?            @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  payment             AthletePayment?     @relation(fields: [payment_id], references: [id], onDelete: SetNull)
-  transaction         PaymentTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
-  invoice             Invoice?            @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
+  description          String
+  status               String              @default("issued")
+  method               String?
+  file_url             String?
+  data                 Json?
+  created_at           DateTime            @default(now())
+  updated_at           DateTime            @updatedAt
+  organization         Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete              Athlete?            @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  payment              AthletePayment?     @relation(fields: [payment_id], references: [id], onDelete: SetNull)
+  transaction          PaymentTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  invoice              Invoice?            @relation(fields: [invoice_id], references: [id], onDelete: SetNull)
 
   @@unique([organization_id, receipt_number])
   @@index([organization_id])
@@ -876,41 +881,40 @@ model FundingAccrual {
 /// maturato e un credito, e il Riepilogo Incassi lo tiene separato da cio che
 /// e stato davvero incassato.
 model FundingSettlement {
-  id              String                  @id @default(uuid()) @db.Uuid
-  organization_id String                  @db.Uuid
-  program_id      String                  @db.Uuid
-  reference       String?
-  settled_at      DateTime
-  amount          Float
-  method          String?
-  notes           String?
+  id                   String                  @id @default(uuid()) @db.Uuid
+  organization_id      String                  @db.Uuid
+  program_id           String                  @db.Uuid
+  reference            String?
+  settled_at           DateTime
+  amount               Float
+  method               String?
+  notes                String?
   /// **Su quale conto e arrivato il bonifico dell'ente.** Senza, la
   /// liquidazione era invisibile nel saldo: il credito si chiudeva e il denaro
   /// non compariva da nessuna parte.
-  financial_account_id String?            @db.Uuid
+  financial_account_id String?                 @db.Uuid
   /**
    * ------------------------------------------------------------- lo storno
    * Una liquidazione registrata per errore non aveva rimedio, e l'errore
    * **propagava**: l'accrual diventava `settled`, non si riscriveva piu, non
    * si confermava piu, e l'iscrizione non si cancellava piu.
-   *
    * La forma e quella che il lavoro sportivo ha gia dimostrato sufficiente:
    * una riga opposta che cita l'originale, l'originale che resta e porta il
    * motivo, e un indice unico parziale che vieta il doppio storno.
    */
-  reversal_of_id  String?                 @db.Uuid
-  reversed_at     DateTime?
-  reversed_by     String?                 @db.Uuid
-  reversal_reason String?
-  created_by      String?                 @db.Uuid
-  created_at      DateTime                @default(now())
-  updated_at      DateTime                @updatedAt
-  organization    Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  program         FundingProgram          @relation(fields: [program_id], references: [id], onDelete: Cascade)
-  financial_account FinancialAccount?     @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
-  reverses        FundingSettlement?      @relation("FundingSettlementReversal", fields: [reversal_of_id], references: [id], onDelete: SetNull)
-  reversals       FundingSettlement[]     @relation("FundingSettlementReversal")
-  lines           FundingSettlementLine[]
+  reversal_of_id       String?                 @db.Uuid
+  reversed_at          DateTime?
+  reversed_by          String?                 @db.Uuid
+  reversal_reason      String?
+  created_by           String?                 @db.Uuid
+  created_at           DateTime                @default(now())
+  updated_at           DateTime                @updatedAt
+  organization         Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  program              FundingProgram          @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  financial_account    FinancialAccount?       @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
+  reverses             FundingSettlement?      @relation("FundingSettlementReversal", fields: [reversal_of_id], references: [id], onDelete: SetNull)
+  reversals            FundingSettlement[]     @relation("FundingSettlementReversal")
+  lines                FundingSettlementLine[]
 
   @@index([organization_id])
   /// Come per gli incassi: il registro ordina e filtra per data.
@@ -937,21 +941,19 @@ model FundingSettlementLine {
   updated_at      DateTime          @updatedAt
   organization    Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   settlement      FundingSettlement @relation(fields: [settlement_id], references: [id], onDelete: Cascade)
-  /*
-    **La riga che attribuisce denaro pubblico non si cancella di rimbalzo.**
-
-    Era `Cascade`, e la catena partiva da lontano: cancellare un **atleta**
-    cancellava i suoi maturati, e i maturati si portavano via queste righe. La
-    testata della liquidazione sopravviveva con l'importo intero erogato
-    dall'ente, e le righe che lo giustificano sparivano: un totale «liquidato»
-    che non si puo piu attribuire a nessuno, e una riconciliazione da
-    consegnare al finanziatore che perde beneficiari in silenzio.
-
-    `RESTRICT` puo mordere solo quando esistono righe liquidate — l'unico
-    percorso che cancella i maturati e quello «nessuno storico», che per
-    costruzione non ne ha. La guardia applicativa spiega il rifiuto con una
-    frase; questo lo rende vero anche per chi non passa dall'applicazione.
-  */
+  /**
+   * *La riga che attribuisce denaro pubblico non si cancella di rimbalzo.**
+   * Era `Cascade`, e la catena partiva da lontano: cancellare un **atleta**
+   * cancellava i suoi maturati, e i maturati si portavano via queste righe. La
+   * testata della liquidazione sopravviveva con l'importo intero erogato
+   * dall'ente, e le righe che lo giustificano sparivano: un totale «liquidato»
+   * che non si puo piu attribuire a nessuno, e una riconciliazione da
+   * consegnare al finanziatore che perde beneficiari in silenzio.
+   * `RESTRICT` puo mordere solo quando esistono righe liquidate — l'unico
+   * percorso che cancella i maturati e quello «nessuno storico», che per
+   * costruzione non ne ha. La guardia applicativa spiega il rifiuto con una
+   * frase; questo lo rende vero anche per chi non passa dall'applicazione.
+   */
   accrual         FundingAccrual    @relation(fields: [accrual_id], references: [id], onDelete: Restrict)
 
   @@unique([settlement_id, accrual_id])
@@ -991,19 +993,17 @@ model Notification {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   organization    Club?    @relation(fields: [organization_id], references: [id], onDelete: SetNull)
-  /*
-    **Cancellare una persona non deve pubblicare le sue notifiche.**
-
-    Era `SetNull`, e `user_id: null` in questo modello significa «di societa» —
-    che l'area genitore legge come «di tutti». Cancellare un account ne
-    trasformava quindi ogni notifica privata in una notifica per **tutte le
-    famiglie del club**, con dentro cio che portava: nome del genitore,
-    telefono, nome del minore, importi scoperti. Una richiesta di cancellazione
-    pubblicava i dati invece di toglierli.
-
-    Una notifica indirizzata a qualcuno che non c'e piu non ha nessun
-    significato residuo: se ne va con lui.
-  */
+  /**
+   * *Cancellare una persona non deve pubblicare le sue notifiche.**
+   * Era `SetNull`, e `user_id: null` in questo modello significa «di societa» —
+   * che l'area genitore legge come «di tutti». Cancellare un account ne
+   * trasformava quindi ogni notifica privata in una notifica per **tutte le
+   * famiglie del club**, con dentro cio che portava: nome del genitore,
+   * telefono, nome del minore, importi scoperti. Una richiesta di cancellazione
+   * pubblicava i dati invece di toglierli.
+   * Una notifica indirizzata a qualcuno che non c'e piu non ha nessun
+   * significato residuo: se ne va con lui.
+   */
   user            User?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([organization_id])
@@ -1042,31 +1042,129 @@ model ClubResourceItem {
 /// righe duplicate dopo averle trovate (`simplified-db.ts`). Con una risposta
 /// della famiglia sulla stessa riga, due righe significano due risposte
 /// contraddittorie per lo stesso atleta.
-model TrainingAttendance {
-  id              String    @id @default(uuid()) @db.Uuid
-  organization_id String    @db.Uuid
-  training_id     String
-  athlete_id      String
+/// **La partecipazione a un evento: tre colonne dello stesso fatto.**
+///
+/// Non e una tabella nuova: e `training_attendance` (ADR-0086) portata
+/// dall'allenamento all'**evento**, che e la stessa estensione che ADR-0099 fa
+/// sul calendario. La convocazione, la risposta della famiglia e la presenza
+/// stanno sulla stessa riga e hanno **tre scrittori distinti**: nessuna
+/// scrittura incrociata, e una promessa non diventa mai una presenza.
+model ClubEventParticipant {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organization_id    String    @db.Uuid
+  event_id           String    @db.Uuid
+  athlete_id         String
+  /// L'identificativo che l'allenamento aveva nella colonna JSON. Resta per
+  /// leggibilita dell'archivio e per le migrazioni: **non** e una chiave.
+  legacy_training_id String?
   /// La presenza: `present` | `absent`, scritta dall'appello dell'allenatore,
   /// piu `pending` sulle righe **nate da una risposta** e mai passate
   /// dall'appello (`RSVP_NEUTRAL_ATTENDANCE_STATUS`). `pending` non e una
   /// presenza: `isPresentAttendance` lo rifiuta, quindi non entra in nessuna
   /// rendicontazione di contributi.
-  status          String
-  notes           String?
+  status             String
+  notes              String?
   /// L'intenzione dichiarata dalla famiglia: `yes` | `no`. Mai scritta dall'appello.
-  rsvp_status     String?
-  rsvp_note       String?
-  rsvp_at         DateTime?
-  rsvp_by_user_id String?   @db.Uuid
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  rsvp_status        String?
+  rsvp_note          String?
+  rsvp_at            DateTime?
+  rsvp_by_user_id    String?   @db.Uuid
+  /// La convocazione: `convocated` | `excluded`. `null` significa che nessuno
+  /// ha ancora deciso — non «non convocato», che e una decisione presa.
+  ///
+  /// Prima viveva dentro il payload della gara in **dieci grafie** diverse
+  /// (`convocatedAthletes`, `convocation_entries`, elenchi di stringhe, di
+  /// oggetti…), normalizzate a ogni lettura. La migrazione le normalizza **una
+  /// volta sola**, e da qui in avanti la convocazione e un fatto con un
+  /// permesso, una notifica e una traccia.
+  convocation_status String?
+  convocated_at      DateTime?
+  convocated_by      String?   @db.Uuid
+  /// Vero quando l'atleta e stato convocato pur non appartenendo alla
+  /// categoria dell'evento: il fuori quota, che il rendiconto deve distinguere.
+  is_extra_category  Boolean   @default(false)
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  organization       Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  event              ClubEvent @relation(fields: [event_id], references: [id], onDelete: Cascade)
 
-  @@unique([organization_id, training_id, athlete_id])
-  @@index([organization_id, training_id])
+  @@unique([organization_id, event_id, athlete_id])
+  @@index([organization_id, event_id])
   @@index([organization_id, athlete_id, rsvp_status])
-  @@map("training_attendance")
+  @@index([organization_id, athlete_id, convocation_status])
+  @@map("club_event_participants")
+}
+
+/// **L'evento sportivo: una riga, non un elemento di un array JSON.**
+///
+/// Allenamenti e gare vivevano in `clubs.trainings` e `clubs.matches`, due
+/// colonne JSON riscritte **per intero** dal client a ogni salvataggio. Un
+/// array JSON non regge una chiave unica, non regge una chiave esterna, non
+/// regge due scritture concorrenti, non regge un permesso per riga e non regge
+/// un audit: sette conseguenze diverse con **una** causa (ADR-0098).
+///
+/// Il campo `kind` assorbe entrambi i tipi e lascia la porta aperta a un terzo
+/// senza una terza tabella.
+model ClubEvent {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  organization_id    String                 @db.Uuid
+  /// `training` | `match`.
+  kind               String
+  /// L'identificativo che l'evento aveva nella colonna JSON di origine.
+  /// Unico per club e tipo: rende la migrazione ripetibile e permette a un
+  /// riferimento antico — una presenza, una notifica — di ritrovare la riga.
+  legacy_id          String?
+  title              String?
+  /// `scheduled` | `cancelled` | `completed` | `archived`.
+  status             String                 @default("scheduled")
+  season_id          String?
+  site_id            String?
+  structure_id       String?
+  field_id           String?
+  category_id        String?
+  category_name      String?
+  /// I gruppi operativi convocati (ADR-0055). Elenco di identificativi.
+  group_ids          Json?
+  /// **Istante assoluto**, con il fuso dichiarato accanto. Prima erano due
+  /// stringhe separate — giorno e ora — interpretate nel fuso del server.
+  starts_at          DateTime
+  ends_at            DateTime?
+  timezone           String                 @default("Europe/Rome")
+  location           String?
+  opponent           String?
+  /// `home` | `away` | `neutral`, solo per le gare.
+  home_away          String?
+  /// Capienza dell'evento. `null` = nessun limite. La Wave 5 mette il numero e
+  /// il conteggio, **non** la lista d'attesa: una coda ha regole di priorita
+  /// che nessuno ha ancora dichiarato.
+  capacity           Int?
+  rsvp_required      Boolean                @default(false)
+  rsvp_deadline      DateTime?
+  /// `pending` | `completed`: la convocazione della gara e stata chiusa?
+  convocation_status String?
+  notes              String?
+  /// Gli allenatori dell'evento, per identificativo o per nome.
+  trainer_ids        Json?
+  /// Cio che il payload JSON portava e che non ha una colonna. Non e una
+  /// scorciatoia: e l'archivio del dato precedente, che nessuna migrazione
+  /// deve buttare via perche non sa dove metterlo.
+  payload            Json?
+  /// Controllo ottimistico. Due segretarie che salvano insieme non si
+  /// sovrascrivono piu: la seconda fallisce invece di vincere.
+  version            Int                    @default(1)
+  created_by         String?                @db.Uuid
+  created_at         DateTime               @default(now())
+  updated_at         DateTime               @updatedAt
+  organization       Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  participants       ClubEventParticipant[]
+
+  @@unique([organization_id, kind, legacy_id])
+  @@index([organization_id, starts_at])
+  @@index([organization_id, kind, starts_at])
+  @@index([organization_id, season_id, starts_at])
+  @@index([organization_id, site_id, starts_at])
+  @@index([organization_id, category_id, starts_at])
+  @@map("club_events")
 }
 
 model AthleteCategoryMembership {
@@ -1552,25 +1650,25 @@ model DocumentSeries {
 /// comporti. EasyGame **propone** il percorso documentale; non lo stabilisce al
 /// posto di un commercialista. Vedi ADR-0052.
 model FiscalOperationType {
-  id              String   @id @default(uuid()) @db.Uuid
-  organization_id String   @db.Uuid
-  code            String
-  label           String
+  id                  String            @id @default(uuid()) @db.Uuid
+  organization_id     String            @db.Uuid
+  code                String
+  label               String
   /// `none` | `receipt` | `invoice` | `invoice_or_receipt`
-  document_route  String   @default("receipt")
+  document_route      String            @default("receipt")
   /// Aliquota IVA, quando configurata. `null` = non dichiarata.
-  vat_rate        Float?
+  vat_rate            Float?
   /// Natura IVA (`N2.2`, `N4`, ...) quando l'operazione non e imponibile.
-  vat_nature      String?
+  vat_nature          String?
   /// `institutional` | `commercial` | `unspecified`. Lo dichiara chi configura.
-  activity_scope  String   @default("unspecified")
+  activity_scope      String            @default("unspecified")
   /// Verso suggerito quando si sceglie questa causale: `IN` | `OUT`.
   /// `null` = la causale serve in entrambi i versi (un rimborso, un giroconto).
   /// E un **suggerimento**, non un vincolo: il verso lo decide il movimento.
-  direction_hint    String?
+  direction_hint      String?
   /// La voce di rendiconto sotto cui questa causale si somma. Testo libero
   /// deciso dal club: EasyGame non impone un piano dei conti (§35 del piano).
-  reporting_bucket  String?
+  reporting_bucket    String?
   /// La descrizione che il movimento eredita quando l'operatore non ne scrive una.
   default_description String?
   /// **I due flag che il documento 30 chiama «il perno».**
@@ -1582,20 +1680,20 @@ model FiscalOperationType {
   /// `deductible` e il flag del 730; `is_membership_fee` distingue la quota
   /// associativa dalla quota sportiva, che oggi sono due nomi in un catalogo e
   /// lo stesso dato nel database.
-  deductible        Boolean?
-  is_membership_fee Boolean?
+  deductible          Boolean?
+  is_membership_fee   Boolean?
   /// Chi ha attribuito la classificazione fiscale, e quando. La natura di
   /// un'entrata e una **decisione**, e una decisione ha un autore.
-  classified_by     String?   @db.Uuid
-  classified_at     DateTime?
-  is_active       Boolean  @default(true)
+  classified_by       String?           @db.Uuid
+  classified_at       DateTime?
+  is_active           Boolean           @default(true)
   /// Vero per le voci del catalogo predefinito: si disattivano, non si cancellano.
-  is_system       Boolean  @default(false)
-  notes           String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  accounting_entries AccountingEntry[]
+  is_system           Boolean           @default(false)
+  notes               String?
+  created_at          DateTime          @default(now())
+  updated_at          DateTime          @updatedAt
+  organization        Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  accounting_entries  AccountingEntry[]
 
   @@unique([organization_id, code])
   @@index([organization_id])
@@ -2296,7 +2394,6 @@ model DocumentTemplate {
   versions          DocumentTemplateVersion[]
   generated         GeneratedDocument[]
 
-  @@index([organization_id, status])
   /// **In base dati questo indice e parziale** (`WHERE catalog_key IS NOT NULL`),
   /// e Prisma non sa modellarlo: qui compare pieno. La deriva e nota e voluta,
   /// e semanticamente i due sono equivalenti perche PostgreSQL tratta i NULL
@@ -2307,6 +2404,7 @@ model DocumentTemplate {
   /// `migrate dev` proverebbe a creare l indice pieno accanto al parziale. Vedi
   /// il §Wave 3 di docs/knowledge-base/06-data-model.md.
   @@unique([organization_id, catalog_key], name: "document_templates_catalog_key")
+  @@index([organization_id, status])
   @@map("document_templates_v2")
 }
 
@@ -2538,38 +2636,38 @@ model ConsentRecord {
 /// tre tabelle diverse — incassi, uscite del lavoro sportivo, liquidazioni dei
 /// bandi — e un blob JSON non puo esserlo.
 model FinancialAccount {
-  id                      String    @id @default(uuid()) @db.Uuid
-  organization_id         String    @db.Uuid
-  name                    String
+  id                    String               @id @default(uuid()) @db.Uuid
+  organization_id       String               @db.Uuid
+  name                  String
   /// `CASH` | `BANK` | `CLEARING`.
   ///
   /// Il transito (`CLEARING`) non e un vezzo: il denaro incassato online non e
   /// in banca il giorno dell'incasso, e il versamento arriva dopo, al netto
   /// delle commissioni. Senza un conto di transito o il saldo banca e sbagliato
   /// per giorni, o le commissioni spariscono.
-  kind                    String    @default("BANK")
-  iban                    String?
-  bank_name               String?
+  kind                  String               @default("BANK")
+  iban                  String?
+  bank_name             String?
   /// Sede, quando il club ne ha piu di una (ADR-0038). Facoltativa: un conto
   /// senza sede appartiene a tutte le sedi, non a nessuna.
-  site_id                 String?
+  site_id               String?
   /// Il saldo che il blob dichiarava il giorno della migrazione, con la sua
   /// data. Non e un saldo mutabile: e il punto di partenza della somma.
-  opening_balance_cents   Int       @default(0)
-  opening_balance_at      DateTime?
+  opening_balance_cents Int                  @default(0)
+  opening_balance_at    DateTime?
   /// L'id che il conto aveva dentro `clubs.bank_accounts`. Serve a far
   /// combaciare le righe scritte prima della migrazione, e a non ripeterla.
-  legacy_account_id       String?
+  legacy_account_id     String?
   /// Un conto con movimenti non si cancella: si archivia.
-  is_archived             Boolean   @default(false)
-  archived_at             DateTime?
-  notes                   String?
-  created_by              String?   @db.Uuid
-  created_at              DateTime  @default(now())
-  updated_at              DateTime  @updatedAt
-  organization            Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  accounting_entries      AccountingEntry[]
-  payment_transactions    PaymentTransaction[]
+  is_archived           Boolean              @default(false)
+  archived_at           DateTime?
+  notes                 String?
+  created_by            String?              @db.Uuid
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+  organization          Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  accounting_entries    AccountingEntry[]
+  payment_transactions  PaymentTransaction[]
 
   /// **Attenzione a rigenerare le migrazioni da questo schema.**
   ///
@@ -2618,8 +2716,8 @@ model FinancialAccount {
 /// che cita l'originale, l'originale resta e porta il motivo, e i totali
 /// escludono entrambe. Un indice unico parziale vieta il doppio storno.
 model AccountingEntry {
-  id                            String    @id @default(uuid()) @db.Uuid
-  organization_id               String    @db.Uuid
+  id                            String               @id @default(uuid()) @db.Uuid
+  organization_id               String               @db.Uuid
   /// **La data del fatto**, non quella della registrazione. `NOT NULL` dal
   /// primo giorno, e nessun percorso la modifica dopo la creazione: e la
   /// condizione perche un giorno si possa chiudere un periodo senza migrazioni
@@ -2638,14 +2736,14 @@ model AccountingEntry {
   /// `IN` | `OUT`. Il segno lo dice il verso: l'importo e sempre positivo.
   direction                     String
   amount_cents                  Int
-  currency                      String    @default("EUR")
-  financial_account_id          String    @db.Uuid
+  currency                      String               @default("EUR")
+  financial_account_id          String               @db.Uuid
   /// La causale scelta, come riferimento e in chiaro. Obbligatoria sul
   /// movimento manuale: un movimento senza causale nasce gia sbagliato, e il
   /// campo che c'era prima (`category`, testo libero) veniva precompilato con
   /// la categoria **sportiva** dell'atleta — «Under 15» — e non era collegato
   /// a niente.
-  operation_type_id             String?   @db.Uuid
+  operation_type_id             String?              @db.Uuid
   operation_type_code           String?
   /// **La classificazione, congelata sulla riga.**
   ///
@@ -2653,7 +2751,7 @@ model AccountingEntry {
   /// natura di una causale, tutti i movimenti passati cambierebbero natura
   /// retroattivamente. E lo stesso motivo per cui il lavoro sportivo congela
   /// contributi e aliquote, e per cui un documento fiscale porta uno snapshot.
-  activity_scope_snapshot       String    @default("unspecified")
+  activity_scope_snapshot       String               @default("unspecified")
   operation_type_label_snapshot String?
   description                   String
   notes                         String?
@@ -2669,35 +2767,35 @@ model AccountingEntry {
   /// in `src/lib/accounting/model.ts`. Le righe di questa tabella sono
   /// `MANUAL` o `INTERNAL_TRANSFER`; gli altri valori esistono perche la
   /// proiezione parli la stessa lingua della tabella.
-  source_domain                 String    @default("MANUAL")
+  source_domain                 String               @default("MANUAL")
   source_id                     String?
   /// La chiave dell'evento che ha prodotto la riga. E l'idempotenza: lo stesso
   /// fatto non puo avere due rappresentazioni finanziarie.
   source_event_key              String?
   /// Il documento collegato: `invoice` | `receipt` | `generated_document`.
   document_kind                 String?
-  document_id                   String?   @db.Uuid
+  document_id                   String?              @db.Uuid
   /// Sede, facoltativa (ADR-0038). Un movimento senza sede appartiene a tutte.
   site_id                       String?
   /// `unreconciled` | `reconciled` | `disputed`. La riconciliazione della V1
   /// e un atto umano su un dato che il sistema gia conosce: chi ha l'estratto
   /// conto davanti spunta. Nessun import bancario, nessuna euristica.
-  reconciliation_status         String    @default("unreconciled")
+  reconciliation_status         String               @default("unreconciled")
   /// La data valuta e il riferimento dell'operazione bancaria (CRO, distinta).
   value_date                    DateTime?
   bank_reference                String?
   reconciled_at                 DateTime?
-  reconciled_by                 String?   @db.Uuid
+  reconciled_by                 String?              @db.Uuid
   /// Le due gambe di un giroconto portano lo stesso gruppo: e cio che permette
   /// al rendiconto di spiegare il trasferimento invece di contarlo due volte.
-  transfer_group_id             String?   @db.Uuid
-  reversal_of_id                String?   @db.Uuid
+  transfer_group_id             String?              @db.Uuid
+  reversal_of_id                String?              @db.Uuid
   reversed_at                   DateTime?
-  reversed_by                   String?   @db.Uuid
+  reversed_by                   String?              @db.Uuid
   reversal_reason               String?
-  created_by                    String?   @db.Uuid
-  created_at                    DateTime  @default(now())
-  updated_at                    DateTime  @updatedAt
+  created_by                    String?              @db.Uuid
+  created_at                    DateTime             @default(now())
+  updated_at                    DateTime             @updatedAt
   organization                  Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   financial_account             FinancialAccount     @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
   operation_type                FiscalOperationType? @relation(fields: [operation_type_id], references: [id], onDelete: Restrict)
@@ -2829,4 +2927,179 @@ view AccountingLedgerLine {
   search_text            String?
 
   @@map("accounting_ledger_lines")
+}
+
+/// **La richiesta documentale: una riga, non un elemento di un array.**
+///
+/// Il workflow — il club chiede, la famiglia carica, il club verifica, accetta
+/// o rifiuta — **esisteva gia per intero** in `src/lib/shared-documents.ts`,
+/// con gli stati giusti. Cio che mancava e che richiesta e decisione fossero
+/// **righe**: vivevano in `athletes.data.sharedDocuments`, un array JSON dentro
+/// l'anagrafica, scritto con `prisma.athlete.update` diretto, senza un proprio
+/// `organization_id`, senza scadenza sorvegliata e senza audit.
+model DocumentRequest {
+  id               String               @id @default(uuid()) @db.Uuid
+  organization_id  String               @db.Uuid
+  /// `athlete` | `member` | `person`.
+  subject_kind     String
+  subject_id       String
+  /// Che documento si chiede: `medical_certificate`, `identity_document`, …
+  document_kind    String
+  title            String
+  description      String?
+  required         Boolean              @default(true)
+  due_date         DateTime?
+  season_id        String?
+  /// `open` | `fulfilled` | `cancelled`.
+  ///
+  /// Non e lo stato del **deposito**: quello si deriva dall'ultima riga di
+  /// `document_submissions`, come per `ConsentRecord` (ADR-0058). Questo dice
+  /// soltanto se la richiesta e ancora in piedi.
+  status           String               @default("open")
+  /// Ultimo sollecito inviato: serve a non sollecitare due volte lo stesso
+  /// giorno, e si appoggia comunque a `CommunicationDelivery` (ADR-0084).
+  last_reminded_at DateTime?
+  created_by       String?              @db.Uuid
+  created_at       DateTime             @default(now())
+  updated_at       DateTime             @updatedAt
+  organization     Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  submissions      DocumentSubmission[]
+
+  @@index([organization_id, subject_kind, subject_id])
+  @@index([organization_id, status, due_date])
+  @@index([organization_id, document_kind])
+  @@map("document_requests")
+}
+
+/// **Il deposito e la sua decisione. Append-only.**
+///
+/// I **byte non generano una tabella nuova**: passano da Attachment Core
+/// (ADR-0034), e `attachment_id` fa il collegamento. Nessun `owner_type`
+/// nuovo, nessun secondo archivio.
+///
+/// `request_id` e nullo quando il deposito e **spontaneo**: la famiglia carica
+/// senza che nessuno abbia chiesto, e finisce nella stessa coda con la stessa
+/// decisione.
+model DocumentSubmission {
+  id              String           @id @default(uuid()) @db.Uuid
+  organization_id String           @db.Uuid
+  request_id      String?          @db.Uuid
+  /// `athlete` | `member` | `person`: ripetuto qui perche un deposito
+  /// spontaneo non ha una richiesta da cui dedurlo.
+  subject_kind    String
+  subject_id      String
+  document_kind   String
+  attachment_id   String?          @db.Uuid
+  submitted_by    String?          @db.Uuid
+  submitted_at    DateTime         @default(now())
+  /// `parent` | `club` | `public_form`.
+  source          String           @default("parent")
+  /// `under_review` | `approved` | `rejected`.
+  status          String           @default("under_review")
+  decided_by      String?          @db.Uuid
+  decided_at      DateTime?
+  decision_note   String?
+  created_at      DateTime         @default(now())
+  organization    Club             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  request         DocumentRequest? @relation(fields: [request_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id, request_id, submitted_at])
+  @@index([organization_id, subject_kind, subject_id, submitted_at])
+  @@index([organization_id, status, submitted_at])
+  @@map("document_submissions")
+}
+
+/// **La disponibilita come dato, non come orario di apertura.**
+///
+/// Prima esisteva solo l'orario di apertura del club, uno per tutte le sedi:
+/// due famiglie potevano chiedere lo stesso orario, e nessuno se ne accorgeva.
+/// Quando un club non configura slot si ricade sugli orari di apertura, che
+/// restano come fallback.
+model AppointmentSlot {
+  id                  String        @id @default(uuid()) @db.Uuid
+  organization_id     String        @db.Uuid
+  site_id             String?
+  /// L'operatore a cui lo slot appartiene. `null` = slot di segreteria.
+  assigned_to_user_id String?       @db.Uuid
+  /// 0 = domenica … 6 = sabato. Nullo quando lo slot vale per una data sola.
+  weekday             Int?
+  /// La data specifica, per le eccezioni: una apertura straordinaria, o una
+  /// chiusura dichiarata con `active = false`.
+  specific_date       DateTime?
+  /// `HH:MM`, nel fuso dichiarato dal club.
+  start_time          String
+  end_time            String
+  duration_minutes    Int           @default(30)
+  capacity            Int           @default(1)
+  valid_from          DateTime?
+  valid_until         DateTime?
+  active              Boolean       @default(true)
+  notes               String?
+  created_by          String?       @db.Uuid
+  created_at          DateTime      @default(now())
+  updated_at          DateTime      @updatedAt
+  organization        Club          @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  appointments        Appointment[]
+
+  @@index([organization_id, site_id, weekday])
+  @@index([organization_id, specific_date])
+  @@map("appointment_slots")
+}
+
+/// **L'appuntamento: un dominio con un proprietario e una tabella propria.**
+///
+/// Prima viveva in `clubs.appointments`, una colonna JSON senza proprietario:
+/// la logica stava in un route handler e in una pagina client, i due scrittori
+/// usavano due forme diverse dello stesso oggetto, e **uno dei due cancellava
+/// l'altro** (D-1). Nessun codice scriveva `confirmed`: una richiesta restava
+/// in attesa per sempre.
+///
+/// I presidi che sono la ragione della tabella: indice **unico parziale** su
+/// (club, operatore, inizio) per gli stati vivi — la doppia prenotazione la
+/// impedisce il database, non il codice; `idempotency_key` contro il doppio
+/// clic; `version` per il controllo ottimistico; e la **riprogrammazione crea
+/// una riga nuova** e chiude la vecchia, cosi l'audit resta leggibile.
+model Appointment {
+  id                    String           @id @default(uuid()) @db.Uuid
+  organization_id       String           @db.Uuid
+  site_id               String?
+  season_id             String?
+  slot_id               String?          @db.Uuid
+  /// **Istante assoluto**, con il fuso dichiarato accanto. Prima erano due
+  /// stringhe separate — giorno e ora — interpretate nel fuso del server.
+  starts_at             DateTime
+  ends_at               DateTime
+  timezone              String           @default("Europe/Rome")
+  /// `requested` | `confirmed` | `rejected` | `rescheduled` |
+  /// `cancelled_by_family` | `cancelled_by_club` | `completed` | `no_show`.
+  status                String           @default("requested")
+  athlete_id            String?          @db.Uuid
+  requested_by_user_id  String?          @db.Uuid
+  assigned_to_user_id   String?          @db.Uuid
+  reason                String
+  notes                 String?
+  /// Mai visibili alla famiglia. La proiezione le toglie; non e l'interfaccia
+  /// a nasconderle.
+  internal_notes        String?
+  decision_note         String?
+  decided_by            String?          @db.Uuid
+  decided_at            DateTime?
+  /// La riga che questa riprogrammazione sostituisce.
+  parent_appointment_id String?          @db.Uuid
+  idempotency_key       String?
+  version               Int              @default(1)
+  created_by            String?          @db.Uuid
+  created_at            DateTime         @default(now())
+  updated_at            DateTime         @updatedAt
+  organization          Club             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete               Athlete?         @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  slot                  AppointmentSlot? @relation(fields: [slot_id], references: [id], onDelete: SetNull)
+
+  @@unique([organization_id, idempotency_key])
+  @@index([organization_id, starts_at])
+  @@index([organization_id, status, starts_at])
+  @@index([organization_id, athlete_id, starts_at])
+  @@index([organization_id, assigned_to_user_id, starts_at])
+  @@index([organization_id, site_id, starts_at])
+  @@map("appointments")
 }

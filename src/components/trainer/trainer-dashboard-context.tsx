@@ -537,11 +537,16 @@ export function TrainerDashboardProvider({
           method: "GET",
           headers: activeClubHeaders,
         }),
-        apiRequest<any[]>("/api/v1/trainings?trainer_dashboard=1", {
+        /*
+          Allenamenti e gare sono lo stesso dominio, e vengono dalla stessa
+          rotta (ADR-0098). Il perimetro dell'allenatore lo applica il server:
+          non c'e piu un parametro da omettere per uscirne.
+        */
+        apiRequest<any[]>("/api/v1/events?kind=training", {
           method: "GET",
           headers: activeClubHeaders,
         }),
-        apiRequest<any[]>("/api/v1/matches?trainer_dashboard=1", {
+        apiRequest<any[]>("/api/v1/events?kind=match", {
           method: "GET",
           headers: activeClubHeaders,
         }),

@@ -122,7 +122,8 @@ const seed = (overrides = {}) => ({
   communicationDelivery: [],
   notification: [],
   auditLog: [],
-  trainingAttendance: [],
+  clubEvent: [],
+  clubEventParticipant: [],
   paymentLink: [],
   ...overrides,
 });
