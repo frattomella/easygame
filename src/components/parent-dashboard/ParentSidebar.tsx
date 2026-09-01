@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { cn } from "@/lib/utils";
+import { SidebarItemTooltip } from "@/components/navigation/sidebar-item-tooltip";
 import { useParentDashboard } from "./parent-dashboard-context";
 import { EasyGameLogo } from "@/components/brand/easygame-logo";
 
@@ -157,17 +158,24 @@ const ParentSidebar = memo(() => {
                   (!isHome && pathname.startsWith(item.href));
 
                 return (
-                  <Link
+                  <SidebarItemTooltip
                     key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 transition-colors hover:bg-blue-500/50",
-                      isActive && "bg-blue-500/50",
-                    )}
+                    label={item.label}
+                    collapsed={collapsed}
                   >
-                    <Icon size={18} />
-                    {!collapsed ? <span>{item.label}</span> : null}
-                  </Link>
+                    <Link
+                      href={item.href}
+                      aria-label={collapsed ? item.label : undefined}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 transition-colors hover:bg-blue-500/50",
+                        collapsed && "justify-center px-0",
+                        isActive && "bg-blue-500/50",
+                      )}
+                    >
+                      <Icon size={18} className="shrink-0" />
+                      {!collapsed ? <span>{item.label}</span> : null}
+                    </Link>
+                  </SidebarItemTooltip>
                 );
               })}
             </div>

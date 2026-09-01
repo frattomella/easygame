@@ -42,6 +42,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SidebarItemTooltip } from "@/components/navigation/sidebar-item-tooltip";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { memoize } from "@/lib/performance";
@@ -496,19 +497,24 @@ const Sidebar = memo(() => {
                   const label = getItemLabel(item);
 
                   return (
-                    <Link
+                    <SidebarItemTooltip
                       key={item.id}
-                      href={getItemHref(item)}
-                      className={cn(
-                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-blue-500/50 hover:text-white",
-                        collapsed && "justify-center px-0",
-                        active && "bg-blue-500/60 text-white",
-                      )}
-                      title={label}
+                      label={label}
+                      collapsed={collapsed}
                     >
-                      <Icon size={18} className="shrink-0" />
-                      {!collapsed && <span>{label}</span>}
-                    </Link>
+                      <Link
+                        href={getItemHref(item)}
+                        aria-label={collapsed ? label : undefined}
+                        className={cn(
+                          "flex items-center gap-3 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-blue-500/50 hover:text-white",
+                          collapsed && "justify-center px-0",
+                          active && "bg-blue-500/60 text-white",
+                        )}
+                      >
+                        <Icon size={18} className="shrink-0" />
+                        {!collapsed && <span>{label}</span>}
+                      </Link>
+                    </SidebarItemTooltip>
                   );
                 })}
               </div>

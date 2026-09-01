@@ -696,3 +696,49 @@ export const findFreeSlotAt = (
       (!asText(options.assignedToUserId) ||
         sameOperator(slot.assignedToUserId, options.assignedToUserId)),
   ) || null;
+
+/**
+ * **Il nome dell'azione che porta a uno stato, per il lato che la compie.**
+ *
+ * W6-51. Il dominio parla di **stati** — `confirmed`, `rejected` — e la rotta
+ * parla di **azioni** — `confirm`, `reject`. Sono due vocabolari diversi, ed e
+ * corretto che lo siano: la rotta accetta un'azione proprio perche il client
+ * non debba scegliere lo stato di arrivo.
+ *
+ * Cio che non era corretto e che la traduzione non esistesse. La segreteria
+ * riceveva gli stati da `listAppointmentTransitions` e li confrontava con i
+ * nomi delle azioni: `"confirmed" !== "confirm"`, quindi i rami erano **sempre**
+ * falsi e il dialogo mostrava solo «Chiudi». Il dominio sapeva confermare, il
+ * database aveva la riga, la rotta rispondeva — e nessuno poteva premere il
+ * pulsante, perche il pulsante non veniva disegnato.
+ *
+ * La traduzione vive qui, accanto alla macchina a stati, e non nelle
+ * schermate: due schermate che la scrivessero per conto proprio tornerebbero a
+ * poter divergere, che e esattamente com'e nato il difetto.
+ */
+const AZIONE_PER_ARRIVO: Readonly<Partial<Record<AppointmentStatus, string>>> = {
+  confirmed: "confirm",
+  rejected: "reject",
+  rescheduled: "reschedule",
+  cancelled_by_club: "cancel",
+  cancelled_by_family: "cancel",
+  completed: "complete",
+  no_show: "no-show",
+};
+
+export const appointmentActionForStatus = (arrivo: unknown): string | null =>
+  AZIONE_PER_ARRIVO[normalizeAppointmentStatus(arrivo)] ?? null;
+
+/**
+ * Le **azioni** disponibili da uno stato per un lato: e la forma che una
+ * schermata puo confrontare con i propri pulsanti senza tradurre niente.
+ */
+export const listAppointmentActions = (
+  from: unknown,
+  side: AppointmentSide,
+): string[] => {
+  const azioni = listAppointmentTransitions(from, side)
+    .map((arrivo) => AZIONE_PER_ARRIVO[arrivo])
+    .filter((azione): azione is string => Boolean(azione));
+  return [...new Set(azioni)];
+};

@@ -500,3 +500,93 @@ gate e il legame. Il simbolo `⛓` della matrice del §12 significa esattamente
 questo, e vale la pena leggerlo come un avviso — un permesso `⛓` che qualcuno
 «sistemasse» aggiungendogli dei ruoli diventerebbe un permesso piu largo di
 quello che sembra.
+
+---
+
+## Le nove chiavi che nessuno chiedeva (2026-09-01, Wave 6 — 6B, chiude W5-D01)
+
+La Wave 5 ha costruito il catalogo unico delle chiavi. La Wave 6 ha dovuto
+constatare che **nove chiavi su trentatre non le chiedeva nessuno**, e che il
+difetto era peggiore del numero.
+
+### Come collassavano
+
+`src/lib/documents/permissions.ts` esportava nove predicati. Il perno era una
+funzione privata di due righe:
+
+```ts
+const canStandBeforeADocument = (role) =>
+  roleHasPermission(role, "documents.templates.read");
+```
+
+Era **l'unica** chiamata a `roleHasPermission` dell'intero file. Cinque chiavi
+si riducevano a quella:
+
+| Chiave nominale | Cosa decideva davvero |
+|---|---|
+| `documents.generate` | `documents.templates.read` |
+| `documents.generated.read` | `documents.templates.read` |
+| `documents.generated.advance` | `documents.templates.read` |
+| `consents.decide_for_others` | `documents.templates.read` |
+| `consents.records.read` | `documents.templates.read` |
+
+Altre tre si riducevano a `canManageClubConfiguration`, cioe a
+`owner || club_manager` **cablato**, che non passa da nessuna chiave:
+`documents.templates.manage`, `consents.definitions.manage`,
+`members.register.manage`.
+
+La nona, `sport_work.read_own`, non aveva un atto da proteggere.
+
+### Perche era il primo commit della Wave 6 e non un residuo
+
+Togliere `documents.templates.read` a un ruolo gli toglieva **in blocco**
+generazione, rilettura, avanzamento di stato, registrazione dei consensi per
+conto terzi e lettura del registro consensi. Cinque capability distinte, un solo
+interruttore.
+
+E un ruolo «segreteria consensi» che non deve vedere i modelli di stampa era
+**irrappresentabile**: una chiave del dominio *documenti* decideva tre atti sui
+*consensi*.
+
+Un motore di ruoli personalizzati costruito sopra questo stato avrebbe mostrato
+a un club cinque caselle che agiscono su un bit solo, e tre caselle che non
+agiscono affatto: cioe avrebbe promesso una configurabilita che non c'e.
+
+### Cosa e cambiato
+
+Ogni funzione chiede la propria chiave, e **il comportamento non cambia**: il
+catalogo dava gia esattamente i ruoli che le funzioni cablate rispondevano. Lo
+prova un test dedicato.
+
+I tre predicati sui consensi hanno lasciato il dominio dei documenti e vivono in
+**`src/lib/consents/permissions.ts`**, che e il loro proprietario:
+
+| Chiave | Atto | Ruoli |
+|---|---|---|
+| `consents.definitions.manage` | definire un consenso, pubblicarne le versioni | direzione |
+| `consents.decide_for_others` | registrare accettazione o revoca per conto di qualcuno | segreteria |
+| `consents.records.read` | leggere lo stato dei consensi del club | segreteria |
+
+`consents.decide_own` resta fuori: non e di ruolo ma **di legame**, e la sua
+regola e nella sezione precedente.
+
+### Il presidio, che e la parte che dura
+
+`tests/lib/catalogo-permessi.test.mjs` verificava etichette, duplicati e
+appartenenza ai ruoli — **mai** che una chiave fosse interrogata da qualche
+parte. Era la ragione per cui il difetto e sopravvissuto a un test che gia
+leggeva il catalogo.
+
+Adesso lo verifica, con la definizione operativa del debito:
+
+> una chiave e **chiesta** se compare sotto `src/lib/server/**` o
+> `src/app/api/**` — li vivono le guardie — oppure, altrove, se sta sulla riga
+> di una chiamata a un verificatore.
+
+Le chiavi non ancora chieste vivono in un elenco **con il motivo scritto**.
+Oggi ne contiene una: `sport_work.read_own`, che aspetta la schermata «i miei
+compensi» dell'allenatore (lane 6C). Quando quella nasce, la riga sparisce.
+
+> **La regola.** Una chiave in un catalogo non e un permesso finche una strada
+> non la chiede. Un catalogo che elenca chiavi non applicate e **peggio di un
+> catalogo assente**.

@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { SidebarItemTooltip } from "@/components/navigation/sidebar-item-tooltip";
 import { Button } from "@/components/ui/button";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
@@ -197,17 +198,24 @@ const TrainerSidebar = memo(() => {
                     pathname.startsWith(item.href));
 
                 return (
-                  <Link
+                  <SidebarItemTooltip
                     key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
-                      isActive && "bg-blue-500/50",
-                    )}
+                    label={item.label}
+                    collapsed={collapsed}
                   >
-                    <Icon size={18} />
-                    {!collapsed && <span>{item.label}</span>}
-                  </Link>
+                    <Link
+                      href={item.href}
+                      aria-label={collapsed ? item.label : undefined}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-blue-500/50 transition-colors",
+                        collapsed && "justify-center px-0",
+                        isActive && "bg-blue-500/50",
+                      )}
+                    >
+                      <Icon size={18} className="shrink-0" />
+                      {!collapsed && <span>{item.label}</span>}
+                    </Link>
+                  </SidebarItemTooltip>
                 );
               })}
             </div>

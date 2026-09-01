@@ -123,7 +123,8 @@ type ClubStructure = {
   // Struttura options
   isPublic: boolean; // Pubblica/Privata
   isVisibleToMembers: boolean; // Visibile/Non visibile ai tesserati
-  isRentable: boolean; // Affittabile SI/NO
+  isBookableByMembers: boolean; // Prenotabile dall'area famiglia (W6-54)
+  isRentable: boolean; // Il contratto d'affitto, non la prenotabilita
 
   payments: StructurePayment[];
   fields: StructureField[];
@@ -289,6 +290,7 @@ export default function StrutturePage() {
     siteId: "",
     isPublic: true,
     isVisibleToMembers: true,
+    isBookableByMembers: true,
     isRentable: false,
   });
 
@@ -430,6 +432,7 @@ export default function StrutturePage() {
       siteId: "",
       isPublic: true,
       isVisibleToMembers: true,
+      isBookableByMembers: true,
       isRentable: false,
     });
   };
@@ -450,6 +453,7 @@ export default function StrutturePage() {
       siteId: s.siteId || "",
       isPublic: s.isPublic,
       isVisibleToMembers: (s as any).isVisibleToMembers ?? true,
+      isBookableByMembers: (s as any).isBookableByMembers ?? true,
       isRentable: s.isRentable,
     });
     setIsStructureModalOpen(true);
@@ -485,6 +489,7 @@ export default function StrutturePage() {
               siteId: structureForm.siteId,
               isPublic: structureForm.isPublic,
               isVisibleToMembers: structureForm.isVisibleToMembers,
+              isBookableByMembers: structureForm.isBookableByMembers,
               isRentable: structureForm.isRentable,
             }
           : s,
@@ -497,6 +502,7 @@ export default function StrutturePage() {
         siteId: structureForm.siteId,
         isPublic: structureForm.isPublic,
         isVisibleToMembers: structureForm.isVisibleToMembers,
+        isBookableByMembers: structureForm.isBookableByMembers,
         isRentable: structureForm.isRentable,
         payments: [],
         fields: [],
@@ -610,10 +616,12 @@ export default function StrutturePage() {
         startTime: "18:00",
         endTime: "22:00",
       }),
-      pricing: [
-        { id: uid("price"), durationMinutes: 60, price: 0 },
-        { id: uid("price"), durationMinutes: 30, price: 0 },
-      ],
+      /*
+        W6-55. Un campo nuovo non nasce con due tariffe a zero: «€ 0,00» non
+        significa gratis, significa che nessuno ha ancora scritto un importo.
+        Finche non c'e, la famiglia legge «Tariffe non pubblicate».
+      */
+      pricing: [],
     };
     const next = structures.map((s) =>
       s.id === structureId
@@ -882,11 +890,40 @@ export default function StrutturePage() {
                       />
                     </div>
 
+                    {/*
+                      W6-54. L'interruttore che mancava. «Affittabile», qui
+                      sotto, e il contratto d'affitto della struttura e non ha
+                      mai avuto effetto sull'area famiglia: chi lo spegneva
+                      credendo di chiudere le prenotazioni vedeva la famiglia
+                      prenotare lo stesso.
+                    */}
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <Label>Prenotabile dalle famiglie</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Se disattivato, la struttura resta visibile ma
+                          l&apos;area famiglia non mostra il modulo di
+                          prenotazione e la richiesta viene rifiutata.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={structureForm.isBookableByMembers}
+                        onCheckedChange={(checked) =>
+                          setStructureForm((prev) => ({
+                            ...prev,
+                            isBookableByMembers: checked,
+                          }))
+                        }
+                      />
+                    </div>
+
                     <div className="flex items-center justify-between gap-4">
                       <div className="space-y-1">
                         <Label>Affittabile</Label>
                         <p className="text-xs text-muted-foreground">
-                          Abilita l&apos;affitto della struttura.
+                          Il contratto d&apos;affitto della struttura, con
+                          importo e scadenze. Non riguarda le prenotazioni
+                          delle famiglie.
                         </p>
                       </div>
                       <Switch

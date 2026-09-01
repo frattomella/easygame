@@ -1,5 +1,6 @@
 import {
   DEFAULT_APPOINTMENT_TIMEZONE,
+  listAppointmentActions,
   listAppointmentTransitions,
   normalizeAppointmentStatus,
   toZonedDay,
@@ -105,6 +106,14 @@ export const toClubAppointment = (row: RigaAppuntamento) => {
     created_at: iso(row.created_at ?? null),
     updated_at: iso(row.updated_at ?? null),
     transitions: listAppointmentTransitions(status, "club"),
+    /*
+      W6-51. `transitions` porta gli **stati** di arrivo; `actions` porta i
+      nomi che la rotta accetta. La segreteria confrontava i primi con i
+      secondi — `"confirmed"` contro `"confirm"` — e i pulsanti Conferma e
+      Rifiuta non venivano disegnati **mai**. Le due liste esistono entrambe
+      perche dicono due cose diverse, e ora nessuna schermata deve tradurre.
+    */
+    actions: listAppointmentActions(status, "club"),
   };
 };
 

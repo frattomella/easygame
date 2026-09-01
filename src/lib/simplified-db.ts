@@ -14,6 +14,7 @@ import {
   resolveCategoryLabel,
 } from "./category-utils";
 import { compareAthletesByLastName } from "./athlete-name-utils";
+import { normalizeAthleteStatus } from "./athletes/status";
 import {
   buildTrainingLocationOptions,
   findTrainingLocationOption,
@@ -1138,11 +1139,44 @@ export async function updateClubAthlete(
       updates.category_name ??
       currentAthlete.category_name ??
       null;
-    const nextStatus = updates.status ?? currentAthlete.status ?? "active";
-    const nextAccessCode =
-      updates.accessCode ?? updates.access_code ?? currentAthlete.access_code ?? null;
-    const nextAvatar =
-      updates.avatar ?? updates.avatar_url ?? currentAthlete.avatar_url ?? null;
+    /*
+      W6-05. `??` risponde alla domanda «e nullo?», e queste righe devono
+      rispondere a un'altra: «e stato dichiarato?».
+
+      La differenza non e sottile. Togliere la foto profilo significa mandare
+      `avatar: null`; con `??` quel `null` veniva letto come «non fornito», la
+      catena scivolava fino al valore in archivio e **riesumava la foto**. La
+      UI la toglieva lo stesso, perche aveva gia aggiornato il proprio stato:
+      il difetto si vedeva solo ricaricando la pagina. Lo stesso valeva per il
+      codice d'accesso e per il numero di maglia, che non erano azzerabili.
+    */
+    const primoDichiarato = <T,>(
+      ...candidati: (T | null | undefined)[]
+    ): T | null => {
+      for (const candidato of candidati) {
+        if (candidato !== undefined) return candidato ?? null;
+      }
+      return null;
+    };
+
+    /*
+      W6-03. Lo stato passa sempre dal vocabolario: e cio che impedisce a un
+      nome di azione — `activate` — di finire in una colonna di stato e di far
+      sparire l'atleta da ogni filtro.
+    */
+    const nextStatus = normalizeAthleteStatus(
+      updates.status ?? currentAthlete.status,
+    );
+    const nextAccessCode = primoDichiarato<string>(
+      updates.accessCode,
+      updates.access_code,
+      currentAthlete.access_code,
+    );
+    const nextAvatar = primoDichiarato<string>(
+      updates.avatar,
+      updates.avatar_url,
+      currentAthlete.avatar_url,
+    );
     const nextFirstName =
       updates.firstName ??
       updates.first_name ??
@@ -1153,11 +1187,11 @@ export async function updateClubAthlete(
       updates.last_name ??
       updates.surname ??
       currentAthlete.last_name;
-    const nextJerseyNumber =
-      updates.jerseyNumber ??
-      updates.jersey_number ??
-      currentAthlete.jersey_number ??
-      null;
+    const nextJerseyNumber = primoDichiarato<string>(
+      updates.jerseyNumber,
+      updates.jersey_number,
+      currentAthlete.jersey_number,
+    );
     const normalizedJerseyNumber =
       nextJerseyNumber === null ||
       nextJerseyNumber === undefined ||

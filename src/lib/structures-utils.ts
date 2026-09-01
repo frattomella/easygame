@@ -77,6 +77,26 @@ export type ClubStructure = {
   siteId: string;
   isPublic: boolean;
   isVisibleToMembers: boolean;
+  /**
+   * **La struttura si puo prenotare dall'area famiglia.**
+   *
+   * W6-54. Fino alla Wave 6 questo interruttore non esisteva, e la
+   * prenotabilita di una struttura era la somma di tre valori che nascono
+   * tutti a `true`: `isVisibleToMembers`, e per ogni campo `isVisible` e
+   * `isBookable`. Una struttura creata senza toccare niente era quindi
+   * prenotabile, e un club che voleva il contrario poteva solo nasconderla.
+   *
+   * Chi cercava l'interruttore trovava «Affittabile», che significa un'altra
+   * cosa — il contratto d'affitto della struttura, con importo, cadenza e
+   * giorno di scadenza — e che infatti nessuna riga del percorso famiglia
+   * legge. Da qui la segnalazione: «la struttura non e prenotabile e il
+   * genitore vede lo stesso il modulo».
+   *
+   * Il ripiego e `true` perche e il comportamento che i club hanno oggi: chi
+   * non ha mai avuto un interruttore non puo aver espresso una scelta.
+   */
+  isBookableByMembers: boolean;
+  /** Il contratto d'affitto della struttura. **Non** e la prenotabilita. */
   isRentable: boolean;
   payments: StructurePayment[];
   fields: StructureField[];
@@ -246,6 +266,10 @@ export function normalizeStructure(raw: any): ClubStructure {
     isPublic: typeof raw?.isPublic === "boolean" ? raw.isPublic : true,
     isVisibleToMembers:
       typeof raw?.isVisibleToMembers === "boolean" ? raw.isVisibleToMembers : true,
+    isBookableByMembers:
+      typeof raw?.isBookableByMembers === "boolean"
+        ? raw.isBookableByMembers
+        : true,
     isRentable: typeof raw?.isRentable === "boolean" ? raw.isRentable : false,
     rent: {
       enabled:
@@ -302,12 +326,35 @@ export function hasBookingConflict(
 export function getVisibleBookableStructures(structures: ClubStructure[]) {
   return (structures || [])
     .map(normalizeStructure)
+    /*
+      W6-54. Due domande diverse, due filtri: `isVisibleToMembers` decide se la
+      famiglia **vede** la struttura, `isBookableByMembers` se la puo
+      **prenotare**. Prima esisteva solo la prima, e un club che voleva
+      mostrare un impianto senza aprirlo alle prenotazioni non aveva modo di
+      dirlo.
+    */
     .filter((structure) => structure.isVisibleToMembers === true)
+    .filter((structure) => structure.isBookableByMembers === true)
     .map((structure) => ({
       ...structure,
-      fields: structure.fields.filter(
-        (field) => field.isVisible === true && field.isBookable === true,
-      ),
+      fields: structure.fields
+        .filter(
+          (field) => field.isVisible === true && field.isBookable === true,
+        )
+        /*
+          W6-55. Una tariffa a zero non e una tariffa gratuita: e una tariffa
+          che il club non ha ancora scritto. Ogni campo nuovo ne nasceva con
+          due, e la famiglia leggeva «60 min - € 0,00», che sembra una
+          promessa. Qui — sul solo percorso famiglia, perche al club le sue
+          righe restano modificabili — le righe senza importo si tolgono, e la
+          schermata dice «Tariffe non pubblicate».
+        */
+        .map((field) => ({
+          ...field,
+          pricing: field.pricing.filter(
+            (price) => Number.isFinite(price.price) && price.price > 0,
+          ),
+        })),
     }))
     .filter((structure) => structure.fields.length > 0);
 }

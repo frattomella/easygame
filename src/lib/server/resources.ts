@@ -42,6 +42,11 @@ import {
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import {
+  athleteStatusQueryValues,
+  normalizeAthleteStatus,
+  parseAthleteStatus,
+} from "../athletes/status";
+import {
   AUDIT_ACTIONS,
   recordAuditEvent,
   recordPermissionDenied,
@@ -1617,6 +1622,24 @@ const normalizeModelInput = async (
     next.category_name = next.data.category;
   }
 
+  /*
+    W6-03. Lo stato di un atleta passa dal vocabolario **prima** di toccare la
+    colonna. E l'unica difesa che vale contro il difetto che l'ha aperto: una
+    schermata che manda il nome di un'azione invece di uno stato non fa
+    sparire l'atleta dall'elenco del suo club, perche quel nome qui diventa
+    uno dei quattro valori che i filtri conoscono.
+  */
+  if (
+    (resource === "athletes" || resource === "simplified_athletes") &&
+    next.status !== undefined &&
+    next.status !== null
+  ) {
+    next.status = normalizeAthleteStatus(next.status);
+    if (next.data && typeof next.data === "object" && "status" in next.data) {
+      next.data = { ...next.data, status: next.status };
+    }
+  }
+
   if (
     resource === "medical_certificates" ||
     resource === "simplified_certificates"
@@ -3094,6 +3117,27 @@ export const buildWhereFromSearchParams = (
     const raw = searchParams.get(key);
     if (raw) {
       where[key] = raw;
+    }
+  }
+
+  /*
+    W6-01/W6-03. Lo stato di un atleta e una colonna `text` senza vincolo, e
+    l'archivio contiene le righe scritte prima che esistesse un vocabolario:
+    maiuscole, italiano, e il valore `activate` che una vecchia azione di
+    massa ci ha messo dentro.
+
+    Cercare solo il valore canonico non troverebbe quelle righe, e un atleta
+    invisibile nel proprio club e il difetto peggiore di questa pagina. Si
+    cercano tutte le grafie che valgono per quello stato: costa un `IN`, e
+    chiude la classe invece di una sua istanza. La migrazione dei dati
+    corregge cio che c'e; questo protegge da cio che arrivera.
+  */
+  if (resource === "simplified_athletes" || resource === "athletes") {
+    const statoChiesto = parseAthleteStatus(where.status);
+    if (statoChiesto) {
+      where.status = { in: [...athleteStatusQueryValues(statoChiesto)] };
+    } else if (typeof where.status === "string") {
+      delete where.status;
     }
   }
 

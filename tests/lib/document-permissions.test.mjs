@@ -4,14 +4,22 @@ import test from "node:test";
 import {
   canAdvanceGeneratedDocument,
   canGenerateDocumentWithSensitivity,
-  canManageConsentDefinitions,
   canManageDocumentTemplates,
-  canReadConsentRecords,
   canReadDocumentTemplates,
   canReadGeneratedDocument,
-  canRecordConsentDecision,
   explainGenerationDenial,
 } from "../../src/lib/documents/permissions.ts";
+/*
+  W5-D01. I tre predicati sui consensi vivevano in `documents/permissions.ts` e
+  si riducevano tutti e tre a `documents.templates.read`: una chiave del dominio
+  *documenti* decideva tre atti sui *consensi*. Adesso hanno il loro dominio, e
+  le prove restano qui perche provano ancora la stessa matrice.
+*/
+import {
+  canManageConsentDefinitions,
+  canReadConsentRecords,
+  canRecordConsentDecision,
+} from "../../src/lib/consents/permissions.ts";
 import { canAccessPath, canAccessClubResource } from "../../src/lib/access-roles.ts";
 
 /**

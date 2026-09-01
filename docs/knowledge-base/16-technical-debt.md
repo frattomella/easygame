@@ -1803,3 +1803,55 @@ quello che dice. O la si rende vera nel vincolo, o si toglie dal modello.
 - `src/app/api/forms/assets/[assetId]/route.ts` autorizza con
   `allowedOrganizationIds.includes(...)`: l'ultima porta di byte non migrata ad
   `assertActiveClub`.
+
+---
+
+## Wave 6 — cosa la lane 6A e la lane 6B hanno chiuso, e cosa aprono (2026-09-01)
+
+### Chiuso
+
+| Voce | Come |
+|---|---|
+| **W5-D01** — nove chiavi che nessuno chiede, cinque su un interruttore solo | Ogni funzione chiede la propria chiave; i tre atti sui consensi lasciano il dominio dei documenti; il presidio e in `tests/lib/catalogo-permessi.test.mjs`. Resta **una** chiave dichiarata non ancora chiesta, con il motivo: `sport_work.read_own`, che aspetta la lane 6C. Vedi [08](08-roles-and-permissions.md) |
+| **W6-01…W6-04** — il filtro stato dell'elenco atleti | `paginated` non dipende piu dal totale filtrato; il vaglio di stato si applica anche quando comanda il server; il vocabolario degli stati ha un proprietario (`src/lib/athletes/status.ts`) e sono quattro |
+| **W6-05, W6-06** — foto profilo, codice di accesso e numero di maglia non azzerabili | `??` distingueva «nullo» da «non dichiarato»: `primoDichiarato` distingue la seconda cosa |
+| **W6-07** — cancellazioni dietro il `confirm()` del browser | Un solo meccanismo di conferma per la scheda atleta, e il testo dice cosa si perde |
+| **W6-51** — dalla segreteria non si poteva confermare ne rifiutare un appuntamento | La proiezione porta `actions` accanto a `transitions`, e la traduzione vive nel dominio |
+| **W6-54, W6-55** — «struttura non prenotabile» e la tariffa a zero | `isBookableByMembers` e l'interruttore che mancava, onorato anche sulla rotta; un campo nuovo non nasce con due tariffe a zero |
+| **§10** — sidebar compressa con icone mute | `SidebarItemTooltip`, uno per tutte e tre le barre, con nome accessibile e apertura al fuoco da tastiera |
+
+### Aperto dalla lane 6A
+
+#### W6-D01 — `@radix-ui/react-tooltip` non e una dipendenza dichiarata
+
+Cinque componenti lo importano direttamente — quattro preesistenti piu
+`src/components/navigation/sidebar-item-tooltip.tsx` — e in `package.json` non
+c'e: arriva dal meta-pacchetto `radix-ui`. Funziona per via dell'appiattimento
+di `node_modules`, e smetterebbe di funzionare il giorno in cui quel pacchetto
+cambiasse le proprie dipendenze. **Non e stato corretto qui** perche toccare le
+dipendenze dentro una lane di correzioni e un cambiamento di natura diversa: va
+fatto con il suo commit e il suo lock.
+
+#### W6-D02 — «Affittabile» resta un nome ambiguo
+
+`isRentable` e il **contratto d'affitto della struttura** — importo, cadenza,
+giorno di scadenza, `StructureRentPaymentsSection` — e non ha mai avuto effetto
+sull'area famiglia. La Wave 6 gli mette accanto l'interruttore che mancava e ne
+corregge la descrizione, ma il nome continua a leggersi come «prenotabile».
+Rinominarlo tocca la colonna JSON di ogni club: e una migrazione, non una
+rifinitura.
+
+#### W6-D03 — il ripiego di `isBookableByMembers` e `true`
+
+Chi non ha mai avuto un interruttore non puo aver espresso una scelta, quindi il
+comportamento di oggi si conserva. La conseguenza va detta: **un club che
+credeva di aver chiuso le prenotazioni spegnendo «Affittabile» continua ad
+averle aperte** finche non spegne il comando nuovo. Il messaggio da dare ai club
+al rilascio e questo, non «adesso funziona».
+
+#### W6-D04 — le tariffe a zero gia in archivio restano
+
+Il percorso famiglia non le mostra piu, ma le righe ci sono e il club le vede
+nella propria scheda. Non e stata scritta una migrazione: cancellare righe di
+prezzo di un club sulla base di un'inferenza — «zero vuol dire non compilata» —
+e una decisione che il prodotto non puo prendere da solo.

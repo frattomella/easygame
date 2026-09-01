@@ -39,10 +39,12 @@ const newField = (): StructureField => ({
     startTime: "18:00",
     endTime: "22:00",
   }),
-  pricing: [
-    { id: uid("price"), durationMinutes: 60, price: 0 },
-    { id: uid("price"), durationMinutes: 30, price: 0 },
-  ],
+  /*
+    W6-55. Un campo nuovo non nasce con due tariffe a zero. «€ 0,00» non
+    significa gratis: significa che nessuno ha ancora scritto un importo, e la
+    famiglia non deve leggere una promessa che il club non ha fatto.
+  */
+  pricing: [],
 });
 
 export function StructureFieldsSection({

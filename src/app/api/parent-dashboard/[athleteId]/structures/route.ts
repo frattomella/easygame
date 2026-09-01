@@ -97,7 +97,15 @@ export async function POST(request: Request, context: Context) {
     );
     const structure = structures[structureIndex];
 
-    if (!structure || structure.isVisibleToMembers !== true) {
+    /*
+      W6-54. Il divieto vale sulla rotta e non solo nella schermata: se vivesse
+      solo nella UI, chi conosce gli identificativi prenoterebbe lo stesso.
+    */
+    if (
+      !structure ||
+      structure.isVisibleToMembers !== true ||
+      structure.isBookableByMembers !== true
+    ) {
       return NextResponse.json(
         {
           data: null,

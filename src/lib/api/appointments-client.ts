@@ -49,7 +49,16 @@ export type ClubAppointment = {
   decision_note: string;
   site_id: string | null;
   version: number;
+  /** Gli **stati** di arrivo ammessi da questo stato per la segreteria. */
   transitions: string[];
+  /**
+   * I nomi delle **azioni** che la rotta accetta, gia tradotti (W6-51).
+   *
+   * Sono due elenchi perche dicono due cose diverse. Confondere il primo
+   * per il secondo — `"confirmed"` contro `"confirm"` — e cio che ha tenuto
+   * la segreteria senza un pulsante Conferma per tutta la Wave 5.
+   */
+  actions: string[];
   [key: string]: unknown;
 };
 

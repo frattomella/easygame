@@ -234,7 +234,20 @@ test("un campo di ordinamento non ammesso viene ignorato, non passato a Prisma",
 
 /* -------------------------------------------------------------------- filtri */
 
-test("il filtro di stato passa dal database", async () => {
+test("il filtro di stato passa dal database, e cerca tutte le grafie di quello stato", async () => {
+  /*
+    W6-01. Il filtro chiedeva la sola grafia canonica — `status: "suspended"` —
+    e l'archivio non contiene solo quella: `athletes.status` e una colonna
+    `text` senza vincolo, e ci sono dentro le righe scritte prima che esistesse
+    un vocabolario. Fra queste il valore `activate`, che una vecchia azione di
+    massa ci aveva messo credendo di scrivere uno stato: quegli atleti erano
+    invisibili in **ogni** filtro, «Attivi» compreso.
+
+    Un atleta invisibile nel proprio club e il difetto peggiore che questo
+    elenco possa avere. Cercare tutte le grafie note costa un `IN` e chiude la
+    classe invece di una sua istanza — la migrazione dei dati corregge cio che
+    c'e, questo protegge da cio che arrivera.
+  */
   await resources.listResourcePage(
     "athletes",
     params("status=suspended&limit=10"),
@@ -242,8 +255,38 @@ test("il filtro di stato passa dal database", async () => {
   );
 
   const where = fake.lastCall("athlete", "findMany").args.where;
-  assert.equal(where.status, "suspended");
-  assert.equal(fake.lastCall("athlete", "count").args.where.status, "suspended");
+  assert.ok(
+    Array.isArray(where.status?.in),
+    "lo stato si cerca come insieme di grafie, non come stringa sola",
+  );
+  assert.ok(where.status.in.includes("suspended"));
+  assert.ok(
+    where.status.in.includes("sospeso"),
+    "le grafie italiane sono in archivio, e vanno trovate",
+  );
+
+  const conteggio = fake.lastCall("athlete", "count").args.where;
+  assert.deepEqual(
+    conteggio.status,
+    where.status,
+    "elenco e conteggio devono filtrare allo stesso modo, altrimenti il totale mente",
+  );
+});
+
+test("uno stato che non esiste non filtra niente, invece di svuotare l'elenco", async () => {
+  /*
+    Il ripiego che mostra di piu. Un filtro sconosciuto — un indirizzo salvato,
+    una versione vecchia della schermata — non deve produrre un elenco vuoto
+    che si legge come «questo club non ha atleti».
+  */
+  await resources.listResourcePage(
+    "athletes",
+    params("status=stato-inventato&limit=10"),
+    scopeA(),
+  );
+
+  const where = fake.lastCall("athlete", "findMany").args.where;
+  assert.equal(where.status, undefined);
 });
 
 /* --------------------------------------------- filtri applicati dopo la query */

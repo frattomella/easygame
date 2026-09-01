@@ -28,7 +28,7 @@ import {
   canManageConsentDefinitions,
   canReadConsentRecords,
   canRecordConsentDecision,
-} from "@/lib/documents/permissions";
+} from "@/lib/consents/permissions";
 
 /**
  * Il servizio dei consensi: **l'unico** punto in cui EasyGame legge o scrive

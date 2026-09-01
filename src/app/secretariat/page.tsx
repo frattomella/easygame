@@ -2143,7 +2143,17 @@ export default function SecretariatPage() {
                   mostrare sarebbe una seconda macchina a stati, e prima o poi
                   direbbe qualcosa di diverso dalla prima.
                 */}
-                {(selectedAppointment.transitions || []).some((t: string) =>
+                {/*
+                  W6-51. Si legge `actions`, non `transitions`.
+
+                  `transitions` porta gli **stati** di arrivo — `confirmed`,
+                  `rejected` — e qui si confrontavano con i nomi delle
+                  **azioni** che la rotta accetta: `"confirmed" !== "confirm"`,
+                  quindi i tre rami erano sempre falsi e il dialogo mostrava
+                  solo «Chiudi». Il dominio sapeva confermare e rifiutare, la
+                  rotta rispondeva, e la segreteria non aveva un pulsante.
+                */}
+                {(selectedAppointment.actions || []).some((t: string) =>
                   ["confirm", "reject", "cancel"].includes(t),
                 ) ? (
                   <div className="space-y-2 border-t pt-4">
@@ -2166,7 +2176,7 @@ export default function SecretariatPage() {
                   dal dialogo.
                 */}
                 <div className="flex flex-wrap justify-end gap-2 pt-4">
-                  {(selectedAppointment.transitions || []).includes(
+                  {(selectedAppointment.actions || []).includes(
                     "confirm",
                   ) ? (
                     <Button
@@ -2178,7 +2188,7 @@ export default function SecretariatPage() {
                       Conferma
                     </Button>
                   ) : null}
-                  {(selectedAppointment.transitions || []).includes("reject") ? (
+                  {(selectedAppointment.actions || []).includes("reject") ? (
                     <Button
                       variant="outline"
                       disabled={decidendo}
@@ -2189,7 +2199,7 @@ export default function SecretariatPage() {
                       Rifiuta
                     </Button>
                   ) : null}
-                  {(selectedAppointment.transitions || []).includes("cancel") ? (
+                  {(selectedAppointment.actions || []).includes("cancel") ? (
                     <Button
                       variant="outline"
                       disabled={decidendo}

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 
 import {
   PERMISSION_CATALOG,
@@ -22,12 +24,14 @@ import {
 } from "../../src/lib/sport-work/permissions.ts";
 import {
   canAdvanceGeneratedDocument,
-  canManageConsentDefinitions,
   canManageDocumentTemplates,
-  canReadConsentRecords,
   canReadDocumentTemplates,
-  canRecordConsentDecision,
 } from "../../src/lib/documents/permissions.ts";
+import {
+  canManageConsentDefinitions,
+  canReadConsentRecords,
+  canRecordConsentDecision,
+} from "../../src/lib/consents/permissions.ts";
 import {
   canManageMembershipRegister,
   canReadMembershipRegister,
@@ -245,5 +249,236 @@ test("proprietario e gestore non passano dall'elenco: possono tutto", () => {
       canAccessClubResource(ruolo, "risorsa-inventata-domani", "delete"),
       true,
     );
+  }
+});
+
+/* ------------------------------------------------------------------------ */
+/*  W5-D01 — il presidio che mancava                                        */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * **Una chiave in un catalogo non e un permesso finche una strada non la
+ * chiede.**
+ *
+ * Questo file verificava etichette, duplicati e appartenenza ai ruoli — mai che
+ * una chiave fosse **interrogata** da qualche parte. Cosi nove chiavi su
+ * trentatre non le chiedeva nessuno, e cinque di esse collassavano a runtime su
+ * un unico interruttore: `documents.templates.read` decideva anche la
+ * generazione, la rilettura, l'avanzamento di stato, la registrazione dei
+ * consensi per conto terzi e la lettura del registro consensi.
+ *
+ * Un catalogo che elenca chiavi non applicate e **peggio di un catalogo
+ * assente**: promette una configurabilita che non c'e, e il giorno dei ruoli
+ * personalizzati un club spunta cinque caselle che agiscono su un bit solo.
+ *
+ * Il presidio e questo, e va tenuto verde: se una chiave nuova entra in
+ * catalogo senza che nessuno la chieda, questo test lo dice subito invece di
+ * lasciarlo scoprire a un audit fra tre Wave.
+ */
+
+const RADICE = path.join(process.cwd(), "src");
+
+const sorgentiDi = (cartella) => {
+  const trovate = [];
+  const visita = (corrente) => {
+    for (const voce of readdirSync(corrente)) {
+      const completo = path.join(corrente, voce);
+      if (statSync(completo).isDirectory()) {
+        visita(completo);
+      } else if (/\.(ts|tsx)$/.test(voce)) {
+        trovate.push(completo);
+      }
+    }
+  };
+  visita(cartella);
+  return trovate;
+};
+
+/**
+ * **Quando una chiave e «chiesta».**
+ *
+ * Non basta che la stringa compaia da qualche parte: comparirebbe in ogni
+ * elenco che la dichiara, e un elenco non e una domanda. E la ragione per cui
+ * il difetto e sopravvissuto a un test che gia leggeva il catalogo.
+ *
+ * Si usa la definizione operativa del debito W5-D01, che e anche quella con cui
+ * l'audit lo ha trovato:
+ *
+ * - una occorrenza sotto `src/lib/server/**` o `src/app/api/**` conta sempre —
+ *   li vivono le guardie, e una chiave nominata li e una chiave applicata;
+ * - altrove conta solo se sta sulla **riga di una chiamata** a un verificatore
+ *   (`roleHasPermission`, `hasSportWorkPermission`, `assertClinicalPermission`,
+ *   …), cioe se qualcuno la sta davvero interrogando.
+ */
+const SORGENTI = sorgentiDi(RADICE).filter(
+  (file) => !file.endsWith(path.join("permissions", "catalog.ts")),
+);
+
+const eUnaGuardia = (file) =>
+  file.includes(path.join("lib", "server")) ||
+  file.includes(path.join("app", "api"));
+
+const chiaveInterrogata = (chiave) => {
+  const citazioni = [JSON.stringify(chiave), `'${chiave}'`];
+
+  for (const file of SORGENTI) {
+    const testo = readFileSync(file, "utf8");
+    if (!citazioni.some((c) => testo.includes(c))) continue;
+
+    if (eUnaGuardia(file)) return true;
+
+    for (const riga of testo.split("\n")) {
+      if (!citazioni.some((c) => riga.includes(c))) continue;
+      if (/Permissions?\s*\(/.test(riga)) return true;
+    }
+  }
+
+  return false;
+};
+
+/**
+ * Le chiavi che **non** sono ancora chieste da nessuno, con il motivo.
+ *
+ * Ogni voce e un debito dichiarato, non un'assoluzione: quando la superficie
+ * che la consuma nasce, la riga sparisce da qui.
+ */
+const NON_ANCORA_CHIESTE = new Map([
+  [
+    "sport_work.read_own",
+    "Non esiste ancora la schermata «i miei compensi»: la chiave protegge un atto che nessuno puo compiere. Nasce con la lane 6C.",
+  ],
+]);
+
+test("W5-D01 · ogni chiave del catalogo e chiesta da qualcuno", () => {
+  const mute = [];
+
+  for (const chiave of listPermissionKeys()) {
+    const chiesta = chiaveInterrogata(chiave);
+
+    if (chiesta) {
+      assert.equal(
+        NON_ANCORA_CHIESTE.has(chiave),
+        false,
+        `${chiave} e dichiarata «non ancora chiesta» ma qualcuno la chiede: togli la riga dall'elenco`,
+      );
+      continue;
+    }
+
+    if (NON_ANCORA_CHIESTE.has(chiave)) continue;
+    mute.push(chiave);
+  }
+
+  assert.deepEqual(
+    mute,
+    [],
+    `chiavi in catalogo che nessuno interroga: ${mute.join(", ")}. Una chiave non applicata promette una configurabilita che non c'e`,
+  );
+});
+
+test("W5-D01 · le cinque chiavi non collassano piu su documents.templates.read", () => {
+  /*
+    Il perno del difetto era una funzione privata di due righe in
+    `src/lib/documents/permissions.ts` che rispondeva per tutte:
+
+        const canStandBeforeADocument = (role) =>
+          roleHasPermission(role, "documents.templates.read");
+
+    Restava l'unica chiamata a `roleHasPermission` dell'intero file.
+  */
+  const documenti = readFileSync(
+    path.join(RADICE, "lib", "documents", "permissions.ts"),
+    "utf8",
+  );
+
+  for (const chiave of [
+    "documents.templates.manage",
+    "documents.generate",
+    "documents.generated.read",
+    "documents.generated.advance",
+  ]) {
+    assert.ok(
+      documenti.includes(`"${chiave}"`),
+      `${chiave} deve essere chiesta dal modulo che decide quell'atto`,
+    );
+  }
+
+  /*
+    E i tre atti sui consensi non li decide piu il dominio dei documenti: una
+    chiave di *documenti* che governa un atto sui *consensi* rende
+    irrappresentabile un ruolo «segreteria consensi» che non veda i modelli.
+  */
+  const consensi = readFileSync(
+    path.join(RADICE, "lib", "consents", "permissions.ts"),
+    "utf8",
+  );
+  for (const chiave of [
+    "consents.definitions.manage",
+    "consents.decide_for_others",
+    "consents.records.read",
+  ]) {
+    assert.ok(consensi.includes(`"${chiave}"`), `${chiave} non e chiesta`);
+    assert.equal(
+      documenti.includes(`"${chiave}"`),
+      false,
+      `${chiave} e un atto sui consensi: non la decide il dominio dei documenti`,
+    );
+  }
+});
+
+test("W5-D01 · le tre chiavi cablate su owner||club_manager passano dal catalogo", () => {
+  /*
+    Peggio del collasso su un interruttore: `canManageClubConfiguration` non
+    passa da **nessuna** chiave, quindi un motore di ruoli personalizzati non
+    avrebbe avuto niente da leggere e quelle tre caselle non avrebbero agito
+    affatto.
+  */
+  const soci = readFileSync(
+    path.join(RADICE, "lib", "members", "permissions.ts"),
+    "utf8",
+  );
+  assert.ok(soci.includes('"members.register.manage"'));
+
+  const documenti = readFileSync(
+    path.join(RADICE, "lib", "documents", "permissions.ts"),
+    "utf8",
+  );
+  assert.ok(documenti.includes('"documents.templates.manage"'));
+
+  const consensi = readFileSync(
+    path.join(RADICE, "lib", "consents", "permissions.ts"),
+    "utf8",
+  );
+  assert.ok(consensi.includes('"consents.definitions.manage"'));
+});
+
+test("W5-D01 · il comportamento non cambia: gli stessi ruoli di prima", () => {
+  /*
+    L'innesto delle nove chiavi non e una restrizione ne un allargamento. Il
+    catalogo dava gia esattamente i ruoli che le funzioni cablate rispondevano,
+    e questa e la prova che il passaggio e stato a saldo zero.
+  */
+  for (const ruolo of ["owner", "club_manager"]) {
+    assert.equal(canManageDocumentTemplates(ruolo), true);
+    assert.equal(canManageConsentDefinitions(ruolo), true);
+    assert.equal(canManageMembershipRegister(ruolo), true);
+  }
+
+  for (const ruolo of ["collaborator", "staff"]) {
+    assert.equal(canManageDocumentTemplates(ruolo), false);
+    assert.equal(canManageConsentDefinitions(ruolo), false);
+    assert.equal(canManageMembershipRegister(ruolo), false);
+
+    // Gli atti operativi restano alla segreteria.
+    assert.equal(canReadDocumentTemplates(ruolo), true);
+    assert.equal(canRecordConsentDecision(ruolo), true);
+    assert.equal(canReadConsentRecords(ruolo), true);
+    assert.equal(canAdvanceGeneratedDocument(ruolo), true);
+  }
+
+  for (const ruolo of ["trainer", "parent", "athlete"]) {
+    assert.equal(canReadDocumentTemplates(ruolo), false);
+    assert.equal(canRecordConsentDecision(ruolo), false);
+    assert.equal(canReadConsentRecords(ruolo), false);
+    assert.equal(canManageMembershipRegister(ruolo), false);
   }
 });

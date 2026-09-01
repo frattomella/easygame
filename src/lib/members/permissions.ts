@@ -29,9 +29,20 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
   motore di ruoli personalizzati la possono leggere.
 */
 
-/** Registrare un'ammissione, una cessazione o una riammissione. */
+/**
+ * Registrare un'ammissione, una cessazione o una riammissione.
+ *
+ * W5-D01. Chiedeva `canManageClubConfiguration` — cioe `owner || club_manager`
+ * **cablato**, che non passa da nessuna chiave e quindi non passerebbe da
+ * nessun motore di ruoli. La gemella qui sotto, la lettura, la chiave la
+ * chiedeva gia: erano due righe adiacenti che facevano la stessa cosa in due
+ * modi, e solo una delle due era configurabile.
+ *
+ * I ruoli non cambiano: nel catalogo `members.register.manage` e della
+ * direzione, cioe esattamente cio che `canManageClubConfiguration` risponde.
+ */
 export const canManageMembershipRegister = (role?: string | null) =>
-  canManageClubConfiguration(role);
+  roleHasPermission(role, "members.register.manage");
 
 /** Leggere il libro e lo storico di un socio. */
 export const canReadMembershipRegister = (role?: string | null) =>

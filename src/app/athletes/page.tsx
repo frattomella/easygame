@@ -58,6 +58,17 @@ import {
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGlobalLoading } from "@/components/providers/GlobalLoadingProvider";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
+import {
+  ATHLETE_BULK_STATUS_ACTIONS,
+  ATHLETE_STATUS_HEADINGS,
+  ATHLETE_STATUS_LABELS,
+  ATHLETE_STATUSES,
+  ATHLETE_STATUS_PLURAL_LABELS,
+  normalizeAthleteStatus,
+  type AthleteBulkStatusAction,
+  type AthleteStatus,
+  type AthleteStatusFilter,
+} from "@/lib/athletes/status";
 import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   findCategoryForBirthDate,
@@ -145,7 +156,7 @@ interface Athlete {
   primaryCategoryLabel?: string;
   allCategoryLabels: string[];
   age: number;
-  status: "active" | "inactive" | "suspended";
+  status: AthleteStatus;
   medicalCertExpiry: string;
   birthDate?: string;
   avatar?: string;
@@ -154,12 +165,14 @@ interface Athlete {
   registrationComplete: boolean;
 }
 
-type BulkActionType =
-  | "activate"
-  | "inactive"
-  | "suspended"
-  | "delete"
-  | "changeCategory";
+/*
+  Il nome di un'azione e il nome di uno stato sono due vocabolari diversi.
+  Confonderli era il difetto W6-03: `action: "activate"` finiva tale e quale
+  in `athletes.status`, e quegli atleti sparivano da ogni filtro perche
+  nessun confronto poteva riconoscerli. La traduzione ora e esplicita e sta
+  in `ATHLETE_BULK_STATUS_ACTIONS`.
+*/
+type BulkActionType = AthleteBulkStatusAction | "delete" | "changeCategory";
 
 type PendingBulkAction = {
   scope: "selected" | "all";
@@ -242,15 +255,7 @@ const ATHLETE_PAGE_SIZE = 200;
  * volta, e il totale che torna e gia quello: la riga ne annuncia uno, non
  * tre — di cui due sarebbero comunque zero.
  */
-const STATUS_FILTER_HEADINGS: Record<
-  "active" | "inactive" | "suspended" | "all",
-  string
-> = {
-  active: "Atleti Attivi",
-  suspended: "Atleti Sospesi",
-  inactive: "Atleti in Prestito",
-  all: "Atleti",
-};
+const STATUS_FILTER_HEADINGS = ATHLETE_STATUS_HEADINGS;
 
 /**
  * L'indirizzo dell'iscrizione di un nuovo atleta.
@@ -334,7 +339,9 @@ const buildAthleteRows = (
           ? new Date().getFullYear() -
             new Date(athlete.birth_date).getFullYear()
           : 0,
-        status: athlete.status || athlete.data?.status || "active",
+        status: normalizeAthleteStatus(
+          athlete.status ?? athlete.data?.status,
+        ),
         medicalCertExpiry: athlete.data?.medicalCertExpiry || "",
         birthDate: athlete.birth_date || "",
         avatar: athlete.avatar_url || athlete.data?.avatar || null,
@@ -422,19 +429,33 @@ export default function AthletesPage() {
 
   /*
     `meta` arriva solo quando la pagina e stata chiesta: `total` e il conteggio
-    vero dell'archivio, non delle righe caricate. `paginated` dice se il
-    server sta gia filtrando — sotto la soglia non lo fa, e la pagina continua
-    a lavorare sui dati che ha in mano.
+    vero delle righe che rispondono ai filtri correnti, non delle righe
+    caricate. Serve per l'intestazione e per i pulsanti di pagina.
   */
   const [listMeta, setListMeta] = useState<ListPageMeta | null>(null);
   const [page, setPage] = useState(1);
   const [pageLoading, setPageLoading] = useState(false);
-  const paginated = Boolean(listMeta && listMeta.total > listMeta.limit);
 
-  // Status filter: "active" | "inactive" | "suspended" | "all"
-  const [statusFilter, setStatusFilter] = useState<
-    "active" | "inactive" | "suspended" | "all"
-  >("active");
+  /*
+    W6-01. `paginated` decide se comanda il server o il browser, e **non puo**
+    dipendere dal totale filtrato.
+
+    Prima era `listMeta.total > listMeta.limit` su un `meta` che arriva anche
+    dalle chiamate filtrate. Su un club grande succedeva questo: si filtrava
+    «Sospesi», il server rispondeva trenta righe su un limite di duecento,
+    `paginated` diventava `false`, e l'effetto che ricarica — che comincia con
+    `if (!paginated) return` — **si spegneva da solo**. Da quel momento nessuna
+    richiesta partiva piu e ogni filtro successivo girava in memoria sui trenta
+    sospesi rimasti: «Disattivati» dava zero risultati con l'archivio pieno.
+
+    La misura giusta e la dimensione dell'**archivio**, che non cambia quando
+    cambia un filtro. La scrive solo il caricamento iniziale.
+  */
+  const [archiveTotal, setArchiveTotal] = useState<number | null>(null);
+  const paginated = (archiveTotal ?? 0) > ATHLETE_PAGE_SIZE;
+
+  const [statusFilter, setStatusFilter] =
+    useState<AthleteStatusFilter>("active");
 
   // Default column preferences
   const defaultColumns = {
@@ -547,6 +568,11 @@ export default function AthletesPage() {
 
       const athletesData = athletesPage.athletes;
       setListMeta(athletesPage.meta);
+      /*
+        Questa e l'unica chiamata senza filtri, quindi l'unica che puo dire
+        quanto e grande l'archivio. Vedi `paginated` (W6-01).
+      */
+      setArchiveTotal(athletesPage.meta?.total ?? athletesData.length);
       setPage(1);
 
       const normalizedCategories = buildCategoryList(categoriesData || []);
@@ -948,7 +974,7 @@ export default function AthletesPage() {
   // Function to update athlete status in database
   const updateAthleteStatus = async (
     athleteId: string,
-    newStatus: "active" | "inactive" | "suspended",
+    newStatus: AthleteStatus,
   ) => {
     const clubId = resolveCurrentClubId();
 
@@ -967,35 +993,42 @@ export default function AthletesPage() {
         ),
       );
 
-      const statusText =
-        newStatus === "active"
-          ? "attivato"
-          : newStatus === "suspended"
-            ? "sospeso"
-            : "disattivato";
-      showToast("success", `Atleta ${statusText} con successo`);
+      showToast(
+        "success",
+        `Atleta: stato aggiornato a "${ATHLETE_STATUS_LABELS[newStatus]}"`,
+      );
     } catch (error) {
       console.error("Error updating athlete status:", error);
       showToast("error", "Errore nell'aggiornamento dello stato dell'atleta");
     }
   };
 
-  // Function to delete athlete
-  const deleteAthlete = async (athleteId: string, athleteName: string) => {
-    const clubId = resolveCurrentClubId();
+  /*
+    W6-07. La conferma passa dal dialogo dell'applicazione — la stessa
+    primitiva che questa pagina usa gia per le operazioni in blocco — e non
+    dal `confirm()` del browser, che il browser stesso puo sopprimere e che
+    dentro una webview puo non comparire affatto: l'operazione irreversibile
+    partirebbe senza che nessuno abbia confermato niente.
+  */
+  const [pendingAthleteDeletion, setPendingAthleteDeletion] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
-    if (!clubId) {
+  const deleteAthlete = (athleteId: string, athleteName: string) => {
+    if (!resolveCurrentClubId()) {
       showToast("error", "Club non trovato");
       return;
     }
+    setPendingAthleteDeletion({ id: athleteId, name: athleteName });
+  };
 
-    if (
-      !confirm(
-        `Sei sicuro di voler eliminare l'atleta ${athleteName}? Questa azione non può essere annullata.`,
-      )
-    ) {
-      return;
-    }
+  const confirmAthleteDeletion = async () => {
+    const pending = pendingAthleteDeletion;
+    const clubId = resolveCurrentClubId();
+    if (!pending || !clubId) return;
+    const athleteId = pending.id;
+    const athleteName = pending.name;
 
     try {
       await deleteClubAthlete(clubId, athleteId);
@@ -1007,6 +1040,8 @@ export default function AthletesPage() {
     } catch (error) {
       console.error("Error deleting athlete:", error);
       showToast("error", "Errore nell'eliminazione dell'atleta");
+    } finally {
+      setPendingAthleteDeletion(null);
     }
   };
 
@@ -1078,8 +1113,25 @@ export default function AthletesPage() {
   */
   const normalizedQuery = searchQuery.normalize("NFC").toLowerCase();
 
+  /*
+    W6-02. Il filtro di stato si applica **sempre**, anche quando comanda il
+    server.
+
+    Il primo caricamento chiede una pagina senza filtri — deve, per misurare
+    l'archivio — e la ricarica filtrata arriva un quarto di secondo dopo. In
+    quella finestra la pagina disegnava **tutti** gli stati, ed e il lampo che
+    si vedeva entrando. Con il server che ha gia filtrato questo passaggio non
+    toglie nulla: e un vaglio che non trova niente da togliere.
+
+    Gli altri quattro filtri restano condizionati, perche la ricerca del
+    server non e la stessa del browser — accenti, sinonimi — e rifarla qui
+    nasconderebbe righe che il server ha trovato apposta.
+  */
+  const matchesStatusFilter = (athlete: Athlete) =>
+    statusFilter === "all" || athlete.status === statusFilter;
+
   const filteredAthletes = paginated
-    ? athletes
+    ? athletes.filter(matchesStatusFilter)
     : athletes.filter((athlete) => {
     const matchesSearch =
       athlete.name.toLowerCase().includes(normalizedQuery) ||
@@ -1088,8 +1140,7 @@ export default function AthletesPage() {
         label.toLowerCase().includes(normalizedQuery),
       );
 
-    const matchesStatus =
-      statusFilter === "all" || athlete.status === statusFilter;
+    const matchesStatus = matchesStatusFilter(athlete);
 
     // Sede vuota sulla riga significa «non dichiarata», non «nessuna»: resta
     // visibile con qualunque filtro sede (ADR-0038).
@@ -1110,11 +1161,8 @@ export default function AthletesPage() {
 
   const selectedAthletesCount = selectedAthleteIds.size;
 
-  const getAthleteStatusLabel = (status: Athlete["status"]) => {
-    if (status === "active") return "Attivo";
-    if (status === "inactive") return "In Prestito";
-    return "Sospeso";
-  };
+  const getAthleteStatusLabel = (status: Athlete["status"]) =>
+    ATHLETE_STATUS_LABELS[status];
 
   const getVisibleAthleteExportColumns = () =>
     [
@@ -1295,12 +1343,16 @@ export default function AthletesPage() {
       return "rendere attivi";
     }
 
-    if (action === "inactive") {
-      return "rendere inattivi";
+    if (action === "deactivate") {
+      return "disattivare";
     }
 
-    if (action === "suspended") {
+    if (action === "suspend") {
       return "sospendere";
+    }
+
+    if (action === "loan") {
+      return "mettere in prestito";
     }
 
     if (action === "changeCategory") {
@@ -1411,7 +1463,16 @@ export default function AthletesPage() {
           } else {
             for (const athleteId of targetIds) {
               await updateClubAthlete(clubId, athleteId, {
-                status: pendingBulkAction.action,
+                /*
+                  W6-03. `pendingBulkAction.action` e il nome di un'azione
+                  (`activate`), non uno stato (`active`). Scriverlo tale e
+                  quale metteva in archivio un valore che nessun filtro
+                  riconosce, e l'atleta spariva da tutti — "Attivi" compreso.
+                */
+                status:
+                  ATHLETE_BULK_STATUS_ACTIONS[
+                    pendingBulkAction.action as AthleteBulkStatusAction
+                  ],
               });
             }
 
@@ -1845,6 +1906,23 @@ export default function AthletesPage() {
                     <UserX className="mr-1 h-3.5 w-3.5" />
                     Sospesi
                   </Button>
+                  {/*
+                    W6-04. Fino alla Wave 6 questo pulsante e quello sopra
+                    chiedevano lo **stesso** valore: `inactive` era «In
+                    Prestito» sulla riga e «Disattivati» qui. Il prestito ora
+                    e uno stato suo, e i due filtri mostrano due insiemi
+                    diversi.
+                  */}
+                  <Button
+                    variant={statusFilter === "loan" ? "default" : "ghost"}
+                    size="sm"
+                    aria-pressed={statusFilter === "loan"}
+                    onClick={() => setStatusFilter("loan")}
+                    className="h-8 shrink-0 px-2.5 text-xs"
+                  >
+                    <UserMinus className="mr-1 h-3.5 w-3.5" />
+                    {ATHLETE_STATUS_PLURAL_LABELS.loan}
+                  </Button>
                   <Button
                     variant={statusFilter === "inactive" ? "default" : "ghost"}
                     size="sm"
@@ -1853,7 +1931,7 @@ export default function AthletesPage() {
                     className="h-8 shrink-0 px-2.5 text-xs"
                   >
                     <EyeOff className="mr-1 h-3.5 w-3.5" />
-                    Disattivati
+                    {ATHLETE_STATUS_PLURAL_LABELS.inactive}
                   </Button>
                   <Button
                     variant={statusFilter === "all" ? "default" : "ghost"}
@@ -1961,12 +2039,13 @@ export default function AthletesPage() {
                   </>
                 ) : (
                   <>
-                    Atleti Attivi:{" "}
-                    {athletes.filter((a) => a.status === "active").length} |
-                    Atleti Sospesi:{" "}
-                    {athletes.filter((a) => a.status === "suspended").length} |
-                    Atleti in Prestito:{" "}
-                    {athletes.filter((a) => a.status === "inactive").length}
+                    {ATHLETE_STATUSES.map((stato, indice) => (
+                      <React.Fragment key={stato}>
+                        {indice > 0 ? " | " : null}
+                        {ATHLETE_STATUS_HEADINGS[stato]}:{" "}
+                        {athletes.filter((a) => a.status === stato).length}
+                      </React.Fragment>
+                    ))}
                   </>
                 )}
               </h2>
@@ -1998,7 +2077,7 @@ export default function AthletesPage() {
                     onClick={() =>
                       setPendingBulkAction({
                         scope: "all",
-                        action: "inactive",
+                        action: "deactivate",
                       })
                     }
                   >
@@ -2009,7 +2088,7 @@ export default function AthletesPage() {
                     onClick={() =>
                       setPendingBulkAction({
                         scope: "all",
-                        action: "suspended",
+                        action: "suspend",
                       })
                     }
                   >
@@ -2062,7 +2141,7 @@ export default function AthletesPage() {
                     onClick={() =>
                       setPendingBulkAction({
                         scope: "selected",
-                        action: "inactive",
+                        action: "deactivate",
                       })
                     }
                   >
@@ -2076,7 +2155,7 @@ export default function AthletesPage() {
                     onClick={() =>
                       setPendingBulkAction({
                         scope: "selected",
-                        action: "suspended",
+                        action: "suspend",
                       })
                     }
                   >
@@ -2215,7 +2294,7 @@ export default function AthletesPage() {
                         onClick={() =>
                           setPendingBulkAction({
                             scope: "selected",
-                            action: "inactive",
+                            action: "deactivate",
                           })
                         }
                       >
@@ -2230,7 +2309,7 @@ export default function AthletesPage() {
                         onClick={() =>
                           setPendingBulkAction({
                             scope: "selected",
-                            action: "suspended",
+                            action: "suspend",
                           })
                         }
                       >
@@ -2302,7 +2381,7 @@ export default function AthletesPage() {
                             onClick={() =>
                               setPendingBulkAction({
                                 scope: "all",
-                                action: "inactive",
+                                action: "deactivate",
                               })
                             }
                           >
@@ -2313,7 +2392,7 @@ export default function AthletesPage() {
                             onClick={() =>
                               setPendingBulkAction({
                                 scope: "all",
-                                action: "suspended",
+                                action: "suspend",
                               })
                             }
                           >
@@ -2376,7 +2455,8 @@ export default function AthletesPage() {
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
                   {statusFilter === "all"
                     ? "Nessun atleta presente"
-                    : `Nessun atleta ${statusFilter === "active" ? "attivo" : statusFilter === "suspended" ? "sospeso" : "disattivato"}`}
+                    : ATHLETE_STATUS_HEADINGS[statusFilter] +
+                      ": nessuno in elenco"}
                 </h3>
                 <p className="text-gray-500 mb-4">
                   {statusFilter === "all"
@@ -2722,6 +2802,22 @@ export default function AthletesPage() {
         confirmText="Sì, conferma"
         cancelText="No, annulla"
         type={pendingBulkAction?.action === "delete" ? "warning" : "question"}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingAthleteDeletion)}
+        onClose={() => setPendingAthleteDeletion(null)}
+        onConfirm={() => void confirmAthleteDeletion()}
+        type="error"
+        title="Eliminare questo atleta?"
+        description={
+          `Stai per eliminare ${pendingAthleteDeletion?.name ?? "questo atleta"}. ` +
+          "L'operazione non si annulla: la scheda, le appartenenze alle categorie " +
+          "e i certificati medici collegati vengono rimossi. Le rate e i movimenti " +
+          "gia registrati restano in contabilita."
+        }
+        confirmText="Elimina atleta"
+        cancelText="Annulla"
       />
     </div>
   );

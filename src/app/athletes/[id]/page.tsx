@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  ConfirmDialog,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -1130,23 +1131,90 @@ export default function AthleteProfilePage() {
     });
   };
 
+  /**
+   * **La cancellazione di una persona chiede conferma come la chiede il resto
+   * del prodotto.**
+   *
+   * Fin qui usava il `confirm()` del browser, mentre due tab piu in la la
+   * stessa scheda protegge con un dialogo dell'applicazione la cancellazione
+   * di un **certificato**. Il documento aveva piu tutela della persona.
+   *
+   * Il `confirm()` nativo non e solo brutto: non dice cosa si perde, il
+   * browser lo sopprime dopo il primo uso («impedisci a questa pagina di
+   * creare altre finestre»), e dentro una webview puo non comparire affatto —
+   * cioe l'operazione irreversibile parte senza che nessuno abbia confermato
+   * niente. `ConfirmDialog` e la primitiva che questa applicazione usa gia
+   * per le conferme (`src/components/ui/dialog.tsx`).
+   */
+  /*
+    Un solo meccanismo di conferma per tutta la scheda, e restituisce una
+    promessa: le tre azioni irreversibili di questo file sono `async` e devono
+    poter **attendere** la risposta esattamente dove prima attendevano
+    `window.confirm`. Cosi la riga chiamante resta una sola, e non nascono tre
+    stati diversi per la stessa domanda.
+  */
+  const [confermaInSospeso, setConfermaInSospeso] = useState<{
+    title: string;
+    description: string;
+    confirmText: string;
+    type: "warning" | "info" | "question" | "error";
+    risolvi: (esito: boolean) => void;
+  } | null>(null);
+
+  const richiediConferma = (richiesta: {
+    title: string;
+    description: string;
+    confirmText?: string;
+    type?: "warning" | "info" | "question" | "error";
+  }) =>
+    new Promise<boolean>((risolvi) => {
+      setConfermaInSospeso({
+        title: richiesta.title,
+        description: richiesta.description,
+        confirmText: richiesta.confirmText ?? "Conferma",
+        type: richiesta.type ?? "warning",
+        risolvi,
+      });
+    });
+
+  const chiudiConferma = (esito: boolean) => {
+    setConfermaInSospeso((corrente) => {
+      corrente?.risolvi(esito);
+      return null;
+    });
+  };
+
   const handleDeleteAthlete = async () => {
     if (!clubId || !athleteId) return;
 
-    if (confirm("Sei sicuro di voler eliminare questo atleta?")) {
-      try {
-        const { deleteClubAthlete } = await import("@/lib/simplified-db");
-        await deleteClubAthlete(clubId, athleteId);
-        showToast("success", "Atleta eliminato con successo");
-        router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes");
-      } catch (error) {
-        console.error("Error deleting athlete:", error);
-        showToast({
-          title: "Errore",
-          description: "Errore nell'eliminazione dell'atleta",
-          variant: "destructive",
-        });
-      }
+    const nome =
+      [athlete?.firstName, athlete?.lastName].filter(Boolean).join(" ") ||
+      "questo atleta";
+
+    const confermato = await richiediConferma({
+      type: "error",
+      title: "Eliminare questo atleta?",
+      confirmText: "Elimina atleta",
+      description:
+        `Stai per eliminare ${nome}. L'operazione non si annulla: la scheda, ` +
+        "le appartenenze alle categorie e i certificati medici collegati " +
+        "vengono rimossi. Le rate e i movimenti gia registrati restano in " +
+        "contabilita.",
+    });
+    if (!confermato) return;
+
+    try {
+      const { deleteClubAthlete } = await import("@/lib/simplified-db");
+      await deleteClubAthlete(clubId, athleteId);
+      showToast("success", "Atleta eliminato con successo");
+      router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes");
+    } catch (error) {
+      console.error("Error deleting athlete:", error);
+      showToast({
+        title: "Errore",
+        description: "Errore nell'eliminazione dell'atleta",
+        variant: "destructive",
+      });
     }
   };
 
@@ -1301,14 +1369,16 @@ export default function AthleteProfilePage() {
       guardian.linkedUserId || guardian.linked_user_id || "",
     ).trim();
 
-    if (
-      existingToken &&
-      !linkedUserId &&
-      !window.confirm(
-        "Esiste gia un token attivo per questo genitore. Vuoi rigenerarlo?",
-      )
-    ) {
-      return;
+    if (existingToken && !linkedUserId) {
+      const confermato = await richiediConferma({
+        type: "question",
+        title: "Rigenerare il token di accesso?",
+        confirmText: "Rigenera",
+        description:
+          "Esiste gia un token attivo per questo genitore. Rigenerandolo, " +
+          "quello consegnato in precedenza smette di funzionare.",
+      });
+      if (!confermato) return;
     }
 
     setGuardianAccessBusyId(guardianId);
@@ -1424,13 +1494,16 @@ export default function AthleteProfilePage() {
       return;
     }
 
-    if (
-      !window.confirm(
-        "Scollegare l'account da questo genitore? Il genitore rimarra nella scheda atleta.",
-      )
-    ) {
-      return;
-    }
+    const confermato = await richiediConferma({
+      type: "warning",
+      title: "Scollegare l'account da questo genitore?",
+      confirmText: "Scollega",
+      description:
+        "Il genitore resta nella scheda atleta, ma perde l'accesso all'area " +
+        "famiglia: non vedra piu calendario, pagamenti e documenti del " +
+        "minore finche non gli viene consegnato un nuovo token.",
+    });
+    if (!confermato) return;
 
     setGuardianAccessBusyId(guardianId);
 
@@ -7818,6 +7891,23 @@ export default function AthleteProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/*
+        W6-07. Le tre azioni irreversibili di questa scheda passano da qui.
+        Il `confirm()` del browser non dice cosa si perde, il browser lo puo
+        sopprimere dopo il primo uso, e dentro una webview puo non comparire
+        affatto: l'operazione partirebbe senza che nessuno abbia confermato.
+      */}
+      <ConfirmDialog
+        isOpen={Boolean(confermaInSospeso)}
+        onClose={() => chiudiConferma(false)}
+        onConfirm={() => chiudiConferma(true)}
+        type={confermaInSospeso?.type ?? "warning"}
+        title={confermaInSospeso?.title ?? ""}
+        description={confermaInSospeso?.description ?? ""}
+        confirmText={confermaInSospeso?.confirmText ?? "Conferma"}
+        cancelText="Annulla"
+      />
     </div>
   );
 }

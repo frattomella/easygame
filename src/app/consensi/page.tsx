@@ -25,7 +25,7 @@ import {
   canManageConsentDefinitions,
   canReadConsentRecords,
   canRecordConsentDecision,
-} from "@/lib/documents/permissions";
+} from "@/lib/consents/permissions";
 import { FileCheck2, ShieldCheck, Undo2 } from "lucide-react";
 
 /**

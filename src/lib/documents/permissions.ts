@@ -58,7 +58,7 @@ const canStandBeforeADocument = (role?: string | null) =>
  * esce con la firma del presidente.
  */
 export const canManageDocumentTemplates = (role?: string | null) =>
-  canManageClubConfiguration(role);
+  roleHasPermission(role, "documents.templates.manage");
 
 /** Vedere l'elenco dei modelli e il loro contenuto. */
 export const canReadDocumentTemplates = (role?: string | null) =>
@@ -77,7 +77,7 @@ export const canGenerateDocumentWithSensitivity = (
   role: string | null | undefined,
   sensitivity: Iterable<PlaceholderSensitivity | string>,
 ) => {
-  if (!canStandBeforeADocument(role)) return false;
+  if (!roleHasPermission(role, "documents.generate")) return false;
 
   for (const entry of sensitivity) {
     const value = String(entry || "").trim().toLowerCase();
@@ -113,7 +113,7 @@ export const explainGenerationDenial = (
   role: string | null | undefined,
   sensitivity: Iterable<PlaceholderSensitivity | string>,
 ): string | null => {
-  if (!canStandBeforeADocument(role)) {
+  if (!roleHasPermission(role, "documents.generate")) {
     return "Accesso negato: i documenti li genera chi lavora nella segreteria del club";
   }
 
@@ -159,7 +159,7 @@ export const canReadGeneratedDocument = (
   document: { sensitivity?: string[] | null; generated_by?: string | null },
   viewerUserId?: string | null,
 ) => {
-  if (!canStandBeforeADocument(role)) return false;
+  if (!roleHasPermission(role, "documents.generated.read")) return false;
 
   const sensitivity = Array.isArray(document.sensitivity)
     ? document.sensitivity
@@ -174,21 +174,10 @@ export const canReadGeneratedDocument = (
 
 /** Caricare la copia firmata e portare avanti lo stato del documento. */
 export const canAdvanceGeneratedDocument = (role?: string | null) =>
-  canStandBeforeADocument(role);
+  roleHasPermission(role, "documents.generated.advance");
 
-/** Definire un consenso e pubblicarne le versioni: configurazione societaria. */
-export const canManageConsentDefinitions = (role?: string | null) =>
-  canManageClubConfiguration(role);
-
-/**
- * Registrare un'accettazione o una revoca per conto di qualcuno.
- *
- * La segreteria lo fa tutti i giorni con un foglio in mano: e un gesto
- * operativo, non una configurazione.
- */
-export const canRecordConsentDecision = (role?: string | null) =>
-  canStandBeforeADocument(role);
-
-/** Leggere lo stato dei consensi del club. */
-export const canReadConsentRecords = (role?: string | null) =>
-  canStandBeforeADocument(role);
+/*
+  I tre predicati sui consensi vivevano qui, e si riducevano tutti e tre a
+  `documents.templates.read`: una chiave del dominio *documenti* decideva tre
+  atti sui *consensi*. Sono in `src/lib/consents/permissions.ts` (W5-D01).
+*/
