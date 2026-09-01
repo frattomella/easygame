@@ -211,10 +211,10 @@ funzionava e non si vedeva.
 
 | Capability | Stato | Note |
 |-----------|-------|------|
-| Segreteria | COMPLETE | `/secretariat`, `secretariat_notes`, appuntamenti |
+| Segreteria | PARTIAL | `/secretariat`, `secretariat_notes`. Gli appuntamenti si ricevono e **non si confermano**: nessun codice scrive `confirmed` ne `rejected`. Il dominio proprio arriva in Wave 5 — 5E |
 | Gestione iscrizioni | PARTIAL | `/registration-management` (3.301 righe) con solo 2 chiamate dati: gran parte dello stato e locale |
-| Gestione accessi al club | COMPLETE | `/dashboard/access-management` |
-| Permessi trainer | COMPLETE | `/permissions` → `trainer-permissions-page`, `trainer-dashboard-permissions.ts` |
+| Gestione accessi al club | MOCK | `/dashboard/access-management` e una schermata con tre nomi cablati e un token generato dal browser: **nessun effetto sull'autorizzazione**. I ruoli personalizzati sono un requisito definitivo di prodotto ed entrano fra i blocker obbligatori della Wave 6 pre-production |
+| Permessi trainer | COMPLETE | `/permissions` → `trainer-permissions-page`, `trainer-dashboard-permissions.ts`. Fino alla Wave 5 la configurazione **non raggiungeva la sessione dell'allenatore**: si leggeva da `GET /api/v1/clubs`, che al ruolo risponde 403, e l'errore inghiottito faceva ricadere sui default (D-2). Ora passa da `GET /api/v1/trainer/preferences` |
 | Impostazioni club | COMPLETE | `/settings` su `clubs.settings` |
 | Anagrafica societaria | COMPLETE | `/organization` |
 
@@ -222,7 +222,7 @@ funzionava e non si vedeva.
 
 | Capability | Stato | Note |
 |-----------|-------|------|
-| Parent dashboard | COMPLETE | `/parent-view/[id]` + 9 sottopagine, API dedicate `/api/parent-dashboard/**` |
+| Parent dashboard | PARTIAL | `/parent-view/[id]` + 9 sottopagine, API dedicate `/api/parent-dashboard/**`. Fino alla Wave 5 il genitore con piu figli **non raggiungeva il secondo** (D-3). Le voci mancanti — bacheca, notifiche disegnate, «Paga ora», ricevute scaricabili, consensi, fascicolo — sono il perimetro di 5H |
 | Profilo atleta | PARTIAL | `/athletes/[id]/profile` con guard; superficie ridotta rispetto al parent |
 | RSVP: conferma di partecipazione della famiglia (G-20) | COMPLETE | Wave 2, W2-E. `src/lib/rsvp/model.ts` (dominio puro) + `src/lib/server/rsvp.ts` (unico scrittore) + `POST/GET /api/v1/rsvp`. La famiglia risponde da `/parent-view/[id]/trainings` con `AttendanceConfirmation.tsx`, ora collegato al server e senza `localStorage`; puo cambiare risposta finche la scadenza non passa. Lo staff vede si / no / **senza risposta** dentro la scheda appello (`TrainingRsvpSummary` in `AttendanceSheet`), con il perimetro per gruppo operativo dell'allenatore. **L'RSVP non scrive mai `training_attendance.status`**: l'intenzione della famiglia non entra nella misura presenze dei bandi. 30 test |
 | RSVP su partite e convocazioni | MISSING | V1.1. La convocazione non ha una forma unica (nove grafie): darle una forma e un lavoro proprio |

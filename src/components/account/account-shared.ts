@@ -73,6 +73,7 @@ export type MembershipRecord = {
   redirect_path?: string | null;
   resolved_role?: string | null;
   linked_athlete_id?: string | null;
+  linked_athlete_ids?: string[] | null;
   access_kind?: "ownership" | "membership" | string;
   is_ownership_record?: boolean;
   organization?: MembershipOrganization | null;
@@ -98,6 +99,8 @@ export type AccountClub = {
   activeSeasonId?: string | null;
   activeSeasonLabel?: string | null;
   linkedAthleteId?: string | null;
+  /** I figli collegati, tutti: il singolare era il primo, e bastava (D-3). */
+  linkedAthleteIds?: string[] | null;
   redirectPath?: string | null;
 };
 
@@ -299,6 +302,11 @@ export const mapMembershipToClub = (
         : `membership:${membership.id || `${membership.organization_id}:${role}`}`,
     activeSeasonId: seasonState.activeSeasonId,
     activeSeasonLabel: seasonState.activeSeason?.label || null,
+    /* Il legame famiglia arriva dal server: e l'elenco, non il primo (D-3). */
+    linkedAthleteIds: Array.isArray(membership.linked_athlete_ids)
+      ? membership.linked_athlete_ids
+      : [],
+    linkedAthleteId: membership.linked_athlete_id || null,
   };
 };
 

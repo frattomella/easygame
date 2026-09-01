@@ -21,7 +21,8 @@ import {
   getStatusBadgeClasses,
 } from "@/components/trainer/trainer-dashboard-shared";
 import { cn } from "@/lib/utils";
-import { saveTrainingAttendance, updateClubDataItem } from "@/lib/simplified-db";
+import { saveTrainingAttendance } from "@/lib/simplified-db";
+import { updateTrainerClubItem } from "@/lib/trainer-club-items";
 import { useToast } from "@/components/ui/toast-notification";
 import { dedupeTrainings, getTrainingStableKey } from "@/lib/training-utils";
 import { PageHeading } from "@/components/dashboard/page-heading";
@@ -235,8 +236,7 @@ export default function TrainerTrainingsPage() {
                             "L’allenamento verrà segnato come annullato per il trainer e per il club.",
                           onConfirm: async () => {
                             if (!activeClub?.id) return;
-                            await updateClubDataItem(
-                              activeClub.id,
+                            await updateTrainerClubItem(
                               "trainings",
                               training.id,
                               { status: "annullato" },
@@ -267,8 +267,7 @@ export default function TrainerTrainingsPage() {
                             "L’allenamento tornerà attivo e nuovamente operativo.",
                           onConfirm: async () => {
                             if (!activeClub?.id) return;
-                            await updateClubDataItem(
-                              activeClub.id,
+                            await updateTrainerClubItem(
                               "trainings",
                               training.id,
                               { status: "upcoming" },

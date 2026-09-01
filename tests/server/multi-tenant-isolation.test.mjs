@@ -407,6 +407,12 @@ test("ogni risorsa organization-scoped filtra davvero per organizzazione", async
   const daVerificare = Object.entries(resources.RESOURCE_CONFIG)
     .filter(([, config]) => config.kind === "club_resource")
     .map(([name]) => name)
+    /*
+      Una risorsa **chiusa** non si legge dal registro generico affatto, quindi
+      non c'e nessuna query da ispezionare: il suo confine e la porta sbarrata,
+      ed e `tests/server/appuntamenti-non-si-cancellano.test.mjs` a provarlo.
+    */
+    .filter((name) => !resources.isClosedResource(name))
     // access_tokens non ha mirroring JSON ma resta club-scoped
     .concat(["athletes", "medical_certificates", "payments", "invoices", "receipts"]);
 

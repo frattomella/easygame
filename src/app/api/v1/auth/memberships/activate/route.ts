@@ -7,6 +7,7 @@ import {
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { getParentLinkedAthletes } from "@/lib/server/parent-dashboard";
 
 const UUID_PATTERN =
   /^(?:urn:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,15 +20,6 @@ const normalizeUuidLike = (value: unknown) =>
 
 const isUuid = (value: unknown) =>
   UUID_PATTERN.test(String(value || "").trim());
-
-const getLinkedUserId = (value: any) =>
-  String(
-    value?.linkedUserId ||
-      value?.linked_user_id ||
-      value?.userId ||
-      value?.user_id ||
-      "",
-  ).trim();
 
 const findDirectAthleteIdForUser = async (
   organizationId: string,
@@ -44,33 +36,37 @@ const findDirectAthleteIdForUser = async (
   return directAthlete?.id || null;
 };
 
-const findParentAthleteIdForUser = async (
+/**
+ * **Un solo proprietario della domanda «quali figli ha questo utente».**
+ *
+ * Qui ne vivevano due, e non davano la stessa risposta. Questo modulo guardava
+ * soltanto `guardians[].linkedUserId`, e restituiva **il primo** figlio
+ * trovato: ignorava `parent1`/`parent2` e ignorava la corrispondenza con
+ * l'indirizzo verificato. Un tutore legato solo per email otteneva `null`,
+ * finiva su `/account` e leggeva «Accesso attivato, ma il profilo collegato non
+ * e disponibile» — mentre `getParentDashboardData`, che usa l'altro
+ * proprietario, gli avrebbe dato accesso senza fare storie.
+ *
+ * Il proprietario e uno: `getParentLinkedAthletes`. Qui si filtra soltanto per
+ * il club che si sta attivando, perche la scelta del club l'ha gia fatta chi
+ * chiama.
+ */
+const findParentAthleteIdsForUser = async (
   organizationId: string,
   userId: string,
 ) => {
-  const athletes = await prisma.athlete.findMany({
-    where: {
-      organization_id: organizationId,
-    },
-    select: {
-      id: true,
-      data: true,
-    },
-  });
+  const linkedAthletes = await getParentLinkedAthletes(userId);
+  const tutti = linkedAthletes.map((athlete) => String(athlete.id));
+  /*
+    L'atterraggio e nel club che si sta attivando; l'elenco autorizzato e
+    quello della **persona**, perche un figlio in un'altra societa resta un
+    figlio e il selettore deve poterlo aprire.
+  */
+  const nelClub = linkedAthletes
+    .filter((athlete) => String(athlete.organization_id) === organizationId)
+    .map((athlete) => String(athlete.id));
 
-  const linkedAthlete = athletes.find((athlete) => {
-    const data =
-      athlete.data && typeof athlete.data === "object"
-        ? (athlete.data as Record<string, any>)
-        : {};
-    const guardians = Array.isArray(data.guardians) ? data.guardians : [];
-
-    return guardians.some(
-      (guardian: any) => getLinkedUserId(guardian) === userId,
-    );
-  });
-
-  return linkedAthlete?.id || null;
+  return { tutti, primo: nelClub[0] || tutti[0] || null };
 };
 
 const resolveActivatedAccessTarget = async ({
@@ -83,20 +79,35 @@ const resolveActivatedAccessTarget = async ({
   role: string;
 }) => {
   const normalizedRole = normalizeAccessRole(role);
-  const linkedAthleteId =
-    normalizedRole === "athlete"
-      ? await findDirectAthleteIdForUser(organizationId, userId)
-      : normalizedRole === "parent"
-        ? await findParentAthleteIdForUser(organizationId, userId)
-        : null;
+
+  let linkedAthleteIds: string[] = [];
+  let atterraggio: string | null = null;
+
+  if (normalizedRole === "athlete") {
+    atterraggio = await findDirectAthleteIdForUser(organizationId, userId);
+    linkedAthleteIds = atterraggio ? [atterraggio] : [];
+  } else if (normalizedRole === "parent") {
+    const { tutti, primo } = await findParentAthleteIdsForUser(
+      organizationId,
+      userId,
+    );
+    linkedAthleteIds = tutti;
+    atterraggio = primo;
+  }
 
   return {
     redirectPath: getAccessRedirectPath(normalizedRole, {
       organizationId,
-      linkedAthleteId,
+      linkedAthleteId: atterraggio,
     }),
     resolvedRole: normalizedRole,
-    linkedAthleteId,
+    /*
+      La forma singolare resta nella risposta finche una sessione aperta prima
+      del rilascio puo ancora leggerla: e il figlio su cui si atterra, cioe
+      esattamente cio che il campo diceva prima.
+    */
+    linkedAthleteId: atterraggio,
+    linkedAthleteIds,
   };
 };
 
@@ -264,6 +275,7 @@ export async function POST(request: Request) {
           redirect_path: accessTarget.redirectPath,
           resolved_role: accessTarget.resolvedRole,
           linked_athlete_id: accessTarget.linkedAthleteId,
+          linked_athlete_ids: accessTarget.linkedAthleteIds,
           organization: ownedClub,
           organizations: ownedClub,
         },
@@ -307,6 +319,7 @@ export async function POST(request: Request) {
         redirect_path: accessTarget.redirectPath,
         resolved_role: accessTarget.resolvedRole,
         linked_athlete_id: accessTarget.linkedAthleteId,
+          linked_athlete_ids: accessTarget.linkedAthleteIds,
         organizations: updatedMembership.organization,
       },
       error: null,

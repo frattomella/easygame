@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, getAthleteDisplayName, getAthleteMedicalExpiry } from "@/components/trainer/trainer-dashboard-shared";
 import { type TrainerDashboardPermissions } from "@/lib/trainer-dashboard-permissions";
+import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 
 function InfoRow({
   label,
@@ -41,6 +42,8 @@ export default function TrainerAthleteTechnicalDialog({
   onClose: () => void;
   permissions: TrainerDashboardPermissions;
 }) {
+  const { clinical } = useTrainerDashboard();
+
   if (!athlete) {
     return null;
   }
@@ -48,7 +51,16 @@ export default function TrainerAthleteTechnicalDialog({
   const data = athlete?.data || {};
   const canViewDetails = permissions.actions.viewAthleteDetails;
   const canViewContacts = permissions.actions.viewAthleteContacts;
-  const canViewMedical = permissions.actions.viewMedicalStatus;
+  /*
+    Lo **stato** del certificato resta; il **contenuto** clinico di un minore no,
+    a meno che il ruolo abbia `clinical.read` (D-4). Il server toglie i campi
+    dalla proiezione: qui si toglie la riga, cosi la scheda non mostra sei
+    trattini al posto di un dato che semplicemente non deve arrivare.
+  */
+  const canViewMedical =
+    permissions.actions.viewMedicalStatus && clinical.statusRead;
+  const canViewClinicalContent =
+    permissions.actions.viewMedicalStatus && clinical.read;
   const canViewTechnical = permissions.actions.viewAthleteTechnicalSheet;
 
   return (
@@ -162,11 +174,15 @@ export default function TrainerAthleteTechnicalDialog({
                       : "Non registrato"
                   }
                 />
-                <InfoRow label="Gruppo sanguigno" value={data?.bloodType || "-"} />
-                <InfoRow label="Allergie" value={data?.allergies || "-"} />
-                <InfoRow label="Patologie" value={data?.chronicDiseases || "-"} />
-                <InfoRow label="Farmaci" value={data?.medications || "-"} />
-                <InfoRow label="BLSD / Primo soccorso" value={`${data?.blsd ? "BLSD" : ""}${data?.firstAid ? " Primo soccorso" : ""}`.trim() || "-"} />
+                {canViewClinicalContent ? (
+                  <>
+                    <InfoRow label="Gruppo sanguigno" value={data?.bloodType || "-"} />
+                    <InfoRow label="Allergie" value={data?.allergies || "-"} />
+                    <InfoRow label="Patologie" value={data?.chronicDiseases || "-"} />
+                    <InfoRow label="Farmaci" value={data?.medications || "-"} />
+                    <InfoRow label="BLSD / Primo soccorso" value={`${data?.blsd ? "BLSD" : ""}${data?.firstAid ? " Primo soccorso" : ""}`.trim() || "-"} />
+                  </>
+                ) : null}
               </CardContent>
             </Card>
           </TabsContent>

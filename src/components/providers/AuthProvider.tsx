@@ -5,7 +5,11 @@ import { supabase } from "@/lib/supabase";
 import { clearClientAuthCache } from "@/lib/auth/session-sync";
 import { fetchMemberships } from "@/lib/auth/memberships-client";
 import { findStoredAccessMembership } from "@/lib/auth/active-club-access";
-import { getAccessRoleLabel, normalizeAccessRole } from "@/lib/access-roles";
+import {
+  collectLinkedAthleteIds,
+  getAccessRoleLabel,
+  normalizeAccessRole,
+} from "@/lib/access-roles";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { useRouter } from "next/navigation";
 
@@ -65,6 +69,8 @@ type MembershipRecord = {
   is_primary?: boolean | null;
   access_kind?: string | null;
   is_ownership_record?: boolean | null;
+  linked_athlete_id?: string | null;
+  linked_athlete_ids?: string[] | null;
   organization?: Record<string, any> | null;
   organizations?: Record<string, any> | null;
 };
@@ -107,6 +113,17 @@ const buildActiveClubFromMembership = (membership: MembershipRecord) => {
         : `membership:${membership.id || `${membership.organization_id}:${role}`}`,
     activeSeasonId: seasonState.activeSeasonId,
     activeSeasonLabel: seasonState.activeSeason?.label || null,
+    /*
+      **Il legame famiglia lo dichiara il server, a ogni caricamento.**
+
+      Prima viveva solo nella risposta dell'attivazione e nella copia in
+      `localStorage`: un F5 ricostruiva `activeClub` da qui, senza il legame, e
+      la guardia d'area rimandava il genitore su `/account`.
+    */
+    linkedAthleteIds: collectLinkedAthleteIds({
+      linkedAthleteId: membership.linked_athlete_id,
+      linkedAthleteIds: membership.linked_athlete_ids,
+    }),
   };
 };
 
@@ -246,6 +263,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ...nextClubCandidate,
           role: nextRole,
           roleLabel: getAccessRoleLabel(nextRole),
+          /*
+            La copia in `localStorage` vince su tutto il resto — e giusto, e
+            cio che conserva la scelta dell'utente — ma **non** sul legame
+            famiglia: quello lo sa il server, e una copia vecchia terrebbe
+            fuori un figlio tesserato ieri.
+          */
+          linkedAthleteIds: buildActiveClubFromMembership(
+            matchingStoredMembership || nextMembership,
+          ).linkedAthleteIds,
         };
 
         storeActiveClubForUser(user.id, nextClub);

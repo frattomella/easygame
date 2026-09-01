@@ -1,6 +1,14 @@
 import { prisma } from "./prisma";
 import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import {
+  canManageClubConfiguration,
+  normalizeAccessRole,
+} from "@/lib/access-roles";
+import {
+  hasHealthPermission,
+  stripClinicalAthleteFields,
+  stripClinicalCertificateFields,
+} from "@/lib/health/permissions";
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
 import {
@@ -329,6 +337,27 @@ const RESOURCE_BOUNDARIES: Record<string, "club" | "persona" | "chiuso"> = {
    * aperta e non serviva a niente.
    */
   assets: "chiuso",
+
+  /**
+   * **Gli appuntamenti non passano di qui, e la ragione e una perdita di dati.**
+   *
+   * `appointments` e un campo JSON del club, e `syncClubAggregateField` lo
+   * **rigenera da zero** a partire da `club_resource_items` a ogni creazione,
+   * modifica o cancellazione fatta dal registro generico. Le richieste delle
+   * famiglie nascono altrove — `POST /api/parent-dashboard/:id/appointments`
+   * scrive `clubs.appointments` e non tocca mai `club_resource_items` —
+   * quindi la **prima** operazione della segreteria su `/api/v1/appointments`
+   * le avrebbe cancellate tutte: nessun errore, nessun audit, nessuna traccia.
+   *
+   * Nessun client chiedeva questa rotta: la porta era aperta e non serviva a
+   * niente, salvo distruggere le richieste in attesa. La segreteria continua a
+   * passare da `PATCH /api/v1/clubs`, che rilegge l'array intero prima di
+   * riscriverlo — il verso sicuro della sincronizzazione.
+   *
+   * E una chiusura **provvisoria** (D-1): la correzione stabile e far nascere
+   * l'appuntamento come riga propria, con un proprietario di dominio.
+   */
+  appointments: "chiuso",
 };
 
 /**
@@ -354,6 +383,26 @@ assertOgniRisorsaDichiaraIlConfine();
 /** Le risorse che il registro generico non serve affatto. */
 export const isClosedResource = (resource: string) =>
   RESOURCE_BOUNDARIES[resource] === "chiuso";
+
+/**
+ * **La chiusura vale nel modulo, non solo nella rotta.**
+ *
+ * Il controllo viveva unicamente in `ensureResource`, dentro i due route
+ * handler generici. Una rotta e una porta fra tante: qualunque altro modulo
+ * server che chiamasse `createResource("appointments", …)` — o un handler
+ * nuovo scritto fra sei mesi — avrebbe riaperto la strada che cancella le
+ * richieste delle famiglie, e nessun test lo avrebbe visto.
+ *
+ * La regola sta dove sta il dato (ADR-0058): la guardia e in ogni strada che
+ * porta al campo.
+ */
+const assertResourceIsOpen = (resource: string) => {
+  if (!isClosedResource(resource)) return;
+
+  throw new Error(
+    `Accesso negato: ${resource} non passa dal registro generico, ma dalle rotte del suo dominio`,
+  );
+};
 
 /** Le risorse in cui una riga appartiene a **chi la chiede**. */
 const isPersonalResource = (resource: string) =>
@@ -917,7 +966,50 @@ const serializeRecord = (
     return withCompatibilityAliases(resource, pulito);
   }
 
-  return withCompatibilityAliases(resource, record);
+  return withCompatibilityAliases(
+    resource,
+    proiettaSenzaDatoClinico(resource, record, scope),
+  );
+};
+
+/**
+ * **Il dato clinico esce dalla proiezione di chi non lo ha** (D-4).
+ *
+ * Era mascherato solo dal browser: il flag `viewMedicalStatus` compariva in
+ * diciannove componenti e in **zero** moduli server, mentre allergie, farmaci,
+ * gruppo sanguigno e il file del certificato uscivano comunque da
+ * `GET /api/v1/athletes` e da `GET /api/v1/medical_certificates`.
+ *
+ * Senza `scope` non si toglie niente: sono le letture interne del server, che
+ * hanno gia il loro confine e che devono poter promuovere un certificato o
+ * calcolare una scadenza. La guardia e per **chi chiede da fuori**.
+ */
+const RISORSE_CON_DATO_CLINICO = new Set([
+  "athletes",
+  "simplified_athletes",
+  "medical_certificates",
+  "simplified_certificates",
+]);
+
+const proiettaSenzaDatoClinico = (
+  resource: string,
+  record: Record<string, any>,
+  scope?: ResourceAccessScope,
+) => {
+  if (!scope || !RISORSE_CON_DATO_CLINICO.has(resource)) {
+    return record;
+  }
+
+  if (hasHealthPermission(scope.activeRole, "clinical.read")) {
+    return record;
+  }
+
+  if (resource === "athletes" || resource === "simplified_athletes") {
+    const data = stripClinicalAthleteFields(record.data);
+    return data === record.data ? record : { ...record, data };
+  }
+
+  return stripClinicalCertificateFields(record);
 };
 
 /**
@@ -3488,6 +3580,21 @@ const resolveTrainerDashboardFilterContext = async (
   };
 };
 
+/**
+ * **Un filtro che si accende su un parametro di chi chiama non e un confine.**
+ *
+ * Il perimetro dell'allenatore — le sue categorie, i suoi atleti — si attivava
+ * solo se la query string portava `trainer_dashboard=1`. Cioe lo decideva il
+ * client. E nella stessa `Promise.all` il contesto della dashboard chiedeva
+ * anche `GET /api/v1/simplified_athletes?club_id=…` **senza** quel parametro:
+ * `simplified_athletes` sta in `TRAINER_READ_RESOURCES`, quindi la risposta
+ * conteneva l'anagrafica completa di **tutti** gli atleti del club. Il filtro
+ * applicato dopo, nel browser, era cosmetico: il dato era gia uscito.
+ *
+ * Adesso il filtro e **implicito sul ruolo**: chi entra come allenatore vede il
+ * proprio perimetro, e non c'e nessun parametro da omettere per uscirne. Il
+ * parametro storico resta accettato e non serve piu a niente (D-5).
+ */
 const filterTrainerDashboardRecords = async (
   resource: string,
   records: Record<string, any>[],
@@ -3495,7 +3602,7 @@ const filterTrainerDashboardRecords = async (
   scope?: ResourceAccessScope,
 ) => {
   if (
-    searchParams.get("trainer_dashboard") !== "1" ||
+    normalizeAccessRole(scope?.activeRole) !== "trainer" ||
     !scope?.userId ||
     !scope.activeOrganizationId ||
     !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(resource)
@@ -3568,6 +3675,7 @@ export const listResourcePage = async (
   scope?: ResourceAccessScope,
   options?: ResourceRequestOptions,
 ): Promise<ListResourceResult> => {
+  assertResourceIsOpen(resource);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
   const where = buildWhereFromSearchParams(resource, searchParams);
@@ -3770,6 +3878,7 @@ export const getResourceById = async (
   id: string,
   scope?: ResourceAccessScope,
 ) => {
+  assertResourceIsOpen(resource);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 
@@ -3865,6 +3974,7 @@ export const createResource = async (
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 
+  assertResourceIsOpen(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
 
   if (config.kind === "club_resource") {
@@ -4592,6 +4702,7 @@ export const updateResource = async (
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 
+  assertResourceIsOpen(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
 
   if (config.kind === "club_resource") {
@@ -4991,6 +5102,7 @@ export const deleteResource = async (
   id: string,
   scope?: ResourceAccessScope,
 ) => {
+  assertResourceIsOpen(resource);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 

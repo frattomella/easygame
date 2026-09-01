@@ -222,10 +222,22 @@ export default function TrainerAthleteProfilePage() {
     assignedAthletes,
     assignedCategories,
     categories,
+    clinical,
     permissions,
     visibleMatches,
     visibleTrainings,
   } = useTrainerDashboard();
+  /*
+    **Lo stato e il contenuto sono due permessi diversi** (D-4).
+
+    La scadenza del certificato risponde a «puo scendere in campo», e resta.
+    Allergie, patologie, farmaci e gruppo sanguigno di un minore no: il server
+    non li manda piu a chi non ha `clinical.read`, e la scheda non li chiede.
+  */
+  const canSeeClinicalStatus =
+    permissions.actions.viewMedicalStatus && clinical.statusRead;
+  const canSeeClinicalContent =
+    permissions.actions.viewMedicalStatus && clinical.read;
   const athleteId = String(params?.id || "").trim();
   const athlete = assignedAthletes.find(
     (entry: any) => String(entry?.id || "").trim() === athleteId,
@@ -337,7 +349,7 @@ export default function TrainerAthleteProfilePage() {
       value: "sanitari",
       label: "Dati Sanitari",
       icon: Heart,
-      visible: permissions.actions.viewMedicalStatus,
+      visible: canSeeClinicalStatus,
     },
     {
       value: "pagamenti",
@@ -425,7 +437,7 @@ export default function TrainerAthleteProfilePage() {
                   {membership.isPrimary ? "Primaria" : "Secondaria"}
                 </Badge>
               ))}
-              {medicalCertExpiry && permissions.actions.viewMedicalStatus ? (
+              {medicalCertExpiry && canSeeClinicalStatus ? (
                 <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
                   Certificato: {formatDate(medicalCertExpiry)}
                 </Badge>
@@ -652,7 +664,7 @@ export default function TrainerAthleteProfilePage() {
           </TabsContent>
         ) : null}
 
-        {permissions.actions.viewMedicalStatus ? (
+        {canSeeClinicalStatus ? (
           <TabsContent value="sanitari" className="mt-4 space-y-6">
             <Card>
               <CardHeader>
@@ -669,38 +681,51 @@ export default function TrainerAthleteProfilePage() {
                     }
                     icon={FileHeart}
                   />
-                  <DetailField
-                    label="Gruppo sanguigno"
-                    value={getTextValue(data?.bloodType) || "-"}
-                  />
-                  <DetailField
-                    label="Allergie"
-                    value={getTextValue(data?.allergies) || "-"}
-                  />
-                  <DetailField
-                    label="Patologie"
-                    value={getTextValue(data?.chronicDiseases) || "-"}
-                  />
-                  <DetailField
-                    label="Farmaci"
-                    value={getTextValue(data?.medications) || "-"}
-                  />
-                  <DetailField
-                    label="BLSD / Primo Soccorso"
-                    value={
-                      [
-                        data?.blsd ? "BLSD" : "",
-                        data?.firstAid ? "Primo soccorso" : "",
-                        data?.fireSafety ? "Antincendio" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" / ") || "-"
-                    }
-                  />
+                  {canSeeClinicalContent ? (
+                    <>
+                      <DetailField
+                        label="Gruppo sanguigno"
+                        value={getTextValue(data?.bloodType) || "-"}
+                      />
+                      <DetailField
+                        label="Allergie"
+                        value={getTextValue(data?.allergies) || "-"}
+                      />
+                      <DetailField
+                        label="Patologie"
+                        value={getTextValue(data?.chronicDiseases) || "-"}
+                      />
+                      <DetailField
+                        label="Farmaci"
+                        value={getTextValue(data?.medications) || "-"}
+                      />
+                      <DetailField
+                        label="BLSD / Primo Soccorso"
+                        value={
+                          [
+                            data?.blsd ? "BLSD" : "",
+                            data?.firstAid ? "Primo soccorso" : "",
+                            data?.fireSafety ? "Antincendio" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" / ") || "-"
+                        }
+                      />
+                    </>
+                  ) : null}
                 </div>
+                {canSeeClinicalContent ? null : (
+                  <p className="mt-4 text-sm text-slate-500">
+                    Il contenuto clinico — allergie, patologie, farmaci, gruppo
+                    sanguigno — non e visibile al tuo ruolo. Resta visibile lo
+                    stato del certificato, che e cio che serve a sapere se
+                    l&apos;atleta puo scendere in campo.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
+            {canSeeClinicalContent ? (
             <ReadOnlyAttachmentList
               title="Visite Mediche"
               description="Storico delle visite e relativi allegati caricati dal club."
@@ -714,6 +739,7 @@ export default function TrainerAthleteProfilePage() {
                 issueDate: visit?.date,
               }))}
             />
+            ) : null}
           </TabsContent>
         ) : null}
 

@@ -446,6 +446,7 @@ export default function AccountHomeScreen() {
       activeSeasonId: club.activeSeasonId || null,
       activeSeasonLabel: club.activeSeasonLabel || null,
       linkedAthleteId: club.linkedAthleteId || null,
+      linkedAthleteIds: club.linkedAthleteIds || [],
       redirectPath: club.redirectPath || null,
     };
 
@@ -640,6 +641,7 @@ export default function AccountHomeScreen() {
       role: activatedRole,
       roleLabel: getAccessRoleLabel(activatedRole),
       linkedAthleteId: response.data?.linked_athlete_id || null,
+      linkedAthleteIds: response.data?.linked_athlete_ids || [],
       redirectPath: response.data?.redirect_path || null,
     };
 
@@ -657,6 +659,7 @@ export default function AccountHomeScreen() {
         {
           organizationId: club.id,
           linkedAthleteId: activatedAccess?.linked_athlete_id,
+          linkedAthleteIds: activatedAccess?.linked_athlete_ids,
         },
       );
 

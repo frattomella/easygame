@@ -290,3 +290,77 @@ La regola generale che questo caso illustra: **il perimetro di un dominio si
 dichiara nella matrice**, non solo nelle sue rotte. La matrice e il posto in cui
 lo si dice una volta per tutte le porte, comprese quelle che non esistevano
 quando il dominio e nato.
+
+---
+
+## Il dato sanitario: tre permessi, nessun ruolo nuovo (2026-09-01, Wave 5 — 5A)
+
+`src/lib/health/permissions.ts` e il proprietario. Tre chiavi, sullo stampo di
+ADR-0077:
+
+| Permesso | owner | club_manager | collaborator | staff | trainer | parent | athlete |
+|---|---|---|---|---|---|---|---|
+| `clinical.status_read` | ✔ | ✔ | ✔ | ✔ | ✔ | legame | legame |
+| `clinical.read` | ✔ | ✔ | ✔ | ✔ | **✖** | legame | legame |
+| `clinical.manage` | ✔ | ✔ | ✔ | ✔ | ✖ | ✖ | ✖ |
+
+**Il taglio, e perche e quello giusto.** Lo *stato* — valido, in scadenza,
+scaduto, con la data — risponde alla domanda operativa «questo atleta puo
+scendere in campo?»: serve all'allenatore, e gli resta. Il *contenuto* —
+allergie, patologie, farmaci, gruppo sanguigno, il file del certificato —
+risponde a una domanda che l'allenatore non deve porsi per fare il proprio
+lavoro. Default **negato**.
+
+Il taglio non e inventato: e quello che l'interfaccia gia distingueva, con il
+badge di scadenza da una parte e le schede allergie/farmaci/BLSD dall'altra. La
+differenza e che prima lo distingueva **il browser** — `viewMedicalStatus`
+compariva in diciannove componenti e in **zero** moduli server — e adesso lo
+distingue la proiezione di `serializeRecord`, cioe ogni strada che porta al
+campo (ADR-0058).
+
+**Per genitore e atleta il gate e il legame, non il ruolo**: le loro rotte
+risolvono il legame e sono l'unico controllo. Questo modulo decide cosa vede chi
+guarda il fascicolo **di qualcun altro**.
+
+**Cosa il club perde, e va detto:** un allenatore smette di vedere allergie,
+farmaci e gruppo sanguigno. Finche non esiste la concessione per singolo
+operatore (Wave 6, con i ruoli personalizzati) non c'e modo di restituirglielo.
+E deliberato: il default su un dato sanitario di un minore e negato, e un
+default sbagliato non si compensa con una casella di spunta nel browser.
+
+Copertura: `tests/auth/dato-clinico-e-perimetro-allenatore.test.mjs`.
+
+---
+
+## Il perimetro dell'allenatore e implicito sul ruolo (2026-09-01, Wave 5 — 5A)
+
+`filterTrainerDashboardRecords` si attivava solo se il chiamante passava
+`trainer_dashboard=1` nella query string. **Un filtro che si accende su un
+parametro scelto da chi chiama non e un confine**: bastava ometterlo, e
+`simplified_athletes` — che sta in `TRAINER_READ_RESOURCES` — restituiva
+l'anagrafica completa di tutti gli atleti del club. Era esattamente cio che
+faceva il contesto della dashboard, che poi filtrava **nel browser**.
+
+Adesso il filtro guarda `scope.activeRole`. Il parametro storico resta accettato
+e non decide piu niente.
+
+---
+
+## Il genitore ha i figli che ha, non il primo (2026-09-01, Wave 5 — 5A)
+
+`canAccessPath` ammetteva un solo percorso, `/parent-view/<linkedAthleteId>`,
+dove il valore era **singolo** e lo calcolava un `athletes.find(...)`. Il campo
+e diventato `linkedAthleteIds`, un elenco, con **un solo proprietario** della
+domanda: `getParentLinkedAthletes` in `src/lib/server/parent-dashboard.ts`, che
+risolve i figli in tutti i club e accetta anche il legame per email verificata.
+
+L'elenco non si filtra per club: la guardia risponde a «questo profilo e uno dei
+miei», che riguarda la persona. Il confine vero resta sul server, che risolve di
+nuovo il legame a ogni lettura.
+
+Lo espongono `GET /api/v1/auth/memberships` e
+`POST /api/v1/auth/memberships/activate` come `linked_athlete_ids`, cosi il
+legame **sopravvive a un ricaricamento della pagina**. La forma singolare resta
+accettata per le sessioni gia aperte.
+
+Copertura: `tests/auth/genitore-piu-figli.test.mjs`.

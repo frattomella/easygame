@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   CalendarDays,
@@ -54,13 +54,8 @@ import {
   getTrainingAttendanceStatus,
   isTrainingMissingAttendance,
 } from "@/lib/trainer-operational-alerts";
-import {
-  getClubStructures,
-  getClubTrainers,
-  getClubWeeklySchedule,
-  saveTrainingAttendance,
-  updateClubDataItem,
-} from "@/lib/simplified-db";
+import { saveTrainingAttendance } from "@/lib/simplified-db";
+import { updateTrainerClubItem } from "@/lib/trainer-club-items";
 import {
   buildTrainingLocationOptions,
   type TrainingLocationOption,
@@ -74,18 +69,16 @@ export default function TrainerTrainingsDashboardPage() {
     assignedAthletes,
     assignedCategories,
     categories,
+    loading: dashboardLoading,
     permissions,
     reload,
+    structures,
+    trainers,
     visibleTrainings,
+    weeklySchedule,
   } = useTrainerDashboard();
   const { showToast } = useToast();
   const [selectedTraining, setSelectedTraining] = useState<any | null>(null);
-  const [weeklySchedule, setWeeklySchedule] = useState<any[]>([]);
-  const [weeklyScheduleLoading, setWeeklyScheduleLoading] = useState(false);
-  const [weeklyScheduleTrainers, setWeeklyScheduleTrainers] = useState<any[]>([]);
-  const [weeklyScheduleLocations, setWeeklyScheduleLocations] = useState<
-    TrainingLocationOption[]
-  >([]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     new Date(),
   );
@@ -102,54 +95,18 @@ export default function TrainerTrainingsDashboardPage() {
     onConfirm: null,
   });
 
-  useEffect(() => {
-    if (!activeClub?.id) {
-      setWeeklySchedule([]);
-      setWeeklyScheduleTrainers([]);
-      setWeeklyScheduleLocations([]);
-      return;
-    }
+  /*
+    **Il pannello «Programmazione» era sempre vuoto** (D-2).
 
-    let cancelled = false;
-
-    const loadWeeklySchedule = async () => {
-      setWeeklyScheduleLoading(true);
-      try {
-        const [schedule, trainers, structures] = await Promise.all([
-          getClubWeeklySchedule(activeClub.id),
-          getClubTrainers(activeClub.id),
-          getClubStructures(activeClub.id),
-        ]);
-
-        if (cancelled) {
-          return;
-        }
-
-        setWeeklySchedule(Array.isArray(schedule) ? schedule : []);
-        setWeeklyScheduleTrainers(Array.isArray(trainers) ? trainers : []);
-        setWeeklyScheduleLocations(
-          buildTrainingLocationOptions(Array.isArray(structures) ? structures : []),
-        );
-      } catch (error) {
-        console.error("Error loading trainer weekly schedule:", error);
-        if (!cancelled) {
-          setWeeklySchedule([]);
-          setWeeklyScheduleTrainers([]);
-          setWeeklyScheduleLocations([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setWeeklyScheduleLoading(false);
-        }
-      }
-    };
-
-    void loadWeeklySchedule();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeClub?.id]);
+    Programma settimanale e strutture si leggevano da `clubs`, una risorsa che
+    il ruolo allenatore non puo leggere: tre 403 inghiottiti a ogni apertura
+    della pagina. Adesso arrivano dal contesto, che li prende da
+    `/api/v1/trainer/preferences` insieme ai permessi.
+  */
+  const weeklyScheduleLocations = useMemo(
+    () => buildTrainingLocationOptions(structures),
+    [structures],
+  );
 
   if (!permissions.navigation.trainings) {
     return <SectionBlockedState section="trainings" />;
@@ -386,8 +343,7 @@ export default function TrainerTrainingsDashboardPage() {
                             "L'allenamento verra segnato come annullato per il trainer e per il club.",
                           onConfirm: async () => {
                             if (!activeClub?.id) return;
-                            await updateClubDataItem(
-                              activeClub.id,
+                            await updateTrainerClubItem(
                               "trainings",
                               training.id,
                               { status: "annullato" },
@@ -419,8 +375,7 @@ export default function TrainerTrainingsDashboardPage() {
                             "L'allenamento tornera attivo e nuovamente operativo.",
                           onConfirm: async () => {
                             if (!activeClub?.id) return;
-                            await updateClubDataItem(
-                              activeClub.id,
+                            await updateTrainerClubItem(
                               "trainings",
                               training.id,
                               { status: "upcoming" },
@@ -662,9 +617,9 @@ export default function TrainerTrainingsDashboardPage() {
             weeklySchedule={weeklySchedule}
             categories={categories}
             assignedCategories={assignedCategories}
-            trainers={weeklyScheduleTrainers}
+            trainers={trainers}
             locations={weeklyScheduleLocations}
-            loading={weeklyScheduleLoading}
+            loading={dashboardLoading}
           />
         </div>
       </details>

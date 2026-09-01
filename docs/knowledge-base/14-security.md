@@ -1491,3 +1491,78 @@ nessuno porta IBAN, hash o token. Corretti due difetti del tracciato dei bandi:
 usava una copia privata dell'escape che **non proteggeva il ritorno a capo** —
 un nome incollato da Windows inventava una beneficiaria dentro una
 rendicontazione pubblica — e non neutralizzava le formule.
+
+---
+
+## Wave 5 — 5A: tre difetti che i gate non vedevano (2026-09-01)
+
+Tre superfici del prodotto non funzionavano con 3.632 test verdi, typecheck
+pulito e build a 153 rotte. Sono difetti che stanno **fra il clic e la rete**, o
+dentro un `catch` che restituisce `{}`: un test che sostituisce il trasporto non
+li vede.
+
+### D-1 — Le richieste di appuntamento delle famiglie si cancellavano da sole — RISOLTO
+
+`POST /api/parent-dashboard/:id/appointments` scriveva la richiesta **solo** in
+`clubs.appointments`, con un `prisma.club.update` diretto che aggira
+`resources.ts`. Non toccava `club_resource_items`.
+
+`syncClubAggregateField` **rigenera `clubs.appointments` da zero** a partire da
+`club_resource_items`, a ogni create, update e delete del CRUD generico. La
+prima operazione della segreteria da `/api/v1/appointments` avrebbe cancellato
+**tutte** le richieste in attesa: nessun errore, nessun audit, nessuna traccia.
+
+`appointments` e adesso una risorsa **chiusa** (`RESOURCE_BOUNDARIES`), come
+`assets`. La chiusura non vive piu solo in `ensureResource` dentro i due route
+handler: `assertResourceIsOpen` sta nelle cinque funzioni pubbliche di
+`resources.ts`, perche una rotta e una porta fra tante. La segreteria continua a
+passare da `PATCH /api/v1/clubs`, che rilegge l'array intero prima di
+riscriverlo — il verso sicuro della sincronizzazione. E provvisorio: il dominio
+proprio dell'appuntamento arriva in 5E.
+
+Copertura: `tests/server/appuntamenti-non-si-cancellano.test.mjs`.
+
+### D-2 — La dashboard allenatore interrogava otto volte una risorsa vietata al ruolo — RISOLTO
+
+Otto letture finivano su `GET /api/v1/clubs?fields=…`. `clubs` sta in
+`MANAGEMENT_ADMIN_ONLY_RESOURCES`: rispondevano **403**. `getClubSettings`
+inghiottiva l'errore e restituiva `{}`, e da li la configurazione dei permessi
+trainer **non raggiungeva mai la sessione di un allenatore**, il pannello
+«Programmazione» era sempre vuoto, e annullare un allenamento o salvare le
+convocazioni falliva.
+
+Conseguenza di sicurezza vera e propria: **ogni caricamento della dashboard
+allenatore scriveva circa sette righe di audit `resource.access_denied`** su un
+club che funzionava normalmente. Un registro rumoroso a quel punto nasconde un
+attacco vero.
+
+Adesso: `GET /api/v1/trainer/preferences`, che il ruolo puo aprire e da cui esce
+**solo** cio che serve a disegnare la dashboard. Le due scritture passano da
+`PATCH /api/v1/trainings|matches/:id` (`src/lib/trainer-club-items.ts`), che il
+ruolo ha in `TRAINER_WRITE_RESOURCES` e che **non riscrive l'intera
+collezione**.
+
+### D-4 — Il dato clinico dei minori era mascherato solo dal browser — RISOLTO
+
+Vedi [08 — Ruoli e permessi](08-roles-and-permissions.md). Il flag
+`viewMedicalStatus` nasceva `true` e compariva in diciannove componenti,
+**zero** moduli server: le schede erano nascoste, il dato usciva comunque da
+`GET /api/v1/athletes` e da `GET /api/v1/medical_certificates`. Violava ADR-0058
+alla lettera e cadeva sotto ADR-0019, su dati sanitari di minori.
+
+Adesso il contenuto clinico esce dalla proiezione di chi non ha `clinical.read`.
+Senza `scope` — le letture interne del server — non si toglie niente: hanno gia
+il loro confine e devono poter promuovere un certificato o calcolare una
+scadenza.
+
+### D-5 — Il perimetro atleti dell'allenatore lo decideva il client — RISOLTO
+
+Vedi [08 — Ruoli e permessi](08-roles-and-permissions.md).
+
+### D-3 — Un genitore con piu figli non raggiungeva il secondo — RISOLTO
+
+Non e un difetto di sicurezza ma di **coerenza fra due proprietari** della
+stessa domanda, e la classe merita di essere registrata qui: quando due moduli
+rispondono diversamente a «chi sono i figli di questo utente», uno dei due
+autorizza e l'altro nega, e nessuno dei due e evidentemente sbagliato. Il
+proprietario e adesso uno solo.

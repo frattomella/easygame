@@ -13,11 +13,6 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import {
-  getClubAthletes,
-  getClubData,
-  getClubSettings,
-} from "@/lib/simplified-db";
-import {
   getTrainerCategoryIds,
   getTrainerDisplayName,
   normalizeTrainerCategories,
@@ -57,6 +52,14 @@ type TrainerDashboardContextValue = {
   operationalAlerts: TrainerOperationalAlert[];
   matchConvocationDeadlineDays: number;
   permissions: TrainerDashboardPermissions;
+  weeklySchedule: any[];
+  structures: any[];
+  trainers: any[];
+  /**
+   * Il taglio sul dato clinico, **dichiarato dal server** (D-4). La schermata
+   * nasconde esattamente cio che la proiezione toglie.
+   */
+  clinical: { statusRead: boolean; read: boolean };
   reload: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -123,18 +126,21 @@ const getRecordStableKey = (record: any) =>
       "",
   );
 
-const mergeApiAndLegacyLists = <T,>(
-  response: { data: T[] | null; error: any },
-  fallback: unknown,
-) => {
-  const apiList = !response?.error && Array.isArray(response?.data)
-    ? response.data
-    : [];
-  const legacyList = Array.isArray(fallback) ? fallback : [];
+/**
+ * La lista di una risposta v1, deduplicata.
+ *
+ * Prima si fondeva con una **fallback legacy** che leggeva il club: quella
+ * strada rispondeva 403 all'allenatore, e quando rispondeva portava piu dato di
+ * quanto il perimetro consentisse (D-2, D-5). Resta la deduplicazione, perche
+ * una collezione puo ancora arrivare con la stessa voce in due grafie.
+ */
+const toApiList = <T,>(response: { data: T[] | null; error: any }) => {
+  const apiList =
+    !response?.error && Array.isArray(response?.data) ? response.data : [];
   const merged: any[] = [];
   const seen = new Set<string>();
 
-  for (const record of [...apiList, ...legacyList]) {
+  for (const record of apiList) {
     const key = getRecordStableKey(record);
     if (key && seen.has(key)) {
       continue;
@@ -466,6 +472,16 @@ export function TrainerDashboardProvider({
   const [permissions, setPermissions] = useState<TrainerDashboardPermissions>(
     resolveTrainerDashboardPermissions({}),
   );
+  /*
+    Il programma settimanale e le strutture arrivavano dal club, cioe da una
+    risorsa vietata al ruolo: il pannello «Programmazione» era **sempre vuoto**.
+    Ora vengono da `/api/v1/trainer/preferences` e vivono nel contesto, cosi la
+    pagina degli allenamenti non deve rifare la stessa lettura (D-2).
+  */
+  const [weeklySchedule, setWeeklySchedule] = useState<any[]>([]);
+  const [structures, setStructures] = useState<any[]>([]);
+  const [trainers, setTrainers] = useState<any[]>([]);
+  const [clinical, setClinical] = useState({ statusRead: true, read: false });
 
   useEffect(() => {
     if (authLoading) {
@@ -503,14 +519,7 @@ export function TrainerDashboardProvider({
         apiTrainings,
         apiMatches,
         apiSecretariatNotes,
-        legacyCategories,
-        legacyTrainers,
-        legacyStaff,
-        legacyAthletes,
-        legacyTrainings,
-        legacyMatches,
-        legacySecretariatNotes,
-        clubSettings,
+        trainerPreferences,
       ] = await Promise.all([
         apiRequest<any[]>("/api/v1/categories", {
           method: "GET",
@@ -540,26 +549,39 @@ export function TrainerDashboardProvider({
           method: "GET",
           headers: activeClubHeaders,
         }),
-        getClubData(activeClub.id, "categories"),
-        getClubData(activeClub.id, "trainers"),
-        getClubData(activeClub.id, "staff_members"),
-        getClubAthletes(activeClub.id),
-        getClubData(activeClub.id, "trainings"),
-        getClubData(activeClub.id, "matches"),
-        getClubData(activeClub.id, "secretariat_notes"),
-        getClubSettings(activeClub.id),
+        apiRequest<any>("/api/v1/trainer/preferences", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
       ]);
 
-      const rawCategories = mergeApiAndLegacyLists(apiCategories, legacyCategories);
-      const rawTrainers = mergeApiAndLegacyLists(apiTrainers, legacyTrainers);
-      const rawStaff = mergeApiAndLegacyLists(apiStaff, legacyStaff);
-      const rawAthletes = mergeApiAndLegacyLists(apiAthletes, legacyAthletes);
-      const rawTrainings = mergeApiAndLegacyLists(apiTrainings, legacyTrainings);
-      const rawMatches = mergeApiAndLegacyLists(apiMatches, legacyMatches);
-      const rawSecretariatNotes = mergeApiAndLegacyLists(
-        apiSecretariatNotes,
-        legacySecretariatNotes,
-      );
+      /*
+        **Niente piu fallback legacy** (D-2, D-5).
+
+        Le sette letture `getClubData`/`getClubAthletes` finivano tutte su
+        `GET /api/v1/clubs?fields=…`, che il ruolo allenatore **non puo
+        leggere**: rispondevano 403, l'errore veniva inghiottito, e ogni
+        caricamento della dashboard lasciava sette righe di audit «negato».
+        In piu `getClubAthletes` non portava `trainer_dashboard=1`: quando per
+        caso rispondeva, portava l'anagrafica completa di tutti gli atleti del
+        club, e il perimetro veniva applicato **nel browser**.
+
+        Le liste arrivano dalle API per risorsa, che il ruolo ha in lettura e
+        che il server filtra ora sul ruolo e non su un parametro del client.
+      */
+      const rawCategories = toApiList(apiCategories);
+      const rawTrainers = toApiList(apiTrainers);
+      const rawStaff = toApiList(apiStaff);
+      const rawAthletes = toApiList(apiAthletes);
+      const rawTrainings = toApiList(apiTrainings);
+      const rawMatches = toApiList(apiMatches);
+      const rawSecretariatNotes = toApiList(apiSecretariatNotes);
+      const preferences =
+        !trainerPreferences?.error &&
+        trainerPreferences?.data &&
+        typeof trainerPreferences.data === "object"
+          ? (trainerPreferences.data as Record<string, any>)
+          : null;
 
       const normalizedCategories = (
         Array.isArray(rawCategories) ? rawCategories : []
@@ -693,8 +715,16 @@ export function TrainerDashboardProvider({
         Array.isArray(rawSecretariatNotes) ? rawSecretariatNotes : [],
         nextTrainerProfile,
       );
-      const nextDeadlineDays =
-        getMatchConvocationDeadlineDays(clubSettings);
+      /*
+        La scadenza e i permessi arrivano ora da una rotta che il ruolo puo
+        leggere. Se la rotta non risponde restano i valori di fabbrica, ma
+        adesso e un caso d'errore vero e non la normalita di ogni caricamento.
+      */
+      const nextDeadlineDays = Number.isFinite(
+        Number(preferences?.matchConvocationDeadlineDays),
+      )
+        ? Number(preferences?.matchConvocationDeadlineDays)
+        : getMatchConvocationDeadlineDays({});
       const nextAssignedCategories = (() => {
         const categoryEntries = mergedCategories.filter((category) =>
           categoryIdSet.has(normalizeValue(category?.id)),
@@ -717,6 +747,7 @@ export function TrainerDashboardProvider({
       });
 
       setCategories(mergedCategories);
+      setTrainers(normalizedTrainerPool);
       setTrainerProfile(nextTrainerProfile);
       setAssignedAthletes(nextAssignedAthletes);
       setVisibleTrainings(nextVisibleTrainings);
@@ -724,7 +755,23 @@ export function TrainerDashboardProvider({
       setVisibleReminders(nextVisibleReminders);
       setOperationalAlerts(nextOperationalAlerts);
       setMatchConvocationDeadlineDays(nextDeadlineDays);
-      setPermissions(resolveTrainerDashboardPermissions(clubSettings));
+      setPermissions(
+        preferences?.permissions
+          ? (preferences.permissions as TrainerDashboardPermissions)
+          : resolveTrainerDashboardPermissions({}),
+      );
+      setWeeklySchedule(
+        Array.isArray(preferences?.weeklySchedule)
+          ? preferences.weeklySchedule
+          : [],
+      );
+      setStructures(
+        Array.isArray(preferences?.structures) ? preferences.structures : [],
+      );
+      setClinical({
+        statusRead: preferences?.clinical?.statusRead !== false,
+        read: preferences?.clinical?.read === true,
+      });
 
       void apiRequest("/api/v1/trainer/operational-alerts", {
         method: "POST",
@@ -777,6 +824,10 @@ export function TrainerDashboardProvider({
       operationalAlerts,
       matchConvocationDeadlineDays,
       permissions,
+      weeklySchedule,
+      structures,
+      trainers,
+      clinical,
       reload: loadDashboardData,
       signOut,
     }),
@@ -785,12 +836,16 @@ export function TrainerDashboardProvider({
       assignedAthletes,
       assignedCategories,
       categories,
+      clinical,
       loadDashboardData,
       loading,
       matchConvocationDeadlineDays,
       operationalAlerts,
       permissions,
       signOut,
+      structures,
+      trainers,
+      weeklySchedule,
       trainerProfile,
       user,
       visibleMatches,

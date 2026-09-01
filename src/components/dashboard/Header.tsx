@@ -357,6 +357,7 @@ const Header = memo(
           getAccessRedirectPath(role, {
             organizationId: activeClub?.id,
             linkedAthleteId: activeClub?.linkedAthleteId,
+            linkedAthleteIds: activeClub?.linkedAthleteIds,
           }),
         );
       }
@@ -364,6 +365,7 @@ const Header = memo(
       accessLoading,
       activeClub?.id,
       activeClub?.linkedAthleteId,
+      activeClub?.linkedAthleteIds,
       activeClub?.role,
       authLoading,
       pathname,

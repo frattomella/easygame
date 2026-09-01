@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
 import { ResponsiveMatchesCalendar } from "@/components/trainer/ResponsiveMatchesCalendar";
-import { updateClubDataItem } from "@/lib/simplified-db";
+import { updateTrainerClubItem } from "@/lib/trainer-club-items";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   CompactEntityCard,
@@ -379,16 +379,11 @@ export default function TrainerMatchesDashboardPage() {
           onSave={async ({ convocatedAthletes, convocationEntries }) => {
             if (!activeClub?.id) return;
             try {
-              await updateClubDataItem(
-                activeClub.id,
-                "matches",
-                selectedMatch.id,
-                {
-                  convocatedAthletes,
-                  convocationEntries,
-                  convocationsStatus: "completed",
-                },
-              );
+              await updateTrainerClubItem("matches", selectedMatch.id, {
+                convocatedAthletes,
+                convocationEntries,
+                convocationsStatus: "completed",
+              });
               await reload();
               showToast("success", "Convocazioni salvate correttamente");
               setSelectedMatch(null);

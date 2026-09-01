@@ -198,12 +198,46 @@ export function ParentDashboardProvider({
       writeCachedParentDashboard(athleteRouteId, payload.data);
 
       if (typeof window !== "undefined" && payload.data?.club) {
+        /*
+          **Questa riscrittura perdeva il legame famiglia** (D-3).
+
+          L'oggetto salvato era ridotto a cinque campi, e fra quelli che
+          spariva c'era l'elenco dei figli: al primo `F5` su
+          `/parent-view/[id]` la guardia d'area non trovava nessun figlio
+          autorizzato e rimandava il genitore su `/account`.
+
+          Ora si **fonde** con quanto c'e gia, e l'elenco dei figli lo detta la
+          risposta del server — che li risolve tutti, in tutti i club.
+        */
+        const storedRaw =
+          localStorage.getItem(`activeClub_${user.id}`) ||
+          localStorage.getItem("activeClub");
+        let stored: Record<string, any> = {};
+        try {
+          const parsed = storedRaw ? JSON.parse(storedRaw) : null;
+          stored =
+            parsed && parsed.id === payload.data.club.id ? parsed : {};
+        } catch {
+          stored = {};
+        }
+
+        const linkedAthleteIds = Array.isArray(
+          payload.data?.athlete?.linkedAthletes,
+        )
+          ? payload.data.athlete.linkedAthletes
+              .map((athlete: any) => String(athlete?.id || "").trim())
+              .filter(Boolean)
+          : [];
+
         const activeClub = {
+          ...stored,
           id: payload.data.club.id,
           name: payload.data.club.name,
           logo_url: payload.data.club.logo_url,
           role: "parent",
           roleLabel: "Genitore",
+          linkedAthleteIds,
+          linkedAthleteId: linkedAthleteIds[0] || null,
         };
         localStorage.setItem("activeClub", JSON.stringify(activeClub));
         localStorage.setItem(`activeClub_${user.id}`, JSON.stringify(activeClub));

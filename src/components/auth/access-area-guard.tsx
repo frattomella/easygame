@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { canAccessPath, getAccessRedirectPath } from "@/lib/access-roles";
+import {
+  canAccessPath,
+  collectLinkedAthleteIds,
+  getAccessRedirectPath,
+} from "@/lib/access-roles";
 
 const LoadingScreen = () => (
   <div className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -16,11 +20,23 @@ export function AccessAreaGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, userRole, loading, accessLoading, activeClub } = useAuth();
   const role = activeClub?.role || userRole || user?.user_metadata?.role;
-  const linkedAthleteId = activeClub?.linkedAthleteId || null;
+  /*
+    **Un genitore ha i figli che ha, non il primo.** La guardia ammetteva un
+    solo percorso — quello del primo figlio risolto — e il clic sul secondo
+    rimbalzava sul primo (D-3).
+  */
+  const linkedAthleteKey = collectLinkedAthleteIds({
+    linkedAthleteId: activeClub?.linkedAthleteId,
+    linkedAthleteIds: activeClub?.linkedAthleteIds,
+  }).join(",");
+  const linkedAthleteIds = useMemo(
+    () => (linkedAthleteKey ? linkedAthleteKey.split(",") : []),
+    [linkedAthleteKey],
+  );
   const allowed = Boolean(
     user &&
       activeClub?.id &&
-      canAccessPath(role, pathname, { linkedAthleteId }),
+      canAccessPath(role, pathname, { linkedAthleteIds }),
   );
 
   useEffect(() => {
@@ -35,7 +51,7 @@ export function AccessAreaGuard({ children }: { children: React.ReactNode }) {
       const redirectPath = activeClub?.id
         ? getAccessRedirectPath(role, {
             organizationId: activeClub.id,
-            linkedAthleteId,
+            linkedAthleteIds,
           })
         : "/account";
       router.replace(redirectPath === pathname ? "/account" : redirectPath);
@@ -44,7 +60,7 @@ export function AccessAreaGuard({ children }: { children: React.ReactNode }) {
     accessLoading,
     activeClub?.id,
     allowed,
-    linkedAthleteId,
+    linkedAthleteIds,
     loading,
     pathname,
     role,

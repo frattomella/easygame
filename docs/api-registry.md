@@ -499,11 +499,24 @@ Configurazione di club: solo `owner` e `club_manager`
 - `notifications`
 - `simplified_notifications`
 - `training_attendance`
-- `assets`
+- ~~`assets`~~ — chiusa al registro generico: quattro rotte proprie
+
+## Area allenatore
+
+- `GET /api/v1/trainer/preferences` — permessi della dashboard, scadenza
+  convocazioni, taglio sul dato clinico (`clinical.status_read` /
+  `clinical.read`), programma settimanale, strutture e orari di apertura. E la
+  porta che sostituisce le otto letture di `GET /api/v1/clubs?fields=…`, che al
+  ruolo allenatore rispondevano 403 (Wave 5, D-2)
+- `POST /api/v1/trainer/operational-alerts` — sincronizza le notifiche
+  operative dell'allenatore
 
 ## Risorse club aggregate
 
-- `appointments`
+- ~~`appointments`~~ — **chiusa al registro generico** (Wave 5, D-1). Il
+  CRUD generico rigenerava `clubs.appointments` da `club_resource_items` e
+  cancellava le richieste delle famiglie, che nascono altrove. La segreteria
+  passa da `PATCH /api/v1/clubs`; il dominio proprio arriva in 5E
 - `bank_accounts`
 - `categories`
 - `category_groups`

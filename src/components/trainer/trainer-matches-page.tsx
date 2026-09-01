@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
-import { updateClubDataItem } from "@/lib/simplified-db";
+import { updateTrainerClubItem } from "@/lib/trainer-club-items";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   SectionBlockedState,
@@ -232,7 +232,7 @@ export default function TrainerMatchesPage() {
           onSave={async ({ convocatedAthletes }) => {
             if (!activeClub?.id) return;
             try {
-              await updateClubDataItem(activeClub.id, "matches", selectedMatch.id, {
+              await updateTrainerClubItem("matches", selectedMatch.id, {
                 convocatedAthletes,
                 convocationsStatus: "completed",
               });

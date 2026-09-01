@@ -93,6 +93,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "trainer.preferences",
+    method: "GET",
+    path: "/api/v1/trainer/preferences",
+    description:
+      "Cio che la dashboard allenatore deve sapere del club — permessi, scadenza convocazioni, taglio sul dato clinico, programma settimanale, strutture, orari — da una porta che il ruolo puo aprire. Prima passava da GET /api/v1/clubs, che al trainer risponde 403",
+    mobile_ready: false,
+  },
+  {
     name: "attachments.list",
     method: "GET",
     path: "/api/v1/attachments",

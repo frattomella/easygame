@@ -310,16 +310,45 @@ export const getAccessArea = (role?: string | null): AccessArea => {
   return "account";
 };
 
+/**
+ * **Un genitore ha i figli che ha, non il primo.**
+ *
+ * `linkedAthleteId` era un valore **singolo**, e chi lo calcolava restituiva il
+ * primo figlio trovato. La home genitore disegnava correttamente il bottone di
+ * ciascun figlio, e il clic sul secondo finiva contro la guardia e rimbalzava
+ * sul primo: la famiglia con due figli tesserati vedeva sempre e solo uno.
+ *
+ * Il campo diventa un **elenco**, con un solo proprietario della domanda
+ * (`getParentLinkedAthletes`). La forma singolare resta accettata perche una
+ * sessione o una copia in `localStorage` scritta prima del rilascio non deve
+ * far uscire nessuno dalla propria area: le due grafie confluiscono qui, in un
+ * punto solo, e nessun chiamante deve sapere quale delle due sta usando.
+ */
+export const collectLinkedAthleteIds = (context: {
+  linkedAthleteId?: string | null;
+  linkedAthleteIds?: readonly (string | null | undefined)[] | null;
+}) => {
+  const collected = [
+    ...(Array.isArray(context.linkedAthleteIds) ? context.linkedAthleteIds : []),
+    context.linkedAthleteId,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(collected));
+};
+
 export const getAccessRedirectPath = (
   role?: string | null,
   context: {
     organizationId?: string | null;
     linkedAthleteId?: string | null;
+    linkedAthleteIds?: readonly (string | null | undefined)[] | null;
   } = {},
 ) => {
   const normalizedRole = normalizeAccessRole(role);
   const organizationId = String(context.organizationId || "").trim();
-  const linkedAthleteId = String(context.linkedAthleteId || "").trim();
+  const linkedAthleteId = collectLinkedAthleteIds(context)[0] || "";
 
   if (normalizedRole && MANAGEMENT_ROLES.has(normalizedRole)) {
     return organizationId
@@ -364,7 +393,10 @@ export const getPathAccessArea = (pathname?: string | null): AccessArea => {
 export const canAccessPath = (
   role: string | null | undefined,
   pathname: string,
-  context: { linkedAthleteId?: string | null } = {},
+  context: {
+    linkedAthleteId?: string | null;
+    linkedAthleteIds?: readonly (string | null | undefined)[] | null;
+  } = {},
 ) => {
   const requiredArea = getPathAccessArea(pathname);
   const normalizedRole = normalizeAccessRole(role);
@@ -383,19 +415,15 @@ export const canAccessPath = (
   if (requiredArea === "trainer") return normalizedRole === "trainer";
   if (requiredArea === "parent") {
     if (normalizedRole !== "parent") return false;
-    const linkedAthleteId = String(context.linkedAthleteId || "").trim();
-    return (
-      Boolean(linkedAthleteId) &&
-      matchesPathPrefix(pathname, `/parent-view/${linkedAthleteId}`)
+    return collectLinkedAthleteIds(context).some((athleteId) =>
+      matchesPathPrefix(pathname, `/parent-view/${athleteId}`),
     );
   }
   if (requiredArea === "athlete") {
     if (MANAGEMENT_ROLES.has(normalizedRole)) return true;
     if (normalizedRole !== "athlete") return false;
-    const linkedAthleteId = String(context.linkedAthleteId || "").trim();
-    return (
-      Boolean(linkedAthleteId) &&
-      matchesPathPrefix(pathname, `/athletes/${linkedAthleteId}/profile`)
+    return collectLinkedAthleteIds(context).some((athleteId) =>
+      matchesPathPrefix(pathname, `/athletes/${athleteId}/profile`),
     );
   }
 

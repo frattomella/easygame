@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
+import { normalizeAccessRole } from "@/lib/access-roles";
+import { getParentLinkedAthletes } from "@/lib/server/parent-dashboard";
 
 export async function GET(request: Request) {
   try {
@@ -73,13 +75,66 @@ export async function GET(request: Request) {
     const ridotto = (club: any) =>
       club ? { ...club, settings: soloStagioni(club.settings) } : club;
 
-    const membershipRows = memberships.map((membership) => ({
-      ...membership,
-      access_kind: "membership",
-      is_ownership_record: false,
-      organization: ridotto(membership.organization),
-      organizations: ridotto(membership.organization),
-    }));
+    /**
+     * **Il legame genitore-figlio deve sopravvivere a un F5.**
+     *
+     * L'elenco dei figli lo calcolava soltanto l'attivazione del club, e
+     * finiva in `localStorage`. Un ricaricamento della pagina ricostruisce
+     * `activeClub` da **questa** rotta, che non lo conosceva: la guardia
+     * d'area non trovava nessun figlio e rimandava su `/account` un genitore
+     * che era esattamente dov'era autorizzato a stare.
+     *
+     * Il calcolo costa solo a chi ha davvero un accesso famiglia, ed e sempre
+     * lo stesso proprietario della domanda — mai una seconda risoluzione del
+     * legame.
+     */
+    const ruoliFamiglia = ["parent", "athlete"];
+    const accessiFamiglia = memberships.filter((membership) =>
+      ruoliFamiglia.includes(normalizeAccessRole(membership.role)),
+    );
+    const figli: string[] = [];
+    const seStesso: string[] = [];
+    if (accessiFamiglia.length) {
+      const linkedAthletes = await getParentLinkedAthletes(session.db.user_id);
+      for (const athlete of linkedAthletes) {
+        /*
+          **L'elenco non si filtra per club, e non e una svista.**
+
+          La guardia d'area risponde alla domanda «questo profilo e uno dei
+          miei», che riguarda la persona e non la societa: un genitore con un
+          figlio in due societa diverse cambia figlio senza passare da
+          `/account`, ed e uno degli scenari che il collaudo pretende. Il
+          confine vero resta sul server — `/api/parent-dashboard/:id` risolve
+          di nuovo il legame a ogni lettura — e questo elenco governa solo
+          quale percorso il browser puo aprire.
+        */
+        figli.push(String(athlete.id));
+        /*
+          L'atleta e se stesso, non i propri fratelli: chi entra con il ruolo
+          atleta apre la **propria** scheda, e il legame di tutela vale solo
+          nell'area genitore.
+        */
+        if (String(athlete.user_id || "") === session.db.user_id) {
+          seStesso.push(String(athlete.id));
+        }
+      }
+    }
+
+    const membershipRows = memberships.map((membership) => {
+      const ruolo = normalizeAccessRole(membership.role);
+      const linkedAthleteIds =
+        ruolo === "parent" ? figli : ruolo === "athlete" ? seStesso : [];
+
+      return {
+        ...membership,
+        access_kind: "membership",
+        is_ownership_record: false,
+        linked_athlete_ids: linkedAthleteIds,
+        linked_athlete_id: linkedAthleteIds[0] || null,
+        organization: ridotto(membership.organization),
+        organizations: ridotto(membership.organization),
+      };
+    });
 
     const ownershipRows = ownedClubs.map((club) => {
       const matchingPrimaryMembership = memberships.find(
