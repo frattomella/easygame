@@ -1676,3 +1676,33 @@ Sta qui e non e nascosto: e uno dei 92 lettori della forma storica, ed e uno
 dei primi che 5J o la Wave 6 devono spostare, perche e la schermata su cui la
 differenza si vede — la gara letta dalla riga porta con se capienza, RSVP,
 versione e sede, che la proiezione ricostruisce ma nessuno usa.
+
+---
+
+## Wave 5 — 5J: cosa e stato tolto, e cosa resta
+
+**Tolti** (W5-64, W5-65): dodici file dell'area allenatore che nessuno
+importava — circa 3.258 righe — piu `TrainerAthleteTechnicalDialog`, che era
+raggiungibile solo da uno di quei dodici; `/login/trainer`, un login
+**simulato** non protetto dal middleware, che la KB elencava fra le rotte
+pubbliche valide; e i due file morti dell'area genitore
+(`payment-section.tsx`, `page-modals.tsx`).
+
+**La scheda tecnica dell'atleta.** La decisione chiesta dal piano era «portarla
+sulla v2 o cancellarla; non resta dov'e». Il contenuto — numero di maglia e note
+tecniche — **e gia sulla v2**, nella scheda «Riepilogo Tecnico» del profilo
+atleta, con lo stesso permesso (`viewAthleteTechnicalSheet`). Il dialogo era un
+duplicato, e i duplicati in questo repository divergono: e stato cancellato.
+
+**Resta**, ed e dichiarato altrove in questo documento:
+
+- la **proiezione** di `clubs.trainings` e `clubs.matches`, con i suoi lettori
+  ancora da spostare;
+- `training_attendance` come **nome di risorsa** nel registro generico, per il
+  contratto del mobile;
+- `src/lib/shared-documents.ts` e le due rotte storiche dei documenti, in sola
+  lettura per una release;
+- `src/lib/simplified-db.ts`, che la Wave 5 ha **ridotto** — `saveTrainingAttendance`
+  non scrive piu in tre posti, `clearUpcomingGeneratedTrainings` e
+  `generateTrainingsFromWeeklySchedule` non riscrivono piu l'intera collezione —
+  e che resta in riduzione (WP-07).

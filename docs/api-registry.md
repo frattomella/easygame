@@ -575,6 +575,21 @@ dal client — si legge dalla riga dell'atleta.
 `GET /api/v1/documents/receipt/:id` accetta adesso **anche** il legame: la
 ricevuta era elencata e non scaricabile perche il gate era di ruolo.
 
+## I namespace fuori da `/api/v1` (W5-74)
+
+Cinque namespace stavano **fuori dal registro**, fra cui
+`/api/parent-dashboard/**`, che e **il** canale della famiglia: chi leggeva
+questo documento credeva di aver visto tutte le porte. Un elenco incompleto e
+peggio di nessun elenco, perche nessuno lo verifica.
+
+- `/api/parent-dashboard/**` — il cruscotto della famiglia e le sue superfici
+- `/api/athletes/:athleteId/documents/**` — il fascicolo dal lato club
+- `/api/athlete-payments/:paymentId` — una rata
+- `/api/clothing/assignments` — assegnazioni di materiale
+- `/api/forms/assets/:assetId` — allegati di una compilazione
+- `/api/payments/**` e `/api/billing/webhook` — checkout e i due webhook firmati
+- `/api/public/**` — le rotte senza sessione, elencate qui sotto
+
 ## Rotte pubbliche senza sessione
 
 - `GET /api/public/enrollment-status/:reference` — lo stato della propria

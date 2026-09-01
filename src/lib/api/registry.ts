@@ -187,6 +187,122 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     description: "Modifica o rimozione di una fascia di disponibilita",
     mobile_ready: false,
   },
+  /*
+    **I namespace fuori da `/api/v1` che il registro non nominava** (W5-74).
+
+    Il registro serve a rispondere a «quali porte esistono»: cinque namespace
+    stavano fuori — fra cui `/api/parent-dashboard/**`, che e **il** canale
+    della famiglia — e chi lo leggeva credeva di aver visto tutto. Un elenco
+    incompleto e peggio di nessun elenco, perche nessuno lo verifica.
+  */
+  {
+    name: "parent.dashboard",
+    method: "GET",
+    path: "/api/parent-dashboard/:athleteId",
+    description:
+      "Il cruscotto della famiglia: atleta, figli collegati, calendario, pagamenti, documenti, appuntamenti e notifiche. Autorizza sul legame genitore-atleta, non sul ruolo",
+    mobile_ready: false,
+  },
+  {
+    name: "parent.appointments",
+    method: "GET|POST|PATCH|DELETE",
+    path: "/api/parent-dashboard/:athleteId/appointments",
+    description:
+      "Gli appuntamenti della famiglia, sul dominio della Wave 5: si sceglie uno slot libero, si vede lo stato vero e il motivo di un rifiuto, e il PATCH propone una riprogrammazione invece di mutare la data",
+    mobile_ready: false,
+  },
+  {
+    name: "parent.documents",
+    method: "GET|POST",
+    path: "/api/parent-dashboard/:athleteId/documents",
+    description:
+      "Il fascicolo della famiglia: cio che il club ha chiesto, cio che e stato consegnato e lo stato di ciascun documento. L'upload e multipart, dentro Attachment Core",
+    mobile_ready: false,
+  },
+  {
+    name: "parent.document_file",
+    method: "GET",
+    path: "/api/parent-dashboard/:athleteId/documents/:assetId",
+    description:
+      "Il file di un documento del fascicolo: prima il fascicolo nuovo, poi l'archivio storico",
+    mobile_ready: false,
+  },
+  {
+    name: "parent.structures",
+    method: "GET|POST",
+    path: "/api/parent-dashboard/:athleteId/structures",
+    description: "Le strutture prenotabili dalla famiglia e le sue prenotazioni",
+    mobile_ready: false,
+  },
+  {
+    name: "athletes.documents",
+    method: "GET|POST",
+    path: "/api/athletes/:athleteId/documents",
+    description:
+      "Il fascicolo dell'atleta dal lato club: richieste, depositi e decisioni. Le letture uniscono il fascicolo nuovo a quello storico; le scritture passano dal dominio",
+    mobile_ready: false,
+  },
+  {
+    name: "athletes.document_file",
+    method: "GET",
+    path: "/api/athletes/:athleteId/documents/:documentId/file",
+    description: "Il file di un documento del fascicolo, dal lato club",
+    mobile_ready: false,
+  },
+  {
+    name: "athlete_payments.item",
+    method: "GET|PATCH|DELETE",
+    path: "/api/athlete-payments/:paymentId",
+    description:
+      "Una rata di un atleta. La cancellazione resta riservata: payment_transactions.payment_id e ON DELETE CASCADE",
+    mobile_ready: false,
+  },
+  {
+    name: "clothing.assignments",
+    method: "GET|POST",
+    path: "/api/clothing/assignments",
+    description: "Assegnazioni di kit e materiale agli atleti",
+    mobile_ready: false,
+  },
+  {
+    name: "forms.assets",
+    method: "GET",
+    path: "/api/forms/assets/:assetId",
+    description:
+      "Gli allegati di una compilazione di modulo. Restano su Asset: non e questa Wave a chiuderlo (W5-41)",
+    mobile_ready: false,
+  },
+  {
+    name: "public.forms",
+    method: "GET|POST",
+    path: "/api/public/forms/:publicSlug",
+    description:
+      "Il modulo online pubblico: senza sessione per contratto, con limite di frequenza per indirizzo e ogni errore collassato a 404",
+    mobile_ready: false,
+  },
+  {
+    name: "payments.create_checkout_session",
+    method: "POST",
+    path: "/api/payments/create-checkout-session",
+    description: "Apre il checkout del provider per una rata",
+    mobile_ready: false,
+  },
+  {
+    name: "payments.webhook",
+    method: "POST",
+    path: "/api/payments/webhook",
+    description:
+      "Callback del PSP: firma verificata sul corpo grezzo prima di guardarci dentro, evento deduplicato",
+    mobile_ready: false,
+  },
+  {
+    name: "billing.webhook",
+    method: "POST",
+    path: "/api/billing/webhook",
+    description:
+      "Callback del billing di piattaforma: firma verificata, evento deduplicato. E un secondo account Stripe con un segreto diverso (ADR-0051)",
+    mobile_ready: false,
+  },
   {
     name: "family.enrollment_requests",
     method: "GET",

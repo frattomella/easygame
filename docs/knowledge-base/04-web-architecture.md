@@ -48,7 +48,7 @@ il presidio principale (vedi [14](14-security.md)).
 
 | Area | Route |
 |------|-------|
-| Pubblico / auth | `/login`, `/login/trainer`, `/register`, `/auth/complete`, `/token-verification`, `/token-verification/[userId]`, `/forms/[publicSlug]` |
+| Pubblico / auth | `/login`, `/register`, `/auth/complete`, `/token-verification`, `/token-verification/[userId]`, `/forms/[publicSlug]` |
 | Account | `/account`, `/profile/[userId]`, `/create-club` |
 | Management | `/dashboard`, `/dashboard/[dashboardId]`, `/dashboard/access-management`, `/hub`, `/athletes`, `/athletes/[id]`, `/athletes/[id]/edit`, `/categories`, `/matches`, `/training`, `/medical`, `/structures`, `/structures/[id]`, `/clothing`, `/soci`, `/soci/new`, `/soci/[id]`, `/staff`, `/staff/new`, `/staff/[id]`, `/staff/[id]/edit`, `/trainers`, `/trainers/new`, `/trainers/[id]`, `/trainers/[id]/edit`, `/trainers/[id]/contracts`, `/trainers/[id]/contracts/upload`, `/sponsors`, `/sponsors/[id]`, `/payments`, `/movements`, `/reports`, `/secretariat`, `/modulistica`, `/procura`, `/registration-management`, `/notifications`, `/organization`, `/permissions`, `/settings` |
 | Trainer | `/trainer-dashboard`, `/trainer-dashboard/[dashboardId]` (redirect), `/trainer-dashboard/athletes`, `/trainer-dashboard/athletes/[id]`, `/trainer-dashboard/categories`, `/trainer-dashboard/matches`, `/trainer-dashboard/notifications`, `/trainer-dashboard/trainings` |

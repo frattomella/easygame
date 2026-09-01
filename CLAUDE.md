@@ -251,5 +251,14 @@ Vedi [ADR-0007](docs/knowledge-base/18-decision-log.md).
    adapter su `fetch`.
 7. Eseguire un comando Prisma di scrittura in locale credendo di essere su un
    DB locale: si e su **staging**.
-8. Dichiarare una funzione «completa» senza flusso end-to-end (i pagamenti
-   online rispondono 501).
+8. Dichiarare una funzione «completa» senza flusso end-to-end. La forma piu
+   comune non e il codice mancante: e il codice **irraggiungibile**. L'RSVP era
+   completo e testato da due Wave e **nessuna schermata sapeva accenderlo**;
+   `board.read` era un permesso senza pagina; il checkout online funzionava e la
+   famiglia non aveva un pulsante che lo aprisse. Prima di scrivere `COMPLETE`
+   in [11](docs/knowledge-base/11-capabilities.md), percorri il flusso dal clic
+   del ruolo interessato fino alla riga scritta.
+
+   (Il vecchio esempio — «i pagamenti online rispondono 501» — non e piu vero:
+   l'adattatore Stripe e reale e cablato, e il 501 e il ripiego per un provider
+   senza adattatore.)
