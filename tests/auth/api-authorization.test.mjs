@@ -130,6 +130,23 @@ const PUBLIC_BY_DESIGN = new Map([
     dell'evento. Sono due e non uno perche sono due account Stripe con due
     segreti diversi (ADR-0051).
   */
+  /*
+    Il riscontro dell'iscrizione (Wave 5, 5G). Non ha sessione **per progetto**:
+    chi ha compilato il modulo pubblico un account nel club puo non averlo, e
+    chiedergliene uno per sapere «a che punto siamo» significherebbe non dare a
+    nessuno la risposta che stava aspettando.
+
+    Cio che la difende e lo stesso presidio del link di pagamento: un
+    riferimento opaco di cui in archivio resta il solo SHA-256, un rate limit
+    doppio (per indirizzo e per impronta del riferimento), e una risposta
+    identica — un 404 — per riferimento sconosciuto, malformato o di un'altra
+    pratica. Da questa rotta non esce nessun identificativo interno, nessuna
+    risposta del modulo e nessun dato di terzi: solo lo stato della domanda.
+  */
+  [
+    "public/enrollment-status/[reference]",
+    "stato della propria domanda: riferimento opaco, hashato a riposo, con rate limit",
+  ],
   ["payments/webhook", "callback del PSP: firma verificata, evento deduplicato"],
   ["billing/webhook", "callback del billing di piattaforma: firma verificata, evento deduplicato"],
 ]);
@@ -152,6 +169,16 @@ const NON_CLUB_SCOPED = new Map([
   ["parent-dashboard/[athleteId]/documents", "legame genitore-atleta"],
   ["parent-dashboard/[athleteId]/documents/[assetId]", "legame genitore-atleta"],
   ["parent-dashboard/[athleteId]/structures", "legame genitore-atleta"],
+  /*
+    Wave 5. Le tre superfici nuove della famiglia autorizzano tutte sulla stessa
+    relazione — `canParentAccessAthlete` — e non sullo scope di club, per la
+    ragione che il §13 nomina: un tutore puo non avere **nessuna** appartenenza
+    al club, e uno scope di ruolo lo terrebbe fuori dalla propria area. Il club
+    non arriva mai dal client: si legge dalla riga dell'atleta.
+  */
+  ["parent-dashboard/[athleteId]/board", "legame genitore-atleta"],
+  ["parent-dashboard/[athleteId]/checkout", "legame genitore-atleta, e la rata comanda sul club"],
+  ["parent-dashboard/[athleteId]/consents", "legame genitore-atleta, verificato nel dominio"],
   ["public/forms/[publicSlug]", "modulo pubblico per slug"],
 ]);
 
@@ -320,7 +347,7 @@ test("la deroga pubblica resta piccola e giustificata", () => {
     parte.
   */
   assert.ok(
-    PUBLIC_BY_DESIGN.size <= 18,
+    PUBLIC_BY_DESIGN.size <= 19,
     `troppi endpoint pubblici: ${PUBLIC_BY_DESIGN.size}`,
   );
   for (const [id, motivo] of PUBLIC_BY_DESIGN) {

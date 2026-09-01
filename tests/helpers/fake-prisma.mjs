@@ -311,6 +311,22 @@ const UNIQUE_CONSTRAINTS = {
   ],
   formTemplate: [["public_slug"]],
   /*
+    L'impronta della ricevuta di iscrizione (Wave 5, lane 5G): unica in base
+    dati (`form_submissions_receipt_token_hash_key`), e **parziale** solo nel
+    senso che la stragrande maggioranza delle righe la lascia nulla — una
+    compilazione della segreteria non ha nessuna famiglia che la segue. Senza
+    il predicato, la seconda compilazione interna senza ricevuta verrebbe
+    rifiutata da un vincolo che il database non applica, perche in SQL due
+    `NULL` non collidono mai.
+  */
+  formSubmission: [
+    {
+      fields: ["receipt_token_hash"],
+      quando: (row) =>
+        row.receipt_token_hash !== null && row.receipt_token_hash !== undefined,
+    },
+  ],
+  /*
     Un **indice parziale**, come quello vero in base dati
     (`payment_transactions_incasso_unico`, ADR-0062): al piu un incasso
     positivo per (club, pagamento del provider). Storni e rimborsi copiano per

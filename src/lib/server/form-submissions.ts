@@ -70,6 +70,14 @@ import {
   MAX_PUBLIC_FORM_UPLOAD_BYTES,
   validateAnswers,
 } from "@/lib/forms/validation";
+import {
+  generateEnrollmentReceiptReference,
+  hashEnrollmentReceiptReference,
+  type EnrollmentKind,
+} from "@/lib/forms/enrollment-receipt";
+import { resolveLinkedFamilyScope } from "./document-requests";
+import { requestMissingDocuments } from "./enrollment-requests";
+import { readClubSeasonState } from "./seasons";
 
 /**
  * Le compilazioni: raccolta, coda della segreteria, approvazione.
@@ -252,6 +260,10 @@ type SubmissionRow = {
   template_id: string;
   version_id: string;
   source: string;
+  /** `enrollment` | `renewal`: il contesto, non un secondo motore. */
+  kind?: string | null;
+  /** La stagione che la pratica dichiara, quando ne dichiara una. */
+  season_id?: string | null;
   status: string;
   subjects: unknown;
   answers: unknown;
@@ -545,7 +557,7 @@ const notifyClub = async ({
 export const submitPublicForm = async (
   publicSlug: string,
   input: SubmitFormInput,
-): Promise<{ submissionId: string; successMessage: string }> => {
+): Promise<SubmissionReceipt> => {
   const match = await findPublicFormBySlug(publicSlug);
   if (!match) {
     throw new FormSubmissionError("Modulo non disponibile", 404);
@@ -561,6 +573,21 @@ export const submitPublicForm = async (
   });
 };
 
+/**
+ * Cosa torna a chi ha appena inviato.
+ *
+ * `receiptReference` e il riferimento in chiaro, e **esiste solo qui**: in
+ * archivio ne resta l'impronta. Non si puo ristampare, e non e una
+ * dimenticanza — un riferimento ristampabile a richiesta sarebbe un
+ * riferimento leggibile da chiunque sappia chiedere.
+ */
+export type SubmissionReceipt = {
+  submissionId: string;
+  successMessage: string;
+  /** Vuoto per le compilazioni della segreteria: non le segue nessuna famiglia. */
+  receiptReference: string;
+};
+
 const storeSubmission = async ({
   match,
   input,
@@ -568,6 +595,8 @@ const storeSubmission = async ({
   selections,
   submittedBy,
   requireNarrowMimeTypes,
+  kind = "enrollment",
+  seasonId = null,
 }: {
   match: PublicFormMatch;
   input: SubmitFormInput;
@@ -575,7 +604,9 @@ const storeSubmission = async ({
   selections: FormSubjectSelection[];
   submittedBy: string | null;
   requireNarrowMimeTypes: boolean;
-}) => {
+  kind?: EnrollmentKind;
+  seasonId?: string | null;
+}): Promise<SubmissionReceipt> => {
   const files = await storeSubmissionFiles({
     organizationId: match.organizationId,
     templateId: match.templateId,
@@ -607,6 +638,21 @@ const storeSubmission = async ({
 
   const submissionId = randomUUID();
 
+  /*
+    **La ricevuta nasce con la compilazione, non dopo.**
+
+    Solo per cio che arriva da fuori la segreteria: una compilazione fatta
+    dallo sportello non ha una famiglia che la segue da casa, e un riferimento
+    emesso e mai consegnato sarebbe una credenziale in giro senza motivo.
+
+    In chiaro esce una volta sola, nel valore di ritorno; in archivio entra
+    l'impronta (ADR-0085). Chi legge il database non puo aprire la pratica di
+    nessuno, ed e il punto: la lettura pubblica dello stato non ha sessione, e
+    l'unica cosa che la autorizza e il riferimento che la famiglia possiede.
+  */
+  const receiptReference =
+    source === "public" ? generateEnrollmentReceiptReference() : "";
+
   await (prisma as any).formSubmission.create({
     data: {
       id: submissionId,
@@ -614,6 +660,10 @@ const storeSubmission = async ({
       template_id: match.templateId,
       version_id: match.versionId,
       source,
+      kind,
+      season_id: seasonId || null,
+      receipt_token_hash:
+        hashEnrollmentReceiptReference(receiptReference) || null,
       status: "pending",
       subjects: selections,
       answers: validated.answers,
@@ -640,7 +690,86 @@ const storeSubmission = async ({
   return {
     submissionId,
     successMessage: match.schema.settings.successMessage,
+    receiptReference,
   };
+};
+
+/* ------------------------------------------------------------ il rinnovo */
+
+export type SubmitRenewalInput = SubmitFormInput & {
+  /** Lo slug pubblico del modulo con cui il club raccoglie i rinnovi. */
+  publicSlug: string;
+  athleteId: string;
+};
+
+/**
+ * Il rinnovo inviato dalla famiglia: **lo stesso modulo, con un contesto**.
+ *
+ * Non e un secondo motore di iscrizione, e non deve diventarlo. Passa dalla
+ * stessa `storeSubmission`, dalla stessa versione congelata del modulo, dalla
+ * stessa coda della segreteria e dalla stessa approvazione umana: cambia che
+ * l'atleta e gia noto — quindi la compilazione lo cita fra i soggetti e
+ * l'approvazione **aggiorna** invece di creare — e che la pratica dichiara la
+ * stagione a cui si riferisce.
+ *
+ * **Il gate e il legame, non il ruolo.** Un genitore collegato solo come
+ * tutore puo non avere nessuna appartenenza al club: ogni controllo di ruolo lo
+ * respingerebbe su righe che sono legittimamente sue. Lo scope lo costruisce
+ * `resolveLinkedFamilyScope` dall'atleta, e il club arriva dalla riga
+ * dell'atleta — **mai** dal corpo della richiesta.
+ *
+ * **La stagione la decide il server.** Se la nominasse il client, una famiglia
+ * potrebbe intestare il proprio rinnovo alla stagione che preferisce; qui e
+ * quella attiva del club, e la segreteria la conferma approvando. Il riporto
+ * stagionale resta gestionale e questa funzione non lo tocca.
+ *
+ * **I file passano dal filtro stretto**, come per il modulo pubblico: chi
+ * compila da casa non e la segreteria, e la sessione non cambia da dove arriva
+ * il file.
+ */
+export const submitRenewalForm = async (
+  userId: string,
+  input: SubmitRenewalInput,
+): Promise<SubmissionReceipt> => {
+  const scope = await resolveLinkedFamilyScope(userId, input.athleteId);
+
+  const match = await findPublicFormBySlug(input.publicSlug);
+  if (!match || match.organizationId !== scope.activeOrganizationId) {
+    /*
+      Modulo inesistente, non pubblicato, chiuso, oppure **di un altro club**:
+      un solo esito. Distinguere «non esiste» da «esiste ma non e tuo» direbbe
+      a chi prova slug quali ha indovinato, ed e la stessa regola che il motore
+      dei moduli applica gia sulla pagina pubblica.
+    */
+    throw new FormSubmissionError("Modulo non disponibile", 404);
+  }
+
+  const athlete = await (prisma as any).athlete.findFirst({
+    where: { id: asText(input.athleteId), organization_id: match.organizationId },
+  });
+  if (!athlete) {
+    throw new FormSubmissionError("Modulo non disponibile", 404);
+  }
+
+  const seasons = await readClubSeasonState(match.organizationId);
+
+  return storeSubmission({
+    match,
+    input,
+    source: "public",
+    selections: [
+      {
+        subject: "athlete",
+        recordId: asText(athlete.id),
+        label:
+          `${asText(athlete.first_name)} ${asText(athlete.last_name)}`.trim(),
+      },
+    ],
+    submittedBy: asText(userId) || null,
+    requireNarrowMimeTypes: true,
+    kind: "renewal",
+    seasonId: seasons.activeSeasonId || null,
+  });
 };
 
 /**
@@ -1366,6 +1495,17 @@ export type ReviewDecision = {
   note?: string;
   /** La segreteria puo ricollegare un soggetto a una scheda esistente. */
   subjects?: unknown;
+  /**
+   * I documenti che mancano all'iscrizione, chiesti **approvando**.
+   *
+   * E il punto in cui iscrizione e workflow documenti si saldano. Prima
+   * l'unica risposta a «manca il certificato medico» era respingere: la
+   * famiglia ricompilava tutto da capo, e la segreteria riesaminava una
+   * seconda pratica identica alla prima. Adesso la domanda viene accolta e il
+   * documento diventa una **richiesta documentale** — che ha una scadenza, un
+   * sollecito e uno stato — invece di un motivo di rifiuto.
+   */
+  documentRequests?: unknown;
 };
 
 export type ReviewOutcome = {
@@ -1728,6 +1868,29 @@ export const decideFormSubmission = async (
       "Nessuna persona creata o aggiornata da questa compilazione: non c'e nessuno a cui intestare il consenso o il documento.",
     );
   }
+
+  /*
+    Le richieste documentali vengono **prima** del passaggio a `approved`, per
+    la stessa ragione di consenso e documento: un'interruzione qui in mezzo
+    lascia la compilazione `pending`, quindi riapprovabile, e la riapprovazione
+    non duplica perche `requestMissingDocuments` non riapre una richiesta che
+    e gia aperta sullo stesso documento. Nell'ordine opposto un'interruzione
+    lascerebbe una domanda approvata e un certificato che nessuno ha chiesto —
+    cioe esattamente il vuoto che questa lane esiste per chiudere.
+
+    Un errore qui **fa fallire l'approvazione**, e non finisce fra gli
+    `issues`: chi non ha il permesso di chiedere un documento non deve poterlo
+    chiedere di sponda, e una segreteria che crede di aver chiesto il
+    certificato e non l'ha chiesto e peggio di un'approvazione da ripetere.
+  */
+  extras.applied.push(
+    ...(await requestMissingDocuments(scope, {
+      organizationId,
+      athleteId,
+      seasonId: asText(row.season_id),
+      documents: decision.documentRequests,
+    })),
+  );
 
   const updated = await (prisma as any).formSubmission.update({
     where: { id: row.id },

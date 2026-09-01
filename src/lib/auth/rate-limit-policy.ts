@@ -14,7 +14,8 @@ export type AuthRateLimitPolicy = {
     | "public_form_view"
     | "public_form_submit"
     | "payment_link_view"
-    | "payment_link_checkout";
+    | "payment_link_checkout"
+    | "enrollment_status";
   limit: number;
   windowMs: number;
 };
@@ -81,6 +82,31 @@ export const AUTH_RATE_LIMITS = {
     scope: "payment_link_checkout",
     limit: 20,
     windowMs: 60 * 60_000,
+  },
+  /*
+    La ricevuta di un'iscrizione (Wave 5, lane 5G). Due contatori come per il
+    link di pagamento, e per la stessa ragione: con il solo contatore per
+    indirizzo chi cambia rete continuerebbe a martellare lo stesso riferimento,
+    con il solo contatore per riferimento ogni tentativo su uno nuovo
+    ripartirebbe da zero — che e la forma esatta di un attacco a forza bruta.
+
+    Il conteggio per riferimento usa l'**impronta**, mai il riferimento in
+    chiaro: i contatori non devono diventare un posto in piu da cui leggere una
+    credenziale funzionante.
+
+    Piu larghi di quelli del pagamento perche il gesto e piu innocuo — si
+    ricarica una pagina di stato in attesa di una risposta — e non c'e nessun
+    denaro dietro.
+  */
+  enrollmentStatusReference: {
+    scope: "enrollment_status",
+    limit: 60,
+    windowMs: 15 * 60_000,
+  },
+  enrollmentStatusIp: {
+    scope: "enrollment_status",
+    limit: 120,
+    windowMs: 15 * 60_000,
   },
 } as const satisfies Record<string, AuthRateLimitPolicy>;
 

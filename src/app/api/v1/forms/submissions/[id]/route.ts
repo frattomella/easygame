@@ -60,6 +60,14 @@ export async function POST(request: Request, context: Context) {
       decision: action,
       note: body?.note,
       subjects: body?.subjects,
+      /*
+        I documenti che mancano si chiedono **approvando**, non respingendo: e
+        il punto in cui l'iscrizione e il fascicolo si saldano (Wave 5, lane
+        5G). Prima l'unica risposta a «manca il certificato medico» era il
+        rifiuto, che costa alla famiglia una compilazione da rifare e alla
+        segreteria una seconda pratica identica da riesaminare.
+      */
+      documentRequests: body?.document_requests ?? body?.documentRequests,
     });
 
     await recordAuditEvent({
