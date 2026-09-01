@@ -3,6 +3,9 @@ import { prisma } from "@/lib/server/prisma";
 import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getParentDashboardData } from "@/lib/server/parent-dashboard";
+import { readAttachment } from "@/lib/server/attachments";
+import { resolveLinkedFamilyScope } from "@/lib/server/document-requests";
+import { resolveDossierAttachmentId } from "@/lib/server/document-dossier-legacy";
 import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
 
 type Context = {
@@ -37,6 +40,41 @@ export async function GET(request: Request, context: Context) {
         },
         { status: 403 },
       );
+    }
+
+    /*
+      **Prima il fascicolo nuovo, poi l'archivio storico** (Wave 5, lane 5D).
+
+      I documenti entrati da `document_submissions` non hanno un `Asset`, e per
+      la famiglia questa e l'unica strada verso i byte: la rotta generica degli
+      allegati risponde al permesso della risorsa «atleti», che un genitore non
+      ha. Lo scope nasce dal **legame**, non dal ruolo.
+    */
+    const famiglia = await resolveLinkedFamilyScope(
+      session.db.user_id,
+      dashboard.athlete.id,
+    );
+    const attachmentId = await resolveDossierAttachmentId(
+      famiglia,
+      dashboard.athlete.id,
+      context.params.assetId,
+    );
+
+    if (attachmentId) {
+      const allegato = await readAttachment(attachmentId, famiglia);
+      if (!allegato) {
+        return NextResponse.json(
+          { data: null, error: { message: "Documento non trovato" } },
+          { status: 404 },
+        );
+      }
+
+      return buildStoredFileResponse({
+        content: allegato.content,
+        mimeType: allegato.metadata.mimeType,
+        fileName: allegato.metadata.fileName || "documento",
+        download: new URL(request.url).searchParams.has("download"),
+      });
     }
 
     const document = getSharedDocumentsFromAthlete({

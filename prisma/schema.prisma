@@ -2956,6 +2956,11 @@ model DocumentRequest {
   /// `document_submissions`, come per `ConsentRecord` (ADR-0058). Questo dice
   /// soltanto se la richiesta e ancora in piedi.
   status           String               @default("open")
+  /// L'identificativo che il documento aveva in `athletes.data.sharedDocuments`.
+  ///
+  /// Le due rotte storiche lo confrontano ancora: senza, un documento **gia
+  /// travasato** risultava «solo storico» — cioe in sola lettura — per sempre.
+  legacy_id        String?
   /// Ultimo sollecito inviato: serve a non sollecitare due volte lo stesso
   /// giorno, e si appoggia comunque a `CommunicationDelivery` (ADR-0084).
   last_reminded_at DateTime?
@@ -2968,6 +2973,7 @@ model DocumentRequest {
   @@index([organization_id, subject_kind, subject_id])
   @@index([organization_id, status, due_date])
   @@index([organization_id, document_kind])
+  @@index([organization_id, legacy_id])
   @@map("document_requests")
 }
 
@@ -2999,6 +3005,8 @@ model DocumentSubmission {
   decided_by      String?          @db.Uuid
   decided_at      DateTime?
   decision_note   String?
+  /// Vedi `DocumentRequest.legacy_id`.
+  legacy_id       String?
   created_at      DateTime         @default(now())
   organization    Club             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   request         DocumentRequest? @relation(fields: [request_id], references: [id], onDelete: SetNull)
@@ -3006,6 +3014,7 @@ model DocumentSubmission {
   @@index([organization_id, request_id, submitted_at])
   @@index([organization_id, subject_kind, subject_id, submitted_at])
   @@index([organization_id, status, submitted_at])
+  @@index([organization_id, legacy_id])
   @@map("document_submissions")
 }
 

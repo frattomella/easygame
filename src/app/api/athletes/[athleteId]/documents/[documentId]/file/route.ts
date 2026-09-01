@@ -9,6 +9,8 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { readAttachment } from "@/lib/server/attachments";
+import { resolveDossierAttachmentId } from "@/lib/server/document-dossier-legacy";
 import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 
 type Context = {
@@ -53,6 +55,32 @@ export async function GET(request: Request, context: Context) {
       : null;
 
     if (!athlete) return jsonError("Atleta non appartenente al club", 403);
+
+    /*
+      **Prima il fascicolo nuovo, poi l'archivio storico** (Wave 5, lane 5D).
+
+      I documenti entrati da `document_submissions` non hanno un `Asset`: i loro
+      byte stanno in Attachment Core (ADR-0034). Senza questa lettura il
+      pulsante «Visualizza» risponderebbe «documento non trovato» su un
+      documento che la stessa pagina sta mostrando.
+    */
+    const attachmentId = await resolveDossierAttachmentId(
+      scope,
+      context.params.athleteId,
+      context.params.documentId,
+    );
+
+    if (attachmentId) {
+      const allegato = await readAttachment(attachmentId, scope);
+      if (!allegato) return jsonError("File non disponibile", 404);
+
+      return buildStoredFileResponse({
+        content: allegato.content,
+        mimeType: allegato.metadata.mimeType,
+        fileName: firstText(allegato.metadata.fileName, "documento"),
+        download: new URL(request.url).searchParams.has("download"),
+      });
+    }
 
     const document = getSharedDocumentsFromAthlete(athlete, {
       includeArchived: true,

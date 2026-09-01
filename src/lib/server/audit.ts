@@ -234,6 +234,57 @@ export const AUDIT_ACTIONS = {
   eventCancelled: "event.cancelled",
   eventConvocationsSaved: "event.convocations.saved",
   eventAttendanceRecorded: "event.attendance.recorded",
+  /*
+    Il fascicolo unico (Wave 5, lane 5D). Finche il fatto viveva in un array
+    JSON dentro l'anagrafica, **accettare o rifiutare il documento di un minore
+    non lasciava nessuna traccia**: le due rotte non chiamavano `recordAuditEvent`
+    nemmeno una volta, e la riga aggiornata diceva solo com'e adesso.
+
+    Sono cinque azioni e non una perche rispondono a cinque domande diverse, e
+    sono quelle che arrivano davvero:
+
+      * `request.created` — chi ha chiesto quel documento, a chi, e con quale
+        scadenza;
+      * `request.cancelled` — la riga che si va a cercare quando una famiglia
+        chiede perche la richiesta e sparita. Cercarla fra le modifiche non la
+        trova, ed e proprio per questo che ha un'azione sua;
+      * `request.reminded` — il sollecito raggiunge una persona reale fuori dal
+        prodotto: «e partito?» lo chiede chi dice di non aver ricevuto niente;
+      * `submission.received` — la consegna e un atto della famiglia verso la
+        societa, e porta un file;
+      * `submission.decided` — la decisione, **con il motivo nel metadato**. Il
+        motivo sta anche nella riga, ma la riga puo essere superata da un
+        deposito successivo: qui resta.
+  */
+  documentRequestCreated: "document.request.created",
+  documentRequestCancelled: "document.request.cancelled",
+  documentRequestReminded: "document.request.reminded",
+  documentSubmissionReceived: "document.submission.received",
+  documentSubmissionDecided: "document.submission.decided",
+  /*
+    Appuntamenti (Wave 5, lane 5E). Prima non c'era **nessun** audit: gli
+    identificativi erano generati dall'orologio, la riga viveva dentro un array
+    JSON riscritto per intero, e l'unica risposta che la segreteria sapeva dare
+    a una famiglia era cancellare la richiesta — cioe far sparire anche la
+    domanda.
+
+    Sono azioni distinte e non una sola `appointment.updated`, per la stessa
+    ragione per cui la cessazione di un socio ha la propria: sono le righe che
+    si vanno a cercare. «Perche non mi avete confermato l'incontro», «chi ha
+    disdetto» e «chi ha spostato l'orario» sono tre domande diverse, e cercarne
+    la risposta fra tutte le modifiche non la trova.
+
+    `appointment.rescheduled` porta nel metadato l'identificativo della riga
+    **nuova**: e cio che rende la catena leggibile in avanti, visto che la data
+    non si muta in luogo ma si chiude una riga e se ne apre un'altra.
+  */
+  appointmentRequested: "appointment.requested",
+  appointmentConfirmed: "appointment.confirmed",
+  appointmentRejected: "appointment.rejected",
+  appointmentRescheduled: "appointment.rescheduled",
+  appointmentCancelled: "appointment.cancelled",
+  appointmentClosed: "appointment.closed",
+  appointmentSlotChanged: "appointment.slot.changed",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

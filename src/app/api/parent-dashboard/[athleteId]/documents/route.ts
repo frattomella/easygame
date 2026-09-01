@@ -1,243 +1,239 @@
-import { randomUUID } from "crypto";
-import { createClubNotifications } from "@/lib/server/club-notifications";
-import { isManagementAccessRole } from "@/lib/access-roles";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
-import { getParentDashboardData } from "@/lib/server/parent-dashboard";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
-  getSharedDocumentsFromAthlete,
-  normalizeSharedDocument,
-  normalizeSharedDocumentType,
-  serializeSharedDocument,
-  upsertSharedDocument,
-} from "@/lib/shared-documents";
+  resolveLinkedFamilyScope,
+  submitDocument,
+} from "@/lib/server/document-requests";
+import {
+  isLegacyOnlyDocument,
+  legacyDocumentReadOnly,
+  listAthleteDocumentsWithLegacy,
+} from "@/lib/server/document-dossier-legacy";
 
-type Context = {
-  params: {
-    athleteId: string;
-  };
+/**
+ * I documenti di un atleta, dal lato della famiglia — **rotta legacy, in sola
+ * lettura sull'archivio storico** (Wave 5, lane 5D, §17).
+ *
+ * ---
+ *
+ * ## Cosa e cambiato, e perche
+ *
+ * Prima questa rotta creava una riga `Asset` con i byte in base64 — una tabella
+ * **senza `organization_id`**, dove il confine multi-tenant era il prefisso di
+ * una stringa di percorso — e poi riscriveva a mano
+ * `athletes.data.sharedDocuments` con `prisma.athlete.update`. Il caricamento
+ * di un documento di un minore non lasciava nessuna traccia di audit.
+ *
+ * Adesso il deposito passa da `document-requests.ts`, i byte da Attachment Core
+ * (ADR-0034), e la notifica alla segreteria resta indirizzata per ruolo
+ * (`club-notifications.ts`) — la correzione della Wave 4 che ha smesso di
+ * pubblicare il nome di un minore nella bacheca di ogni altra famiglia.
+ *
+ * ## Il permesso e il **legame**, non il ruolo
+ *
+ * Un genitore collegato solo come tutore puo non avere nessuna appartenenza al
+ * club: il suo ruolo attivo sarebbe `null`, e ogni controllo di ruolo lo
+ * respingerebbe. Lo scope lo costruisce `resolveLinkedFamilyScope` dal legame
+ * con l'atleta, e il club arriva dalla riga dell'atleta, mai dal client.
+ *
+ * ## I due formati, per un rilascio solo
+ *
+ * `POST` accetta **multipart** — che e la forma nuova, quella di
+ * `/api/v1/document-submissions` — e continua ad accettare il JSON con base64
+ * finche l'interfaccia non e passata. Base64 costa il 33% in piu e tiene tre
+ * copie del file in memoria: e la ragione per cui la forma nuova esiste, e
+ * anche la ragione per cui non si spegne la vecchia nello stesso rilascio in
+ * cui si sposta l'archivio.
+ *
+ * Il file sparisce con la lane 5J.
+ */
+
+export const runtime = "nodejs";
+
+type Context = { params: { athleteId: string } };
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+const jsonError = (message: string, status = 400) =>
+  NextResponse.json({ data: null, error: { message } }, { status });
+
+const failure = (error: any, fallback: string) => {
+  const message = publicErrorMessage(error, fallback);
+  const status = message.includes("Accesso negato")
+    ? 403
+    : /non trovat[oa]/i.test(message)
+      ? 404
+      : 400;
+  return jsonError(message, status);
 };
-
-const asRecord = (value: unknown): Record<string, any> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, any>)
-    : {};
 
 const firstText = (...values: unknown[]) => {
   for (const value of values) {
-    const text = String(value || "").trim();
+    const text = String(value ?? "").trim();
     if (text) return text;
   }
-
   return "";
 };
 
-const sanitizePathPart = (value: string) =>
-  value
-    .trim()
-    .replace(/[^\w.-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 120);
-
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/heic",
-  "image/heif",
-]);
-
-const estimateDataUrlBytes = (value: string) => {
+const decodeBase64 = (value: string) => {
   const base64 = value.includes(",") ? value.split(",").pop() || "" : value;
-  return Buffer.byteLength(base64, "base64");
+  return Buffer.from(base64, "base64");
 };
 
-export async function POST(request: Request, context: Context) {
-  try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Sessione non valida" },
-        },
-        { status: 401 },
-      );
+type Deposito = {
+  requestId: string;
+  documentKind: string;
+  fileName: string;
+  mimeType: string;
+  content: Buffer;
+};
+
+/**
+ * Il deposito, da qualunque dei due formati arrivi.
+ *
+ * Restituisce un messaggio invece di lanciare quando il corpo non e un
+ * deposito: e la risposta che la famiglia legge sullo schermo, e «file
+ * documento mancante» dice cosa fare, «operazione non riuscita» no.
+ */
+const readDeposito = async (
+  request: Request,
+): Promise<{ deposito?: Deposito; message?: string }> => {
+  const contentType = String(request.headers.get("content-type") || "");
+
+  if (contentType.includes("multipart/form-data")) {
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!file || typeof file === "string") {
+      return { message: "File documento mancante" };
+    }
+    if (Number(file.size || 0) > MAX_UPLOAD_BYTES) {
+      return { message: "File troppo grande. Limite massimo 10MB." };
     }
 
-    const dashboard = await getParentDashboardData(
+    return {
+      deposito: {
+        requestId: firstText(form.get("request_id"), form.get("document_id")),
+        documentKind: firstText(form.get("document_kind"), "other"),
+        fileName: firstText(form.get("file_name"), file.name, "documento"),
+        mimeType:
+          firstText(form.get("mime_type"), file.type) ||
+          "application/octet-stream",
+        content: Buffer.from(await file.arrayBuffer()),
+      },
+    };
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const fileName = firstText(body?.fileName, body?.file_name);
+  const dataBase64 = firstText(body?.dataBase64, body?.data_base64);
+  if (!fileName || !dataBase64) return { message: "File documento mancante" };
+
+  const content = decodeBase64(dataBase64);
+  if (content.length > MAX_UPLOAD_BYTES) {
+    return { message: "File troppo grande. Limite massimo 10MB." };
+  }
+
+  return {
+    deposito: {
+      requestId: firstText(
+        body?.requestId,
+        body?.request_id,
+        body?.documentId,
+        body?.document_id,
+        body?.templateId,
+        body?.template_id,
+      ),
+      documentKind: firstText(
+        body?.documentType,
+        body?.document_type,
+        "other",
+      ),
+      fileName,
+      mimeType:
+        firstText(body?.mimeType, body?.mime_type) ||
+        "application/octet-stream",
+      content,
+    },
+  };
+};
+
+export async function GET(request: Request, context: Context) {
+  try {
+    const session = await requireAuthenticatedUser(request);
+    if (!session) return jsonError("Sessione non valida", 401);
+
+    const scope = await resolveLinkedFamilyScope(
       session.db.user_id,
       context.params.athleteId,
     );
 
-    if (!dashboard) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Atleta non collegato a questo account" },
-        },
-        { status: 403 },
-      );
-    }
-
-    const body = await request.json().catch(() => ({}));
-    const fileName = firstText(body?.fileName, body?.file_name);
-    const mimeType = firstText(body?.mimeType, body?.mime_type);
-    const dataBase64 = firstText(body?.dataBase64, body?.data_base64);
-    const templateId = firstText(body?.templateId, body?.template_id);
-    const title = firstText(body?.title, body?.name) || "Documento";
-
-    if (!fileName || !dataBase64) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "File documento mancante" },
-        },
-        { status: 400 },
-      );
-    }
-
-    if (mimeType && !ALLOWED_MIME_TYPES.has(mimeType.toLowerCase())) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Formato file non supportato. Usa PDF, JPG, PNG o HEIC." },
-        },
-        { status: 400 },
-      );
-    }
-
-    if (estimateDataUrlBytes(dataBase64) > MAX_UPLOAD_BYTES) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "File troppo grande. Limite massimo 10MB." },
-        },
-        { status: 400 },
-      );
-    }
-
-    const assetId = randomUUID();
-    const path = `${dashboard.club.id}/${dashboard.athlete.id}/${assetId}-${sanitizePathPart(fileName) || "documento"}`;
-    const publicUrl = `/api/parent-dashboard/${dashboard.athlete.id}/documents/${assetId}`;
-    const asset = await prisma.asset.create({
-      data: {
-        id: assetId,
-        bucket: "shared-documents",
-        path,
-        public_url: publicUrl,
-        file_name: fileName,
-        mime_type: mimeType || "application/octet-stream",
-        data_base64: dataBase64,
-      },
-    });
-
-    const athlete = await prisma.athlete.findUnique({
-      where: { id: dashboard.athlete.id },
-      select: { id: true, organization_id: true, data: true },
-    });
-    const currentData = asRecord(athlete?.data);
-    const currentDocuments = getSharedDocumentsFromAthlete({
-      id: athlete?.id || dashboard.athlete.id,
-      organization_id: athlete?.organization_id || dashboard.club.id,
-      data: currentData,
-    }, { includeArchived: true });
-    const nowIso = new Date().toISOString();
-    const requestedDocumentId = firstText(body?.documentId, body?.document_id);
-    const existingDocument = currentDocuments.find(
-      (document) =>
-        (requestedDocumentId && document.id === requestedDocumentId) ||
-        (templateId && document.id === templateId) ||
-        (templateId && document.data?.templateId === templateId),
+    const data = await listAthleteDocumentsWithLegacy(
+      scope,
+      context.params.athleteId,
     );
-    const documentRecord = normalizeSharedDocument({
-      ...(existingDocument || {}),
-      id: existingDocument?.id || requestedDocumentId || asset.id,
-      organizationId: dashboard.club.id,
-      athleteId: dashboard.athlete.id,
-      parentUserId: session.db.user_id,
-      uploadedByUserId: session.db.user_id,
-      uploadedByRole: "parent",
-      templateId,
-      template_id: templateId,
-      title,
-      documentType: normalizeSharedDocumentType(
-        body?.documentType || body?.document_type || existingDocument?.documentType,
-      ),
-      fileName,
-      file_name: fileName,
-      mimeType: asset.mime_type,
-      mime_type: asset.mime_type,
-      size: Number(body?.size) || estimateDataUrlBytes(dataBase64),
-      status: "under_review",
-      required: Boolean(existingDocument?.required ?? templateId),
-      visibleToParent: true,
-      assetId: asset.id,
-      asset_id: asset.id,
-      fileUrl: publicUrl,
-      uploadedAt: nowIso,
-      uploaded_at: nowIso,
-      source: "parent_dashboard",
-      createdAt: existingDocument?.createdAt || nowIso,
-      updatedAt: nowIso,
-      data: {
-        ...(existingDocument?.data || {}),
-        templateId,
-      },
-    }, currentDocuments.length);
-    const nextDocuments = upsertSharedDocument(currentDocuments, documentRecord);
 
-    await prisma.athlete.update({
-      where: { id: dashboard.athlete.id },
-      data: {
-        data: {
-          ...currentData,
-          sharedDocuments: nextDocuments.map(serializeSharedDocument),
-          shared_documents: nextDocuments.map(serializeSharedDocument),
-        },
-      },
-    });
+    return NextResponse.json({ data, error: null });
+  } catch (error: any) {
+    return failure(error, "Errore caricamento documenti");
+  }
+}
+
+export async function POST(request: Request, context: Context) {
+  try {
+    const session = await requireAuthenticatedUser(request);
+    if (!session) return jsonError("Sessione non valida", 401);
+
+    const scope = await resolveLinkedFamilyScope(
+      session.db.user_id,
+      context.params.athleteId,
+    );
+
+    const { deposito, message } = await readDeposito(request);
+    if (!deposito) return jsonError(message || "File documento mancante");
 
     /*
-      **Stessa correzione della richiesta di appuntamento.**
-
-      `user_id: null` significa «di tutti» per l'area genitore, e qui il
-      messaggio nomina il minore e porta il **titolo scritto dalla famiglia**
-      — testo libero, di lunghezza non controllata, che finiva nella bacheca
-      di ogni altra famiglia del club.
-
-      Il caricamento di un documento lo esamina l'area gestionale: segreteria compresa, allenatori e altre famiglie no.
+      Il modulo storico non e una richiesta del fascicolo nuovo: depositarci
+      sopra scriverebbe una riga che punta a niente. Si accetta comunque il
+      file, ma come deposito **spontaneo** — che e cio che di fatto e, finche il
+      travaso non ha portato la richiesta di la.
     */
-    await createClubNotifications({
-      clubId: dashboard.club.id,
-      title: "Documento parent caricato",
-      message: `${dashboard.athlete.name} ha caricato: ${documentRecord.title}`,
-      type: "document_uploaded",
-      data: {
-        athleteId: dashboard.athlete.id,
-        documentId: documentRecord.id,
-        source: "shared_documents",
-      },
-      audience: (role) => isManagementAccessRole(role),
-    });
+    const requestId =
+      deposito.requestId &&
+      !(await isLegacyOnlyDocument(scope, deposito.requestId))
+        ? deposito.requestId
+        : "";
 
-    return NextResponse.json({
-      data: serializeSharedDocument(documentRecord),
-      error: null,
-    });
-  } catch (error: any) {
-    return NextResponse.json(
+    if (deposito.requestId && !requestId) {
+      /*
+        Non e un errore da mostrare: e il caso normale prima del travaso. Si
+        registra dove chi legge i log lo cerchera, e si prosegue.
+      */
+      console.info(
+        "[fascicolo] deposito spontaneo: la richiesta e ancora nell'archivio storico",
+        { documentId: legacyDocumentReadOnly(deposito.requestId).message },
+      );
+    }
+
+    const data = await submitDocument(
+      scope,
       {
-        data: null,
-        error: {
-          message: error?.message || "Errore caricamento documento",
+        requestId: requestId || null,
+        subjectKind: "athlete",
+        subjectId: context.params.athleteId,
+        documentKind: deposito.documentKind,
+        source: "parent",
+        file: {
+          fileName: deposito.fileName,
+          mimeType: deposito.mimeType,
+          content: deposito.content,
         },
       },
-      { status: 500 },
+      request,
     );
+
+    return NextResponse.json({ data, error: null });
+  } catch (error: any) {
+    return failure(error, "Errore caricamento documento");
   }
 }

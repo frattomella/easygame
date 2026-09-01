@@ -1,500 +1,299 @@
-import { randomUUID } from "crypto";
-import { assertClubResourceAccess } from "@/lib/access-roles";
 import { NextResponse } from "next/server";
-import {
-  asArray,
-  asRecord,
-  firstText,
-  getSharedDocumentsFromAthlete,
-  normalizeSharedDocument,
-  normalizeSharedDocumentStatus,
-  normalizeSharedDocumentType,
-  serializeSharedDocument,
-  upsertSharedDocument,
-  type SharedDocument,
-} from "@/lib/shared-documents";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { prisma } from "@/lib/server/prisma";
-import { sendNotificationEmails } from "@/lib/server/email/email-service";
+import { publicErrorMessage } from "@/lib/server/api-errors";
+import {
+  cancelDocumentRequest,
+  createDocumentRequest,
+  decideDocumentSubmission,
+  remindDocumentRequest,
+  submitDocument,
+  type DocumentDossierScope,
+} from "@/lib/server/document-requests";
+import {
+  isLegacyOnlyDocument,
+  legacyDocumentReadOnly,
+  listAthleteDocumentsWithLegacy,
+} from "@/lib/server/document-dossier-legacy";
 
-type Context = {
-  params: {
-    athleteId: string;
-  };
-};
+/**
+ * I documenti di un atleta, dal lato del club — **rotta legacy, in sola
+ * lettura sull'archivio storico** (Wave 5, lane 5D, §17).
+ *
+ * ---
+ *
+ * ## Cosa e cambiato qui, e perche
+ *
+ * Prima questo file **era** il dominio: apriva `athletes.data.sharedDocuments`,
+ * ci scriveva dentro con `prisma.athlete.update` diretto — aggirando
+ * `resources.ts` — creava righe in `Asset` con i byte in base64, e decideva da
+ * solo cosa fosse un'approvazione. Nessuna delle sue quattro scritture
+ * chiamava `recordAuditEvent`: accettare o rifiutare il documento di un minore
+ * non lasciava traccia.
+ *
+ * Adesso non decide piu niente. Le letture uniscono il fascicolo nuovo a
+ * quello storico, perche il giorno del rilascio la segreteria non deve vedere
+ * meta archivio sparire; le scritture passano tutte da
+ * `src/lib/server/document-requests.ts`, che e l'unico scrittore.
+ *
+ * ## Cosa non fa piu, di proposito
+ *
+ * - **non modifica** titolo, tipo e scadenza di una richiesta gia inviata: la
+ *   famiglia ha letto una cosa, e cambiarla sotto le mani produce un fascicolo
+ *   che non corrisponde a nessun messaggio ricevuto. Si annulla e si richiede;
+ * - **non tocca** le righe dell'archivio storico: quelle entrano nel fascicolo
+ *   nuovo con il travaso, e fino ad allora si leggono e basta.
+ *
+ * Il file sparisce con la lane 5J, insieme a `src/lib/shared-documents.ts`.
+ */
+
+export const runtime = "nodejs";
+
+type Context = { params: { athleteId: string } };
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/heic",
-  "image/heif",
-]);
 
 const jsonError = (message: string, status = 400) =>
   NextResponse.json({ data: null, error: { message } }, { status });
 
-const sanitizePathPart = (value: string) =>
-  value
-    .trim()
-    .replace(/[^\w.-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 120);
-
-const estimateDataUrlBytes = (value: string) => {
-  const base64 = value.includes(",") ? value.split(",").pop() || "" : value;
-  return Buffer.byteLength(base64, "base64");
+const failure = (error: any, fallback: string) => {
+  const message = publicErrorMessage(error, fallback);
+  const status = message.includes("Accesso negato")
+    ? 403
+    : /non trovat[oa]/i.test(message)
+      ? 404
+      : 400;
+  return jsonError(message, status);
 };
 
-const validateUpload = ({
-  fileName,
-  mimeType,
-  dataBase64,
-}: {
-  fileName: string;
-  mimeType: string;
-  dataBase64: string;
-}) => {
-  if (!fileName || !dataBase64) {
-    return "File documento mancante";
+const firstText = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
   }
-
-  if (mimeType && !ALLOWED_MIME_TYPES.has(mimeType.toLowerCase())) {
-    return "Formato file non supportato. Usa PDF, JPG, PNG o HEIC.";
-  }
-
-  if (estimateDataUrlBytes(dataBase64) > MAX_UPLOAD_BYTES) {
-    return "File troppo grande. Limite massimo 10MB.";
-  }
-
   return "";
 };
 
-/**
- * L'atleta di cui si stanno leggendo o scrivendo i documenti.
- *
- * ---
- *
- * ## Due controlli che mancavano, e cosa aprivano
- *
- * Cercava l'atleta fra **tutti** i club dell'utente, e non chiedeva nessun
- * ruolo. I documenti condivisi di un atleta sono carte d'identita, certificati
- * medici e tesserini: un **genitore** poteva leggerli, scaricarne il file,
- * approvarli e archiviarli — per ogni atleta del club, e per ogni atleta di
- * ogni altro club a cui fosse mai stato iscritto.
- *
- * Adesso il confine e il **club attivo**
- * (`src/lib/auth/active-club-boundary.ts`) e il permesso e quello che governa
- * gia i certificati medici, che sono lo stesso genere di dato.
- *
- * Restituisce `null` quando l'atleta non c'e o non e del club attivo — le due
- * cose si confondono di proposito — e solleva quando il ruolo non basta,
- * perche «non esiste» e «non ti e permesso» sono due risposte diverse e chi le
- * riceve deve poterle distinguere.
- */
-const loadAthleteForSession = async (
+type ResolvedScope =
+  | { scope: DocumentDossierScope; response?: undefined }
+  | { scope?: undefined; response: NextResponse };
+
+const resolveScope = async (
   request: Request,
-  userId: string,
-  athleteId: string,
   preferredOrganizationId?: string,
-  azione: "read" | "update" = "read",
-) => {
+): Promise<ResolvedScope> => {
+  const session = await requireAuthenticatedUser(request);
+  if (!session) return { response: jsonError("Sessione non valida", 401) };
+
   const scope = await resolveOrganizationScopeForUser(
-    userId,
+    session.db.user_id,
     preferredOrganizationId || request.headers.get("x-active-club-id"),
     request.headers.get("x-active-access-role"),
   );
 
   if (!scope.activeOrganizationId) {
-    return null;
+    return { response: jsonError("Nessun club disponibile", 403) };
   }
 
-  assertClubResourceAccess(scope.activeRole, "medical_certificates", azione);
-
-  return prisma.athlete.findFirst({
-    where: {
-      id: athleteId,
-      organization_id: scope.activeOrganizationId,
-    },
-    include: {
-      organization: { select: { id: true, name: true } },
-    },
-  });
+  return { scope };
 };
 
-const getParentUserIds = (athlete: any) => {
-  const data = asRecord(athlete?.data);
-  const guardianIds = asArray(data.guardians)
-    .flatMap((guardian) => [
-      asRecord(guardian).linkedUserId,
-      asRecord(guardian).linked_user_id,
-      asRecord(guardian).userId,
-      asRecord(guardian).user_id,
-    ])
-    .map((value) => firstText(value))
-    .filter(Boolean);
-
-  return Array.from(
-    new Set([firstText(athlete?.user_id), ...guardianIds].filter(Boolean)),
-  );
-};
-
-const createParentNotifications = async ({
-  athlete,
-  title,
-  message,
-  documentId,
-  type,
-}: {
-  athlete: any;
-  title: string;
-  message: string;
-  documentId: string;
-  type: string;
-}) => {
-  const parentUserIds = getParentUserIds(athlete);
-  if (parentUserIds.length === 0) return;
-
-  await prisma.notification.createMany({
-    data: parentUserIds.map((userId) => ({
-      organization_id: athlete.organization_id,
-      user_id: userId,
-      title,
-      message,
-      type,
-      data: {
-        athleteId: athlete.id,
-        documentId,
-        source: "shared_documents",
-      },
-    })),
-  });
-  await sendNotificationEmails(parentUserIds);
-};
-
-const saveSharedDocuments = async (
-  athlete: any,
-  documents: SharedDocument[],
-) => {
-  const currentData = asRecord(athlete.data);
-  const serialized = documents.map(serializeSharedDocument);
-  const updated = await prisma.athlete.update({
-    where: { id: athlete.id },
-    data: {
-      data: {
-        ...currentData,
-        sharedDocuments: serialized,
-        shared_documents: serialized,
-      },
-    },
-  });
-
-  return getSharedDocumentsFromAthlete(updated, { includeArchived: true });
+/**
+ * Il file arriva ancora in base64 su questa rotta, e resta cosi.
+ *
+ * L'upload **multipart** e quello della rotta nuova (`/api/v1/document-submissions`).
+ * Cambiare il formato anche qui costringerebbe a toccare l'interfaccia dentro
+ * lo stesso rilascio in cui si sposta l'archivio: due cambiamenti in volo sullo
+ * stesso schermo sono il modo in cui non si capisce piu quale dei due ha rotto
+ * cosa. I byte, pero, finiscono gia in Attachment Core.
+ */
+const decodeBase64 = (value: string) => {
+  const base64 = value.includes(",") ? value.split(",").pop() || "" : value;
+  return Buffer.from(base64, "base64");
 };
 
 export async function GET(request: Request, context: Context) {
   try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) return jsonError("Sessione non valida", 401);
+    const resolved = await resolveScope(request);
+    if (resolved.response) return resolved.response;
 
-    const athlete = await loadAthleteForSession(
-      request,
-      session.db.user_id,
+    const data = await listAthleteDocumentsWithLegacy(
+      resolved.scope,
       context.params.athleteId,
     );
-    if (!athlete) return jsonError("Atleta non appartenente al club", 403);
 
-    return NextResponse.json({
-      data: getSharedDocumentsFromAthlete(athlete),
-      error: null,
-    });
+    return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    return jsonError(error?.message || "Errore caricamento documenti", 500);
+    return failure(error, "Errore caricamento documenti");
   }
 }
 
 export async function POST(request: Request, context: Context) {
   try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) return jsonError("Sessione non valida", 401);
-
     const body = await request.json().catch(() => ({}));
-    const athlete = await loadAthleteForSession(
+    const resolved = await resolveScope(
       request,
-      session.db.user_id,
-      context.params.athleteId,
       firstText(body?.organizationId, body?.organization_id),
-      "update",
     );
-    if (!athlete) return jsonError("Atleta non appartenente al club", 403);
+    if (resolved.response) return resolved.response;
 
+    const athleteId = context.params.athleteId;
     const action = firstText(body?.action) || "upload";
-    const nowIso = new Date().toISOString();
-    const currentDocuments = getSharedDocumentsFromAthlete(athlete, {
-      includeArchived: true,
-    });
 
     if (action === "require") {
-      const documentId = randomUUID();
-      const document = normalizeSharedDocument(
+      await createDocumentRequest(
+        resolved.scope,
         {
-          id: documentId,
-          organizationId: athlete.organization_id,
-          athleteId: athlete.id,
-          uploadedByUserId: session.db.user_id,
-          uploadedByRole: "club",
+          subjectKind: "athlete",
+          subjectId: athleteId,
+          documentKind: firstText(
+            body?.documentType,
+            body?.document_type,
+            "other",
+          ),
           title: firstText(body?.title) || "Documento richiesto",
-          description: firstText(body?.description),
-          documentType: normalizeSharedDocumentType(body?.documentType),
-          status: "required",
+          description: firstText(body?.description) || null,
           required: true,
-          dueDate: firstText(body?.dueDate, body?.due_date),
-          visibleToParent: true,
-          createdAt: nowIso,
-          updatedAt: nowIso,
+          dueDate: firstText(body?.dueDate, body?.due_date) || null,
         },
-        currentDocuments.length,
+        request,
       );
-      const saved = await saveSharedDocuments(athlete, [
-        ...currentDocuments,
-        document,
-      ]);
+    } else {
+      const fileName = firstText(body?.fileName, body?.file_name);
+      const dataBase64 = firstText(body?.dataBase64, body?.data_base64);
+      if (!fileName || !dataBase64) return jsonError("File documento mancante");
 
-      await createParentNotifications({
-        athlete,
-        title: "Documento richiesto",
-        message: `Il club richiede: ${document.title}`,
-        documentId,
-        type: "document_required",
-      });
+      const content = decodeBase64(dataBase64);
+      if (content.length > MAX_UPLOAD_BYTES) {
+        return jsonError("File troppo grande. Limite massimo 10MB.");
+      }
 
-      return NextResponse.json({ data: saved, error: null });
+      const documentId = firstText(body?.documentId, body?.document_id);
+      if (documentId && (await isLegacyOnlyDocument(resolved.scope, documentId))) {
+        return failure(legacyDocumentReadOnly(documentId), "Documento storico");
+      }
+
+      await submitDocument(
+        resolved.scope,
+        {
+          requestId: documentId || null,
+          subjectKind: "athlete",
+          subjectId: athleteId,
+          documentKind: firstText(
+            body?.documentType,
+            body?.document_type,
+            "other",
+          ),
+          /* Lo carica la segreteria: la famiglia lo trova gia nel fascicolo. */
+          source: "club",
+          file: {
+            fileName,
+            mimeType:
+              firstText(body?.mimeType, body?.mime_type) ||
+              "application/octet-stream",
+            content,
+          },
+        },
+        request,
+      );
     }
 
-    const fileName = firstText(body?.fileName, body?.file_name);
-    const mimeType =
-      firstText(body?.mimeType, body?.mime_type) || "application/octet-stream";
-    const dataBase64 = firstText(body?.dataBase64, body?.data_base64);
-    const uploadError = validateUpload({ fileName, mimeType, dataBase64 });
-    if (uploadError) return jsonError(uploadError);
-
-    const documentId =
-      firstText(body?.documentId, body?.document_id) || randomUUID();
-    const assetId = randomUUID();
-    const path = `${athlete.organization_id}/${athlete.id}/${assetId}-${sanitizePathPart(fileName) || "documento"}`;
-    const publicUrl = `/api/parent-dashboard/${athlete.id}/documents/${assetId}`;
-    const asset = await prisma.asset.create({
-      data: {
-        id: assetId,
-        bucket: "shared-documents",
-        path,
-        public_url: publicUrl,
-        file_name: fileName,
-        mime_type: mimeType,
-        data_base64: dataBase64,
-      },
-    });
-
-    const existing = currentDocuments.find(
-      (document) => document.id === documentId,
+    const data = await listAthleteDocumentsWithLegacy(
+      resolved.scope,
+      athleteId,
+      { includeArchived: true },
     );
-    const document = normalizeSharedDocument(
-      {
-        ...(existing || {}),
-        id: documentId,
-        organizationId: athlete.organization_id,
-        athleteId: athlete.id,
-        uploadedByUserId: session.db.user_id,
-        uploadedByRole: "club",
-        title: firstText(body?.title, existing?.title) || fileName,
-        description: firstText(body?.description, existing?.description),
-        documentType: normalizeSharedDocumentType(
-          body?.documentType || existing?.documentType,
-        ),
-        fileUrl: publicUrl,
-        fileName,
-        mimeType,
-        size: Number(body?.size) || estimateDataUrlBytes(dataBase64),
-        status: normalizeSharedDocumentStatus(body?.status || "uploaded"),
-        required: Boolean(body?.required ?? existing?.required ?? false),
-        dueDate: firstText(body?.dueDate, body?.due_date, existing?.dueDate),
-        visibleToParent:
-          body?.visibleToParent ?? body?.visible_to_parent ?? true,
-        assetId: asset.id,
-        uploadedAt: nowIso,
-        createdAt: existing?.createdAt || nowIso,
-        updatedAt: nowIso,
-      },
-      currentDocuments.length,
-    );
-    const saved = await saveSharedDocuments(
-      athlete,
-      upsertSharedDocument(currentDocuments, document),
-    );
-
-    if (document.visibleToParent) {
-      await createParentNotifications({
-        athlete,
-        title: "Nuovo documento disponibile",
-        message: `Il club ha condiviso: ${document.title}`,
-        documentId: document.id,
-        type: "document_shared",
-      });
-    }
-
-    return NextResponse.json({ data: saved, error: null });
+    return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    return jsonError(error?.message || "Errore salvataggio documento", 500);
+    return failure(error, "Errore salvataggio documento");
   }
 }
 
 export async function PATCH(request: Request, context: Context) {
   try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) return jsonError("Sessione non valida", 401);
-
     const body = await request.json().catch(() => ({}));
-    const athlete = await loadAthleteForSession(
+    const resolved = await resolveScope(
       request,
-      session.db.user_id,
-      context.params.athleteId,
       firstText(body?.organizationId, body?.organization_id),
-      "update",
     );
-    if (!athlete) return jsonError("Atleta non appartenente al club", 403);
+    if (resolved.response) return resolved.response;
 
     const documentId = firstText(body?.documentId, body?.document_id);
     if (!documentId) return jsonError("Documento non indicato");
 
-    const documents = getSharedDocumentsFromAthlete(athlete, {
-      includeArchived: true,
-    });
-    const existing = documents.find((document) => document.id === documentId);
-    if (!existing) return jsonError("Documento non trovato", 404);
-
-    const action = firstText(body?.action) || "update";
-    const nowIso = new Date().toISOString();
-    let nextDocument: SharedDocument = {
-      ...existing,
-      updatedAt: nowIso,
-    };
-
-    if (action === "approve") {
-      nextDocument = {
-        ...nextDocument,
-        status: "approved",
-        rejectionReason: "",
-      };
-      await createParentNotifications({
-        athlete,
-        title: "Documento approvato",
-        message: `Il documento "${existing.title}" e stato approvato.`,
-        documentId,
-        type: "document_approved",
-      });
-    } else if (action === "reject") {
-      const reason = firstText(body?.rejectionReason, body?.rejection_reason);
-      if (!reason) return jsonError("Motivo rifiuto obbligatorio");
-      nextDocument = {
-        ...nextDocument,
-        status: "rejected",
-        rejectionReason: reason,
-      };
-      await createParentNotifications({
-        athlete,
-        title: "Documento rifiutato",
-        message: `Il documento "${existing.title}" e stato rifiutato: ${reason}`,
-        documentId,
-        type: "document_rejected",
-      });
-    } else if (action === "remind") {
-      const lastReminderTime = existing.lastReminderAt
-        ? new Date(existing.lastReminderAt).getTime()
-        : 0;
-      if (
-        lastReminderTime &&
-        Date.now() - lastReminderTime < 6 * 60 * 60 * 1000
-      ) {
-        return jsonError("Sollecito gia inviato nelle ultime 6 ore");
-      }
-      nextDocument = {
-        ...nextDocument,
-        lastReminderAt: nowIso,
-      };
-      await createParentNotifications({
-        athlete,
-        title: "Promemoria documento",
-        message: `Ricordati di caricare: ${existing.title}`,
-        documentId,
-        type: "document_reminder",
-      });
-    } else {
-      nextDocument = {
-        ...nextDocument,
-        title: firstText(body?.title, existing.title),
-        description: firstText(body?.description, existing.description),
-        documentType: normalizeSharedDocumentType(
-          body?.documentType || existing.documentType,
-        ),
-        dueDate: firstText(body?.dueDate, body?.due_date, existing.dueDate),
-        visibleToParent:
-          body?.visibleToParent ??
-          body?.visible_to_parent ??
-          existing.visibleToParent,
-      };
+    if (await isLegacyOnlyDocument(resolved.scope, documentId)) {
+      return failure(legacyDocumentReadOnly(documentId), "Documento storico");
     }
 
-    const saved = await saveSharedDocuments(
-      athlete,
-      upsertSharedDocument(documents, nextDocument),
+    const action = firstText(body?.action) || "update";
+
+    if (action === "approve" || action === "reject") {
+      await decideDocumentSubmission(
+        resolved.scope,
+        documentId,
+        {
+          decision: action === "approve" ? "approved" : "rejected",
+          note: firstText(body?.rejectionReason, body?.rejection_reason) || null,
+        },
+        request,
+      );
+    } else if (action === "remind") {
+      await remindDocumentRequest(resolved.scope, documentId, request);
+    } else {
+      /*
+        L'aggiornamento libero non esiste piu. Non e una funzione tolta per
+        semplificare: cambiare titolo, tipo o scadenza di una richiesta gia
+        inviata produce un fascicolo che non corrisponde a nessun messaggio che
+        la famiglia abbia ricevuto.
+      */
+      return jsonError(
+        "Una richiesta inviata non si modifica: si annulla e si richiede",
+      );
+    }
+
+    const data = await listAthleteDocumentsWithLegacy(
+      resolved.scope,
+      context.params.athleteId,
+      { includeArchived: true },
     );
-    return NextResponse.json({ data: saved, error: null });
+    return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    return jsonError(error?.message || "Errore aggiornamento documento", 500);
+    return failure(error, "Errore aggiornamento documento");
   }
 }
 
 export async function DELETE(request: Request, context: Context) {
   try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) return jsonError("Sessione non valida", 401);
-
     const body = await request.json().catch(() => ({}));
-    const athlete = await loadAthleteForSession(
+    const resolved = await resolveScope(
       request,
-      session.db.user_id,
-      context.params.athleteId,
       firstText(body?.organizationId, body?.organization_id),
-      "update",
     );
-    if (!athlete) return jsonError("Atleta non appartenente al club", 403);
+    if (resolved.response) return resolved.response;
 
     const documentId = firstText(body?.documentId, body?.document_id);
     if (!documentId) return jsonError("Documento non indicato");
 
-    const documents = getSharedDocumentsFromAthlete(athlete, {
-      includeArchived: true,
-    });
-    const existing = documents.find((document) => document.id === documentId);
-    if (!existing) return jsonError("Documento non trovato", 404);
+    if (await isLegacyOnlyDocument(resolved.scope, documentId)) {
+      return failure(legacyDocumentReadOnly(documentId), "Documento storico");
+    }
 
-    const saved = await saveSharedDocuments(
-      athlete,
-      upsertSharedDocument(documents, {
-        ...existing,
-        archived: true,
-        visibleToParent: false,
-        updatedAt: new Date().toISOString(),
-      }),
+    await cancelDocumentRequest(
+      resolved.scope,
+      documentId,
+      { reason: firstText(body?.reason) || null },
+      request,
     );
-    return NextResponse.json({ data: saved, error: null });
+
+    const data = await listAthleteDocumentsWithLegacy(
+      resolved.scope,
+      context.params.athleteId,
+      { includeArchived: true },
+    );
+    return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    return jsonError(error?.message || "Errore archiviazione documento", 500);
+    return failure(error, "Errore archiviazione documento");
   }
 }
